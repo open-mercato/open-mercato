@@ -429,6 +429,7 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
           detectedAt: now,
           startedAt: now,
           customerImpactSummary: normalizeOptionalText(parsed.customerImpactSummary),
+          sourceEventRef: parsed.sourceEventRef ?? null,
           createdAt: now,
           updatedAt: now,
           deletedAt: null,

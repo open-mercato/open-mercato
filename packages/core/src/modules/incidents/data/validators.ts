@@ -28,6 +28,7 @@ export const incidentCreateSchema = z.object({
   ownerUserId: uuid().nullable().optional(),
   owningTeamId: uuid().nullable().optional(),
   customerImpactSummary: optionalText(8000),
+  sourceEventRef: z.string().trim().min(1).max(300).nullable().optional(),
 })
 
 export type IncidentCreateInput = z.infer<typeof incidentCreateSchema>

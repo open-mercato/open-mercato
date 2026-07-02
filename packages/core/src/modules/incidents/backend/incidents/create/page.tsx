@@ -10,6 +10,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
+import { UserSelect } from '../components/UserSelect'
 
 type IncidentPriority = 'low' | 'medium' | 'high' | 'critical'
 
@@ -154,11 +155,18 @@ export default function CreateIncidentPage() {
     },
     {
       id: 'ownerUserId',
-      type: 'text',
+      type: 'custom',
       label: t('incidents.incident.form.fields.owner'),
-      placeholder: t('incidents.incident.form.placeholders.ownerUserId'),
-      description: t('incidents.incident.form.help.ownerUserId'),
       layout: 'half',
+      component: ({ id, value, setValue, disabled }) => (
+        <UserSelect
+          id={id}
+          value={typeof value === 'string' ? value : null}
+          onChange={(next) => setValue(next ?? undefined)}
+          nullable
+          disabled={disabled}
+        />
+      ),
     },
     {
       id: 'description',

@@ -24,7 +24,7 @@ import {
   resolveCommandScope,
   type IncidentScope,
 } from './incident'
-import { assertIncidentMutable } from './actions'
+import { assertIncidentMutable, assertIncidentNotMerged } from './actions'
 
 type ParticipantCommandResult = {
   participantId: string
@@ -288,6 +288,7 @@ const addParticipantCommand: CommandHandler<ParticipantAddInput, ParticipantComm
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForParticipant(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     await requireRoleInScope(em, parsed.roleId, scope)
 
@@ -381,6 +382,7 @@ const updateParticipantRoleCommand: CommandHandler<ParticipantUpdateInput, Parti
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForParticipant(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     await requireRoleInScope(em, parsed.roleId, scope)
     const participant = await loadActiveParticipant(em, parsed.pid, incident.id, scope)
@@ -432,6 +434,7 @@ const removeParticipantCommand: CommandHandler<ParticipantRemoveInput, Participa
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForParticipant(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     const participant = await loadActiveParticipant(em, parsed.pid, incident.id, scope)
 

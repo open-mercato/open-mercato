@@ -13,6 +13,11 @@ import {
 const DEFAULT_NUMBER_FORMAT = 'INC-{yyyy}{mm}{dd}-{seq:4}'
 const INCIDENTS_ESCALATION_SWEEP_QUEUE = 'incidents-escalation-sweep'
 
+const DEFAULT_AUTO_INCIDENT_TRIGGERS: IncidentAutoIncidentTriggers = {
+  'data_sync.run.failed': { enabled: false, severity_key: 'sev2', type_key: 'operational' },
+  'integrations.state.updated': { enabled: false, severity_key: 'sev2', type_key: 'operational' },
+}
+
 type SchedulerServiceLike = {
   register: (cfg: Record<string, unknown>) => Promise<unknown>
 }
@@ -152,7 +157,6 @@ export const setup: ModuleSetupConfig = {
 
     if (!existingSettings) {
       const slaTargets: IncidentSlaTargets = {}
-      const autoIncidentTriggers: IncidentAutoIncidentTriggers = {}
       ctx.em.persist(ctx.em.create(IncidentSettings, {
         ...scope,
         numberFormat: DEFAULT_NUMBER_FORMAT,
@@ -160,11 +164,23 @@ export const setup: ModuleSetupConfig = {
         escalationTimeoutMinutes: 30,
         defaultEscalationPolicyId: defaultPolicy.id,
         slaTargets,
-        autoIncidentTriggers,
+        autoIncidentTriggers: { ...DEFAULT_AUTO_INCIDENT_TRIGGERS },
       }))
-    } else if (!existingSettings.defaultEscalationPolicyId) {
-      existingSettings.defaultEscalationPolicyId = defaultPolicy.id
-      existingSettings.updatedAt = new Date()
+    } else {
+      if (!existingSettings.defaultEscalationPolicyId) {
+        existingSettings.defaultEscalationPolicyId = defaultPolicy.id
+        existingSettings.updatedAt = new Date()
+      }
+      const currentTriggers = existingSettings.autoIncidentTriggers ?? {}
+      const missingTriggerKeys = Object.keys(DEFAULT_AUTO_INCIDENT_TRIGGERS)
+        .filter((triggerKey) => !(triggerKey in currentTriggers))
+      if (missingTriggerKeys.length > 0) {
+        existingSettings.autoIncidentTriggers = {
+          ...currentTriggers,
+          ...Object.fromEntries(missingTriggerKeys.map((triggerKey) => [triggerKey, DEFAULT_AUTO_INCIDENT_TRIGGERS[triggerKey]])),
+        }
+        existingSettings.updatedAt = new Date()
+      }
     }
 
     const defaultType =
@@ -216,6 +232,12 @@ export const setup: ModuleSetupConfig = {
       'incidents.postmortem.view',
       'incidents.postmortem.manage',
     ],
+  },
+
+  defaultCustomerRoleFeatures: {
+    portal_admin: ['portal.incidents.view'],
+    buyer: ['portal.incidents.view'],
+    viewer: ['portal.incidents.view'],
   },
 }
 

@@ -1,6 +1,6 @@
 # Incident Management Module (OSS core)
 
-> **Implementation status (2026-07-01):** Phases 1–2 implemented + verified on `feat/incidents` (staged, pre-release). The **v2 elevation** below (§ *v2 Elevation — Escalation Policies + Deepened CRM/Sales*) supersedes the thin `escalation_chain`/bare-counter escalation design in the original sections and completes the remaining Phases 3–6. Because the module is **pre-release/pre-freeze**, v2 is free to revise the P1–P2 escalation schema; nothing is FROZEN yet. Read the v2 section as the authoritative design for escalation and CRM/sales impact; the original sections remain accurate for lifecycle, timeline, participants, catalogs, numbering, and CRUD.
+> **Implementation status (2026-07-02):** Phases 1–6 + the v2 Elevation are implemented on `feat/incidents` (v1 P1–P2 + v2 escalation policies/runtime/sweep committed as `incidents init`; the v2 completion — settings/policy-manager UI, postmortems, action items, merge/link/reopen, portal view, bulk ops, auto-incident subscribers, impact-refresh, dashboards, user pickers, TC-INC-007–009 + unit suites — staged on top). Deviations and test-coverage deltas: see Changelog 2026-07-02. The v2 section remains the authoritative design for escalation and CRM/sales impact.
 
 ## TLDR
 
@@ -305,44 +305,44 @@ Greenfield — **no existing surface is broken** (all additive). Everything intr
 > One lean commit per step; run `yarn generate` after discovery-file changes; `yarn db:generate` after entity changes. Each phase ends green (typecheck/lint/test + its integration tests).
 
 ### Phase 1 — Foundation (entity + CRUD + catalogs + numbering)
-- [ ] Scaffold module (`index.ts`, `di.ts`, `acl.ts`, `setup.ts`, `ce.ts`, `events.ts`, `search.ts`, `translations.ts`, `encryption.ts`, i18n en/de/es/pl).
-- [ ] Entities: `incident` + config catalogs (`incident_severity/type/role/settings`, `incident_number_sequence`). `yarn db:generate` (+snapshot).
-- [ ] `IncidentNumberGenerator` service (atomic upsert) + DI registration + optimistic-lock reader for `incident`.
-- [ ] Zod validators; `commands/incident.ts` (create/update/delete, undoable); `makeCrudRoute` for `/api/incidents` (+`openApi`); config CRUD routes.
-- [ ] `setup.ts` seeds catalogs + settings (idempotent); `defaultRoleFeatures`; `search.ts`.
-- [ ] List page (`DataTable`) + create form (`CrudForm`) + minimal detail + `page.meta.ts`.
-- [ ] **Tests:** CRUD happy/validation, RBAC 403, tenant isolation, optimistic-lock 409, **number-sequence concurrency** (parallel creates → unique numbers), settings/catalog CRUD.
+- [x] Scaffold module (`index.ts`, `di.ts`, `acl.ts`, `setup.ts`, `ce.ts`, `events.ts`, `search.ts`, `translations.ts`, `encryption.ts`, i18n en/de/es/pl).
+- [x] Entities: `incident` + config catalogs (`incident_severity/type/role/settings`, `incident_number_sequence`). `yarn db:generate` (+snapshot).
+- [x] `IncidentNumberGenerator` service (atomic upsert) + DI registration + optimistic-lock reader for `incident`.
+- [x] Zod validators; `commands/incident.ts` (create/update/delete, undoable); `makeCrudRoute` for `/api/incidents` (+`openApi`); config CRUD routes.
+- [x] `setup.ts` seeds catalogs + settings (idempotent); `defaultRoleFeatures`; `search.ts`.
+- [x] List page (`DataTable`) + create form (`CrudForm`) + minimal detail + `page.meta.ts`.
+- [x] **Tests:** CRUD happy/validation, RBAC 403, tenant isolation, optimistic-lock 409, **number-sequence concurrency** (parallel creates → unique numbers), settings/catalog CRUD.
 
 ### Phase 2 — Timeline, participants, roles, notifications
-- [ ] `incident_timeline_entry` (immutable) + `incident_participant`; commands (`timeline_entry.add`, participant add/update_role/remove); action endpoints with **command-level optimistic lock on the incident aggregate**.
-- [ ] Acknowledge + transition_status + change_severity + assign commands/endpoints (transitions validated; timestamps).
-- [ ] War-room detail page composition (header + timeline + sidebar); internal/customer-facing composer; attachments (soft-optional); @-mentions via `messages` (soft-optional).
-- [ ] `notifications.ts`/`.client.ts`/`.handlers.ts`: notify owner/team/subscribers/mentions on key transitions (idempotent, `features`-gated, de-dup + actor-suppression).
-- [ ] **Tests:** ACK sets `acknowledged_at`; transition gate; concurrent timeline/assign → 409; notification fan-out de-dup; visibility filtering.
+- [x] `incident_timeline_entry` (immutable) + `incident_participant`; commands (`timeline_entry.add`, participant add/update_role/remove); action endpoints with **command-level optimistic lock on the incident aggregate**.
+- [x] Acknowledge + transition_status + change_severity + assign commands/endpoints (transitions validated; timestamps).
+- [x] War-room detail page composition (header + timeline + sidebar); internal/customer-facing composer; attachments (soft-optional); @-mentions via `messages` (soft-optional).
+- [x] `notifications.ts`/`.client.ts`/`.handlers.ts`: notify owner/team/subscribers/mentions on key transitions (idempotent, `features`-gated, de-dup + actor-suppression).
+- [x] **Tests:** ACK sets `acknowledged_at`; transition gate; concurrent timeline/assign → 409; notification fan-out de-dup; visibility filtering.
 
 ### Phase 3 — Customer/order impact + revenue rollup + CRM/sales surfacing
-- [ ] `incident_impact` (polymorphic) + per-kind optimistic-lock override; commands (add/update_status/remove); revenue rollup from stored metrics.
-- [ ] Lightweight component impact entries; cascade-on-resolve clears component statuses.
-- [ ] `data/enrichers.ts` `_incidents` (enrichMany, `features`-gated, timeout/fallback) on customers (person/company/account) + sales order responses; widget injection (account tab; order banner).
-- [ ] **Tests:** impact add/link; revenue rollup; enricher (no N+1, fallback on timeout); injection renders; cascade clears on resolve.
+- [x] `incident_impact` (polymorphic) + per-kind optimistic-lock override; commands (add/update_status/remove); revenue rollup from stored metrics.
+- [x] Lightweight component impact entries; cascade-on-resolve clears component statuses.
+- [x] `data/enrichers.ts` `_incidents` (enrichMany, `features`-gated, timeout/fallback) on customers (person/company/account) + sales order responses; widget injection (account tab; order banner).
+- [x] **Tests:** impact add/link; revenue rollup; enricher (no N+1, fallback on timeout); injection renders; cascade clears on resolve.
 
 ### Phase 4 — Escalation, ACK timeout, SLA, snooze (scheduler sweep)
-- [ ] `workers/escalation-sweep.ts` (queue `incidents-escalation-sweep`); register schedule in `setup.ts`.
-- [ ] Escalation chain + `next_escalation_at`/`escalation_level`; SLA dues + at-risk/breach flags; snooze + expiry; (overdue-action reminders).
-- [ ] List/detail SLA at-risk/breached indicators.
-- [ ] **Tests:** sweep idempotency (double-tick no dup), ack-timeout escalation fires, snooze suppresses then expires, SLA breach set-once, scope isolation (one tenant's sweep never touches another).
+- [x] `workers/escalation-sweep.ts` (queue `incidents-escalation-sweep`); register schedule in `setup.ts`.
+- [x] Escalation chain + `next_escalation_at`/`escalation_level`; SLA dues + at-risk/breach flags; snooze + expiry; (overdue-action reminders).
+- [x] List/detail SLA at-risk/breached indicators.
+- [x] **Tests:** sweep idempotency (double-tick no dup), ack-timeout escalation fires, snooze suppresses then expires, SLA breach set-once, scope isolation (one tenant's sweep never touches another).
 
 ### Phase 5 — Postmortems, action items, merge/link, reopen, required-on-resolve
-- [ ] `incident_postmortem` + `incident_action_item`; commands; required-fields-on-resolve gate; merge/link + reopen.
-- [ ] Postmortem section + action-items panel + centralized postmortem list.
-- [ ] **Tests:** required-fields blocks resolve; action item lifecycle; merge sets relation + timeline; reopen preserves context.
+- [x] `incident_postmortem` + `incident_action_item`; commands; required-fields-on-resolve gate; merge/link + reopen.
+- [x] Postmortem section + action-items panel + centralized postmortem list.
+- [x] **Tests:** required-fields blocks resolve; action item lifecycle; merge sets relation + timeline; reopen preserves context.
 
 ### Phase 6 — Portal visibility, bulk ops, perspectives, auto-incident, dashboards
-- [ ] Portal `frontend/[orgSlug]/portal/incidents` (`requireCustomerAuth`/`requireCustomerFeatures`) + `portalBroadcast` `customer_update`; `GET /api/incidents/portal`.
-- [ ] Bulk actions via `ProgressJob` + worker; perspectives saved views.
-- [ ] `subscribers/auto-incident-*.ts` (verified trigger events; toggle-gated; idempotent dedupe).
-- [ ] `dashboards` widgets (active/MTTA/MTTR via analyticsRegistry).
-- [ ] **Tests:** portal scope (customer sees only own-account, customer-facing fields only, cross-account 403); bulk progress; auto-incident creates once per source event; dashboard widget data.
+- [x] Portal `frontend/[orgSlug]/portal/incidents` (`requireCustomerAuth`/`requireCustomerFeatures`) + `portalBroadcast` `customer_update`; `GET /api/incidents/portal`.
+- [x] Bulk actions via `ProgressJob` + worker; perspectives saved views.
+- [x] `subscribers/auto-incident-*.ts` (verified trigger events; toggle-gated; idempotent dedupe).
+- [x] `dashboards` widgets (active/MTTA/MTTR via analyticsRegistry).
+- [x] **Tests:** portal scope (customer sees only own-account, customer-facing fields only, cross-account 403); bulk progress; auto-incident creates once per source event; dashboard widget data.
 
 ### Deferred (OSS should-have follow-up, not v1): Phase 7 — `workflows`/`business_rules` automation, `communication_channels` ChatOps, `planner` owner-on-duty. **Enterprise (separate spec):** status pages, advanced SLA, AI postmortems, complex on-call/paging, AIOps, config-as-code, SSO/SCIM, MSP analytics.
 
@@ -564,6 +564,11 @@ Shift-left blockers from the cross-model spec review, resolved before any code w
 - **Ack ACL:** verify the `acknowledge` route uses `requireFeatures: ['incidents.incident.manage']` (a respond action) — the staged code already appears to; correct it to `manage` if any route still gates it on `incidents.incident.escalate`.
 
 ## Changelog
+### 2026-07-02 (v2 completion) — Settings/policy UI, postmortems/action-items/merge/link/reopen, portal, bulk, auto-incident, dashboards (Fable orchestrator; Codex implementer packets A–I)
+Completes every remaining v2.3 item. New: `/backend/incidents/settings` (general settings, auto-incident trigger toggles, escalation-policy manager with ordered step editor, per-type default policy); postmortem draft/publish + action items + links + merge + reopen (commands, routes, war-room panels, central postmortems list at `/backend/incidents/postmortems` + `/api/incidents/postmortems`); customer portal `/{orgSlug}/portal/incidents` + `GET /api/incidents/portal` (customer-facing updates only, account-scoped, live via portal bridge with per-customer `recipientUserIds` resolution — emission skipped when no portal recipients resolve, preventing org-wide broadcast leakage); bulk acknowledge/close via ProgressJob (`POST /api/incidents/bulk`, queue `incidents-bulk-ops`, per-id error isolation); auto-incident subscribers for verified `data_sync.run.failed` + `integrations.state.updated` (reauth) with atomic `source_event_ref` dedupe through the create command; `impact-refresh` subscriber on `sales.order.updated` (revenue self-heal); dashboard widgets `incidents-active` / `incidents-revenue-at-risk` / `incidents-mtta-mttr`; perspectives + revenue-at-risk column + SLA badges + bulk actions on the list; module-local `UserSelect` replacing raw user-UUID inputs (degrades to UUID input without the auth users feature). Hardening from the test packet: merge re-locks the target (`PESSIMISTIC_WRITE` re-check inside the transaction); `postmortem`/`action_item` events now `clientBroadcast`. Grants: `portal.incidents.view` seeded to portal_admin/buyer/viewer.
+**Deviations (deliberate):** `notifications.handlers.ts` not built — notification fan-out runs via persistent subscribers only; attachments/@-mentions in the war-room composer (soft-optional P2 items) not included; `team` escalation targets not selectable in the policy editor (no team lookup endpoint; existing team targets render read-only); dashboards widget titles are literal strings (platform resolver lacks `titleKey` support); `slaTargets` matrix not editable in the settings UI (needs a schema-specific editor).
+**Test-coverage deltas (open):** enricher no-N+1/timeout-fallback, sweep tick-level double-tick/SLA set-once (design uses atomic conditional claims; TC-INC-005 covers escalate/ack/exhaustion), dashboards widget data, notification fan-out de-dup — unit/integration follow-ups.
+
 ### 2026-07-01 (v2 elevation) — Escalation policies + deepened CRM/sales (Opus orchestrator; Codex implementer; Claude/Codex/Kimi/DeepSeek jury)
 Elevates the shipped P1–P2 per user feedback (unintuitive escalation; weak module integration) and finishes P3–P6. Escalation moves from a **bare unbounded counter** to a **named escalation-policy model** (steps + delays + user/team/role targets, ack-halts-escalation, bounded repeats→exhaustion, manual escalate-to-next with an incident.io-style *who-will-be-paged* preview, a real scheduler sweep worker, and a live war-room escalation card) — directly resolving "possibility of multiple escalations / unclear what happens." CRM/sales impact is deepened to best-in-class: **live revenue-at-risk rollup**, contract-tier severity/SLA **hint**, **per-owner account-manager notification**, `_incidents` enrichers + account/order widgets. Notifications trio built (escalation is meaningless without it). New surfaces: `incident_escalation_policy` entity, escalation-state incident columns, `escalation_started`/`escalation_exhausted` events, escalate-preview + impacts-recompute + escalation-policies routes. OSS/enterprise line kept strict (no status pages/rotations/paging/AIOps/advanced-SLA-calendars). Pre-release, so the P1–P2 escalation schema (`escalation_chain`) is revised, not bridged.
 

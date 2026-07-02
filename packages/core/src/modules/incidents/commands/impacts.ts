@@ -32,7 +32,7 @@ import {
   resolveCommandScope,
   type IncidentScope,
 } from './incident'
-import { assertIncidentMutable } from './actions'
+import { assertIncidentMutable, assertIncidentNotMerged } from './actions'
 
 type ImpactCommandResult = {
   impactId: string
@@ -279,6 +279,7 @@ export async function recomputeIncidentRevenue(
   scope: IncidentScope,
   incident: Incident,
 ): Promise<void> {
+  assertIncidentNotMerged(incident)
   const impacts = await em.find(IncidentImpact, {
     incidentId: incident.id,
     ...scope,
@@ -452,6 +453,7 @@ const addImpactCommand: CommandHandler<IncidentImpactAddInput, ImpactCommandResu
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForImpact(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     assertSnapshotLabelIsNonPii(parsed.snapshot)
 
@@ -560,6 +562,7 @@ const updateImpactCommand: CommandHandler<IncidentImpactUpdateInput, ImpactComma
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForImpact(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     assertSnapshotLabelIsNonPii(parsed.snapshot)
     const impact = await loadActiveImpact(em, parsed.impactId, incident.id, scope)
@@ -622,6 +625,7 @@ const removeImpactCommand: CommandHandler<IncidentImpactRemoveInput, ImpactComma
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForImpact(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
     const impact = await loadActiveImpact(em, parsed.impactId, incident.id, scope)
 

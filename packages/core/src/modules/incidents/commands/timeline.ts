@@ -18,7 +18,12 @@ import {
   resolveCommandScope,
   type IncidentScope,
 } from './incident'
-import { assertIncidentMutable } from './actions'
+import {
+  assertIncidentMutable,
+  assertIncidentNotMerged,
+  emitIncidentCustomerUpdated,
+  resolveIncidentAccountTargetIds,
+} from './actions'
 
 type TimelineAddResult = {
   entryId: string
@@ -117,6 +122,7 @@ const addTimelineEntryCommand: CommandHandler<TimelineAddInput, TimelineAddResul
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForTimeline(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     const now = new Date()
@@ -143,6 +149,10 @@ const addTimelineEntryCommand: CommandHandler<TimelineAddInput, TimelineAddResul
 
     await emitTimelineEntrySideEffects(ctx, entry)
     await emitIncidentSideEffects(ctx, 'updated', incident)
+    if (entry.visibility === 'customer_facing') {
+      const accountTargetIds = await resolveIncidentAccountTargetIds(em, scope, incident.id)
+      await emitIncidentCustomerUpdated(ctx, incident, accountTargetIds)
+    }
 
     return {
       entryId: entry.id,

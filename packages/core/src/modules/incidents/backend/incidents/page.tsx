@@ -21,6 +21,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import type { FilterDef } from '@open-mercato/ui/backend/FilterBar'
+import { useUserLabels } from './components/useUserLabels'
 
 type IncidentStatus = 'open' | 'investigating' | 'identified' | 'mitigated' | 'resolved' | 'closed'
 type IncidentSeverityKey = 'critical' | 'high' | 'medium' | 'low'
@@ -51,6 +52,10 @@ type IncidentApiRecord = {
   severity_id?: string | null
   priority?: string | null
   owner_user_id?: string | null
+  revenue_at_risk_minor?: string | null
+  revenue_at_risk_currency?: string | null
+  sla_at_risk?: boolean | null
+  sla_breached?: boolean | null
   created_at?: string | null
   updated_at?: string | null
 }
@@ -63,6 +68,10 @@ type IncidentRow = {
   severityId: string | null
   priority: string | null
   ownerUserId: string | null
+  revenueAtRiskMinor: string | null
+  revenueAtRiskCurrency: string | null
+  slaAtRisk: boolean
+  slaBreached: boolean
   createdAt: string | null
   updatedAt: string | null
 }
@@ -90,11 +99,19 @@ type IncidentFilterValues = {
   excludeDrills?: boolean
 }
 
+type IncidentBulkAction = 'acknowledge' | 'close'
+
+type IncidentBulkResponse = {
+  ok: boolean
+  progressJobId: string | null
+  message: string
+}
+
 type IncidentMutationContext = Record<string, unknown> & {
   formId: string
   resourceKind: 'incidents.incident'
   resourceId: string
-  data: IncidentRow
+  data: IncidentRow | { action: IncidentBulkAction; ids: string[] }
   retryLastMutation: () => Promise<boolean>
 }
 
@@ -123,6 +140,10 @@ function mapIncident(item: IncidentApiRecord): IncidentRow {
     severityId: item.severity_id ?? null,
     priority: item.priority ?? null,
     ownerUserId: item.owner_user_id ?? null,
+    revenueAtRiskMinor: item.revenue_at_risk_minor ?? null,
+    revenueAtRiskCurrency: item.revenue_at_risk_currency ?? null,
+    slaAtRisk: item.sla_at_risk === true,
+    slaBreached: item.sla_breached === true,
     createdAt: item.created_at ?? null,
     updatedAt: item.updated_at ?? null,
   }
@@ -161,6 +182,21 @@ function formatDate(value: string | null | undefined, fallback: string): string 
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return fallback
   return date.toLocaleString()
+}
+
+function formatRevenueAtRisk(minor: string | null | undefined, currency: string | null | undefined): string | null {
+  if (!minor || !currency || !/^-?\d+$/.test(minor)) return null
+  const amount = Number(minor) / 100
+  if (!Number.isFinite(amount)) return null
+  const normalizedCurrency = currency.toUpperCase()
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: 'currency',
+      currency: normalizedCurrency,
+    }).format(amount)
+  } catch {
+    return `${amount.toLocaleString()} ${normalizedCurrency}`
+  }
 }
 
 function statusLabel(t: ReturnType<typeof useT>, status: string | null | undefined): string {
@@ -326,6 +362,12 @@ export default function IncidentsPage() {
     },
   ], [severityFilterOptions, statusOptions, t])
 
+  const ownerUserIds = React.useMemo(
+    () => rows.map((row) => row.ownerUserId).filter((id): id is string => typeof id === 'string' && id.length > 0),
+    [rows],
+  )
+  const ownerLabels = useUserLabels(ownerUserIds)
+
   const columns = React.useMemo<ColumnDef<IncidentRow>[]>(() => [
     {
       accessorKey: 'number',
@@ -363,17 +405,38 @@ export default function IncidentsPage() {
       cell: ({ row }) => {
         const status = row.original.status
         return (
-          <StatusBadge variant={status ? statusVariant[status] ?? 'neutral' : 'neutral'} dot>
-            {statusLabel(t, status)}
-          </StatusBadge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <StatusBadge variant={status ? statusVariant[status] ?? 'neutral' : 'neutral'} dot>
+              {statusLabel(t, status)}
+            </StatusBadge>
+            {row.original.slaBreached ? (
+              <StatusBadge variant="error">
+                {t('incidents.incident.list.sla.breached', 'SLA breached')}
+              </StatusBadge>
+            ) : row.original.slaAtRisk ? (
+              <StatusBadge variant="warning">
+                {t('incidents.incident.list.sla.atRisk', 'SLA at risk')}
+              </StatusBadge>
+            ) : null}
+          </div>
         )
       },
       meta: { filterType: 'select', filterOptions: statusOptions },
     },
     {
+      accessorKey: 'revenueAtRiskMinor',
+      header: t('incidents.incident.list.columns.revenueAtRisk', 'Revenue at risk'),
+      cell: ({ row }) => formatRevenueAtRisk(row.original.revenueAtRiskMinor, row.original.revenueAtRiskCurrency),
+      meta: { truncate: true, maxWidth: 180 },
+    },
+    {
       accessorKey: 'ownerUserId',
       header: t('incidents.incident.list.columns.owner'),
-      cell: ({ row }) => row.original.ownerUserId ?? t('incidents.incident.owner.unassigned'),
+      cell: ({ row }) => {
+        const ownerId = row.original.ownerUserId
+        if (!ownerId) return t('incidents.incident.owner.unassigned')
+        return ownerLabels[ownerId] ?? ownerId
+      },
       meta: { truncate: true, maxWidth: 220 },
     },
     {
@@ -382,7 +445,7 @@ export default function IncidentsPage() {
       cell: ({ row }) => formatDate(row.original.updatedAt, t('incidents.common.notSet')),
       meta: { truncate: true, maxWidth: 180 },
     },
-  ], [severityById, severityFilterOptions, statusOptions, t])
+  ], [ownerLabels, severityById, severityFilterOptions, statusOptions, t])
 
   const handleDelete = React.useCallback(async (row: IncidentRow) => {
     const approved = await confirm({
@@ -420,6 +483,66 @@ export default function IncidentsPage() {
     }
   }, [confirm, loadData, retryLastMutation, runMutation, t])
 
+  const handleBulkOperation = React.useCallback(async (
+    action: IncidentBulkAction,
+    selectedRows: IncidentRow[],
+  ): Promise<IncidentBulkResponse | false> => {
+    const ids = selectedRows.map((row) => row.id).filter((id) => id.length > 0)
+    if (ids.length === 0) return false
+    if (ids.length > 100) {
+      flash(t('incidents.incident.list.bulk.tooMany', 'Select at most 100 incidents per bulk operation.'), 'error')
+      return false
+    }
+
+    if (action === 'close') {
+      const approved = await confirm({
+        title: t('incidents.incident.list.bulk.close.title', 'Close selected incidents'),
+        description: t('incidents.incident.list.bulk.close.description', 'Selected incidents will be closed asynchronously.'),
+        confirmText: t('incidents.incident.list.bulk.close.confirm', 'Close incidents'),
+        cancelText: t('incidents.common.cancel'),
+        variant: 'destructive',
+      })
+      if (!approved) return false
+    }
+
+    const context: IncidentMutationContext = {
+      formId: 'incidents:list:bulk',
+      resourceKind: 'incidents.incident',
+      resourceId: 'bulk',
+      data: { action, ids },
+      retryLastMutation,
+    }
+
+    try {
+      const call = await runMutation({
+        operation: async () => {
+          const result = await apiCall<IncidentBulkResponse>('/api/incidents/bulk', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, ids }),
+          })
+          if (!result.ok) {
+            throw new Error(result.result?.message ?? t('incidents.incident.list.bulk.error', 'Failed to start bulk incident operation.'))
+          }
+          return result
+        },
+        context,
+        mutationPayload: { action, ids, operation: 'bulkIncidentOperation' },
+      })
+
+      const payload = call.result
+      if (!payload?.ok || !payload.progressJobId) {
+        flash(t('incidents.incident.list.bulk.error', 'Failed to start bulk incident operation.'), 'error')
+        return false
+      }
+      flash(t('incidents.incident.list.bulk.started', 'Bulk incident operation started.'), 'success')
+      return payload
+    } catch {
+      flash(t('incidents.incident.list.bulk.error', 'Failed to start bulk incident operation.'), 'error')
+      return false
+    }
+  }, [confirm, retryLastMutation, runMutation, t])
+
   return (
     <Page>
       <PageBody>
@@ -454,7 +577,21 @@ export default function IncidentsPage() {
           }}
           entityIds={[E.incidents.incident]}
           extensionTableId="incidents.incident"
+          perspective={{ tableId: 'incidents.incidents.list' }}
           onRowClick={(row) => router.push(buildIncidentUrl(row))}
+          bulkActions={[
+            {
+              id: 'acknowledge',
+              label: t('incidents.incident.list.bulk.acknowledge', 'Acknowledge'),
+              onExecute: (selectedRows) => handleBulkOperation('acknowledge', selectedRows),
+            },
+            {
+              id: 'close',
+              label: t('incidents.incident.list.bulk.close', 'Close'),
+              destructive: true,
+              onExecute: (selectedRows) => handleBulkOperation('close', selectedRows),
+            },
+          ]}
           rowActions={(row) => (
             <RowActions
               items={[

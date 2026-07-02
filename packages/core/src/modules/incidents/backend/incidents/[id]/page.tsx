@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { ArrowRightLeft, CheckCircle2, Clock3 } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, Clock3, RotateCcw, UserRound } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -10,6 +10,7 @@ import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverE
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import {
   Select,
   SelectContent,
@@ -28,12 +29,18 @@ import { InjectionSpot } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { TimelinePanel } from './TimelinePanel'
 import { ParticipantsPanel } from './ParticipantsPanel'
 import { EscalationPanel } from './EscalationPanel'
 import { ImpactPanel } from './ImpactPanel'
+import { PostmortemPanel } from './PostmortemPanel'
+import { ActionItemsPanel } from './ActionItemsPanel'
+import { IncidentLinksPanel, MergeLinkHeaderActions } from './MergeLinkControls'
+import { UserSelect } from '../components/UserSelect'
+import { useUserLabels } from '../components/useUserLabels'
 
 type IncidentSeverityKey = 'critical' | 'high' | 'medium' | 'low'
 type IncidentStatus = 'open' | 'investigating' | 'identified' | 'mitigated' | 'resolved' | 'closed'
@@ -65,7 +72,10 @@ const allowedTransitions: Record<IncidentStatus, readonly IncidentStatus[]> = {
 
 const featureCheckList = [
   'incidents.incident.manage',
+  'incidents.incident.assign',
   'incidents.incident.close',
+  'incidents.postmortem.view',
+  'incidents.postmortem.manage',
 ] as const
 
 const snoozeOptions = [
@@ -102,7 +112,14 @@ type IncidentDetailRecord = {
   snoozed_until?: string | null
   created_at?: string | null
   updated_at?: string | null
+  merged_into_incident_id?: string | null
   customValues?: Record<string, unknown> | null
+}
+
+type IncidentTargetRecord = {
+  id: string
+  number?: string | null
+  title?: string | null
 }
 
 type CatalogItem = {
@@ -138,7 +155,7 @@ type FeatureCheckResponse = {
   granted?: unknown[]
 }
 
-type IncidentActionKey = 'acknowledge' | 'transition' | 'escalate' | 'snooze'
+type IncidentActionKey = 'acknowledge' | 'transition' | 'escalate' | 'snooze' | 'assign'
 
 type ResolveDialogState = {
   status: IncidentStatus
@@ -152,6 +169,14 @@ const emptyCatalogResponse = (): PagedResponse<CatalogItem> => ({
   total: 0,
   page: 1,
   pageSize: 100,
+  totalPages: 0,
+})
+
+const emptyIncidentTargetResponse = (): PagedResponse<IncidentTargetRecord> => ({
+  items: [],
+  total: 0,
+  page: 1,
+  pageSize: 1,
   totalPages: 0,
 })
 
@@ -314,20 +339,28 @@ async function loadCatalog(path: string): Promise<CatalogItem[]> {
   return result.result.items
 }
 
+function buildIncidentHref(id: string): string {
+  return `/backend/incidents/${encodeURIComponent(id)}`
+}
+
 export default function IncidentDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [data, setData] = React.useState<IncidentDetailRecord | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
   const [severities, setSeverities] = React.useState<CatalogItem[]>([])
   const [types, setTypes] = React.useState<CatalogItem[]>([])
+  const [mergedTarget, setMergedTarget] = React.useState<IncidentTargetRecord | null>(null)
   const [grantedFeatures, setGrantedFeatures] = React.useState<string[]>([])
   const [pendingAction, setPendingAction] = React.useState<IncidentActionKey | null>(null)
   const [transitionSelectValue, setTransitionSelectValue] = React.useState('')
   const [snoozeSelectValue, setSnoozeSelectValue] = React.useState('')
   const [resolveDialog, setResolveDialog] = React.useState<ResolveDialogState | null>(null)
+  const [assignDialogOpen, setAssignDialogOpen] = React.useState(false)
+  const [assignOwnerUserId, setAssignOwnerUserId] = React.useState<string | null>(null)
 
   const mutationContextId = React.useMemo(() => `incident:${id ?? 'pending'}`, [id])
   const { runMutation, retryLastMutation } = useGuardedMutation<IncidentInjectionContext>({
@@ -375,6 +408,30 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
       setIsLoading(false)
     })
   }, [loadData, t])
+
+  React.useEffect(() => {
+    const targetId = data?.merged_into_incident_id ?? null
+    if (!targetId) {
+      setMergedTarget(null)
+      return
+    }
+    let cancelled = false
+    const loadTarget = async () => {
+      const result = await apiCall<PagedResponse<IncidentTargetRecord>>(
+        `/api/incidents?id=${encodeURIComponent(targetId)}&page=1&pageSize=1`,
+        undefined,
+        { fallback: emptyIncidentTargetResponse() },
+      )
+      if (cancelled) return
+      setMergedTarget(result.ok && result.result ? result.result.items[0] ?? null : null)
+    }
+    loadTarget().catch(() => {
+      if (!cancelled) setMergedTarget(null)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [data?.merged_into_incident_id])
 
   React.useEffect(() => {
     let cancelled = false
@@ -431,6 +488,18 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     void loadData()
   }, [id, loadData])
 
+  useAppEvent('incidents.postmortem.*', () => {
+    void loadData()
+  }, [id, loadData])
+
+  useAppEvent('incidents.action_item.*', () => {
+    void loadData()
+  }, [id, loadData])
+
+  useAppEvent('incidents.incident.linked', () => {
+    void loadData()
+  }, [id, loadData])
+
   const severityById = React.useMemo(() => {
     const map = new Map<string, CatalogItem>()
     severities.forEach((item) => {
@@ -459,14 +528,30 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     () => hasFeature(grantedFeatures, 'incidents.incident.manage'),
     [grantedFeatures],
   )
+  const canAssign = React.useMemo(
+    () => hasFeature(grantedFeatures, 'incidents.incident.assign'),
+    [grantedFeatures],
+  )
   const canClose = React.useMemo(
     () => hasFeature(grantedFeatures, 'incidents.incident.close'),
+    [grantedFeatures],
+  )
+  const canViewPostmortem = React.useMemo(
+    () => hasFeature(grantedFeatures, 'incidents.postmortem.view'),
+    [grantedFeatures],
+  )
+  const canManagePostmortem = React.useMemo(
+    () => hasFeature(grantedFeatures, 'incidents.postmortem.manage'),
     [grantedFeatures],
   )
   const requiredResolveFields = React.useMemo(() => {
     const incidentType = data?.incident_type_id ? typeById.get(data.incident_type_id) : null
     return normalizeResolveFields(incidentType?.required_fields_on_resolve)
   }, [data?.incident_type_id, typeById])
+  const ownerUserIds = React.useMemo(() => (
+    data?.owner_user_id ? [data.owner_user_id] : []
+  ), [data?.owner_user_id])
+  const userLabels = useUserLabels(ownerUserIds)
 
   const runIncidentAction = React.useCallback(async (
     action: IncidentActionKey,
@@ -564,6 +649,25 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
     void submitTransition(value, undefined, requiredResolveFields)
   }, [requiredResolveFields, submitTransition])
 
+  const handleReopen = React.useCallback(async () => {
+    if (!canManage || pendingAction !== null) return
+    const approved = await confirm({
+      title: t('incidents.incident.detail.reopen.title', 'Reopen incident?'),
+      description: t('incidents.incident.detail.reopen.description', 'The incident will move back to open and can be worked again.'),
+      confirmText: t('incidents.incident.detail.reopen.confirm', 'Reopen'),
+      cancelText: t('incidents.common.cancel'),
+    })
+    if (!approved) return
+    void runIncidentAction(
+      'transition',
+      { status: 'open' },
+      {
+        success: t('incidents.incident.detail.actions.reopenSuccess', 'Incident reopened.'),
+        error: t('incidents.incident.detail.actions.reopenError', 'Failed to reopen incident.'),
+      },
+    )
+  }, [canManage, confirm, pendingAction, runIncidentAction, t])
+
   const handleResolveFieldChange = React.useCallback((field: string, value: string) => {
     setResolveDialog((prev) => {
       if (!prev) return prev
@@ -611,6 +715,39 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
       },
     )
   }, [runIncidentAction, t])
+
+  const handleOpenAssignDialog = React.useCallback(() => {
+    setAssignOwnerUserId(data?.owner_user_id ?? null)
+    setAssignDialogOpen(true)
+  }, [data?.owner_user_id])
+
+  const handleAssignDialogSubmit = React.useCallback(async () => {
+    const nextOwnerUserId = assignOwnerUserId
+    const ok = await runIncidentAction(
+      'assign',
+      { ownerUserId: nextOwnerUserId },
+      {
+        success: t('incidents.incident.detail.assign.success', 'Incident owner updated.'),
+        error: t('incidents.incident.detail.assign.error', 'Failed to update incident owner.'),
+      },
+    )
+    if (!ok) return
+    setData((prev) => {
+      if (!prev || prev.id !== id) return prev
+      return { ...prev, owner_user_id: nextOwnerUserId }
+    })
+    setAssignDialogOpen(false)
+  }, [assignOwnerUserId, id, runIncidentAction, t])
+
+  const handleAssignDialogKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+      event.preventDefault()
+      void handleAssignDialogSubmit()
+    }
+    if (event.key === 'Escape') {
+      setAssignDialogOpen(false)
+    }
+  }, [handleAssignDialogSubmit])
 
   if (isLoading) {
     return (
@@ -660,13 +797,40 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
   const customEntries = Object.entries(data.customValues ?? {}).filter(([, value]) => value !== null && value !== undefined)
   const title = data.title?.trim() || t('incidents.incident.detail.untitled')
   const number = data.number?.trim() || t('incidents.incident.list.unnumbered')
-  const availableTransitions = nextStatusesFor(data.status, canClose)
+  const mergedIntoIncidentId = data.merged_into_incident_id ?? null
+  const isMerged = Boolean(mergedIntoIncidentId)
+  const canMutateIncident = canManage && !isMerged
+  const canAssignIncident = canAssign && !isMerged && data.status !== 'closed'
+  const canMutatePostmortem = canManagePostmortem && !isMerged
+  const availableTransitions = nextStatusesFor(data.status, canClose).filter((status) => status !== 'open')
+  const canReopen = canManage && !isMerged && (data.status === 'resolved' || data.status === 'closed')
   const isAcknowledged = Boolean(data.acknowledged_at)
+  const mergedTargetNumber = mergedTarget?.number?.trim() || mergedIntoIncidentId || t('incidents.incident.list.unnumbered')
+  const mergedTargetTitle = mergedTarget?.title?.trim()
+  const ownerLabel = data.owner_user_id
+    ? userLabels[data.owner_user_id] ?? data.owner_user_id
+    : t('incidents.incident.owner.unassigned')
 
   return (
     <Page>
       <PageBody>
         <div className="space-y-6">
+          {isMerged && mergedIntoIncidentId ? (
+            <Alert status="warning" style="lighter" size="default">
+              <AlertTitle>
+                <Link href={buildIncidentHref(mergedIntoIncidentId)} className="hover:underline">
+                  {t('incidents.merge.banner.title', 'Merged into {number}', { number: mergedTargetNumber })}
+                </Link>
+              </AlertTitle>
+              <AlertDescription>
+                {mergedTargetTitle ? (
+                  <span className="block text-sm font-medium text-foreground">{mergedTargetTitle}</span>
+                ) : null}
+                <span>{t('incidents.merge.banner.description', 'This incident is read-only because it was merged into another incident.')}</span>
+              </AlertDescription>
+            </Alert>
+          ) : null}
+
           <section className="rounded-lg border border-border bg-card p-4">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div className="min-w-0 space-y-3">
@@ -685,7 +849,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 <dl className="grid gap-3 text-sm text-muted-foreground sm:grid-cols-3">
                   <div>
                     <dt className="font-medium text-foreground">{t('incidents.incident.detail.fields.owner')}</dt>
-                    <dd className="truncate">{data.owner_user_id ?? t('incidents.incident.owner.unassigned')}</dd>
+                    <dd className="truncate">{ownerLabel}</dd>
                   </div>
                   <div>
                     <dt className="font-medium text-foreground">{t('incidents.incident.detail.fields.age')}</dt>
@@ -698,11 +862,11 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 </dl>
               </div>
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
-                {!isAcknowledged ? (
+                {!isAcknowledged && !isMerged ? (
                   <Button
                     type="button"
                     onClick={handleAcknowledge}
-                    disabled={!canManage || pendingAction !== null}
+                    disabled={!canMutateIncident || pendingAction !== null}
                   >
                     <CheckCircle2 aria-hidden="true" />
                     {t('incidents.incident.detail.actions.acknowledge')}
@@ -711,7 +875,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 <Select
                   value={transitionSelectValue}
                   onValueChange={handleTransitionSelect}
-                  disabled={!canManage || pendingAction !== null || availableTransitions.length === 0}
+                  disabled={!canMutateIncident || pendingAction !== null || availableTransitions.length === 0}
                 >
                   <SelectTrigger className="w-auto min-w-44" aria-label={t('incidents.incident.detail.actions.changeStatus')}>
                     <SelectTriggerLeading>
@@ -730,7 +894,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 <Select
                   value={snoozeSelectValue}
                   onValueChange={handleSnoozeSelect}
-                  disabled={!canManage || pendingAction !== null}
+                  disabled={!canMutateIncident || pendingAction !== null}
                 >
                   <SelectTrigger className="w-auto min-w-36" aria-label={t('incidents.incident.detail.actions.snooze')}>
                     <SelectTriggerLeading>
@@ -744,6 +908,35 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                     <SelectItem value="24">{t('incidents.incident.detail.actions.snooze24h')}</SelectItem>
                   </SelectContent>
                 </Select>
+                {canReopen ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => void handleReopen()}
+                    disabled={pendingAction !== null}
+                  >
+                    <RotateCcw aria-hidden="true" />
+                    {t('incidents.incident.detail.actions.reopen', 'Reopen')}
+                  </Button>
+                ) : null}
+                {canAssignIncident ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleOpenAssignDialog}
+                    disabled={pendingAction !== null}
+                  >
+                    <UserRound aria-hidden="true" />
+                    {t('incidents.incident.detail.assign.action', 'Assign')}
+                  </Button>
+                ) : null}
+                <MergeLinkHeaderActions
+                  incidentId={data.id}
+                  updatedAt={data.updated_at}
+                  canManage={canManage}
+                  hidden={isMerged || data.status === 'closed'}
+                  onChanged={() => void loadData()}
+                />
               </div>
             </div>
             <div className="mt-4">
@@ -759,7 +952,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   <TimelinePanel
                     incidentId={data.id}
                     updatedAt={data.updated_at}
-                    canManage={canManage}
+                    canManage={canMutateIncident}
                     onChanged={() => void loadData()}
                   />
                 </div>
@@ -796,9 +989,25 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 updatedAt={data.updated_at}
                 revenueAtRiskMinor={data.revenue_at_risk_minor ?? null}
                 revenueAtRiskCurrency={data.revenue_at_risk_currency ?? null}
-                canManage={canManage}
+                canManage={canMutateIncident}
                 onChanged={() => void loadData()}
               />
+
+              <ActionItemsPanel
+                incidentId={data.id}
+                updatedAt={data.updated_at}
+                canManage={canMutateIncident}
+                onChanged={() => void loadData()}
+              />
+
+              {canViewPostmortem ? (
+                <PostmortemPanel
+                  incidentId={data.id}
+                  updatedAt={data.updated_at}
+                  canManage={canMutatePostmortem}
+                  onChanged={() => void loadData()}
+                />
+              ) : null}
             </main>
 
             <aside className="space-y-6">
@@ -823,7 +1032,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   </div>
                   <div>
                     <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.owner')}</dt>
-                    <dd className="mt-1 break-all text-foreground">{data.owner_user_id ?? t('incidents.incident.owner.unassigned')}</dd>
+                    <dd className="mt-1 break-words text-foreground">{ownerLabel}</dd>
                   </div>
                   <div>
                     <dt className="text-muted-foreground">{t('incidents.incident.detail.fields.team')}</dt>
@@ -838,7 +1047,7 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                   <ParticipantsPanel
                     incidentId={data.id}
                     updatedAt={data.updated_at}
-                    canManage={canManage}
+                    canManage={canMutateIncident}
                     onChanged={() => void loadData()}
                   />
                 </div>
@@ -852,7 +1061,14 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
                 escalationRepeatsDone={data.escalation_repeats_done ?? null}
                 nextEscalationAt={data.next_escalation_at ?? null}
                 escalationLastTargets={data.escalation_last_targets ?? null}
-                canManage={canManage}
+                canManage={canMutateIncident}
+                onChanged={() => void loadData()}
+              />
+
+              <IncidentLinksPanel
+                incidentId={data.id}
+                updatedAt={data.updated_at}
+                canManage={canMutateIncident}
                 onChanged={() => void loadData()}
               />
 
@@ -942,6 +1158,47 @@ export default function IncidentDetailPage({ params }: { params?: { id?: string 
             </DialogFooter>
           </DialogContent>
         </Dialog>
+        <Dialog open={assignDialogOpen} onOpenChange={setAssignDialogOpen}>
+          <DialogContent className="sm:max-w-lg" onKeyDown={handleAssignDialogKeyDown}>
+            <DialogHeader>
+              <DialogTitle>{t('incidents.incident.detail.assign.title', 'Assign owner')}</DialogTitle>
+              <DialogDescription>
+                {t('incidents.incident.detail.assign.description', 'Choose the user responsible for this incident, or clear the field to leave it unassigned.')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2">
+              <Label htmlFor="incident-assign-owner">
+                {t('incidents.incident.detail.assign.ownerLabel', 'Owner')}
+              </Label>
+              <UserSelect
+                id="incident-assign-owner"
+                value={assignOwnerUserId}
+                onChange={setAssignOwnerUserId}
+                nullable
+                disabled={pendingAction === 'assign'}
+                placeholder={t('incidents.incident.detail.assign.ownerPlaceholder', 'Select owner')}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setAssignDialogOpen(false)}
+                disabled={pendingAction === 'assign'}
+              >
+                {t('incidents.incident.detail.assign.cancel', 'Cancel')}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => void handleAssignDialogSubmit()}
+                disabled={pendingAction === 'assign'}
+              >
+                {t('incidents.incident.detail.assign.submit', 'Save owner')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

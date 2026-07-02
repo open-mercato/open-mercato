@@ -15,7 +15,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { Incident, IncidentPostmortem, IncidentSeverity, IncidentTimelineEntry, IncidentType } from '../data/entities'
+import { Incident, IncidentImpact, IncidentPostmortem, IncidentSeverity, IncidentTimelineEntry, IncidentType } from '../data/entities'
 import type { IncidentEscalationTarget } from '../data/entities'
 import {
   acknowledgeSchema,
@@ -73,6 +73,7 @@ type ActionLogLabel = {
 type TimelineKind =
   | 'ack'
   | 'status_change'
+  | 'reopened'
   | 'severity_change'
   | 'assignment'
   | 'escalation'
@@ -194,13 +195,26 @@ async function loadIncidentForAction(
   return incident
 }
 
-export function assertIncidentMutable(incident: Incident, options?: { allowClosed?: boolean }): void {
+export function assertIncidentNotMerged(incident: Incident): void {
   if (incident.mergedIntoIncidentId) {
-    throw new CrudHttpError(409, { error: '[internal] incident is merged and read-only' })
+    throw new CrudHttpError(409, { error: '[internal] incident_merged' })
   }
+}
+
+export function assertIncidentMutable(incident: Incident, options?: { allowClosed?: boolean }): void {
+  assertIncidentNotMerged(incident)
   if (incident.status === 'closed' && !options?.allowClosed) {
     throw new CrudHttpError(409, { error: '[internal] incident is closed' })
   }
+}
+
+export function applyIncidentCloseCascade(incident: Incident, now: Date): void {
+  incident.status = 'closed'
+  incident.resolvedAt = incident.resolvedAt ?? now
+  incident.closedAt = now
+  incident.nextEscalationAt = null
+  incident.snoozedUntil = null
+  escalationService.clearEscalationForResolveClose(incident)
 }
 
 async function enforceIncidentOptimisticLock(
@@ -255,6 +269,82 @@ function eventPayload(
     tenantId: scope.tenantId,
     ...extra,
     ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
+  }
+}
+
+const CUSTOMER_IMPACT_TARGET_TYPES = ['customer_account', 'customer_person', 'customer_company'] as const
+
+export async function resolveIncidentAccountTargetIds(
+  em: EntityManager,
+  scope: IncidentScope,
+  incidentId: string,
+): Promise<string[]> {
+  const impacts = await em.find(
+    IncidentImpact,
+    {
+      incidentId,
+      ...scope,
+      targetType: { $in: CUSTOMER_IMPACT_TARGET_TYPES },
+      deletedAt: null,
+    },
+    { fields: ['targetId'] as const },
+  )
+  return Array.from(new Set(
+    impacts
+      .map((impact) => impact.targetId ?? null)
+      .filter((targetId): targetId is string => typeof targetId === 'string' && targetId.length > 0),
+  ))
+}
+
+async function resolvePortalRecipientGroups(
+  ctx: CommandRuntimeContext,
+  incident: Incident,
+  accountTargetIds: string[],
+): Promise<string[][]> {
+  if (accountTargetIds.length === 0) return []
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const placeholders = accountTargetIds.map(() => '?').join(', ')
+    const rows = await em.getConnection().execute<{ id: string; customer_entity_id: string | null; person_entity_id: string | null }[]>(
+      `select "id", "customer_entity_id", "person_entity_id" from "customer_users" where "tenant_id" = ? and "organization_id" = ? and "is_active" = true and ("customer_entity_id" in (${placeholders}) or "person_entity_id" in (${placeholders}))`,
+      [incident.tenantId, incident.organizationId, ...accountTargetIds, ...accountTargetIds],
+    )
+    const groups: string[][] = []
+    for (const targetId of accountTargetIds) {
+      const recipientUserIds = Array.from(new Set(
+        rows
+          .filter((row) => row.customer_entity_id === targetId || row.person_entity_id === targetId)
+          .map((row) => row.id)
+          .filter((id) => typeof id === 'string' && id.length > 0),
+      ))
+      if (recipientUserIds.length > 0) groups.push(recipientUserIds)
+    }
+    return groups
+  } catch {
+    return []
+  }
+}
+
+export async function emitIncidentCustomerUpdated(
+  ctx: CommandRuntimeContext,
+  incident: Incident,
+  accountTargetIds: string[],
+): Promise<void> {
+  const recipientGroups = await resolvePortalRecipientGroups(ctx, incident, accountTargetIds)
+  for (const recipientUserIds of recipientGroups) {
+    await emitIncidentsEvent(
+      'incidents.incident.customer_updated',
+      {
+        incidentId: incident.id,
+        organizationId: incident.organizationId,
+        tenantId: incident.tenantId,
+        status: incident.status,
+        number: incident.number,
+        recipientUserIds,
+        ...(ctx.syncOrigin ? { syncOrigin: ctx.syncOrigin } : {}),
+      },
+      { persistent: true },
+    )
   }
 }
 
@@ -413,6 +503,7 @@ const acknowledgeIncidentCommand: CommandHandler<IncidentAcknowledgeInput, Incid
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     if (incident.acknowledgedAt) {
@@ -478,6 +569,7 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident, { allowClosed: true })
 
     const from = incident.status
@@ -505,6 +597,9 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
 
     const now = new Date()
     const actorUserId = resolveActorUserId(ctx)
+    const timelineKind: TimelineKind = to === 'open' && (from === 'resolved' || from === 'closed')
+      ? 'reopened'
+      : 'status_change'
     let timelineEntry: IncidentTimelineEntry | null = null
     await withAtomicFlush(em, [
       () => {
@@ -516,11 +611,7 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
           incident.snoozedUntil = null
           escalationService.clearEscalationForResolveClose(incident)
         } else if (to === 'closed') {
-          incident.resolvedAt = incident.resolvedAt ?? now
-          incident.closedAt = now
-          incident.nextEscalationAt = null
-          incident.snoozedUntil = null
-          escalationService.clearEscalationForResolveClose(incident)
+          applyIncidentCloseCascade(incident, now)
         } else if (to === 'open') {
           incident.resolvedAt = null
           incident.closedAt = null
@@ -545,7 +636,7 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
           em,
           scope,
           incidentId: incident.id,
-          kind: 'status_change',
+          kind: timelineKind,
           actorUserId,
           metadata: { from, to },
           now,
@@ -560,6 +651,10 @@ const transitionIncidentCommand: CommandHandler<IncidentTransitionInput, Inciden
     if (to === 'closed') await emitLifecycleEvent('incidents.incident.closed', statusPayload)
     if (to === 'open' && (from === 'resolved' || from === 'closed')) {
       await emitLifecycleEvent('incidents.incident.reopened', statusPayload)
+    }
+    const accountTargetIds = await resolveIncidentAccountTargetIds(em, scope, incident.id)
+    if (accountTargetIds.length > 0) {
+      await emitIncidentCustomerUpdated(ctx, incident, accountTargetIds)
     }
     await emitTimelineAdded(ctx, scope, timelineEntry)
 
@@ -588,6 +683,7 @@ const changeSeverityIncidentCommand: CommandHandler<IncidentChangeSeverityInput,
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     const severity = await em.findOne(IncidentSeverity, { id: parsed.severityId, ...scope, deletedAt: null })
@@ -645,6 +741,7 @@ const assignIncidentCommand: CommandHandler<IncidentAssignInput, IncidentActionR
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     const previousOwnerUserId = incident.ownerUserId ?? null
@@ -710,6 +807,7 @@ const escalateIncidentCommand: CommandHandler<IncidentEscalateInput, IncidentAct
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     const now = new Date()
@@ -760,6 +858,7 @@ const snoozeIncidentCommand: CommandHandler<IncidentSnoozeInput, IncidentActionR
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const incident = await loadIncidentForAction(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, incident)
+    assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
     const until = new Date(parsed.until)

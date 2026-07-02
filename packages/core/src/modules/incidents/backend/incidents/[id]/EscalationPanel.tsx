@@ -19,6 +19,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { useUserLabels } from '../components/useUserLabels'
 
 type EscalationTarget = {
   type: string
@@ -94,22 +95,29 @@ function positiveNumber(value: number | null | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null
 }
 
-function targetDisplayLabel(target: EscalationTarget): string {
+function targetDisplayLabel(target: EscalationTarget, userLabels: Record<string, string>): string {
   const label = target.label?.trim()
-  return label && label.length > 0 ? label : target.type
+  if (label && label.length > 0) return label
+  if (target.type === 'user') return userLabels[target.id] ?? target.id
+  return target.type
+}
+
+function recipientDisplayLabel(recipient: EscalationRecipient, userLabels: Record<string, string>): string {
+  const label = recipient.label?.trim()
+  if (label && label.length > 0) return label
+  return userLabels[recipient.userId] ?? recipient.userId
 }
 
 function summarizeTargets(
-  t: ReturnType<typeof useT>,
   targets: readonly EscalationTarget[] | null | undefined,
   recipients: readonly EscalationRecipient[] | null | undefined,
+  userLabels: Record<string, string>,
 ): string {
   if (targets && targets.length > 0) {
-    return targets.map(targetDisplayLabel).join(', ')
+    return targets.map((target) => targetDisplayLabel(target, userLabels)).join(', ')
   }
-  const recipientCount = recipients?.length ?? 0
-  return recipientCount > 0
-    ? t('incidents.incident.detail.escalation.recipients', { count: recipientCount })
+  return recipients && recipients.length > 0
+    ? recipients.map((recipient) => recipientDisplayLabel(recipient, userLabels)).join(', ')
     : ''
 }
 
@@ -163,6 +171,26 @@ export function EscalationPanel({
     resourceId: incidentId,
     retryLastMutation,
   }), [contextId, incidentId, retryLastMutation])
+  const userIdsToResolve = React.useMemo(() => {
+    const ids: string[] = []
+    const collectTarget = (target: EscalationTarget) => {
+      if (target.type === 'user' && !target.label?.trim()) ids.push(target.id)
+    }
+    const collectRecipient = (recipient: EscalationRecipient) => {
+      if (!recipient.label?.trim()) ids.push(recipient.userId)
+    }
+    escalationLastTargets?.targets?.forEach(collectTarget)
+    escalationLastTargets?.recipients?.forEach(collectRecipient)
+    preview?.targets.forEach(collectTarget)
+    preview?.recipients.forEach(collectRecipient)
+    return ids
+  }, [
+    escalationLastTargets?.recipients,
+    escalationLastTargets?.targets,
+    preview?.recipients,
+    preview?.targets,
+  ])
+  const userLabels = useUserLabels(userIdsToResolve)
 
   const fetchPreview = React.useCallback(async (): Promise<EscalationPreviewResponse | null> => {
     const result = await apiCall<EscalationPreviewResponse>(
@@ -204,14 +232,17 @@ export function EscalationPanel({
   }, [escalationLevel, preview?.stepCount, status, t])
 
   const notifiedSummary = React.useMemo(() => summarizeTargets(
-    t,
     escalationLastTargets?.targets,
     escalationLastTargets?.recipients,
-  ), [escalationLastTargets?.recipients, escalationLastTargets?.targets, t])
+    userLabels,
+  ), [escalationLastTargets?.recipients, escalationLastTargets?.targets, userLabels])
 
   const nextSummary = React.useMemo(() => preview
-    ? summarizeTargets(t, preview.targets, preview.recipients)
-    : '', [preview, t])
+    ? summarizeTargets(preview.targets, preview.recipients, userLabels)
+    : '', [preview, userLabels])
+  const previewRecipientLabels = React.useMemo(() => (
+    preview?.recipients.map((recipient) => recipientDisplayLabel(recipient, userLabels)) ?? []
+  ), [preview?.recipients, userLabels])
 
   const nextLine = React.useMemo(() => {
     if (status !== 'active' || !nextEscalationAt) return null
@@ -363,14 +394,14 @@ export function EscalationPanel({
                       key={`${target.type}:${target.id}`}
                       className="rounded-full border border-border bg-background px-2 py-1 text-xs text-foreground"
                     >
-                      {targetDisplayLabel(target)}
+                      {targetDisplayLabel(target, userLabels)}
                     </li>
                   ))}
                 </ul>
               ) : null}
               {preview.recipients.length > 0 ? (
                 <p className="text-xs text-muted-foreground">
-                  ({t('incidents.incident.detail.escalation.recipients', { count: preview.recipients.length })})
+                  ({previewRecipientLabels.join(', ')})
                 </p>
               ) : null}
             </div>

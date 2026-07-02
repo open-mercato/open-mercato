@@ -24,6 +24,8 @@ import {
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { UserSelect } from '../components/UserSelect'
+import { useUserLabels } from '../components/useUserLabels'
 
 type ParticipantKind = 'responder' | 'subscriber'
 
@@ -104,6 +106,8 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
     resourceId: incidentId,
     retryLastMutation,
   }), [contextId, incidentId, retryLastMutation])
+  const participantUserIds = React.useMemo(() => items.map((item) => item.userId), [items])
+  const userLabels = useUserLabels(participantUserIds)
 
   React.useEffect(() => {
     setCurrentUpdatedAt(updatedAt ?? null)
@@ -268,39 +272,42 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
     <div className="space-y-4">
       {items.length > 0 ? (
         <ul className="space-y-2">
-          {items.map((participant) => (
-            <li key={participant.id} className="flex items-center gap-3 rounded-md border border-border bg-background p-2">
-              <Avatar
-                label={participant.userId}
-                size="sm"
-                variant="monochrome"
-                ariaLabel={t('incidents.incident.detail.participants.avatarLabel', { id: participant.userId })}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-foreground">{participant.userId}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2">
-                  <StatusBadge variant={kindVariant(participant.kind)} dot>
-                    {kindLabel(t, participant.kind)}
-                  </StatusBadge>
-                  <span className="text-xs text-muted-foreground">
-                    {participant.roleId ?? t('incidents.incident.detail.participants.noRole')}
-                  </span>
-                </div>
-              </div>
-              {canManage ? (
-                <IconButton
-                  type="button"
-                  variant="ghost"
+          {items.map((participant) => {
+            const participantLabel = userLabels[participant.userId] ?? participant.userId
+            return (
+              <li key={participant.id} className="flex items-center gap-3 rounded-md border border-border bg-background p-2">
+                <Avatar
+                  label={participantLabel}
                   size="sm"
-                  aria-label={t('incidents.incident.detail.participants.removeAriaLabel', { id: participant.userId })}
-                  disabled={pending}
-                  onClick={() => void handleRemove(participant)}
-                >
-                  <X aria-hidden="true" />
-                </IconButton>
-              ) : null}
-            </li>
-          ))}
+                  variant="monochrome"
+                  ariaLabel={t('incidents.incident.detail.participants.avatarLabel', { id: participantLabel })}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-foreground">{participantLabel}</p>
+                  <div className="mt-1 flex flex-wrap items-center gap-2">
+                    <StatusBadge variant={kindVariant(participant.kind)} dot>
+                      {kindLabel(t, participant.kind)}
+                    </StatusBadge>
+                    <span className="text-xs text-muted-foreground">
+                      {participant.roleId ?? t('incidents.incident.detail.participants.noRole')}
+                    </span>
+                  </div>
+                </div>
+                {canManage ? (
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={t('incidents.incident.detail.participants.removeAriaLabel', { id: participantLabel })}
+                    disabled={pending}
+                    onClick={() => void handleRemove(participant)}
+                  >
+                    <X aria-hidden="true" />
+                  </IconButton>
+                ) : null}
+              </li>
+            )
+          })}
         </ul>
       ) : (
         <EmptyState
@@ -320,13 +327,12 @@ export function ParticipantsPanel({ incidentId, updatedAt, canManage, onChanged 
             <div className="grid gap-3">
               <div className="space-y-2">
                 <Label htmlFor="incident-participant-user">
-                  {t('incidents.incident.detail.participants.fields.userId')}
+                  {t('incidents.userSelect.label', 'User')}
                 </Label>
-                <Input
+                <UserSelect
                   id="incident-participant-user"
                   value={userId}
-                  onChange={(event) => setUserId(event.currentTarget.value)}
-                  placeholder={t('incidents.incident.detail.participants.placeholders.userId')}
+                  onChange={(next) => setUserId(next ?? '')}
                   disabled={pending}
                 />
               </div>

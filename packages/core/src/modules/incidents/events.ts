@@ -22,10 +22,10 @@ const events = [
   { id: 'incidents.impact.added', label: 'Incident Impact Added', entity: 'impact', category: 'crud', clientBroadcast: true },
   { id: 'incidents.impact.updated', label: 'Incident Impact Updated', entity: 'impact', category: 'crud', clientBroadcast: true },
   { id: 'incidents.impact.removed', label: 'Incident Impact Removed', entity: 'impact', category: 'crud', clientBroadcast: true },
-  { id: 'incidents.action_item.created', label: 'Action Item Created', entity: 'action_item', category: 'crud' },
-  { id: 'incidents.action_item.completed', label: 'Action Item Completed', entity: 'action_item', category: 'lifecycle' },
-  { id: 'incidents.postmortem.created', label: 'Postmortem Created', entity: 'postmortem', category: 'crud' },
-  { id: 'incidents.postmortem.published', label: 'Postmortem Published', entity: 'postmortem', category: 'lifecycle' },
+  { id: 'incidents.action_item.created', label: 'Action Item Created', entity: 'action_item', category: 'crud', clientBroadcast: true },
+  { id: 'incidents.action_item.completed', label: 'Action Item Completed', entity: 'action_item', category: 'lifecycle', clientBroadcast: true },
+  { id: 'incidents.postmortem.created', label: 'Postmortem Created', entity: 'postmortem', category: 'crud', clientBroadcast: true },
+  { id: 'incidents.postmortem.published', label: 'Postmortem Published', entity: 'postmortem', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'incidents', events })
