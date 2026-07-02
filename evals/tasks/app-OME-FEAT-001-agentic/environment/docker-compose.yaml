@@ -1,0 +1,51 @@
+# Multi-container eval environment (Daytona-compatible; agent service MUST be "main").
+# Services mirror the create-mercato-app scaffold's own docker-compose.yml so the
+# standalone app boots exactly as it would locally.
+services:
+  main:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      meilisearch:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/open-mercato
+      REDIS_URL: redis://redis:6379
+      EVENTS_REDIS_URL: redis://redis:6379
+      CACHE_REDIS_URL: redis://redis:6379
+      MEILISEARCH_HOST: http://meilisearch:7700
+    # Kept alive by Harbor; the agent and verifier exec into this container.
+    command: ["sleep", "infinity"]
+
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: open-mercato
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d open-mercato"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    environment:
+      MEILI_NO_ANALYTICS: "true"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:7700/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
