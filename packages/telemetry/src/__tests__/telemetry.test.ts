@@ -134,4 +134,22 @@ describe('telemetry facade', () => {
     expect(spanNames).toContain('queue.orders-process')
     expect(remoteCarriers[0]?.traceparent).toBe('test-traceparent')
   })
+
+  it('redacts secret-keyed attributes in the reported error context before they ship', async () => {
+    const { provider, logs } = recordingProvider()
+    registerProvider(provider)
+    await initTelemetry()
+
+    reportError(new Error('request failed'), {
+      module: 'integrations',
+      attributes: { authorization: 'Bearer sk_live_abc', 'http.route': '/api/sync', 'x-api-key': 'key_123' },
+    })
+
+    const record = logs.find((l) => l.level === 'error')
+    expect(record?.attributes?.authorization).toBe('[redacted]')
+    expect(record?.attributes?.['x-api-key']).toBe('[redacted]')
+    // low-cardinality, non-secret attributes are preserved
+    expect(record?.attributes?.['http.route']).toBe('/api/sync')
+    expect(record?.attributes?.module).toBe('integrations')
+  })
 })
