@@ -35,6 +35,7 @@ import {
   type EditorPriority,
 } from '../../lib/calendar/editorPayload'
 import type { ConflictScope } from '../../lib/calendar/preferences'
+import { renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { normalizeCustomFieldSubmitValue } from '../detail/customFieldUtils'
 import type { CalendarItem } from './types'
 import { Field } from './editor/inputs'
@@ -56,6 +57,7 @@ export interface CalendarEventEditorProps {
   defaultRange?: { start: Date; end: Date } | null
   typeLabels: Record<string, string>
   typeColors: Record<string, string | null>
+  typeIcons?: Record<string, string | null>
   surfacedTypes?: string[]
   eventCategories?: string[]
   conflictScope?: ConflictScope
@@ -96,6 +98,7 @@ type EditorBodyProps = {
   item?: CalendarItem | null
   typeLabels: Record<string, string>
   typeColors: Record<string, string | null>
+  typeIcons: Record<string, string | null>
   surfacedTypes: string[]
   eventCategories: string[]
   conflictScope: ConflictScope
@@ -111,6 +114,7 @@ function EditorBody({
   item,
   typeLabels,
   typeColors,
+  typeIcons,
   surfacedTypes,
   eventCategories,
   conflictScope,
@@ -156,8 +160,17 @@ function EditorBody({
 
   const selectedType = form.category ?? form.kind
   const typeOptions = React.useMemo(
-    () => buildEditorTypeOptions({ typeLabels, selectedValue: selectedType, kindLabels }),
-    [typeLabels, selectedType, kindLabels],
+    () => buildEditorTypeOptions({ typeLabels, typeIcons, selectedValue: selectedType, kindLabels }),
+    [typeLabels, typeIcons, selectedType, kindLabels],
+  )
+  const typeSwitcherOptions = React.useMemo(
+    () =>
+      typeOptions.map((option) => ({
+        value: option.value,
+        label: option.label,
+        icon: renderDictionaryIcon(option.icon, 'h-4 w-4'),
+      })),
+    [typeOptions],
   )
 
   const categoryOptions = React.useMemo(
@@ -179,8 +192,11 @@ function EditorBody({
       : t('customers.calendar.editor.titleLabel.generic', 'Title')
 
   return (
-    // Single column on phones (full-screen sheet); two columns on lg+ where the
-    // dialog widens — long/structural fields span both columns, compact fields pair up.
+    // Single column on phones (full-screen sheet). On lg+ the dialog widens and
+    // the fields group into two thematic columns: WHEN (schedule + repeat) on
+    // the left, CONTEXT (related record, category, location) on the right;
+    // people/resources and the task fields pair up below; title, description
+    // and the type switcher span both columns.
     <div className="grid w-full grid-cols-1 items-start gap-5 lg:grid-cols-2 lg:gap-x-6">
       {conflict ? (
         <Alert variant="warning" className="rounded-lg lg:col-span-2">
@@ -193,7 +209,7 @@ function EditorBody({
           ariaLabel={t('customers.calendar.editor.typeSwitcher', 'Event type')}
           value={selectedType}
           onChange={(type) => update({ kind: editorKindOfInteractionType(type), category: type })}
-          options={typeOptions}
+          options={typeSwitcherOptions}
         />
       </div>
       <Field label={titleLabel} error={errors.title} className="lg:col-span-2">
@@ -207,17 +223,7 @@ function EditorBody({
           size="lg"
         />
       </Field>
-      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo} className="lg:col-span-2">
-        <RelatedToField
-          label={t('customers.calendar.editor.relatedTo', 'Related to')}
-          value={form.relatedTo}
-          deal={form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null}
-          onChange={(relatedTo) => update({ relatedTo })}
-          onDealChange={(deal) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null })}
-          error={errors.relatedTo}
-        />
-      </Field>
-      <div className="w-full lg:col-span-2">
+      <div className="flex w-full flex-col gap-5">
       <ScheduleSection
         dateLabel={config.dateLabel}
         hasAllDay={config.hasAllDay}
@@ -243,9 +249,7 @@ function EditorBody({
         onEndDateChange={(endDate) => update({ endDate })}
         onEndTimeChange={(endTime) => update({ endTime })}
       />
-      </div>
       {config.hasRepeat ? (
-        <div className="w-full lg:col-span-2">
         <RepeatField
           freq={form.repeatFreq}
           days={form.repeatDays}
@@ -265,8 +269,19 @@ function EditorBody({
           onCountChange={(repeatCount) => update({ repeatCount })}
           onUntilDateChange={(repeatUntilDate) => update({ repeatUntilDate })}
         />
-        </div>
       ) : null}
+      </div>
+      <div className="flex w-full flex-col gap-5">
+      <Field label={t('customers.calendar.editor.relatedTo', 'Related to')} error={errors.relatedTo}>
+        <RelatedToField
+          label={t('customers.calendar.editor.relatedTo', 'Related to')}
+          value={form.relatedTo}
+          deal={form.dealId && form.dealLabel ? { id: form.dealId, label: form.dealLabel } : null}
+          onChange={(relatedTo) => update({ relatedTo })}
+          onDealChange={(deal) => update({ dealId: deal?.id ?? null, dealLabel: deal?.label ?? null })}
+          error={errors.relatedTo}
+        />
+      </Field>
       <Field label={t('customers.calendar.editor.category', 'Category')}>
         <CategoryField
           label={t('customers.calendar.editor.category', 'Category')}
@@ -277,12 +292,14 @@ function EditorBody({
         />
       </Field>
       {config.location ? (
-        <div className="w-full">
-          <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
-        </div>
+        <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
       ) : null}
+      </div>
       {config.people && config.people !== 'assignee' ? (
-        <Field label={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}>
+        <Field
+          label={t(PEOPLE_FIELD_TEXT[config.people].labelKey, PEOPLE_FIELD_TEXT[config.people].label)}
+          className={resourcesEnabled ? undefined : 'lg:col-span-2'}
+        >
           <PeopleField
             mode="multi"
             includeCustomers
@@ -358,6 +375,7 @@ export function CalendarEventEditor({
   defaultRange,
   typeLabels,
   typeColors,
+  typeIcons,
   surfacedTypes,
   eventCategories,
   conflictScope,
@@ -462,6 +480,7 @@ export function CalendarEventEditor({
             item={item}
             typeLabels={typeLabels}
             typeColors={typeColors}
+            typeIcons={typeIcons ?? {}}
             surfacedTypes={surfacedTypes ?? []}
             eventCategories={eventCategories ?? []}
             conflictScope={conflictScope ?? 'all'}
@@ -473,7 +492,7 @@ export function CalendarEventEditor({
       },
       { id: 'customFields', kind: 'customFields' },
     ],
-    [open, isEdit, item, typeLabels, typeColors, surfacedTypes, eventCategories, conflictScope, currentUserId, resourcesEnabled, staffEnabled],
+    [open, isEdit, item, typeLabels, typeColors, typeIcons, surfacedTypes, eventCategories, conflictScope, currentUserId, resourcesEnabled, staffEnabled],
   )
 
   const handleKeyDown = useDialogKeyHandler({

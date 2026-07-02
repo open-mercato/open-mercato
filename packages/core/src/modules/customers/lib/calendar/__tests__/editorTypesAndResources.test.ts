@@ -37,22 +37,29 @@ describe('buildEditorTypeOptions (#3552 — dictionary-driven type switcher)', (
   }
 
   it('renders every dictionary entry, including tenant-added custom types', () => {
-    const options = buildEditorTypeOptions({ typeLabels, selectedValue: 'meeting', kindLabels: KIND_LABELS })
+    const options = buildEditorTypeOptions({
+      typeLabels,
+      typeIcons: { meeting: 'lucide:users', 'customer-visit': 'lucide:map-pin' },
+      selectedValue: 'meeting',
+      kindLabels: KIND_LABELS,
+    })
     expect(options).toEqual([
-      { value: 'meeting', label: 'Meeting' },
-      { value: 'call', label: 'Call' },
-      { value: 'customer-visit', label: 'Customer visit' },
+      { value: 'meeting', label: 'Meeting', icon: 'lucide:users' },
+      // No dictionary icon — falls back to the seeded icon of the mapped kind.
+      { value: 'call', label: 'Call', icon: 'lucide:phone-call' },
+      { value: 'customer-visit', label: 'Customer visit', icon: 'lucide:map-pin' },
     ])
   })
 
   it('falls back to the built-in kinds when the dictionary is empty', () => {
     const options = buildEditorTypeOptions({ typeLabels: {}, selectedValue: 'meeting', kindLabels: KIND_LABELS })
     expect(options.map((option) => option.value)).toEqual(['meeting', 'call', 'email', 'note', 'event', 'task'])
+    expect(options.every((option) => typeof option.icon === 'string' && option.icon.startsWith('lucide:'))).toBe(true)
   })
 
   it('prepends a selected value missing from the dictionary (e.g. a deleted type on an old event)', () => {
     const options = buildEditorTypeOptions({ typeLabels, selectedValue: 'webinar', kindLabels: KIND_LABELS })
-    expect(options[0]).toEqual({ value: 'webinar', label: 'Event' })
+    expect(options[0]).toEqual({ value: 'webinar', label: 'Event', icon: 'lucide:calendar' })
     expect(options).toHaveLength(4)
   })
 })

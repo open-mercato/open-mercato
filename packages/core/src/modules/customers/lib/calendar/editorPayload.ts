@@ -45,7 +45,17 @@ export function editorKindOfInteractionType(interactionType: string): EditorKind
   return KIND_BY_INTERACTION_TYPE[interactionType] ?? 'meeting'
 }
 
-export type EditorTypeOption = { value: string; label: string }
+export type EditorTypeOption = { value: string; label: string; icon: string | null }
+
+/** Fallback switcher icons matching the seeded dictionary appearance icons. */
+export const EDITOR_KIND_ICONS: Record<EditorKind, string> = {
+  meeting: 'lucide:users',
+  call: 'lucide:phone-call',
+  email: 'lucide:mail',
+  note: 'lucide:notebook',
+  event: 'lucide:calendar',
+  task: 'lucide:check-square',
+}
 
 /**
  * Builds the editor's type-switcher options from the tenant `activity-types`
@@ -54,22 +64,27 @@ export type EditorTypeOption = { value: string; label: string }
  * `editorKindOfInteractionType` (custom types get the meeting-shaped default).
  * Falls back to the built-in kinds when the dictionary is empty/unavailable,
  * and always includes the currently selected value (e.g. a since-deleted type
- * on an existing event).
+ * on an existing event). Icons come from the dictionary entry appearance with
+ * the seeded kind icons as fallback.
  */
 export function buildEditorTypeOptions(params: {
   typeLabels: Record<string, string>
+  typeIcons?: Record<string, string | null>
   selectedValue: string
   kindLabels: Record<EditorKind, string>
 }): EditorTypeOption[] {
-  const { typeLabels, selectedValue, kindLabels } = params
+  const { typeLabels, typeIcons, selectedValue, kindLabels } = params
+  const iconOf = (value: string): string | null =>
+    typeIcons?.[value] ?? EDITOR_KIND_ICONS[editorKindOfInteractionType(value)] ?? null
   const dictionaryEntries = Object.entries(typeLabels)
   const options: EditorTypeOption[] = dictionaryEntries.length
-    ? dictionaryEntries.map(([value, label]) => ({ value, label }))
-    : EDITOR_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))
+    ? dictionaryEntries.map(([value, label]) => ({ value, label, icon: iconOf(value) }))
+    : EDITOR_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind], icon: EDITOR_KIND_ICONS[kind] }))
   if (!options.some((option) => option.value === selectedValue)) {
     options.unshift({
       value: selectedValue,
       label: typeLabels[selectedValue] ?? kindLabels[editorKindOfInteractionType(selectedValue)] ?? selectedValue,
+      icon: iconOf(selectedValue),
     })
   }
   return options

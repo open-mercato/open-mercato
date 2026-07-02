@@ -143,7 +143,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
     () => getVisibleRange(view, anchor, agendaHorizonDays),
     [view, anchor, agendaHorizonDays],
   )
-  const { items, isLoading, error, truncated, typeLabels, typeColors, refetch } = useCalendarItems(range)
+  const { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch } = useCalendarItems(range)
 
   React.useEffect(() => {
     if (!isLoading) setHasLoadedOnce(true)
@@ -585,6 +585,7 @@ export function CalendarScreen({ resourcesEnabled = false, staffEnabled = true }
           defaultRange={createRange}
           typeLabels={typeLabels}
           typeColors={typeColors}
+          typeIcons={typeIcons}
           surfacedTypes={preferences.activityTypes}
           eventCategories={preferences.eventCategories}
           conflictScope={preferences.conflictScope}
