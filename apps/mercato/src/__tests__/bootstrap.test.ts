@@ -16,15 +16,17 @@ describe('app bootstrap', () => {
     runBootstrapRegistrationsMock.mockClear()
   })
 
-  it('registers the slim app module manifest instead of the route-aware full registry', async () => {
+  it('registers the bootstrap module manifest instead of route-aware registries', async () => {
     const fullModules = [{ id: 'full', backendRoutes: [{ pattern: '/backend/customers' }] }]
     const appModules = [{ id: 'app-only' }]
+    const bootstrapModules = [{ id: 'bootstrap-only' }]
 
     jest.doMock('@open-mercato/shared/lib/i18n/server', () => ({
       registerAppDictionaryLoader: registerAppDictionaryLoaderMock,
     }))
     jest.doMock('@/.mercato/generated/modules.generated', () => ({ modules: fullModules }))
     jest.doMock('@/.mercato/generated/modules.app.generated', () => ({ modules: appModules }))
+    jest.doMock('@/.mercato/generated/modules.bootstrap.generated', () => ({ modules: bootstrapModules }), { virtual: true })
     jest.doMock('@/.mercato/generated/entities.generated', () => ({ entities: [] }))
     jest.doMock('@/.mercato/generated/di.generated', () => ({ diRegistrars: [] }))
     jest.doMock('@/.mercato/generated/entities.ids.generated', () => ({ E: {} }))
@@ -66,7 +68,8 @@ describe('app bootstrap', () => {
     await import('@/bootstrap')
 
     expect(createBootstrapMock).toHaveBeenCalledTimes(1)
-    expect(createBootstrapMock.mock.calls[0][0].modules).toBe(appModules)
+    expect(createBootstrapMock.mock.calls[0][0].modules).toBe(bootstrapModules)
     expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(fullModules)
+    expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(appModules)
   })
 })
