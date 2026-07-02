@@ -23,12 +23,12 @@ const CHILD_SCRIPT = `
 const { OtlpProvider } = await import('@open-mercato/telemetry/provider/otlp-provider')
 const { setActiveProvider } = await import('@open-mercato/telemetry/provider/registry')
 const { InMemorySpanExporter, SimpleSpanProcessor } = await import('@opentelemetry/sdk-trace-base')
-const { PgInstrumentation } = await import('@opentelemetry/instrumentation-pg')
 
+// No 'instrumentations' override: the provider's DEFAULT list must include the
+// pg instrumentation (with PII-safe options), or this probe records no span.
 const exporter = new InMemorySpanExporter()
 const provider = new OtlpProvider({
   spanProcessors: [new SimpleSpanProcessor(exporter)],
-  instrumentations: [new PgInstrumentation()],
 })
 // start() BEFORE pg is imported — the ordering the CLI bootstrap guarantees.
 await provider.start()
@@ -38,13 +38,16 @@ const pgModule = await import('pg')
 const Client = (pgModule.default ?? pgModule).Client
 const client = new Client({ host: '127.0.0.1', port: 1, connectionTimeoutMillis: 200 })
 try { await client.connect() } catch {}
-try { await client.query('SELECT 1') } catch {}
+try { await client.query('SELECT $1::text', ['pii-sentinel-value']) } catch {}
 await new Promise((resolve) => setTimeout(resolve, 250))
-console.log('SPANS=' + JSON.stringify(exporter.getFinishedSpans().map((s) => s.name)))
+const spans = exporter.getFinishedSpans().map((s) => ({ name: s.name, attributes: s.attributes }))
+console.log('SPANS=' + JSON.stringify(spans))
 process.exit(0)
 `
 
-function runChild(): string[] {
+type ProbeSpan = { name: string; attributes: Record<string, unknown> }
+
+function runChild(): ProbeSpan[] {
   // The script must live inside the package tree: ESM resolves bare specifiers
   // (`@open-mercato/telemetry`, `@opentelemetry/*`, `pg`) relative to the file's
   // location, not the process cwd.
@@ -64,7 +67,7 @@ function runChild(): string[] {
     })
     const line = (result.stdout || '').split('\n').find((l) => l.startsWith('SPANS='))
     if (!line) throw new Error(`child produced no SPANS output.\nstdout: ${result.stdout}\nstderr: ${result.stderr}`)
-    return JSON.parse(line.slice('SPANS='.length)) as string[]
+    return JSON.parse(line.slice('SPANS='.length)) as ProbeSpan[]
   } finally {
     fs.rmSync(scriptFile, { force: true })
   }
@@ -75,8 +78,11 @@ function runChild(): string[] {
 const maybe = fs.existsSync(distProvider) ? describe : describe.skip
 
 maybe('OTLP provider pg instrumentation', () => {
-  it('emits a pg query span when telemetry initializes before pg loads', () => {
-    const spanNames = runChild()
-    expect(spanNames.some((name) => name.startsWith('pg.query'))).toBe(true)
+  it('emits a pg query span (default instrumentations) without leaking bound parameter values', () => {
+    const spans = runChild()
+    expect(spans.some((span) => span.name.startsWith('pg.query'))).toBe(true)
+    // enhancedDatabaseReporting must stay off in the provider's default wiring:
+    // the statement text may appear, bound values must not.
+    expect(JSON.stringify(spans)).not.toContain('pii-sentinel-value')
   }, 35_000)
 })

@@ -6,8 +6,9 @@ import type { Logger, LogRecord, MetricPoint, Span, SpanOptions, TelemetryProvid
  * a below-level record (e.g. info when the level is warn) must not reach
  * `provider.emitLog`, or an OTLP backend silently ships filtered-out logs.
  *
- * The logger binds its level at import time, so each case re-imports it under a
- * fresh env via `jest.isolateModules`.
+ * The logger resolves its level lazily per write (see env-load-order.test.ts),
+ * but each case still runs under `jest.isolateModules` so the memoized env
+ * cache starts fresh regardless of what other tests in this file have read.
  */
 function recordingProvider(logs: LogRecord[]): TelemetryProvider {
   return {

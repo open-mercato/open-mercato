@@ -18,11 +18,15 @@ describe('telemetry env load order (import before .env)', () => {
     for (const key of ENV_KEYS) delete process.env[key]
   })
 
-  afterEach(() => {
+  afterEach(async () => {
     for (const key of ENV_KEYS) {
       if (saved[key] === undefined) delete process.env[key]
       else process.env[key] = saved[key]
     }
+    // The provider registry is globalThis-keyed, so a provider started inside
+    // an isolated module copy outlives it — reset so tests stay independent.
+    const { resetActiveProvider } = await import('../provider/registry')
+    resetActiveProvider()
   })
 
   it('initTelemetry resolves a backend set AFTER the facade was imported', async () => {

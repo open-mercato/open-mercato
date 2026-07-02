@@ -37,7 +37,7 @@ describe('worker shutdown flushes telemetry', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  it('SIGTERM flushes telemetry after queue close and before process.exit', async () => {
+  it('SIGTERM flushes telemetry before process.exit', async () => {
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       mockCallOrder.push(`exit:${code ?? 0}`)
       return undefined as never

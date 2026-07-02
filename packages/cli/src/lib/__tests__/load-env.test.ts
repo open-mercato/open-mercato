@@ -53,4 +53,13 @@ describe('loadAppEnv', () => {
     await expect(loadAppEnv()).resolves.toBeUndefined()
     expect(process.env[TEST_KEY]).toBeUndefined()
   })
+
+  it('bin.ts awaits loadAppEnv() before initTelemetry() (the guarded ordering)', () => {
+    const binSource = fs.readFileSync(path.resolve(__dirname, '../../bin.ts'), 'utf8')
+    const loadEnvCall = binSource.indexOf('await loadAppEnv()')
+    const initTelemetryCall = binSource.indexOf('await initTelemetry()')
+    expect(loadEnvCall).toBeGreaterThan(-1)
+    expect(initTelemetryCall).toBeGreaterThan(-1)
+    expect(loadEnvCall).toBeLessThan(initTelemetryCall)
+  })
 })

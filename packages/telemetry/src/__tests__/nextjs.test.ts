@@ -1,3 +1,5 @@
+import fs from 'node:fs'
+import path from 'node:path'
 import { telemetryServerExternalPackages, recordHttpDuration, registerTelemetryForNextjs } from '../nextjs'
 import { resetTelemetryInit } from '../init'
 import { registerProvider, resetActiveProvider } from '../provider/registry'
@@ -7,9 +9,32 @@ import type { MetricPoint, Span, SpanOptions, TelemetryProvider } from '../types
 
 class RecordingSpan implements Span {
   setAttribute(): void {}
+  setAttributes(): void {}
   recordException(): void {}
   setStatus(): void {}
   end(): void {}
+}
+
+function otelSpecifiersInSource(): string[] {
+  // Scan every source file except nextjs.ts itself (it contains the list under
+  // test) and the tests, so the expected set is derived from what the provider
+  // actually imports rather than a second hand-maintained copy.
+  const specifiers = new Set<string>()
+  const visit = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name === '__tests__') continue
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        visit(full)
+      } else if (entry.name.endsWith('.ts') && full !== path.resolve(__dirname, '../nextjs.ts')) {
+        for (const match of fs.readFileSync(full, 'utf8').matchAll(/['"](@opentelemetry\/[a-z0-9-]+)['"]/g)) {
+          specifiers.add(match[1])
+        }
+      }
+    }
+  }
+  visit(path.resolve(__dirname, '..'))
+  return [...specifiers].sort()
 }
 
 function recordingProvider() {
@@ -47,19 +72,11 @@ describe('telemetry/nextjs helpers', () => {
   })
 
   it('externals list is the full OTEL set the provider loads (no partial-copy footgun)', () => {
-    // Every @opentelemetry/* package otlp-provider.ts can import must be present,
-    // or the bundler re-bundles a patched module and telemetry silently emits nothing.
-    for (const pkg of [
-      '@opentelemetry/api',
-      '@opentelemetry/sdk-node',
-      '@opentelemetry/instrumentation-pg',
-      '@opentelemetry/instrumentation-undici',
-      '@opentelemetry/exporter-trace-otlp-http',
-      '@opentelemetry/exporter-logs-otlp-http',
-      '@opentelemetry/exporter-metrics-otlp-http',
-    ]) {
-      expect(telemetryServerExternalPackages).toContain(pkg)
-    }
+    // Every @opentelemetry/* package the provider imports must be listed, or the
+    // bundler re-bundles a patched module and telemetry silently emits nothing.
+    // Set-equality both ways: a new provider import without a list entry fails,
+    // and so does a stale list entry nothing imports anymore.
+    expect([...telemetryServerExternalPackages].sort()).toEqual(otelSpecifiersInSource())
     expect(telemetryServerExternalPackages.every((p) => p.startsWith('@opentelemetry/'))).toBe(true)
   })
 

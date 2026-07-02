@@ -1,6 +1,14 @@
 // An OTLP backend must be active for the async strategy to delegate tracing to
-// bullmq-otel. Set before any module reads the (memoized) telemetry env.
+// bullmq-otel. Set before any module reads the (memoized) telemetry env, and
+// restored afterwards — process.env is shared across test files in the same
+// jest worker, and a leaked 'otlp' backend breaks sibling telemetry tests.
+const originalTelemetryBackend = process.env.TELEMETRY_BACKEND
 process.env.TELEMETRY_BACKEND = 'otlp'
+
+afterAll(() => {
+  if (originalTelemetryBackend === undefined) delete process.env.TELEMETRY_BACKEND
+  else process.env.TELEMETRY_BACKEND = originalTelemetryBackend
+})
 
 import { createQueue } from '../factory'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'

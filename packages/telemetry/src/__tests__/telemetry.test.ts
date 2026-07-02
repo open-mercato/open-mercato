@@ -95,12 +95,17 @@ describe('telemetry facade', () => {
     registerProvider(provider)
     await initTelemetry()
 
-    withSpan('tutor.turn', (s) => s.setAttributes({ subject: 'math' }))
-    reportError(new Error('kaboom'), { module: 'orders' })
-
+    let asyncWorkDone = false
+    const pending = withSpan('tutor.turn', async (s) => {
+      s.setAttributes({ subject: 'math' })
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      asyncWorkDone = true
+    })
+    expect(span.ended).toBe(false)
+    await pending
+    expect(asyncWorkDone).toBe(true)
+    expect(span.ended).toBe(true)
     expect(span.attributes.subject).toBe('math')
-    expect(span.exceptions).toHaveLength(1)
-    expect(span.status).toBe('error')
   })
 
   it('records a span, exception, error status, error log, and om.errors metric', async () => {
