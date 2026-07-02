@@ -44,6 +44,7 @@ export type BackendChromeBrand = {
   logo?: {
     src: string
     alt?: string
+    preserveAspectRatio?: boolean
   } | null
 }
 

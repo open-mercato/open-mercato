@@ -21,13 +21,13 @@ The missing behavior affects two paths:
 
 ## Proposed Solution
 
-Store the logo URL on `Organization` as a nullable `logoUrl`/`logo_url` field. Add a dedicated branding endpoint for the currently selected organization, then extend backend chrome with an optional `brand` payload. The app shell prefers `brand.logo.src` when present and otherwise keeps the existing static logo prop.
+Store the logo URL and aspect-ratio preference on `Organization` as nullable `logoUrl`/`logo_url` and default-false `logoPreserveAspectRatio`/`logo_preserve_aspect_ratio` fields. Add a dedicated branding endpoint for the currently selected organization, then extend backend chrome with an optional `brand` payload. The app shell prefers `brand.logo.src` when present and otherwise keeps the existing static logo prop.
 
-The settings page lets an administrator either upload an image through `/api/attachments` or paste a valid image URL. Both flows save the final URL through `/api/directory/organization-branding`, so audit, command execution, cache invalidation, and future extension points remain centralized.
+The settings page lets an administrator either upload an image through `/api/attachments` or paste a valid image URL. Both flows save the final URL through `/api/directory/organization-branding`, so audit, command execution, cache invalidation, and future extension points remain centralized. Uploaded files persist the original attachment file URL, not a square thumbnail URL. The sidebar keeps the legacy cropped icon treatment by default, and administrators can explicitly enable a keep-aspect-ratio option for wide or tall organization marks.
 
 ## Scope
 
-- Add nullable `logo_url` to `organizations`.
+- Add nullable `logo_url` and default-false `logo_preserve_aspect_ratio` to `organizations`.
 - Add `/api/directory/organization-branding` for reading/updating the selected organization logo.
 - Add a settings page at `/backend/directory/branding`.
 - Extend `/api/auth/admin/nav` with optional `brand` data consumed by `AppShell`.
@@ -41,14 +41,14 @@ The logo is owned by `Organization`, not by a global module config. Sidebar chro
 type BackendChromePayload = {
   brand?: {
     name?: string
-    logo?: { src: string; alt?: string } | null
+    logo?: { src: string; alt?: string; preserveAspectRatio?: boolean } | null
   } | null
 }
 ```
 
-`AppShell` prefers `payload.brand.logo` over the static `logo` prop. If no custom organization logo exists, the current Open Mercato logo behavior is unchanged.
+`AppShell` prefers `payload.brand.logo` over the static `logo` prop. If no custom organization logo exists, the current Open Mercato logo behavior is unchanged. Custom organization logos use the existing rounded/cropped icon treatment unless `brand.logo.preserveAspectRatio` is true, in which case they render with contained object fit so uploaded wordmarks are not cropped.
 
-The settings page uploads files via `/api/attachments` using `entityId=directory.organization` and `recordId=<organizationId>`, then stores the returned image URL through `/api/directory/organization-branding`. External URLs are validated and stored directly.
+The settings page uploads files via `/api/attachments` using `entityId=directory.organization` and `recordId=<organizationId>`, then stores the returned original file URL through `/api/directory/organization-branding`. External URLs are validated and stored directly.
 
 The branding endpoint resolves organization scope with the same directory scope utilities used elsewhere. It rejects ambiguous "all organizations" scope because a branding write needs a concrete target organization. Writes execute `directory.organizations.update` through the command bus so the standard directory command behavior remains the single write path.
 
@@ -67,12 +67,14 @@ Additive field:
 
 ```ts
 logoUrl?: string | null
+logoPreserveAspectRatio?: boolean
 ```
 
 Database column:
 
 ```sql
 organizations.logo_url text null
+organizations.logo_preserve_aspect_ratio boolean not null default false
 ```
 
 Validation uses `organizationUpdateSchema.shape.logoUrl`. Accepted values are:
@@ -80,6 +82,8 @@ Validation uses `organizationUpdateSchema.shape.logoUrl`. Accepted values are:
 - `null` or empty input, which restores the default Open Mercato logo,
 - external `http`/`https` image URLs,
 - internal `/api/attachments/...` image/file URLs produced by the existing attachments API.
+
+`logoPreserveAspectRatio` defaults to `false`, preserving the prior rounded/cropped sidebar icon behavior unless an administrator explicitly enables the keep-aspect-ratio option.
 
 ### Backend Chrome
 
@@ -91,6 +95,7 @@ brand?: {
   logo?: {
     src: string
     alt?: string
+    preserveAspectRatio?: boolean
   } | null
 } | null
 ```
@@ -129,7 +134,7 @@ No existing `BackendChromePayload` fields are removed or narrowed.
 
 ## UI/UX
 
-Add `/backend/directory/branding` under Directory settings. The page shows the selected organization, a logo preview, a file picker, a URL input, a save action, and a reset action. It dispatches `om:refresh-sidebar` after a successful save so the current shell refreshes its chrome payload.
+Add `/backend/directory/branding` under Directory settings. The page shows the selected organization, a logo preview, a file picker, a URL input, a keep-aspect-ratio toggle that is off by default, a save action, and a reset action. It dispatches `om:refresh-sidebar` after a successful save so the current shell refreshes its chrome payload.
 
 The page uses existing backend primitives (`Page`, `PageHeader`, `PageBody`, `Input`, `Button`, `LoadingMessage`, `ErrorMessage`), `useT` translations, `apiCallOrThrow`/`readApiResultOrThrow`, and `useGuardedMutation`.
 
@@ -155,15 +160,21 @@ Unit/API and UI smoke coverage:
   - current branding render,
   - pasted URL save,
   - reset to default,
-  - upload flow through `/api/attachments` before branding save.
+  - default-off and enabled keep-aspect-ratio preference saves,
+  - upload flow through `/api/attachments` before branding save,
+- uploaded PNG/JPEG/WebP logos persist original attachment file URLs instead of square thumbnails,
+  while external SVG logo URLs remain supported through the URL field,
+  - file picker cancel keeps the pending selected-file preview.
 - `packages/ui/src/backend/__tests__/AppShell.test.tsx`
-  - sidebar logo fallback and custom brand rendering.
+  - sidebar logo fallback and custom brand rendering,
+  - default cropped icon treatment for custom logos,
+  - internal attachment file/image URLs and external URLs render unoptimized with aspect-ratio-preserving containment when enabled.
 
 Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid URL rejection, sidebar refresh behavior, and reset to default. Upload automation was inconclusive in the browser session, so the upload path is covered by the UI unit smoke test and should be rechecked manually after the final CRM deploy is healthy.
 
 ## Migration & Backward Compatibility
 
-- Database schema: additive nullable column `organizations.logo_url`.
+- Database schema: additive columns `organizations.logo_url` and `organizations.logo_preserve_aspect_ratio`.
 - Public API: additive `brand` field in `/api/auth/admin/nav`.
 - Organization CRUD serialization: additive `logoUrl` field.
 - No route removals, import path changes, event ID changes, ACL changes, or widget spot changes.
@@ -178,6 +189,7 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 | Cached sidebar payload keeps an old logo after save | Medium | Backend chrome | Invalidate tenant and organization sidebar tags; dispatch `om:refresh-sidebar` after UI save | Browser may show stale chrome until refresh if an external cache layer ignores tags |
 | Additive nav payload breaks consumers that assume an exact object shape | Low | `/api/auth/admin/nav` clients | Field is optional and nullable; existing fields are unchanged | Consumers with overly strict custom validators may need to allow unknown fields |
 | Uploaded file automation misses a real attachment regression | Medium | Branding page upload UX | Unit smoke covers FormData upload call; manual CRM upload should be repeated after final deploy health is restored | Final deployed upload UX still needs a healthy CRM deploy confirmation |
+| Uploaded wordmark is cropped because a square thumbnail URL is stored or rendered like an icon | Medium | Sidebar visual branding | Store the original attachment file URL and expose an explicit keep-aspect-ratio toggle while keeping the default icon behavior unchanged | Very small sidebars still constrain available width, but the image itself is not cropped when the option is enabled |
 
 ## Final Compliance Report
 
@@ -192,3 +204,5 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 
 - 2026-06-08: Created spec for organization-level sidebar logo branding.
 - 2026-06-08: Updated implementation coverage, API contracts, risk review, and final compliance report after PR audit.
+- 2026-06-23: Clarified uploaded logo aspect-ratio preservation, original attachment URL persistence, additional PNG/JPEG/WebP upload coverage, and external SVG URL coverage.
+- 2026-06-26: Made aspect-ratio preservation an explicit administrator option that is off by default.

@@ -1,4 +1,3 @@
-
 # 0.6.6 (2026-06-26)
 
 ## Highlights
@@ -34,6 +33,7 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🐛 Directory: add an optional keep-aspect-ratio mode for organization sidebar logos.
 - 🐛 Gate calendar event peek Edit button by manage permission. (#3655) *(@adeptofvoltron)*
 - 🐛 Fall back to default Ollama URL when OLLAMA_BASE_URL is empty. (#3642) *(@adeptofvoltron)*
 - 🐛 Defer optimistic-lock floor to authorized record-lock keep-mine. (#3602) *(@pkarw)*

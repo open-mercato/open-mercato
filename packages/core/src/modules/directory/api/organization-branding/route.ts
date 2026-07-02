@@ -29,11 +29,13 @@ const brandingResponseSchema = z.object({
   organizationName: z.string(),
   tenantId: z.string().uuid(),
   logoUrl: z.string().nullable(),
+  logoPreserveAspectRatio: z.boolean(),
   updatedAt: z.string().nullable(),
 })
 
 const brandingUpdateSchema = z.object({
   logoUrl: organizationUpdateSchema.shape.logoUrl,
+  logoPreserveAspectRatio: organizationUpdateSchema.shape.logoPreserveAspectRatio,
 })
 
 const errorSchema = z.object({
@@ -129,6 +131,7 @@ function toResponsePayload(organization: Organization, tenantId: string) {
     organizationName: organization.name,
     tenantId,
     logoUrl: organization.logoUrl ?? null,
+    logoPreserveAspectRatio: !!organization.logoPreserveAspectRatio,
     updatedAt: toIsoOrNull(organization.updatedAt),
   }
 }
@@ -208,7 +211,12 @@ export async function PUT(req: Request) {
       operation: 'update',
       requestMethod: req.method,
       requestHeaders: req.headers,
-      mutationPayload: { logoUrl: parsed.data.logoUrl ?? null },
+      mutationPayload: {
+        logoUrl: parsed.data.logoUrl ?? null,
+        ...(parsed.data.logoPreserveAspectRatio !== undefined
+          ? { logoPreserveAspectRatio: parsed.data.logoPreserveAspectRatio }
+          : {}),
+      },
     })
     if (guardResult && !guardResult.ok) {
       return NextResponse.json(guardResult.body, { status: guardResult.status })
@@ -229,6 +237,9 @@ export async function PUT(req: Request) {
           id: resolved.organizationId,
           tenantId: resolved.tenantId,
           logoUrl: parsed.data.logoUrl ?? null,
+          ...(parsed.data.logoPreserveAspectRatio !== undefined
+            ? { logoPreserveAspectRatio: parsed.data.logoPreserveAspectRatio }
+            : {}),
         },
         ctx,
       },
