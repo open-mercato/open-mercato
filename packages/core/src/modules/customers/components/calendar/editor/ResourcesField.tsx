@@ -1,38 +1,35 @@
 "use client"
 
 import * as React from 'react'
+import { Box, Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
-import type { EditorParticipant } from '../../../lib/calendar/editorPayload'
-import { composeAccessibleName } from '../../../lib/calendar/labels'
-import { searchPeopleOptions, type PersonOption } from './lookups'
-import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS, PersonChip, UppercaseBadge } from './inputs'
+import type { EditorResource } from '../../../lib/calendar/editorPayload'
+import { searchResourceOptions, type ResourceOption } from './lookups'
+import { CONTROL_BORDER, DROPDOWN_PANEL_CLASS } from './inputs'
 
-export function PeopleField({
-  mode,
+// Multi-select of bookable resources (rooms, cars, equipment) from the
+// resources module. Rendered only when that module is loaded — the calendar
+// consumes its public list API and stores FK-id + label snapshots in
+// `linkedEntities`, never resource entities (#3552).
+export function ResourcesField({
   placeholder,
   ariaLabel,
   value,
   onChange,
-  includeCustomers,
-  includeStaff = true,
 }: {
-  mode: 'multi' | 'single'
   placeholder: string
   ariaLabel: string
-  value: EditorParticipant[]
-  onChange(next: EditorParticipant[]): void
-  includeCustomers: boolean
-  /** Pass false when the staff module is not loaded — customer-only options. */
-  includeStaff?: boolean
+  value: EditorResource[]
+  onChange(next: EditorResource[]): void
 }) {
   const t = useT()
   const [query, setQuery] = React.useState('')
   const [open, setOpen] = React.useState(false)
-  const [options, setOptions] = React.useState<PersonOption[]>([])
+  const [options, setOptions] = React.useState<ResourceOption[]>([])
   const [loading, setLoading] = React.useState(false)
 
   React.useEffect(() => {
@@ -42,7 +39,7 @@ export function PeopleField({
     const timer = window.setTimeout(async () => {
       setLoading(true)
       try {
-        const results = await searchPeopleOptions(query.trim(), { includeCustomers, includeStaff, signal: controller.signal })
+        const results = await searchResourceOptions(query.trim(), controller.signal)
         if (cancelled) return
         setOptions(results)
       } catch {
@@ -56,16 +53,10 @@ export function PeopleField({
       controller.abort()
       window.clearTimeout(timer)
     }
-  }, [open, query, includeCustomers, includeStaff])
+  }, [open, query])
 
-  const selectedIds = new Set(value.map((participant) => participant.userId))
-  const visibleOptions = options.filter((option) => !selectedIds.has(option.userId))
-
-  const customerBadge = (
-    <UppercaseBadge className="bg-status-info-bg text-status-info-text">
-      {t('customers.calendar.editor.customerBadge', 'Customer')}
-    </UppercaseBadge>
-  )
+  const selectedIds = new Set(value.map((resource) => resource.id))
+  const visibleOptions = options.filter((option) => !selectedIds.has(option.id))
 
   return (
     <div
@@ -76,19 +67,27 @@ export function PeopleField({
     >
       <div
         className={cn(
-          'flex w-full flex-wrap content-center items-center gap-2 rounded-md bg-background px-2.5 py-2',
-          mode === 'multi' ? 'min-h-24' : 'min-h-14',
+          'flex min-h-14 w-full flex-wrap content-center items-center gap-2 rounded-md bg-background px-2.5 py-2',
           CONTROL_BORDER,
         )}
       >
-        {value.map((participant) => (
-          <PersonChip
-            key={participant.userId}
-            name={participant.name}
-            badge={participant.isCustomer ? customerBadge : undefined}
-            onRemove={() => onChange(value.filter((entry) => entry.userId !== participant.userId))}
-            removeLabel={t('customers.calendar.editor.removePerson', 'Remove {name}', { name: participant.name })}
-          />
+        {value.map((resource) => (
+          <span key={resource.id} className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-muted py-1 pl-2 pr-2">
+            <Box aria-hidden className="size-3.5 text-muted-foreground" />
+            <span className="max-w-40 truncate text-xs font-medium text-foreground">{resource.label}</span>
+            <IconButton
+              variant="ghost"
+              size="xs"
+              onClick={(event) => {
+                event.stopPropagation()
+                onChange(value.filter((entry) => entry.id !== resource.id))
+              }}
+              aria-label={t('customers.calendar.editor.removeResource', 'Remove {name}', { name: resource.label })}
+              className="size-5 shrink-0"
+            >
+              <Plus aria-hidden className="size-3.5 rotate-45 opacity-50" />
+            </IconButton>
+          </span>
         ))}
         <Input
           type="text"
@@ -118,35 +117,19 @@ export function PeopleField({
           {!loading
             ? visibleOptions.map((option) => (
                 <Button
-                  key={`${option.isCustomer ? 'customer' : 'staff'}:${option.userId}`}
+                  key={option.id}
                   type="button"
                   variant="ghost"
                   role="option"
                   aria-selected={false}
-                  aria-label={composeAccessibleName([
-                    option.name,
-                    option.email,
-                    option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
-                  ])}
                   onClick={() => {
-                    const participant: EditorParticipant = {
-                      userId: option.userId,
-                      name: option.name,
-                      email: option.email ?? undefined,
-                      isCustomer: option.isCustomer,
-                    }
-                    onChange(mode === 'single' ? [participant] : [...value, participant])
+                    onChange([...value, { id: option.id, label: option.label }])
                     setQuery('')
-                    if (mode === 'single') setOpen(false)
                   }}
                   className="h-auto w-full justify-start gap-2 whitespace-normal px-2 py-1.5 text-left text-sm font-normal text-foreground"
                 >
-                  <Avatar size="xs" label={option.name} />
-                  <span className="min-w-0 flex-1 truncate">
-                    {option.name}
-                    {option.email ? <span className="ml-1.5 text-xs text-muted-foreground">{option.email}</span> : null}
-                  </span>
-                  {option.isCustomer ? customerBadge : null}
+                  <Box aria-hidden className="size-4 text-muted-foreground" />
+                  <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 </Button>
               ))
             : null}

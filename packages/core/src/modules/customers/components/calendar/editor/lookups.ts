@@ -126,10 +126,15 @@ export async function fetchDealById(dealId: string, signal: AbortSignal): Promis
 
 export async function searchPeopleOptions(
   query: string,
-  options: { includeCustomers: boolean; signal: AbortSignal },
+  options: { includeCustomers: boolean; includeStaff?: boolean; signal: AbortSignal },
 ): Promise<PersonOption[]> {
+  // Staff lookup is optional twice over: skipped when the staff module is not
+  // loaded (includeStaff === false) and non-fatal when the endpoint errors, so
+  // the people picker always degrades to customer-only options (#3552).
   const [staff, customers] = await Promise.all([
-    fetchAssignableStaffMembers(query, { pageSize: 10, signal: options.signal }),
+    options.includeStaff === false
+      ? Promise.resolve<Awaited<ReturnType<typeof fetchAssignableStaffMembers>>>([])
+      : fetchAssignableStaffMembers(query, { pageSize: 10, signal: options.signal }).catch(() => []),
     options.includeCustomers
       ? searchRelatedEntities('person', query, options.signal)
       : Promise.resolve<RelatedEntityOption[]>([]),
@@ -147,6 +152,32 @@ export async function searchPeopleOptions(
     isCustomer: true,
   }))
   return [...staffOptions, ...customerOptions]
+}
+
+export type ResourceOption = {
+  id: string
+  label: string
+}
+
+// Consumed only when the resources module is loaded (server flag from the
+// calendar page); reads the resources CRUD list API — never resource entities.
+export async function searchResourceOptions(query: string, signal: AbortSignal): Promise<ResourceOption[]> {
+  const params = new URLSearchParams({ page: '1', pageSize: '20', sortField: 'name', sortDir: 'asc', isActive: 'true' })
+  if (query.length) params.set('search', query)
+  const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+    `/api/resources/resources?${params.toString()}`,
+    { signal },
+  )
+  const items = Array.isArray(data?.items) ? data.items : []
+  return items
+    .map((item): ResourceOption | null => {
+      if (!item || typeof item !== 'object') return null
+      const id = typeof item.id === 'string' ? item.id : null
+      if (!id) return null
+      const label = readNonEmptyString(item.name) ?? id
+      return { id, label }
+    })
+    .filter((option): option is ResourceOption => option !== null)
 }
 
 export async function findStaffMemberName(userId: string, signal: AbortSignal): Promise<string | null> {

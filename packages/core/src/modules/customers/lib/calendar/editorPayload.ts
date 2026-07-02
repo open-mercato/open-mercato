@@ -45,6 +45,36 @@ export function editorKindOfInteractionType(interactionType: string): EditorKind
   return KIND_BY_INTERACTION_TYPE[interactionType] ?? 'meeting'
 }
 
+export type EditorTypeOption = { value: string; label: string }
+
+/**
+ * Builds the editor's type-switcher options from the tenant `activity-types`
+ * dictionary (#3552) so tenant-added types are first-class calendar event types,
+ * not just Category values. Field morphology per option resolves through
+ * `editorKindOfInteractionType` (custom types get the meeting-shaped default).
+ * Falls back to the built-in kinds when the dictionary is empty/unavailable,
+ * and always includes the currently selected value (e.g. a since-deleted type
+ * on an existing event).
+ */
+export function buildEditorTypeOptions(params: {
+  typeLabels: Record<string, string>
+  selectedValue: string
+  kindLabels: Record<EditorKind, string>
+}): EditorTypeOption[] {
+  const { typeLabels, selectedValue, kindLabels } = params
+  const dictionaryEntries = Object.entries(typeLabels)
+  const options: EditorTypeOption[] = dictionaryEntries.length
+    ? dictionaryEntries.map(([value, label]) => ({ value, label }))
+    : EDITOR_KINDS.map((kind) => ({ value: kind, label: kindLabels[kind] }))
+  if (!options.some((option) => option.value === selectedValue)) {
+    options.unshift({
+      value: selectedValue,
+      label: typeLabels[selectedValue] ?? kindLabels[editorKindOfInteractionType(selectedValue)] ?? selectedValue,
+    })
+  }
+  return options
+}
+
 export type EditorCategoryOption = { value: string; label: string }
 
 /**
@@ -117,6 +147,31 @@ export type EditorParticipant = {
   isCustomer: boolean
 }
 
+/** linkedEntities `type` marker for resource assignments (FK-id + label snapshot). */
+export const RESOURCE_LINK_TYPE = 'resource'
+
+export type EditorLinkedEntity = { id: string; type: string; label: string }
+
+export type EditorResource = { id: string; label: string }
+
+export function parseLinkedEntities(raw: unknown): {
+  resources: EditorResource[]
+  preservedLinkedEntities: EditorLinkedEntity[]
+} {
+  const resources: EditorResource[] = []
+  const preservedLinkedEntities: EditorLinkedEntity[] = []
+  if (!Array.isArray(raw)) return { resources, preservedLinkedEntities }
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue
+    const { id, type, label } = entry as Record<string, unknown>
+    if (typeof id !== 'string' || !id.length || typeof type !== 'string' || !type.length) continue
+    const safeLabel = typeof label === 'string' ? label : ''
+    if (type === RESOURCE_LINK_TYPE) resources.push({ id, label: safeLabel || id })
+    else preservedLinkedEntities.push({ id, type, label: safeLabel })
+  }
+  return { resources, preservedLinkedEntities }
+}
+
 export type EditorFormState = {
   kind: EditorKind
   title: string
@@ -136,6 +191,8 @@ export type EditorFormState = {
   category: string | null
   location: string
   participants: EditorParticipant[]
+  resources: EditorResource[]
+  preservedLinkedEntities: EditorLinkedEntity[]
   assigneeUserId: string | null
   assigneeName: string | null
   priority: EditorPriority
@@ -225,6 +282,8 @@ export function createDefaultFormState(
     category: null,
     location: '',
     participants: [],
+    resources: [],
+    preservedLinkedEntities: [],
     assigneeUserId: null,
     assigneeName: null,
     priority: 'medium',
@@ -260,7 +319,22 @@ export function computeDurationMinutes(state: EditorFormState): number | null {
   return minutes > 0 ? minutes : null
 }
 
-export type BuildPayloadOptions = { mode: 'create' | 'edit'; id?: string }
+export type BuildPayloadOptions = {
+  mode: 'create' | 'edit'
+  id?: string
+  /**
+   * When the resources module is loaded the payload owns `linkedEntities`
+   * (preserved non-resource links + current resource assignments). When it is
+   * not, the key is omitted entirely so edits never clobber links written by
+   * other surfaces.
+   */
+  resourcesEnabled?: boolean
+  /**
+   * When the staff module is absent the Assignee field is hidden, so the
+   * payload omits `ownerUserId` (edit keeps the stored owner untouched).
+   */
+  staffEnabled?: boolean
+}
 
 export function buildInteractionPayload(state: EditorFormState, options: BuildPayloadOptions): Record<string, unknown> {
   const config = KIND_CONFIG[state.kind]
@@ -296,8 +370,17 @@ export function buildInteractionPayload(state: EditorFormState, options: BuildPa
           }))
         : null,
   }
-  if (config.people === 'assignee') payload.ownerUserId = state.assigneeUserId ?? null
+  if (config.people === 'assignee' && (options.staffEnabled ?? true)) {
+    payload.ownerUserId = state.assigneeUserId ?? null
+  }
   if (config.hasPriority) payload.priority = PRIORITY_NUMBER[state.priority]
+  if (options.resourcesEnabled) {
+    const linkedEntities: EditorLinkedEntity[] = [
+      ...state.preservedLinkedEntities,
+      ...state.resources.map((resource) => ({ id: resource.id, type: RESOURCE_LINK_TYPE, label: resource.label })),
+    ]
+    payload.linkedEntities = linkedEntities.length > 0 ? linkedEntities : null
+  }
   return payload
 }
 
@@ -364,6 +447,7 @@ function parseParticipants(item: CalendarItem): EditorParticipant[] {
 export function parseItemToFormState(item: CalendarItem): EditorFormState {
   const kind = editorKindOfInteractionType(item.interactionType)
   const raw = item.raw as Record<string, unknown>
+  const { resources, preservedLinkedEntities } = parseLinkedEntities(raw.linkedEntities)
   return {
     kind,
     title: item.title,
@@ -379,6 +463,8 @@ export function parseItemToFormState(item: CalendarItem): EditorFormState {
     category: item.interactionType,
     location: item.location ?? '',
     participants: parseParticipants(item),
+    resources,
+    preservedLinkedEntities,
     assigneeUserId: item.ownerUserId,
     assigneeName: null,
     priority: priorityFromNumber(readUnknownNumber(raw.priority)),
