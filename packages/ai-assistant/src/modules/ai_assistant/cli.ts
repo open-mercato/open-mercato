@@ -190,13 +190,13 @@ const listTools: ModuleCli = {
     }
 
     // Sort modules alphabetically
-    const sortedModules = Array.from(byModule.keys()).sort()
+    const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 
     for (const module of sortedModules) {
       const tools = byModule.get(module)!
       console.log(`${module} (${tools.length} tools):`)
 
-      for (const name of tools.sort()) {
+      for (const name of tools.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
         const tool = registry.getTool(name)
         if (!tool) continue
 
@@ -327,7 +327,7 @@ const testTools: ModuleCli = {
         list.push(record)
         byModule.set(record.module, list)
       }
-      const sortedModules = Array.from(byModule.keys()).sort()
+      const sortedModules = Array.from(byModule.keys()).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
       for (const moduleId of sortedModules) {
         const list = byModule.get(moduleId)!
         console.log('')

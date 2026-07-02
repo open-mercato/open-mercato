@@ -27,6 +27,9 @@ describe('BullMQSchedulerService', () => {
 
   beforeEach(() => {
     jest.clearAllMocks()
+    mockQueue.add.mockResolvedValue({})
+    mockQueue.getRepeatableJobs.mockResolvedValue([])
+    mockQueue.removeRepeatableByKey.mockResolvedValue(true)
 
     // Create mock forked EM
     mockForkedEm = {
@@ -170,6 +173,44 @@ describe('BullMQSchedulerService', () => {
       )
     })
 
+    it('should remove stale repeatable jobs before registering an updated schedule', async () => {
+      const schedule = {
+        id: 'test-1',
+        name: 'Test',
+        isEnabled: true,
+        scheduleType: 'cron',
+        scheduleValue: '*/15 * * * *',
+        timezone: 'UTC',
+        scopeType: 'system',
+      } as ScheduledJob
+
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'old-cron-key' },
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'older-cron-key' },
+        { id: 'schedule-other', name: 'schedule-other', key: 'other-key' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+      mockQueue.add.mockResolvedValue({})
+
+      await service.register(schedule)
+
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(2)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'old-cron-key')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'older-cron-key')
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'schedule-test-1',
+        expect.any(Object),
+        expect.objectContaining({
+          repeat: expect.objectContaining({
+            pattern: '*/15 * * * *',
+          }),
+        }),
+      )
+      expect(mockQueue.removeRepeatableByKey.mock.invocationCallOrder[1]).toBeLessThan(
+        mockQueue.add.mock.invocationCallOrder[0],
+      )
+    })
+
     it('should update nextRunAt when skipNextRunUpdate is false', async () => {
       const schedule = {
         id: 'test-1',
@@ -287,6 +328,23 @@ describe('BullMQSchedulerService', () => {
       consoleDebugSpy.mockRestore()
     })
 
+    it('should remove all repeatable jobs for the same schedule id', async () => {
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'key-1' },
+        { id: 'schedule-test-1', name: 'schedule-test-1', key: 'key-2' },
+        { name: 'schedule-test-1', key: 'key-3' },
+        { id: 'schedule-other', name: 'schedule-other', key: 'other-key' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+
+      await service.unregister('test-1')
+
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(3)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'key-1')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'key-2')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(3, 'key-3')
+    })
+
     it('should handle schedule not found', async () => {
       mockQueue.getRepeatableJobs.mockResolvedValue([
         { id: 'schedule-other', name: 'schedule-other', key: 'key-1' },
@@ -384,6 +442,38 @@ describe('BullMQSchedulerService', () => {
       expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledWith('key-2')
       expect(consoleLogSpy).toHaveBeenCalledWith(
         '[scheduler:bullmq] Removing orphaned schedule: schedule-2'
+      )
+
+      consoleLogSpy.mockRestore()
+    })
+
+    it('should repair duplicate repeatable jobs for existing schedules', async () => {
+      const dbSchedules = [
+        { id: 'schedule-1', name: 'Schedule 1', isEnabled: true, scheduleType: 'cron', scheduleValue: '0 0 * * *', timezone: 'UTC', scopeType: 'system' },
+      ] as ScheduledJob[]
+
+      mockForkedEm.find.mockResolvedValue(dbSchedules)
+      mockQueue.getRepeatableJobs.mockResolvedValue([
+        { id: 'schedule-schedule-1', name: 'schedule-schedule-1', key: 'old-key-1' },
+        { id: 'schedule-schedule-1', name: 'schedule-schedule-1', key: 'old-key-2' },
+      ])
+      mockQueue.removeRepeatableByKey.mockResolvedValue(true)
+      mockQueue.add.mockResolvedValue({})
+
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+
+      await service.syncAll()
+
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        '[scheduler:bullmq] Repairing duplicate repeatable jobs for schedule: schedule-1'
+      )
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenCalledTimes(2)
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(1, 'old-key-1')
+      expect(mockQueue.removeRepeatableByKey).toHaveBeenNthCalledWith(2, 'old-key-2')
+      expect(mockQueue.add).toHaveBeenCalledWith(
+        'schedule-schedule-1',
+        expect.any(Object),
+        expect.any(Object),
       )
 
       consoleLogSpy.mockRestore()

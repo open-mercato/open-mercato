@@ -26,6 +26,7 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -402,21 +403,27 @@ export default function SyncRunsDashboardPage() {
     setIsSavingSchedule(true)
     try {
       const call = await runMutation({
-        // optimistic-lock-exempt: keyed upsert (POST, no record id/version in body) — guard targets id-addressed PUT/PATCH/DELETE
-        operation: () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: selectedIntegration.integrationId,
-            entityType: selectedEntityType,
-            direction: selectedDirection,
-            scheduleType: scheduleEditor.scheduleType,
-            scheduleValue: scheduleEditor.scheduleValue.trim(),
-            timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
-            fullSync: scheduleEditor.fullSync,
-            isEnabled: scheduleEditor.isEnabled,
-          }),
-        }, { fallback: null }),
+        // Keyed upsert (POST). When the editor holds an existing schedule's
+        // `updatedAt`, the lock header version-checks the resolved row on the
+        // server; a brand-new schedule has a null `updatedAt`, so the header is
+        // empty and the create path stays unaffected.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleEditor.updatedAt),
+          () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              integrationId: selectedIntegration.integrationId,
+              entityType: selectedEntityType,
+              direction: selectedDirection,
+              scheduleType: scheduleEditor.scheduleType,
+              scheduleValue: scheduleEditor.scheduleValue.trim(),
+              timezone: scheduleEditor.timezone.trim() || DEFAULT_TIMEZONE,
+              fullSync: scheduleEditor.fullSync,
+              isEnabled: scheduleEditor.isEnabled,
+            }),
+          }, { fallback: null }),
+        ),
         mutationPayload: {
           integrationId: selectedIntegration.integrationId,
           entityType: selectedEntityType,
@@ -435,6 +442,16 @@ export default function SyncRunsDashboardPage() {
       })
 
       if (!call.ok || !call.result) {
+        const conflictError = Object.assign(
+          new Error((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule')),
+          {
+            status: call.status,
+            ...(call.result && typeof call.result === 'object' ? call.result : {}),
+          },
+        )
+        if (surfaceRecordConflict(conflictError, t)) {
+          return
+        }
         flash((call.result as { error?: string } | null)?.error ?? t('data_sync.dashboard.schedule.error', 'Failed to save recurring schedule'), 'error')
         return
       }

@@ -923,6 +923,8 @@
   "customers.deals.detail.badge.deal": "Deal",
   "customers.deals.detail.badge.lost": "Lost",
   "customers.deals.detail.badge.won": "Won",
+  "customers.deals.detail.closeLostError": "No se pudo marcar el deal como perdido.",
+  "customers.deals.detail.closeWonError": "No se pudo marcar el deal como ganado.",
   "customers.deals.detail.closure.lost": "Lost",
   "customers.deals.detail.closure.prompt": "Close deal — choose outcome",
   "customers.deals.detail.closure.won": "Won",

@@ -35,6 +35,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }),
+}))
+
 jest.mock('@open-mercato/core/modules/entities/data/entities', () => ({
   CustomFieldDef: 'CustomFieldDef',
   CustomFieldEntityConfig: 'CustomFieldEntityConfig',
@@ -107,6 +111,52 @@ describe('entities/definitions.batch POST (issue #1399)', () => {
     expect(mockEm.create).toHaveBeenCalledTimes(1)
     expect(mockEm.create.mock.calls[0][1]).toMatchObject({ key: 'beta' })
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates a scoped tombstone when saving an inherited definition as inactive', async () => {
+    const inherited = {
+      entityId: 'test:entity',
+      key: 'alpha',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      configJson: { label: 'Alpha' },
+    }
+    mockEm.find
+      .mockResolvedValueOnce([] as unknown[])
+      .mockResolvedValueOnce([inherited] as unknown[])
+
+    const body = {
+      entityId: 'test:entity',
+      definitions: [
+        { key: 'alpha', kind: 'text', isActive: false, configJson: { label: 'Alpha' } },
+      ],
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledTimes(1)
+    expect(mockEm.create).toHaveBeenCalledWith(
+      'CustomFieldDef',
+      expect.objectContaining({
+        entityId: 'test:entity',
+        key: 'alpha',
+        kind: 'text',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        isActive: false,
+        deletedAt: expect.any(Date),
+      }),
+    )
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'alpha',
+      isActive: false,
+      deletedAt: expect.any(Date),
+    }))
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
   })
 })
 

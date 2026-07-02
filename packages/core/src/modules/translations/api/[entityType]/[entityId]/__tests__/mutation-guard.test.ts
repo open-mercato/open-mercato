@@ -11,6 +11,7 @@ const commandBusExecuteMock = jest.fn()
 
 const db = {
   selectFrom: jest.fn().mockReturnThis(),
+  select: jest.fn().mockReturnThis(),
   selectAll: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
   executeTakeFirst: jest.fn(),
@@ -71,6 +72,7 @@ describe('translations entity write routes mutation guard', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     db.selectFrom.mockReturnThis()
+    db.select.mockReturnThis()
     db.selectAll.mockReturnThis()
     db.where.mockReturnThis()
     db.executeTakeFirst.mockResolvedValue({

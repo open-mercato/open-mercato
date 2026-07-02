@@ -61,7 +61,7 @@ function normalizeTagLabels(labels: string[]): string[] {
         .map((label) => label.trim().toLowerCase())
         .filter((label) => label.length > 0),
     ),
-  ).sort()
+  ).sort((a, b) => a.localeCompare(b))
 }
 
 function buildTagLabelKey(labels: string[]): string {
