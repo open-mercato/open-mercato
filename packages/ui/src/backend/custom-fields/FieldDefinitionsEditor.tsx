@@ -33,6 +33,17 @@ import {
 
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetConfig = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
+type Translate = (key: string, fallback: string, params?: Record<string, string | number>) => string
+
+function formatFallback(template: string, params?: Record<string, string | number>) {
+  if (!params) return template
+  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
+    const key = doubleKey ?? singleKey
+    if (!key) return match
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
+}
 
 export type FieldDefinition = {
   key: string
@@ -67,7 +78,7 @@ export type FieldDefinitionsEditorProps = {
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
   onSingleFieldsetPerRecordChange?: (value: boolean) => void
-  translate?: (key: string, fallback: string) => string
+  translate?: Translate
 }
 
 const DEFAULT_KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({
@@ -160,12 +171,8 @@ export function FieldDefinitionsEditor({
   deletedKeys,
   kindOptions = DEFAULT_KIND_OPTIONS,
   orderNotice,
-  infoNote = (
-    <div className="text-xs text-muted-foreground mt-2">
-      Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), currency (fixed currencies list), relation (with related entity and options URL).
-    </div>
-  ),
-  addButtonLabel = 'Add Field',
+  infoNote,
+  addButtonLabel,
   fieldsets = [],
   activeFieldset = null,
   onActiveFieldsetChange,
@@ -187,7 +194,7 @@ export function FieldDefinitionsEditor({
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
-  const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
+  const t = React.useCallback<Translate>((key, fallback, params) => (translate ? translate(key, fallback, params) : formatFallback(fallback, params)), [translate])
   const resolvedActiveFieldset = React.useMemo(() => {
     if (!hasFieldsets) return activeFieldset ?? null
     if (activeFieldset === null) return null
@@ -237,7 +244,7 @@ export function FieldDefinitionsEditor({
   const handleAddFieldset = () => {
     if (!onFieldsetsChange) return
     const code = ensureUniqueFieldsetCode(`fieldset_${fieldsets.length + 1}`, fieldsets)
-    const nextFieldsets = [...fieldsets, { code, label: 'New fieldset', icon: 'layers' }]
+    const nextFieldsets = [...fieldsets, { code, label: t('entities.customFields.editor.newFieldsetLabel', 'New fieldset'), icon: 'layers' }]
     onFieldsetsChange(nextFieldsets)
     onActiveFieldsetChange?.(code)
   }
@@ -246,8 +253,8 @@ export function FieldDefinitionsEditor({
     if (!onFieldsetsChange) return
     if (!resolvedActiveFieldset) return
     const confirmed = await confirm({
-      title: `Delete fieldset "${resolvedActiveFieldset}"?`,
-      text: 'This will move its fields to Unassigned.',
+      title: t('entities.customFields.editor.deleteFieldsetTitle', 'Delete fieldset "{{code}}"?', { code: resolvedActiveFieldset }),
+      text: t('entities.customFields.editor.deleteFieldsetText', 'This will move its fields to Unassigned.'),
       variant: 'destructive',
     })
     if (!confirmed) return
@@ -309,13 +316,15 @@ export function FieldDefinitionsEditor({
       {hasFieldsets ? (
         <div className="rounded border bg-card p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">Fieldset</label>
+            <label className="text-xs font-medium text-muted-foreground">
+              {t('entities.customFields.fieldsetSelectorLabel', 'Fieldset')}
+            </label>
             <Select
               value={resolvedActiveFieldset || undefined}
               onValueChange={(value) => handleActiveFieldsetChange(value ?? '')}
             >
               <SelectTrigger size="sm" className="w-auto min-w-[10rem]">
-                <SelectValue placeholder="Unassigned fields" />
+                <SelectValue placeholder={t('entities.customFields.editor.unassignedFields', 'Unassigned fields')} />
               </SelectTrigger>
               <SelectContent>
                 {fieldsets.map((fs) => (
@@ -331,7 +340,7 @@ export function FieldDefinitionsEditor({
               onClick={handleAddFieldset}
               className="text-xs"
             >
-              <Plus className="h-3.5 w-3.5" /> Add
+              <Plus className="h-3.5 w-3.5" /> {t('entities.customFields.editor.addFieldset', 'Add')}
             </Button>
             <Button
               variant="outline"
@@ -340,12 +349,12 @@ export function FieldDefinitionsEditor({
               disabled={!resolvedActiveFieldset}
               className="text-xs"
             >
-              <Trash2 className="h-3.5 w-3.5" /> Delete
+              <Trash2 className="h-3.5 w-3.5" /> {t('entities.customFields.editor.deleteFieldset', 'Delete')}
             </Button>
           </div>
           {resolvedActiveFieldset && activeFieldsetConfig ? (
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-              <FormField label="Code">
+              <FormField label={t('entities.customFields.editor.code', 'Code')}>
                 <Input
                   size="sm"
                   inputClassName="font-mono"
@@ -353,14 +362,14 @@ export function FieldDefinitionsEditor({
                   onChange={(event) => handleFieldsetCodeInput(activeFieldsetConfig.code, event.target.value)}
                 />
               </FormField>
-              <FormField label="Label">
+              <FormField label={t('entities.customFields.editor.label', 'Label')}>
                 <Input
                   size="sm"
                   value={activeFieldsetConfig.label}
                   onChange={(event) => handleFieldsetPatch(activeFieldsetConfig.code, { label: event.target.value })}
                 />
               </FormField>
-              <FormField label="Icon">
+              <FormField label={t('entities.customFields.editor.icon', 'Icon')}>
                 <Select
                   value={activeFieldsetConfig.icon || undefined}
                   onValueChange={(value) =>
@@ -370,18 +379,18 @@ export function FieldDefinitionsEditor({
                   }
                 >
                   <SelectTrigger size="sm">
-                    <SelectValue placeholder="Default" />
+                    <SelectValue placeholder={t('entities.customFields.editor.defaultIcon', 'Default')} />
                   </SelectTrigger>
                   <SelectContent>
                     {FIELDSET_ICON_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
-                        {option.label}
+                        {t(`entities.customFields.editor.icons.${option.value}`, option.label)}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </FormField>
-              <FormField label="Description">
+              <FormField label={t('entities.customFields.editor.description', 'Description')}>
                 <Input
                   size="sm"
                   value={activeFieldsetConfig.description ?? ''}
@@ -396,18 +405,20 @@ export function FieldDefinitionsEditor({
               disabled={!canToggleSingleFieldset}
               checked={singleFieldsetChecked}
               onCheckedChange={(checked) => onSingleFieldsetPerRecordChange?.(checked === true)}
-              label="Single fieldset per entity"
+              label={t('entities.customFields.editor.singleFieldsetPerEntity', 'Single fieldset per entity')}
               containerClassName="text-xs"
               contentClassName="gap-1 [&_label]:text-xs [&_label]:font-normal"
             />
             {!canToggleSingleFieldset ? (
-              <span className="text-xs text-muted-foreground">(add at least two fieldsets to toggle)</span>
+              <span className="text-xs text-muted-foreground">
+                {t('entities.customFields.editor.singleFieldsetToggleHint', '(add at least two fieldsets to toggle)')}
+              </span>
             ) : null}
           </div>
         </div>
       ) : (
         <div className="rounded border border-dashed bg-muted/30 p-4 text-sm text-muted-foreground flex flex-col gap-3">
-          <div>No fieldsets defined yet. Fieldsets let you group custom fields for different variants of the same entity (e.g., Fashion vs. Sport products).</div>
+          <div>{t('entities.customFields.editor.noFieldsets', 'No fieldsets defined yet. Fieldsets let you group custom fields for different variants of the same entity (e.g., Fashion vs. Sport products).')}</div>
           <div>
             <Button
               variant="outline"
@@ -415,7 +426,7 @@ export function FieldDefinitionsEditor({
               onClick={handleAddFieldset}
             >
               <Plus className="h-4 w-4" />
-              Add first fieldset
+              {t('entities.customFields.editor.addFirstFieldset', 'Add first fieldset')}
             </Button>
           </div>
         </div>
@@ -423,7 +434,9 @@ export function FieldDefinitionsEditor({
       {orderNotice?.dirty && (
         <div className="sticky top-0 z-sticky -mt-1 -mb-1">
           <div className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded border border-status-warning-border bg-status-warning-bg text-status-warning-text shadow-sm">
-            {orderNotice?.saving ? 'Saving order…' : (orderNotice?.message ?? 'Reordered — saving soon')}
+            {orderNotice?.saving
+              ? t('entities.customFields.editor.savingOrder', 'Saving order...')
+              : (orderNotice?.message ?? t('entities.customFields.editor.reorderedSavingSoon', 'Reordered - saving soon'))}
           </div>
         </div>
       )}
@@ -482,12 +495,16 @@ export function FieldDefinitionsEditor({
           size="sm"
           onClick={onAddField}
         >
-          <Plus className="h-4 w-4" /> {addButtonLabel}
+          <Plus className="h-4 w-4" /> {addButtonLabel ?? t('entities.customFields.editor.addField', 'Add Field')}
         </Button>
-        {infoNote}
+        {infoNote ?? (
+          <div className="text-xs text-muted-foreground mt-2">
+            {t('entities.customFields.editor.supportedKinds', 'Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), currency (fixed currencies list), relation (with related entity and options URL).')}
+          </div>
+        )}
         {deletedKeys && deletedKeys.length > 0 && onRestoreField ? (
           <div className="text-xs text-muted-foreground mt-2">
-            Restore deleted fields:{' '}
+            {t('entities.customFields.editor.restoreDeletedFields', 'Restore deleted fields:')}{' '}
             {deletedKeys.map((key, idx) => (
               <span key={key}>
                 <Button
@@ -521,7 +538,7 @@ type FieldDefinitionCardProps = {
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
   onTranslate?: () => void
-  translate?: (key: string, fallback: string) => string
+  translate?: Translate
 }
 
 const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
@@ -553,7 +570,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     () => (typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''),
     [local.configJson?.fieldset],
   )
-  const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
+  const t = React.useCallback<Translate>((key, fallback, params) => (translate ? translate(key, fallback, params) : formatFallback(fallback, params)), [translate])
   React.useEffect(() => {
     localRef.current = definition
     setLocal(definition)
@@ -669,7 +686,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     if (!currentFieldsetValue) return
     const code = slugifyFieldsetCode(groupDraft.code || '')
     if (!code) {
-      setGroupError('Group code is required.')
+      setGroupError(t('entities.customFields.editor.groupCodeRequired', 'Group code is required.'))
       return
     }
     const group: FieldsetGroup = {
@@ -725,7 +742,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     const value = optionValueDraft.trim()
     const label = optionLabelDraft.trim()
     if (!value) {
-      setOptionFormError('Value is required')
+      setOptionFormError(t('entities.customFields.editor.valueRequired', 'Value is required'))
       return
     }
     setOptionFormError(null)
@@ -749,30 +766,30 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           <span className="inline-flex items-center justify-center h-5 w-5 rounded hover:bg-muted cursor-grab active:cursor-grabbing">
             <GripVertical className="h-4 w-4 opacity-70" />
           </span>
-          Drag to reorder
+          {t('entities.customFields.editor.dragToReorder', 'Drag to reorder')}
         </div>
         <div className="flex items-center gap-3">
           <CheckboxField
             size="sm"
             checked={local.isActive !== false}
             onCheckedChange={(checked) => { apply({ isActive: checked === true }, true) }}
-            label="Active"
+            label={t('entities.customFields.editor.active', 'Active')}
             containerClassName="text-sm"
             contentClassName="gap-1 [&_label]:text-sm [&_label]:font-normal"
           />
           {onTranslate && (
-            <IconButton variant="outline" size="sm" onClick={onTranslate} aria-label="Translate field">
+            <IconButton variant="outline" size="sm" onClick={onTranslate} aria-label={t('entities.customFields.editor.translateField', 'Translate field')}>
               <Languages className="h-4 w-4" />
             </IconButton>
           )}
-          <IconButton variant="outline" size="sm" onClick={onRemove} aria-label="Remove field">
+          <IconButton variant="outline" size="sm" onClick={onRemove} aria-label={t('entities.customFields.editor.removeField', 'Remove field')}>
             <Trash2 className="h-4 w-4" />
           </IconButton>
         </div>
       </div>
 
       <div className="mt-3 grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-        <FormField label="Key" error={error?.key} className="md:col-span-6">
+        <FormField label={t('entities.customFields.editor.key', 'Key')} error={error?.key} className="md:col-span-6">
           <Input
             inputClassName="font-mono"
             placeholder="snake_case"
@@ -781,7 +798,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             onBlur={commit}
           />
         </FormField>
-        <FormField label="Kind" error={error?.kind} className="md:col-span-6">
+        <FormField label={t('entities.customFields.editor.kind', 'Kind')} error={error?.kind} className="md:col-span-6">
           <Select
             value={local.kind || undefined}
             onValueChange={(value) => { apply({ kind: value ?? '' }, true) }}
@@ -792,7 +809,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             <SelectContent>
               {kindOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label}
+                  {t(`entities.customFields.editor.kinds.${option.value}`, option.label)}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -803,13 +820,13 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       {allowFieldsetSelection ? (
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
           <div>
-            <label className="text-xs">Assign to fieldset</label>
+            <label className="text-xs">{t('entities.customFields.editor.assignToFieldset', 'Assign to fieldset')}</label>
             <Select
               value={currentFieldsetValue || undefined}
               onValueChange={(value) => handleFieldsetSelect(value ?? '')}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Unassigned" />
+                <SelectValue placeholder={t('entities.customFields.editor.unassigned', 'Unassigned')} />
               </SelectTrigger>
               <SelectContent>
                 {(fieldsets || []).map((fs) => (
@@ -823,7 +840,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           {currentFieldsetValue ? (
             <div>
               <div className="flex items-center justify-between">
-                <label className="text-xs">Group</label>
+                <label className="text-xs">{t('entities.customFields.editor.group', 'Group')}</label>
               </div>
               <div className="flex items-center gap-2 mt-1">
                 <Select
@@ -831,7 +848,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   onValueChange={(value) => handleGroupSelect(value ?? '')}
                 >
                   <SelectTrigger className="flex-1">
-                    <SelectValue placeholder="No group" />
+                    <SelectValue placeholder={t('entities.customFields.editor.noGroup', 'No group')} />
                   </SelectTrigger>
                   <SelectContent>
                     {groupOptions.map((group) => (
@@ -845,7 +862,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   variant="outline"
                   className="text-muted-foreground"
                   onClick={() => handleOpenGroupDialog()}
-                  aria-label="Create group"
+                  aria-label={t('entities.customFields.editor.createGroup', 'Create group')}
                 >
                   <Plus className="h-4 w-4" />
                 </IconButton>
@@ -853,7 +870,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   variant="outline"
                   className="text-muted-foreground"
                   onClick={() => handleOpenGroupDialog()}
-                  aria-label="Edit groups"
+                  aria-label={t('entities.customFields.editor.editGroups', 'Edit groups')}
                 >
                   <Cog className="h-4 w-4" />
                 </IconButton>
@@ -864,14 +881,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
       ) : null}
 
       <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-        <FormField label="Label">
+        <FormField label={t('entities.customFields.editor.label', 'Label')}>
           <Input
             value={typeof local.configJson?.label === 'string' ? local.configJson.label : ''}
             onChange={(event) => apply({ configJson: { ...(local.configJson || {}), label: event.target.value } })}
             onBlur={commit}
           />
         </FormField>
-        <FormField label="Description">
+        <FormField label={t('entities.customFields.editor.description', 'Description')}>
           <Input
             value={typeof local.configJson?.description === 'string' ? local.configJson.description : ''}
             onChange={(event) => apply({ configJson: { ...(local.configJson || {}), description: event.target.value } })}
@@ -882,18 +899,18 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         {(local.kind === 'text' || local.kind === 'multiline') && (
           <>
             <div>
-              <label className="text-xs">Editor</label>
+              <label className="text-xs">{t('entities.customFields.editor.editor', 'Editor')}</label>
               <Select
                 value={typeof local.configJson?.editor === 'string' && local.configJson.editor ? local.configJson.editor : undefined}
                 onValueChange={(value) => { apply({ configJson: { ...(local.configJson || {}), editor: value || undefined } }, true) }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder="Default" />
+                  <SelectValue placeholder={t('entities.customFields.editor.defaultEditor', 'Default')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="markdown">Markdown (UIW)</SelectItem>
-                  <SelectItem value="simpleMarkdown">Simple Markdown</SelectItem>
-                  <SelectItem value="htmlRichText">HTML Rich Text</SelectItem>
+                  <SelectItem value="markdown">{t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)')}</SelectItem>
+                  <SelectItem value="simpleMarkdown">{t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown')}</SelectItem>
+                  <SelectItem value="htmlRichText">{t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -903,13 +920,13 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                   size="sm"
                   checked={!!local.configJson?.multi}
                   onCheckedChange={(checked) => { apply({ configJson: { ...(local.configJson || {}), multi: checked === true } }, true) }}
-                  label="Multiple"
+                  label={t('entities.customFields.editor.multiple', 'Multiple')}
                   containerClassName="md:col-span-2"
                   contentClassName="gap-1 [&_label]:text-xs [&_label]:font-normal"
                 />
                 {!!local.configJson?.multi && (
                   <div className="md:col-span-2">
-                    <label className="text-xs">Multi-select input style</label>
+                    <label className="text-xs">{t('entities.customFields.editor.multiSelectInputStyle', 'Multi-select input style')}</label>
                     <Select
                       value={local.configJson?.input === 'listbox' ? 'listbox' : 'default'}
                       onValueChange={(value) => {
@@ -923,8 +940,8 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default">Default</SelectItem>
-                        <SelectItem value="listbox">Listbox (searchable)</SelectItem>
+                        <SelectItem value="default">{t('entities.customFields.editor.multiSelectDefault', 'Default')}</SelectItem>
+                        <SelectItem value="listbox">{t('entities.customFields.editor.multiSelectListbox', 'Listbox (searchable)')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -936,7 +953,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
 
         {local.kind === 'select' && (
           <div className="md:col-span-6 space-y-3">
-            <label className="text-xs">Options</label>
+            <label className="text-xs">{t('entities.customFields.editor.options', 'Options')}</label>
             <div className="space-y-2">
               {resolvedOptions.length > 0 ? (
                 resolvedOptions.map((option, idx) => (
@@ -953,14 +970,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                       size="xs"
                       className="text-destructive hover:text-destructive/80"
                       onClick={() => handleRemoveOption(idx)}
-                      aria-label="Remove option"
+                      aria-label={t('entities.customFields.editor.removeOption', 'Remove option')}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </IconButton>
                   </div>
                 ))
               ) : (
-                <span className="text-xs text-muted-foreground">No options defined.</span>
+                <span className="text-xs text-muted-foreground">{t('entities.customFields.editor.noOptionsDefined', 'No options defined.')}</span>
               )}
             </div>
             <div className="flex justify-end">
@@ -971,7 +988,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 onClick={handleOpenOptionDialog}
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add option
+                {t('entities.customFields.editor.addOption', 'Add option')}
               </Button>
             </div>
           </div>
@@ -979,7 +996,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
 
         {(local.kind === 'select' || local.kind === 'relation') && (
           <>
-            <FormField label="Options URL">
+            <FormField label={t('entities.customFields.editor.optionsUrl', 'Options URL')}>
               <Input
                 placeholder="/api/..."
                 value={typeof local.configJson?.optionsUrl === 'string' ? local.configJson.optionsUrl : ''}
@@ -988,7 +1005,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               />
             </FormField>
             {local.kind === 'relation' && (
-              <FormField label="Related Entity ID">
+              <FormField label={t('entities.customFields.editor.relatedEntityId', 'Related Entity ID')}>
                 <Input
                   inputClassName="font-mono"
                   placeholder="module:entity"
@@ -1015,7 +1032,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
 
         {local.kind === 'currency' && (
           <div className="md:col-span-2">
-            <label className="text-xs">Options source</label>
+            <label className="text-xs">{t('entities.customFields.editor.optionsSource', 'Options source')}</label>
             <div className="rounded border bg-muted px-2 py-1 text-xs text-muted-foreground">
               /api/currencies/options
             </div>
@@ -1023,7 +1040,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         )}
 
         {(local.kind === 'integer' || local.kind === 'float') && (
-          <FormField label="Units (optional)" className="md:col-span-2">
+          <FormField label={t('entities.customFields.editor.unitsOptional', 'Units (optional)')} className="md:col-span-2">
             <Input
               placeholder="kg, cm, etc."
               value={typeof local.configJson?.unit === 'string' ? local.configJson.unit : ''}
@@ -1036,7 +1053,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
 
       <div className="mt-3 pt-3 border-t">
         <div className="flex items-center justify-between mb-2">
-          <label className="text-sm font-medium">Validation rules</label>
+          <label className="text-sm font-medium">{t('entities.customFields.editor.validationRules', 'Validation rules')}</label>
           <Button
             variant="outline"
             size="sm"
@@ -1044,13 +1061,13 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             onClick={() => {
               apply((current) => {
                 const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
-                list.push({ rule: 'required', message: 'This field is required' } as any)
+                list.push({ rule: 'required', message: t('entities.customFields.editor.defaultRequiredMessage', 'This field is required') } as any)
                 return { configJson: { ...(current.configJson || {}), validation: list } }
               }, true)
             }}
           >
             <Plus className="h-3.5 w-3.5" />
-            Add rule
+            {t('entities.customFields.editor.addRule', 'Add rule')}
           </Button>
         </div>
         <div className="space-y-2">
@@ -1073,23 +1090,29 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="required">required</SelectItem>
-                    <SelectItem value="date">date</SelectItem>
-                    <SelectItem value="integer">integer</SelectItem>
-                    <SelectItem value="float">float</SelectItem>
-                    <SelectItem value="lt">lt</SelectItem>
-                    <SelectItem value="lte">lte</SelectItem>
-                    <SelectItem value="gt">gt</SelectItem>
-                    <SelectItem value="gte">gte</SelectItem>
-                    <SelectItem value="eq">eq</SelectItem>
-                    <SelectItem value="ne">ne</SelectItem>
-                    <SelectItem value="regex">regex</SelectItem>
+                    <SelectItem value="required">{t('entities.customFields.editor.validation.required', 'required')}</SelectItem>
+                    <SelectItem value="date">{t('entities.customFields.editor.validation.date', 'date')}</SelectItem>
+                    <SelectItem value="integer">{t('entities.customFields.editor.validation.integer', 'integer')}</SelectItem>
+                    <SelectItem value="float">{t('entities.customFields.editor.validation.float', 'float')}</SelectItem>
+                    <SelectItem value="lt">{t('entities.customFields.editor.validation.lt', 'lt')}</SelectItem>
+                    <SelectItem value="lte">{t('entities.customFields.editor.validation.lte', 'lte')}</SelectItem>
+                    <SelectItem value="gt">{t('entities.customFields.editor.validation.gt', 'gt')}</SelectItem>
+                    <SelectItem value="gte">{t('entities.customFields.editor.validation.gte', 'gte')}</SelectItem>
+                    <SelectItem value="eq">{t('entities.customFields.editor.validation.eq', 'eq')}</SelectItem>
+                    <SelectItem value="ne">{t('entities.customFields.editor.validation.ne', 'ne')}</SelectItem>
+                    <SelectItem value="regex">{t('entities.customFields.editor.validation.regex', 'regex')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="md:col-span-4">
                 <Input
-                  placeholder={rule?.rule === 'regex' ? 'Pattern (e.g. ^[a-z]+$)' : (['lt','lte','gt','gte'].includes(rule?.rule) ? 'Number' : '—')}
+                  placeholder={
+                    rule?.rule === 'regex'
+                      ? t('entities.customFields.editor.patternPlaceholder', 'Pattern (e.g. ^[a-z]+$)')
+                      : (['lt','lte','gt','gte'].includes(rule?.rule)
+                        ? t('entities.customFields.editor.numberPlaceholder', 'Number')
+                        : t('entities.customFields.editor.noParameterPlaceholder', '-'))
+                  }
                   value={rule?.param ?? ''}
                   onChange={(event) => {
                     const value = ['lt','lte','gt','gte'].includes(rule?.rule) ? Number(event.target.value) : event.target.value
@@ -1106,7 +1129,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               </div>
               <div className="md:col-span-4">
                 <Input
-                  placeholder="Error message"
+                  placeholder={t('entities.customFields.editor.errorMessagePlaceholder', 'Error message')}
                   value={rule?.message || ''}
                   onChange={(event) => {
                     const message = event.target.value
@@ -1124,7 +1147,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 <IconButton
                   variant="outline"
                   size="sm"
-                  aria-label="Remove rule"
+                  aria-label={t('entities.customFields.editor.removeRule', 'Remove rule')}
                   onClick={() => {
                     apply((current) => {
                       const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
@@ -1139,7 +1162,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             </div>
           ))}
           {(!Array.isArray(local.configJson?.validation) || local.configJson!.validation.length === 0) && (
-            <div className="text-xs text-muted-foreground">No validation rules defined.</div>
+            <div className="text-xs text-muted-foreground">{t('entities.customFields.editor.noValidationRules', 'No validation rules defined.')}</div>
           )}
         </div>
       </div>
@@ -1303,11 +1326,11 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Add option</DialogTitle>
-          <DialogDescription>Provide the stored value and optional label shown to users.</DialogDescription>
+          <DialogTitle>{t('entities.customFields.editor.addOptionTitle', 'Add option')}</DialogTitle>
+          <DialogDescription>{t('entities.customFields.editor.addOptionDescription', 'Provide the stored value and optional label shown to users.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
-          <FormField label="Value" error={optionFormError ?? undefined}>
+          <FormField label={t('entities.customFields.editor.value', 'Value')} error={optionFormError ?? undefined}>
             <Input
               inputClassName="font-mono"
               placeholder="unique_value"
@@ -1318,9 +1341,9 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               }}
             />
           </FormField>
-          <FormField label="Label">
+          <FormField label={t('entities.customFields.editor.label', 'Label')}>
             <Input
-              placeholder="Label shown to users (optional)"
+              placeholder={t('entities.customFields.editor.optionLabelPlaceholder', 'Label shown to users (optional)')}
               value={optionLabelDraft}
               onChange={(event) => setOptionLabelDraft(event.target.value)}
             />
@@ -1328,10 +1351,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={handleCloseOptionDialog}>
-            Cancel
+            {t('entities.customFields.editor.cancel', 'Cancel')}
           </Button>
           <Button size="sm" onClick={handleAddOption}>
-            Add option
+            {t('entities.customFields.editor.addOption', 'Add option')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1349,13 +1372,13 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{editingGroupCode ? 'Edit group' : 'New group'}</DialogTitle>
+          <DialogTitle>{editingGroupCode ? t('entities.customFields.editor.editGroupTitle', 'Edit group') : t('entities.customFields.editor.newGroupTitle', 'New group')}</DialogTitle>
           <DialogDescription>
-            {editingGroupCode ? 'Update the selected group for this fieldset.' : 'Add a reusable group for this fieldset.'}
+            {editingGroupCode ? t('entities.customFields.editor.editGroupDescription', 'Update the selected group for this fieldset.') : t('entities.customFields.editor.newGroupDescription', 'Add a reusable group for this fieldset.')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
-          <FormField label="Group code" error={groupError ?? undefined} disabled={!!editingGroupCode}>
+          <FormField label={t('entities.customFields.editor.groupCode', 'Group code')} error={groupError ?? undefined} disabled={!!editingGroupCode}>
             <Input
               inputClassName="font-mono"
               value={groupDraft.code}
@@ -1367,14 +1390,14 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               placeholder="e.g. buying_committee"
             />
           </FormField>
-          <FormField label="Label">
+          <FormField label={t('entities.customFields.editor.label', 'Label')}>
             <Input
               value={groupDraft.title}
               onChange={(event) => setGroupDraft((prev) => ({ ...prev, title: event.target.value }))}
               placeholder="Buying committee"
             />
           </FormField>
-          <FormField label="Hint">
+          <FormField label={t('entities.customFields.editor.hint', 'Hint')}>
             <Input
               value={groupDraft.hint}
               onChange={(event) => setGroupDraft((prev) => ({ ...prev, hint: event.target.value }))}
@@ -1383,7 +1406,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
           </FormField>
           {currentFieldsetValue && groupOptions.length > 0 ? (
             <div>
-              <div className="text-xs font-medium mb-1">Existing groups</div>
+              <div className="text-xs font-medium mb-1">{t('entities.customFields.editor.existingGroups', 'Existing groups')}</div>
               <div className="space-y-2 max-h-40 overflow-y-auto">
                 {groupOptions.map((group) => (
                   <div key={group.code} className="flex items-center justify-between rounded border px-3 py-2 text-sm">
@@ -1400,7 +1423,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-muted-foreground hover:text-foreground"
                         onClick={() => handleEditGroupEntry(group)}
-                        aria-label={`Edit ${group.code}`}
+                        aria-label={t('entities.customFields.editor.editGroupAria', 'Edit {{code}}', { code: group.code })}
                       >
                         <Pencil className="h-4 w-4" />
                       </IconButton>
@@ -1409,7 +1432,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-destructive hover:text-destructive/80"
                         onClick={() => handleRemoveGroupEntry(group.code)}
-                        aria-label={`Delete ${group.code}`}
+                        aria-label={t('entities.customFields.editor.deleteGroupAria', 'Delete {{code}}', { code: group.code })}
                       >
                         <Trash2 className="h-4 w-4" />
                       </IconButton>
@@ -1422,10 +1445,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         </div>
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={() => setGroupDialogOpen(false)}>
-            Cancel
+            {t('entities.customFields.editor.cancel', 'Cancel')}
           </Button>
           <Button size="sm" onClick={handleGroupDialogSubmit}>
-            Save group
+            {t('entities.customFields.editor.saveGroup', 'Save group')}
           </Button>
         </DialogFooter>
       </DialogContent>
