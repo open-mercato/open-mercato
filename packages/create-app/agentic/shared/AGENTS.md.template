@@ -181,7 +181,7 @@ await withAtomicFlush(em, [
 await emitCrudSideEffects({ /* ... */ })
 ```
 
-Because invalidation runs post-commit and the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a convergence window after a write. An opt-in env flag, `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default OFF, backward compatible), is planned to make that tail converge synchronously on write at a write-latency cost — treat it as opt-in/forthcoming, not on by default.
+Because invalidation runs post-commit and, by default, the query-index read-projection tail (search tokens, vectors, fulltext, coverage) converges asynchronously, reads can briefly see a convergence window after a write. The opt-in env flag `OM_CACHE_SAFETY_ALWAYS_CONSISTENT` (default OFF, backward compatible) makes that tail converge synchronously on write and propagates index-write failures at a write-latency cost. It does not move side effects into the domain-write transaction.
 
 ## CRITICAL rules — always follow without exception
 

@@ -1,5 +1,6 @@
 import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
-import { upsertIndexRow, reindexSearchTokensForRecord } from '../lib/indexer'
+import { isReadProjectionAlwaysConsistent } from '@open-mercato/shared/lib/data/consistency'
+import { upsertIndexRow, reindexSearchTokensForRecord, type UpsertIndexResult } from '../lib/indexer'
 import { applyCoverageAdjustments, createCoverageAdjustments } from '../lib/coverage'
 import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/subscriber-scope'
 
@@ -22,6 +23,7 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
   let tenantId: string | null = payload?.tenantId ?? null
   const suppressCoverage = payload?.suppressCoverage === true
   const coverageDelayMs = typeof payload?.coverageDelayMs === 'number' ? payload.coverageDelayMs : undefined
+  const alwaysConsistent = isReadProjectionAlwaysConsistent()
   try {
     const hasPayloadOrganizationId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'organizationId')
     const hasPayloadTenantId = Object.prototype.hasOwnProperty.call(payload ?? {}, 'tenantId')
@@ -39,6 +41,71 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
     const searchTokenDoc = typeof payload?.searchTokenDoc === 'object' && payload.searchTokenDoc && !Array.isArray(payload.searchTokenDoc)
       ? (payload.searchTokenDoc as Record<string, unknown>)
       : null
+    if (alwaysConsistent) {
+      const db = (em as any).getKysely()
+      let result: UpsertIndexResult | null = null
+      await db.transaction().execute(async (trx: any) => {
+        result = await upsertIndexRow(em, {
+          entityType,
+          recordId,
+          organizationId,
+          tenantId,
+          searchTokenDoc,
+          deferSearchTokens: false,
+          trx,
+        })
+        if (!suppressCoverage) {
+          const doc = result.doc
+          const isActive = !!doc && (doc.deleted_at == null || doc.deleted_at === null)
+          let baseDelta: number | undefined =
+            typeof payload?.coverageBaseDelta === 'number' ? payload.coverageBaseDelta : undefined
+          let indexDelta: number | undefined =
+            typeof payload?.coverageIndexDelta === 'number' ? payload.coverageIndexDelta : undefined
+          const crudAction = typeof payload?.crudAction === 'string' ? payload.crudAction : undefined
+
+          if (baseDelta === undefined) {
+            if (result.revived) baseDelta = 1
+            else if (crudAction === 'created') baseDelta = 1
+            else baseDelta = 0
+          }
+
+          if (indexDelta === undefined) {
+            if (isActive && (result.created || result.revived)) indexDelta = 1
+            else indexDelta = 0
+          }
+
+          if (!isActive && baseDelta > 0) baseDelta = 0
+          if (!isActive && indexDelta > 0) indexDelta = 0
+          if (!Number.isFinite(baseDelta)) baseDelta = 0
+          if (!Number.isFinite(indexDelta)) indexDelta = 0
+
+          const adjustments = createCoverageAdjustments({
+            entityType,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            baseDelta,
+            indexDelta,
+          })
+          if (adjustments.length) {
+            await applyCoverageAdjustments(em, adjustments, { trx })
+          }
+        }
+      })
+
+      const bus = ctx.resolve<any>('eventBus')
+      const eventScope = { entityType, recordId, organizationId, tenantId }
+      await bus.emitEvent('query_index.vectorize_one', eventScope, { rethrowHandlerErrors: true })
+      await bus.emitEvent('search.index_record', { entityId: entityType, recordId, organizationId, tenantId }, { rethrowHandlerErrors: true })
+      if (!suppressCoverage && coverageDelayMs !== undefined && coverageDelayMs >= 0) {
+        await bus.emitEvent('query_index.coverage.refresh', {
+          entityType,
+          tenantId: tenantId ?? null,
+          organizationId: organizationId ?? null,
+          delayMs: coverageDelayMs,
+        }, { rethrowHandlerErrors: true })
+      }
+      return
+    }
     // Update the projection row synchronously so list reads (`customValues`) are
     // consistent the moment the write returns; defer the heavy search-token rebuild.
     const result = await upsertIndexRow(em, {
