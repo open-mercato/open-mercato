@@ -294,13 +294,14 @@ function EditorBody({
           <SegmentGroup<EditorPriority>
             size="md"
             fullWidth
+            variant="inset"
             ariaLabel={t('customers.calendar.editor.priority.label', 'Priority')}
             value={form.priority}
             onChange={(priority) => update({ priority })}
             options={[
-              { value: 'low', label: t('customers.calendar.editor.priority.low', 'Low'), icon: <ArrowDown aria-hidden className="h-4 w-4" /> },
-              { value: 'medium', label: t('customers.calendar.editor.priority.medium', 'Medium'), icon: <Minus aria-hidden className="h-4 w-4" /> },
-              { value: 'high', label: t('customers.calendar.editor.priority.high', 'High'), icon: <ArrowUp aria-hidden className="h-4 w-4" /> },
+              { value: 'low', label: t('customers.calendar.editor.priority.low', 'Low'), icon: <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" /> },
+              { value: 'medium', label: t('customers.calendar.editor.priority.medium', 'Medium'), icon: <Minus aria-hidden className="h-4 w-4 text-status-info-text" /> },
+              { value: 'high', label: t('customers.calendar.editor.priority.high', 'High'), icon: <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" /> },
             ]}
           />
         </Field>

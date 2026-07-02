@@ -13,6 +13,7 @@ export function SegmentGroup<T extends string>({
   size = 'sm',
   ariaLabel,
   fullWidth = false,
+  variant = 'outline',
 }: {
   options: Array<SegmentOption<T>>
   value: T
@@ -21,13 +22,21 @@ export function SegmentGroup<T extends string>({
   ariaLabel: string
   /** Stretch across the container with equal-width, centered segments. */
   fullWidth?: boolean
+  /**
+   * 'outline' — joined bordered segments (type switcher).
+   * 'inset' — muted track with a raised active thumb (iOS/Linear style); icons
+   *   keep their own semantic colors.
+   */
+  variant?: 'outline' | 'inset'
 }) {
+  const inset = variant === 'inset'
   return (
     <div
       role="group"
       aria-label={ariaLabel}
       className={cn(
-        'max-w-full items-start rounded-md border border-border bg-background',
+        'max-w-full items-center',
+        inset ? 'gap-1 rounded-lg bg-muted p-1' : 'items-start rounded-md border border-border bg-background',
         fullWidth ? 'flex w-full' : 'inline-flex overflow-x-auto',
       )}
     >
@@ -41,14 +50,26 @@ export function SegmentGroup<T extends string>({
             aria-pressed={isActive}
             onClick={() => onChange(option.value)}
             className={cn(
-              'h-auto gap-1.5 rounded-none border-0 text-sm font-medium leading-5 shadow-none',
-              size === 'md' ? 'px-4 py-2' : 'px-3.5 py-1.5',
-              index > 0 && 'border-l border-border',
+              'h-auto gap-1.5 border-0 text-sm font-medium leading-5',
+              size === 'md' ? 'px-4 py-1.5' : 'px-3.5 py-1.5',
               fullWidth && 'flex-1 justify-center',
-              isActive ? 'bg-muted text-foreground hover:bg-muted' : 'bg-background text-muted-foreground',
+              inset
+                ? cn(
+                    'rounded-md shadow-none transition-colors',
+                    isActive
+                      ? 'bg-background text-foreground shadow-sm hover:bg-background'
+                      : 'bg-transparent text-muted-foreground hover:bg-background/60 hover:text-foreground',
+                  )
+                : cn(
+                    'rounded-none shadow-none',
+                    index > 0 && 'border-l border-border',
+                    isActive ? 'bg-muted text-foreground hover:bg-muted' : 'bg-background text-muted-foreground',
+                  ),
             )}
           >
-            {option.icon ? <span aria-hidden className="shrink-0 opacity-70">{option.icon}</span> : null}
+            {option.icon ? (
+              <span aria-hidden className={cn('shrink-0', !inset && 'opacity-70')}>{option.icon}</span>
+            ) : null}
             {option.label}
           </Button>
         )
