@@ -142,6 +142,7 @@ describe('data sync engine export item failures', () => {
       level: 'error',
       message: expect.stringContaining('Failed to export item SKU-1 (id: product-1)'),
       payload: {
+        kind: 'export-item-failure',
         summary: 'Magento API request failed with status 400: {"message":"URL key for specified store already exists."}',
       },
     }), {

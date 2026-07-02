@@ -167,7 +167,7 @@ export function createSyncEngine(deps: EngineDeps) {
           runId,
           level: 'error',
           message,
-          payload: { summary: result.error },
+          payload: { kind: 'export-item-failure', summary: result.error },
         },
         scope,
       )
