@@ -786,11 +786,21 @@ function registerSnapshotShutdownHook(state: ResourceUsageState): void {
 // event loop stays alive for the pending promise, so even the beforeExit-triggered flush below
 // still completes before the process actually exits, as long as nothing calls process.exit()
 // first.
+let snapshotWriteSequence = 0
+
+// Writes atomically: serialize to a unique temp file, then rename onto the final path. rename is
+// atomic on POSIX, so a concurrent reader (this process's report, another process's directory scan,
+// or a test) always observes either the previous complete file or the new complete file — never the
+// empty/partial content window that a direct writeFile to snapshotPath would briefly expose.
 function writeSnapshotFileAsync(dir: string, snapshotPath: string, payload: unknown): void {
+  const tempPath = `${snapshotPath}.${process.pid}.${snapshotWriteSequence++}.tmp`
   fs.promises.mkdir(dir, { recursive: true })
-    .then(() => fs.promises.writeFile(snapshotPath, JSON.stringify(payload, null, 2)))
+    .then(() => fs.promises.writeFile(tempPath, JSON.stringify(payload, null, 2)))
+    .then(() => fs.promises.rename(tempPath, snapshotPath))
     .catch(() => {
-      // Snapshot files are diagnostic only; in-memory reporting still works.
+      // Snapshot files are diagnostic only; in-memory reporting still works. Best-effort cleanup of
+      // the temp file if the rename never happened; ignore if it is already gone.
+      fs.promises.unlink(tempPath).catch(() => {})
     })
 }
 
