@@ -17,8 +17,8 @@
 | 1 | 1.5 | `build.mjs` cleans `dist/agentic` before copy | done | 7ac0fed3d |
 | 1 | 1.6 | Drop STANDALONE.md mentions (printSummary, AGENTS.md, AGENTS.md.template) | done | bd97e7ce0 |
 | 2 | 2.1 | Restructure `om-auto-create-pr` (thin SKILL + workflow/ + absorb STANDALONE) — pattern-setter | done | 7b15b7f43 |
-| 2 | 2.2 | Restructure `om-auto-continue-pr` | done | pending |
-| 2 | 2.3 | Restructure `om-auto-create-pr-loop` (+ subagents/executor.md) | todo | — |
+| 2 | 2.2 | Restructure `om-auto-continue-pr` | done | 2f7987b1e |
+| 2 | 2.3 | Restructure `om-auto-create-pr-loop` (+ subagents/executor.md) | done | pending |
 | 2 | 2.4 | Restructure `om-auto-continue-pr-loop` (+ subagents/executor.md) | todo | — |
 | 2 | 2.5 | Restructure `om-auto-review-pr` | todo | — |
 | 2 | 2.6 | Restructure `om-auto-fix-github` | todo | — |
