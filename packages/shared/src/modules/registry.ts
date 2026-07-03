@@ -174,6 +174,7 @@ export type ModuleCli = {
 
 export type ModuleSubscriber = {
   id: string
+  moduleId?: string
   event: string
   persistent?: boolean
   sync?: boolean
@@ -183,6 +184,7 @@ export type ModuleSubscriber = {
 
 export type ModuleWorker = {
   id: string
+  moduleId?: string
   queue: string
   concurrency: number
   handler: ModuleWorkerHandler

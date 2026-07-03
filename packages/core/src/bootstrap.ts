@@ -150,7 +150,12 @@ export async function bootstrap(container: AwilixContainer) {
       const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
       loadedModules = getModules()
     } catch {}
-    const subs = loadedModules.flatMap((m) => m.subscribers || [])
+    const subs = loadedModules.flatMap((m) =>
+      (m.subscribers || []).map((subscriber: any) => ({
+        ...subscriber,
+        moduleId: subscriber.moduleId ?? m.id,
+      })),
+    )
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
 
     // Extract sync subscribers and register in the sync-subscriber-store
