@@ -392,24 +392,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
-  const metadataFieldsReadOnly = entitySource === 'code'
-  const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
-    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
-    {
-      id: 'defaultEditor',
-      label: 'Default Editor (multiline)',
-      type: 'select',
-      readOnly: metadataFieldsReadOnly,
-      options: [
-        { value: '', label: 'Default (Markdown)' },
-        { value: 'markdown', label: 'Markdown (UIW)' },
-        { value: 'simpleMarkdown', label: 'Simple Markdown' },
-        { value: 'htmlRichText', label: 'HTML Rich Text' },
-      ],
-    } as CrudField,
-    ...(entitySource === 'custom' ? [{ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField] : []),
-  ]
+  const fields: CrudField[] = buildEntitySettingsFields(entitySource)
   const renderFieldDefinitions = React.useCallback(() => (
       <FieldDefinitionsEditor
         definitions={defs}
@@ -607,6 +590,36 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
 
 export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
   return entitySource === 'custom'
+}
+
+// System (code-declared) entities own their metadata in code — their label, description,
+// and default editor cannot be persisted from the UI (POST /api/entities/entities is
+// fail-closed for ORM-backed system ids, #3115). Render those fields as `disabled` (not
+// `readOnly`, which CrudForm ignores for text/textarea/select inputs, #3151) so they are
+// visibly non-editable and cannot accept keyboard input. Custom entities stay fully editable
+// and keep the sidebar toggle.
+export function buildEntitySettingsFields(entitySource: EntitySource): CrudField[] {
+  const metadataDisabled = entitySource === 'code'
+  const fields: CrudField[] = [
+    { id: 'label', label: 'Label', type: 'text', required: true, disabled: metadataDisabled },
+    { id: 'description', label: 'Description', type: 'textarea', disabled: metadataDisabled },
+    {
+      id: 'defaultEditor',
+      label: 'Default Editor (multiline)',
+      type: 'select',
+      disabled: metadataDisabled,
+      options: [
+        { value: '', label: 'Default (Markdown)' },
+        { value: 'markdown', label: 'Markdown (UIW)' },
+        { value: 'simpleMarkdown', label: 'Simple Markdown' },
+        { value: 'htmlRichText', label: 'HTML Rich Text' },
+      ],
+    } as CrudField,
+  ]
+  if (entitySource === 'custom') {
+    fields.push({ id: 'showInSidebar', label: 'Show in sidebar', type: 'checkbox' } as CrudField)
+  }
+  return fields
 }
 
 const SYSTEM_ENTITY_SETTINGS_NOTICE_FALLBACK =
