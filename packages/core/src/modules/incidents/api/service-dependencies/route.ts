@@ -24,7 +24,7 @@ const scopedDeleteSchema = z.object({
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(200).default(100),
+    pageSize: z.coerce.number().min(1).max(100).default(100),
     sourceComponentId: z.string().uuid().optional(),
     targetComponentId: z.string().uuid().optional(),
     componentId: z.string().uuid().optional(),
