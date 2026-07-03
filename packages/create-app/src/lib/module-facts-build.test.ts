@@ -44,6 +44,21 @@ test('build emits a fact-sheet for every allowlisted D5 module (T5)', () => {
   }
 })
 
+test('build does not ship any STANDALONE.md in dist/agentic (retired overrides stay gone)', () => {
+  ensureBuilt()
+  const distAgentic = join(pkgRoot, 'dist', 'agentic')
+  const stale: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = join(dir, entry.name)
+      if (entry.isDirectory()) walk(entryPath)
+      else if (entry.name === 'STANDALONE.md') stale.push(entryPath)
+    }
+  }
+  if (fs.existsSync(distAgentic)) walk(distAgentic)
+  assert.deepEqual(stale, [], `dist/agentic must not ship STANDALONE.md: ${stale.join(', ')}`)
+})
+
 test('build keeps the 9 legacy core.<module>.md names bundled (BC bridge, T5)', () => {
   ensureBuilt()
   for (const moduleId of D5_MODULES) {
