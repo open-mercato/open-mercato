@@ -13,8 +13,8 @@
 | 1 | 1.1 | AgenticConfig gains `pr.baseBranch` + interactive base-branch question | done | 2248aa015 |
 | 1 | 1.2 | Additive `--pr-base <branch\|auto>` CLI flag (headless-safe) | done | 5cf8c797a |
 | 1 | 1.3 | Generator writes `.ai/agentic.config.json` from AgenticConfig | done | e10664578 |
-| 1 | 1.4 | Recursive skill-dir copy + resolvePlaceholders; adapt overlays test | done | pending |
-| 1 | 1.5 | `build.mjs` cleans `dist/agentic` before copy | todo | — |
+| 1 | 1.4 | Recursive skill-dir copy + resolvePlaceholders; adapt overlays test | done | 2d0230018 |
+| 1 | 1.5 | `build.mjs` cleans `dist/agentic` before copy | done | pending |
 | 1 | 1.6 | Drop STANDALONE.md mentions (printSummary, AGENTS.md, AGENTS.md.template) | todo | — |
 | 2 | 2.1 | Restructure `om-auto-create-pr` (thin SKILL + workflow/ + absorb STANDALONE) — pattern-setter | todo | — |
 | 2 | 2.2 | Restructure `om-auto-continue-pr` | todo | — |

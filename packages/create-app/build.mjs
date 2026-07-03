@@ -26,10 +26,13 @@ if (existsSync('src/lib/templates')) {
   console.log('Copied src/lib/templates/ → dist/templates/')
 }
 
-// Copy agentic source content to dist/ so generators can read it at runtime
+// Copy agentic source content to dist/ so generators can read it at runtime.
+// Clean first so files deleted from agentic/ (e.g. the retired STANDALONE.md
+// overrides) never linger in an incremental dist/agentic/ and keep shipping.
 if (existsSync('agentic')) {
+  rmSync('dist/agentic', { recursive: true, force: true })
   cpSync('agentic', 'dist/agentic', { recursive: true })
-  console.log('Copied agentic/ → dist/agentic/')
+  console.log('Cleaned + copied agentic/ → dist/agentic/')
 }
 
 // Auto-discover standalone guides from sibling packages
