@@ -14,6 +14,30 @@ function resolvePlaceholders(content: string, config: AgenticConfig): string {
   return content.replace(/\{\{PROJECT_NAME\}\}/g, config.projectName)
 }
 
+export interface AgenticRuntimeConfig {
+  projectName: string
+  agentTools: string[]
+  pr: { baseBranch: string }
+}
+
+// The single runtime environment file (`.ai/agentic.config.json`) that skills read
+// for per-repo settings — chiefly `pr.baseBranch`. Kept additive/extensible: new
+// install questions append keys without reshaping existing ones. This replaces the
+// former per-skill STANDALONE.md override files.
+export function buildAgenticConfig(config: AgenticConfig): AgenticRuntimeConfig {
+  return {
+    projectName: config.projectName,
+    agentTools: [...config.agentTools],
+    pr: { baseBranch: config.pr.baseBranch },
+  }
+}
+
+function writeAgenticConfig(config: AgenticConfig): void {
+  const destPath = join(config.targetDir, '.ai', 'agentic.config.json')
+  ensureDir(destPath)
+  writeFileSync(destPath, `${JSON.stringify(buildAgenticConfig(config), null, 2)}\n`)
+}
+
 // AST-parse the static `enabledModules` array literal in the scaffolded app's
 // src/modules.ts and collect each entry's `id`. Only the static literal is read
 // (conditional .push()/spread entries are intentionally not seen — see spec D6).
@@ -140,6 +164,9 @@ function copyFile(srcRelative: string, destPath: string): void {
 
 export function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
+
+  // Environment file read by skills at runtime (single source of per-repo settings).
+  writeAgenticConfig(config)
 
   // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
   const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))

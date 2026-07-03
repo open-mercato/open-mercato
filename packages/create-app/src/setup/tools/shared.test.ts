@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { buildAgenticConfig } from './shared.js'
+import type { AgenticConfig } from '../wizard.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
@@ -63,3 +65,29 @@ for (const relativePath of TRACKED_TEMPLATES) {
     }
   })
 }
+
+test('buildAgenticConfig serializes projectName, agentTools, and pr.baseBranch', () => {
+  const config: AgenticConfig = {
+    projectName: 'my-app',
+    targetDir: '/tmp/my-app',
+    agentTools: ['claude-code', 'codex'],
+    pr: { baseBranch: 'main' },
+  }
+  assert.deepEqual(buildAgenticConfig(config), {
+    projectName: 'my-app',
+    agentTools: ['claude-code', 'codex'],
+    pr: { baseBranch: 'main' },
+  })
+})
+
+test('buildAgenticConfig does not leak targetDir and copies the tools array', () => {
+  const config: AgenticConfig = {
+    projectName: 'app',
+    targetDir: '/secret/path',
+    agentTools: ['claude-code'],
+    pr: { baseBranch: 'auto' },
+  }
+  const built = buildAgenticConfig(config)
+  assert.equal('targetDir' in built, false)
+  assert.notEqual(built.agentTools, config.agentTools)
+})
