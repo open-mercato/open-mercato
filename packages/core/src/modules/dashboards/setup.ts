@@ -4,8 +4,20 @@ import { appendWidgetsToRoles, resolveAnalyticsWidgetIds } from '@open-mercato/c
 
 export const setup: ModuleSetupConfig = {
   defaultRoleFeatures: {
-    admin: ['dashboards.*', 'dashboards.admin.assign-widgets', 'analytics.view'],
-    employee: ['dashboards.view', 'dashboards.configure', 'analytics.view'],
+    admin: [
+      'dashboards.*',
+      'dashboards.admin.assign-widgets',
+      'analytics.view',
+      'dashboards.insights.view',
+      'dashboards.catalog.view',
+    ],
+    employee: [
+      'dashboards.view',
+      'dashboards.configure',
+      'analytics.view',
+      'dashboards.insights.view',
+      'dashboards.catalog.view',
+    ],
   },
 
   async onTenantCreated({ em, tenantId, organizationId }) {
@@ -18,7 +30,11 @@ export const setup: ModuleSetupConfig = {
       tenantId,
       organizationId,
       roleNames: ['admin', 'employee'],
-      widgetIds: analyticsWidgetIds,
+      widgetIds: [
+        ...analyticsWidgetIds,
+        'dashboards.analytics.customMetric',
+        'dashboards.analytics.aiInsights',
+      ],
     })
   },
 }

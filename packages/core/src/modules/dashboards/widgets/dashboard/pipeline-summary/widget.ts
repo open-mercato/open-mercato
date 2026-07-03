@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<PipelineSummarySettings> = {
     category: 'analytics',
     icon: 'git-branch',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: PipelineSummaryWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange }),
 }
 
 export default widget

@@ -84,4 +84,36 @@ describe('dashboards layout item route mutation guard', () => {
       expect.objectContaining({ resourceKind: 'dashboards.layout', resourceId: layoutItemId, operation: 'update' }),
     )
   })
+
+  it('updates object-shaped layouts without losing preferences', async () => {
+    const layout = {
+      layoutJson: {
+        items: [{ id: layoutItemId, widgetId: 'sales-summary', order: 0, size: 'md' }],
+        preferences: {
+          dateRange: {
+            preset: 'custom',
+            from: '2024-01-01',
+            to: '2024-01-31',
+            compare: 'previous_year',
+          },
+        },
+      },
+    }
+    em.findOne.mockResolvedValue(layout)
+
+    const response = await PATCH(buildRequest(), { params: { itemId: layoutItemId } })
+
+    expect(response.status).toBe(200)
+    expect(layout.layoutJson).toEqual({
+      items: [{ id: layoutItemId, widgetId: 'sales-summary', order: 0, priority: 0, size: 'lg', settings: undefined }],
+      preferences: {
+        dateRange: {
+          preset: 'custom',
+          from: '2024-01-01',
+          to: '2024-01-31',
+          compare: 'previous_year',
+        },
+      },
+    })
+  })
 })

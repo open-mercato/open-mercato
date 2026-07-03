@@ -1,11 +1,13 @@
 import { type DateRangePreset, isValidDateRangePreset } from '@open-mercato/ui/backend/date-range'
 
 export type OrdersKpiSettings = {
+  dateRangeMode: 'global' | 'custom'
   dateRange: DateRangePreset
   showComparison: boolean
 }
 
 export const DEFAULT_SETTINGS: OrdersKpiSettings = {
+  dateRangeMode: 'global',
   dateRange: 'this_month',
   showComparison: true,
 }
@@ -14,6 +16,7 @@ export function hydrateSettings(raw: unknown): OrdersKpiSettings {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
   const obj = raw as Record<string, unknown>
   return {
+    dateRangeMode: obj.dateRangeMode === 'custom' ? 'custom' : 'global',
     dateRange: isValidDateRangePreset(obj.dateRange) ? obj.dateRange : DEFAULT_SETTINGS.dateRange,
     showComparison: typeof obj.showComparison === 'boolean' ? obj.showComparison : DEFAULT_SETTINGS.showComparison,
   }

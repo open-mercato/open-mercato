@@ -20,7 +20,11 @@ import {
 import { DEFAULT_SETTINGS, hydrateSettings, type OrdersByStatusSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 
-async function fetchOrdersByStatusData(settings: OrdersByStatusSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
+async function fetchOrdersByStatusData(
+  settings: OrdersByStatusSettings,
+  context: DashboardWidgetComponentProps<OrdersByStatusSettings>['context'],
+  fetchWidgetData: WidgetDataFetcher,
+): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:orders',
     metric: {
@@ -30,10 +34,9 @@ async function fetchOrdersByStatusData(settings: OrdersByStatusSettings, fetchWi
     groupBy: {
       field: 'status',
     },
-    dateRange: {
-      field: 'placedAt',
-      preset: settings.dateRange,
-    },
+    dateRange: settings.dateRangeMode === 'global' && context.dateRange
+      ? { field: 'placedAt', from: context.dateRange.from, to: context.dateRange.to }
+      : { field: 'placedAt', preset: settings.dateRange },
   }
 
   return fetchWidgetData<WidgetDataResponse>(body)
@@ -61,6 +64,7 @@ function formatStatusLabel(status: string | null, t: (key: string, fallback: str
 const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatusSettings>> = ({
   mode,
   settings = DEFAULT_SETTINGS,
+  context,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -72,12 +76,13 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
   const [error, setError] = React.useState<string | null>(null)
 
   const fetchWidgetData = useWidgetData()
+  const showDateRangeControls = hydrated.dateRangeMode === 'custom' || !context.dateRange
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchOrdersByStatusData(hydrated, fetchWidgetData)
+      const result = await fetchOrdersByStatusData(hydrated, context, fetchWidgetData)
       const chartData = result.data.map((item) => ({
         name: formatStatusLabel(item.groupKey as string | null, t),
         value: item.value ?? 0,
@@ -90,7 +95,7 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
+  }, [context, hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
@@ -99,12 +104,31 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
   if (mode === 'settings') {
     return (
       <div className="space-y-4 text-sm">
-        <DateRangeSelect
-          id="orders-by-status-date-range"
-          label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
-          value={hydrated.dateRange}
-          onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
-        />
+        <div className="space-y-1.5">
+          <label htmlFor="orders-by-status-date-range-mode" className="text-xs font-semibold uppercase text-muted-foreground">
+            {t('dashboards.widgets.dateRange.mode.label', 'Date range source')}
+          </label>
+          <Select
+            value={hydrated.dateRangeMode}
+            onValueChange={(dateRangeMode) => onSettingsChange({ ...hydrated, dateRangeMode: dateRangeMode as 'global' | 'custom' })}
+          >
+            <SelectTrigger id="orders-by-status-date-range-mode" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="global">{t('dashboards.widgets.dateRange.mode.global', 'Dashboard range')}</SelectItem>
+              <SelectItem value="custom">{t('dashboards.widgets.dateRange.mode.custom', 'Custom range')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {showDateRangeControls && (
+          <DateRangeSelect
+            id="orders-by-status-date-range"
+            label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
+            value={hydrated.dateRange}
+            onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
+          />
+        )}
         <div className="space-y-1.5">
           <label
             htmlFor="orders-by-status-variant"
@@ -131,12 +155,14 @@ const OrdersByStatusWidget: React.FC<DashboardWidgetComponentProps<OrdersByStatu
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex justify-end mb-2">
-        <InlineDateRangeSelect
-          value={hydrated.dateRange}
-          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
-        />
-      </div>
+      {showDateRangeControls && (
+        <div className="flex justify-end mb-2">
+          <InlineDateRangeSelect
+            value={hydrated.dateRange}
+            onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange })}
+          />
+        </div>
+      )}
       <div className="flex-1 min-h-0">
         <PieChart
           data={data}

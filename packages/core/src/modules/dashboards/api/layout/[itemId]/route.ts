@@ -1,10 +1,13 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { DashboardLayout } from '@open-mercato/core/modules/dashboards/data/entities'
 import { dashboardLayoutItemPatchSchema } from '@open-mercato/core/modules/dashboards/data/validators'
+import { normalizeLayoutState, serializeLayoutStateForStoredShape } from '@open-mercato/core/modules/dashboards/lib/layoutState'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -46,8 +49,8 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
 
   const container = await createRequestContainer()
   const { resolve } = container
-  const em = resolve('em') as any
-  const rbac = resolve('rbacService') as any
+  const em = resolve('em') as EntityManager
+  const rbac = resolve('rbacService') as RbacService
 
   const scope = {
     userId: String(auth.sub),
@@ -85,17 +88,26 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     return NextResponse.json({ error: 'Layout not found' }, { status: 404 })
   }
 
-  const idx = layout.layoutJson.findIndex((item: { id?: string | null }) => item?.id === layoutItemId)
+  const layoutState = normalizeLayoutState(layout.layoutJson)
+  const idx = layoutState.items.findIndex((item) => item.id === layoutItemId)
   if (idx === -1) {
     return NextResponse.json({ error: 'Layout item not found' }, { status: 404 })
   }
 
-  const current = layout.layoutJson[idx]
-  layout.layoutJson[idx] = {
+  const current = layoutState.items[idx]
+  if (!current) {
+    return NextResponse.json({ error: 'Layout item not found' }, { status: 404 })
+  }
+  const items = [...layoutState.items]
+  items[idx] = {
     ...current,
     size: parsed.data.size ?? current.size ?? DEFAULT_SIZE,
     settings: parsed.data.settings ?? current.settings,
   }
+  layout.layoutJson = serializeLayoutStateForStoredShape(layout.layoutJson, {
+    items,
+    ...(layoutState.preferences ? { preferences: layoutState.preferences } : {}),
+  })
   await em.flush()
 
   if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {

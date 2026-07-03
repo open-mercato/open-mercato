@@ -1,6 +1,31 @@
 import React, { type ComponentType } from 'react'
 
-export type DashboardWidgetSize = 'sm' | 'md' | 'lg'
+export type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full'
+
+export type DashboardDateRangeCompare = 'previous_period' | 'previous_year' | 'none'
+
+export type DashboardDateRangePreset =
+  | 'today'
+  | 'yesterday'
+  | 'this_week'
+  | 'last_week'
+  | 'this_month'
+  | 'last_month'
+  | 'this_quarter'
+  | 'last_quarter'
+  | 'this_year'
+  | 'last_year'
+  | 'last_7_days'
+  | 'last_30_days'
+  | 'last_90_days'
+  | 'custom'
+
+export type DashboardGlobalDateRange = {
+  preset: DashboardDateRangePreset
+  from: string
+  to: string
+  compare: DashboardDateRangeCompare
+}
 
 export type DashboardWidgetMetadata = {
   id: string
@@ -15,6 +40,8 @@ export type DashboardWidgetMetadata = {
   category?: string
   icon?: string
   supportsRefresh?: boolean
+  respectsDashboardDateRange?: boolean
+  supportsMultipleInstances?: boolean
 }
 
 export type DashboardLayoutItem = {
@@ -35,6 +62,7 @@ export type DashboardWidgetRenderContext = {
   userName?: string | null
   userEmail?: string | null
   userLabel?: string | null
+  dateRange?: DashboardGlobalDateRange
 }
 
 export type DashboardWidgetComponentProps<TSettings = unknown> = {

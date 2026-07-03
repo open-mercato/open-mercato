@@ -17,12 +17,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import type { DateGranularity } from '@open-mercato/shared/modules/analytics'
 import { DEFAULT_SETTINGS, hydrateSettings, type RevenueTrendSettings } from './config'
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
-async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
+async function fetchRevenueTrendData(
+  settings: RevenueTrendSettings,
+  context: DashboardWidgetComponentProps<RevenueTrendSettings>['context'],
+  fetchWidgetData: WidgetDataFetcher,
+): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:orders',
     metric: {
@@ -33,10 +38,9 @@ async function fetchRevenueTrendData(settings: RevenueTrendSettings, fetchWidget
       field: 'placedAt',
       granularity: settings.granularity,
     },
-    dateRange: {
-      field: 'placedAt',
-      preset: settings.dateRange,
-    },
+    dateRange: settings.dateRangeMode === 'global' && context.dateRange
+      ? { field: 'placedAt', from: context.dateRange.from, to: context.dateRange.to }
+      : { field: 'placedAt', preset: settings.dateRange },
   }
 
   return fetchWidgetData<WidgetDataResponse>(body)
@@ -103,6 +107,7 @@ function getAutoGranularity(dateRange: DateRangePreset): DateGranularity {
 const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSettings>> = ({
   mode,
   settings = DEFAULT_SETTINGS,
+  context,
   onSettingsChange,
   refreshToken,
   onRefreshStateChange,
@@ -115,12 +120,13 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   const [error, setError] = React.useState<string | null>(null)
 
   const fetchWidgetData = useWidgetData()
+  const showDateRangeControls = hydrated.dateRangeMode === 'custom' || !context.dateRange
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchRevenueTrendData(hydrated, fetchWidgetData)
+      const result = await fetchRevenueTrendData(hydrated, context, fetchWidgetData)
       const sortedData = [...result.data].sort((a, b) => {
         const aTime = new Date(a.groupKey as string || 0).getTime()
         const bTime = new Date(b.groupKey as string || 0).getTime()
@@ -138,7 +144,7 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, fetchWidgetData, locale, onRefreshStateChange, t])
+  }, [context, hydrated, fetchWidgetData, locale, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})
@@ -147,12 +153,31 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
   if (mode === 'settings') {
     return (
       <div className="space-y-4 text-sm">
-        <DateRangeSelect
-          id="revenue-trend-date-range"
-          label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
-          value={hydrated.dateRange}
-          onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
-        />
+        <div className="space-y-1.5">
+          <label htmlFor="revenue-trend-date-range-mode" className="text-xs font-semibold uppercase text-muted-foreground">
+            {t('dashboards.widgets.dateRange.mode.label', 'Date range source')}
+          </label>
+          <Select
+            value={hydrated.dateRangeMode}
+            onValueChange={(dateRangeMode) => onSettingsChange({ ...hydrated, dateRangeMode: dateRangeMode as 'global' | 'custom' })}
+          >
+            <SelectTrigger id="revenue-trend-date-range-mode" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="global">{t('dashboards.widgets.dateRange.mode.global', 'Dashboard range')}</SelectItem>
+              <SelectItem value="custom">{t('dashboards.widgets.dateRange.mode.custom', 'Custom range')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        {showDateRangeControls && (
+          <DateRangeSelect
+            id="revenue-trend-date-range"
+            label={t('dashboards.analytics.settings.dateRange', 'Date Range')}
+            value={hydrated.dateRange}
+            onChange={(dateRange: DateRangePreset) => onSettingsChange({ ...hydrated, dateRange })}
+          />
+        )}
         <div className="space-y-1.5">
           <label
             htmlFor="revenue-trend-granularity"
@@ -176,31 +201,26 @@ const RevenueTrendWidget: React.FC<DashboardWidgetComponentProps<RevenueTrendSet
             </SelectContent>
           </Select>
         </div>
-        <div className="space-y-1.5">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={hydrated.showArea}
-              onChange={(e) => onSettingsChange({ ...hydrated, showArea: e.target.checked })}
-              className="h-4 w-4 rounded border focus-visible:ring-ring"
-            />
-            {t('dashboards.analytics.settings.showArea', 'Show area fill')}
-          </label>
-        </div>
+        <CheckboxField
+          id="revenue-trend-show-area"
+          checked={hydrated.showArea}
+          onCheckedChange={(checked) => onSettingsChange({ ...hydrated, showArea: checked === true })}
+          label={t('dashboards.analytics.settings.showArea', 'Show area fill')}
+        />
       </div>
     )
   }
 
-  const effectiveGranularity = hydrated.granularity === 'day' ? getAutoGranularity(hydrated.dateRange) : hydrated.granularity
-
   return (
     <div>
-      <div className="mb-2 flex justify-end">
-        <InlineDateRangeSelect
-          value={hydrated.dateRange}
-          onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange, granularity: getAutoGranularity(dateRange) })}
-        />
-      </div>
+      {showDateRangeControls && (
+        <div className="mb-2 flex justify-end">
+          <InlineDateRangeSelect
+            value={hydrated.dateRange}
+            onChange={(dateRange) => onSettingsChange({ ...hydrated, dateRange, granularity: getAutoGranularity(dateRange) })}
+          />
+        </div>
+      )}
       <LineChart
         data={data}
         index="date"

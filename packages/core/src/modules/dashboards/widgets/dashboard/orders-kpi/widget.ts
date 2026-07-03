@@ -15,10 +15,11 @@ const widget: DashboardWidgetModule<OrdersKpiSettings> = {
     category: 'analytics',
     icon: 'shopping-cart',
     supportsRefresh: true,
+    respectsDashboardDateRange: true,
   },
   Widget: OrdersKpiWidget,
   hydrateSettings,
-  dehydrateSettings: (s) => ({ dateRange: s.dateRange, showComparison: s.showComparison }),
+  dehydrateSettings: (s) => ({ dateRangeMode: s.dateRangeMode, dateRange: s.dateRange, showComparison: s.showComparison }),
 }
 
 export default widget
