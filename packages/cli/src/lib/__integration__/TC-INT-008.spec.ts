@@ -186,6 +186,18 @@ function expectedGuideOutputNames(): string[] {
     }
   }
 
+  // Hand-authored static guides shipped under create-app/agentic/guides/ (e.g. module-system.md)
+  // are copied verbatim into .ai/guides/ by cli/build.mjs alongside the discovered standalone
+  // guides, so the scaffold output includes them too.
+  const staticGuidesDir = path.join(agenticRoot, 'guides')
+  if (fs.existsSync(staticGuidesDir)) {
+    for (const entry of fs.readdirSync(staticGuidesDir)) {
+      if (entry.endsWith('.md')) {
+        collected.add(entry)
+      }
+    }
+  }
+
   return Array.from(collected).sort()
 }
 
