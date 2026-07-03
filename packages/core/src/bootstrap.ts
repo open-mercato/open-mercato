@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
+import type { ModuleSubscriber } from '@open-mercato/shared/modules/registry'
 import { createEventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
@@ -151,7 +152,7 @@ export async function bootstrap(container: AwilixContainer) {
       loadedModules = getModules()
     } catch {}
     const subs = loadedModules.flatMap((m) =>
-      (m.subscribers || []).map((subscriber: any) => ({
+      (m.subscribers || []).map((subscriber: ModuleSubscriber) => ({
         ...subscriber,
         moduleId: subscriber.moduleId ?? m.id,
       })),

@@ -119,6 +119,36 @@ describe('module resource usage tracker', () => {
     expect(report.modules[0].errors).toBe(1)
   })
 
+  it('returns the real result even when bookkeeping throws after a successful call', async () => {
+    const state = (globalThis as Record<string, unknown>).__openMercatoModuleResourceUsage__ as { entries: unknown }
+    state.entries = {
+      get() { throw new Error('boom-bookkeeping') },
+    }
+
+    const result = await withModuleResourceUsage(
+      { moduleId: 'customers', surface: 'api', operation: 'GET /api/customers/people' },
+      async () => 'real-result',
+    )
+
+    expect(result).toBe('real-result')
+  })
+
+  it('still rethrows the original error when bookkeeping also throws on the error path', async () => {
+    const state = (globalThis as Record<string, unknown>).__openMercatoModuleResourceUsage__ as { entries: unknown }
+    state.entries = {
+      get() { throw new Error('boom-bookkeeping') },
+    }
+
+    await expect(
+      withModuleResourceUsage(
+        { moduleId: 'sales', surface: 'worker', operation: 'sales:workers:sync' },
+        async () => {
+          throw new Error('boom-real')
+        },
+      ),
+    ).rejects.toThrow('boom-real')
+  })
+
   it('does not crash when hot reload keeps legacy bucket state without operation maps', () => {
     const now = Date.now()
     const bucketStartMs = Math.floor(now / (10 * 60 * 1000)) * (10 * 60 * 1000)
@@ -290,5 +320,32 @@ describe('module resource usage tracker', () => {
     const report = getModuleResourceUsageReport()
     expect(report.modules.map((module) => module.moduleId)).toEqual(expect.arrayContaining(['customers', 'sales']))
     expect(report.modules.find((module) => module.moduleId === 'sales')?.calls).toBe(3)
+  })
+
+  it('prunes a stale snapshot file from another process instead of leaving it on disk forever', async () => {
+    process.env.OM_MODULE_RESOURCE_USAGE_SNAPSHOT = 'on'
+
+    const stalePid = process.pid + 2
+    const stalePath = path.join(tempDir!, `process-${stalePid}.json`)
+    fs.writeFileSync(
+      stalePath,
+      JSON.stringify({
+        pid: stalePid,
+        generatedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        startedAt: new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString(),
+        entries: [],
+        buckets: [],
+      }),
+    )
+
+    // readSnapshotPayloads() runs as part of building the report; the prune it triggers is
+    // fire-and-forget, so poll for the file to disappear instead of asserting synchronously.
+    getModuleResourceUsageReport()
+    const start = Date.now()
+    while (fs.existsSync(stalePath)) {
+      if (Date.now() - start > 2000) throw new Error('Timed out waiting for stale snapshot to be pruned')
+      await new Promise((resolve) => setTimeout(resolve, 10))
+    }
+    expect(fs.existsSync(stalePath)).toBe(false)
   })
 })
