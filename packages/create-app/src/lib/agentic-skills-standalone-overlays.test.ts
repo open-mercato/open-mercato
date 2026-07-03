@@ -22,7 +22,6 @@ function makeConfig(targetDir: string): AgenticConfig {
 // is deleted and it drops off this list. Step 2.8 replaces this whole file with the
 // no-STANDALONE + conformance guards once the list is empty.
 const skillsRequiringStandaloneOverlay = [
-  'om-auto-continue-pr',
   'om-auto-create-pr-loop',
   'om-auto-continue-pr-loop',
   'om-auto-fix-github',
