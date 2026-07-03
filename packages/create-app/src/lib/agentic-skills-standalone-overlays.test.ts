@@ -17,10 +17,11 @@ function makeConfig(targetDir: string): AgenticConfig {
   return { projectName: 'sample-app', targetDir, agentTools: ['claude-code'], pr: { baseBranch: 'auto' } }
 }
 
-// Skills that hard-code monorepo facts (base branch, pipeline labels, packages/ layout)
-// MUST ship a STANDALONE.md overlay so they behave correctly in a scaffolded standalone app.
+// Skills not yet restructured (Phase 2) still ship a STANDALONE.md overlay. As each
+// skill is migrated to the thin-SKILL + native-instructions layout, its STANDALONE.md
+// is deleted and it drops off this list. Step 2.8 replaces this whole file with the
+// no-STANDALONE + conformance guards once the list is empty.
 const skillsRequiringStandaloneOverlay = [
-  'om-auto-create-pr',
   'om-auto-continue-pr',
   'om-auto-create-pr-loop',
   'om-auto-continue-pr-loop',
@@ -68,16 +69,35 @@ test('the scaffolder recursively copies each skill directory (whole tree, not a 
   )
 })
 
-test('copySkillTree copies a whole skill tree — including its STANDALONE.md while it still ships', () => {
-  // Functional proof that the recursive copy ships every file in a skill dir
-  // (until Phase 2 deletes STANDALONE.md, the recursive copy still carries it).
+test('copySkillTree recursively copies a restructured skill tree (SKILL.md + nested workflow/)', () => {
+  // om-auto-create-pr is restructured (thin SKILL.md + workflow/ + references/), so this
+  // proves the recursive walk descends into subdirectories, not just the skill root.
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-copy-'))
   try {
     const srcSkill = path.join(fileURLToPath(skillsDir), 'om-auto-create-pr')
     const destSkill = path.join(tmpDir, 'om-auto-create-pr')
     copySkillTree(srcSkill, destSkill, makeConfig(tmpDir))
     assert.ok(fs.existsSync(path.join(destSkill, 'SKILL.md')), 'SKILL.md must be copied')
-    assert.ok(fs.existsSync(path.join(destSkill, 'STANDALONE.md')), 'STANDALONE.md must be copied while it still ships')
+    assert.ok(
+      fs.existsSync(path.join(destSkill, 'workflow', 'step-1-plan-and-claim.md')),
+      'nested workflow/ files must be copied recursively',
+    )
+  } finally {
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+  }
+})
+
+test('copySkillTree still ships STANDALONE.md for skills not yet restructured', () => {
+  const pending = skillsRequiringStandaloneOverlay[0]
+  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-copy-'))
+  try {
+    const srcSkill = path.join(fileURLToPath(skillsDir), pending)
+    const destSkill = path.join(tmpDir, pending)
+    copySkillTree(srcSkill, destSkill, makeConfig(tmpDir))
+    assert.ok(
+      fs.existsSync(path.join(destSkill, 'STANDALONE.md')),
+      `${pending} still ships STANDALONE.md until it is restructured`,
+    )
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true })
   }

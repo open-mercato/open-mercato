@@ -16,7 +16,7 @@
 | 1 | 1.4 | Recursive skill-dir copy + resolvePlaceholders; adapt overlays test | done | 2d0230018 |
 | 1 | 1.5 | `build.mjs` cleans `dist/agentic` before copy | done | 7ac0fed3d |
 | 1 | 1.6 | Drop STANDALONE.md mentions (printSummary, AGENTS.md, AGENTS.md.template) | done | bd97e7ce0 |
-| 2 | 2.1 | Restructure `om-auto-create-pr` (thin SKILL + workflow/ + absorb STANDALONE) — pattern-setter | todo | — |
+| 2 | 2.1 | Restructure `om-auto-create-pr` (thin SKILL + workflow/ + absorb STANDALONE) — pattern-setter | done | pending |
 | 2 | 2.2 | Restructure `om-auto-continue-pr` | todo | — |
 | 2 | 2.3 | Restructure `om-auto-create-pr-loop` (+ subagents/executor.md) | todo | — |
 | 2 | 2.4 | Restructure `om-auto-continue-pr-loop` (+ subagents/executor.md) | todo | — |
