@@ -1,18 +1,17 @@
 # Handoff — 2026-07-03-agentic-skills-restructure-phase1-2
 
-**Last updated:** 2026-07-03T19:55:00Z
+**Last updated:** 2026-07-03T20:30:00Z
 **Branch:** feat/agentic-skills-restructure-phase1-2 (pushed to fork)
-**PR:** not yet opened (opens after Phase 2 / at final gate)
-**Current phase/step:** Phase 2 in progress — 2.1–2.5 done (checkpoint 2). Next: Step 2.6.
-**Last commit:** b2eb31316 — refactor(skills): restructure om-auto-review-pr
+**PR:** opening now (final gate green)
+**Current phase/step:** COMPLETE — all Tasks (1.1–1.6, 2.1–2.8) done; final gate green.
+**Last commit:** 362a04eda — test(create-app): conformance + no-STANDALONE + no-stale-dist + placeholder guards
 
 ## What just happened
-- Phase 1 complete (1.1–1.6). Phase 2: restructured 5 of 7 skills (om-auto-create-pr [canonical], om-auto-continue-pr, om-auto-create-pr-loop, om-auto-continue-pr-loop, om-auto-review-pr) into thin SKILL.md + workflow/ (+ subagents/executor.md for the two loop skills) + references/environment.md; deleted each STANDALONE.md; each removed from the overlays test list.
-- Checkpoint 2 green: tsc clean, 79/79 tests, all migrated SKILL.md ≤60 lines.
+- Phase 1 (1.1–1.6) + Phase 2 (2.1–2.8) complete. All 7 STANDALONE-owning skills restructured into thin SKILL.md + workflow/ (+ subagents/) + native environment references; all 7 STANDALONE.md deleted; overlays test replaced by conformance/no-STANDALONE/no-stale-dist/placeholder guards.
+- Final gate green: create-app 93/93, build.mjs clean (dist/agentic STANDALONE-free), tsc clean, and an end-to-end generateShared scaffold produced 0 STANDALONE.md + 0 literal {{PROJECT_NAME}} + agentic.config.json.
 
 ## Next concrete action
-- Step 2.6: restructure `om-auto-fix-github` (419 lines) following the canonical pattern; delete its STANDALONE.md; drop it from the overlays test list.
-- Then 2.7 (`om-integration-builder`, 721 lines — note its STANDALONE is smaller/less base-branch-centric), then 2.8 (replace overlays test with no-STANDALONE + conformance + no-stale-dist + placeholder guards).
+- None for this PR. Follow-up: Phase 3 (remaining 14 skills) + Phase 4 (full-set conformance enforcement) via `om-auto-continue-pr-loop` after review of this pattern.
 
 ## Blockers / open questions
 - none

@@ -18,3 +18,9 @@
 - Decision: used the loop skill's executor-dispatch pattern — one general-purpose executor per skill, verified (tree/links/line-budget/no-hardcoded-develop/overlays test) before each commit. Kept CI green by dropping each migrated skill from the overlays test list per-commit; full no-STANDALONE guard lands in 2.8.
 - Validation: tsc clean; 79/79 tests; all migrated SKILL.md 46–54 lines.
 - Next: 2.6 om-auto-fix-github, 2.7 om-integration-builder, 2.8 guards.
+
+## 2026-07-03T20:30:00Z — final gate green, all steps complete
+- 2.6 (om-auto-fix-github), 2.7 (om-integration-builder — tailored standalone-layout ref, not the PR-centric env), 2.8 (guards) landed (1f9445e9d, 1658eea78, 362a04eda).
+- All 7 STANDALONE.md deleted; overlays test replaced by `agentic-skills-conformance.test.ts` (no-STANDALONE + 7×thin-router + recursive-copy + placeholder) and a no-stale-dist assertion in `module-facts-build.test.ts`.
+- Final gate: create-app 93/93; build.mjs clean; tsc clean; end-to-end generateShared → 0 STANDALONE, 0 literal {{PROJECT_NAME}}, agentic.config.json written.
+- Opening PR against upstream develop. Phases 3–4 deferred to a follow-up.
