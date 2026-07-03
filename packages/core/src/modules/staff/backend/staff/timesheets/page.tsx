@@ -87,7 +87,7 @@ function minutesToDecimal(minutes: number): string {
 function decimalToMinutes(value: string): number {
   const trimmed = value.trim()
   if (!trimmed) return 0
-  const num = parseFloat(trimmed)
+  const num = parseFloat(trimmed.replace(',', '.'))
   if (isNaN(num) || num < 0) return 0
   return Math.min(Math.round(num * 60), 1440)
 }
@@ -365,15 +365,15 @@ export default function MyTimesheetsPage() {
     })
   }, [])
 
-  const handleCellBlur = React.useCallback((projectId: string, dateKey: string) => {
-    const text = rawText[projectId]?.[dateKey]
+  const handleCellBlur = React.useCallback((projectId: string, dateKey: string, currentValue: string) => {
+    const editedText = rawText[projectId]?.[dateKey]
+    const text = editedText ?? currentValue
     if (text === undefined) return
     const minutes = decimalToMinutes(text)
     const cellEntries = entries[projectId]?.[dateKey] ?? []
     const existingMinutes = cellEntries.reduce((sum, e) => sum + e.minutes, 0)
 
-    // Only mark dirty if the value actually changed
-    if (minutes !== existingMinutes || cellEntries.length > 0) {
+    if (minutes !== existingMinutes || (editedText !== undefined && cellEntries.length > 0)) {
       setDirty((prev) => {
         const projectEntries: Record<string, CellEntry> = { ...(prev[projectId] ?? {}) }
         const firstId = cellEntries[0]?.id
@@ -851,7 +851,7 @@ export default function MyTimesheetsPage() {
                                 hover:border-muted-foreground/40 focus:border-primary focus:bg-background focus:outline-none`}
                               value={rawText[project.id]?.[dateKey] ?? minutesToDecimal(cellMinutes)}
                               onChange={(e) => handleCellChange(project.id, dateKey, e.target.value)}
-                              onBlur={() => handleCellBlur(project.id, dateKey)}
+                              onBlur={(event) => handleCellBlur(project.id, dateKey, event.currentTarget.value)}
                               placeholder={t('staff.timesheets.my.durationPlaceholder', '0')}
                             />
                           )}
