@@ -47,6 +47,16 @@ describe('custom metric lib', () => {
     expect(buildRequest({ ...settings, groupByField: null }, entity, context)).toBeNull()
   })
 
+  test('bar visualization can group by a timestamp field with granularity', () => {
+    const settings = normalizeSettings(
+      { ...DEFAULT_SETTINGS, entityType: 'sales:orders', visualization: 'bar', groupByField: 'placedAt', granularity: 'day' },
+      [entity],
+    )
+    expect(settings.groupByField).toBe('placedAt')
+    expect(settings.granularity).toBe('day')
+    expect(buildRequest(settings, entity, context)?.groupBy).toMatchObject({ field: 'placedAt', granularity: 'day' })
+  })
+
   test('line visualization prefers the entity date field and sets granularity', () => {
     const settings = normalizeSettings({ ...DEFAULT_SETTINGS, entityType: 'sales:orders', visualization: 'line' }, [entity])
     expect(settings.groupByField).toBe('placedAt')

@@ -37,6 +37,10 @@ function isCategoricalField(field: CatalogField): boolean {
   return field.groupable && (field.kind === 'text' || field.kind === 'uuid')
 }
 
+function isTimestampField(field: CatalogField): boolean {
+  return field.groupable && field.kind === 'timestamp'
+}
+
 export function metricFields(entity: CatalogEntity | null, aggregate: AggregateFunction): CatalogField[] {
   if (!entity) return []
   return aggregate === 'count' ? entity.fields : entity.fields.filter((field) => field.kind === 'numeric')
@@ -45,6 +49,7 @@ export function metricFields(entity: CatalogEntity | null, aggregate: AggregateF
 export function groupFields(entity: CatalogEntity | null, visualization: CustomMetricVisualization): CatalogField[] {
   if (!entity || visualization === 'kpi') return []
   if (visualization === 'line') return entity.fields.filter((field) => field.groupable && field.kind === 'timestamp')
+  if (visualization === 'bar') return entity.fields.filter((field) => isCategoricalField(field) || isTimestampField(field))
   return entity.fields.filter(isCategoricalField)
 }
 
@@ -92,7 +97,8 @@ export function normalizeSettings(settings: CustomMetricSettings, catalog: Catal
       ? preferredDateField
       : allowedGroupFields[0]?.field ?? null
   }
-  next.granularity = next.visualization === 'line' ? next.granularity ?? 'day' : null
+  const selectedGroupField = findField(entity, next.groupByField)
+  next.granularity = selectedGroupField?.kind === 'timestamp' ? next.granularity ?? 'day' : null
   return next
 }
 
@@ -123,6 +129,7 @@ export function buildRequest(
   context: DashboardWidgetRenderContext,
 ): WidgetDataRequest | null {
   if (!entity || !settings.metricField) return null
+  const groupField = findField(entity, settings.groupByField)
   const request: WidgetDataRequest = {
     entityType: entity.entityType,
     metric: { field: settings.metricField, aggregate: settings.aggregate },
@@ -130,8 +137,8 @@ export function buildRequest(
     comparison: buildComparison(settings, context),
   }
   if (settings.visualization !== 'kpi') {
-    if (!settings.groupByField) return null
-    request.groupBy = settings.visualization === 'line'
+    if (!settings.groupByField || !groupField) return null
+    request.groupBy = groupField?.kind === 'timestamp'
       ? { field: settings.groupByField, granularity: settings.granularity ?? 'day' }
       : { field: settings.groupByField, limit: settings.limit, resolveLabels: true }
   }

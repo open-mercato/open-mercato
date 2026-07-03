@@ -141,7 +141,8 @@ const CustomMetricSetupWizard: React.FC<DashboardWidgetSetupProps<CustomMetricSe
   const selectedGroup = findField(entity, draft.groupByField)
   const showPreset = draft.dateRangeMode === 'custom' || !context.dateRange
   const hasTimestampGroup = groupFields(entity, 'line').length > 0
-  const hasCategoricalGroup = groupFields(entity, 'bar').length > 0
+  const hasBarGroup = groupFields(entity, 'bar').length > 0
+  const hasCategoricalGroup = groupFields(entity, 'donut').length > 0
   const noSources = !catalogLoading && catalog.length === 0
   const nextDisabled = step === 0 && !draft.entityType
 
@@ -189,7 +190,7 @@ const CustomMetricSetupWizard: React.FC<DashboardWidgetSetupProps<CustomMetricSe
         <Label htmlFor="wizard-visualization" className={labelClass}>{t('dashboards.widgets.customMetric.settings.visualization')}</Label>
         <Select value={draft.visualization} onValueChange={(value) => updateDraft({ ...draft, visualization: value as CustomMetricVisualization })}>
           <SelectTrigger id="wizard-visualization" size="sm"><SelectValue /></SelectTrigger>
-          <SelectContent>{VISUALIZATIONS.map((visualization) => <SelectItem key={visualization} value={visualization} disabled={(visualization === 'line' && !hasTimestampGroup) || ((visualization === 'bar' || visualization === 'donut' || visualization === 'table') && !hasCategoricalGroup)}>{t(`dashboards.widgets.customMetric.settings.visualization.${visualization}`)}</SelectItem>)}</SelectContent>
+          <SelectContent>{VISUALIZATIONS.map((visualization) => <SelectItem key={visualization} value={visualization} disabled={(visualization === 'line' && !hasTimestampGroup) || (visualization === 'bar' && !hasBarGroup) || ((visualization === 'donut' || visualization === 'table') && !hasCategoricalGroup)}>{t(`dashboards.widgets.customMetric.settings.visualization.${visualization}`)}</SelectItem>)}</SelectContent>
         </Select>
       </div>
       {draft.visualization !== 'kpi' ? (
@@ -210,7 +211,7 @@ const CustomMetricSetupWizard: React.FC<DashboardWidgetSetupProps<CustomMetricSe
           </Select>
         </div>
       ) : null}
-      {(draft.visualization === 'bar' || draft.visualization === 'donut' || draft.visualization === 'table') ? (
+      {(draft.visualization === 'bar' || draft.visualization === 'donut' || draft.visualization === 'table') && selectedGroup?.kind !== 'timestamp' ? (
         <div className="space-y-1.5">
           <Label htmlFor="wizard-limit" className={labelClass}>{t('dashboards.widgets.customMetric.settings.limit')}</Label>
           <Input id="wizard-limit" type="number" min={1} max={20} className="w-24" value={draft.limit} onChange={(event) => updateDraft({ ...draft, limit: clampLimit(Number(event.target.value)) })} />

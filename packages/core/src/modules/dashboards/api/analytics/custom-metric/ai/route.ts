@@ -10,10 +10,11 @@ import { AiModelFactoryError, createModelFactory } from '@open-mercato/ai-assist
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsErrorSchema, dashboardsTag } from '../../../openapi'
 import { buildAnalyticsCatalogResponse, type AnalyticsCatalogResponse } from '../../catalog/route'
-import { aggregateFunctionSchema, dateGranularitySchema } from '../../../widgets/data/schema'
+import { aggregateFunctionSchema, dateGranularitySchema, dateRangePresetSchema } from '../../../widgets/data/schema'
 import type { AnalyticsRegistry } from '../../../../services/analyticsRegistry'
 
 const AI_TIMEOUT_MS = 15_000
+const TEMPORAL_VISUALIZATIONS = new Set(['line', 'bar'])
 
 type AiModel = Parameters<typeof generateObject>[0]['model']
 
@@ -26,6 +27,8 @@ export const customMetricAiConfigSchema = z.object({
   limit: z.number().int().min(1).max(20),
   visualization: z.enum(['kpi', 'line', 'bar', 'donut', 'table']),
   title: z.string(),
+  dateRangeMode: z.enum(['global', 'custom']).default('global'),
+  dateRangePreset: dateRangePresetSchema.nullable().default(null),
 })
 
 type CustomMetricAiConfig = z.infer<typeof customMetricAiConfigSchema>
@@ -88,13 +91,99 @@ function buildSystemPrompt(catalog: AnalyticsCatalogResponse): string {
     '- For aggregate "count", metricField may be any field on the chosen entity (prefer its "id" field). For "sum", "avg", "min", or "max", metricField MUST be a field whose aggregates array includes that aggregate.',
     '- visualization "kpi" has no grouping: set groupByField and granularity to null.',
     '- visualization "line" requires groupByField to be a groupable timestamp field and a granularity (day, week, month, quarter, or year).',
-    '- visualization "bar", "donut", or "table" require groupByField to be a groupable non-timestamp field; set granularity to null; limit is between 1 and 20.',
+    '- visualization "bar" may use either a groupable timestamp field with granularity, or a groupable non-timestamp categorical field. If the user asks for "per day", "by week", "daily", "grouped by days", or similar time wording, choose the entity dateField/timestamp field and set granularity accordingly. Do not replace explicit temporal grouping with customer, channel, product, or status grouping.',
+    '- visualization "donut" or "table" require groupByField to be a groupable non-timestamp field; set granularity to null; limit is between 1 and 20.',
+    '- dateRangeMode is "global" and dateRangePreset is null unless the request names a specific supported preset. For "last 7 days", "last 30 days", or "last 90 days", set dateRangeMode to "custom" and dateRangePreset to last_7_days, last_30_days, or last_90_days.',
     '- title is a short human-readable label for the metric.',
     'Return only JSON matching the schema.',
   ].join('\n')
 }
 
-export function sanitizeAiConfig(raw: unknown, catalog: AnalyticsCatalogResponse): CustomMetricAiConfig | null {
+function normalizePromptText(prompt: string): string {
+  return prompt
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function inferVisualization(prompt: string): CustomMetricAiConfig['visualization'] | null {
+  const normalized = normalizePromptText(prompt)
+  if (/\b(line|liniow(?:y|a|e|ego)|wykres liniowy)\b/.test(normalized)) return 'line'
+  if (/\b(bar|column|slupk(?:owy|owa|owe|owego)?|kolumn(?:owy|owa|owe|owego)?)\b/.test(normalized)) return 'bar'
+  if (/\b(donut|pierscieniow(?:y|a|e|ego)|kolo(?:wy|wa|we|wego)?|pie chart)\b/.test(normalized)) return 'donut'
+  if (/\b(table|tabela|tabelaryczn(?:y|a|e|ego)?)\b/.test(normalized)) return 'table'
+  return null
+}
+
+function inferGranularity(prompt: string): CustomMetricAiConfig['granularity'] | null {
+  const normalized = normalizePromptText(prompt)
+  if (/\b(day|daily|days|dzien|dziennie|dnia|dni)\b/.test(normalized)) return 'day'
+  if (/\b(week|weekly|weeks|tydzien|tygodnia|tygodnie|tygodniowo)\b/.test(normalized)) return 'week'
+  if (/\b(month|monthly|months|miesiac|miesiaca|miesiecy|miesiecznie)\b/.test(normalized)) return 'month'
+  if (/\b(quarter|quarterly|quarters|kwartal|kwartalu|kwartalnie)\b/.test(normalized)) return 'quarter'
+  if (/\b(year|yearly|years|rok|roku|lata|rocznie)\b/.test(normalized)) return 'year'
+  return null
+}
+
+function inferDateRangePreset(prompt: string): CustomMetricAiConfig['dateRangePreset'] {
+  const normalized = normalizePromptText(prompt)
+  if (/\b(last|past|ostatni\w*|ostatnie|ostatnich)\s+(7|seven|siedem)\s+(day|days|dni|dzien|dnia)\b/.test(normalized)) return 'last_7_days'
+  if (/\b(last|past|ostatni\w*|ostatnie|ostatnich)\s+(30|thirty|trzydziesci)\s+(day|days|dni|dzien|dnia)\b/.test(normalized)) return 'last_30_days'
+  if (/\b(last|past|ostatni\w*|ostatnie|ostatnich)\s+(90|ninety|dziewiecdziesiat)\s+(day|days|dni|dzien|dnia)\b/.test(normalized)) return 'last_90_days'
+  return null
+}
+
+function findTimestampGroupField(
+  entity: AnalyticsCatalogResponse['entities'][number],
+): string | null {
+  const timestampFields = entity.fields.filter((field) => field.groupable && field.kind === 'timestamp')
+  if (entity.dateField && timestampFields.some((field) => field.field === entity.dateField)) {
+    return entity.dateField
+  }
+  return timestampFields[0]?.field ?? null
+}
+
+function fieldKind(
+  entity: AnalyticsCatalogResponse['entities'][number],
+  fieldName: string | null,
+): AnalyticsCatalogResponse['entities'][number]['fields'][number]['kind'] | null {
+  return entity.fields.find((field) => field.field === fieldName)?.kind ?? null
+}
+
+function applyPromptHints(
+  config: CustomMetricAiConfig,
+  entity: AnalyticsCatalogResponse['entities'][number],
+  prompt: string,
+): CustomMetricAiConfig {
+  const visualization = inferVisualization(prompt)
+  const granularity = inferGranularity(prompt)
+  const dateRangePreset = inferDateRangePreset(prompt)
+  const next: CustomMetricAiConfig = {
+    ...config,
+    visualization: visualization ?? config.visualization,
+    dateRangeMode: dateRangePreset ? 'custom' : config.dateRangeMode,
+    dateRangePreset: dateRangePreset ?? config.dateRangePreset,
+  }
+
+  if (granularity) {
+    const timestampField = findTimestampGroupField(entity)
+    if (timestampField) {
+      next.groupByField = timestampField
+      next.granularity = granularity
+      if (!TEMPORAL_VISUALIZATIONS.has(next.visualization)) {
+        next.visualization = 'bar'
+      }
+    }
+  }
+
+  if (fieldKind(entity, next.groupByField) !== 'timestamp' && next.visualization !== 'line') {
+    next.granularity = null
+  }
+
+  return next
+}
+
+export function sanitizeAiConfig(raw: unknown, catalog: AnalyticsCatalogResponse, prompt = ''): CustomMetricAiConfig | null {
   const parsed = customMetricAiConfigSchema.safeParse(raw)
   if (!parsed.success) return null
   const entity = catalog.entities.find((candidate) => candidate.entityType === parsed.data.entityType)
@@ -102,7 +191,7 @@ export function sanitizeAiConfig(raw: unknown, catalog: AnalyticsCatalogResponse
   const fieldNames = new Set(entity.fields.map((field) => field.field))
   const metricField = parsed.data.metricField && fieldNames.has(parsed.data.metricField) ? parsed.data.metricField : null
   const groupByField = parsed.data.groupByField && fieldNames.has(parsed.data.groupByField) ? parsed.data.groupByField : null
-  return { ...parsed.data, metricField, groupByField }
+  return applyPromptHints({ ...parsed.data, metricField, groupByField }, entity, prompt)
 }
 
 export async function POST(req: Request) {
@@ -160,7 +249,7 @@ export async function POST(req: Request) {
       AI_TIMEOUT_MS,
       `[internal] custom-metric AI generation timed out after ${AI_TIMEOUT_MS}ms`,
     )
-    return NextResponse.json({ config: sanitizeAiConfig(result.object, catalog), aiAvailable: true })
+    return NextResponse.json({ config: sanitizeAiConfig(result.object, catalog, parsed.data.prompt), aiAvailable: true })
   } catch (err) {
     console.error('[dashboards/custom-metric/ai] Error:', err)
     return NextResponse.json({ config: null, aiAvailable: true })

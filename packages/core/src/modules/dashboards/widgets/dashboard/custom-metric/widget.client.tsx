@@ -99,7 +99,7 @@ const CustomMetricWidgetClient: React.FC<DashboardWidgetComponentProps<CustomMet
   const valueLabel = selectedMetric?.label ?? t('dashboards.analytics.labels.value')
   const groupedRows = data?.data ?? []
   const chartRows: ChartRow[] = groupedRows.map((item) => ({
-    group: normalized.visualization === 'line' ? formatDateGroup(item.groupKey, normalized.granularity, locale) : formatGroupLabel(item.groupLabel ?? item.groupKey, unknownLabel),
+    group: selectedGroup?.kind === 'timestamp' ? formatDateGroup(item.groupKey, normalized.granularity, locale) : formatGroupLabel(item.groupLabel ?? item.groupKey, unknownLabel),
     [VALUE_KEY]: item.value ?? 0,
   }))
   const tableRows: TableRow[] = groupedRows.map((item, index) => ({
