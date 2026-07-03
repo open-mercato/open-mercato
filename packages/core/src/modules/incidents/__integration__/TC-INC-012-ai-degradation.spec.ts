@@ -160,10 +160,12 @@ test.describe('TC-INC-012: Incident AI degradation API', () => {
           `summary degradation should return a typed AI-unavailable code (got ${summaryError?.code ?? 'none'})`,
         ).toBe(true)
 
-        expect(triageResponse.status(), 'triage should succeed with null suggestion when AI is unavailable').toBe(200)
-        const triage = await readJsonSafe<TriageResponse>(triageResponse)
-        expect(triage?.suggestion, 'triage suggestion should be null when AI is unavailable').toBeNull()
-        expectSimilarShape(triage?.similar)
+        expect(triageResponse.status(), 'triage should return 503 when AI is unavailable').toBe(503)
+        const triageError = await readJsonSafe<{ code?: string }>(triageResponse)
+        expect(
+          acceptableUnavailableCodes.includes(triageError?.code ?? ''),
+          `triage degradation should return a typed AI-unavailable code (got ${triageError?.code ?? 'none'})`,
+        ).toBe(true)
       } else {
         expect(summaryResponse.status(), 'summary should succeed when AI is available').toBe(200)
         const summary = await readJsonSafe<SummaryResponse>(summaryResponse)
