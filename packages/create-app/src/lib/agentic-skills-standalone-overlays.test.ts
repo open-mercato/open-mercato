@@ -23,7 +23,6 @@ function makeConfig(targetDir: string): AgenticConfig {
 // no-STANDALONE + conformance guards once the list is empty.
 const skillsRequiringStandaloneOverlay = [
   'om-auto-fix-github',
-  'om-auto-review-pr',
   'om-integration-builder',
 ]
 
