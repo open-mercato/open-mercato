@@ -2,6 +2,7 @@ import type {
   DashboardDateRangeCompare,
   DashboardDateRangePreset,
   DashboardLayoutItem,
+  DashboardWidgetAccent,
   DashboardWidgetSize,
 } from '@open-mercato/shared/modules/dashboard/widgets'
 
@@ -32,6 +33,7 @@ export const MAX_DASHBOARD_PRESETS = 12
 const MAX_PRESET_NAME_LENGTH = 80
 
 const WIDGET_SIZES = ['sm', 'md', 'lg', 'full'] as const satisfies readonly DashboardWidgetSize[]
+const WIDGET_ACCENTS = ['neutral', 'info', 'success', 'warning', 'error', 'brand'] as const satisfies readonly DashboardWidgetAccent[]
 const DATE_RANGE_PRESETS = [
   'today',
   'yesterday',
@@ -57,6 +59,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isDashboardWidgetSize(value: unknown): value is DashboardWidgetSize {
   return typeof value === 'string' && WIDGET_SIZES.some((size) => size === value)
+}
+
+function isDashboardWidgetAccent(value: unknown): value is DashboardWidgetAccent {
+  return typeof value === 'string' && WIDGET_ACCENTS.some((accent) => accent === value)
 }
 
 function isDashboardDateRangePreset(value: unknown): value is DashboardDateRangePreset {
@@ -104,6 +110,7 @@ export function normalizeLayoutItems(raw: unknown): DashboardLayoutItem[] {
       order: integerOrUndefined(item.order),
       priority: integerOrUndefined(item.priority),
       size: isDashboardWidgetSize(item.size) ? item.size : undefined,
+      accent: isDashboardWidgetAccent(item.accent) ? item.accent : undefined,
       settings: item.settings,
     }))
     .filter((item) => {

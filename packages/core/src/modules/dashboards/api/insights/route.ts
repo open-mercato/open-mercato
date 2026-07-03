@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsErrorSchema, dashboardsTag } from '../openapi'
@@ -50,7 +51,7 @@ const insightsResponseSchema = z.object({
   metrics: z.array(insightMetricSchema),
   digest: z
     .object({
-      bullets: z.array(z.string()).max(5),
+      bullets: z.array(z.string()).max(6),
       generatedAt: z.string(),
     })
     .nullable(),
@@ -135,6 +136,7 @@ export async function GET(req: Request) {
   const organizationIds = resolveOrganizationIds(orgScope, auth.orgId)
   const cache = container.resolve<CacheStrategy>('cache')
   const widgetDataService = createWidgetDataService(em, { tenantId, organizationIds }, analyticsRegistry, cache)
+  const { locale, translate } = await resolveTranslations()
 
   try {
     const result = await computeInsights(
@@ -149,6 +151,8 @@ export async function GET(req: Request) {
           })
         },
         cache,
+        locale,
+        translate,
       },
       buildInsightsScope(tenantId, organizationIds),
       parsed.data,

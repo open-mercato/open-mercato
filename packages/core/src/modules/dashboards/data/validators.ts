@@ -2,6 +2,7 @@ import { z } from 'zod'
 
 export const dashboardWidgetIdSchema = z.string().min(1)
 export const dashboardWidgetSizeSchema = z.enum(['sm', 'md', 'lg', 'full'])
+export const dashboardWidgetAccentSchema = z.enum(['neutral', 'info', 'success', 'warning', 'error', 'brand'])
 export const dashboardDateRangeCompareSchema = z.enum(['previous_period', 'previous_year', 'none'])
 export const dashboardDateRangePresetSchema = z.enum([
   'today',
@@ -45,6 +46,7 @@ export const dashboardLayoutItemSchema = z.object({
   order: z.number().int().min(0),
   priority: z.number().int().min(0).optional(),
   size: dashboardWidgetSizeSchema.optional(),
+  accent: dashboardWidgetAccentSchema.optional(),
   settings: z.unknown().optional(),
 })
 
@@ -92,6 +94,7 @@ export const dashboardLayoutSchema = z.object({
 export const dashboardLayoutItemPatchSchema = z.object({
   id: z.string().uuid(),
   size: dashboardWidgetSizeSchema.optional(),
+  accent: dashboardWidgetAccentSchema.optional(),
   settings: z.unknown().optional(),
 })
 

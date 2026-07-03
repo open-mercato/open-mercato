@@ -1,15 +1,17 @@
 "use client"
 
 import * as React from 'react'
-import { GripVertical, Loader2, RefreshCw, Settings2, Trash2, X } from 'lucide-react'
+import { GripVertical, LayoutGrid, Loader2, Palette, RefreshCw, Settings2, Trash2, X } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { resolveRegisteredLucideIcon } from '@open-mercato/ui/backend/icons/lucideRegistry'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type {
   DashboardLayoutItem,
+  DashboardWidgetAccent,
   DashboardWidgetComponentProps,
   DashboardWidgetMetadata,
   DashboardWidgetModule,
@@ -46,8 +48,10 @@ type WidgetCardV2Props = {
   onRetry: () => void
   onRemove: () => void
   onSizeChange: (size: DashboardWidgetSize) => void
+  onAccentChange: (accent: DashboardWidgetAccent | undefined) => void
   onSettingsChange: (next: unknown) => void
   onToggleSettings: () => void
+  onEditWizard?: () => void
 }
 
 type ErrorBoundaryProps = {
@@ -93,6 +97,33 @@ class WidgetErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBound
 }
 
 const SIZE_OPTIONS: DashboardWidgetSize[] = ['sm', 'md', 'lg', 'full']
+const ACCENT_OPTIONS: DashboardWidgetAccent[] = ['neutral', 'info', 'success', 'warning', 'error', 'brand']
+
+// Ambient identity: a faint surface wash + accent border, anchored by a solid
+// icon tile in the header (see ACCENT_SWATCH). Kept subtle so the value stays
+// the loudest thing on the card; absent accent renders the neutral card as before.
+const ACCENT_CLASS: Record<DashboardWidgetAccent, string> = {
+  neutral: 'border-status-neutral-border bg-status-neutral-bg/40',
+  info: 'border-status-info-border bg-status-info-bg/40',
+  success: 'border-status-success-border bg-status-success-bg/40',
+  warning: 'border-status-warning-border bg-status-warning-bg/40',
+  error: 'border-status-error-border bg-status-error-bg/40',
+  brand: 'border-brand-violet/40 bg-brand-violet/5',
+}
+
+const ACCENT_SWATCH: Record<DashboardWidgetAccent, string> = {
+  neutral: 'bg-status-neutral-icon',
+  info: 'bg-status-info-icon',
+  success: 'bg-status-success-icon',
+  warning: 'bg-status-warning-icon',
+  error: 'bg-status-error-icon',
+  brand: 'bg-brand-violet',
+}
+
+function WidgetAccentIcon({ name, className }: { name?: string | null; className?: string }) {
+  const Resolved = resolveRegisteredLucideIcon(name ?? undefined) ?? LayoutGrid
+  return <Resolved className={className} aria-hidden="true" />
+}
 
 export function WidgetCardV2({
   layout,
@@ -111,8 +142,10 @@ export function WidgetCardV2({
   onRetry,
   onRemove,
   onSizeChange,
+  onAccentChange,
   onSettingsChange,
   onToggleSettings,
+  onEditWizard,
 }: WidgetCardV2Props) {
   const t = useT()
   const [localRefreshToken, setLocalRefreshToken] = React.useState(0)
@@ -166,13 +199,21 @@ export function WidgetCardV2({
     <section
       className={cn(
         'flex h-full min-h-40 flex-col rounded-xl border border-border bg-card p-4 shadow-sm',
+        layout.accent && ACCENT_CLASS[layout.accent],
         dragging && 'opacity-70',
       )}
     >
       <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
-          {description ? <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p> : null}
+        <div className="flex min-w-0 items-start gap-3">
+          {layout.accent ? (
+            <span className={cn('flex size-8 flex-none items-center justify-center rounded-lg text-white', ACCENT_SWATCH[layout.accent])}>
+              <WidgetAccentIcon name={meta.icon} className="size-4" />
+            </span>
+          ) : null}
+          <div className="min-w-0 space-y-1">
+            <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
+            {description ? <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p> : null}
+          </div>
         </div>
         <div className="flex shrink-0 items-center gap-1">
           {editing ? (
@@ -190,14 +231,15 @@ export function WidgetCardV2({
                 <GripVertical className="size-4" />
               </IconButton>
               <SizeMenu size={layout.size ?? meta.defaultSize ?? 'md'} onSizeChange={onSizeChange} />
+              <ColorMenu accent={layout.accent} onAccentChange={onAccentChange} />
               <IconButton
                 type="button"
-                variant={settingsOpen ? 'outline' : 'ghost'}
+                variant={settingsOpen && !onEditWizard ? 'outline' : 'ghost'}
                 size="sm"
-                onClick={onToggleSettings}
+                onClick={onEditWizard ?? onToggleSettings}
                 aria-label={t('dashboard.v2.widgetSettings')}
               >
-                {settingsOpen ? <X className="size-4" /> : <Settings2 className="size-4" />}
+                {onEditWizard ? <Settings2 className="size-4" /> : settingsOpen ? <X className="size-4" /> : <Settings2 className="size-4" />}
               </IconButton>
               <IconButton type="button" variant="ghost" size="sm" onClick={onRemove} aria-label={t('dashboard.v2.removeWidget')}>
                 <Trash2 className="size-4" />
@@ -272,6 +314,51 @@ function SizeMenu({ size, onSizeChange }: { size: DashboardWidgetSize; onSizeCha
             >
               {t(`dashboard.v2.size.${option}`)}
             </Button>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function ColorMenu({
+  accent,
+  onAccentChange,
+}: {
+  accent?: DashboardWidgetAccent
+  onAccentChange: (accent: DashboardWidgetAccent | undefined) => void
+}) {
+  const t = useT()
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <IconButton type="button" variant="ghost" size="sm" aria-label={t('dashboard.v2.accent.label')}>
+          <Palette className="size-4" />
+        </IconButton>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-44 space-y-2 p-2">
+        <Button
+          type="button"
+          variant={accent ? 'ghost' : 'secondary'}
+          size="sm"
+          className="w-full justify-start"
+          onClick={() => onAccentChange(undefined)}
+        >
+          {t('dashboard.v2.accent.none')}
+        </Button>
+        <div className="grid grid-cols-6 gap-1">
+          {ACCENT_OPTIONS.map((option) => (
+            <IconButton
+              key={option}
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-label={t(`dashboard.v2.accent.${option}`)}
+              className={cn(accent === option && 'ring-2 ring-ring')}
+              onClick={() => onAccentChange(option)}
+            >
+              <span className={cn('size-4 rounded-full', ACCENT_SWATCH[option])} aria-hidden="true" />
+            </IconButton>
           ))}
         </div>
       </PopoverContent>

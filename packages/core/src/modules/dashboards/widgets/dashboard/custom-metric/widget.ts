@@ -1,7 +1,13 @@
-import { lazyDashboardWidget, type DashboardWidgetModule } from '@open-mercato/shared/modules/dashboard/widgets'
+import * as React from 'react'
+import { lazyDashboardWidget, type DashboardWidgetModule, type DashboardWidgetSetupProps } from '@open-mercato/shared/modules/dashboard/widgets'
 import { DEFAULT_SETTINGS, hydrateSettings, type CustomMetricSettings } from './config'
 
 const CustomMetricWidget = lazyDashboardWidget(() => import('./widget.client'))
+const LazySetupWizard = React.lazy(() => import('./SetupWizard'))
+
+function CustomMetricSetupWizard(props: DashboardWidgetSetupProps<CustomMetricSettings>) {
+  return React.createElement(LazySetupWizard, props)
+}
 
 const widget: DashboardWidgetModule<CustomMetricSettings> = {
   metadata: {
@@ -20,6 +26,7 @@ const widget: DashboardWidgetModule<CustomMetricSettings> = {
     supportsMultipleInstances: true,
   },
   Widget: CustomMetricWidget,
+  SetupWizard: CustomMetricSetupWizard,
   hydrateSettings,
   dehydrateSettings: (settings) => ({
     entityType: settings.entityType,

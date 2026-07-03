@@ -9,16 +9,37 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory'
 import { z } from 'zod'
 import { resolveEntityFeatureAccess } from './widgetDataBatch'
-import { buildKpiRequest, KPI_KEYS, type KpiKey, type KpiRangeInput } from './kpiRequests'
+import {
+  buildKpiRequest,
+  buildKpiSeriesRequest,
+  mapKpiSeriesToTrend,
+  KPI_KEYS,
+  type KpiKey,
+  type KpiRangeInput,
+} from './kpiRequests'
 import type { AnalyticsRegistry } from '../services/analyticsRegistry'
 import type { WidgetDataRequest, WidgetDataResponse } from '../services/widgetDataService'
 
 const INSIGHTS_CACHE_TTL = 3_600_000
 const DIGEST_TIMEOUT_MS = 15_000
+const DIGEST_TEMPERATURE = 0.2
+const MAX_DIGEST_BULLETS = 6
 const NUMERIC_TOLERANCE = 0.005
 const INSIGHTS_DIGEST_SCHEMA = z.object({
-  bullets: z.array(z.string()).max(5),
+  bullets: z.array(z.string()).max(MAX_DIGEST_BULLETS),
 })
+
+const DIGEST_LANGUAGE_NAMES: Record<string, string> = {
+  en: 'English',
+  de: 'German',
+  es: 'Spanish',
+  pl: 'Polish',
+}
+
+function resolveDigestLanguage(locale: string | undefined): { code: string; name: string | null } {
+  const code = typeof locale === 'string' && locale.length > 0 ? locale : 'en'
+  return { code, name: DIGEST_LANGUAGE_NAMES[code] ?? null }
+}
 
 type DigestPayload = z.infer<typeof INSIGHTS_DIGEST_SCHEMA>
 type AiModel = Parameters<typeof generateObject>[0]['model']
@@ -56,6 +77,14 @@ export type ComputeInsightsDeps = {
   createModelFactory?: typeof createModelFactory
   generateObject?: typeof generateObject
   timeoutMs?: number
+  locale?: string
+  translate?: (key: string, fallback?: string) => string
+}
+
+type DigestPromptOptions = {
+  labels: Record<KpiKey, string>
+  locale?: string
+  trends?: Partial<Record<KpiKey, number[]>>
 }
 
 type CachedDigestState = {
@@ -83,7 +112,7 @@ const METRIC_PROMPT_LABELS: Record<KpiKey, string> = {
 }
 
 export const INSIGHTS_DIGEST_SYSTEM_PROMPT =
-  'You write concise dashboard insight bullets. The user-provided JSON is the only source of truth. Do not calculate or invent figures. Only mention numbers that appear in the JSON. Use plain language. Return JSON that matches the schema.'
+  'You are a business analyst writing concise, insightful dashboard bullets for a store operator. The user-provided JSON is the only source of truth. Do not calculate or invent figures. Only mention numbers that appear in the JSON. Explain what changed and what it may indicate in plain language. Write in the language requested in the prompt. Return JSON that matches the schema.'
 
 function asAiModel(model: unknown): AiModel {
   return model as AiModel
@@ -109,7 +138,7 @@ function resolveEffectiveOrgScope(scope: InsightsScope): string[] | 'all' {
   return [...new Set(source)].sort((a, b) => a.localeCompare(b))
 }
 
-function buildInsightsCacheKey(scope: InsightsScope, range: KpiRangeInput): string {
+function buildInsightsCacheKey(scope: InsightsScope, range: KpiRangeInput, locale: string | undefined): string {
   const hash = createHash('sha256')
   hash.update(JSON.stringify({
     tenantId: scope.tenantId,
@@ -117,6 +146,7 @@ function buildInsightsCacheKey(scope: InsightsScope, range: KpiRangeInput): stri
     from: range.from,
     to: range.to,
     compare: range.compare,
+    locale: resolveDigestLanguage(locale).code,
   }))
   return `dashboards:insights:${hash.digest('hex').slice(0, 24)}`
 }
@@ -238,7 +268,35 @@ function resolveDigestModel(deps: ComputeInsightsDeps): AiModel | null {
   }
 }
 
-function buildDigestPrompt(metrics: InsightMetric[], range: KpiRangeInput): string {
+function buildDigestLabels(deps: ComputeInsightsDeps): Record<KpiKey, string> {
+  const translate = deps.translate
+  const labels = {} as Record<KpiKey, string>
+  for (const key of KPI_KEYS) {
+    labels[key] = translate ? translate(METRIC_LABEL_KEYS[key], METRIC_PROMPT_LABELS[key]) : METRIC_PROMPT_LABELS[key]
+  }
+  return labels
+}
+
+async function fetchDigestTrends(
+  deps: ComputeInsightsDeps,
+  metrics: InsightMetric[],
+  range: KpiRangeInput,
+): Promise<Partial<Record<KpiKey, number[]>>> {
+  const trends: Partial<Record<KpiKey, number[]>> = {}
+  await Promise.all(
+    metrics.map(async (metric) => {
+      try {
+        const series = await deps.widgetDataService.fetchWidgetData(buildKpiSeriesRequest(metric.key, range))
+        const trend = mapKpiSeriesToTrend(series)
+        if (trend.length > 0) trends[metric.key] = trend
+      } catch {
+      }
+    }),
+  )
+  return trends
+}
+
+function buildDigestPrompt(metrics: InsightMetric[], range: KpiRangeInput, options: DigestPromptOptions): string {
   const payload = {
     range: {
       from: range.from,
@@ -247,18 +305,27 @@ function buildDigestPrompt(metrics: InsightMetric[], range: KpiRangeInput): stri
     },
     metrics: metrics.map((metric) => ({
       key: metric.key,
-      label: METRIC_PROMPT_LABELS[metric.key],
+      label: options.labels[metric.key] ?? METRIC_PROMPT_LABELS[metric.key],
       value: metric.value,
       previousValue: metric.previousValue,
       deltaPct: metric.deltaPct,
       deltaPctPercent: metric.deltaPct === null ? null : roundTo(metric.deltaPct * 100, 2),
+      trend: options.trends?.[metric.key] ?? null,
     })),
   }
+  const language = resolveDigestLanguage(options.locale)
+  const languageDirective = language.name
+    ? `Write every bullet in ${language.name} (locale ${language.code}).`
+    : `Write every bullet in the language for locale code ${language.code}.`
   return [
     `Metrics payload: ${JSON.stringify(payload)}`,
-    'Write up to 5 bullets about what changed. Only reference the provided figures.',
-    'The LLM must not compute totals, averages, percentages, or deltas. Use the provided value, previousValue, deltaPct, and deltaPctPercent fields exactly.',
+    `Write 3 to ${MAX_DIGEST_BULLETS} short bullets explaining what changed this period versus the comparison window.`,
+    'For each notable metric, name the current value, the direction and size of the change, and one plain-language note on what it may indicate for the business.',
+    'Call out the strongest mover and flag any metric that is flat or declining.',
+    'When a trend array is present, describe its trajectory (steady, rising, spiking, or falling) using only the listed values.',
+    'The LLM must not compute totals, averages, percentages, or deltas. Use the provided value, previousValue, deltaPct, deltaPctPercent, and trend values exactly.',
     'Mention the comparison window in plain language when relevant.',
+    languageDirective,
     'Use no markdown and no unexplained jargon.',
   ].join('\n')
 }
@@ -275,19 +342,21 @@ async function generateDigest(
 
   try {
     const runGenerateObject = deps.generateObject ?? generateObject
+    const trends = await fetchDigestTrends(deps, metrics, range)
+    const labels = buildDigestLabels(deps)
     const result = await withTimeout(
       runGenerateObject({
         model,
         schema: INSIGHTS_DIGEST_SCHEMA,
         system: INSIGHTS_DIGEST_SYSTEM_PROMPT,
-        prompt: buildDigestPrompt(metrics, range),
-        temperature: 0,
+        prompt: buildDigestPrompt(metrics, range, { labels, locale: deps.locale, trends }),
+        temperature: DIGEST_TEMPERATURE,
       }),
       deps.timeoutMs ?? DIGEST_TIMEOUT_MS,
       `LLM insights digest timed out after ${deps.timeoutMs ?? DIGEST_TIMEOUT_MS}ms`,
     )
     const object = result.object as DigestPayload
-    const bullets = validateDigestBullets(object.bullets, metrics, range)
+    const bullets = validateDigestBullets(object.bullets, metrics, range, trends)
     return {
       digest: bullets.length > 0
         ? { bullets, generatedAt: (deps.now?.() ?? new Date()).toISOString() }
@@ -346,7 +415,7 @@ export async function computeInsights(
     .filter(({ request }) => access.get(request.entityType) !== false)
     .map(({ key }) => key)
 
-  const cacheKey = buildInsightsCacheKey(scope, range)
+  const cacheKey = buildInsightsCacheKey(scope, range, deps.locale)
   const cachedEntry = await readCachedInsights(deps.cache, cacheKey)
   const cachedMetrics = cachedEntry ? selectMetricsForKeys(cachedEntry.metrics, authorizedKeys) : null
 
@@ -409,12 +478,22 @@ function addAllowedNumber(target: Set<number>, value: number): void {
   }
 }
 
-function buildAllowedNumberSet(metrics: InsightMetric[], range?: { from: string; to: string }): Set<number> {
+function buildAllowedNumberSet(
+  metrics: InsightMetric[],
+  range?: { from: string; to: string },
+  trends?: Partial<Record<KpiKey, number[]>>,
+): Set<number> {
   const allowed = new Set<number>()
   for (const metric of metrics) {
     addAllowedNumber(allowed, metric.value)
     if (metric.previousValue !== null) addAllowedNumber(allowed, metric.previousValue)
     if (metric.deltaPct !== null) addAllowedNumber(allowed, metric.deltaPct)
+  }
+  if (trends) {
+    for (const series of Object.values(trends)) {
+      if (!series) continue
+      for (const point of series) addAllowedNumber(allowed, point)
+    }
   }
   if (range) {
     // The prompt asks the model to mention the comparison window in plain language
@@ -501,8 +580,13 @@ function matchesAllowedNumber(candidates: number[], allowed: Set<number>): boole
   return false
 }
 
-export function validateDigestBullets(bullets: string[], metrics: InsightMetric[], range?: { from: string; to: string }): string[] {
-  const allowed = buildAllowedNumberSet(metrics, range)
+export function validateDigestBullets(
+  bullets: string[],
+  metrics: InsightMetric[],
+  range?: { from: string; to: string },
+  trends?: Partial<Record<KpiKey, number[]>>,
+): string[] {
+  const allowed = buildAllowedNumberSet(metrics, range, trends)
   return bullets.filter((bullet) => {
     const tokens = bullet.match(NUMERIC_TOKEN_PATTERN) ?? []
     if (tokens.length === 0) return true

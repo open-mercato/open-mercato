@@ -2,6 +2,8 @@ import React, { type ComponentType } from 'react'
 
 export type DashboardWidgetSize = 'sm' | 'md' | 'lg' | 'full'
 
+export type DashboardWidgetAccent = 'neutral' | 'info' | 'success' | 'warning' | 'error' | 'brand'
+
 export type DashboardDateRangeCompare = 'previous_period' | 'previous_year' | 'none'
 
 export type DashboardDateRangePreset =
@@ -50,6 +52,7 @@ export type DashboardLayoutItem = {
   order: number
   priority?: number
   size?: DashboardWidgetSize
+  accent?: DashboardWidgetAccent
   settings?: unknown
 }
 
@@ -75,11 +78,25 @@ export type DashboardWidgetComponentProps<TSettings = unknown> = {
   onRefreshStateChange?: (refreshing: boolean) => void
 }
 
+export type DashboardWidgetSetupProps<TSettings = unknown> = {
+  open: boolean
+  initialSettings: TSettings
+  context: DashboardWidgetRenderContext
+  onComplete: (settings: TSettings) => void
+  onCancel: () => void
+}
+
 export type DashboardWidgetModule<TSettings = unknown> = {
   metadata: DashboardWidgetMetadata
   Widget: ComponentType<DashboardWidgetComponentProps<TSettings>>
   hydrateSettings?: (raw: unknown) => TSettings
   dehydrateSettings?: (settings: TSettings) => unknown
+  /**
+   * Optional guided setup surface. When present, the dashboard shell opens this
+   * instead of appending the widget with defaults, and reuses it for editing.
+   * Additive/optional — widgets without a wizard keep the inline settings panel.
+   */
+  SetupWizard?: ComponentType<DashboardWidgetSetupProps<TSettings>>
 }
 
 export type DashboardWidgetRenderProps<TSettings = unknown> = DashboardWidgetComponentProps<TSettings>

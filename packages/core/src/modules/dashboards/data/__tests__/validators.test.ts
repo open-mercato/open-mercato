@@ -44,4 +44,17 @@ describe('dashboard validators', () => {
       size: 'full',
     }).success).toBe(true)
   })
+
+  it('accepts a valid widget accent and rejects an unknown one', () => {
+    expect(dashboardLayoutSchema.safeParse({
+      items: [{ id: firstId, widgetId: 'revenue', order: 0, size: 'md', accent: 'success' }],
+    }).success).toBe(true)
+
+    expect(dashboardLayoutSchema.safeParse({
+      items: [{ id: firstId, widgetId: 'revenue', order: 0, size: 'md', accent: 'rainbow' }],
+    }).success).toBe(false)
+
+    expect(dashboardLayoutItemPatchSchema.safeParse({ id: firstId, accent: 'brand' }).success).toBe(true)
+    expect(dashboardLayoutItemPatchSchema.safeParse({ id: firstId, accent: 'neon' }).success).toBe(false)
+  })
 })

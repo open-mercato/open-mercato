@@ -65,8 +65,17 @@ function deriveAggregates(kind: AnalyticsFieldType): CatalogAggregate[] {
   return kind === 'numeric' ? [...NUMERIC_AGGREGATES] : [...COUNT_AGGREGATE]
 }
 
-function isGroupable(kind: AnalyticsFieldType): boolean {
-  return kind === 'text' || kind === 'uuid' || kind === 'timestamp'
+function isGroupable(
+  field: string,
+  mapping: AnalyticsEntityConfig['fieldMappings'][string],
+  labelResolvers: AnalyticsEntityConfig['labelResolvers'],
+): boolean {
+  // Encrypted columns group on opaque ciphertext (and random IVs make every row
+  // its own group), so they are never a usable dimension — never offer them.
+  if (mapping.encrypted) return false
+  if (mapping.type === 'text' || mapping.type === 'timestamp') return true
+  if (mapping.type === 'uuid') return Boolean(labelResolvers?.[field])
+  return false
 }
 
 function resolveDateField(config: AnalyticsEntityConfig): string | null {
@@ -78,6 +87,16 @@ function resolveDateField(config: AnalyticsEntityConfig): string | null {
   )?.[0]
 
   return matchingField ?? null
+}
+
+function resolveFieldLabel(
+  entityType: string,
+  field: string,
+  translate: TranslateWithFallback,
+): string {
+  const humanized = humanize(field)
+  const shared = translate(`dashboards.catalog.fields.${field}`, humanized)
+  return translate(`dashboards.catalog.fields.${entityType}.${field}`, shared)
 }
 
 function deriveEntityCatalog(
@@ -93,10 +112,10 @@ function deriveEntityCatalog(
     fields: Object.entries(config.fieldMappings)
       .map(([field, mapping]) => ({
         field,
-        label: humanize(field),
+        label: resolveFieldLabel(entityType, field, translate),
         kind: mapping.type,
         aggregates: deriveAggregates(mapping.type),
-        groupable: isGroupable(mapping.type),
+        groupable: isGroupable(field, mapping, config.labelResolvers),
       }))
       .sort((a, b) => a.field.localeCompare(b.field)),
   }

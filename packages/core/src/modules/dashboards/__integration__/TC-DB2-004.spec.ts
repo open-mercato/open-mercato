@@ -306,6 +306,18 @@ test.describe('TC-DB2-004: /backend dashboard v2 UI', () => {
       await expect(dialog).toBeVisible()
       await dialog.getByRole('button', { name: /Custom metric/i }).click()
       await dialog.getByRole('button', { name: /^Add widget$/i }).click()
+
+      // Adding Custom metric now opens a guided setup wizard instead of dropping an
+      // empty card at the bottom. Configure the minimum (a data source) and finish.
+      const wizard = page.getByRole('dialog', { name: /Create custom metric/i })
+      await expect(wizard).toBeVisible()
+      await wizard.getByLabel('Data source').click()
+      await page.getByRole('option').first().click()
+      for (let stepIndex = 0; stepIndex < 3; stepIndex++) {
+        await wizard.getByRole('button', { name: /^Next$/i }).click()
+      }
+      await wizard.getByRole('button', { name: /Add to dashboard/i }).click()
+      await expect(wizard).toBeHidden()
       await expect
         .poll(async () => (await persistedItems()).some((item) => item.widgetId === WIDGET_IDS.customMetric), { timeout: 20_000 })
         .toBe(true)

@@ -72,7 +72,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
     operation: 'update',
     requestMethod: req.method,
     requestHeaders: req.headers,
-    mutationPayload: { id: layoutItemId, size: parsed.data.size, settings: parsed.data.settings },
+    mutationPayload: { id: layoutItemId, size: parsed.data.size, accent: parsed.data.accent, settings: parsed.data.settings },
   })
   if (guardResult && !guardResult.ok) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
@@ -102,6 +102,7 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   items[idx] = {
     ...current,
     size: parsed.data.size ?? current.size ?? DEFAULT_SIZE,
+    accent: parsed.data.accent ?? current.accent,
     settings: parsed.data.settings ?? current.settings,
   }
   layout.layoutJson = serializeLayoutStateForStoredShape(layout.layoutJson, {

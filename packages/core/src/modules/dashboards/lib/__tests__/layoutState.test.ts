@@ -81,6 +81,31 @@ describe('dashboard layout state', () => {
     expect(state.activePresetId).toBe('view-a')
   })
 
+  it('whitelists a valid widget accent and drops an invalid one across shapes and presets', () => {
+    const state = normalizeLayoutState({
+      items: [
+        { id: firstId, widgetId: 'revenue', order: 0, size: 'md', accent: 'success' },
+        { id: secondId, widgetId: 'orders', order: 1, size: 'sm', accent: 'rainbow' },
+      ],
+      presets: [{ id: 'view-a', name: 'Sales', items: [{ id: firstId, widgetId: 'revenue', order: 0, accent: 'brand' }] }],
+    })
+
+    expect(state.items[0]?.accent).toBe('success')
+    expect(state.items[1]?.accent).toBeUndefined()
+    expect(state.presets?.[0]?.items[0]?.accent).toBe('brand')
+
+    const serialized = serializeLayoutStateForStoredShape({ items: [] }, state)
+    expect(normalizeLayoutState(serialized).items[0]?.accent).toBe('success')
+  })
+
+  it('keeps a valid accent on a legacy array item', () => {
+    const state = normalizeLayoutState([
+      { id: firstId, widgetId: 'revenue', order: 0, size: 'sm', accent: 'info' },
+    ])
+    expect(state.items[0]?.accent).toBe('info')
+    expect(serializeLayoutStateForStoredShape([], state)).toEqual(state.items)
+  })
+
   it('preserves array and object storage shapes when serializing', () => {
     const state = normalizeLayoutState({
       items: [{ id: firstId, widgetId: 'revenue', order: 0, size: 'lg' }],

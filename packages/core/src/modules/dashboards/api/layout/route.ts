@@ -276,6 +276,7 @@ export async function PUT(req: Request) {
       order: index,
       priority: index,
       size: item.size ?? DEFAULT_SIZE,
+      accent: item.accent,
       settings: item.settings,
     }))
     .filter((item) => allowedSet.has(item.widgetId))
@@ -287,7 +288,7 @@ export async function PUT(req: Request) {
 
   const sanitizePresetItems = (rawItems: typeof payloadItems) =>
     rawItems
-      .map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, settings: item.settings }))
+      .map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, accent: item.accent, settings: item.settings }))
       .filter((item) => allowedSet.has(item.widgetId))
 
   const sanitizedPresets = parsed.data.presets?.map((preset) => ({

@@ -11,12 +11,15 @@ import { expectId, getTokenScope, readJsonSafe } from '@open-mercato/core/helper
 
 type DashboardSize = 'sm' | 'md' | 'lg' | 'full'
 
+type DashboardAccent = 'neutral' | 'info' | 'success' | 'warning' | 'error' | 'brand'
+
 type DashboardLayoutItem = {
   id: string
   widgetId: string
   order: number
   priority?: number
   size?: DashboardSize
+  accent?: DashboardAccent
   settings?: unknown
 }
 
@@ -228,6 +231,7 @@ test.describe('TC-DB2-003: layout backward-compatible round trip', () => {
           order: 0,
           priority: 0,
           size: 'full',
+          accent: 'success',
           settings: { mode: 'full-width' },
         },
         {
@@ -268,6 +272,16 @@ test.describe('TC-DB2-003: layout backward-compatible round trip', () => {
         ),
       )
       expect(afterObject.layout?.preferences).toEqual(preferences)
+      // Per-user widget accent (color coding) survives the object-shape PUT round-trip.
+      expect(afterObject.layout?.items?.[0]?.accent).toBe('success')
+
+      const accentPatchResponse = await apiRequest(request, 'PATCH', `${API.layout}/${encodeURIComponent(objectItems[1].id)}`, {
+        token: firstActor.token,
+        data: { accent: 'warning' },
+      })
+      expect(accentPatchResponse.status(), 'single-item PATCH should set a widget accent').toBe(200)
+      const afterAccentPatch = await readLayout(request, firstActor.token)
+      expect(afterAccentPatch.layout?.items?.[1]?.accent).toBe('warning')
 
       const patchResponse = await apiRequest(request, 'PATCH', `${API.layout}/${encodeURIComponent(objectItems[0].id)}`, {
         token: firstActor.token,

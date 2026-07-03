@@ -29,6 +29,7 @@ const SAFE_IDENTIFIER_PATTERN = /^[a-zA-Z_][a-zA-Z0-9_]*$/
 const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const DAY_MS = 86_400_000
 const MAX_CUSTOM_DATE_RANGE_DAYS = 366
+const GROUP_KEY_UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export class WidgetDataValidationError extends Error {
   constructor(message: string) {
@@ -284,6 +285,8 @@ export class WidgetDataService {
         if (!baseMapping || baseMapping.type !== 'jsonb') {
           throw new WidgetDataValidationError(`Invalid groupBy field: ${request.groupBy.field}`)
         }
+      } else if (groupMapping.encrypted) {
+        throw new WidgetDataValidationError(`Cannot group by encrypted field: ${request.groupBy.field}`)
       }
     }
   }
@@ -335,17 +338,19 @@ export class WidgetDataService {
     const config = this.registry.getLabelResolverConfig(entityType, groupByField)
 
     if (!config) {
-      return data.map((item) => ({
-        ...item,
-        groupLabel: item.groupKey != null && item.groupKey !== '' ? String(item.groupKey) : undefined,
-      }))
+      return data.map((item) => {
+        if (item.groupKey == null || item.groupKey === '') return { ...item, groupLabel: undefined }
+        const key = String(item.groupKey)
+        const opaque = GROUP_KEY_UUID_PATTERN.test(key) || this.isEncryptedPayload(key)
+        return { ...item, groupLabel: opaque ? undefined : key }
+      })
     }
 
     const ids = data
       .map((item) => item.groupKey)
       .filter((id): id is string => {
         if (typeof id !== 'string' || id.length === 0) return false
-        return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)
+        return GROUP_KEY_UUID_PATTERN.test(id)
       })
 
     if (ids.length === 0) {

@@ -253,6 +253,64 @@ describe('computeInsights', () => {
     expect(second.metrics).toEqual(first.metrics)
     expect(fetchWidgetData).toHaveBeenCalledTimes(4)
   })
+
+  test('threads the caller locale and translated labels into the digest prompt', async () => {
+    const generateObject = jest.fn(async () => ({
+      object: { bullets: ['Przychód wyniósł 200.'] },
+      usage: { totalTokens: 1 },
+    })) as unknown as ComputeInsightsDeps['generateObject']
+
+    await computeInsights(
+      {
+        widgetDataService: {
+          fetchWidgetData: createFetch({
+            revenue: { value: 200, previousValue: 100 },
+            orders: { value: 12, previousValue: 10 },
+            aov: { value: 50, previousValue: 40 },
+            new_customers: { value: 5, previousValue: 4 },
+          }),
+        },
+        analyticsRegistry: createRegistry(),
+        checkFeatures: jest.fn(async () => true),
+        ...createProviderDeps({ generateObject }),
+        locale: 'pl',
+        translate: (key: string) => (key.endsWith('.revenue') ? 'Przychód' : key),
+      },
+      { tenantId: 'tenant-1', effectiveOrgScope: 'all' },
+      RANGE,
+    )
+
+    const prompt = (generateObject as jest.Mock).mock.calls[0][0].prompt as string
+    expect(prompt).toContain('Polish')
+    expect(prompt).toContain('locale pl')
+    expect(prompt).toContain('Przychód')
+  })
+
+  test('does not share a cached digest across locales', async () => {
+    const cache = createMemoryCache()
+    const baseDeps = {
+      widgetDataService: {
+        fetchWidgetData: createFetch({
+          revenue: { value: 200, previousValue: 100 },
+          orders: { value: 12, previousValue: 10 },
+          aov: { value: 50, previousValue: 40 },
+          new_customers: { value: 5, previousValue: 4 },
+        }),
+      },
+      analyticsRegistry: createRegistry(),
+      checkFeatures: jest.fn(async () => true),
+      cache,
+    }
+    const enGenerate = jest.fn(async () => ({ object: { bullets: [] }, usage: { totalTokens: 1 } })) as unknown as ComputeInsightsDeps['generateObject']
+    const plGenerate = jest.fn(async () => ({ object: { bullets: [] }, usage: { totalTokens: 1 } })) as unknown as ComputeInsightsDeps['generateObject']
+    const scope = { tenantId: 'tenant-1', effectiveOrgScope: 'all' as const }
+
+    await computeInsights({ ...baseDeps, ...createProviderDeps({ generateObject: enGenerate }), locale: 'en' }, scope, RANGE)
+    await computeInsights({ ...baseDeps, ...createProviderDeps({ generateObject: plGenerate }), locale: 'pl' }, scope, RANGE)
+
+    expect(enGenerate).toHaveBeenCalledTimes(1)
+    expect(plGenerate).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('validateDigestBullets', () => {

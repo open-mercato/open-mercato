@@ -14,6 +14,13 @@ export type AnalyticsEntityTypeConfig = {
 export type AnalyticsFieldMapping = {
   dbColumn: string
   type: AnalyticsFieldType
+  /**
+   * True when the column is encrypted at rest. Encrypted columns must never be
+   * offered as a group-by dimension: grouping happens on the raw ciphertext,
+   * which is opaque (and random-IV, so every row is its own group). Resolve the
+   * decrypted value through a `labelResolvers` entry on the owning id instead.
+   */
+  encrypted?: boolean
 }
 
 export type AnalyticsLabelResolverConfig = {

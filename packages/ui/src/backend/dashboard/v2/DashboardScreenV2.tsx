@@ -77,7 +77,7 @@ function normalizeLayout(data: LayoutResponse) {
 }
 
 function serializeItems(items: DashboardLayoutItem[]) {
-  return items.map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, settings: item.settings ?? null }))
+  return items.map((item, index) => ({ id: item.id, widgetId: item.widgetId, order: index, priority: index, size: item.size ?? DEFAULT_SIZE, ...(item.accent ? { accent: item.accent } : {}), settings: item.settings ?? null }))
 }
 
 function serializeDateRange(dateRange: DashboardGlobalDateRange) {
@@ -118,6 +118,8 @@ export function DashboardScreenV2() {
   const [editing, setEditing] = React.useState(false)
   const [settingsId, setSettingsId] = React.useState<string | null>(null)
   const [addOpen, setAddOpen] = React.useState(false)
+  const [wizard, setWizard] = React.useState<{ widgetId: string; itemId: string | null; initialSettings: unknown } | null>(null)
+  const [pendingScrollId, setPendingScrollId] = React.useState<string | null>(null)
   const [modules, setModules] = React.useState<Record<string, ModuleState>>({})
   const [refreshToken, setRefreshToken] = React.useState(0)
   const [presets, setPresets] = React.useState<DashboardPreset[]>([])
@@ -250,9 +252,53 @@ export function DashboardScreenV2() {
   }, [queueLayoutSave])
 
   const handleAddWidget = React.useCallback((meta: DashboardWidgetCatalogItem) => {
-    updateLayout((prev) => [...prev, { id: generateId(), widgetId: meta.id, order: prev.length, priority: prev.length, size: meta.defaultSize ?? DEFAULT_SIZE, settings: meta.defaultSettings ?? null }])
+    const mod = modules[meta.loaderKey]?.module
+    if (mod?.SetupWizard) {
+      setAddOpen(false)
+      const initial = mod.hydrateSettings ? mod.hydrateSettings(meta.defaultSettings ?? null) : (meta.defaultSettings ?? null)
+      setWizard({ widgetId: meta.id, itemId: null, initialSettings: initial })
+      return
+    }
+    const newId = generateId()
+    updateLayout((prev) => [...prev, { id: newId, widgetId: meta.id, order: prev.length, priority: prev.length, size: meta.defaultSize ?? DEFAULT_SIZE, settings: meta.defaultSettings ?? null }])
+    setPendingScrollId(newId)
     setAddOpen(false)
+  }, [modules, updateLayout])
+
+  const moduleForWidget = React.useCallback((widgetId: string) => {
+    const meta = metaById.get(widgetId)
+    return meta ? modules[meta.loaderKey]?.module ?? null : null
+  }, [metaById, modules])
+
+  const handleResize = React.useCallback((id: string, size: DashboardWidgetSize) => {
+    updateLayout((prev) => prev.map((entry) => entry.id === id ? { ...entry, size } : entry))
   }, [updateLayout])
+
+  const handleWizardComplete = React.useCallback((settings: unknown) => {
+    if (!wizard) return
+    const mod = moduleForWidget(wizard.widgetId)
+    const raw = mod?.dehydrateSettings ? mod.dehydrateSettings(settings as never) : settings
+    if (wizard.itemId == null) {
+      const meta = metaById.get(wizard.widgetId)
+      const newId = generateId()
+      updateLayout((prev) => [...prev, { id: newId, widgetId: wizard.widgetId, order: prev.length, priority: prev.length, size: meta?.defaultSize ?? DEFAULT_SIZE, settings: raw }])
+      setPendingScrollId(newId)
+    } else {
+      const itemId = wizard.itemId
+      updateLayout((prev) => prev.map((entry) => entry.id === itemId ? { ...entry, settings: raw } : entry))
+    }
+    setWizard(null)
+  }, [metaById, moduleForWidget, updateLayout, wizard])
+
+  React.useEffect(() => {
+    if (!pendingScrollId) return
+    const handle = window.setTimeout(() => {
+      const target = typeof document !== 'undefined' ? document.querySelector(`[data-dashboard-item-id="${pendingScrollId}"]`) : null
+      if (target) (target as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' })
+      setPendingScrollId(null)
+    }, 80)
+    return () => window.clearTimeout(handle)
+  }, [pendingScrollId, layout])
 
   const handleDateRangeChange = React.useCallback((next: DashboardGlobalDateRange) => {
     dateRangeTouchedRef.current = true
@@ -369,19 +415,31 @@ export function DashboardScreenV2() {
         <EmptyState title={t('dashboard.v2.emptyTitle')} actions={canConfigure ? <Button type="button" onClick={() => setAddOpen(true)}>{t('dashboard.v2.emptyCta')}</Button> : undefined} />
       ) : (
         <WidgetDataBatchProvider>
-          <GridLayout items={layout} editing={editing && canConfigure} onReorder={handleReorder} renderItem={(item, dragHandle, dragging) => {
+          <GridLayout items={layout} editing={editing && canConfigure} onReorder={handleReorder} onResize={handleResize} renderItem={(item, dragHandle, dragging) => {
             const meta = metaById.get(item.widgetId)
             if (!meta) return null
             const state = modules[meta.loaderKey] ?? { loading: true, module: null, error: null }
             const effectiveMeta = { ...meta, ...(state.module?.metadata ?? {}), loaderKey: meta.loaderKey }
+            const hasWizard = !!state.module?.SetupWizard
+            const wizardInitial = state.module?.hydrateSettings ? state.module.hydrateSettings(item.settings ?? meta.defaultSettings ?? null) : (item.settings ?? meta.defaultSettings ?? null)
             return (
-              <WidgetCardV2 layout={item} meta={effectiveMeta} title={resolveWidgetTitle(effectiveMeta)} description={effectiveMeta.description ?? null} widgetModule={state.module} loading={state.loading} loadError={state.error} context={widgetContext} editing={editing && canConfigure} settingsOpen={settingsId === item.id} refreshToken={refreshToken} dragHandle={dragHandle} dragging={dragging} onRetry={() => loadModule(meta, true)} onRemove={() => updateLayout((prev) => prev.filter((entry) => entry.id !== item.id))} onSizeChange={(size) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, size } : entry))} onSettingsChange={(settings) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, settings } : entry))} onToggleSettings={() => setSettingsId((current) => current === item.id ? null : item.id)} />
+              <WidgetCardV2 layout={item} meta={effectiveMeta} title={resolveWidgetTitle(effectiveMeta)} description={effectiveMeta.description ?? null} widgetModule={state.module} loading={state.loading} loadError={state.error} context={widgetContext} editing={editing && canConfigure} settingsOpen={settingsId === item.id} refreshToken={refreshToken} dragHandle={dragHandle} dragging={dragging} onRetry={() => loadModule(meta, true)} onRemove={() => updateLayout((prev) => prev.filter((entry) => entry.id !== item.id))} onSizeChange={(size) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, size } : entry))} onAccentChange={(accent) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, accent } : entry))} onSettingsChange={(settings) => updateLayout((prev) => prev.map((entry) => entry.id === item.id ? { ...entry, settings } : entry))} onToggleSettings={() => setSettingsId((current) => current === item.id ? null : item.id)} onEditWizard={hasWizard ? () => setWizard({ widgetId: item.widgetId, itemId: item.id, initialSettings: wizardInitial }) : undefined} />
             )
           }} />
         </WidgetDataBatchProvider>
       )}
       <InjectionSpot spotId="dashboard:after" context={injectionContext} />
       <AddWidgetDialog open={addOpen} widgets={availableWidgets} titleFor={resolveWidgetTitle} onOpenChange={setAddOpen} onAdd={handleAddWidget} />
+      {wizard ? (() => {
+        const wizardModule = moduleForWidget(wizard.widgetId)
+        const Wizard = wizardModule?.SetupWizard
+        if (!Wizard) return null
+        return (
+          <React.Suspense fallback={null}>
+            <Wizard open initialSettings={wizard.initialSettings} context={widgetContext} onComplete={handleWizardComplete} onCancel={() => setWizard(null)} />
+          </React.Suspense>
+        )
+      })() : null}
     </div>
   )
 }
