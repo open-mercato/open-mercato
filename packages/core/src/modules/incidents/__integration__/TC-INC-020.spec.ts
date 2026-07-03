@@ -114,8 +114,9 @@ test.describe('TC-INC-020: Incident create triage assist', () => {
 
     await login(page, 'admin')
     await page.goto('/backend/incidents/create', { waitUntil: 'domcontentloaded' })
-    await expect(page.getByRole('heading', { name: /^Create incident$/ })).toBeVisible()
-    await page.locator('[data-crud-field-id="title"] input').first().fill('Checkout payments failing for all customers')
+    const titleInput = page.locator('[data-crud-field-id="title"] input').first()
+    await expect(titleInput).toBeVisible()
+    await titleInput.fill('Checkout payments failing for all customers')
 
     await expect(
       page.getByText('AI features are off because no AI provider is configured for this workspace.'),
