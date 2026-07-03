@@ -1,17 +1,18 @@
 # Handoff — 2026-07-03-agentic-skills-restructure-phase1-2
 
-**Last updated:** 2026-07-03T19:05:00Z
+**Last updated:** 2026-07-03T19:55:00Z
 **Branch:** feat/agentic-skills-restructure-phase1-2 (pushed to fork)
 **PR:** not yet opened (opens after Phase 2 / at final gate)
-**Current phase/step:** Phase 1 COMPLETE (checkpoint 1 recorded). Next: Phase 2 Step 2.1.
-**Last commit:** bd97e7ce0 — docs(create-app): point agentic guidance at agentic.config.json
+**Current phase/step:** Phase 2 in progress — 2.1–2.5 done (checkpoint 2). Next: Step 2.6.
+**Last commit:** b2eb31316 — refactor(skills): restructure om-auto-review-pr
 
 ## What just happened
-- Landed all of Phase 1 (Steps 1.1–1.6): `AgenticConfig.pr.baseBranch` + base-branch question, `--pr-base` flag, `.ai/agentic.config.json` generator, recursive skill-dir copy (`copySkillTree`), `build.mjs` clean step, and doc/printSummary de-STANDALONE.
-- Checkpoint 1 green: tsc clean, 78/78 unit tests, build.mjs OK.
+- Phase 1 complete (1.1–1.6). Phase 2: restructured 5 of 7 skills (om-auto-create-pr [canonical], om-auto-continue-pr, om-auto-create-pr-loop, om-auto-continue-pr-loop, om-auto-review-pr) into thin SKILL.md + workflow/ (+ subagents/executor.md for the two loop skills) + references/environment.md; deleted each STANDALONE.md; each removed from the overlays test list.
+- Checkpoint 2 green: tsc clean, 79/79 tests, all migrated SKILL.md ≤60 lines.
 
 ## Next concrete action
-- Start Phase 2 Step 2.1: restructure `agentic/shared/ai/skills/om-auto-create-pr` into a thin `SKILL.md` (router) + `workflow/step-N-*.md`, absorb the 6 STANDALONE rules natively (base branch via `.ai/agentic.config.json` `pr.baseBranch` + `gh` fallback; label probing; script-gate probing; `src/modules/` layout; `--skill-url` safety; claim discipline), wire `pr.baseBranch`, and delete its `STANDALONE.md`. This is the canonical pattern; 2.2–2.7 follow it.
+- Step 2.6: restructure `om-auto-fix-github` (419 lines) following the canonical pattern; delete its STANDALONE.md; drop it from the overlays test list.
+- Then 2.7 (`om-integration-builder`, 721 lines — note its STANDALONE is smaller/less base-branch-centric), then 2.8 (replace overlays test with no-STANDALONE + conformance + no-stale-dist + placeholder guards).
 
 ## Blockers / open questions
 - none

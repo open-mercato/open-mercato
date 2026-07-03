@@ -12,3 +12,9 @@
 - Validation: tsc clean; 78/78 unit tests; build.mjs OK. No UI → no Playwright.
 - Decision: overlays test adapted (not yet inverted) to keep CI green while STANDALONE files still ship; full no-STANDALONE guard lands in Step 2.8 after the 7 deletions.
 - Next: Phase 2 Step 2.1 (om-auto-create-pr) as the canonical thin-SKILL pattern.
+
+## 2026-07-03T19:55:00Z — checkpoint 2 (Phase 2 skills 2.1–2.5)
+- Restructured 5/7 skills (7b15b7f43 … b2eb31316): om-auto-create-pr (canonical, main session), then om-auto-continue-pr, om-auto-create-pr-loop, om-auto-continue-pr-loop, om-auto-review-pr via sequential executor subagents.
+- Decision: used the loop skill's executor-dispatch pattern — one general-purpose executor per skill, verified (tree/links/line-budget/no-hardcoded-develop/overlays test) before each commit. Kept CI green by dropping each migrated skill from the overlays test list per-commit; full no-STANDALONE guard lands in 2.8.
+- Validation: tsc clean; 79/79 tests; all migrated SKILL.md 46–54 lines.
+- Next: 2.6 om-auto-fix-github, 2.7 om-integration-builder, 2.8 guards.
