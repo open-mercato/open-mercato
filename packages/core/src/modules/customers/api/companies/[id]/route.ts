@@ -50,6 +50,13 @@ import {
 } from '../../../lib/personCompanyLinkTable'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import {
+  buildCollectionTags,
+  canonicalizeResourceTag,
+  isCrudCacheEnabled,
+  resolveCrudCache,
+} from '@open-mercato/shared/lib/crud/cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -58,6 +65,66 @@ export const metadata = {
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
+
+const COMPANY_DETAIL_CACHE_TTL_MS = 60_000
+
+// The customers write commands already invalidate these resource collections via
+// invalidateCrudCache using these exact resourceKind strings. Reusing them as
+// cache tags means the cached detail is flushed by those existing commands with
+// no new wiring (#3664, mirroring #3143). Canonicalize each kind the same way
+// invalidateCrudCache does (camelCase split + lowercase) so the tag shapes match.
+const COMPANY_DETAIL_CACHE_RESOURCE_KINDS = [
+  'customers.company',
+  'customers.address',
+  'customers.tagAssignment',
+  'customers.labelAssignment',
+  'customers.personCompanyLink',
+  'customers.interaction',
+  'customers.activity',
+] as const
+
+function buildCompanyDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags = new Set<string>()
+  for (const resourceKind of COMPANY_DETAIL_CACHE_RESOURCE_KINDS) {
+    const resource = canonicalizeResourceTag(resourceKind) ?? resourceKind
+    for (const tag of buildCollectionTags(resource, tenantId, [organizationId])) {
+      tags.add(tag)
+    }
+  }
+  return Array.from(tags)
+}
+
+function buildCompanyDetailCacheKey(parts: {
+  tenantId: string | null
+  organizationId: string | null
+  companyId: string
+  selectedOrganizationId: string | null
+  filterIds: string[] | null
+  allowedIds: string[] | null
+  isSuperAdmin: boolean
+  viewerUserId: string | null
+  interactionMode: string
+  includeTokens: string[]
+}): string {
+  const sortKeys = (values: string[]): string[] =>
+    [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+  const filterIds = parts.filterIds ? sortKeys(parts.filterIds).join(',') : 'all'
+  const allowedIds = parts.allowedIds ? sortKeys(parts.allowedIds).join(',') : 'all'
+  const includeTokens = sortKeys(parts.includeTokens).join(',')
+  return [
+    'customers:companies:detail',
+    `tenant:${parts.tenantId ?? 'null'}`,
+    `org:${parts.organizationId ?? 'null'}`,
+    `company:${parts.companyId}`,
+    `selected:${parts.selectedOrganizationId ?? 'null'}`,
+    `filter:${filterIds}`,
+    `allowed:${allowedIds}`,
+    `super:${parts.isSuperAdmin ? '1' : '0'}`,
+    `viewer:${parts.viewerUserId ?? 'null'}`,
+    `mode:${parts.interactionMode}`,
+    `include:${includeTokens}`,
+  ].join('|')
+}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -413,6 +480,31 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     currentUserId: viewerUserId,
     userFeatures: undefined,
   })
+
+  // Opt-in cache (#3664): the company existence + org read-access checks above
+  // always run, so authorization is never served from cache. Only the expensive
+  // detail sweeps below are cached. Key on tenant/org/company + the RBAC scope,
+  // viewer (email privacy), interaction mode, and the requested include set.
+  const cacheTenantId = companyScope.tenantId
+  const cache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+  const cacheKey = cache
+    ? buildCompanyDetailCacheKey({
+        tenantId: cacheTenantId,
+        organizationId: companyScope.organizationId,
+        companyId: company.id,
+        selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+        filterIds: scope?.filterIds ?? null,
+        allowedIds: scope?.allowedIds ?? null,
+        isSuperAdmin: auth.isSuperAdmin === true,
+        viewerUserId,
+        interactionMode,
+        includeTokens: Array.from(includeTokens),
+      })
+    : null
+  if (cache && cacheKey) {
+    const cached = await runWithCacheTenant(cacheTenantId, () => cache.get(cacheKey))
+    if (cached) return NextResponse.json(cached)
+  }
 
   const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
 
@@ -961,7 +1053,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     addresses: addressesCount,
   }
 
-  return NextResponse.json({
+  const payload = {
     interactionMode,
     company: {
       id: company.id,
@@ -1170,7 +1262,22 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       name: viewerUserId ? userMap.get(viewerUserId)?.name ?? null : null,
       email: viewerUserId ? userMap.get(viewerUserId)?.email ?? auth.email ?? null : auth.email ?? null,
     },
-  })
+  }
+
+  if (cache && cacheKey) {
+    try {
+      await runWithCacheTenant(cacheTenantId, () =>
+        cache.set(cacheKey, payload, {
+          ttl: COMPANY_DETAIL_CACHE_TTL_MS,
+          tags: buildCompanyDetailCacheTags(cacheTenantId, companyScope.organizationId),
+        }),
+      )
+    } catch (err) {
+      console.warn('[customers:companies] Failed to set company detail cache', err)
+    }
+  }
+
+  return NextResponse.json(payload)
 }
 
 const companyDetailQuerySchema = z.object({
