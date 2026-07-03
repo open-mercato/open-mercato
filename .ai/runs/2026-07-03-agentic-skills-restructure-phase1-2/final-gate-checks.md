@@ -23,6 +23,12 @@ Every restructured `SKILL.md` (om-auto-create-pr, -continue-pr, -create-pr-loop,
 - **Whole-repo `yarn test`** — this change is isolated to `packages/create-app`, which no other package imports. The machine has known pre-existing unrelated flakes (UI `format.test.ts` Polish-locale; `watch-packages` fs.watch). The authoritative suite for this change (create-app, 93/93) is green.
 - **ds-guardian** — N/A, no UI surface.
 
+## Auto-review pass (om-code-review lens)
+
+A code-review subagent flagged a **High-severity regression the main pass missed**: `packages/cli/src/lib/agentic-setup.ts` is a *parallel* `generateShared` (the `yarn mercato agentic:init` path) that still used a hard-coded per-skill copy list — it would have shipped the restructured skills **broken** (thin `SKILL.md` routers with no `workflow/`/`subagents/` files) and no `agentic.config.json`. `packages/cli/AGENTS.md` explicitly mandates keeping the two in sync.
+
+Fixed in Step 2.9-review-fix (fed613b4a): CLI `generateShared` now uses the same recursive `copySkillTree` + writes `agentic.config.json` (`baseBranch: auto`); `cli/build.mjs` gains the same `dist/agentic` clean step. Verified end-to-end: `agentic:init` produces 21 skills, **0** STANDALONE.md, **0** literal `{{PROJECT_NAME}}`, and the config. `cli` typecheck clean; `agentic-init.test.ts` passes.
+
 ## Verdict
 
 Green for the Phases 1+2 scope. Phase 3 (remaining 14 skills) + Phase 4 (full-set conformance enforcement) are a follow-up PR via `om-auto-continue-pr-loop`, per the agreed scope.

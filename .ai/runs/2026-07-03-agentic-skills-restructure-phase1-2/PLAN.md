@@ -24,7 +24,7 @@
 | 2 | 2.6 | Restructure `om-auto-fix-github` | done | 1f9445e9d |
 | 2 | 2.7 | Restructure `om-integration-builder` | done | 1658eea78 |
 | 2 | 2.8 | Flip overlays→no-STANDALONE guard + conformance/no-stale-dist/placeholder guards | done | 362a04eda |
-| 2 | 2.9-review-fix | Sync CLI `agentic:init` (packages/cli) to recursive copy + config write (auto-review finding) | done | pending |
+| 2 | 2.9-review-fix | Sync CLI `agentic:init` (packages/cli) to recursive copy + config write (auto-review finding) | done | fed613b4a |
 
 ## Goal
 
