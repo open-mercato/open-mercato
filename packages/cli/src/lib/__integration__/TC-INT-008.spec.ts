@@ -167,6 +167,13 @@ function readPlaywrightConfigPathFromCliRunner(): string {
 function expectedGuideOutputNames(): string[] {
   const collected = new Set<string>()
 
+  // Static conceptual guides shipped verbatim from create-app/agentic/guides
+  // (e.g. module-system.md). These are copied into .ai/guides alongside the
+  // per-package standalone guides below.
+  for (const staticGuide of listRelativeFiles(path.join(agenticRoot, 'guides'))) {
+    collected.add(staticGuide)
+  }
+
   for (const packageName of fs.readdirSync(packagesRoot)) {
     const packageGuide = path.join(packagesRoot, packageName, 'agentic', 'standalone-guide.md')
     if (fs.existsSync(packageGuide)) {
