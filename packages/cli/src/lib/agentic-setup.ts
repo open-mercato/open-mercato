@@ -26,6 +26,8 @@ interface AgenticSetupOptions {
 interface AgenticConfig {
   projectName: string
   targetDir: string
+  agentTools: string[]
+  pr: { baseBranch: string }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -52,11 +54,56 @@ function copyFile(srcDir: string, srcRelative: string, destPath: string): void {
   copyFileSync(srcPath, destPath)
 }
 
+function isProbablyBinary(buffer: Buffer): boolean {
+  const scanLength = Math.min(buffer.length, 8000)
+  for (let index = 0; index < scanLength; index++) {
+    if (buffer[index] === 0) return true
+  }
+  return false
+}
+
+// Recursively copy a skill directory, resolving {{PROJECT_NAME}} in text files and
+// skipping dotfiles. Kept in sync with create-app's copySkillTree so `agentic:init`
+// ships the same thin-SKILL.md + workflow/ + subagents/ tree as fresh scaffolds.
+function copySkillTree(srcDir: string, destDir: string, config: AgenticConfig): void {
+  for (const entry of readdirSync(srcDir, { withFileTypes: true })) {
+    if (entry.name.startsWith('.')) continue
+    const srcPath = join(srcDir, entry.name)
+    const destPath = join(destDir, entry.name)
+    if (entry.isDirectory()) {
+      copySkillTree(srcPath, destPath, config)
+      continue
+    }
+    if (!entry.isFile()) continue
+    ensureDir(destPath)
+    const buffer = readFileSync(srcPath)
+    if (isProbablyBinary(buffer)) {
+      copyFileSync(srcPath, destPath)
+    } else {
+      writeFileSync(destPath, resolvePlaceholders(buffer.toString('utf-8'), config))
+    }
+  }
+}
+
+function writeAgenticConfig(config: AgenticConfig): void {
+  const destPath = join(config.targetDir, '.ai', 'agentic.config.json')
+  ensureDir(destPath)
+  const payload = {
+    projectName: config.projectName,
+    agentTools: [...config.agentTools],
+    pr: { baseBranch: config.pr.baseBranch },
+  }
+  writeFileSync(destPath, `${JSON.stringify(payload, null, 2)}\n`)
+}
+
 // ─── Generators ──────────────────────────────────────────────────────────
 
 function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
   const srcDir = join(AGENTIC_DIR, 'shared')
+
+  // Environment file read by skills at runtime (single source of per-repo settings).
+  writeAgenticConfig(config)
 
   // AGENTS.md
   writeTemplate(srcDir, 'AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
@@ -66,181 +113,17 @@ function generateShared(config: AgenticConfig): void {
   copyFile(srcDir, 'ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile(srcDir, 'ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
 
-  // .ai/skills/
-  writeTemplate(
-    srcDir,
-    'ai/skills/om-spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-    config,
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-backend-ui-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-backend-ui-design/references/ui-components.md',
-    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
-  )
-  copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
-  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
-    copyFile(
-      srcDir,
-      'ai/skills/om-integration-builder/STANDALONE.md',
-      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
-    )
-  }
-  copyFile(
-    srcDir,
-    'ai/skills/om-integration-builder/references/adapter-contracts.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
-  )
-  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
-    copyFile(
-      srcDir,
-      'ai/skills/om-integration-builder/STANDALONE.md',
-      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
-    )
-  }
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-system-extension/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-system-extension', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-system-extension/references/extension-contracts.md',
-    join(targetDir, '.ai', 'skills', 'om-system-extension', 'references', 'extension-contracts.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-module-scaffold/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-module-scaffold/references/naming-conventions.md',
-    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'naming-conventions.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-module-scaffold/references/navigation-patterns.md',
-    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'navigation-patterns.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-troubleshooter/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-troubleshooter/references/diagnostic-commands.md',
-    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'references', 'diagnostic-commands.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-eject-and-customize/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-eject-and-customize', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-data-model-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-data-model-design/references/mikro-orm-cheatsheet.md',
-    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-implement-spec/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-implement-spec', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-help/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-help/references/skills-catalog.md',
-    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-help/references/workflow-sequences.md',
-    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
-  )
-
-  for (const autoSkill of [
-    'om-auto-create-pr',
-    'om-auto-continue-pr',
-    'om-auto-create-pr-loop',
-    'om-auto-continue-pr-loop',
-    'om-auto-review-pr',
-    'om-auto-fix-github',
-    'om-prepare-issue',
-  ]) {
-    copyFile(
-      srcDir,
-      `ai/skills/${autoSkill}/SKILL.md`,
-      join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
-    )
-    if (existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
-      copyFile(
-        srcDir,
-        `ai/skills/${autoSkill}/STANDALONE.md`,
-        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
-      )
+  // .ai/skills/ — recursive per-directory copy so a skill's full tree
+  // (thin SKILL.md + workflow/ + subagents/ + references/) ships whole, with
+  // {{PROJECT_NAME}} resolved. Kept in sync with create-app's generateShared().
+  const skillsSrcDir = join(srcDir, 'ai', 'skills')
+  const skillsDestDir = join(targetDir, '.ai', 'skills')
+  if (existsSync(skillsSrcDir)) {
+    for (const entry of readdirSync(skillsSrcDir, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.name.startsWith('.')) continue
+      copySkillTree(join(skillsSrcDir, entry.name), join(skillsDestDir, entry.name), config)
     }
   }
-
-  copyFile(
-    srcDir,
-    'ai/skills/om-trim-unused-modules/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-trim-unused-modules', 'SKILL.md'),
-  )
 
   copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
@@ -401,6 +284,9 @@ export async function runAgenticSetup(
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    agentTools: selectedIds,
+    // agentic:init has no GitHub remote context; default to runtime auto-detection.
+    pr: { baseBranch: 'auto' },
   }
 
   generateShared(config)

@@ -1,4 +1,4 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { atomicWriteFileSync } from '../../scripts/lib/add-js-extension.mjs'
@@ -24,10 +24,13 @@ await buildPackage(packageDir, {
     chmodSync(binPath, 0o755)
 
     // Copy agentic source files from create-app so generators can read them at runtime.
+    // Clean first so files deleted from create-app/agentic/ (e.g. the retired
+    // STANDALONE.md overrides) do not linger in an incremental dist/agentic/.
     const agenticSrc = join(packageDir, '..', 'create-app', 'agentic')
     if (existsSync(agenticSrc)) {
+      rmSync(join(outdir, 'agentic'), { recursive: true, force: true })
       cpSync(agenticSrc, join(outdir, 'agentic'), { recursive: true })
-      console.log('Copied create-app/agentic/ → dist/agentic/')
+      console.log('Cleaned + copied create-app/agentic/ → dist/agentic/')
     }
 
     // Discover standalone guides across sibling packages.
