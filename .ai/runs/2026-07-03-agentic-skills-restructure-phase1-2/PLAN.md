@@ -10,7 +10,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | AgenticConfig gains `pr.baseBranch` + interactive base-branch question | todo | — |
+| 1 | 1.1 | AgenticConfig gains `pr.baseBranch` + interactive base-branch question | done | 701a4fe9a |
 | 1 | 1.2 | Additive `--pr-base <branch\|auto>` CLI flag (headless-safe) | todo | — |
 | 1 | 1.3 | Generator writes `.ai/agentic.config.json` from AgenticConfig | todo | — |
 | 1 | 1.4 | Recursive skill-dir copy + resolvePlaceholders; adapt overlays test | todo | — |

@@ -9,11 +9,19 @@ export type AskFn = (question: string) => Promise<string>
 export interface AgenticSetupOptions {
   tool?: string
   force?: boolean
+  /** Base branch automated-PR skills should target. A literal branch or `auto`. */
+  baseBranch?: string
 }
 
 export interface AgenticConfig {
   projectName: string
   targetDir: string
+  /** Concrete agent tool ids set up for this app (empty when skipped). */
+  agentTools: string[]
+  pr: {
+    /** Literal base branch for automated PRs, or `auto` to resolve at runtime. */
+    baseBranch: string
+  }
 }
 
 const TOOLS = [
@@ -28,6 +36,55 @@ const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'sk
 
 /** Concrete agent tool ids accepted by the `--agents` CLI flag. */
 export const AGENT_TOOL_IDS: readonly string[] = SELECTABLE_TOOLS.map((t) => t.id)
+
+/**
+ * Tools that ship the automated-PR skills (`om-auto-*`) and therefore consume
+ * `pr.baseBranch` from `.ai/agentic.config.json`. Only when one of these is
+ * selected does the interactive wizard ask which branch automated PRs target.
+ */
+export const PR_CAPABLE_TOOL_IDS: readonly string[] = ['claude-code']
+
+/** Default base branch: resolve the repo's default branch at PR time. */
+export const DEFAULT_PR_BASE = 'auto'
+
+const PR_BASE_PROMPT_OPTIONS = [
+  { number: '1', id: 'auto', label: 'Auto-detect (default)', hint: "resolve the repo's default branch at PR time" },
+  { number: '2', id: 'main', label: 'main' },
+  { number: '3', id: 'develop', label: 'develop' },
+  { number: '4', id: 'other', label: 'Other…', hint: 'enter a branch name' },
+] as const
+
+/**
+ * Normalize a base-branch answer (interactive number/keyword or CLI value) into
+ * `auto` / `main` / `develop`, the `other` sentinel (interactive follow-up), or a
+ * literal branch name. Empty input defaults to `auto`.
+ */
+export function normalizeBaseBranchAnswer(answer: string): string {
+  const normalized = answer.trim().toLowerCase()
+  if (!normalized) return DEFAULT_PR_BASE
+  const selected = PR_BASE_PROMPT_OPTIONS.find(
+    (option) => option.number === normalized || option.id === normalized,
+  )
+  if (selected) return selected.id
+  return answer.trim()
+}
+
+async function promptBaseBranch(ask: AskFn): Promise<string> {
+  console.log('')
+  console.log('   Which branch should automated PRs target?')
+  console.log('')
+  for (const option of PR_BASE_PROMPT_OPTIONS) {
+    const hint = 'hint' in option && option.hint ? `  — ${option.hint}` : ''
+    console.log(`   ${option.number}. ${option.label}${hint}`)
+  }
+  console.log('')
+  const answer = normalizeBaseBranchAnswer(await ask('   Enter number or branch name [1]: '))
+  if (answer === 'other') {
+    const custom = (await ask('   Branch name: ')).trim()
+    return custom || DEFAULT_PR_BASE
+  }
+  return answer
+}
 
 export interface ParsedAgentsArg {
   /** True when the value asked to skip agentic setup (`none`/`skip`). */
@@ -137,9 +194,20 @@ export async function runAgenticSetup(
     return
   }
 
+  const prCapable = selectedIds.some((id) => PR_CAPABLE_TOOL_IDS.includes(id))
+  let baseBranch = DEFAULT_PR_BASE
+  if (options?.baseBranch != null && options.baseBranch.trim() !== '') {
+    const normalized = normalizeBaseBranchAnswer(options.baseBranch)
+    baseBranch = normalized === 'other' ? DEFAULT_PR_BASE : normalized
+  } else if (!options?.tool && prCapable) {
+    baseBranch = await promptBaseBranch(ask)
+  }
+
   const config: AgenticConfig = {
     projectName: basename(targetDir),
     targetDir,
+    agentTools: selectedIds,
+    pr: { baseBranch },
   }
 
   // Order matters — codex patches AGENTS.md created by shared
