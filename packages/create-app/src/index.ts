@@ -28,6 +28,7 @@ interface Options {
   registry?: string
   initGit?: boolean
   agents?: string
+  prBase?: string
   skipAgenticSetup: boolean
   verdaccio: boolean
   help: boolean
@@ -58,6 +59,9 @@ ${pc.bold('Options:')}
   --no-init-git      Do not prompt for or initialize a local Git repository
   --agents <list>    Set up agent tooling non-interactively (skips the wizard):
                      comma-separated claude-code,codex,cursor — or 'all' / 'none'
+  --pr-base <branch> Base branch automated-PR skills should target (default: auto).
+                     Use a literal branch (main, develop, …) or 'auto' to resolve
+                     the repo's default branch at PR time.
   --skip-agentic-setup  Skip the agentic setup wizard (alias for --agents none)
   --registry <url>   Custom npm registry URL
   --verdaccio        Use local Verdaccio registry (http://localhost:4873)
@@ -73,6 +77,7 @@ ${pc.bold('Examples:')}
   npx create-mercato-app my-store --agents claude-code,codex
   npx create-mercato-app my-store --agents all
   npx create-mercato-app my-store --agents none
+  npx create-mercato-app my-store --agents claude-code --pr-base main
   npx create-mercato-app my-prm --app prm
   npx create-mercato-app my-marketplace --app-url https://github.com/some-agency/ready-app-marketplace
   npx create-mercato-app my-store --verdaccio
@@ -101,6 +106,7 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
     registry: undefined,
     initGit: undefined,
     agents: undefined,
+    prBase: undefined,
     skipAgenticSetup: false,
     verdaccio: false,
     help: false,
@@ -117,6 +123,9 @@ function parseArgs(args: string[]): { appName: string | null; options: Options }
       options.version = true
     } else if (arg === '--agents') {
       options.agents = requireOptionValue(args, index, arg)
+      index += 1
+    } else if (arg === '--pr-base') {
+      options.prBase = requireOptionValue(args, index, arg)
       index += 1
     } else if (arg === '--skip-agentic-setup') {
       options.skipAgenticSetup = true
@@ -453,14 +462,18 @@ function resolveAgentSelection(options: Options): AgentSelection {
   return { mode: 'tools', tools: parsed.tools }
 }
 
-async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection): Promise<void> {
+async function maybeRunAgenticSetup(
+  targetDir: string,
+  selection: AgentSelection,
+  baseBranch?: string,
+): Promise<void> {
   if (selection.mode === 'skip') {
     await runAgenticSetup(targetDir, async () => '', { tool: 'skip' })
     return
   }
 
   if (selection.mode === 'tools') {
-    await runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(',') })
+    await runAgenticSetup(targetDir, async () => '', { tool: selection.tools.join(','), baseBranch })
     return
   }
 
@@ -469,7 +482,7 @@ async function maybeRunAgenticSetup(targetDir: string, selection: AgentSelection
     new Promise<string>((resolveAnswer) => rl.question(question, (answer) => resolveAnswer(answer.trim())))
 
   try {
-    await runAgenticSetup(targetDir, ask)
+    await runAgenticSetup(targetDir, ask, baseBranch ? { baseBranch } : undefined)
   } finally {
     rl.close()
   }
@@ -568,9 +581,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const readyAppSource = resolveReadyAppSource(options, PACKAGE_VERSION)
 
-  if (options.agents !== undefined && readyAppSource) {
+  if ((options.agents !== undefined || options.prBase !== undefined) && readyAppSource) {
     throw new Error(
-      '--agents is not supported with --app/--app-url. Imported ready apps manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
+      '--agents/--pr-base are not supported with --app/--app-url. Imported ready apps manage their own agentic tooling; run `yarn mercato agentic:init` inside the app instead.',
     )
   }
 
@@ -609,7 +622,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   console.log('')
 
   if (!readyAppSource) {
-    await maybeRunAgenticSetup(targetDir, agentSelection)
+    await maybeRunAgenticSetup(targetDir, agentSelection, options.prBase)
   }
 
   const gitResult = await maybeInitializeGitRepository(targetDir, options)
