@@ -21,9 +21,7 @@ function makeConfig(targetDir: string): AgenticConfig {
 // skill is migrated to the thin-SKILL + native-instructions layout, its STANDALONE.md
 // is deleted and it drops off this list. Step 2.8 replaces this whole file with the
 // no-STANDALONE + conformance guards once the list is empty.
-const skillsRequiringStandaloneOverlay = [
-  'om-integration-builder',
-]
+const skillsRequiringStandaloneOverlay: string[] = []
 
 // The auto-* family hard-codes `develop`; their overlay must redirect to the discovered default branch.
 const skillsOverridingBaseBranch = skillsRequiringStandaloneOverlay.filter((name) =>
@@ -76,22 +74,6 @@ test('copySkillTree recursively copies a restructured skill tree (SKILL.md + nes
     assert.ok(
       fs.existsSync(path.join(destSkill, 'workflow', 'step-1-plan-and-claim.md')),
       'nested workflow/ files must be copied recursively',
-    )
-  } finally {
-    fs.rmSync(tmpDir, { recursive: true, force: true })
-  }
-})
-
-test('copySkillTree still ships STANDALONE.md for skills not yet restructured', () => {
-  const pending = skillsRequiringStandaloneOverlay[0]
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-copy-'))
-  try {
-    const srcSkill = path.join(fileURLToPath(skillsDir), pending)
-    const destSkill = path.join(tmpDir, pending)
-    copySkillTree(srcSkill, destSkill, makeConfig(tmpDir))
-    assert.ok(
-      fs.existsSync(path.join(destSkill, 'STANDALONE.md')),
-      `${pending} still ships STANDALONE.md until it is restructured`,
     )
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true })

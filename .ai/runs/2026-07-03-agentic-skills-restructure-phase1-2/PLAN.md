@@ -21,8 +21,8 @@
 | 2 | 2.3 | Restructure `om-auto-create-pr-loop` (+ subagents/executor.md) | done | 62765a1c8 |
 | 2 | 2.4 | Restructure `om-auto-continue-pr-loop` (+ subagents/executor.md) | done | 91393701d |
 | 2 | 2.5 | Restructure `om-auto-review-pr` | done | b2eb31316 |
-| 2 | 2.6 | Restructure `om-auto-fix-github` | done | pending |
-| 2 | 2.7 | Restructure `om-integration-builder` | todo | — |
+| 2 | 2.6 | Restructure `om-auto-fix-github` | done | 1f9445e9d |
+| 2 | 2.7 | Restructure `om-integration-builder` | done | pending |
 | 2 | 2.8 | Flip overlays→no-STANDALONE guard + conformance/no-stale-dist/placeholder guards | todo | — |
 
 ## Goal
