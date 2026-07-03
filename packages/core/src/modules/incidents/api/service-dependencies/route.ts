@@ -3,11 +3,10 @@ import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseScopedCommandInput, resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
-import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
-import { IncidentSeverity } from '../../data/entities'
-import { severityCreateSchema, severityUpdateSchema } from '../../data/validators'
+import { IncidentServiceDependency } from '../../data/entities'
+import { serviceDependencyCreateSchema, serviceDependencyUpdateSchema } from '../../data/validators'
 import {
   createIncidentsCrudOpenApi,
   createPagedListResponseSchema,
@@ -25,10 +24,11 @@ const scopedDeleteSchema = z.object({
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
-    search: z.string().optional(),
-    key: z.string().optional(),
-    defaultRunbookId: z.string().uuid().optional(),
+    pageSize: z.coerce.number().min(1).max(200).default(100),
+    sourceComponentId: z.string().uuid().optional(),
+    targetComponentId: z.string().uuid().optional(),
+    componentId: z.string().uuid().optional(),
+    dependencyKind: z.string().optional(),
     isActive: z.string().optional(),
     id: z.string().uuid().optional(),
     ids: z.string().optional(),
@@ -40,7 +40,7 @@ const listSchema = z
 type ListQuery = z.infer<typeof listSchema>
 
 const routeMetadata = {
-  GET: { requireAuth: true, requireFeatures: ['incidents.settings.manage'] },
+  GET: { requireAuth: true, requireFeatures: ['incidents.incident.view'] },
   POST: { requireAuth: true, requireFeatures: ['incidents.settings.manage'] },
   PUT: { requireAuth: true, requireFeatures: ['incidents.settings.manage'] },
   DELETE: { requireAuth: true, requireFeatures: ['incidents.settings.manage'] },
@@ -77,15 +77,16 @@ function buildFilters(query: ListQuery): Record<string, unknown> {
     const ids = parseUuidList(query.ids)
     if (ids.length > 0) filters.id = { $in: ids }
   }
-  if (query.search?.trim()) {
-    const term = buildIlikeTerm(query.search)
+  if (query.componentId) {
     filters.$or = [
-      { key: { $ilike: term } },
-      { label: { $ilike: term } },
+      { source_component_id: { $eq: query.componentId } },
+      { target_component_id: { $eq: query.componentId } },
     ]
+  } else {
+    if (query.sourceComponentId) filters.source_component_id = { $eq: query.sourceComponentId }
+    if (query.targetComponentId) filters.target_component_id = { $eq: query.targetComponentId }
   }
-  if (query.key?.trim()) filters.key = { $eq: query.key.trim() }
-  if (query.defaultRunbookId) filters.default_runbook_id = { $eq: query.defaultRunbookId }
+  if (query.dependencyKind?.trim()) filters.dependency_kind = { $eq: query.dependencyKind.trim() }
   const isActive = parseBooleanToken(query.isActive)
   if (isActive !== null) filters.is_active = { $eq: isActive }
   return filters
@@ -94,24 +95,22 @@ function buildFilters(query: ListQuery): Record<string, unknown> {
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
-    entity: IncidentSeverity,
+    entity: IncidentServiceDependency,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: E.incidents.incident_severity },
+  indexer: { entityType: E.incidents.incident_service_dependency },
   list: {
     schema: listSchema,
-    entityId: E.incidents.incident_severity,
+    entityId: E.incidents.incident_service_dependency,
     fields: [
       'id',
-      'key',
-      'label',
-      'rank',
-      'color_token',
-      'default_runbook_id',
-      'is_default',
+      'source_component_id',
+      'target_component_id',
+      'dependency_kind',
+      'snapshot',
       'is_active',
       'organization_id',
       'tenant_id',
@@ -119,9 +118,7 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
-      key: 'key',
-      label: 'label',
-      rank: 'rank',
+      dependencyKind: 'dependency_kind',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -129,26 +126,26 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'incidents.incident_severities.create',
+      commandId: 'incidents.service_dependencies.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(severityCreateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(serviceDependencyCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }: { result?: unknown }) => ({ id: readStringField(result, 'id') }),
       status: 201,
     },
     update: {
-      commandId: 'incidents.incident_severities.update',
+      commandId: 'incidents.service_dependencies.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(severityUpdateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(serviceDependencyUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }: { result?: unknown }) => ({ ok: true, updatedAt: readUpdatedAt(result) }),
     },
     delete: {
-      commandId: 'incidents.incident_severities.delete',
+      commandId: 'incidents.service_dependencies.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -166,14 +163,12 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const severityItemSchema = z.object({
+const serviceDependencyItemSchema = z.object({
   id: z.string().uuid(),
-  key: z.string().nullable().optional(),
-  label: z.string().nullable().optional(),
-  rank: z.number().nullable().optional(),
-  color_token: z.string().nullable().optional(),
-  default_runbook_id: z.string().uuid().nullable().optional(),
-  is_default: z.boolean().nullable().optional(),
+  source_component_id: z.string().uuid().nullable().optional(),
+  target_component_id: z.string().uuid().nullable().optional(),
+  dependency_kind: z.string().nullable().optional(),
+  snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   is_active: z.boolean().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
@@ -185,15 +180,15 @@ const createResponseSchema = z.object({ id: z.string().uuid().nullable() })
 const okWithUpdatedAtSchema = defaultOkResponseSchema.extend({ updatedAt: z.string().nullable().optional() })
 
 export const openApi = createIncidentsCrudOpenApi({
-  resourceName: 'Incident severity',
-  pluralName: 'Incident severities',
+  resourceName: 'Incident service dependency',
+  pluralName: 'Incident service dependencies',
   querySchema: listSchema,
-  listResponseSchema: createPagedListResponseSchema(severityItemSchema),
-  create: { schema: severityCreateSchema, responseSchema: createResponseSchema },
-  update: { schema: severityUpdateSchema, responseSchema: okWithUpdatedAtSchema },
+  listResponseSchema: createPagedListResponseSchema(serviceDependencyItemSchema),
+  create: { schema: serviceDependencyCreateSchema, responseSchema: createResponseSchema },
+  update: { schema: serviceDependencyUpdateSchema, responseSchema: okWithUpdatedAtSchema },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Soft-deletes an incident severity by id. Request body or query may provide the identifier.',
+    description: 'Soft-deletes an incident service dependency by id. Request body or query may provide the identifier.',
   },
 })

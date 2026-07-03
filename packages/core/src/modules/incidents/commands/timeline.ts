@@ -139,7 +139,7 @@ const addTimelineEntryCommand: CommandHandler<TimelineAddInput, TimelineAddResul
           actorUserId,
           body: parsed.body ?? null,
           visibility: parsed.visibility ?? 'internal',
-          metadata: null,
+          metadata: parsed.metadata ?? null,
           createdAt: now,
         })
         em.persist(entry)

@@ -35,6 +35,17 @@ type TimelineMutationResponse = {
   updatedAt?: string | null
 }
 
+type TimelineEntryResponse = {
+  id?: string | null
+  body?: string | null
+  metadata?: Record<string, unknown> | null
+  createdAt?: string | null
+}
+
+type TimelineListResponse = {
+  items?: TimelineEntryResponse[]
+}
+
 type AiMutationContext = Record<string, unknown> & {
   formId: string
   resourceKind: 'incidents.incident'
@@ -51,8 +62,26 @@ type AiPanelProps = {
   onChanged: () => void | Promise<void>
 }
 
+const AI_SUMMARY_SOURCE = 'ai_summary'
+
 function summaryNote(summary: SummaryResponse): string {
   return typeof summary.summary === 'string' ? summary.summary.trim() : ''
+}
+
+function summaryKeyEvents(summary: SummaryResponse): string[] {
+  if (!Array.isArray(summary.keyEvents)) return []
+  return summary.keyEvents.filter((event): event is string => typeof event === 'string' && event.trim().length > 0)
+}
+
+function timelineEntryToSummary(entry: TimelineEntryResponse): SummaryResponse | null {
+  if (entry.metadata?.source !== AI_SUMMARY_SOURCE) return null
+  const body = typeof entry.body === 'string' ? entry.body.trim() : ''
+  if (!body) return null
+  const rawEvents = entry.metadata.keyEvents
+  const keyEvents = Array.isArray(rawEvents)
+    ? rawEvents.filter((event): event is string => typeof event === 'string' && event.trim().length > 0)
+    : []
+  return { summary: body, keyEvents }
 }
 
 export function AiPanel({
@@ -66,6 +95,7 @@ export function AiPanel({
   const t = useT()
   const { available, reason } = useIncidentAiAvailability()
   const [summary, setSummary] = React.useState<SummaryResponse | null>(null)
+  const [summaryPersisted, setSummaryPersisted] = React.useState(false)
   const [loadingSummary, setLoadingSummary] = React.useState(false)
   const [posting, setPosting] = React.useState(false)
   const [assistantOpen, setAssistantOpen] = React.useState(false)
@@ -85,6 +115,86 @@ export function AiPanel({
   React.useEffect(() => {
     setCurrentUpdatedAt(updatedAt ?? null)
   }, [updatedAt])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function loadPersistedSummary() {
+      const params = new URLSearchParams({
+        kinds: 'note',
+        visibility: 'internal',
+        pageSize: '25',
+      })
+      try {
+        const result = await apiCall<TimelineListResponse>(
+          `/api/incidents/${encodeURIComponent(incidentId)}/timeline?${params.toString()}`,
+        )
+        if (cancelled || !result.ok) return
+        const restored = result.result?.items
+          ?.map(timelineEntryToSummary)
+          .find((item): item is SummaryResponse => item !== null)
+        if (!restored) return
+        setSummary((current) => current ?? restored)
+        setSummaryPersisted(true)
+      } catch {
+        // Loading the cached summary is best-effort; summary generation still works.
+      }
+    }
+    void loadPersistedSummary()
+    return () => {
+      cancelled = true
+    }
+  }, [incidentId])
+
+  const persistSummary = React.useCallback(async (nextSummary: SummaryResponse): Promise<boolean> => {
+    const body = summaryNote(nextSummary)
+    if (!body || !canManage || posting) return false
+    setPosting(true)
+    const payload = {
+      kind: 'note',
+      body,
+      visibility: 'internal',
+      metadata: {
+        source: AI_SUMMARY_SOURCE,
+        keyEvents: summaryKeyEvents(nextSummary),
+      },
+    } satisfies {
+      kind: 'note'
+      body: string
+      visibility: 'internal'
+      metadata: { source: typeof AI_SUMMARY_SOURCE; keyEvents: string[] }
+    }
+    try {
+      const call = await runMutation({
+        operation: async () => apiCallOrThrow<TimelineMutationResponse>(
+          `/api/incidents/${encodeURIComponent(incidentId)}/timeline`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...buildOptimisticLockHeader(currentUpdatedAt),
+            },
+            body: JSON.stringify(payload),
+          },
+          { errorMessage: t('incidents.ai.summary.postError', 'Failed to post the AI summary.') },
+        ),
+        context: mutationContext,
+        mutationPayload: { incidentId, ...payload },
+      })
+      const freshUpdatedAt = call.result?.updatedAt
+      if (typeof freshUpdatedAt === 'string' && freshUpdatedAt.length > 0) setCurrentUpdatedAt(freshUpdatedAt)
+      setSummaryPersisted(true)
+      flash(t('incidents.ai.summary.postSuccess', 'AI summary posted as an internal note.'), 'success')
+      await onChanged()
+      return true
+    } catch (err) {
+      if (!surfaceRecordConflict(err, t, { onRefresh: () => void onChanged() })) {
+        flash(t('incidents.ai.summary.postError', 'Failed to post the AI summary.'), 'error')
+      }
+      return false
+    } finally {
+      setPosting(false)
+    }
+  }, [canManage, currentUpdatedAt, incidentId, mutationContext, onChanged, posting, runMutation, t])
 
   const handleSummarize = React.useCallback(async () => {
     setLoadingSummary(true)
@@ -106,52 +216,23 @@ export function AiPanel({
         ), 'error')
         return
       }
-      setSummary(call.result ?? null)
+      const nextSummary = call.result ?? null
+      setSummary(nextSummary)
+      setSummaryPersisted(false)
+      if (nextSummary && canManage) {
+        void persistSummary(nextSummary)
+      }
     } catch {
       flash(t('incidents.ai.summary.error', 'Failed to summarize this incident.'), 'error')
     } finally {
       setLoadingSummary(false)
     }
-  }, [incidentId, t])
+  }, [canManage, incidentId, persistSummary, t])
 
   const handlePostSummary = React.useCallback(async () => {
-    const body = summary ? summaryNote(summary) : ''
-    if (!body || !canManage || posting) return
-    setPosting(true)
-    const payload = {
-      kind: 'note',
-      body,
-      visibility: 'internal',
-    } satisfies { kind: 'note'; body: string; visibility: 'internal' }
-    try {
-      const call = await runMutation({
-        operation: async () => apiCallOrThrow<TimelineMutationResponse>(
-          `/api/incidents/${encodeURIComponent(incidentId)}/timeline`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...buildOptimisticLockHeader(currentUpdatedAt),
-            },
-            body: JSON.stringify(payload),
-          },
-          { errorMessage: t('incidents.ai.summary.postError', 'Failed to post the AI summary.') },
-        ),
-        context: mutationContext,
-        mutationPayload: { incidentId, ...payload },
-      })
-      const freshUpdatedAt = call.result?.updatedAt
-      if (typeof freshUpdatedAt === 'string' && freshUpdatedAt.length > 0) setCurrentUpdatedAt(freshUpdatedAt)
-      flash(t('incidents.ai.summary.postSuccess', 'AI summary posted as an internal note.'), 'success')
-      await onChanged()
-    } catch (err) {
-      if (!surfaceRecordConflict(err, t, { onRefresh: () => void onChanged() })) {
-        flash(t('incidents.ai.summary.postError', 'Failed to post the AI summary.'), 'error')
-      }
-    } finally {
-      setPosting(false)
-    }
-  }, [canManage, currentUpdatedAt, incidentId, mutationContext, onChanged, posting, runMutation, summary, t])
+    if (!summary) return
+    await persistSummary(summary)
+  }, [persistSummary, summary])
 
   if (available !== true) {
     if (available === false && reason) {
@@ -214,7 +295,7 @@ export function AiPanel({
               ))}
             </ul>
           ) : null}
-          {canManage ? (
+          {canManage && !summaryPersisted ? (
             <div className="flex flex-wrap justify-end gap-2">
               <Button
                 type="button"

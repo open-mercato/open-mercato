@@ -16,7 +16,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { E } from '#generated/entities.ids.generated'
-import { Incident, IncidentImpact } from '../data/entities'
+import { Incident, IncidentImpact, IncidentServiceComponent } from '../data/entities'
 import {
   impactAddSchema,
   impactRemoveSchema,
@@ -243,6 +243,36 @@ function normalizeTarget(input: Pick<IncidentImpactAddInput, 'targetType' | 'tar
   }
 }
 
+async function buildServiceComponentImpactSnapshot(
+  em: EntityManager,
+  scope: IncidentScope,
+  targetType: string,
+  targetId: string | null,
+  providedSnapshot: Record<string, unknown> | null | undefined,
+): Promise<Record<string, unknown> | null> {
+  if (targetType !== 'service_component') return providedSnapshot ?? null
+  if (!targetId) throw new CrudHttpError(400, { error: '[internal] service component id is required' })
+  const component = await em.findOne(IncidentServiceComponent, {
+    id: targetId,
+    ...scope,
+    isActive: true,
+    deletedAt: null,
+  })
+  if (!component) throw new CrudHttpError(404, { error: '[internal] incident service component not found' })
+  return {
+    componentId: component.id,
+    key: component.key,
+    name: component.name,
+    componentType: component.componentType,
+    criticality: component.criticality,
+    tier: component.tier ?? null,
+    sloTargetBasisPoints: component.sloTargetBasisPoints ?? null,
+    sourceType: component.sourceType ?? null,
+    sourceId: component.sourceId ?? null,
+    ...(providedSnapshot ?? {}),
+  }
+}
+
 async function assertNoDuplicateTarget(
   em: EntityManager,
   incidentId: string,
@@ -455,12 +485,18 @@ const addImpactCommand: CommandHandler<IncidentImpactAddInput, ImpactCommandResu
     await enforceIncidentOptimisticLock(ctx, incident)
     assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
-    assertSnapshotLabelIsNonPii(parsed.snapshot)
-    const snapshot = parsed.targetType === 'customer_person' && parsed.snapshot
+    const target = normalizeTarget(parsed)
+    const normalizedSnapshot = parsed.targetType === 'customer_person' && parsed.snapshot
       ? { ...parsed.snapshot, label: undefined }
       : parsed.snapshot
-
-    const target = normalizeTarget(parsed)
+    const snapshot = await buildServiceComponentImpactSnapshot(
+      em,
+      scope,
+      parsed.targetType,
+      target.targetId,
+      normalizedSnapshot ?? null,
+    )
+    assertSnapshotLabelIsNonPii(snapshot)
     await assertNoDuplicateTarget(em, incident.id, scope, parsed.targetType, target.targetId, target.componentLabel)
 
     const now = new Date()

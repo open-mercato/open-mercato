@@ -5,6 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   loadIncidentAiContext,
@@ -77,11 +78,13 @@ async function resolveAiRequestContext(req: Request): Promise<{
     userId: string
     features: string[]
     isSuperAdmin: boolean
+    locale?: string | null
   }
 } | NextResponse> {
   const container = await createRequestContainer()
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId) return jsonError(401, 'unauthorized')
+  const { locale } = await resolveTranslations()
 
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const organizationId = scope?.selectedId ?? auth.orgId ?? null
@@ -106,6 +109,7 @@ async function resolveAiRequestContext(req: Request): Promise<{
       userId: auth.sub,
       features: acl.features,
       isSuperAdmin: acl.isSuperAdmin || authIsSuperAdmin(auth),
+      locale,
     },
   }
 }

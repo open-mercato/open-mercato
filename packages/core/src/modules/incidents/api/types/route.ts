@@ -29,6 +29,7 @@ const listSchema = z
     search: z.string().optional(),
     key: z.string().optional(),
     defaultSeverityId: z.string().uuid().optional(),
+    defaultRunbookId: z.string().uuid().optional(),
     isActive: z.string().optional(),
     id: z.string().uuid().optional(),
     ids: z.string().optional(),
@@ -86,6 +87,7 @@ function buildFilters(query: ListQuery): Record<string, unknown> {
   }
   if (query.key?.trim()) filters.key = { $eq: query.key.trim() }
   if (query.defaultSeverityId) filters.default_severity_id = { $eq: query.defaultSeverityId }
+  if (query.defaultRunbookId) filters.default_runbook_id = { $eq: query.defaultRunbookId }
   const isActive = parseBooleanToken(query.isActive)
   if (isActive !== null) filters.is_active = { $eq: isActive }
   return filters
@@ -110,6 +112,7 @@ const crud = makeCrudRoute({
       'label',
       'default_severity_id',
       'default_escalation_policy_id',
+      'default_runbook_id',
       'default_role_ids',
       'required_fields_on_resolve',
       'is_default',
@@ -172,6 +175,7 @@ const typeItemSchema = z.object({
   label: z.string().nullable().optional(),
   default_severity_id: z.string().uuid().nullable().optional(),
   default_escalation_policy_id: z.string().uuid().nullable().optional(),
+  default_runbook_id: z.string().uuid().nullable().optional(),
   default_role_ids: z.array(z.string().uuid()).nullable().optional(),
   required_fields_on_resolve: z.array(z.string()).nullable().optional(),
   is_default: z.boolean().nullable().optional(),

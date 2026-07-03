@@ -64,6 +64,7 @@ export const severityCreateSchema = z.object({
   label: z.string().trim().min(1).max(120),
   rank: z.coerce.number().int(),
   colorToken: z.string().trim().min(1).max(80),
+  defaultRunbookId: uuid().nullable().optional(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
 })
@@ -103,6 +104,48 @@ export type IncidentEscalationPolicyCreateInput = z.infer<typeof escalationPolic
 
 export type IncidentEscalationPolicyUpdateInput = z.infer<typeof escalationPolicyUpdateSchema>
 
+export const runbookCreateSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  key: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(200),
+  description: optionalText(12000),
+  isActive: z.boolean().optional(),
+})
+
+export type IncidentRunbookCreateInput = z.infer<typeof runbookCreateSchema>
+
+export const runbookUpdateSchema = runbookCreateSchema.partial().extend({ id: uuid() })
+
+export type IncidentRunbookUpdateInput = z.infer<typeof runbookUpdateSchema>
+
+export const runbookStepCreateSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  runbookId: uuid(),
+  position: z.coerce.number().int().min(0),
+  title: z.string().trim().min(1).max(300),
+  description: optionalText(20000),
+  assigneeUserId: uuid().nullable().optional(),
+  dueOffsetMinutes: z.coerce.number().int().min(0).max(525600).nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export type IncidentRunbookStepCreateInput = z.infer<typeof runbookStepCreateSchema>
+
+export const runbookStepUpdateSchema = runbookStepCreateSchema.partial().extend({ id: uuid() })
+
+export type IncidentRunbookStepUpdateInput = z.infer<typeof runbookStepUpdateSchema>
+
+export const runbookInstantiateSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  id: uuid(),
+  runbookId: uuid().nullable().optional(),
+})
+
+export type IncidentRunbookInstantiateInput = z.infer<typeof runbookInstantiateSchema>
+
 export const typeCreateSchema = z.object({
   organizationId: uuid(),
   tenantId: uuid(),
@@ -110,6 +153,7 @@ export const typeCreateSchema = z.object({
   label: z.string().trim().min(1).max(120),
   defaultSeverityId: uuid().nullable().optional(),
   defaultEscalationPolicyId: uuid().nullable().optional(),
+  defaultRunbookId: uuid().nullable().optional(),
   defaultRoleIds: z.array(uuid()).nullable().optional(),
   requiredFieldsOnResolve: z.array(z.string().trim().min(1).max(120)).nullable().optional(),
   isDefault: z.boolean().optional(),
@@ -169,6 +213,60 @@ export const triggerUpdateSchema = triggerCreateSchema.partial().extend({ id: uu
 
 export type IncidentTriggerUpdateInput = z.infer<typeof triggerUpdateSchema>
 
+export const serviceComponentTypeSchema = z.enum(['service', 'component'])
+
+export const serviceComponentCriticalitySchema = z.enum(['low', 'medium', 'high', 'critical'])
+
+export const serviceComponentCreateSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  key: z.string().trim().min(1).max(120),
+  name: z.string().trim().min(1).max(200),
+  description: optionalText(12000),
+  componentType: serviceComponentTypeSchema.optional(),
+  ownerTeamId: uuid().nullable().optional(),
+  ownerUserId: uuid().nullable().optional(),
+  criticality: serviceComponentCriticalitySchema.optional(),
+  tier: optionalText(80),
+  sloTargetBasisPoints: z.coerce.number().int().min(0).max(10000).nullable().optional(),
+  sourceType: optionalText(120),
+  sourceId: optionalText(160),
+  snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export type IncidentServiceComponentCreateInput = z.infer<typeof serviceComponentCreateSchema>
+
+export const serviceComponentUpdateSchema = serviceComponentCreateSchema.partial().extend({ id: uuid() })
+
+export type IncidentServiceComponentUpdateInput = z.infer<typeof serviceComponentUpdateSchema>
+
+const dependencyKindSchema = z.string().trim().min(1).max(80).default('depends_on')
+
+const serviceDependencyBaseSchema = z.object({
+  organizationId: uuid(),
+  tenantId: uuid(),
+  sourceComponentId: uuid(),
+  targetComponentId: uuid(),
+  dependencyKind: dependencyKindSchema.optional(),
+  snapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+  isActive: z.boolean().optional(),
+})
+
+export const serviceDependencyCreateSchema = serviceDependencyBaseSchema.refine(
+  (value) => value.sourceComponentId !== value.targetComponentId,
+  { message: 'sourceComponentId and targetComponentId must differ' },
+)
+
+export type IncidentServiceDependencyCreateInput = z.infer<typeof serviceDependencyCreateSchema>
+
+export const serviceDependencyUpdateSchema = serviceDependencyBaseSchema.partial().extend({ id: uuid() }).refine(
+  (value) => !value.sourceComponentId || !value.targetComponentId || value.sourceComponentId !== value.targetComponentId,
+  { message: 'sourceComponentId and targetComponentId must differ' },
+)
+
+export type IncidentServiceDependencyUpdateInput = z.infer<typeof serviceDependencyUpdateSchema>
+
 export const impactTargetTypeSchema = z.enum([
   'customer_person',
   'customer_company',
@@ -178,6 +276,7 @@ export const impactTargetTypeSchema = z.enum([
   'sales_invoice',
   'sales_credit_memo',
   'component',
+  'service_component',
 ])
 
 export const impactStatusSchema = z.enum([

@@ -94,7 +94,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
 
-    const preview = await escalationService.previewNextEscalation(em, scope, incident)
+    const preview = await escalationService.previewNextEscalation(em, scope, incident, {
+      container: ctx.container,
+    })
     return NextResponse.json(preview)
   } catch (err) {
     if (isCrudHttpError(err)) {

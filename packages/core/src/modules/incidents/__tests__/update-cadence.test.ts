@@ -450,6 +450,33 @@ describe('incidents customer update cadence runtime', () => {
     expect(incident.updateOverdueNotifiedAt).toBe(updateOverdueNotifiedAt)
   })
 
+  it('persists timeline metadata for generated AI summaries', async () => {
+    const harness = buildHarness()
+
+    await command<TimelineAddInput, unknown>('incidents.timeline_entries.add').execute({
+      id: INCIDENT_ID,
+      organizationId: ORG_ID,
+      tenantId: TENANT_ID,
+      kind: 'note',
+      body: 'INC-1001 is being investigated.',
+      visibility: 'internal',
+      metadata: {
+        source: 'ai_summary',
+        keyEvents: ['Incident opened'],
+      },
+    }, harness.ctx)
+
+    const timelineEntry = harness.persisted.find((entry) => {
+      const value = entry as Partial<IncidentTimelineEntry>
+      return value.kind === 'note' && value.body === 'INC-1001 is being investigated.'
+    }) as IncidentTimelineEntry | undefined
+
+    expect(timelineEntry?.metadata).toEqual({
+      source: 'ai_summary',
+      keyEvents: ['Incident opened'],
+    })
+  })
+
   it('clears cadence fields when resolving', async () => {
     const incident = makeIncident({
       nextUpdateDueAt: new Date('2026-07-02T09:30:00.000Z'),

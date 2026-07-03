@@ -47,6 +47,7 @@ export const timelineAddSchema = scopedIncidentSchema.extend({
   kind: z.enum(['note', 'update']).optional(),
   body: optionalText(8000),
   visibility: z.enum(['internal', 'customer_facing']).optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
 })
 
 export type TimelineAddInput = z.infer<typeof timelineAddSchema>

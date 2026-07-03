@@ -3,6 +3,8 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import {
   IncidentEscalationPolicy,
   IncidentRole,
+  IncidentRunbook,
+  IncidentRunbookStep,
   IncidentSettings,
   IncidentSeverity,
   IncidentTrigger,
@@ -39,6 +41,18 @@ type RoleSeed = {
   label: string
 }
 
+type RunbookSeed = {
+  key: string
+  name: string
+  description: string | null
+  steps: Array<{
+    position: number
+    title: string
+    description: string | null
+    dueOffsetMinutes: number | null
+  }>
+}
+
 type TriggerSeed = {
   eventId: string
   isEnabled: boolean
@@ -67,6 +81,32 @@ const DEFAULT_ROLES: RoleSeed[] = [
   { key: 'scribe', label: 'Scribe' },
   { key: 'responder', label: 'Responder' },
 ]
+
+const DEFAULT_RUNBOOK: RunbookSeed = {
+  key: 'major_incident_response',
+  name: 'Major incident response',
+  description: 'Default coordination checklist for high-impact incidents.',
+  steps: [
+    {
+      position: 10,
+      title: 'Confirm incident commander',
+      description: 'Assign an owner for response coordination and decision making.',
+      dueOffsetMinutes: 10,
+    },
+    {
+      position: 20,
+      title: 'Publish first internal update',
+      description: 'Summarize impact, current status, owner, and next update time.',
+      dueOffsetMinutes: 15,
+    },
+    {
+      position: 30,
+      title: 'Prepare customer-facing update',
+      description: 'Draft customer-safe impact and mitigation messaging when customer impact is confirmed.',
+      dueOffsetMinutes: 30,
+    },
+  ],
+}
 
 const DEFAULT_TRIGGERS: TriggerSeed[] = [
   {
@@ -142,6 +182,44 @@ export const setup: ModuleSetupConfig = {
 
     await ctx.em.flush()
 
+    let defaultRunbook = await ctx.em.findOne(IncidentRunbook, {
+      ...scope,
+      key: DEFAULT_RUNBOOK.key,
+      deletedAt: null,
+    })
+
+    if (!defaultRunbook) {
+      defaultRunbook = ctx.em.create(IncidentRunbook, {
+        ...scope,
+        key: DEFAULT_RUNBOOK.key,
+        name: DEFAULT_RUNBOOK.name,
+        description: DEFAULT_RUNBOOK.description,
+        isActive: true,
+      })
+      ctx.em.persist(defaultRunbook)
+      await ctx.em.flush()
+    }
+
+    for (const step of DEFAULT_RUNBOOK.steps) {
+      const existingStep = await ctx.em.findOne(IncidentRunbookStep, {
+        ...scope,
+        runbookId: defaultRunbook.id,
+        position: step.position,
+        deletedAt: null,
+      })
+      if (!existingStep) {
+        ctx.em.persist(ctx.em.create(IncidentRunbookStep, {
+          ...scope,
+          runbookId: defaultRunbook.id,
+          position: step.position,
+          title: step.title,
+          description: step.description,
+          dueOffsetMinutes: step.dueOffsetMinutes,
+          isActive: true,
+        }))
+      }
+    }
+
     const commander = await ctx.em.findOne(IncidentRole, {
       ...scope,
       key: 'commander',
@@ -209,6 +287,22 @@ export const setup: ModuleSetupConfig = {
     if (defaultType && !defaultType.defaultEscalationPolicyId) {
       defaultType.defaultEscalationPolicyId = defaultPolicy.id
       defaultType.updatedAt = new Date()
+    }
+
+    for (const key of ['customer_impacting', 'security']) {
+      const type = await ctx.em.findOne(IncidentType, { ...scope, key, deletedAt: null })
+      if (type && !type.defaultRunbookId) {
+        type.defaultRunbookId = defaultRunbook.id
+        type.updatedAt = new Date()
+      }
+    }
+
+    for (const key of ['sev1', 'sev2']) {
+      const severity = await ctx.em.findOne(IncidentSeverity, { ...scope, key, deletedAt: null })
+      if (severity && !severity.defaultRunbookId) {
+        severity.defaultRunbookId = defaultRunbook.id
+        severity.updatedAt = new Date()
+      }
     }
 
     await ctx.em.flush()

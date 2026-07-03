@@ -831,7 +831,11 @@ const escalateIncidentCommand: CommandHandler<IncidentEscalateInput, IncidentAct
     let escalationResult: Awaited<ReturnType<typeof escalationService.manualEscalate>> | null = null
     await withAtomicFlush(em, [
       async () => {
-        escalationResult = await escalationService.manualEscalate(em, scope, incident, { actorUserId, now })
+        escalationResult = await escalationService.manualEscalate(em, scope, incident, {
+          actorUserId,
+          now,
+          container: ctx.container,
+        })
       },
     ], { transaction: true })
     const resolvedEscalationResult = escalationResult as Awaited<ReturnType<typeof escalationService.manualEscalate>> | null

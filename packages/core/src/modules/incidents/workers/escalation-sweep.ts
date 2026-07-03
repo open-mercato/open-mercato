@@ -27,6 +27,10 @@ type HandlerContext = JobContext & {
   resolve: <T = unknown>(name: string) => T
 }
 
+type OptionalResolverContainer = {
+  resolve<T = unknown>(name: string, opts?: { allowUnregistered?: boolean }): T
+}
+
 type SchedulerPayload = Partial<EscalationSweepPayload> & {
   tenantId?: string | null
   organizationId?: string | null
@@ -144,6 +148,7 @@ async function advanceIncidentEscalation(
   scope: IncidentScope,
   incident: Incident,
   now: Date,
+  container: OptionalResolverContainer,
 ): Promise<void> {
   let result: AdvanceEscalationResult | null = null
   await withAtomicFlush(em, [
@@ -152,6 +157,7 @@ async function advanceIncidentEscalation(
         actorUserId: 'system',
         now,
         trigger: 'auto',
+        container,
       })
     },
   ], { transaction: true, label: 'incidents.escalation-sweep.advance' })
@@ -167,6 +173,7 @@ async function runEscalationAdvancePass(
   em: EntityManager,
   scope: IncidentScope,
   now: Date,
+  container: OptionalResolverContainer,
 ): Promise<void> {
   const incidents = await findWithDecryption(
     em,
@@ -185,7 +192,7 @@ async function runEscalationAdvancePass(
 
   for (const incident of incidents) {
     try {
-      await advanceIncidentEscalation(em, scope, incident, now)
+      await advanceIncidentEscalation(em, scope, incident, now, container)
     } catch (err) {
       warnIncidentFailure('escalation-advance pass', incident, err)
     }
@@ -334,9 +341,12 @@ export default async function handle(
 
   const em = (ctx.resolve('em') as EntityManager).fork()
   const now = new Date()
+  const container: OptionalResolverContainer = {
+    resolve: (name) => ctx.resolve(name),
+  }
 
   await runSnoozeExpiryPass(em, scope, now)
-  await runEscalationAdvancePass(em, scope, now)
+  await runEscalationAdvancePass(em, scope, now, container)
   await runSlaPass(em, scope, now)
   await runUpdateOverduePass(em, scope)
 }

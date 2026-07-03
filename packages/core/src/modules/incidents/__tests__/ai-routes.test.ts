@@ -3,6 +3,7 @@ const mockRunIncidentsObjectAgent = jest.fn()
 const mockFindSimilarIncidents = jest.fn()
 const mockLoadIncidentCatalogs = jest.fn()
 const mockLoadIncidentAiContext = jest.fn()
+const mockResolveTranslations = jest.fn()
 
 type AwilixContainerForTest = import('awilix').AwilixContainer
 type ProbeResult =
@@ -22,6 +23,10 @@ jest.mock('../lib/aiRuntime', () => ({
 const mockCreateRequestContainer = jest.fn()
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
+}))
+
+jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
+  resolveTranslations: (...args: unknown[]) => mockResolveTranslations(...args),
 }))
 
 const mockGetAuthFromRequest = jest.fn()
@@ -188,6 +193,12 @@ describe('incidents AI routes', () => {
       tenantId,
       orgId: organizationId,
     })
+    mockResolveTranslations.mockResolvedValue({
+      locale: 'en',
+      dict: {},
+      t: (key: string, fallback?: string) => fallback ?? key,
+      translate: (key: string, fallback?: string) => fallback ?? key,
+    })
     mockResolveOrganizationScopeForRequest.mockResolvedValue({
       selectedId: organizationId,
       filterIds: [organizationId],
@@ -304,6 +315,28 @@ describe('incidents AI routes', () => {
       code: 'no_provider_configured',
     })
     expect(mockConsoleError).toHaveBeenCalledWith('[incidents.ai.summary] failed', { incidentId }, error)
+  })
+
+  it('forwards the active locale to the summary object agent', async () => {
+    mockResolveTranslations.mockResolvedValueOnce({
+      locale: 'pl',
+      dict: {},
+      t: (key: string, fallback?: string) => fallback ?? key,
+      translate: (key: string, fallback?: string) => fallback ?? key,
+    })
+
+    const response = await summaryPOST(
+      emptyPostRequest(`http://localhost/api/incidents/${incidentId}/ai/summary`),
+      { params: { id: incidentId } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockRunIncidentsObjectAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: 'incidents.summarizer',
+        authContext: expect.objectContaining({ locale: 'pl' }),
+      }),
+    )
   })
 
   it('returns generic AI failure from the summary route for non-factory errors', async () => {

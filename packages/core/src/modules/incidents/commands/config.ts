@@ -20,6 +20,7 @@ import { E } from '#generated/entities.ids.generated'
 import {
   Incident,
   IncidentRole,
+  IncidentRunbook,
   IncidentSettings,
   IncidentSeverity,
   IncidentType,
@@ -76,6 +77,7 @@ type SeveritySnapshot = {
   label: string
   rank: number
   colorToken: string
+  defaultRunbookId: string | null
   isDefault: boolean
   isActive: boolean
   createdAt: string
@@ -91,6 +93,7 @@ type TypeSnapshot = {
   label: string
   defaultSeverityId: string | null
   defaultEscalationPolicyId: string | null
+  defaultRunbookId: string | null
   defaultRoleIds: string[] | null
   requiredFieldsOnResolve: string[] | null
   isDefault: boolean
@@ -137,12 +140,13 @@ const typeIndexer: CrudIndexerConfig<IncidentType> = { entityType: E.incidents.i
 const roleIndexer: CrudIndexerConfig<IncidentRole> = { entityType: E.incidents.incident_role }
 const settingsIndexer: CrudIndexerConfig<IncidentSettings> = { entityType: E.incidents.incident_settings }
 
-const SEVERITY_CHANGE_KEYS = ['key', 'label', 'rank', 'colorToken', 'isDefault', 'isActive'] as const
+const SEVERITY_CHANGE_KEYS = ['key', 'label', 'rank', 'colorToken', 'defaultRunbookId', 'isDefault', 'isActive'] as const
 const TYPE_CHANGE_KEYS = [
   'key',
   'label',
   'defaultSeverityId',
   'defaultEscalationPolicyId',
+  'defaultRunbookId',
   'defaultRoleIds',
   'requiredFieldsOnResolve',
   'isDefault',
@@ -238,6 +242,16 @@ async function requireRolesInScope(
   if (count !== uniqueRoleIds.length) throw new CrudHttpError(400, { error: 'One or more incident roles were not found' })
 }
 
+async function requireRunbookInScope(
+  em: EntityManager,
+  runbookId: string | null | undefined,
+  scope: IncidentScope,
+): Promise<void> {
+  if (!runbookId) return
+  const runbook = await em.findOne(IncidentRunbook, { id: runbookId, ...scope, deletedAt: null })
+  if (!runbook) throw new CrudHttpError(400, { error: 'Incident runbook not found' })
+}
+
 async function emitConfigSideEffects<TEntity extends IndexedEntity>(
   ctx: CommandRuntimeContext,
   action: 'created' | 'updated' | 'deleted',
@@ -290,6 +304,7 @@ async function loadSeveritySnapshot(
     label: record.label,
     rank: record.rank,
     colorToken: record.colorToken,
+    defaultRunbookId: record.defaultRunbookId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
     createdAt: record.createdAt.toISOString(),
@@ -303,6 +318,7 @@ function applySeveritySnapshot(record: IncidentSeverity, snapshot: SeveritySnaps
   record.label = snapshot.label
   record.rank = snapshot.rank
   record.colorToken = snapshot.colorToken
+  record.defaultRunbookId = snapshot.defaultRunbookId
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
   record.createdAt = new Date(snapshot.createdAt)
@@ -319,6 +335,7 @@ function createSeverityFromSnapshot(em: EntityManager, snapshot: SeveritySnapsho
     label: snapshot.label,
     rank: snapshot.rank,
     colorToken: snapshot.colorToken,
+    defaultRunbookId: snapshot.defaultRunbookId,
     isDefault: snapshot.isDefault,
     isActive: snapshot.isActive,
     createdAt: new Date(snapshot.createdAt),
@@ -344,6 +361,7 @@ async function loadTypeSnapshot(
     label: record.label,
     defaultSeverityId: record.defaultSeverityId ?? null,
     defaultEscalationPolicyId: record.defaultEscalationPolicyId ?? null,
+    defaultRunbookId: record.defaultRunbookId ?? null,
     defaultRoleIds: record.defaultRoleIds ?? null,
     requiredFieldsOnResolve: record.requiredFieldsOnResolve ?? null,
     isDefault: record.isDefault,
@@ -359,6 +377,7 @@ function applyTypeSnapshot(record: IncidentType, snapshot: TypeSnapshot): void {
   record.label = snapshot.label
   record.defaultSeverityId = snapshot.defaultSeverityId
   record.defaultEscalationPolicyId = snapshot.defaultEscalationPolicyId
+  record.defaultRunbookId = snapshot.defaultRunbookId
   record.defaultRoleIds = snapshot.defaultRoleIds
   record.requiredFieldsOnResolve = snapshot.requiredFieldsOnResolve
   record.isDefault = snapshot.isDefault
@@ -377,6 +396,7 @@ function createTypeFromSnapshot(em: EntityManager, snapshot: TypeSnapshot): Inci
     label: snapshot.label,
     defaultSeverityId: snapshot.defaultSeverityId,
     defaultEscalationPolicyId: snapshot.defaultEscalationPolicyId,
+    defaultRunbookId: snapshot.defaultRunbookId,
     defaultRoleIds: snapshot.defaultRoleIds,
     requiredFieldsOnResolve: snapshot.requiredFieldsOnResolve,
     isDefault: snapshot.isDefault,
@@ -506,6 +526,7 @@ const createSeverityCommand: CommandHandler<IncidentSeverityCreateInput, ConfigC
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await ensureUniqueSeverityKey(em, scope, parsed.key)
+    await requireRunbookInScope(em, parsed.defaultRunbookId, scope)
     const now = new Date()
     let record!: IncidentSeverity
     await withAtomicFlush(em, [
@@ -516,6 +537,7 @@ const createSeverityCommand: CommandHandler<IncidentSeverityCreateInput, ConfigC
           label: parsed.label,
           rank: parsed.rank,
           colorToken: parsed.colorToken,
+          defaultRunbookId: parsed.defaultRunbookId ?? null,
           isDefault: parsed.isDefault ?? false,
           isActive: parsed.isActive ?? true,
           createdAt: now,
@@ -586,11 +608,13 @@ const updateSeverityCommand: CommandHandler<IncidentSeverityUpdateInput, ConfigC
     if (parsed.key !== undefined && parsed.key !== record.key) {
       await ensureUniqueSeverityKey(em, scope, parsed.key, record.id)
     }
+    if (parsed.defaultRunbookId !== undefined) await requireRunbookInScope(em, parsed.defaultRunbookId, scope)
     await withAtomicFlush(em, [() => {
       if (parsed.key !== undefined) record.key = parsed.key
       if (parsed.label !== undefined) record.label = parsed.label
       if (parsed.rank !== undefined) record.rank = parsed.rank
       if (parsed.colorToken !== undefined) record.colorToken = parsed.colorToken
+      if (parsed.defaultRunbookId !== undefined) record.defaultRunbookId = parsed.defaultRunbookId ?? null
       if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
       if (parsed.isActive !== undefined) record.isActive = parsed.isActive
       record.updatedAt = new Date()
@@ -701,6 +725,7 @@ const createTypeCommand: CommandHandler<IncidentTypeCreateInput, ConfigCommandRe
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await ensureUniqueTypeKey(em, scope, parsed.key)
     await requireSeverityInScope(em, parsed.defaultSeverityId, scope)
+    await requireRunbookInScope(em, parsed.defaultRunbookId, scope)
     await requireRolesInScope(em, parsed.defaultRoleIds, scope)
     const now = new Date()
     let record!: IncidentType
@@ -711,6 +736,7 @@ const createTypeCommand: CommandHandler<IncidentTypeCreateInput, ConfigCommandRe
         label: parsed.label,
         defaultSeverityId: parsed.defaultSeverityId ?? null,
         defaultEscalationPolicyId: parsed.defaultEscalationPolicyId ?? null,
+        defaultRunbookId: parsed.defaultRunbookId ?? null,
         defaultRoleIds: parsed.defaultRoleIds ?? null,
         requiredFieldsOnResolve: parsed.requiredFieldsOnResolve ?? null,
         isDefault: parsed.isDefault ?? false,
@@ -783,12 +809,14 @@ const updateTypeCommand: CommandHandler<IncidentTypeUpdateInput, ConfigCommandRe
       await ensureUniqueTypeKey(em, scope, parsed.key, record.id)
     }
     if (parsed.defaultSeverityId !== undefined) await requireSeverityInScope(em, parsed.defaultSeverityId, scope)
+    if (parsed.defaultRunbookId !== undefined) await requireRunbookInScope(em, parsed.defaultRunbookId, scope)
     if (parsed.defaultRoleIds !== undefined) await requireRolesInScope(em, parsed.defaultRoleIds, scope)
     await withAtomicFlush(em, [() => {
       if (parsed.key !== undefined) record.key = parsed.key
       if (parsed.label !== undefined) record.label = parsed.label
       if (parsed.defaultSeverityId !== undefined) record.defaultSeverityId = parsed.defaultSeverityId ?? null
       if (parsed.defaultEscalationPolicyId !== undefined) record.defaultEscalationPolicyId = parsed.defaultEscalationPolicyId ?? null
+      if (parsed.defaultRunbookId !== undefined) record.defaultRunbookId = parsed.defaultRunbookId ?? null
       if (parsed.defaultRoleIds !== undefined) record.defaultRoleIds = parsed.defaultRoleIds ?? null
       if (parsed.requiredFieldsOnResolve !== undefined) {
         record.requiredFieldsOnResolve = parsed.requiredFieldsOnResolve ?? null

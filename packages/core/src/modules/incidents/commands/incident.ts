@@ -464,7 +464,11 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
       },
       async () => {
         try {
-          const startResult = await escalationService.startEscalation(em, scope, incident, { actorUserId, now })
+          const startResult = await escalationService.startEscalation(em, scope, incident, {
+            actorUserId,
+            now,
+            container: ctx.container,
+          })
           pendingEscalationEvents.push(...startResult.pendingEvents)
         } catch (error) {
           console.error('[incidents.create] failed to start escalation', error)
@@ -597,7 +601,7 @@ const updateIncidentCommand: CommandHandler<IncidentUpdateInput, IncidentCommand
           scope,
           incident,
           parsed.escalationPolicyId ?? null,
-          { actorUserId, now },
+          { actorUserId, now, container: ctx.container },
         )
         pendingEscalationEvents.push(...policyResult.pendingEvents)
       })

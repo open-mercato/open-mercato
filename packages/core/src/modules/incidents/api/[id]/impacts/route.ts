@@ -411,7 +411,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List impacts',
-      description: 'Returns active customer, sales, and component impacts for an incident scoped to the authenticated organization.',
+      description: 'Returns active customer, sales, freeform component, and service component impacts for an incident scoped to the authenticated organization.',
       responses: [
         { status: 200, description: 'Incident impacts', schema: impactListResponseSchema },
         { status: 401, description: 'Unauthorized', schema: impactErrorResponseSchema },

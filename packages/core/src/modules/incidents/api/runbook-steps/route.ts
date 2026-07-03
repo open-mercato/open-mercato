@@ -6,8 +6,8 @@ import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
-import { IncidentSeverity } from '../../data/entities'
-import { severityCreateSchema, severityUpdateSchema } from '../../data/validators'
+import { IncidentRunbookStep } from '../../data/entities'
+import { runbookStepCreateSchema, runbookStepUpdateSchema } from '../../data/validators'
 import {
   createIncidentsCrudOpenApi,
   createPagedListResponseSchema,
@@ -25,10 +25,9 @@ const scopedDeleteSchema = z.object({
 const listSchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
-    pageSize: z.coerce.number().min(1).max(100).default(50),
+    pageSize: z.coerce.number().min(1).max(200).default(100),
     search: z.string().optional(),
-    key: z.string().optional(),
-    defaultRunbookId: z.string().uuid().optional(),
+    runbookId: z.string().uuid().optional(),
     isActive: z.string().optional(),
     id: z.string().uuid().optional(),
     ids: z.string().optional(),
@@ -77,15 +76,14 @@ function buildFilters(query: ListQuery): Record<string, unknown> {
     const ids = parseUuidList(query.ids)
     if (ids.length > 0) filters.id = { $in: ids }
   }
+  if (query.runbookId) filters.runbook_id = { $eq: query.runbookId }
   if (query.search?.trim()) {
     const term = buildIlikeTerm(query.search)
     filters.$or = [
-      { key: { $ilike: term } },
-      { label: { $ilike: term } },
+      { title: { $ilike: term } },
+      { description: { $ilike: term } },
     ]
   }
-  if (query.key?.trim()) filters.key = { $eq: query.key.trim() }
-  if (query.defaultRunbookId) filters.default_runbook_id = { $eq: query.defaultRunbookId }
   const isActive = parseBooleanToken(query.isActive)
   if (isActive !== null) filters.is_active = { $eq: isActive }
   return filters
@@ -94,24 +92,24 @@ function buildFilters(query: ListQuery): Record<string, unknown> {
 const crud = makeCrudRoute({
   metadata: routeMetadata,
   orm: {
-    entity: IncidentSeverity,
+    entity: IncidentRunbookStep,
     idField: 'id',
     orgField: 'organizationId',
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
-  indexer: { entityType: E.incidents.incident_severity },
+  indexer: { entityType: E.incidents.incident_runbook_step },
   list: {
     schema: listSchema,
-    entityId: E.incidents.incident_severity,
+    entityId: E.incidents.incident_runbook_step,
     fields: [
       'id',
-      'key',
-      'label',
-      'rank',
-      'color_token',
-      'default_runbook_id',
-      'is_default',
+      'runbook_id',
+      'position',
+      'title',
+      'description',
+      'assignee_user_id',
+      'due_offset_minutes',
       'is_active',
       'organization_id',
       'tenant_id',
@@ -119,9 +117,8 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
-      key: 'key',
-      label: 'label',
-      rank: 'rank',
+      position: 'position',
+      title: 'title',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -129,26 +126,26 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'incidents.incident_severities.create',
+      commandId: 'incidents.runbook_steps.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(severityCreateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(runbookStepCreateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }: { result?: unknown }) => ({ id: readStringField(result, 'id') }),
       status: 201,
     },
     update: {
-      commandId: 'incidents.incident_severities.update',
+      commandId: 'incidents.runbook_steps.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return parseScopedCommandInput(severityUpdateSchema, raw ?? {}, ctx, translate)
+        return parseScopedCommandInput(runbookStepUpdateSchema, raw ?? {}, ctx, translate)
       },
       response: ({ result }: { result?: unknown }) => ({ ok: true, updatedAt: readUpdatedAt(result) }),
     },
     delete: {
-      commandId: 'incidents.incident_severities.delete',
+      commandId: 'incidents.runbook_steps.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -166,14 +163,14 @@ export const POST = crud.POST
 export const PUT = crud.PUT
 export const DELETE = crud.DELETE
 
-const severityItemSchema = z.object({
+const runbookStepItemSchema = z.object({
   id: z.string().uuid(),
-  key: z.string().nullable().optional(),
-  label: z.string().nullable().optional(),
-  rank: z.number().nullable().optional(),
-  color_token: z.string().nullable().optional(),
-  default_runbook_id: z.string().uuid().nullable().optional(),
-  is_default: z.boolean().nullable().optional(),
+  runbook_id: z.string().uuid().nullable().optional(),
+  position: z.number().nullable().optional(),
+  title: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  assignee_user_id: z.string().uuid().nullable().optional(),
+  due_offset_minutes: z.number().nullable().optional(),
   is_active: z.boolean().nullable().optional(),
   organization_id: z.string().uuid().nullable().optional(),
   tenant_id: z.string().uuid().nullable().optional(),
@@ -185,15 +182,15 @@ const createResponseSchema = z.object({ id: z.string().uuid().nullable() })
 const okWithUpdatedAtSchema = defaultOkResponseSchema.extend({ updatedAt: z.string().nullable().optional() })
 
 export const openApi = createIncidentsCrudOpenApi({
-  resourceName: 'Incident severity',
-  pluralName: 'Incident severities',
+  resourceName: 'Incident runbook step',
+  pluralName: 'Incident runbook steps',
   querySchema: listSchema,
-  listResponseSchema: createPagedListResponseSchema(severityItemSchema),
-  create: { schema: severityCreateSchema, responseSchema: createResponseSchema },
-  update: { schema: severityUpdateSchema, responseSchema: okWithUpdatedAtSchema },
+  listResponseSchema: createPagedListResponseSchema(runbookStepItemSchema),
+  create: { schema: runbookStepCreateSchema, responseSchema: createResponseSchema },
+  update: { schema: runbookStepUpdateSchema, responseSchema: okWithUpdatedAtSchema },
   del: {
     schema: z.object({ id: z.string().uuid() }),
     responseSchema: defaultOkResponseSchema,
-    description: 'Soft-deletes an incident severity by id. Request body or query may provide the identifier.',
+    description: 'Soft-deletes an incident runbook step by id. Request body or query may provide the identifier.',
   },
 })

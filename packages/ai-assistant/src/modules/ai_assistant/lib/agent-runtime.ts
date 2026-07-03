@@ -201,6 +201,12 @@ export interface RunAiAgentTextInput {
  */
 const WRAPPER_DEFAULT_LOOP_CHAT: AiAgentLoopConfig = { maxSteps: 10 }
 const WRAPPER_DEFAULT_LOOP_OBJECT: AiAgentLoopConfig = {}
+const OUTPUT_LANGUAGE_BY_LOCALE: Record<string, string> = {
+  de: 'German',
+  en: 'English',
+  es: 'Spanish',
+  pl: 'Polish',
+}
 
 /**
  * Named loop-budget preset values for `?loopBudget=<preset>` query param.
@@ -1419,6 +1425,31 @@ function appendRuntimeMutationPolicy(
   return `${systemPrompt}\n\n${block}`
 }
 
+function resolveOutputLanguage(locale: string | null | undefined): { locale: string; language: string } | null {
+  if (typeof locale !== 'string') return null
+  const normalized = locale.trim().toLowerCase()
+  if (!normalized) return null
+  const baseLocale = normalized.split(/[-_]/)[0]
+  if (!baseLocale || baseLocale === 'en') return null
+  const language = OUTPUT_LANGUAGE_BY_LOCALE[baseLocale]
+  if (!language) return null
+  return { locale: baseLocale, language }
+}
+
+function appendRuntimeOutputLanguagePrompt(
+  systemPrompt: string,
+  locale: string | null | undefined,
+): string {
+  const resolved = resolveOutputLanguage(locale)
+  if (!resolved) return systemPrompt
+  return `${systemPrompt}\n\n${[
+    'RUNTIME OUTPUT LANGUAGE',
+    `The operator is using the ${resolved.language} locale (${resolved.locale}).`,
+    `Write all user-visible prose in ${resolved.language}, including summaries, draft text, recommendations, task-plan labels, and structured-output string fields, unless the operator explicitly asks for another language.`,
+    'Keep tool names, schema keys, API field names, IDs, and exact record values unchanged.',
+  ].join('\n')}`
+}
+
 function appendRuntimeTaskPlanPrompt(systemPrompt: string, agent: Pick<AiAgentDefinition, 'taskPlan'>): string {
   if (!isAgentTaskPlanEnabled(agent)) return systemPrompt
   return `${systemPrompt}\n\n${TASK_PLAN_RUNTIME_PROMPT_SECTION}`
@@ -1490,7 +1521,10 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
     input.authContext.organizationId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeOutputLanguagePrompt(
+      appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+      input.authContext.locale,
+    ),
     agent,
     mutationPolicyOverride,
   )
@@ -1932,7 +1966,10 @@ export async function runAiAgentObject<TSchema = unknown>(
     input.authContext.organizationId,
   )
   const systemPrompt = appendRuntimeMutationPolicy(
-    appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+    appendRuntimeOutputLanguagePrompt(
+      appendRuntimeTaskPlanPrompt(appendAttachmentSummary(baseSystemPrompt, resolvedAttachments), agent),
+      input.authContext.locale,
+    ),
     agent,
     mutationPolicyOverride,
   )

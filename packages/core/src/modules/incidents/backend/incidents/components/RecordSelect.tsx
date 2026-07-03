@@ -17,6 +17,7 @@ export type RecordSelectTargetType =
   | 'sales_quote'
   | 'sales_invoice'
   | 'sales_credit_memo'
+  | 'service_component'
 
 export type RecordSelectPickedRecord = {
   id: string
@@ -85,6 +86,10 @@ export const recordSelectSources: Readonly<Record<RecordSelectTargetType, Record
     labelKeys: ['creditMemoNumber', 'credit_memo_number', 'number'],
     amountKeys: ['grandTotalGrossAmount', 'grand_total_gross_amount', 'totalGrossAmount', 'total_gross_amount'],
     currencyKeys: ['currencyCode', 'currency_code', 'currency'],
+  },
+  service_component: {
+    path: '/api/incidents/service-components',
+    labelKeys: ['name', 'key', 'source_id', 'id'],
   },
 }
 

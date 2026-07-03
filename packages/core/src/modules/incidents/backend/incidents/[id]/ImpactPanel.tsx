@@ -49,6 +49,7 @@ type ImpactTargetType =
   | 'sales_invoice'
   | 'sales_credit_memo'
   | 'component'
+  | 'service_component'
 
 type ImpactStatus =
   | 'operational'
@@ -144,6 +145,7 @@ const allTargetTypeOptions: readonly ImpactTargetType[] = [
   'sales_invoice',
   'sales_credit_memo',
   'component',
+  'service_component',
 ]
 
 const offeredTargetTypeOptions: readonly ImpactTargetType[] = [
@@ -153,6 +155,7 @@ const offeredTargetTypeOptions: readonly ImpactTargetType[] = [
   'sales_quote',
   'sales_invoice',
   'sales_credit_memo',
+  'service_component',
   'component',
 ]
 
@@ -211,6 +214,7 @@ function targetTypeLabel(t: ReturnType<typeof useT>, value: string): string {
   if (value === 'sales_invoice') return t('incidents.incident.detail.impact.targetType.sales_invoice')
   if (value === 'sales_credit_memo') return t('incidents.incident.detail.impact.targetType.sales_credit_memo')
   if (value === 'component') return t('incidents.incident.detail.impact.targetType.component')
+  if (value === 'service_component') return t('incidents.incident.detail.impact.targetType.service_component')
   return value
 }
 
@@ -846,14 +850,15 @@ export function ImpactPanel({
                   value={addForm.targetType}
                   onValueChange={(value) => {
                     if (isImpactTargetType(value)) {
-                      setAddForm((prev) => ({
-                        ...prev,
-                        targetType: value,
-                        targetId: value === 'component' ? '' : prev.targetId,
-                        label: value === 'customer_person' || value === 'component' || prev.targetType === 'component'
-                          ? ''
-                          : prev.label,
-                      }))
+                      setAddForm((prev) => {
+                        const preserveCurrent = value === prev.targetType && value !== 'component'
+                        return {
+                          ...prev,
+                          targetType: value,
+                          targetId: preserveCurrent ? prev.targetId : '',
+                          label: preserveCurrent && value !== 'customer_person' ? prev.label : '',
+                        }
+                      })
                     }
                   }}
                   disabled={isPending}

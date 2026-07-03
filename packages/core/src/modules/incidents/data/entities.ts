@@ -38,6 +38,9 @@ export type IncidentTriggerCondition = {
   equals: string | number | boolean
 }
 
+export type IncidentServiceComponentType = 'service' | 'component'
+export type IncidentServiceComponentCriticality = 'low' | 'medium' | 'high' | 'critical'
+
 @Entity({ tableName: 'incidents' })
 @Index({ name: 'incidents_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'incidents_org_tenant_number_unique', expression: `create unique index "incidents_org_tenant_number_unique" on "incidents" ("organization_id", "tenant_id", "number") where "deleted_at" is null` })
@@ -343,6 +346,133 @@ export class IncidentImpact {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'incident_service_components' })
+@Index({ name: 'incident_service_components_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'incident_service_components_org_tenant_key_unique', expression: `create unique index "incident_service_components_org_tenant_key_unique" on "incident_service_components" ("organization_id", "tenant_id", "key") where "deleted_at" is null` })
+@Index({ name: 'incident_service_components_source_idx', expression: `create index "incident_service_components_source_idx" on "incident_service_components" ("organization_id", "tenant_id", "source_type", "source_id") where "deleted_at" is null and "source_type" is not null and "source_id" is not null` })
+export class IncidentServiceComponent {
+  [OptionalProps]?:
+    | 'description'
+    | 'componentType'
+    | 'ownerTeamId'
+    | 'ownerUserId'
+    | 'criticality'
+    | 'tier'
+    | 'sloTargetBasisPoints'
+    | 'sourceType'
+    | 'sourceId'
+    | 'snapshot'
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'key', type: 'text' })
+  key!: string
+
+  @Property({ name: 'name', type: 'text' })
+  name!: string
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'component_type', type: 'text', default: 'service' })
+  componentType: IncidentServiceComponentType = 'service'
+
+  @Property({ name: 'owner_team_id', type: 'uuid', nullable: true })
+  ownerTeamId?: string | null
+
+  @Property({ name: 'owner_user_id', type: 'uuid', nullable: true })
+  ownerUserId?: string | null
+
+  @Property({ name: 'criticality', type: 'text', default: 'medium' })
+  criticality: IncidentServiceComponentCriticality = 'medium'
+
+  @Property({ name: 'tier', type: 'text', nullable: true })
+  tier?: string | null
+
+  @Property({ name: 'slo_target_basis_points', type: 'integer', nullable: true })
+  sloTargetBasisPoints?: number | null
+
+  @Property({ name: 'source_type', type: 'text', nullable: true })
+  sourceType?: string | null
+
+  @Property({ name: 'source_id', type: 'text', nullable: true })
+  sourceId?: string | null
+
+  @Property({ name: 'snapshot', type: 'jsonb', nullable: true })
+  snapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'incident_service_dependencies' })
+@Index({ name: 'incident_service_dependencies_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'incident_service_dependencies_source_idx', properties: ['sourceComponentId'] })
+@Index({ name: 'incident_service_dependencies_target_idx', properties: ['targetComponentId'] })
+@Index({ name: 'incident_service_dependencies_unique', expression: `create unique index "incident_service_dependencies_unique" on "incident_service_dependencies" ("organization_id", "tenant_id", "source_component_id", "target_component_id", "dependency_kind") where "deleted_at" is null` })
+export class IncidentServiceDependency {
+  [OptionalProps]?:
+    | 'dependencyKind'
+    | 'snapshot'
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'source_component_id', type: 'uuid' })
+  sourceComponentId!: string
+
+  @Property({ name: 'target_component_id', type: 'uuid' })
+  targetComponentId!: string
+
+  @Property({ name: 'dependency_kind', type: 'text', default: 'depends_on' })
+  dependencyKind: string = 'depends_on'
+
+  @Property({ name: 'snapshot', type: 'jsonb', nullable: true })
+  snapshot?: Record<string, unknown> | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 @Entity({ tableName: 'incident_action_items' })
 @Index({ name: 'incident_action_items_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'incident_action_items_incident_idx', properties: ['incidentId'] })
@@ -495,7 +625,7 @@ export class IncidentLink {
 @Index({ name: 'incident_severities_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
 @Index({ name: 'incident_severities_org_tenant_key_unique', expression: `create unique index "incident_severities_org_tenant_key_unique" on "incident_severities" ("organization_id", "tenant_id", "key") where "deleted_at" is null` })
 export class IncidentSeverity {
-  [OptionalProps]?: 'isDefault' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'defaultRunbookId' | 'isDefault' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -517,6 +647,9 @@ export class IncidentSeverity {
 
   @Property({ name: 'color_token', type: 'text' })
   colorToken!: string
+
+  @Property({ name: 'default_runbook_id', type: 'uuid', nullable: true })
+  defaultRunbookId?: string | null
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
@@ -563,6 +696,97 @@ export class IncidentEscalationPolicy {
 
   @Property({ name: 'is_default', type: 'boolean', default: false })
   isDefault: boolean = false
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'incident_runbooks' })
+@Index({ name: 'incident_runbooks_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'incident_runbooks_org_tenant_key_unique', expression: `create unique index "incident_runbooks_org_tenant_key_unique" on "incident_runbooks" ("organization_id", "tenant_id", "key") where "deleted_at" is null` })
+export class IncidentRunbook {
+  [OptionalProps]?: 'description' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'key', type: 'text' })
+  key!: string
+
+  @Property({ name: 'name', type: 'text' })
+  name!: string
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'incident_runbook_steps' })
+@Index({ name: 'incident_runbook_steps_org_tenant_idx', properties: ['organizationId', 'tenantId'] })
+@Index({ name: 'incident_runbook_steps_runbook_idx', properties: ['runbookId'] })
+@Index({ name: 'incident_runbook_steps_runbook_position_unique', expression: `create unique index "incident_runbook_steps_runbook_position_unique" on "incident_runbook_steps" ("runbook_id", "position") where "deleted_at" is null` })
+export class IncidentRunbookStep {
+  [OptionalProps]?:
+    | 'description'
+    | 'assigneeUserId'
+    | 'dueOffsetMinutes'
+    | 'isActive'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'runbook_id', type: 'uuid' })
+  runbookId!: string
+
+  @Property({ name: 'position', type: 'integer' })
+  position!: number
+
+  @Property({ name: 'title', type: 'text' })
+  title!: string
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'assignee_user_id', type: 'uuid', nullable: true })
+  assigneeUserId?: string | null
+
+  @Property({ name: 'due_offset_minutes', type: 'integer', nullable: true })
+  dueOffsetMinutes?: number | null
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
@@ -635,6 +859,7 @@ export class IncidentType {
   [OptionalProps]?:
     | 'defaultSeverityId'
     | 'defaultEscalationPolicyId'
+    | 'defaultRunbookId'
     | 'defaultRoleIds'
     | 'requiredFieldsOnResolve'
     | 'isDefault'
@@ -663,6 +888,9 @@ export class IncidentType {
 
   @Property({ name: 'default_escalation_policy_id', type: 'uuid', nullable: true })
   defaultEscalationPolicyId?: string | null
+
+  @Property({ name: 'default_runbook_id', type: 'uuid', nullable: true })
+  defaultRunbookId?: string | null
 
   @Property({ name: 'default_role_ids', type: 'jsonb', nullable: true })
   defaultRoleIds?: string[] | null
@@ -799,11 +1027,15 @@ export const incidentsEntities = [
   IncidentTimelineEntry,
   IncidentParticipant,
   IncidentImpact,
+  IncidentServiceComponent,
+  IncidentServiceDependency,
   IncidentActionItem,
   IncidentPostmortem,
   IncidentLink,
   IncidentSeverity,
   IncidentEscalationPolicy,
+  IncidentRunbook,
+  IncidentRunbookStep,
   IncidentType,
   IncidentRole,
   IncidentSettings,

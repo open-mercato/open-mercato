@@ -17,6 +17,7 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 | Key | Contract |
 |-----|----------|
 | `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` — planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+| `staffTeamMemberResolver` | Resolves active user-linked members for a staff team. Consumed by modules such as incidents via `container.resolve(..., { allowUnregistered: true })`; consumers MUST gracefully keep their non-team fallback behavior when staff is absent or a team has no user-linked members. |
 
 Resolver shape (from `lib/availabilityAccess.ts`):
 

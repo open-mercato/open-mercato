@@ -19,6 +19,24 @@ export type IncidentScope = { organizationId: string; tenantId: string }
 
 export type EscalationRecipient = { userId: string; label?: string }
 
+type OptionalResolverContainer = {
+  resolve<T = unknown>(name: string, opts?: { allowUnregistered?: boolean }): T
+}
+
+type StaffTeamMemberResolver = {
+  resolveIncidentTeamRecipients(input: {
+    organizationId: string
+    tenantId: string
+    teamId: string
+    at?: Date
+  }): Promise<EscalationRecipient[]>
+}
+
+type RecipientResolutionOptions = {
+  container?: OptionalResolverContainer
+  now?: Date
+}
+
 export type PendingEscalationEvent = {
   id: IncidentsEventId
   payload: Record<string, unknown>
@@ -121,6 +139,19 @@ function addRecipient(
   recipientsByUserId.set(userId, { ...recipient, userId })
 }
 
+function resolveOptionalStaffTeamMemberResolver(
+  container: OptionalResolverContainer | undefined,
+): StaffTeamMemberResolver | null {
+  if (!container) return null
+  try {
+    return container.resolve<StaffTeamMemberResolver | null>('staffTeamMemberResolver', {
+      allowUnregistered: true,
+    }) ?? null
+  } catch {
+    return null
+  }
+}
+
 function policyStep(policy: IncidentEscalationPolicy, level: number): IncidentEscalationStep {
   const step = policy.steps[level]
   if (!step) {
@@ -182,8 +213,10 @@ export async function resolveStepRecipients(
   scope: IncidentScope,
   incident: Incident,
   step: IncidentEscalationStep,
+  opts: RecipientResolutionOptions = {},
 ): Promise<{ targets: IncidentEscalationTarget[]; recipients: EscalationRecipient[] }> {
   const recipientsByUserId = new Map<string, EscalationRecipient>()
+  const staffTeamMemberResolver = resolveOptionalStaffTeamMemberResolver(opts.container)
   if (incident.ownerUserId) addRecipient(recipientsByUserId, { userId: incident.ownerUserId })
 
   for (const target of step.targets) {
@@ -205,7 +238,25 @@ export async function resolveStepRecipients(
       continue
     }
 
-    // TODO(packet-w2a): resolve team members via staff/planner when available.
+    if (target.type === 'team' && staffTeamMemberResolver) {
+      try {
+        const teamRecipients = await staffTeamMemberResolver.resolveIncidentTeamRecipients({
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          teamId: target.id,
+          at: opts.now,
+        })
+        for (const recipient of teamRecipients) {
+          addRecipient(recipientsByUserId, recipient)
+        }
+      } catch (error) {
+        console.warn('[incidents.escalation] failed to resolve team recipients', {
+          incidentId: incident.id,
+          teamId: target.id,
+          error,
+        })
+      }
+    }
   }
 
   return {
@@ -246,7 +297,7 @@ export async function startEscalation(
   em: EntityManager,
   scope: IncidentScope,
   incident: Incident,
-  opts: { actorUserId: string; now: Date },
+  opts: { actorUserId: string; now: Date; container?: OptionalResolverContainer },
 ): Promise<StartEscalationResult> {
   if (
     incident.escalationStatus !== 'inactive' ||
@@ -268,7 +319,10 @@ export async function startEscalation(
   // because start-on-create runs before the incident row is committed; a header-less concurrent
   // double-start can therefore emit duplicate start events (rare; final state stays consistent).
   const step = policyStep(policy, 0)
-  const { recipients } = await resolveStepRecipients(em, scope, incident, step)
+  const { recipients } = await resolveStepRecipients(em, scope, incident, step, {
+    container: opts.container,
+    now: opts.now,
+  })
   const nextEscalationAt = new Date(opts.now.getTime() + step.delayMinutes * 60_000)
   incident.escalationStatus = 'active'
   incident.escalationLevel = 0
@@ -314,7 +368,7 @@ export async function advanceEscalation(
   em: EntityManager,
   scope: IncidentScope,
   incident: Incident,
-  opts: { actorUserId: string; now: Date; trigger: AdvanceTrigger },
+  opts: { actorUserId: string; now: Date; trigger: AdvanceTrigger; container?: OptionalResolverContainer },
 ): Promise<AdvanceEscalationResult> {
   const policy = await resolvePolicyForIncident(em, scope, incident)
   if (!policy) {
@@ -339,7 +393,10 @@ export async function advanceEscalation(
 
   if (!isExhaust) {
     const step = policyStep(policy, next.nextLevel)
-    const resolved = await resolveStepRecipients(em, scope, incident, step)
+    const resolved = await resolveStepRecipients(em, scope, incident, step, {
+      container: opts.container,
+      now: opts.now,
+    })
     recipients = resolved.recipients
     newLastTargets = buildLastTargets(step, recipients, opts.now)
     newNextAt = new Date(opts.now.getTime() + step.delayMinutes * 60_000)
@@ -449,6 +506,7 @@ export async function previewNextEscalation(
   em: EntityManager,
   scope: IncidentScope,
   incident: Incident,
+  opts: RecipientResolutionOptions = {},
 ): Promise<{
   nextLevel: number
   stepCount: number
@@ -469,7 +527,7 @@ export async function previewNextEscalation(
   }
 
   const step = policyStep(policy, next.nextLevel)
-  const resolved = await resolveStepRecipients(em, scope, incident, step)
+  const resolved = await resolveStepRecipients(em, scope, incident, step, opts)
   return {
     nextLevel: next.nextLevel,
     stepCount: policy.steps.length,
@@ -497,7 +555,7 @@ export async function applyPolicyChange(
   scope: IncidentScope,
   incident: Incident,
   newPolicyId: string | null,
-  opts: { actorUserId: string; now: Date },
+  opts: { actorUserId: string; now: Date; container?: OptionalResolverContainer },
 ): Promise<EscalationMutationResult> {
   incident.escalationPolicyId = newPolicyId
 
@@ -522,7 +580,10 @@ export async function applyPolicyChange(
   }
 
   const step = policyStep(policy, 0)
-  const { recipients } = await resolveStepRecipients(em, scope, incident, step)
+  const { recipients } = await resolveStepRecipients(em, scope, incident, step, {
+    container: opts.container,
+    now: opts.now,
+  })
   incident.escalationLevel = 0
   incident.escalationRepeatsDone = 0
   incident.escalationStatus = 'active'
@@ -560,7 +621,7 @@ export async function manualEscalate(
   em: EntityManager,
   scope: IncidentScope,
   incident: Incident,
-  opts: { actorUserId: string; now: Date },
+  opts: { actorUserId: string; now: Date; container?: OptionalResolverContainer },
 ): Promise<{
   escalationLevel: number
   escalationStepCount: number
@@ -606,6 +667,7 @@ export async function manualEscalate(
       actorUserId: opts.actorUserId,
       now: opts.now,
       trigger,
+      container: opts.container,
     })
     pendingEvents = advanced.pendingEvents
     recipients = advanced.recipients
