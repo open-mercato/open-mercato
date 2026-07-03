@@ -105,6 +105,10 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- directory ---
   'directory:Organization': { status: 'enabled', resourceKind: 'directory.organization', reason: 'enabled — Phase 5; presence + CRUD decorator (admin view).' },
   'directory:Tenant': { status: 'enabled', resourceKind: 'directory.tenant', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
+
+  // --- warranty_claims ---
+  'warranty_claims:WarrantyClaim': { status: 'enabled', resourceKind: 'warranty_claims.claim', reason: 'enabled — CRUD decorator (floor + record_locks); triage-workspace guarded mutations use resourceKind warranty_claims.claim; action endpoints enforce the command-level lock on the parent claim.' },
+  'warranty_claims:WarrantyClaimLine': { status: 'enabled', resourceKind: 'warranty_claims.claim_line', reason: 'enabled — lines edit via their own CRUD decorator route (per-line updatedAt lock header); parent-claim status guard blocks writes on terminal claims.' },
 }
 
 /**

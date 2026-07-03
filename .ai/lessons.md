@@ -969,3 +969,10 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+
+## 2026-07-04 · warranty_claims: `findOneWithDecryption` scope arg is NOT a WHERE filter
+
+**Trap**: `findOneWithDecryption` / `findWithDecryption` (`@open-mercato/shared/lib/encryption/find`) take a `scope` argument, but it is used ONLY to select the decryption key (`decryptEntitiesWithFallbackScope`) — it is NOT added to the query `where`. A loader like `findOneWithDecryption(em, Entity, { id }, {}, { tenantId, organizationId })` runs `em.findOne(Entity, { id })` with NO tenant scoping. There is no global MikroORM tenant filter in this repo, so command/action/subscriber loaders that pass `{ id }` (trusting `scope` to filter) are cross-tenant-readable/mutable by UUID. `makeCrudRoute` list/detail routes ARE scoped by the factory, so a passing tenant-isolation test that only exercises the list route will NOT catch the hole in command action endpoints.
+
+**Rule**: In every hand-written loader, put `tenantId` and `organizationId` (and `deletedAt: null`) in the `where` object itself; treat the `scope` arg as decryption-only. Add a tenant-isolation integration assertion that exercises a COMMAND ACTION endpoint (transition/comment/assign), not just the list route.
