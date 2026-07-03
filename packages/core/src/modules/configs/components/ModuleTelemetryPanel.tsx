@@ -970,6 +970,9 @@ export function ModuleTelemetryPanel() {
     setClearingTelemetry(true)
     try {
       await runMutation({
+        // optimistic-lock-exempt: clears in-process/dev-only telemetry buckets and
+        // local process telemetry files — there is no versioned entity (no updated_at)
+        // to lock against, so no expected-version header applies.
         operation: () =>
           readApiResultOrThrow<ModuleTelemetryClearResponse>(
             API_PATH,
