@@ -23,7 +23,7 @@ export function SegmentGroup<T extends string>({
     <div
       role="group"
       aria-label={ariaLabel}
-      className="inline-flex max-w-full items-start overflow-x-auto rounded-md border border-border bg-background"
+      className="flex w-full items-stretch overflow-hidden rounded-md border border-border bg-background"
     >
       {options.map((option, index) => {
         const isActive = option.value === value
@@ -34,15 +34,16 @@ export function SegmentGroup<T extends string>({
             variant="ghost"
             aria-pressed={isActive}
             onClick={() => onChange(option.value)}
+            title={option.label}
             className={cn(
-              'h-auto gap-1.5 rounded-none border-0 text-sm font-medium leading-5 shadow-none',
-              size === 'md' ? 'px-4 py-2' : 'px-3.5 py-1.5',
+              'h-auto min-w-0 flex-1 justify-center gap-1 rounded-none border-0 px-1.5 text-sm font-medium leading-5 shadow-none',
+              size === 'md' ? 'py-2' : 'py-1.5',
               index > 0 && 'border-l border-border',
               isActive ? 'bg-muted text-foreground hover:bg-muted' : 'bg-background text-muted-foreground',
             )}
           >
             {option.icon ? <span aria-hidden className="shrink-0 opacity-70">{option.icon}</span> : null}
-            {option.label}
+            <span className="truncate">{option.label}</span>
           </Button>
         )
       })}

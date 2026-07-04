@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { ArrowDown, ArrowUp, Calendar, Minus, X } from 'lucide-react'
+import { Calendar, ChevronDown, ChevronUp, Equal, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -313,15 +313,15 @@ function EditorBody({
             className="grid w-full grid-cols-3"
           >
             <SegmentedControlItem value="low" className="gap-1.5">
-              <ArrowDown aria-hidden className="h-4 w-4 text-status-success-text" />
+              <ChevronDown aria-hidden className="h-4 w-4 text-status-success-text" />
               {t('customers.calendar.editor.priority.low', 'Low')}
             </SegmentedControlItem>
             <SegmentedControlItem value="medium" className="gap-1.5">
-              <Minus aria-hidden className="h-4 w-4 text-status-info-text" />
+              <Equal aria-hidden className="h-4 w-4 text-status-info-text" />
               {t('customers.calendar.editor.priority.medium', 'Medium')}
             </SegmentedControlItem>
             <SegmentedControlItem value="high" className="gap-1.5">
-              <ArrowUp aria-hidden className="h-4 w-4 text-status-error-text" />
+              <ChevronUp aria-hidden className="h-4 w-4 text-status-error-text" />
               {t('customers.calendar.editor.priority.high', 'High')}
             </SegmentedControlItem>
           </SegmentedControl>
