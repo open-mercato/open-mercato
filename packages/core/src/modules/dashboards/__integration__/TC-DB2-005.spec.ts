@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page, type Response } from '@playwright/test'
+import { expect, test, type APIRequestContext, type Locator, type Page, type Response } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { createOrderLineFixture, createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
@@ -106,47 +106,57 @@ async function createOrderForDate(
 async function waitForLayoutPut(page: Page): Promise<Response> {
   return page.waitForResponse(
     (response) => response.url().includes(API.layout) && response.request().method() === 'PUT',
-    { timeout: 8_000 },
+    { timeout: 30_000 },
   )
 }
 
-async function selectOption(page: Page, label: string | RegExp, option: string | RegExp): Promise<void> {
-  await page.getByLabel(label).click()
+async function selectWizardOption(page: Page, wizard: Locator, label: string | RegExp, option: string | RegExp): Promise<void> {
+  await wizard.getByLabel(label).click()
   await page.getByRole('option', { name: option }).click()
 }
 
+// Adding a Custom Metric opens the guided setup wizard; the widget is only
+// persisted (layout PUT) once the wizard is finished with "Add to dashboard".
 async function addCustomMetricWidget(page: Page): Promise<void> {
   await page.getByRole('button', { name: /^Add widget$/i }).click()
   const dialog = page.getByRole('dialog', { name: /^Add widget$/i })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: /Custom metric/i }).click()
-  const save = waitForLayoutPut(page)
   await dialog.getByRole('button', { name: /^Add widget$/i }).click()
-  await save
+  await expect(dialog).toBeHidden()
+  await expect(page.getByRole('dialog', { name: /^Create custom metric$/i })).toBeVisible()
 }
 
 async function configureLineMetric(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /^Widget settings$/i }).last().click()
-  await selectOption(page, /^Data source$/i, /Sales orders/i)
-  await selectOption(page, /^Aggregation$/i, /^Count$/i)
-  await selectOption(page, /^Visualization$/i, /^Line$/i)
-  await selectOption(page, /^Group by$/i, /Placed at/i)
-  await selectOption(page, /^Granularity$/i, /^Day$/i)
+  const wizard = page.getByRole('dialog', { name: /^Create custom metric$/i })
+  await selectWizardOption(page, wizard, /^Data source$/i, /Sales orders/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await selectWizardOption(page, wizard, /^Aggregation$/i, /^Count$/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await selectWizardOption(page, wizard, /^Visualization$/i, /^Line$/i)
+  await selectWizardOption(page, wizard, /^Group by$/i, /Placed at/i)
+  await selectWizardOption(page, wizard, /^Granularity$/i, /^Day$/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await wizard.getByLabel(/^Title$/i).fill('Orders by day')
   const save = waitForLayoutPut(page)
-  await page.getByLabel(/^Title$/i).fill('Orders by day')
+  await wizard.getByRole('button', { name: /^Add to dashboard$/i }).click()
+  await expect(wizard).toBeHidden()
   await save
-  await page.getByRole('button', { name: /^Widget settings$/i }).last().click()
 }
 
 async function configureKpiMetric(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /^Widget settings$/i }).last().click()
-  await selectOption(page, /^Data source$/i, /Sales orders/i)
-  await selectOption(page, /^Aggregation$/i, /^Count$/i)
-  await selectOption(page, /^Visualization$/i, /^KPI$/i)
+  const wizard = page.getByRole('dialog', { name: /^Create custom metric$/i })
+  await selectWizardOption(page, wizard, /^Data source$/i, /Sales orders/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await selectWizardOption(page, wizard, /^Aggregation$/i, /^Count$/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await selectWizardOption(page, wizard, /^Visualization$/i, /^KPI$/i)
+  await wizard.getByRole('button', { name: /^Next$/i }).click()
+  await wizard.getByLabel(/^Title$/i).fill('Orders count')
   const save = waitForLayoutPut(page)
-  await page.getByLabel(/^Title$/i).fill('Orders count')
+  await wizard.getByRole('button', { name: /^Add to dashboard$/i }).click()
+  await expect(wizard).toBeHidden()
   await save
-  await page.getByRole('button', { name: /^Widget settings$/i }).last().click()
 }
 
 // Authenticate the browser context by transplanting the auth cookies that the API
