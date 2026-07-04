@@ -566,6 +566,12 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
   }
   if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
+  }
+  if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
   ) {

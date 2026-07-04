@@ -11,6 +11,7 @@ import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
+  resolveLazySpawnMode,
   resolveLazyPollMs,
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
@@ -2124,6 +2125,7 @@ export async function run(argv = process.argv) {
                       workers: discoveredWorkers,
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                      spawnMode: resolveLazySpawnMode(process.env),
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2329,6 +2331,7 @@ export async function run(argv = process.argv) {
                   workers: discoveredWorkers,
                   pollMs: resolveLazyPollMs(process.env),
                   restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  spawnMode: resolveLazySpawnMode(process.env),
                 })
               } else {
                 console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
