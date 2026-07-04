@@ -41,12 +41,12 @@
 | 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | done | pending |
 | 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | done | pending |
 | 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | done | 98a107a8a |
-| 4 | 4.1 | Extend conformance guard to all 21 restructured skills | done | pending |
-| 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | todo | — |
+| 4 | 4.1 | Extend conformance guard to all 21 restructured skills | done | 59d3d2bfb |
+| 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | done | pending |
 
 ## Goal
 
-Separate the standalone agentic skills into three concerns — thin `SKILL.md` router, procedure instruction files (`workflow/`, `subagents/`, `instructions.md`), and a generated `.ai/agentic.config.json` environment file — replacing the 7 `STANDALONE.md` override files. This PR delivers the plumbing (Phase 1) and restructures the 7 `STANDALONE.md`-owning skills (Phase 2), which set the pattern for the remaining 14 skills in a later PR.
+Separate the standalone agentic skills into three concerns — thin `SKILL.md` router, procedure instruction files (`workflow/`, `subagents/`, `instructions.md`), and a generated `.ai/agentic.config.json` environment file — replacing the 7 `STANDALONE.md` override files. This PR delivers **all four spec phases**: plumbing (1), the 7 STANDALONE-owning skills (2), the remaining 14 skills (3), and full-set conformance enforcement + docs (4) — spec decision D4 (all 21 in one pass).
 
 ## Scope
 
@@ -58,7 +58,6 @@ Separate the standalone agentic skills into three concerns — thin `SKILL.md` r
 
 ## Non-goals
 
-- Phase 3 (thinning the other 14 skills) and Phase 4's full-set conformance enforcement — follow-up PR.
 - Editing the live monorepo `.ai/skills/**` (these are the standalone COPIES under `packages/create-app/agentic/`; they differ from live and must be edited independently).
 - Any runtime module behaviour change (this is agentic-tooling/scaffold assets only).
 

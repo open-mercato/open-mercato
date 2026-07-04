@@ -14,3 +14,14 @@ The hand-written per-module standalone guides that shipped into scaffolded apps 
 **Migration:** reference `.ai/guides/modules/<module>.md` for a module's concrete facts and `.ai/guides/module-system.md` for conceptual guidance. For backward compatibility, the legacy `.ai/guides/core.<module>.md` names remain bundled as thin redirect stubs that point at the new fact-sheets for **at least one minor version**; freshly scaffolded apps link only the new paths. The redirect stubs will be removed in a future release.
 
 Spec: [`.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md`](.ai/specs/2026-06-27-ts-morph-module-fact-sheets.md).
+
+### Changed — standalone agentic skills restructured (thin `SKILL.md` + `.ai/agentic.config.json`)
+
+The agentic skills scaffolded into standalone apps (`.ai/skills/<skill>/`) were restructured along a clean separation of concerns:
+
+- **`SKILL.md` is now a thin router** — YAML frontmatter (`name`/`description`, unchanged so auto-discovery still fires), a "when to use" summary, and a reference map. The procedure moved into `instructions.md` (single-flow skills) or `workflow/step-N-*.md` (multi-step), with any subagent playbook in `subagents/<role>.md`. Existing `references/` files are unchanged.
+- **The 7 `STANDALONE.md` override files were removed.** Their per-repo behavior is now authored natively into the instructions and driven by a single generated config file, **`.ai/agentic.config.json`** (`{ projectName, agentTools, pr: { baseBranch } }`), which the automated-PR skills read at runtime. The one genuinely per-repo value — the PR base branch — is an install question, exposed non-interactively via the additive CLI flag **`--pr-base <branch|auto>`** (default `auto` → resolve the repo's default branch via `gh` at PR time).
+
+**Migration:** none required for existing apps that keep their current `.ai/skills/`. Re-running `yarn mercato agentic:init` (or scaffolding a new app) regenerates the skills in the new layout and writes `.ai/agentic.config.json`. These are generated scaffold assets, not a published API surface — no code change is required in downstream apps.
+
+Spec: [`.ai/specs/2026-06-27-create-app-agentic-skills-restructure.md`](.ai/specs/2026-06-27-create-app-agentic-skills-restructure.md).
