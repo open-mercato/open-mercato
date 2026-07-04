@@ -73,6 +73,7 @@ export type ComputeInsightsDeps = {
   checkFeatures(features: string[]): Promise<boolean>
   cache?: CacheStrategy | null
   now?: () => Date
+  container?: AwilixContainer
   createContainer?: typeof createContainer
   createModelFactory?: typeof createModelFactory
   generateObject?: typeof generateObject
@@ -256,9 +257,8 @@ async function withTimeout<T>(operation: Promise<T>, timeoutMs: number, timeoutM
 
 function resolveDigestModel(deps: ComputeInsightsDeps): AiModel | null {
   try {
-    const containerFactory = deps.createContainer ?? createContainer
     const factoryBuilder = deps.createModelFactory ?? createModelFactory
-    const container = containerFactory()
+    const container = deps.container ?? (deps.createContainer ?? createContainer)()
     const factory = factoryBuilder(container as AwilixContainer)
     const resolution = factory.resolveModel({ moduleId: 'dashboards' })
     return asAiModel(resolution.model)

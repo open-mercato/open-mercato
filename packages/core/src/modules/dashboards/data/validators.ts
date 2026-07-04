@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { MAX_DASHBOARD_PRESETS } from '../lib/layoutState'
 
 export const dashboardWidgetIdSchema = z.string().min(1)
 export const dashboardWidgetSizeSchema = z.enum(['sm', 'md', 'lg', 'full'])
@@ -87,7 +88,7 @@ export const dashboardLayoutPresetSchema = z.object({
 export const dashboardLayoutSchema = z.object({
   items: z.array(dashboardLayoutItemSchema),
   preferences: dashboardLayoutPreferencesSchema.optional(),
-  presets: z.array(dashboardLayoutPresetSchema).max(12).optional(),
+  presets: z.array(dashboardLayoutPresetSchema).max(MAX_DASHBOARD_PRESETS).optional(),
   activePresetId: z.string().min(1).optional(),
 })
 

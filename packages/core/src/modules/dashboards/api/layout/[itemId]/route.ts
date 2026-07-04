@@ -108,6 +108,8 @@ export async function PATCH(req: Request, ctx: { params?: { itemId?: string } })
   layout.layoutJson = serializeLayoutStateForStoredShape(layout.layoutJson, {
     items,
     ...(layoutState.preferences ? { preferences: layoutState.preferences } : {}),
+    ...(layoutState.presets ? { presets: layoutState.presets } : {}),
+    ...(layoutState.activePresetId ? { activePresetId: layoutState.activePresetId } : {}),
   })
   await em.flush()
 

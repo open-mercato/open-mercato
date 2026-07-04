@@ -10,7 +10,7 @@
 
 **Key Points:**
 - Rebuild the main `/backend` dashboard as **Dashboard v2**: a Shopify-class analytics home — glanceable KPI cards with sparklines and period deltas, a **global date range + comparison** control that drives every analytics widget, a cleaner 12-column grid with drag-to-reorder and per-widget sizing, first-class loading/empty states, and a modern visual design on DS tokens.
-- Two new capabilities make it "best in class" rather than a reskin: a **Custom Metric widget** (self-serve KPI/chart builder over the existing `AnalyticsRegistry` — any current or future module that registers analytics entities becomes dashboard-buildable with zero dashboard code), and an **AI Insights digest** ("what changed & why" bullets grounded in real aggregates, via the tenant-configured LLM, degrading gracefully to a pure-numbers digest when no AI provider is configured).
+- Two new capabilities make it "best in class" rather than a reskin: a **Custom Metric widget** (self-serve KPI/chart builder over the existing `AnalyticsRegistry` — any current or future module that registers analytics entities becomes dashboard-buildable with zero dashboard code), and an **AI Insights digest** ("what changed & why" bullets grounded in real aggregates, via the instance-configured LLM provider, degrading gracefully to a pure-numbers digest when no AI provider is configured).
 - **Zero new production dependencies** (dnd-kit, Recharts, react-day-picker-free date presets — all already available or hand-built on existing primitives) and **zero DB migrations** (`layoutJson` is versioned JSON; the schema grows additively).
 - **Backward compatibility without a route fork:** the `DashboardScreen` export becomes v2; the v1 implementation is preserved as `DashboardScreenLegacy`, mounted at a new `/backend/dashboard/legacy` page as an escape hatch (customers-v2 precedent: old surface kept, default repointed). All existing widgets render on v2 unchanged — the widget contract only gains optional fields.
 
@@ -55,7 +55,7 @@ Keep the proven substrate — widget registry & discovery, `DashboardWidgetModul
 | Custom Metric widget reads a new read-only catalog API over `AnalyticsRegistry` | Turns the existing extensibility mechanism into a user-facing feature; future modules get dashboard coverage by registering analytics entities — no dashboard code. |
 | New widget ids live under the `dashboards.analytics.*` namespace: `dashboards.analytics.customMetric`, `dashboards.analytics.aiInsights` | Existing tenants have **non-empty seeded role allowlists** (`DashboardRoleWidgets`), so a brand-new widget id ships invisible. The analytics namespace satisfies `resolveAnalyticsWidgetIds` (`lib/role-widgets.ts`) for new tenants; for existing tenants, `setup.ts` appends the two ids to role allowlists that already contain analytics widgets (idempotent upgrade). |
 | AI digest = deterministic aggregates first, LLM narrates second | Numbers come from `WidgetDataService` (same path as KPI widgets); the LLM never computes. Wrong-number risk ≈ 0; no-provider fallback still ships value. |
-| Digest provider resolution mirrors `inbox_ops/lib/llmProvider.ts` (`createModelFactory`) | Proven core→ai-assistant precedent, per-tenant provider/model resolution, typed `no_provider_configured` failure. |
+| Digest provider resolution mirrors `inbox_ops/lib/llmProvider.ts` (`createModelFactory`) | Proven core→ai-assistant precedent, instance-level provider/model resolution (env/global config, no per-tenant override), typed `no_provider_configured` failure. |
 
 ### Alternatives Considered
 
@@ -307,6 +307,13 @@ None identified.
 **Fully compliant** — ready for implementation (pending pre-implement audit + spec-stage cross-model review).
 
 ## Changelog
+### 2026-07-03 — Post-review hardening (code-review pass)
+Fixes from a fresh code-review of the implemented branch:
+1. **Critical — `PATCH /api/dashboards/layout/:itemId` no longer drops saved Views.** The per-item PATCH re-serialized the stored layout with only `items` + `preferences`, silently wiping `presets`/`activePresetId` (reachable when a v2 user edits a widget on the legacy escape-hatch screen, which fires the per-item PATCH). It now threads `presets`/`activePresetId` through `serializeLayoutStateForStoredShape`, mirroring the GET/PUT paths; regression test added in `api/layout/[itemId]/__tests__/route.test.ts`.
+2. **AI resolution accuracy.** Clarified that digest / metric-wizard provider resolution is instance-level (env/global config via `createModelFactory`, mirroring `inbox_ops`), not per-tenant. Both call sites (`lib/insights.ts`, `api/analytics/custom-metric/ai/route.ts`) now thread the request container into the model factory instead of a throwaway empty container, so a future container-reading factory revision stays correct.
+3. **Analytics RBAC convention.** Documented on `AnalyticsEntityConfig.requiredFeatures` that an empty array makes an entity world-readable, so future analytics entities gate correctly.
+4. **Cleanups.** Preset cap deduplicated (`MAX_DASHBOARD_PRESETS` reused by the zod layout schema); the layout normalizer now requires string item ids instead of `String()`-coercing objects into junk ids.
+
 ### 2026-07-03 — Color-coding treatment swap, encrypted-group fix, donut centering
 Third feedback round after visual QA:
 1. **Color coding moved off the left rail to the "ambient + icon tile" treatment (Option C).** A left `border-l-4` rail on a rounded card read as chrome, not intent. `WidgetCardV2` now renders a coded widget as a faint full-card wash (`bg-status-{a}-bg/40`) + accent border + a solid `bg-status-{a}-icon` tile carrying the widget's lucide icon (fallback `LayoutGrid`); uncoded widgets are unchanged. Same six DS tokens, same per-user `accent` field — only the `ACCENT_CLASS` recipe changed. (A standalone `dashboard-widget-color-coding.html` compared four directions before this pick.)

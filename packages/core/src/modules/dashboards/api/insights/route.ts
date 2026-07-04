@@ -143,6 +143,7 @@ export async function GET(req: Request) {
       {
         widgetDataService,
         analyticsRegistry,
+        container,
         checkFeatures: (features) => {
           if (features.length === 0) return Promise.resolve(true)
           return rbacService.userHasAllFeatures(String(auth.sub ?? ''), features, {

@@ -31,6 +31,13 @@ export type AnalyticsLabelResolverConfig = {
 
 export type AnalyticsEntityConfig = {
   entityId: string
+  /**
+   * ACL features the caller must ALL hold (wildcard-aware) to read this entity's
+   * analytics. An EMPTY array makes the entity world-readable to every
+   * authenticated dashboard user: the catalog lists it and the widget-data /
+   * insights routes aggregate it for anyone. Always list the gating feature(s)
+   * (e.g. the owning module's `*.view`) unless the data is deliberately public.
+   */
   requiredFeatures: string[]
   entityConfig: AnalyticsEntityTypeConfig
   fieldMappings: Record<string, AnalyticsFieldMapping>

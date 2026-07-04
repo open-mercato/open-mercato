@@ -105,8 +105,8 @@ export function normalizeLayoutItems(raw: unknown): DashboardLayoutItem[] {
   return list
     .filter(isRecord)
     .map((item) => ({
-      id: String(item.id),
-      widgetId: String(item.widgetId),
+      id: typeof item.id === 'string' ? item.id : '',
+      widgetId: typeof item.widgetId === 'string' ? item.widgetId : '',
       order: integerOrUndefined(item.order),
       priority: integerOrUndefined(item.priority),
       size: isDashboardWidgetSize(item.size) ? item.size : undefined,

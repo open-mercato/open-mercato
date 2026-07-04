@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { generateObject } from 'ai'
-import { createContainer } from 'awilix'
 import type { AwilixContainer } from 'awilix'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -58,10 +57,9 @@ function asAiModel(model: unknown): AiModel {
   return model as AiModel
 }
 
-function resolveAiModel(): AiModel | null {
+function resolveAiModel(container: AwilixContainer): AiModel | null {
   try {
-    const container = createContainer()
-    const factory = createModelFactory(container as AwilixContainer)
+    const factory = createModelFactory(container)
     return asAiModel(factory.resolveModel({ moduleId: 'dashboards' }).model)
   } catch (err) {
     if (err instanceof AiModelFactoryError && err.code === 'no_provider_configured') return null
@@ -232,7 +230,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ config: null, aiAvailable: true })
   }
 
-  const model = resolveAiModel()
+  const model = resolveAiModel(container)
   if (!model) {
     return NextResponse.json({ config: null, aiAvailable: false })
   }
