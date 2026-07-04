@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { MapPin } from 'lucide-react'
+import { MapPin, Phone } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Field } from './inputs'
@@ -30,7 +30,7 @@ export function LocationField({
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
         aria-label={label}
-        leftIcon={<MapPin />}
+        leftIcon={variant === 'phoneLink' ? <Phone /> : <MapPin />}
       />
     </Field>
   )
