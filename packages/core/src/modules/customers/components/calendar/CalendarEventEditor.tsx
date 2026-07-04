@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Calendar, ChevronDown, ChevronUp, Equal, X } from 'lucide-react'
+import { Calendar, X } from 'lucide-react'
 import { VisuallyHidden } from '@radix-ui/react-visually-hidden'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -14,7 +14,6 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -40,6 +39,7 @@ import { normalizeCustomFieldSubmitValue } from '../detail/customFieldUtils'
 import type { CalendarItem } from './types'
 import { Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
+import { PriorityField } from './editor/PriorityField'
 import { RelatedToField } from './editor/RelatedToField'
 import { RepeatField } from './editor/RepeatField'
 import { PeopleField } from './editor/PeopleField'
@@ -323,25 +323,16 @@ function EditorBody({
       ) : null}
       {config.hasPriority ? (
         <Field label={t('customers.calendar.editor.priority.label', 'Priority')}>
-          <SegmentedControl
+          <PriorityField
             value={form.priority}
-            onValueChange={(priority) => update({ priority: priority as EditorPriority })}
-            aria-label={t('customers.calendar.editor.priority.label', 'Priority')}
-            className="grid w-full grid-cols-3"
-          >
-            <SegmentedControlItem value="low" className="gap-1.5">
-              <ChevronDown aria-hidden className="h-4 w-4 text-status-success-text" />
-              {t('customers.calendar.editor.priority.low', 'Low')}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="medium" className="gap-1.5">
-              <Equal aria-hidden className="h-4 w-4 text-status-info-text" />
-              {t('customers.calendar.editor.priority.medium', 'Medium')}
-            </SegmentedControlItem>
-            <SegmentedControlItem value="high" className="gap-1.5">
-              <ChevronUp aria-hidden className="h-4 w-4 text-status-error-text" />
-              {t('customers.calendar.editor.priority.high', 'High')}
-            </SegmentedControlItem>
-          </SegmentedControl>
+            ariaLabel={t('customers.calendar.editor.priority.label', 'Priority')}
+            labels={{
+              low: t('customers.calendar.editor.priority.low', 'Low'),
+              medium: t('customers.calendar.editor.priority.medium', 'Medium'),
+              high: t('customers.calendar.editor.priority.high', 'High'),
+            }}
+            onChange={(priority) => update({ priority })}
+          />
         </Field>
       ) : null}
       </div>
