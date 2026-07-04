@@ -29,7 +29,7 @@
 | 2 | 2.9-review-fix | Sync CLI `agentic:init` (packages/cli) to recursive copy + config write (auto-review finding) | done | fed613b4a |
 | 3 | 3.1 | Restructure `om-trim-unused-modules` (73→thin + instructions) | done | pending |
 | 3 | 3.2 | Restructure `om-spec-writing` (85, keep references/) | done | pending |
-| 3 | 3.3 | Restructure `om-help` (107, keep references/) | todo | — |
+| 3 | 3.3 | Restructure `om-help` (107, keep references/) | done | pending |
 | 3 | 3.4 | Restructure `om-code-review` (108, keep references/) | todo | — |
 | 3 | 3.5 | Restructure `om-implement-spec` (166) | todo | — |
 | 3 | 3.6 | Restructure `om-auto-upgrade-0.4.10-to-0.5.0` (174) | todo | — |

@@ -10,98 +10,35 @@ description: >
 
 # om-help — App Navigator
 
-Two modes: pick the one that matches the question.
+Point a developer or agent to the right skill and the right order. Two modes: orientation
+("what do I do now?") and technical how-to ("how do I do X?"). Pick the one that matches the
+question, then follow its workflow file.
 
----
+## When to use
 
-## Mode 1: Navigation — "What do I do now?"
+- The user is disoriented and asks what to do next, where to start, or which skill applies.
+- The user asks a concrete how-to ("how do I add a module / search / RBAC / events / migrations / UI / integration?").
+- Not for executing the work itself — this skill routes; the target skill does the work.
 
-**Triggers:** "what now?", "next steps?", "where do I start?", "which skill?", "I'm lost"
+## What it contains
 
-### Step 1 — Read current context
+Two mode workflows. Mode 1 (Navigation) reads the current repo context and maps it to a named
+workflow sequence. Mode 2 (Knowledge) maps a how-to question to the owning skill and grounds the
+answer in that skill's content.
 
-```bash
-git branch --show-current
-git status --short
-ls src/modules/ 2>/dev/null | head -20
-gh pr list --author "@me" --state open --json number,title,labels 2>/dev/null || true
-```
+## Reference map — load the mode in play
 
-### Step 2 — Map to a workflow sequence
+| When | Load |
+|------|------|
+| "what now?" / "next steps?" / "which skill?" / "I'm lost" | `workflow/mode-1-navigation.md` |
+| "how do I add/build/extend X?" / "where does Z go?" | `workflow/mode-2-knowledge.md` |
+| Which skill to use — categories, triggers, sequencing | `references/skills-catalog.md` |
+| Named workflows with ordered skill lists (sequencing / "where to start") | `references/workflow-sequences.md` |
 
-Read `references/workflow-sequences.md`. Match the context:
+Load both references when the user is fully disoriented.
 
-| Signal | Likely sequence |
-|--------|-----------------|
-| No module yet, task described | New Module |
-| Module exists, adding new behavior | New Feature in Existing Module |
-| Modifying a core OM module | Extend an Existing Module (UMES first) |
-| Adding payment / shipping / sync | New Integration Provider |
-| Error, broken build, missing widget | Fix a Bug / Something Is Broken |
-| Code done, no PR | code-review → auto-create-pr |
-| PR open, no review | auto-review-pr |
-| Fresh scaffold with unused modules | Slim Down the App |
-| Version bump needed | Upgrade Open Mercato |
+## Non-negotiables
 
-### Step 3 — Recommend
-
-```
-**Where you are:** <one sentence: branch, open PR or active work if any>
-
-**Recommended next step:** `/om-<skill-name>`
-
-**Why:** <one sentence explaining the match>
-
-**After that:** `/om-<next-skill>` → `/om-<skill-after>`
-```
-
-If multiple paths are valid, present at most two options.
-
----
-
-## Mode 2: Knowledge — "How do I do X?"
-
-**Triggers:** "how do I add X?", "how do I build Y?", "where does Z go?", "what import for W?", "how do I extend module Z?"
-
-### Step 1 — Map question to the right skill
-
-| Question topic | Load this skill's SKILL.md or references |
-|---------------|------------------------------------------|
-| Create a new module | `om-module-scaffold/SKILL.md` |
-| Design entities, fields, migrations | `om-data-model-design/SKILL.md` |
-| Extend existing module (columns, fields, API) | `om-system-extension/SKILL.md` + `references/extension-contracts.md` |
-| Build admin pages, forms, data tables | `om-backend-ui-design/SKILL.md` + `references/ui-components.md` |
-| Build an integration provider | `om-integration-builder/SKILL.md` |
-| Write a spec | `om-spec-writing/SKILL.md` |
-| Write integration tests | `om-integration-tests/SKILL.md` |
-| Eject and customize core module | `om-eject-and-customize/SKILL.md` |
-| Something is broken | `om-troubleshooter/SKILL.md` |
-| Remove unused modules | `om-trim-unused-modules/SKILL.md` |
-| Code review | `om-code-review/SKILL.md` + `references/review-checklist.md` |
-
-### Step 2 — Load and read the target skill
-
-Read the identified `SKILL.md` and any relevant `references/` files. Look for:
-- Step-by-step instructions specific to the task
-- File paths, commands, and code patterns
-- MUST rules and anti-patterns to avoid
-
-### Step 3 — Answer grounded in the skill
-
-Provide a specific answer citing:
-- The exact steps or patterns from the skill
-- Relevant commands to run (e.g. `yarn generate`, `yarn db:generate`)
-- Any MUST rules that apply
-
-Do not answer from model training data alone — ground every claim in the loaded skill content.
-
----
-
-## References
-
-- **Skill catalog** (all skills, categories, triggers, sequencing): `references/skills-catalog.md`
-- **Workflow sequences** (named workflows with ordered skill lists): `references/workflow-sequences.md`
-
-Load `references/skills-catalog.md` when the user asks which skill to use.  
-Load `references/workflow-sequences.md` when the user asks about sequencing or "where to start".  
-Load both when the user is fully disoriented.
+- Route, don't do: recommend the right skill; never reimplement its procedure here.
+- Ground every knowledge-mode answer in the loaded skill content, not model training data alone.
+- In navigation mode, present at most two options when multiple paths are valid.
