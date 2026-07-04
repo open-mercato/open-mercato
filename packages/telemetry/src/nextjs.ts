@@ -57,8 +57,16 @@ export async function registerTelemetryForNextjs(): Promise<void> {
     })
     return
   }
-  const flush = () => {
+  // A signal listener suppresses Node's default termination, so after the
+  // best-effort flush the handler re-raises the signal. `once` has already
+  // removed this listener by then, so the re-raise falls through to the default
+  // terminate (or to another component's own handler, e.g. Next's).
+  const flush = (signal: NodeJS.Signals) => {
     void shutdownTelemetry()
+      .catch(() => {})
+      .finally(() => {
+        process.kill(process.pid, signal)
+      })
   }
   process.once('SIGTERM', flush)
   process.once('SIGINT', flush)
