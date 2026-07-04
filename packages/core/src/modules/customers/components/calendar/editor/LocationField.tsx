@@ -104,7 +104,9 @@ export function LocationField({
   const placeholder = variant === 'phoneLink'
     ? t('customers.calendar.editor.phoneLinkPlaceholder', 'Add a phone number or link…')
     : t('customers.calendar.editor.locationPlaceholder', 'Add a location or link…')
-  const showPhonePicker = variant === 'phoneLink' && (phoneContactIds?.length ?? 0) > 0
+  // Always show the picker on the Call field so it is discoverable; with no
+  // linked contact (or none with a phone) clicking it just flashes a notice.
+  const showPhonePicker = variant === 'phoneLink'
   return (
     <Field label={label}>
       <div className="flex w-full items-center gap-2">
