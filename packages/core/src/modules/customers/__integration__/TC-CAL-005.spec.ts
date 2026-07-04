@@ -76,8 +76,11 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await typeSwitcher.getByRole('button', { name: 'Task', exact: true }).click();
       await expect(typeSwitcher.getByRole('button', { name: 'Task', exact: true })).toHaveAttribute('aria-pressed', 'true');
       await expect(dialog.getByText('Due', { exact: true })).toBeVisible();
-      await expect(dialog.getByRole('group', { name: 'Priority' })).toBeVisible();
-      await expect(dialog.getByRole('group', { name: 'Priority' }).getByRole('button', { name: 'Medium', exact: true })).toBeVisible();
+      // Priority is a Jira-style dropdown (trigger button labelled "Priority",
+      // showing the current value); it defaults to Medium (#3552).
+      const priorityTrigger = dialog.getByRole('button', { name: 'Priority', exact: true });
+      await expect(priorityTrigger).toBeVisible();
+      await expect(priorityTrigger).toContainText('Medium');
       await expect(dialog.getByText('Assignee', { exact: true })).toBeVisible();
       await expect(dialog.getByText('Starts', { exact: true })).toBeHidden();
 
@@ -85,7 +88,7 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await typeSwitcher.getByRole('button', { name: 'Meeting', exact: true }).click();
       await expect(dialog.getByText('Starts', { exact: true })).toBeVisible();
       await expect(dialog.getByText('Ends', { exact: true })).toBeVisible();
-      await expect(dialog.getByRole('group', { name: 'Priority' })).toBeHidden();
+      await expect(dialog.getByRole('button', { name: 'Priority', exact: true })).toBeHidden();
 
       // Capture the editor's default start (next full hour) right after the
       // form state exists, mirroring createDefaultFormState.
@@ -108,7 +111,10 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await expect(dialog).toBeHidden();
 
       // -- The new item renders without reload -----------------------------------
-      const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) });
+      // `.first()` tolerates an event whose default (next-full-hour) start plus
+      // duration crosses midnight: the grid then splits it into a Saturday and a
+      // Sunday column block, so the title matches two buttons near midnight.
+      const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) }).first();
       const currentWeek = mondayWeekRange(new Date());
       if (defaultStart.getTime() >= currentWeek.from.getTime() && defaultStart.getTime() <= currentWeek.to.getTime()) {
         await expect(itemLocator).toBeVisible();
