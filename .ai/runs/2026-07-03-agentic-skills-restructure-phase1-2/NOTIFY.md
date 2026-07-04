@@ -29,3 +29,8 @@
 - User reviewed Phases 1+2 and approved the pattern; asked to continue Phase 3 (remaining 14 skills) + Phase 4 (guards/docs) in THIS PR rather than a follow-up.
 - Re-entered a fresh worktree from fork/feat/agentic-skills-restructure-phase1-2 (HEAD 67f06cc6f); extended PLAN Tasks with 3.1–3.14 + 4.1–4.2.
 - All 14 remaining skills exceed the 60-line budget (73–858); none has STANDALONE.md, so plain thin-SKILL + instructions/workflow, keeping existing references/.
+
+## 2026-07-04T09:40:00Z — checkpoint 3 (Phase 3 skills 3.1–3.6)
+- 6/14 Phase-3 skills thinned via parallel executor pairs (6aeef49ed … a2510f2f4): om-trim-unused-modules, om-spec-writing, om-help, om-code-review, om-implement-spec, om-auto-upgrade.
+- Validation: tsc clean; 32/32 non-build tests; all SKILL.md 32–44 lines; frontmatter descriptions verbatim.
+- Next: 3.7–3.14 (the larger skills up to 858 lines), then Phase 4.
