@@ -39,10 +39,12 @@ export function SegmentGroup<T extends string>({
               'h-auto min-w-0 flex-1 justify-center gap-1 rounded-none border-0 px-1.5 text-sm font-medium leading-5 shadow-none',
               size === 'md' ? 'py-2' : 'py-1.5',
               index > 0 && 'border-l border-border',
-              isActive ? 'bg-muted text-foreground hover:bg-muted' : 'bg-background text-muted-foreground',
+              isActive
+                ? 'bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo'
+                : 'bg-background text-muted-foreground',
             )}
           >
-            {option.icon ? <span aria-hidden className="shrink-0 opacity-70">{option.icon}</span> : null}
+            {option.icon ? <span aria-hidden className={cn('shrink-0', isActive ? 'opacity-100' : 'opacity-70')}>{option.icon}</span> : null}
             <span className="truncate">{option.label}</span>
           </Button>
         )
