@@ -842,6 +842,7 @@
   "ui.dataTable.perspectives.error.save": "Failed to save perspective",
   "ui.dataTable.perspectives.noView": "— No view —",
   "ui.dataTable.perspectives.warning.apiUnavailable": "Perspectives API is not available yet. Run `yarn generate` to regenerate module routes, then restart the server.",
+  "ui.dataTable.resizeColumn": "Resize column",
   "ui.dataTable.search.empty.clear": "Clear search",
   "ui.dataTable.search.empty.description": "We couldn’t find any {entity} matching “{query}”. Try adjusting your search or filters.",
   "ui.dataTable.search.empty.genericEntity": "results",

@@ -705,6 +705,7 @@
   "ui.dataTable.actionsColumn": "Aktionen",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",
   "ui.dataTable.bulkAction.selectAll": "Select all",
+  "ui.dataTable.resizeColumn": "Spalte anpassen",
   "ui.dataTable.bulkAction.selectRow": "Select row",
   "ui.dataTable.bulkAction.selectedCount": "{count} selected",
   "ui.dataTable.bulkAction.started": "Massenaktion gestartet. Fortschritt in der oberen Leiste verfolgen.",
