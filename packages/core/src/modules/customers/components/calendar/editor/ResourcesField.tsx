@@ -139,7 +139,7 @@ export function ResourcesField({
           value={query}
           onChange={(event) => setQuery(event.target.value)}
           onFocus={() => setOpen(true)}
-          placeholder={placeholder}
+          placeholder={value.length > 0 ? '' : placeholder}
           aria-label={ariaLabel}
           role="combobox"
           aria-expanded={open}

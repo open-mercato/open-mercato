@@ -269,7 +269,7 @@
   "customers.calendar.editor.resourceTypes.moreHint": "Pokazano {shown} z {total} — wpisz, aby zawęzić",
   "customers.calendar.editor.resourceTypes.searchPlaceholder": "Szukaj typów…",
   "customers.calendar.editor.resources": "Zasoby",
-  "customers.calendar.editor.resourcesPlaceholder": "Dodaj salę, samochód lub sprzęt…",
+  "customers.calendar.editor.resourcesPlaceholder": "Dodaj zasób…",
   "customers.calendar.editor.save": "Zapisz wydarzenie",
   "customers.calendar.editor.saved": "Wydarzenie zapisane",
   "customers.calendar.editor.saving": "Zapisywanie…",

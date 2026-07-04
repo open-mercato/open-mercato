@@ -269,7 +269,7 @@
   "customers.calendar.editor.resourceTypes.moreHint": "Mostrando {shown} de {total} — escribe para acotar",
   "customers.calendar.editor.resourceTypes.searchPlaceholder": "Buscar tipos…",
   "customers.calendar.editor.resources": "Recursos",
-  "customers.calendar.editor.resourcesPlaceholder": "Añadir una sala, coche o equipo…",
+  "customers.calendar.editor.resourcesPlaceholder": "Añadir un recurso…",
   "customers.calendar.editor.save": "Guardar evento",
   "customers.calendar.editor.saved": "Evento guardado",
   "customers.calendar.editor.saving": "Guardando…",

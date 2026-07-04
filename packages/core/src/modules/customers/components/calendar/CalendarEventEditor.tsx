@@ -314,7 +314,7 @@ function EditorBody({
       {resourcesEnabled ? (
         <Field label={t('customers.calendar.editor.resources', 'Resources')}>
           <ResourcesField
-            placeholder={t('customers.calendar.editor.resourcesPlaceholder', 'Add a room, car or equipment…')}
+            placeholder={t('customers.calendar.editor.resourcesPlaceholder', 'Add a resource…')}
             ariaLabel={t('customers.calendar.editor.resources', 'Resources')}
             value={form.resources}
             onChange={(resources) => update({ resources })}

@@ -269,7 +269,7 @@
   "customers.calendar.editor.resourceTypes.moreHint": "{shown} von {total} angezeigt — tippen zum Eingrenzen",
   "customers.calendar.editor.resourceTypes.searchPlaceholder": "Typen suchen…",
   "customers.calendar.editor.resources": "Ressourcen",
-  "customers.calendar.editor.resourcesPlaceholder": "Raum, Auto oder Ausstattung hinzufügen…",
+  "customers.calendar.editor.resourcesPlaceholder": "Ressource hinzufügen…",
   "customers.calendar.editor.save": "Termin speichern",
   "customers.calendar.editor.saved": "Termin gespeichert",
   "customers.calendar.editor.saving": "Speichern…",

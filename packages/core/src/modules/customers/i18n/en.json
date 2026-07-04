@@ -269,7 +269,7 @@
   "customers.calendar.editor.resourceTypes.moreHint": "Showing {shown} of {total} — keep typing to narrow",
   "customers.calendar.editor.resourceTypes.searchPlaceholder": "Search types…",
   "customers.calendar.editor.resources": "Resources",
-  "customers.calendar.editor.resourcesPlaceholder": "Add a room, car or equipment…",
+  "customers.calendar.editor.resourcesPlaceholder": "Add a resource…",
   "customers.calendar.editor.save": "Save event",
   "customers.calendar.editor.saved": "Event saved",
   "customers.calendar.editor.saving": "Saving…",
