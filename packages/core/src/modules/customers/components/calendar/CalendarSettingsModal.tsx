@@ -162,8 +162,8 @@ export function CalendarSettingsModal({
                     value={draft.conflictScope}
                     onChange={(conflictScope) => setDraft((current) => ({ ...current, conflictScope }))}
                     options={[
-                      { value: 'mine', label: t('customers.calendar.settings.conflictScopeMine', 'My meetings only') },
-                      { value: 'all', label: t('customers.calendar.settings.conflictScopeAll', 'All org meetings') },
+                      { value: 'mine', label: t('customers.calendar.settings.conflictScopeMine', 'My meetings') },
+                      { value: 'all', label: t('customers.calendar.settings.conflictScopeAll', 'All meetings') },
                     ]}
                   />
                 </div>
