@@ -183,6 +183,7 @@ export function RelatedToField({
                   role="option"
                   aria-selected={value?.id === option.id}
                   aria-label={composeAccessibleName([option.label, option.subtitle, kindLabel(option.kind)])}
+                  title={composeAccessibleName([option.label, option.subtitle])}
                   onClick={() => {
                     onChange({ id: option.id, kind: option.kind, label: option.label })
                     if (value?.id !== option.id) onDealChange(null)
@@ -226,6 +227,7 @@ export function RelatedToField({
                   variant="ghost"
                   role="option"
                   aria-selected={deal?.id === option.id}
+                  title={option.label}
                   onClick={() => {
                     onDealChange(option)
                     setOpen(false)

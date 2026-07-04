@@ -131,6 +131,7 @@ export function PeopleField({
                     option.email,
                     option.isCustomer ? t('customers.calendar.editor.customerBadge', 'Customer') : null,
                   ])}
+                  title={composeAccessibleName([option.name, option.email])}
                   onClick={() => {
                     const participant: EditorParticipant = {
                       userId: option.userId,

@@ -125,6 +125,7 @@ export function ResourcesField({
                   variant="ghost"
                   role="option"
                   aria-selected={false}
+                  title={option.label}
                   onClick={() => {
                     onChange([...value, { id: option.id, label: option.label }])
                     setQuery('')
