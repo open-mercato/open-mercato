@@ -161,15 +161,34 @@ export type ResourceOption = {
 
 // Consumed only when the resources module is loaded (server flag from the
 // calendar page); reads the resources CRUD list API — never resource entities.
-export async function searchResourceOptions(query: string, signal: AbortSignal): Promise<ResourceOption[]> {
-  const params = new URLSearchParams({ page: '1', pageSize: '20', sortField: 'name', sortDir: 'asc', isActive: 'true' })
-  if (query.length) params.set('search', query)
-  const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-    `/api/resources/resources?${params.toString()}`,
+export type ResourceType = { id: string; name: string; count: number }
+
+export type ResourceSearchResult = { items: ResourceOption[]; total: number }
+
+const RESOURCE_PAGE_SIZE = 20
+
+// Server-side resource search, optionally scoped to one resource type. Returns
+// the (page-limited) options plus the full match count so the UI can show a
+// "showing N of M" hint and nudge the user to narrow a large catalog (#3552).
+export async function searchResourceOptions(
+  params: { query: string; resourceTypeId?: string | null },
+  signal: AbortSignal,
+): Promise<ResourceSearchResult> {
+  const search = new URLSearchParams({
+    page: '1',
+    pageSize: String(RESOURCE_PAGE_SIZE),
+    sortField: 'name',
+    sortDir: 'asc',
+    isActive: 'true',
+  })
+  if (params.query.length) search.set('search', params.query)
+  if (params.resourceTypeId) search.set('resourceTypeId', params.resourceTypeId)
+  const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>>; total?: number }>(
+    `/api/resources/resources?${search.toString()}`,
     { signal },
   )
-  const items = Array.isArray(data?.items) ? data.items : []
-  return items
+  const rows = Array.isArray(data?.items) ? data.items : []
+  const items = rows
     .map((item): ResourceOption | null => {
       if (!item || typeof item !== 'object') return null
       const id = typeof item.id === 'string' ? item.id : null
@@ -178,6 +197,39 @@ export async function searchResourceOptions(query: string, signal: AbortSignal):
       return { id, label }
     })
     .filter((option): option is ResourceOption => option !== null)
+  const total = typeof data?.total === 'number' && Number.isFinite(data.total) ? data.total : items.length
+  return { items, total }
+}
+
+// Resource types with their resource counts, for the dropdown's type filter.
+export async function fetchResourceTypes(signal: AbortSignal): Promise<ResourceType[]> {
+  const params = new URLSearchParams({
+    page: '1',
+    pageSize: '100',
+    sortField: 'name',
+    sortDir: 'asc',
+    withResourceCounts: 'true',
+  })
+  try {
+    const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+      `/api/resources/resource-types?${params.toString()}`,
+      { signal },
+    )
+    const rows = Array.isArray(data?.items) ? data.items : []
+    return rows
+      .map((item): ResourceType | null => {
+        if (!item || typeof item !== 'object') return null
+        const id = typeof item.id === 'string' ? item.id : null
+        if (!id) return null
+        const name = readNonEmptyString(item.name) ?? id
+        const rawCount = (item as Record<string, unknown>).resourceCount
+        const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0
+        return { id, name, count }
+      })
+      .filter((type): type is ResourceType => type !== null)
+  } catch {
+    return []
+  }
 }
 
 export type ContactPhone = { id: string; name: string; phone: string }

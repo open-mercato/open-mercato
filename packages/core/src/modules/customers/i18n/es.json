@@ -264,6 +264,8 @@
   "customers.calendar.editor.repeat.never": "Nunca",
   "customers.calendar.editor.repeat.onDate": "En fecha",
   "customers.calendar.editor.repeat.times": "veces",
+  "customers.calendar.editor.resourceTypes.all": "Todos",
+  "customers.calendar.editor.resourceTypes.moreHint": "Mostrando {shown} de {total} — escribe para acotar",
   "customers.calendar.editor.resources": "Recursos",
   "customers.calendar.editor.resourcesPlaceholder": "Añadir una sala, coche o equipo…",
   "customers.calendar.editor.save": "Guardar evento",

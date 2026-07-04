@@ -264,6 +264,8 @@
   "customers.calendar.editor.repeat.never": "Nigdy",
   "customers.calendar.editor.repeat.onDate": "W dniu",
   "customers.calendar.editor.repeat.times": "razy",
+  "customers.calendar.editor.resourceTypes.all": "Wszystkie",
+  "customers.calendar.editor.resourceTypes.moreHint": "Pokazano {shown} z {total} — wpisz, aby zawęzić",
   "customers.calendar.editor.resources": "Zasoby",
   "customers.calendar.editor.resourcesPlaceholder": "Dodaj salę, samochód lub sprzęt…",
   "customers.calendar.editor.save": "Zapisz wydarzenie",

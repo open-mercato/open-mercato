@@ -264,6 +264,8 @@
   "customers.calendar.editor.repeat.never": "Nie",
   "customers.calendar.editor.repeat.onDate": "Am Datum",
   "customers.calendar.editor.repeat.times": "Mal",
+  "customers.calendar.editor.resourceTypes.all": "Alle",
+  "customers.calendar.editor.resourceTypes.moreHint": "{shown} von {total} angezeigt — tippen zum Eingrenzen",
   "customers.calendar.editor.resources": "Ressourcen",
   "customers.calendar.editor.resourcesPlaceholder": "Raum, Auto oder Ausstattung hinzufügen…",
   "customers.calendar.editor.save": "Termin speichern",

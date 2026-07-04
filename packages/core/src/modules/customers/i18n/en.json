@@ -264,6 +264,8 @@
   "customers.calendar.editor.repeat.never": "Never",
   "customers.calendar.editor.repeat.onDate": "On date",
   "customers.calendar.editor.repeat.times": "times",
+  "customers.calendar.editor.resourceTypes.all": "All",
+  "customers.calendar.editor.resourceTypes.moreHint": "Showing {shown} of {total} — keep typing to narrow",
   "customers.calendar.editor.resources": "Resources",
   "customers.calendar.editor.resourcesPlaceholder": "Add a room, car or equipment…",
   "customers.calendar.editor.save": "Save event",
