@@ -27,7 +27,7 @@ const CUSTOM_FIELDS_MANAGE_HREF = `/backend/entities/system/${encodeURIComponent
 
 export type CreateDealFormProps = {
   returnTo: string
-  /** Seed values merged over EMPTY_VALUES for the initial form state. Additive: omitting it preserves current behavior. */
+  /** Seed values merged over EMPTY_VALUES for the initial form state. Entries set to `undefined` are ignored (the EMPTY_VALUES default wins), so a sparse `Partial<BaseValues>` can never unset a required field. Additive: omitting it preserves current behavior. */
   initialValues?: Partial<BaseValues>
 }
 
@@ -40,7 +40,10 @@ export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps)
     [t],
   )
 
-  const [values, setValues] = React.useState<BaseValues>(() => ({ ...EMPTY_VALUES, ...initialValues }))
+  const [values, setValues] = React.useState<BaseValues>(() => {
+    const definedSeedEntries = Object.entries(initialValues ?? {}).filter(([, seedValue]) => seedValue !== undefined)
+    return { ...EMPTY_VALUES, ...Object.fromEntries(definedSeedEntries) }
+  })
   const [errors, setErrors] = React.useState<Record<string, string>>({})
   const [isSubmitting, setIsSubmitting] = React.useState(false)
 

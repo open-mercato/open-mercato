@@ -22,17 +22,20 @@ Add an optional, additive prop and use a lazy initializer that merges it over `E
 ```ts
 export type CreateDealFormProps = {
   returnTo: string
-  /** Seed values merged over EMPTY_VALUES for the initial form state. Additive: omitting it preserves current behavior. */
+  /** Seed values merged over EMPTY_VALUES for the initial form state. Entries set to `undefined` are ignored (the EMPTY_VALUES default wins), so a sparse `Partial<BaseValues>` can never unset a required field. Additive: omitting it preserves current behavior. */
   initialValues?: Partial<BaseValues>
 }
 
 export function CreateDealForm({ returnTo, initialValues }: CreateDealFormProps) {
-  const [values, setValues] = React.useState<BaseValues>(() => ({ ...EMPTY_VALUES, ...initialValues }))
+  const [values, setValues] = React.useState<BaseValues>(() => {
+    const definedSeedEntries = Object.entries(initialValues ?? {}).filter(([, seedValue]) => seedValue !== undefined)
+    return { ...EMPTY_VALUES, ...Object.fromEntries(definedSeedEntries) }
+  })
   // ...unchanged
 }
 ```
 
-Consumers can seed the simple fields (`status`, `valueCurrency`, `expectedCloseAt`, `title`, `description`). Pipeline/stage prefill is intentionally out of scope for this prop because it needs runtime resolution (env-specific IDs) plus the pipeline→stage cascade — see Proposed Follow-ups.
+Consumers can seed the simple fields (`status`, `valueCurrency`, `expectedCloseAt`, `title`, `description`). Explicitly-`undefined` entries are filtered before the merge — under `Partial<BaseValues>` a caller may legally pass `{ personIds: maybeIds }` where `maybeIds` is `undefined`, and a plain spread would override the non-optional `EMPTY_VALUES` invariant (crashing e.g. `values.personIds.length` on submit or flipping controlled selects to uncontrolled). Pipeline/stage prefill is intentionally out of scope for this prop because it needs runtime resolution (env-specific IDs) plus the pipeline→stage cascade — see Proposed Follow-ups.
 
 ## Backward Compatibility
 
@@ -51,3 +54,4 @@ Purely additive. When `initialValues` is omitted the initializer resolves to `EM
 ## Changelog
 
 - 2026-07-02 — Initial spec + additive `initialValues` prop on `CreateDealForm`. Follow-ups (auto-default-pipeline, pluggable page defaults) proposed for maintainer decision.
+- 2026-07-04 — Harden the merge: explicitly-`undefined` entries in `initialValues` are filtered out before spreading over `EMPTY_VALUES`, so a sparse `Partial<BaseValues>` cannot unset a required default (review finding).
