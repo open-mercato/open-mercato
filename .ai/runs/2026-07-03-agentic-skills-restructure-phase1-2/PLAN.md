@@ -27,22 +27,22 @@
 | 2 | 2.7 | Restructure `om-integration-builder` | done | 1658eea78 |
 | 2 | 2.8 | Flip overlays→no-STANDALONE guard + conformance/no-stale-dist/placeholder guards | done | 362a04eda |
 | 2 | 2.9-review-fix | Sync CLI `agentic:init` (packages/cli) to recursive copy + config write (auto-review finding) | done | fed613b4a |
-| 3 | 3.1 | Restructure `om-trim-unused-modules` (73→thin + instructions) | done | pending |
-| 3 | 3.2 | Restructure `om-spec-writing` (85, keep references/) | done | pending |
-| 3 | 3.3 | Restructure `om-help` (107, keep references/) | done | pending |
-| 3 | 3.4 | Restructure `om-code-review` (108, keep references/) | done | pending |
-| 3 | 3.5 | Restructure `om-implement-spec` (166) | done | pending |
-| 3 | 3.6 | Restructure `om-auto-upgrade-0.4.10-to-0.5.0` (174) | done | pending |
-| 3 | 3.7 | Restructure `om-prepare-issue` (202) | done | pending |
-| 3 | 3.8 | Restructure `om-backend-ui-design` (251, keep references/) | done | pending |
-| 3 | 3.9 | Restructure `om-integration-tests` (279) | done | pending |
-| 3 | 3.10 | Restructure `om-eject-and-customize` (320) | done | pending |
-| 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | done | pending |
-| 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | done | pending |
-| 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | done | pending |
+| 3 | 3.1 | Restructure `om-trim-unused-modules` (73→thin + instructions) | done | 6aeef49ed |
+| 3 | 3.2 | Restructure `om-spec-writing` (85, keep references/) | done | b267e92ec |
+| 3 | 3.3 | Restructure `om-help` (107, keep references/) | done | 640b85623 |
+| 3 | 3.4 | Restructure `om-code-review` (108, keep references/) | done | f471ed937 |
+| 3 | 3.5 | Restructure `om-implement-spec` (166) | done | 1cf2c73fb |
+| 3 | 3.6 | Restructure `om-auto-upgrade-0.4.10-to-0.5.0` (174) | done | a2510f2f4 |
+| 3 | 3.7 | Restructure `om-prepare-issue` (202) | done | 1835acc6b |
+| 3 | 3.8 | Restructure `om-backend-ui-design` (251, keep references/) | done | e531cb4f9 |
+| 3 | 3.9 | Restructure `om-integration-tests` (279) | done | 0b83a079a |
+| 3 | 3.10 | Restructure `om-eject-and-customize` (320) | done | 85739e77a |
+| 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | done | c671d0b72 |
+| 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | done | aba139ae0 |
+| 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | done | 2f3e2fbd5 |
 | 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | done | 98a107a8a |
 | 4 | 4.1 | Extend conformance guard to all 21 restructured skills | done | 59d3d2bfb |
-| 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | done | pending |
+| 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | done | 4a5ef1acc |
 
 ## Goal
 

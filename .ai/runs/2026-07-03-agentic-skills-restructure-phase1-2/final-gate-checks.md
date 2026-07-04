@@ -32,3 +32,24 @@ Fixed in Step 2.9-review-fix (fed613b4a): CLI `generateShared` now uses the same
 ## Verdict
 
 Green for the Phases 1+2 scope. Phase 3 (remaining 14 skills) + Phase 4 (full-set conformance enforcement) are a follow-up PR via `om-auto-continue-pr-loop`, per the agreed scope.
+
+---
+
+## Final gate — Phase 3+4 (continuation, all 21 skills)
+
+**When:** 2026-07-04 (UTC)
+
+| Check | Result |
+|-------|--------|
+| `yarn build:packages` | ✅ exit 0 |
+| `node build.mjs` (create-app) | ✅ dist/agentic has 0 STANDALONE.md |
+| `tsc --noEmit` (create-app) | ✅ |
+| Full create-app unit suite | ✅ **121 tests, 0 fail** (conformance now runs over all 21 skills dynamically) |
+| Conformance guard (all 21) | ✅ every SKILL.md ≤60 lines, non-empty frontmatter description, resolvable reference map, no inlined procedure |
+| End-to-end `generateShared` (create-app) | ✅ 21 skills, all thin, config written, 0 STANDALONE, 0 literal {{PROJECT_NAME}} |
+| End-to-end `agentic:init` (CLI) | ✅ 21 skills, config written, 0 STANDALONE, 0 literal {{PROJECT_NAME}} |
+| Substance-preservation check | ✅ 12/14 grew; om-system-extension −19 (~2%) and om-troubleshooter −11 (~2%) reflect de-duplicated `§N` cross-refs → file links, not dropped content (executors confirmed verbatim code/tables) |
+
+**Conformance guard finding (self-fixed):** switching `RESTRUCTURED_SKILLS` to dynamic enumeration surfaced that `referenceMapLinks` only matched `workflow|references|subagents` paths, not `instructions.md` — so the 3 single-flow skills (om-trim-unused-modules, om-prepare-issue, om-auto-upgrade) reported an empty reference map. Fixed the regex (the skills were correct); all 46 conformance assertions pass.
+
+**Verdict:** green. All four spec phases (D4 — all 21 skills) delivered in this PR.
