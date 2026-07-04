@@ -186,6 +186,18 @@ function expectedGuideOutputNames(): string[] {
     }
   }
 
+  // Static conceptual guides shipped under create-app/agentic/guides/ (e.g.
+  // module-system.md) are copied verbatim by build.mjs + agentic-setup, so the
+  // generated set includes them alongside the per-package/module standalone guides.
+  const staticGuidesRoot = path.join(agenticRoot, 'guides')
+  if (fs.existsSync(staticGuidesRoot)) {
+    for (const guideEntry of fs.readdirSync(staticGuidesRoot, { withFileTypes: true })) {
+      if (guideEntry.isFile() && guideEntry.name.endsWith('.md')) {
+        collected.add(guideEntry.name)
+      }
+    }
+  }
+
   return Array.from(collected).sort()
 }
 
