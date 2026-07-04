@@ -40,8 +40,8 @@
 | 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | done | pending |
 | 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | done | pending |
 | 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | done | pending |
-| 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | done | pending |
-| 4 | 4.1 | Extend conformance guard to all 21 restructured skills | todo | — |
+| 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | done | 98a107a8a |
+| 4 | 4.1 | Extend conformance guard to all 21 restructured skills | done | pending |
 | 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | todo | — |
 
 ## Goal

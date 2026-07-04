@@ -13,18 +13,15 @@ const scaffolderSource = fs.readFileSync(
   'utf8',
 )
 
-// The skills restructured into the thin-SKILL.md + workflow/ + references/ layout
-// (spec 2026-06-27-create-app-agentic-skills-restructure.md, Phase 2). These formerly
-// shipped a STANDALONE.md override; that override is now authored natively.
-const RESTRUCTURED_SKILLS = [
-  'om-auto-create-pr',
-  'om-auto-continue-pr',
-  'om-auto-create-pr-loop',
-  'om-auto-continue-pr-loop',
-  'om-auto-review-pr',
-  'om-auto-fix-github',
-  'om-integration-builder',
-]
+// Every skill is restructured into the thin-SKILL.md + workflow/|instructions.md +
+// references/ layout (spec 2026-06-27-create-app-agentic-skills-restructure.md,
+// Phases 2+3). Enumerate the full set dynamically so any new or regressed skill is
+// enforced automatically — a skill that grows back into a monolith fails CI here.
+const RESTRUCTURED_SKILLS = fs
+  .readdirSync(skillsDir, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+  .map((entry) => entry.name)
+  .sort()
 
 const SKILL_LINE_BUDGET = 60
 
@@ -44,7 +41,9 @@ function frontmatterDescription(source: string): string | null {
 }
 
 function referenceMapLinks(source: string): string[] {
-  const links = source.match(/(?:workflow|references|subagents)\/[A-Za-z0-9._-]+\.md/g) ?? []
+  // Single-flow skills point at instructions.md; multi-step skills at
+  // workflow/|subagents/|references/ files. Match both shapes.
+  const links = source.match(/(?:workflow|references|subagents)\/[A-Za-z0-9._-]+\.md|instructions\.md/g) ?? []
   return [...new Set(links)]
 }
 
