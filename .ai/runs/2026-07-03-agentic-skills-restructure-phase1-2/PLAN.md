@@ -35,7 +35,7 @@
 | 3 | 3.6 | Restructure `om-auto-upgrade-0.4.10-to-0.5.0` (174) | done | pending |
 | 3 | 3.7 | Restructure `om-prepare-issue` (202) | done | pending |
 | 3 | 3.8 | Restructure `om-backend-ui-design` (251, keep references/) | done | pending |
-| 3 | 3.9 | Restructure `om-integration-tests` (279) | todo | — |
+| 3 | 3.9 | Restructure `om-integration-tests` (279) | done | pending |
 | 3 | 3.10 | Restructure `om-eject-and-customize` (320) | todo | — |
 | 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | todo | — |
 | 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | todo | — |
