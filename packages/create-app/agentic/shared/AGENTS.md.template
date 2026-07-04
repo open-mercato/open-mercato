@@ -21,6 +21,7 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 | Task | Load |
 |---|---|
+| Understand the module system (anatomy, auto-discovery, naming, mandatory mechanisms, data integrity, migrations) | `.ai/guides/module-system.md` |
 | Scaffold a new module from scratch | `.ai/skills/om-module-scaffold/SKILL.md` |
 | Design entities and relationships | `.ai/skills/om-data-model-design/SKILL.md` |
 | Build backend UI (forms, tables, pages) | `.ai/skills/om-backend-ui-design/SKILL.md` |
@@ -60,19 +61,10 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 ### Module-Specific Guides
 
-These guides ship automatically when the corresponding module is installed.
+These per-module fact-sheets are **generated from source** and bundled for the modules enabled in this app. The list below is regenerated on scaffold from your enabled module set — do not edit between the markers.
 
-| Task | Load |
-|---|---|
-| Build CRUD modules — reference patterns, commands, custom fields, search | `.ai/guides/core.customers.md` (if available) |
-| Use workflow automation, triggers, user tasks, signals | `.ai/guides/core.workflows.md` (if available) |
-| Use product catalog, pricing engine, variants, offers | `.ai/guides/core.catalog.md` (if available) |
-| Use sales orders, quotes, invoices, shipments, payments | `.ai/guides/core.sales.md` (if available) |
-| Use staff authentication, RBAC, roles, feature guards | `.ai/guides/core.auth.md` (if available) |
-| Use multi-currency, exchange rates, dual recording | `.ai/guides/core.currencies.md` (if available) |
-| Build integration providers, credentials, health checks | `.ai/guides/core.integrations.md` (if available) |
-| Build data sync adapters, import/export connectors | `.ai/guides/core.data_sync.md` (if available) |
-| Use customer portal auth, customer RBAC, portal pages | `.ai/guides/core.customer_accounts.md` (if available) |
+<!-- om:module-guides:start -->
+<!-- om:module-guides:end -->
 
 ### Quality & Process
 

@@ -389,6 +389,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 
 ## 🚀 CI/CD & Infrastructure
 - 🚀 Test: stabilize the flaky markitdown install in the test job. (#3004) *(@pkarw)*
+- 🚀 Docker: improve full-app Dockerfile dependency caching by installing from workspace manifests before copying source files.
 
 ## 👥 Contributors
 

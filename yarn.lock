@@ -15155,10 +15155,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "create-mercato-app@workspace:packages/create-app"
   dependencies:
+    "@open-mercato/cli": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
     "@types/node": "npm:^26.0.0"
     esbuild: "npm:^0.28.1"
     picocolors: "npm:^1.1.0"
     tar: "npm:^7.5.16"
+    ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.22.4"
     typescript: "npm:^6.0.3"
   bin:
