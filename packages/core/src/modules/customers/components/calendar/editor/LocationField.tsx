@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { MapPin, Phone } from 'lucide-react'
+import { MapPin, Phone, Plus } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Field } from './inputs'
@@ -50,7 +50,8 @@ function PhoneSuggestions({
           title={t('customers.calendar.editor.phoneSuggestion.use', 'Use {name}’s number', { name: contact.name })}
           className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         >
-          <Phone aria-hidden className="size-3 shrink-0 text-muted-foreground" />
+          <Plus aria-hidden className="size-3 shrink-0" />
+          <span className="shrink-0">{t('customers.calendar.editor.phoneSuggestion.add', 'Add')}</span>
           <span className="truncate">{contact.name}</span>
           <span className="shrink-0 tabular-nums text-foreground">{contact.phone}</span>
         </button>

@@ -237,6 +237,7 @@
   "customers.calendar.editor.participants": "Teilnehmer",
   "customers.calendar.editor.phoneLink": "Telefon / Link",
   "customers.calendar.editor.phoneLinkPlaceholder": "Telefonnummer oder Link hinzufügen…",
+  "customers.calendar.editor.phoneSuggestion.add": "Hinzufügen",
   "customers.calendar.editor.phoneSuggestion.use": "Nummer von {name} verwenden",
   "customers.calendar.editor.priority.high": "Hoch",
   "customers.calendar.editor.priority.label": "Priorität",
