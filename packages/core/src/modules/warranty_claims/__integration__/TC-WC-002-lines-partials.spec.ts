@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
   cancelThenDeleteClaimIfPossible,
   cleanupDraftClaimWithLines,
@@ -132,6 +133,74 @@ test.describe('TC-WC-002: warranty claim line partial approvals', () => {
     } finally {
       await cleanupDraftClaimWithLines(request, token, partialClaimId)
       await cancelThenDeleteClaimIfPossible(request, token, closedClaimId)
+    }
+  })
+
+  test('refuses a stale per-line optimistic-lock update with HTTP 409', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = uniqueLabel('tc-wc-002-stale-line')
+
+    let claimId: string | null = null
+
+    try {
+      const claim = await createClaimFixture(request, token, {
+        claimType: 'warranty',
+        customerName: `QA WC Line Lock ${stamp}`,
+        reasonCode: 'defective',
+        currencyCode: 'USD',
+        lines: [
+          {
+            lineNo: 1,
+            sku: `WC-002-LOCK-${stamp}`,
+            productName: 'QA line lock part',
+            serialNumber: `SER-LOCK-${stamp}`,
+            faultDescription: 'Line optimistic lock coverage',
+            qtyClaimed: 1,
+            creditAmount: 20,
+          },
+        ],
+      })
+      claimId = claim.id
+      const [line] = await listClaimLines(request, token, claimId!)
+      expect(line?.id, 'created claim should have a line').toBeTruthy()
+      expect(line.updatedAt, 'line readback should include updatedAt').toBeTruthy()
+      const originalUpdatedAt = line.updatedAt
+
+      await new Promise((resolve) => setTimeout(resolve, 5))
+      const firstUpdate = await updateClaimLine(
+        request,
+        token,
+        {
+          id: line.id,
+          claimId,
+          inspectionNotes: `Fresh line edit ${stamp}`,
+        },
+        originalUpdatedAt,
+      )
+      expect(firstUpdate.status(), 'fresh line update should return 200').toBe(200)
+
+      const [updatedLine] = await listClaimLines(request, token, claimId!)
+      expect(updatedLine.updatedAt, 'line update should refresh updatedAt').toBeTruthy()
+      expect(updatedLine.updatedAt).not.toBe(originalUpdatedAt)
+
+      const staleUpdate = await updateClaimLine(
+        request,
+        token,
+        {
+          id: line.id,
+          claimId,
+          inspectionNotes: `Stale line edit ${stamp}`,
+        },
+        originalUpdatedAt,
+      )
+      expect(staleUpdate.status(), 'stale line update should return 409').toBe(409)
+      const staleBody = await readJsonSafe<Record<string, unknown>>(staleUpdate)
+      expect(staleBody).toMatchObject({
+        code: 'optimistic_lock_conflict',
+        expectedUpdatedAt: originalUpdatedAt,
+      })
+    } finally {
+      await cleanupDraftClaimWithLines(request, token, claimId)
     }
   })
 })

@@ -27,12 +27,16 @@ export default async function handle(payload: unknown, ctx: HandlerContext): Pro
   const claimType = readString(record, 'claimType')
   const toStatus = readString(record, 'toStatus') ?? readString(record, 'status')
   if (!claimId || !tenantId || !organizationId) return
-  if (claimType !== 'vendor_recovery' || toStatus !== 'resolved') return
+  if (claimType !== 'vendor_recovery' || (toStatus !== 'resolved' && toStatus !== 'closed')) return
 
   const em = (ctx.resolve('em') as EntityManager).fork()
   const scope = { tenantId, organizationId }
   const recoveryClaim = await findOneWithDecryption(em, WarrantyClaim, { id: claimId, tenantId, organizationId, deletedAt: null }, {}, scope)
-  if (!recoveryClaim || recoveryClaim.claimType !== 'vendor_recovery' || recoveryClaim.status !== 'resolved') return
+  if (
+    !recoveryClaim
+    || recoveryClaim.claimType !== 'vendor_recovery'
+    || (recoveryClaim.status !== 'resolved' && recoveryClaim.status !== 'closed')
+  ) return
   if (!recoveryClaim.sourceClaimId) return
 
   const sourceClaim = await findOneWithDecryption(
@@ -47,13 +51,31 @@ export default async function handle(payload: unknown, ctx: HandlerContext): Pro
   const resolvedChildren = await findWithDecryption(
     em,
     WarrantyClaim,
-    { sourceClaimId: sourceClaim.id, claimType: 'vendor_recovery', status: 'resolved', tenantId, organizationId, deletedAt: null },
+    {
+      sourceClaimId: sourceClaim.id,
+      claimType: 'vendor_recovery',
+      status: { $in: ['resolved', 'closed'] },
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    },
     {},
     scope,
   )
   let recoveredTotal = 0
   for (const child of resolvedChildren) {
-    const childLines = await findWithDecryption(em, WarrantyClaimLine, { claim: child.id, deletedAt: null }, {}, scope)
+    const childLines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      {
+        claim: child.id,
+        tenantId: child.tenantId,
+        organizationId: child.organizationId,
+        deletedAt: null,
+      },
+      {},
+      scope,
+    )
     recoveredTotal += computeHeaderRollups(childLines).totalApprovedAmount
   }
   sourceClaim.totalRecoveredAmount = String(recoveredTotal)

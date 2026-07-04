@@ -124,7 +124,6 @@ const claimLineFields = {
   conditionOnReceipt: clearableString(1000),
   inspectionNotes: clearableString(4000),
   disposition: claimDispositionSchema.nullable().optional(),
-  lineStatus: claimLineStatusSchema.optional(),
   creditAmount: nullableDecimal(),
   restockingFee: nullableDecimal(),
   coreChargeAmount: nullableDecimal(),
@@ -214,7 +213,10 @@ export const claimLineUpdateSchema = z
     claimId: uuid().optional(),
   })
   .merge(scopedSchema.partial())
-  .merge(z.object(claimLineFields).partial())
+  .merge(z.object({
+    ...claimLineFields,
+    lineStatus: claimLineStatusSchema.optional(),
+  }).partial())
   .strict()
 
 export const claimListQuerySchema = z

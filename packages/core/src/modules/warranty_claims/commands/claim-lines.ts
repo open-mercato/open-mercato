@@ -265,7 +265,7 @@ function buildLineCreateData(
     conditionOnReceipt: input.conditionOnReceipt ?? null,
     inspectionNotes: input.inspectionNotes ?? null,
     disposition: input.disposition ?? null,
-    lineStatus: input.lineStatus ?? 'pending',
+    lineStatus: 'pending',
     creditAmount: nullableAmountString(input.creditAmount),
     restockingFee: nullableAmountString(input.restockingFee),
     coreChargeAmount: nullableAmountString(input.coreChargeAmount),
@@ -399,7 +399,12 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
   const lines = await findWithDecryption(
     em,
     WarrantyClaimLine,
-    { claim: claim.id, deletedAt: null },
+    {
+      claim: claim.id,
+      tenantId: claim.tenantId,
+      organizationId: claim.organizationId,
+      deletedAt: null,
+    },
     {},
     { tenantId: claim.tenantId, organizationId: claim.organizationId },
   )

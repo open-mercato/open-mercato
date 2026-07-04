@@ -322,10 +322,18 @@ export async function POST(req: Request) {
     if (typeof claimId !== 'string') {
       return NextResponse.json({ ok: false, error: 'Claim could not be created' }, { status: 400 })
     }
-    await commandBus.execute<{ id: string }, { claimId: string }>(
-      'warranty_claims.claim.submit',
-      { input: { id: claimId }, ctx: context.commandCtx },
-    )
+    try {
+      await commandBus.execute<{ id: string }, { claimId: string }>(
+        'warranty_claims.claim.submit',
+        { input: { id: claimId }, ctx: context.commandCtx },
+      )
+    } catch (submitError) {
+      await commandBus.execute<{ id: string }, { claimId: string }>(
+        'warranty_claims.claim.delete',
+        { input: { id: claimId }, ctx: context.commandCtx },
+      ).catch(() => undefined)
+      throw submitError
+    }
 
     return NextResponse.json({ ok: true, claimId }, { status: 201 })
   } catch (err) {

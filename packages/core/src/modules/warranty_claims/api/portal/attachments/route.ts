@@ -428,6 +428,7 @@ export async function POST(req: Request) {
     item: {
       id: attachment.id,
       url: attachment.url,
+      downloadUrl: `/api/warranty_claims/portal/attachments?attachmentId=${encodeURIComponent(attachment.id)}`,
       fileName: attachment.fileName,
       fileSize: attachment.fileSize,
       mimeType: attachment.mimeType,
@@ -456,6 +457,7 @@ const assignmentSchema = z.object({
 const attachmentItemSchema = z.object({
   id: z.string(),
   url: z.string(),
+  downloadUrl: z.string(),
   fileName: z.string(),
   fileSize: z.number().int().nonnegative(),
   mimeType: z.string().nullable(),

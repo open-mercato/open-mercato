@@ -969,9 +969,9 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   <div className="mt-4 space-y-4">
                     <div className="rounded-md border border-border p-3">
                       <StatusBadge variant={aiSuggestion.priority.overdue ? 'error' : 'info'}>
-                        {aiSuggestion.priority.currentPriority}
+                        {t(`warranty_claims.priority.${aiSuggestion.priority.currentPriority}`)}
                         {' → '}
-                        {aiSuggestion.priority.suggestedPriority}
+                        {t(`warranty_claims.priority.${aiSuggestion.priority.suggestedPriority}`)}
                       </StatusBadge>
                       <p className="mt-2 text-sm text-muted-foreground">{aiSuggestion.priority.reason}</p>
                     </div>
@@ -989,7 +989,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-2">
                               <StatusBadge variant={eligibilityBadgeVariant(suggestedLine.eligibility.status)}>
-                                {suggestedLine.eligibility.status}
+                                {t(`warranty_claims.eligibility.${suggestedLine.eligibility.status}`)}
                               </StatusBadge>
                               <StatusBadge variant="info">
                                 {t(`warranty_claims.disposition.${suggestedLine.suggestedDisposition}`)}

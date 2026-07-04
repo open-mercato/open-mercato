@@ -69,6 +69,7 @@ type PortalClaimEvent = {
 type PortalAttachment = {
   id: string
   url: string
+  downloadUrl: string
   fileName: string
   fileSize: number
   mimeType: string | null
@@ -609,7 +610,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                   </div>
                 </div>
                 <Button asChild variant="outline" size="sm">
-                  <a href={attachment.url} target="_blank" rel="noreferrer">
+                  <a href={attachment.downloadUrl} target="_blank" rel="noreferrer">
                     <ExternalLink className="size-4" aria-hidden="true" />
                     {t('warranty_claims.portal.detail.openAttachment')}
                   </a>

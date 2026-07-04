@@ -303,7 +303,7 @@ function buildInitialLineData(
     conditionOnReceipt: input.conditionOnReceipt ?? null,
     inspectionNotes: input.inspectionNotes ?? null,
     disposition: input.disposition ?? null,
-    lineStatus: input.lineStatus ?? 'pending',
+    lineStatus: 'pending',
     creditAmount: nullableAmountString(input.creditAmount),
     restockingFee: nullableAmountString(input.restockingFee),
     coreChargeAmount: nullableAmountString(input.coreChargeAmount),
@@ -392,7 +392,13 @@ async function loadClaimSnapshot(
 ): Promise<ClaimSnapshot | null> {
   const claim = await findOneWithDecryption(em, WarrantyClaim, { id: claimId, tenantId: scope.tenantId, organizationId: scope.organizationId }, {}, scope)
   if (!claim) return null
-  const lines = await findWithDecryption(em, WarrantyClaimLine, { claim: claim.id }, {}, scope)
+  const lines = await findWithDecryption(
+    em,
+    WarrantyClaimLine,
+    { claim: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    {},
+    scope,
+  )
   return snapshotClaim(claim, lines)
 }
 
@@ -481,7 +487,7 @@ async function restoreSnapshot(em: EntityManager, snapshot: ClaimSnapshot): Prom
   const existingLines = await findWithDecryption(
     em,
     WarrantyClaimLine,
-    { claim: snapshot.id },
+    { claim: snapshot.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
     {},
     scope,
   )
@@ -692,7 +698,12 @@ async function recomputeClaimRollups(em: EntityManager, claim: WarrantyClaim): P
   const lines = await findWithDecryption(
     em,
     WarrantyClaimLine,
-    { claim: claim.id, deletedAt: null },
+    {
+      claim: claim.id,
+      tenantId: claim.tenantId,
+      organizationId: claim.organizationId,
+      deletedAt: null,
+    },
     {},
     { tenantId: claim.tenantId, organizationId: claim.organizationId },
   )
@@ -835,7 +846,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
     const lines = await findWithDecryption(
       em,
       WarrantyClaimLine,
-      { claim: after.id, deletedAt: null },
+      { claim: after.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
       {},
       scope,
     )
@@ -918,7 +929,7 @@ const deleteClaimCommand: CommandHandler<ClaimDeleteInput, { claimId: string }> 
     const claim = await requireScopedClaim(em, input.id, scope)
     await enforceWarrantyClaimOptimisticLock(ctx, claim)
     if (!deletableStatuses.has(claim.status)) {
-      throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidTransition' })
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.deleteNotAllowed' })
     }
     await withAtomicFlush(em, [
       () => {
@@ -1019,7 +1030,12 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
       ? await findWithDecryption(
         em,
         WarrantyClaimLine,
-        { claim: claim.id, deletedAt: null },
+        {
+          claim: claim.id,
+          tenantId: claim.tenantId,
+          organizationId: claim.organizationId,
+          deletedAt: null,
+        },
         {},
         { tenantId: claim.tenantId, organizationId: claim.organizationId },
       )
@@ -1145,7 +1161,13 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
     const preflightLines = await findWithDecryption(
       em,
       WarrantyClaimLine,
-      { id: { $in: input.lineIds }, claim: sourceClaim.id, deletedAt: null },
+      {
+        id: { $in: input.lineIds },
+        claim: sourceClaim.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
       {},
       scope,
     )
@@ -1164,7 +1186,13 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
       const lockedLines = await findWithDecryption(
         tx,
         WarrantyClaimLine,
-        { id: { $in: input.lineIds }, claim: lockedSource.id, deletedAt: null },
+        {
+          id: { $in: input.lineIds },
+          claim: lockedSource.id,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          deletedAt: null,
+        },
         { lockMode: LockMode.PESSIMISTIC_WRITE },
         scope,
       )
