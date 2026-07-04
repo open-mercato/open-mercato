@@ -38,7 +38,7 @@
 | 3 | 3.9 | Restructure `om-integration-tests` (279) | done | pending |
 | 3 | 3.10 | Restructure `om-eject-and-customize` (320) | done | pending |
 | 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | done | pending |
-| 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | todo | — |
+| 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | done | pending |
 | 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | todo | — |
 | 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | todo | — |
 | 4 | 4.1 | Extend conformance guard to all 21 restructured skills | todo | — |
