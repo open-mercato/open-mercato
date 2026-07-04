@@ -24,3 +24,8 @@
 - All 7 STANDALONE.md deleted; overlays test replaced by `agentic-skills-conformance.test.ts` (no-STANDALONE + 7×thin-router + recursive-copy + placeholder) and a no-stale-dist assertion in `module-facts-build.test.ts`.
 - Final gate: create-app 93/93; build.mjs clean; tsc clean; end-to-end generateShared → 0 STANDALONE, 0 literal {{PROJECT_NAME}}, agentic.config.json written.
 - Opening PR against upstream develop. Phases 3–4 deferred to a follow-up.
+
+## 2026-07-04T09:00:00Z — continuation (Phase 3+4 in the same PR)
+- User reviewed Phases 1+2 and approved the pattern; asked to continue Phase 3 (remaining 14 skills) + Phase 4 (guards/docs) in THIS PR rather than a follow-up.
+- Re-entered a fresh worktree from fork/feat/agentic-skills-restructure-phase1-2 (HEAD 67f06cc6f); extended PLAN Tasks with 3.1–3.14 + 4.1–4.2.
+- All 14 remaining skills exceed the 60-line budget (73–858); none has STANDALONE.md, so plain thin-SKILL + instructions/workflow, keeping existing references/.

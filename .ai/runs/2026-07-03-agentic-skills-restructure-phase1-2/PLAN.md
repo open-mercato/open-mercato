@@ -1,8 +1,10 @@
-# Execution Plan — Agentic Skills Restructure (Phases 1+2)
+# Execution Plan — Agentic Skills Restructure (all 21 skills)
 
 **Run:** 2026-07-03-agentic-skills-restructure-phase1-2
 **Source spec:** `.ai/specs/2026-06-27-create-app-agentic-skills-restructure.md`
-**Scope of this PR:** Spec Phases **1 (plumbing)** and **2 (the 7 STANDALONE-owning skills)** only. Spec Phase 3 (remaining 14 skills) and Phase 4 (conformance guards for the full set) are a follow-up PR via `om-auto-continue-pr-loop` after review of the pattern set here.
+**Scope of this PR:** All four spec phases. Phase 1 (plumbing) + Phase 2 (the 7 STANDALONE-owning skills) landed and were reviewed; the same PR is now extended with **Phase 3** (the remaining 14 skills) and **Phase 4** (extend the conformance guard to the full set + docs/RELEASE_NOTES). This delivers spec decision D4 (all 21 in one pass) as a single PR.
+
+**Phase 3 note:** these 14 skills have **no** `STANDALONE.md` and are not PR/base-branch skills, so no `references/environment.md` and no STANDALONE deletion. Each is thinned to a `SKILL.md` router (≤60 lines, frontmatter `description` verbatim) + `instructions.md` (single-flow) or `workflow/step-N-*.md` (multi-step), keeping any existing `references/`.
 
 ## Tasks
 
@@ -25,6 +27,22 @@
 | 2 | 2.7 | Restructure `om-integration-builder` | done | 1658eea78 |
 | 2 | 2.8 | Flip overlays→no-STANDALONE guard + conformance/no-stale-dist/placeholder guards | done | 362a04eda |
 | 2 | 2.9-review-fix | Sync CLI `agentic:init` (packages/cli) to recursive copy + config write (auto-review finding) | done | fed613b4a |
+| 3 | 3.1 | Restructure `om-trim-unused-modules` (73→thin + instructions) | todo | — |
+| 3 | 3.2 | Restructure `om-spec-writing` (85, keep references/) | todo | — |
+| 3 | 3.3 | Restructure `om-help` (107, keep references/) | todo | — |
+| 3 | 3.4 | Restructure `om-code-review` (108, keep references/) | todo | — |
+| 3 | 3.5 | Restructure `om-implement-spec` (166) | todo | — |
+| 3 | 3.6 | Restructure `om-auto-upgrade-0.4.10-to-0.5.0` (174) | todo | — |
+| 3 | 3.7 | Restructure `om-prepare-issue` (202) | todo | — |
+| 3 | 3.8 | Restructure `om-backend-ui-design` (251, keep references/) | todo | — |
+| 3 | 3.9 | Restructure `om-integration-tests` (279) | todo | — |
+| 3 | 3.10 | Restructure `om-eject-and-customize` (320) | todo | — |
+| 3 | 3.11 | Restructure `om-troubleshooter` (478, keep references/) | todo | — |
+| 3 | 3.12 | Restructure `om-data-model-design` (611, keep references/) | todo | — |
+| 3 | 3.13 | Restructure `om-module-scaffold` (834, keep references/) | todo | — |
+| 3 | 3.14 | Restructure `om-system-extension` (858, keep references/) | todo | — |
+| 4 | 4.1 | Extend conformance guard to all 21 restructured skills | todo | — |
+| 4 | 4.2 | Docs: create-app/AGENTS.md sync + RELEASE_NOTES.md entry; update PR title/body | todo | — |
 
 ## Goal
 
