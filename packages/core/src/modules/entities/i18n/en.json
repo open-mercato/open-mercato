@@ -118,6 +118,7 @@
   "entities.customFields.editor.unassignedFields": "Unassigned fields",
   "entities.customFields.editor.unitsOptional": "Units (optional)",
   "entities.customFields.editor.unitsPlaceholder": "kg, cm, etc.",
+  "entities.customFields.editor.validationRules": "Validation rules",
   "entities.customFields.editor.value": "Value",
   "entities.customFields.editor.valueRequired": "Value is required",
   "entities.customFields.empty": "No custom attributes specified yet.",

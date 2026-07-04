@@ -118,6 +118,7 @@
   "entities.customFields.editor.unassignedFields": "Pola nieprzypisane",
   "entities.customFields.editor.unitsOptional": "Jednostki (opcjonalnie)",
   "entities.customFields.editor.unitsPlaceholder": "kg, cm itp.",
+  "entities.customFields.editor.validationRules": "Reguły walidacji",
   "entities.customFields.editor.value": "Wartość",
   "entities.customFields.editor.valueRequired": "Wartość jest wymagana",
   "entities.customFields.empty": "Brak zdefiniowanych atrybutów niestandardowych.",
