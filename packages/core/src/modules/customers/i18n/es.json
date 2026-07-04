@@ -237,6 +237,8 @@
   "customers.calendar.editor.participants": "Participantes",
   "customers.calendar.editor.phoneLink": "Teléfono / enlace",
   "customers.calendar.editor.phoneLinkPlaceholder": "Añadir un teléfono o enlace…",
+  "customers.calendar.editor.phonePicker.none": "Los contactos vinculados no tienen número de teléfono",
+  "customers.calendar.editor.phonePicker.trigger": "Insertar teléfono del contacto",
   "customers.calendar.editor.priority.high": "Alta",
   "customers.calendar.editor.priority.label": "Prioridad",
   "customers.calendar.editor.priority.low": "Baja",

@@ -163,6 +163,18 @@ function EditorBody({
     [typeOptions],
   )
 
+  // Candidates for the Call "insert phone from contact" button: the linked
+  // person (companies have no phone) + customer attendees. Their userId is the
+  // person id, so the picker can resolve primary_phone from the people API.
+  const phoneContactIds = React.useMemo(() => {
+    const ids: string[] = []
+    if (form.relatedTo && form.relatedTo.kind !== 'company') ids.push(form.relatedTo.id)
+    for (const participant of form.participants) {
+      if (participant.isCustomer) ids.push(participant.userId)
+    }
+    return Array.from(new Set(ids))
+  }, [form.relatedTo, form.participants])
+
   const titleLabel = form.kind === 'email'
     ? t('customers.calendar.editor.titleLabel.email', 'Subject')
     : form.kind === 'note'
@@ -292,7 +304,12 @@ function EditorBody({
         />
       </Field>
       {config.location ? (
-        <LocationField variant={config.location} value={form.location} onChange={(location) => update({ location })} />
+        <LocationField
+          variant={config.location}
+          value={form.location}
+          onChange={(location) => update({ location })}
+          phoneContactIds={phoneContactIds}
+        />
       ) : null}
       {resourcesEnabled ? (
         <Field label={t('customers.calendar.editor.resources', 'Resources')}>

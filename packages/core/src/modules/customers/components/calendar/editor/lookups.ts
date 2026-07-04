@@ -180,6 +180,36 @@ export async function searchResourceOptions(query: string, signal: AbortSignal):
     .filter((option): option is ResourceOption => option !== null)
 }
 
+export type ContactPhone = { id: string; name: string; phone: string }
+
+// Resolves primary phone numbers for the given person ids (companies/staff have
+// none and simply drop out — the people query only matches people). Used by the
+// Call editor's "insert phone from contact" button (#3552).
+export async function fetchPeoplePhones(ids: string[], signal: AbortSignal): Promise<ContactPhone[]> {
+  const unique = Array.from(new Set(ids.filter((id) => typeof id === 'string' && id.length > 0)))
+  if (unique.length === 0) return []
+  const params = new URLSearchParams({ page: '1', pageSize: '100', ids: unique.join(',') })
+  try {
+    const data = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+      `/api/customers/people?${params.toString()}`,
+      { signal },
+    )
+    const items = Array.isArray(data?.items) ? data.items : []
+    const result: ContactPhone[] = []
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue
+      const id = typeof item.id === 'string' ? item.id : null
+      const phone = readNonEmptyString(item.primaryPhone) ?? readNonEmptyString(item.primary_phone)
+      if (!id || !phone) continue
+      const name = readNonEmptyString(item.displayName) ?? readNonEmptyString(item.display_name) ?? id
+      result.push({ id, name, phone })
+    }
+    return result
+  } catch {
+    return []
+  }
+}
+
 export async function findStaffMemberName(userId: string, signal: AbortSignal): Promise<string | null> {
   try {
     const members = await fetchAssignableStaffMembers('', { pageSize: 100, signal })
