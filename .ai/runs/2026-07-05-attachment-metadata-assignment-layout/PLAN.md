@@ -11,8 +11,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 1 | 1.1 | Add assignment layout regression coverage | done | 0467df1f0 |
-| 1 | 1.2 | Contain assignment row layout and accessible remove action | done | pending |
+| 1 | 1.1 | Add assignment layout regression coverage | done | 8cf9f9b1e |
+| 1 | 1.2 | Contain assignment row layout and accessible remove action | done | e90bd6af3 |
 
 ## Goal
 
@@ -43,6 +43,13 @@ Fix the shared `AttachmentMetadataDialog` assignment editor so long assignment v
 - Class-based layout assertions can become brittle if a future refactor preserves behavior with different classes. The tests will assert only the required contract: old track absent, bounded tracks present, shrink classes present, and accessible remove action present.
 - `IconButton` may alter the remove action's exact dimensions. Use the DS-recommended size that preserves the existing row rhythm.
 - jsdom cannot measure real pixel overflow. The test protects the class contract; checkpoint/final documentation will call out browser smoke status separately.
+
+## Final Gate Blockers
+
+- `yarn template:sync` fails on pre-existing template drift: 25 synced-template files and 5 package dependency entries differ between app source and `packages/create-app/template`. This run does not touch those files, and syncing them would be a broad unrelated change.
+- `yarn test` fails in `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts` because the template API dispatcher is no longer byte-identical to the monorepo dispatcher. This branch has no changes under `packages/create-app`, `apps/mercato`, `packages/core`, or `packages/shared`.
+- `yarn test:integration` is blocked by the local Playwright browser cache missing Chromium (`chromium_headless_shell-1228`) and by unrelated example/API integration failures. The run was interrupted after the global failures were clear.
+- `yarn test:create-app:integration` was not run because this UI-only change does not touch app template/package surfaces and the final gate is already blocked by the create-app/template parity failures above.
 
 ## Implementation Plan
 

@@ -1,24 +1,31 @@
 # Handoff - attachment-metadata-assignment-layout
 
-**Last updated:** 2026-07-05T16:43:36Z
+**Last updated:** 2026-07-05T17:13:35Z
 **Branch:** fix/attachment-metadata-assignment-layout
 **PR:** not yet opened
-**Current phase/step:** Phase 1 Step 1.1
-**Last commit:** none - run setup in progress
+**Current phase/step:** final gate blocked
+**Last implementation commit:** e90bd6af3 fix(ui): contain attachment assignment row layout
 
 ## What just happened
-- Classified the invocation as a spec-implementation run because it references a `.ai/specs/` file.
-- Created an isolated worktree from `origin/develop` for the implementation branch.
+- Copied the source spec into `.ai/specs/` on the implementation branch and created the resumable run folder.
+- Added focused regression coverage for long assignment values in `AttachmentMetadataDialog`.
+- Updated the assignment row layout to use bounded `minmax(0, ...)` grid tracks, `min-w-0` shrink hooks, full-width inputs, and an accessible DS `IconButton` remove action.
+- Focused UI test, UI package build, package build/generate/typecheck/i18n/build app checks passed.
+- Final gate is blocked by unrelated template parity/unit-test drift and local integration environment failures recorded in `final-gate-checks.md`.
 
 ## Next concrete action
-- Commit the run folder and copied source spec, then start Step 1.1 by adding the focused regression test.
+- Resolve or explicitly accept the create-app/template parity drift, then rerun `yarn template:sync` and `yarn test`.
+- Install the local Playwright browser cache with `yarn playwright install` or run integration in an environment that already has browsers, then rerun `yarn test:integration`.
+- Resume from this branch/PR and rerun the final gate before review/merge routing.
 
 ## Blockers / open questions
-- none
+- `yarn template:sync` reports 25 template file drifts and 5 dependency drifts unrelated to this UI change.
+- `yarn test` fails in `packages/create-app/src/lib/template-api-dispatcher-require-roles.test.ts` on template dispatcher byte parity.
+- `yarn test:integration` cannot complete locally because Playwright Chromium is missing, and the suite also reports unrelated example/API failures.
 
 ## Environment caveats
-- Dev runtime runnable: unknown
-- Playwright / browser checks: conditional; will be skipped with a recorded reason if no fixture/dev runtime is available
+- Dev runtime runnable: not started; this change was verified with focused jsdom tests and package/app builds.
+- Playwright / browser checks: blocked by missing local browser cache.
 - Database/migration state: clean; no migrations expected
 
 ## Worktree
