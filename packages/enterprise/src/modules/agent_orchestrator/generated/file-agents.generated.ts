@@ -30,6 +30,16 @@ export type FileAgentSkillContent = {
   scripts?: FileAgentScript[]
 }
 
+export type FileAgentFact = {
+  /** Human label shown in the Caseload facts grid. */
+  label: string
+  /** Where to resolve the value: run input, proposal payload, or run output. */
+  source: 'input' | 'payload' | 'output'
+  /** Dot-path into the source (array indexes allowed), e.g. "actions.0.payload.amount". */
+  path: string
+  format?: 'text' | 'number' | 'boolean' | 'percent'
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -57,6 +67,12 @@ export type FileAgentDescriptor = {
    * from `agents/<id>/SAMPLE.json`. Any JSON value the agent accepts as input.
    */
   sampleInput?: unknown
+  /**
+   * Optional fact declarations for the Caseload decision panel, read from
+   * `agents/<id>/FACTS.json`. Each maps a labelled dot-path into the run
+   * input / proposal payload / run output.
+   */
+  facts?: FileAgentFact[]
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [

@@ -12,11 +12,20 @@ export type ProposalView = {
   stepId: string | null
   payload: unknown
   confidence: number | null
+  /** `payload.rationale` when the persisted proposal payload carries one. */
+  rationale: string | null
+  /** Guardrail verdict checks attached at proposal creation (`guard_results`). */
+  guardResults: GuardCheckView[]
   disposition: string
   dispositionBy: string | null
   dispositionReason: string | null
   createdAt: string | null
   updatedAt: string | null
+}
+
+export type GuardCheckView = {
+  kind: string
+  result: string
 }
 
 export type RunView = {
@@ -100,6 +109,15 @@ export type AgentView = {
   skills: string[]
   /** Optional example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
+  /** Optional declared Caseload facts (from the agent's FACTS.json / defineAgent). */
+  facts?: AgentFactView[]
+}
+
+export type AgentFactView = {
+  label: string
+  source: 'input' | 'payload' | 'output'
+  path: string
+  format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
 export type SkillDetailView = {
@@ -135,6 +153,26 @@ function asNumber(value: unknown): number | null {
   return null
 }
 
+function extractRationale(payload: unknown): string | null {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null
+  const rationale = (payload as Record<string, unknown>).rationale
+  return typeof rationale === 'string' && rationale.trim() ? rationale : null
+}
+
+function mapGuardResults(raw: unknown): GuardCheckView[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .map((entry): GuardCheckView | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const check = entry as Record<string, unknown>
+      const kind = asString(check.kind)
+      const result = asString(check.result)
+      if (!kind || !result) return null
+      return { kind, result }
+    })
+    .filter((check): check is GuardCheckView => !!check)
+}
+
 export function mapProposal(item: Record<string, unknown>): ProposalView | null {
   const id = asString(item.id)
   const agentId = asString(item.agent_id) ?? asString(item.agentId)
@@ -148,6 +186,8 @@ export function mapProposal(item: Record<string, unknown>): ProposalView | null 
     stepId: asString(item.step_id) ?? asString(item.stepId),
     payload: item.payload ?? null,
     confidence: asNumber(item.confidence),
+    rationale: extractRationale(item.payload),
+    guardResults: mapGuardResults(item.guard_results ?? item.guardResults),
     disposition: asString(item.disposition) ?? 'pending',
     dispositionBy: asString(item.disposition_by) ?? asString(item.dispositionBy),
     dispositionReason: asString(item.disposition_reason) ?? asString(item.dispositionReason),
@@ -268,7 +308,32 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
     sampleInput: item.sampleInput,
+    facts: mapAgentFacts(item.facts),
   }
+}
+
+function mapAgentFacts(raw: unknown): AgentFactView[] | undefined {
+  if (!Array.isArray(raw)) return undefined
+  const facts = raw
+    .map((entry): AgentFactView | null => {
+      if (!entry || typeof entry !== 'object') return null
+      const fact = entry as Record<string, unknown>
+      const label = asString(fact.label)
+      const path = asString(fact.path)
+      const source = asString(fact.source)
+      if (!label || !path || (source !== 'input' && source !== 'payload' && source !== 'output')) return null
+      const format = asString(fact.format)
+      return {
+        label,
+        source,
+        path,
+        ...(format === 'text' || format === 'number' || format === 'boolean' || format === 'percent'
+          ? { format }
+          : {}),
+      }
+    })
+    .filter((fact): fact is AgentFactView => !!fact)
+  return facts.length > 0 ? facts : undefined
 }
 
 export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView | null {
