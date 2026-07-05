@@ -66,7 +66,10 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
     if (mod.workers) {
-      allWorkers.push(...mod.workers)
+      allWorkers.push(...mod.workers.map((worker) => ({
+        ...worker,
+        moduleId: worker.moduleId ?? mod.id,
+      })))
     }
   }
   return allWorkers
