@@ -602,11 +602,35 @@ export async function withModuleResourceUsage<T>(
   const startNs = nowNs()
   const startCpu = process.cpuUsage()
   const startMemory = safeMemoryUsage()
+  // Recording must never override the wrapped call's real outcome: `fn()` is awaited in its own
+  // try/catch, and the bookkeeping below always runs in a try/catch of its own so a bug in the
+  // telemetry path can only be lost silently, never surface as a fake success/failure for `fn()`.
+  let result: T
   try {
-    const result = await Promise.resolve(fn())
+    result = await Promise.resolve(fn())
+  } catch (error) {
+    state.activeCalls.delete(token)
+    try {
+      const cpu = process.cpuUsage(startCpu)
+      const endMemory = safeMemoryUsage()
+      recordModuleResourceUsage(input, {
+        durationMs: durationMs(startNs),
+        cpuUserMicros: cpu.user,
+        cpuSystemMicros: cpu.system,
+        heapDeltaBytes: endMemory && startMemory ? endMemory.heapUsed - startMemory.heapUsed : 0,
+        rssDeltaBytes: endMemory && startMemory ? endMemory.rss - startMemory.rss : 0,
+        status: 'error',
+        concurrentTainted: token.tainted,
+      })
+    } catch {
+      // Telemetry bookkeeping is diagnostic only; never mask the real error from the wrapped call.
+    }
+    throw error
+  }
+  state.activeCalls.delete(token)
+  try {
     const cpu = process.cpuUsage(startCpu)
     const endMemory = safeMemoryUsage()
-    state.activeCalls.delete(token)
     recordModuleResourceUsage(input, {
       durationMs: durationMs(startNs),
       cpuUserMicros: cpu.user,
@@ -616,22 +640,10 @@ export async function withModuleResourceUsage<T>(
       status: 'ok',
       concurrentTainted: token.tainted,
     })
-    return result
-  } catch (error) {
-    const cpu = process.cpuUsage(startCpu)
-    const endMemory = safeMemoryUsage()
-    state.activeCalls.delete(token)
-    recordModuleResourceUsage(input, {
-      durationMs: durationMs(startNs),
-      cpuUserMicros: cpu.user,
-      cpuSystemMicros: cpu.system,
-      heapDeltaBytes: endMemory && startMemory ? endMemory.heapUsed - startMemory.heapUsed : 0,
-      rssDeltaBytes: endMemory && startMemory ? endMemory.rss - startMemory.rss : 0,
-      status: 'error',
-      concurrentTainted: token.tainted,
-    })
-    throw error
+  } catch {
+    // Telemetry bookkeeping is diagnostic only; never mask the real result from the wrapped call.
   }
+  return result
 }
 
 function percentile(values: number[], p: number): number {
@@ -842,6 +854,15 @@ function isFreshSnapshot(payload: SnapshotPayload): boolean {
 // readSnapshotBuckets used to each force a flush and independently re-scan/re-parse the whole
 // directory; callers now do that single scan once (see getModuleResourceUsageReport) and pass
 // the result to both.
+// Restarts/redeploys/autoscaling leave one snapshot file behind per historical process. Prune
+// stale ones opportunistically here (best-effort, never blocks the read) so the directory doesn't
+// grow without bound in a long-running deployment.
+function pruneStaleSnapshotFile(filePath: string): void {
+  fs.promises.unlink(filePath).catch(() => {
+    // Snapshot files are diagnostic only; leave it for a later pass if it can't be removed now.
+  })
+}
+
 function readSnapshotPayloads(): SnapshotPayload[] {
   if (!isSnapshotEnabled()) return []
   const dir = getSnapshotDir()
@@ -849,10 +870,14 @@ function readSnapshotPayloads(): SnapshotPayload[] {
   const payloads: SnapshotPayload[] = []
   for (const file of fs.readdirSync(dir)) {
     if (!file.endsWith('.json')) continue
+    const filePath = path.join(dir, file)
     try {
-      const payload = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf8')) as SnapshotPayload
+      const payload = JSON.parse(fs.readFileSync(filePath, 'utf8')) as SnapshotPayload
       if (payload.pid === process.pid) continue
-      if (!isFreshSnapshot(payload)) continue
+      if (!isFreshSnapshot(payload)) {
+        pruneStaleSnapshotFile(filePath)
+        continue
+      }
       payloads.push(payload)
     } catch {
       // Ignore malformed or concurrently-written snapshots.

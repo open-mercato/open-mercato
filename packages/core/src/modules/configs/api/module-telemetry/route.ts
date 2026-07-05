@@ -15,7 +15,7 @@ import {
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.system_status.view'] },
   // Clearing telemetry shouldn't itself perturb the very telemetry it just cleared.
-  DELETE: { requireAuth: true, requireFeatures: ['configs.system_status.view'], skipModuleResourceUsageTracking: true },
+  DELETE: { requireAuth: true, requireFeatures: ['configs.manage'], skipModuleResourceUsageTracking: true },
 } as const
 
 function canClearModuleTelemetry(): boolean {
