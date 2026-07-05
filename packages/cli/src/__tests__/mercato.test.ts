@@ -852,6 +852,12 @@ describe('server dev managed process exits', () => {
     expect(supervisorCall.spawnMode).toBe('shared')
     expect(supervisorClose).toHaveBeenCalled()
 
+    const lazyLogLine = consoleLogSpy.mock.calls
+      .map((call) => call[0])
+      .find((line) => typeof line === 'string' && line.startsWith('[server] Lazy worker auto-spawn enabled'))
+    expect(lazyLogLine).toContain('shared worker mode')
+    expect(lazyLogLine).toContain('OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue')
+
     const { spawn } = await import('child_process')
     const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])
     const queueWorkerSpawn = allSpawnCalls.find((args) => args.slice(1).join(' ') === 'queue worker --all')
