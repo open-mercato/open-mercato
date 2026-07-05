@@ -489,6 +489,17 @@ jobs:
         # Turbo never picks up root-level scripts — run explicitly.
         run: yarn test:scripts
 
+      - name: Check create-app template parity (always, unfiltered)
+        # The create-app package guards byte-parity between the monorepo app shell
+        # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
+        # Those guards read files across BOTH trees, but the turbo-scoped "Test" step
+        # above uses --filter=[base]... which selects packages by the dependency graph
+        # and never pulls in create-mercato-app when only apps/mercato changes — so on
+        # PRs the parity tests can silently skip while the post-merge push build (full,
+        # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
+        # suite unconditionally here so template drift fails the PR, not develop.
+        run: yarn workspace create-mercato-app test
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
