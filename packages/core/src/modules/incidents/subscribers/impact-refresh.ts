@@ -1,3 +1,4 @@
+import { incidentFind } from '../lib/read'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -62,7 +63,7 @@ export default async function handle(payload: SalesOrderUpdatedPayload, ctx: Res
   const em = ctx.resolve<EntityManager>('em').fork()
 
   try {
-    const impacts = await em.find(IncidentImpact, {
+    const impacts = await incidentFind(em, IncidentImpact, {
       ...scope,
       targetType: TARGET_TYPE,
       targetId: orderId,
@@ -71,7 +72,7 @@ export default async function handle(payload: SalesOrderUpdatedPayload, ctx: Res
     if (impacts.length === 0) return
 
     const incidentIds = Array.from(new Set(impacts.map((impact) => impact.incidentId)))
-    const incidents = await em.find(Incident, {
+    const incidents = await incidentFind(em, Incident, {
       id: { $in: incidentIds },
       ...scope,
       status: { $nin: ['resolved', 'closed'] },
@@ -85,7 +86,7 @@ export default async function handle(payload: SalesOrderUpdatedPayload, ctx: Res
         const refreshedAt = new Date()
         await withAtomicFlush(em, [
           async () => {
-            const activeImpacts = await em.find(IncidentImpact, {
+            const activeImpacts = await incidentFind(em, IncidentImpact, {
               incidentId: incident.id,
               ...scope,
               deletedAt: null,

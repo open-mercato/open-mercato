@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AwilixContainer } from 'awilix'
@@ -169,7 +170,7 @@ async function resolveSeverity(
   severityKey: string | null | undefined,
 ): Promise<IncidentSeverity | null> {
   if (severityKey) {
-    const configured = await em.findOne(IncidentSeverity, {
+    const configured = await incidentFindOne(em, IncidentSeverity, {
       ...scope,
       key: severityKey,
       deletedAt: null,
@@ -178,8 +179,8 @@ async function resolveSeverity(
     if (configured) return configured
   }
   return (
-    await em.findOne(IncidentSeverity, { ...scope, isDefault: true, deletedAt: null, isActive: true }) ??
-    await em.findOne(IncidentSeverity, { ...scope, deletedAt: null, isActive: true }, { orderBy: { rank: 'asc' } })
+    await incidentFindOne(em, IncidentSeverity, { ...scope, isDefault: true, deletedAt: null, isActive: true }) ??
+    await incidentFindOne(em, IncidentSeverity, { ...scope, deletedAt: null, isActive: true }, { orderBy: { rank: 'asc' } })
   )
 }
 
@@ -189,7 +190,7 @@ async function resolveIncidentType(
   typeKey: string | null | undefined,
 ): Promise<IncidentType | null> {
   if (typeKey) {
-    const configured = await em.findOne(IncidentType, {
+    const configured = await incidentFindOne(em, IncidentType, {
       ...scope,
       key: typeKey,
       deletedAt: null,
@@ -198,8 +199,8 @@ async function resolveIncidentType(
     if (configured) return configured
   }
   return (
-    await em.findOne(IncidentType, { ...scope, isDefault: true, deletedAt: null, isActive: true }) ??
-    await em.findOne(IncidentType, { ...scope, deletedAt: null, isActive: true }, { orderBy: { key: 'asc' } })
+    await incidentFindOne(em, IncidentType, { ...scope, isDefault: true, deletedAt: null, isActive: true }) ??
+    await incidentFindOne(em, IncidentType, { ...scope, deletedAt: null, isActive: true }, { orderBy: { key: 'asc' } })
   )
 }
 
@@ -209,7 +210,7 @@ async function resolveEscalationPolicyId(
   trigger: IncidentTrigger,
 ): Promise<string | null> {
   if (trigger.escalationPolicyId) {
-    const configured = await em.findOne(IncidentEscalationPolicy, {
+    const configured = await incidentFindOne(em, IncidentEscalationPolicy, {
       id: trigger.escalationPolicyId,
       ...scope,
       deletedAt: null,
@@ -251,7 +252,7 @@ async function dispatchIncidentCreate(
   input: IncidentCreateInput,
 ): Promise<IncidentCommandResult | null> {
   const { result } = await commandBus.execute<IncidentCreateInput, IncidentCommandResult>(
-    'incidents.incidents.create',
+    'incidents.incident.create',
     { input, ctx: commandContext },
   )
   return result ?? null
@@ -332,7 +333,7 @@ export default async function handle(
   let commandContext: CommandRuntimeContext
   try {
     em = forkIncidentEntityManager(resolver.resolve<EntityManager>('em'))
-    triggers = await em.find(IncidentTrigger, {
+    triggers = await incidentFind(em, IncidentTrigger, {
       ...scope,
       eventId,
       isEnabled: true,

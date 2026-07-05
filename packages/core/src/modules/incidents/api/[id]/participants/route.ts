@@ -1,3 +1,4 @@
+import { incidentFind } from '../../../lib/read'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -90,9 +91,9 @@ type RequestContext = {
 type ParticipantCommandInput = ParticipantAddInput | ParticipantUpdateInput | ParticipantRemoveInput
 
 type ParticipantCommandId =
-  | 'incidents.participants.add'
-  | 'incidents.participants.update_role'
-  | 'incidents.participants.remove'
+  | 'incidents.participant.add'
+  | 'incidents.participant.update_role'
+  | 'incidents.participant.remove'
 
 type ParticipantCommandResult = {
   participantId: string
@@ -345,7 +346,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
 
-    const participants = await em.find(
+    const participants = await incidentFind(em,
       IncidentParticipant,
       { incidentId: input.id, ...scope, deletedAt: null },
       { orderBy: { createdAt: 'asc' } },
@@ -366,7 +367,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
   return handleParticipantCommand(req, params, {
-    commandId: 'incidents.participants.add',
+    commandId: 'incidents.participant.add',
     schema: participantAddSchema,
     operation: 'update',
   })

@@ -113,7 +113,7 @@ function buildMockEm(state: MockState = {}) {
 function buildCommandBus(): MockCommandBus {
   return {
     execute: jest.fn(async (commandId: string) => {
-      if (commandId === 'incidents.incidents.create') return { result: { incidentId: INCIDENT_ID } }
+      if (commandId === 'incidents.incident.create') return { result: { incidentId: INCIDENT_ID } }
       return { result: { incidentId: INCIDENT_ID } }
     }),
   }
@@ -138,7 +138,7 @@ function scopedPayload(overrides: Record<string, unknown> = {}): Record<string, 
 }
 
 function getCreateInput(commandBus: MockCommandBus): IncidentCreateInput {
-  const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'incidents.incidents.create')
+  const call = commandBus.execute.mock.calls.find(([commandId]) => commandId === 'incidents.incident.create')
   if (!call) throw new Error('[internal] create command was not called')
   return call[1].input as IncidentCreateInput
 }
@@ -178,7 +178,7 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
       eventId: expected,
       isEnabled: true,
       deletedAt: null,
-    }))
+    }), undefined)
     expect(getCreateInput(commandBus).sourceEventRef).toBe(`${expected}:product-1`)
   })
 
@@ -219,7 +219,10 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
       '[incidents:auto-incident-dispatch] trigger dispatch failed',
       expect.objectContaining({ eventId: EVENT_ID }),
     )
-    expect(warnSpy).not.toHaveBeenCalled()
+    expect(warnSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining('[incidents:auto-incident-dispatch]'),
+      expect.anything(),
+    )
   })
 
   it('skips internal prefixes and excludeFromTriggers events before resolving dependencies', async () => {
@@ -351,7 +354,7 @@ describe('incidents wildcard auto-incident dispatch subscriber', () => {
     expect(createInput.incidentTypeId).toBe(TYPE_SECURITY_ID)
     expect(createInput.escalationPolicyId).toBe(POLICY_ID)
     expect(commandBus.execute).not.toHaveBeenCalledWith(
-      'incidents.incidents.update',
+      'incidents.incident.update',
       expect.anything(),
     )
   })

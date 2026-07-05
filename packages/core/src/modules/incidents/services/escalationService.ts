@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
@@ -73,7 +74,7 @@ async function findActivePolicy(
   policyId: string | null | undefined,
 ): Promise<IncidentEscalationPolicy | null> {
   if (!policyId) return null
-  const policy = await em.findOne(IncidentEscalationPolicy, {
+  const policy = await incidentFindOne(em, IncidentEscalationPolicy, {
     id: policyId,
     ...scope,
     isActive: true,
@@ -226,7 +227,7 @@ export async function resolveStepRecipients(
     }
 
     if (target.type === 'role') {
-      const participants = await em.find(IncidentParticipant, {
+      const participants = await incidentFind(em, IncidentParticipant, {
         incidentId: incident.id,
         roleId: target.id,
         ...scope,
@@ -280,12 +281,12 @@ export async function resolveDefaultPolicyId(
 ): Promise<string | null> {
   let candidatePolicyId: string | null = null
   if (incidentTypeId) {
-    const type = await em.findOne(IncidentType, { id: incidentTypeId, ...scope, deletedAt: null })
+    const type = await incidentFindOne(em, IncidentType, { id: incidentTypeId, ...scope, deletedAt: null })
     candidatePolicyId = type?.defaultEscalationPolicyId ?? null
   }
 
   if (!candidatePolicyId) {
-    const settings = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
+    const settings = await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
     candidatePolicyId = settings?.defaultEscalationPolicyId ?? null
   }
 

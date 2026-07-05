@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -201,7 +202,7 @@ async function requireSeverityInScope(
   severityId: string,
   scope: IncidentScope,
 ): Promise<void> {
-  const severity = await em.findOne(IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
+  const severity = await incidentFindOne(em, IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
   if (!severity) throw new CrudHttpError(400, { error: 'Incident severity not found' })
 }
 
@@ -211,7 +212,7 @@ async function requireTypeInScope(
   scope: IncidentScope,
 ): Promise<void> {
   if (!incidentTypeId) return
-  const type = await em.findOne(IncidentType, { id: incidentTypeId, ...scope, deletedAt: null })
+  const type = await incidentFindOne(em, IncidentType, { id: incidentTypeId, ...scope, deletedAt: null })
   if (!type) throw new CrudHttpError(400, { error: 'Incident type not found' })
 }
 
@@ -404,7 +405,7 @@ async function emitPendingEscalationEvents(events: escalationService.PendingEsca
 }
 
 const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommandResult> = {
-  id: 'incidents.incidents.create',
+  id: 'incidents.incident.create',
   async execute(rawInput, ctx) {
     const parsed = incidentCreateSchema.parse(rawInput)
     const scope = resolveCommandScope(ctx, parsed)
@@ -412,7 +413,7 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
     await requireSeverityInScope(em, parsed.severityId, scope)
     await requireTypeInScope(em, parsed.incidentTypeId, scope)
 
-    const settings = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
+    const settings = await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
     const numberFormat = settings?.numberFormat ?? DEFAULT_NUMBER_FORMAT
     const numberGenerator = ctx.container.resolve('incidentNumberGenerator') as IncidentNumberGenerator
     const number = await numberGenerator.allocate(scope, numberFormat)
@@ -545,7 +546,7 @@ const createIncidentCommand: CommandHandler<IncidentCreateInput, IncidentCommand
 }
 
 const updateIncidentCommand: CommandHandler<IncidentUpdateInput, IncidentCommandResult> = {
-  id: 'incidents.incidents.update',
+  id: 'incidents.incident.update',
   async prepare(rawInput, ctx) {
     const parsed = incidentUpdateSchema.parse(rawInput)
     const scope = resolveCommandScope(ctx, parsed)
@@ -663,7 +664,7 @@ const updateIncidentCommand: CommandHandler<IncidentUpdateInput, IncidentCommand
 }
 
 const deleteIncidentCommand: CommandHandler<IncidentDeleteInput, IncidentCommandResult> = {
-  id: 'incidents.incidents.delete',
+  id: 'incidents.incident.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Incident id is required')
     const scope = resolveCommandScope(ctx, input)

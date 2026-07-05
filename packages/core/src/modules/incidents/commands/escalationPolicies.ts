@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -104,7 +105,7 @@ async function ensureUniqueEscalationPolicyKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentEscalationPolicy, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentEscalationPolicy, { ...scope, key, deletedAt: null })
   assertUniqueConfigKey(existing?.id ?? null, excludeId)
 }
 
@@ -150,7 +151,7 @@ async function loadEscalationPolicySnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<EscalationPolicySnapshot | null> {
-  const record = await em.findOne(IncidentEscalationPolicy, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
+  const record = await incidentFindOne(em, IncidentEscalationPolicy, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,
@@ -206,7 +207,7 @@ function createEscalationPolicyFromSnapshot(
 }
 
 const createEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyCreateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_escalation_policies.create',
+  id: 'incidents.escalation_policy.create',
   async execute(input, ctx) {
     const parsed = escalationPolicyCreateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -257,7 +258,7 @@ const createEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyCrea
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentEscalationPolicy, { id: after.id, ...scope })
+    const record = await incidentFindOne(em, IncidentEscalationPolicy, { id: after.id, ...scope })
     if (!record) return
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -275,7 +276,7 @@ const createEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyCrea
 }
 
 const updateEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_escalation_policies.update',
+  id: 'incidents.escalation_policy.update',
   async prepare(input, ctx) {
     const parsed = escalationPolicyUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -287,7 +288,7 @@ const updateEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyUpda
     const parsed = escalationPolicyUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentEscalationPolicy, { id: parsed.id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentEscalationPolicy, { id: parsed.id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident escalation policy not found' })
     if (parsed.key !== undefined && parsed.key !== record.key) {
       await ensureUniqueEscalationPolicyKey(em, scope, parsed.key, record.id)
@@ -331,7 +332,7 @@ const updateEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyUpda
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentEscalationPolicy, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentEscalationPolicy, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createEscalationPolicyFromSnapshot(em, before)
@@ -344,7 +345,7 @@ const updateEscalationPolicyCommand: CommandHandler<IncidentEscalationPolicyUpda
 }
 
 const deleteEscalationPolicyCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.incident_escalation_policies.delete',
+  id: 'incidents.escalation_policy.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Incident escalation policy id is required')
     const scope = resolveCommandScope(ctx, input)
@@ -356,7 +357,7 @@ const deleteEscalationPolicyCommand: CommandHandler<ConfigDeleteInput, ConfigCom
     const id = requireId(input, 'Incident escalation policy id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentEscalationPolicy, { id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentEscalationPolicy, { id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident escalation policy not found' })
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -385,7 +386,7 @@ const deleteEscalationPolicyCommand: CommandHandler<ConfigDeleteInput, ConfigCom
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentEscalationPolicy, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentEscalationPolicy, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createEscalationPolicyFromSnapshot(em, before)

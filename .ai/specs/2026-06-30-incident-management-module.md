@@ -162,7 +162,7 @@ subscribers/auto-incident-dispatch.ts   (metadata: { event: '*', persistent: tru
   7. per trigger: evaluate `conditions` (AND of scalar equality predicates over
      dot-paths into the payload, e.g. [{ path: 'reauthRequired', equals: true }]);
      any predicate false/unresolvable ⇒ skip this trigger
-  8. dispatch the create command (`incidents.incidents.create`, commands/incident.ts)
+  8. dispatch the create command (`incidents.incident.create`, commands/incident.ts)
      with severity/type/policy from the trigger row (fallback to catalog defaults;
      escalationPolicyId omitted when the trigger has none so type/settings defaults
      resolve) and source_event_ref computed deterministically:

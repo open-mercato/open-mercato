@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import {
   registerCommand,
   type CommandHandler,
@@ -118,7 +119,7 @@ async function loadActionItemSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<ActionItemSnapshot | null> {
-  const actionItem = await em.findOne(IncidentActionItem, {
+  const actionItem = await incidentFindOne(em, IncidentActionItem, {
     id,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -188,7 +189,7 @@ async function loadActiveActionItem(
   incidentId: string,
   scope: IncidentScope,
 ): Promise<IncidentActionItem> {
-  const actionItem = await em.findOne(IncidentActionItem, {
+  const actionItem = await incidentFindOne(em, IncidentActionItem, {
     id,
     incidentId,
     ...scope,
@@ -291,7 +292,7 @@ async function restoreActionItemSnapshot(
   em: EntityManager,
   snapshot: ActionItemSnapshot,
 ): Promise<IncidentActionItem> {
-  const actionItem = await em.findOne(IncidentActionItem, {
+  const actionItem = await incidentFindOne(em, IncidentActionItem, {
     id: snapshot.id,
     organizationId: snapshot.organizationId,
     tenantId: snapshot.tenantId,
@@ -390,7 +391,7 @@ const createActionItemCommand: CommandHandler<ActionItemCreateInput, ActionItemC
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const actionItem = await em.findOne(IncidentActionItem, { id: after.id, ...scope })
+    const actionItem = await incidentFindOne(em, IncidentActionItem, { id: after.id, ...scope })
     const incident = await findOneWithDecryption(
       em,
       Incident,

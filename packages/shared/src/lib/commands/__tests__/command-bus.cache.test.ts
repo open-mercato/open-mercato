@@ -28,7 +28,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
   afterEach(() => {
     unregisterCommand('sales.orders.update')
     unregisterCommand('sales.orders.noop-update')
-    unregisterCommand('incidents.timeline_entries.create')
+    unregisterCommand('incidents.timeline_entry.create')
     invalidateMock.mockClear()
   })
 
@@ -202,7 +202,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
     const logMock = jest.fn(async () => ({ id: 'log-entry' }))
 
     registerCommand({
-      id: 'incidents.timeline_entries.create',
+      id: 'incidents.timeline_entry.create',
       execute: jest.fn(async () => ({
         id: 'timeline-1',
         incidentId: 'incident-1',
@@ -239,14 +239,14 @@ describe('CommandBus cache invalidation for sales documents', () => {
       organizationIds: null,
     }
 
-    await bus.execute('incidents.timeline_entries.create', { input: {}, ctx })
+    await bus.execute('incidents.timeline_entry.create', { input: {}, ctx })
 
     expect(invalidateMock).toHaveBeenCalledWith(
       container,
       'incidents.timeline_entry',
       { id: 'timeline-1', organizationId: 'org-1', tenantId: 'tenant-1' },
       'tenant-1',
-      'command:incidents.timeline_entries.create:execute',
+      'command:incidents.timeline_entry.create:execute',
       expect.any(Array)
     )
     expect(invalidateMock).toHaveBeenCalledWith(
@@ -254,7 +254,7 @@ describe('CommandBus cache invalidation for sales documents', () => {
       'incidents.incident',
       { id: 'incident-1', organizationId: 'org-1', tenantId: 'tenant-1' },
       'tenant-1',
-      'command:incidents.timeline_entries.create:execute:parent'
+      'command:incidents.timeline_entry.create:execute:parent'
     )
   })
 })

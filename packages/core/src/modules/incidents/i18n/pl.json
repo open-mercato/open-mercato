@@ -533,6 +533,8 @@
   "incidents.portal.description": "Aktualizacje dla klientów dotyczące incydentów wpływających na Twoje konto.",
   "incidents.portal.empty.description": "Aktualizacje incydentów dla klientów pojawią się tutaj, gdy Twoje konto będzie dotknięte problemem.",
   "incidents.portal.empty.title": "Brak incydentów",
+  "incidents.portal.error.authRequired": "Wymagane uwierzytelnienie.",
+  "incidents.portal.error.invalidQuery": "Nieprawidłowe parametry zapytania.",
   "incidents.portal.error.loadFailed": "Nie udało się wczytać incydentów.",
   "incidents.portal.label": "Wsparcie",
   "incidents.portal.nav.title": "Incydenty",

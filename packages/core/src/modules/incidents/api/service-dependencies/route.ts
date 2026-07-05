@@ -126,7 +126,7 @@ const crud = makeCrudRoute({
   },
   actions: {
     create: {
-      commandId: 'incidents.service_dependencies.create',
+      commandId: 'incidents.service_dependency.create',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -136,7 +136,7 @@ const crud = makeCrudRoute({
       status: 201,
     },
     update: {
-      commandId: 'incidents.service_dependencies.update',
+      commandId: 'incidents.service_dependency.update',
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
@@ -145,7 +145,7 @@ const crud = makeCrudRoute({
       response: ({ result }: { result?: unknown }) => ({ ok: true, updatedAt: readUpdatedAt(result) }),
     },
     delete: {
-      commandId: 'incidents.service_dependencies.delete',
+      commandId: 'incidents.service_dependency.delete',
       schema: rawBodySchema,
       mapInput: async ({ parsed, ctx }) => {
         const { translate } = await resolveTranslations()

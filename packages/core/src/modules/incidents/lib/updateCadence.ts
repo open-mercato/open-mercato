@@ -1,3 +1,4 @@
+import { incidentFindOne } from './read'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Incident, IncidentSettings, IncidentSeverity } from '../data/entities'
 
@@ -35,10 +36,10 @@ export async function resolveIncidentUpdateCadence(
   scope: IncidentUpdateCadenceScope,
   severityId: string,
 ): Promise<CadenceResolution | null> {
-  const settings = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
+  const settings = await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
   if (!settings?.updateCadence) return null
 
-  const severity = await em.findOne(IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
+  const severity = await incidentFindOne(em, IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
   if (!severity?.key) return null
 
   const updateMinutes = settings.updateCadence[severity.key]?.updateMinutes

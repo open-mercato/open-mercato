@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { resolveNotificationService, type NotificationService } from '../../notifications/lib/notificationService'
@@ -49,7 +50,7 @@ async function resolveIncident(
   if (!payload.incidentId || !payload.tenantId || !payload.organizationId) return null
   const em = ctx.resolve<EntityManager>('em')?.fork()
   if (!em) return null
-  return em.findOne(Incident, {
+  return incidentFindOne(em, Incident, {
     id: payload.incidentId,
     organizationId: payload.organizationId,
     tenantId: payload.tenantId,

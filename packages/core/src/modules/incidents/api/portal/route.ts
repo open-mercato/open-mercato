@@ -1,9 +1,11 @@
+import { incidentFind } from '../../lib/read'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import type { ModuleRoute } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   getCustomerAuthFromRequest,
   requireCustomerFeature,
@@ -16,11 +18,17 @@ import {
   IncidentTimelineEntry,
 } from '../../data/entities'
 
-export const metadata: { path?: string; requireAuth?: boolean } = { requireAuth: false }
-
 const PORTAL_INCIDENTS_FEATURE = 'portal.incidents.view'
 const MAX_PAGE_SIZE = 50
 const CUSTOMER_TARGET_TYPES = ['customer_account', 'customer_person', 'customer_company'] as const
+
+type PortalApiMetadata = Pick<ModuleRoute, 'requireAuth' | 'requireCustomerAuth' | 'requireCustomerFeatures'>
+
+export const metadata: PortalApiMetadata = {
+  requireAuth: false,
+  requireCustomerAuth: true,
+  requireCustomerFeatures: [PORTAL_INCIDENTS_FEATURE],
+}
 
 const querySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -122,6 +130,11 @@ function groupUpdates(entries: IncidentTimelineEntry[]): Map<string, z.infer<typ
   return byIncident
 }
 
+async function portalError(key: string, status: number) {
+  const { translate } = await resolveTranslations()
+  return NextResponse.json({ ok: false, error: translate(key) }, { status })
+}
+
 async function loadCustomerIncidentIds(
   em: EntityManager,
   scope: { organizationId: string; tenantId: string },
@@ -130,7 +143,7 @@ async function loadCustomerIncidentIds(
   if (targets.length === 0) return []
 
   const targetIds = Array.from(new Set(targets.map((target) => target.targetId)))
-  const impacts = await em.find(
+  const impacts = await incidentFind(em,
     IncidentImpact,
     {
       organizationId: scope.organizationId,
@@ -153,7 +166,7 @@ async function loadSeverities(
   const severityIds = Array.from(new Set(incidents.map((incident) => incident.severityId).filter(Boolean)))
   if (severityIds.length === 0) return new Map()
 
-  const severities = await em.find(
+  const severities = await incidentFind(em,
     IncidentSeverity,
     {
       organizationId: scope.organizationId,
@@ -173,7 +186,7 @@ async function loadCustomerUpdates(
 ): Promise<Map<string, z.infer<typeof updateSchema>[]>> {
   if (incidentIds.length === 0) return new Map()
 
-  const entries = await findWithDecryption(
+  const entries = await incidentFind(
     em,
     IncidentTimelineEntry,
     {
@@ -218,12 +231,12 @@ function serializeIncident(
 export async function GET(req: Request) {
   const auth = await getCustomerAuthFromRequest(req)
   if (!auth) {
-    return NextResponse.json({ ok: false, error: 'Authentication required' }, { status: 401 })
+    return portalError('incidents.portal.error.authRequired', 401)
   }
 
   const parsedQuery = querySchema.safeParse(readQuery(req))
   if (!parsedQuery.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid query parameters' }, { status: 400 })
+    return portalError('incidents.portal.error.invalidQuery', 400)
   }
 
   const container = await createRequestContainer()
@@ -252,7 +265,7 @@ export async function GET(req: Request) {
     id: { $in: incidentIds },
   }
   const [incidents, total] = await Promise.all([
-    findWithDecryption(
+    incidentFind(
       em,
       Incident,
       incidentWhere,

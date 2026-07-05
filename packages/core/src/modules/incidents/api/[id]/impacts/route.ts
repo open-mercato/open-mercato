@@ -1,3 +1,4 @@
+import { incidentFind } from '../../../lib/read'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -377,7 +378,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
 
-    const impacts = await em.find(
+    const impacts = await incidentFind(em,
       IncidentImpact,
       { incidentId: input.id, ...scope, deletedAt: null },
       { orderBy: { createdAt: 'asc' } },

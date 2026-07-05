@@ -1,3 +1,4 @@
+import { incidentFindAndCount } from '../../../lib/read'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -315,7 +316,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       scope,
     )
     if (!incident) throw new CrudHttpError(404, { error: '[internal] incident not found' })
-    const [items, total] = await em.findAndCount(
+    const [items, total] = await incidentFindAndCount(em,
       IncidentActionItem,
       { incidentId: input.id, ...scope, deletedAt: null },
       { orderBy: { createdAt: 'asc' } },

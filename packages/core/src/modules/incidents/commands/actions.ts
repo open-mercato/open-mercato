@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import { z } from 'zod'
 import {
   registerCommand,
@@ -286,7 +287,7 @@ export async function resolveIncidentAccountTargetIds(
   scope: IncidentScope,
   incidentId: string,
 ): Promise<string[]> {
-  const impacts = await em.find(
+  const impacts = await incidentFind(em,
     IncidentImpact,
     {
       incidentId,
@@ -495,7 +496,7 @@ async function resolveRequiredFieldsOnResolve(
   scope: IncidentScope,
 ): Promise<readonly string[]> {
   if (!incident.incidentTypeId) return []
-  const type = await em.findOne(IncidentType, { id: incident.incidentTypeId, ...scope, deletedAt: null })
+  const type = await incidentFindOne(em, IncidentType, { id: incident.incidentTypeId, ...scope, deletedAt: null })
   return Array.isArray(type?.requiredFieldsOnResolve) ? type.requiredFieldsOnResolve : []
 }
 
@@ -699,7 +700,7 @@ const changeSeverityIncidentCommand: CommandHandler<IncidentChangeSeverityInput,
     assertIncidentNotMerged(incident)
     assertIncidentMutable(incident)
 
-    const severity = await em.findOne(IncidentSeverity, { id: parsed.severityId, ...scope, deletedAt: null })
+    const severity = await incidentFindOne(em, IncidentSeverity, { id: parsed.severityId, ...scope, deletedAt: null })
     if (!severity) throw new CrudHttpError(400, { error: '[internal] incident severity not found' })
 
     const from = incident.severityId

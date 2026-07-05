@@ -533,6 +533,8 @@
   "incidents.portal.description": "Customer-facing updates for incidents affecting your account.",
   "incidents.portal.empty.description": "Customer-facing incident updates will appear here when your account is affected.",
   "incidents.portal.empty.title": "No incidents",
+  "incidents.portal.error.authRequired": "Authentication required.",
+  "incidents.portal.error.invalidQuery": "Invalid query parameters.",
   "incidents.portal.error.loadFailed": "Unable to load incidents.",
   "incidents.portal.label": "Support",
   "incidents.portal.nav.title": "Incidents",

@@ -15,7 +15,7 @@ export const metadata = {
 export async function PUT(req: Request, { params }: { params: { id: string; pid: string } }) {
   const parsed = participantPathParamsSchema.parse(params)
   return handleParticipantCommand(req, parsed, {
-    commandId: 'incidents.participants.update_role',
+    commandId: 'incidents.participant.update_role',
     schema: participantRouteSchemas.update,
     operation: 'update',
   })
@@ -24,7 +24,7 @@ export async function PUT(req: Request, { params }: { params: { id: string; pid:
 export async function DELETE(req: Request, { params }: { params: { id: string; pid: string } }) {
   const parsed = participantPathParamsSchema.parse(params)
   return handleParticipantCommand(req, parsed, {
-    commandId: 'incidents.participants.remove',
+    commandId: 'incidents.participant.remove',
     schema: participantRouteSchemas.remove,
     operation: 'update',
   })

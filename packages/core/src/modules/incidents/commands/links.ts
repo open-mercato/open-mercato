@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import {
   registerCommand,
   type CommandHandler,
@@ -110,7 +111,7 @@ async function loadLinkSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<LinkSnapshot | null> {
-  const link = await em.findOne(IncidentLink, {
+  const link = await incidentFindOne(em, IncidentLink, {
     id,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -390,7 +391,7 @@ async function buildLinkLog(
 }
 
 async function restoreLinkSnapshot(em: EntityManager, snapshot: LinkSnapshot): Promise<IncidentLink> {
-  const link = await em.findOne(IncidentLink, {
+  const link = await incidentFindOne(em, IncidentLink, {
     id: snapshot.id,
     organizationId: snapshot.organizationId,
     tenantId: snapshot.tenantId,
@@ -467,7 +468,7 @@ const linkIncidentCommand: CommandHandler<IncidentLinkCreateInput, LinkCommandRe
     if (!target) throw new CrudHttpError(404, { error: '[internal] linked_incident_not_found' })
     assertIncidentNotMerged(target)
 
-    const existing = await em.findOne(IncidentLink, {
+    const existing = await incidentFindOne(em, IncidentLink, {
       ...scope,
       kind: parsed.kind,
       deletedAt: null,
@@ -555,7 +556,7 @@ const linkIncidentCommand: CommandHandler<IncidentLinkCreateInput, LinkCommandRe
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const link = await em.findOne(IncidentLink, { id: after.id, ...scope })
+    const link = await incidentFindOne(em, IncidentLink, { id: after.id, ...scope })
     const source = await findOneWithDecryption(
       em,
       Incident,
@@ -607,7 +608,7 @@ const unlinkIncidentCommand: CommandHandler<IncidentLinkRemoveInput, LinkCommand
     const source = await loadIncidentForLink(em, parsed.id, scope)
     await enforceIncidentOptimisticLock(ctx, source)
     assertIncidentNotMerged(source)
-    const link = await em.findOne(IncidentLink, {
+    const link = await incidentFindOne(em, IncidentLink, {
       id: parsed.lid,
       ...scope,
       deletedAt: null,
@@ -693,17 +694,17 @@ const mergeIncidentCommand: CommandHandler<IncidentMergeInput, MergeCommandResul
     if (target.mergedIntoIncidentId) mergeInvalid('[internal] target_merged')
     if (target.status === 'closed') mergeInvalid('[internal] target_closed')
 
-    const actionItems = await em.find(IncidentActionItem, {
+    const actionItems = await incidentFind(em, IncidentActionItem, {
       incidentId: source.id,
       ...scope,
       deletedAt: null,
     })
-    const sourceImpacts = await em.find(IncidentImpact, {
+    const sourceImpacts = await incidentFind(em, IncidentImpact, {
       incidentId: source.id,
       ...scope,
       deletedAt: null,
     })
-    const targetImpacts = await em.find(IncidentImpact, {
+    const targetImpacts = await incidentFind(em, IncidentImpact, {
       incidentId: target.id,
       ...scope,
       deletedAt: null,
@@ -720,7 +721,7 @@ const mergeIncidentCommand: CommandHandler<IncidentMergeInput, MergeCommandResul
       async () => {
         const lockedById = new Map<string, Incident | null>()
         for (const incidentId of [source.id, target.id].sort((left, right) => left.localeCompare(right))) {
-          lockedById.set(incidentId, await em.findOne(
+          lockedById.set(incidentId, await incidentFindOne(em,
             Incident,
             { id: incidentId, ...scope, deletedAt: null },
             { lockMode: LockMode.PESSIMISTIC_WRITE },

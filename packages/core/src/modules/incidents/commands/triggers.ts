@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -112,7 +113,7 @@ async function ensureUniqueTriggerEvent(
   eventId: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentTrigger, { ...scope, eventId, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentTrigger, { ...scope, eventId, deletedAt: null })
   if (existing && existing.id !== excludeId) {
     throw new CrudHttpError(409, { error: '[internal] Incident trigger already exists for this event' })
   }
@@ -124,7 +125,7 @@ async function requireEscalationPolicyInScope(
   scope: IncidentScope,
 ): Promise<void> {
   if (!escalationPolicyId) return
-  const policy = await em.findOne(IncidentEscalationPolicy, {
+  const policy = await incidentFindOne(em, IncidentEscalationPolicy, {
     id: escalationPolicyId,
     ...scope,
     deletedAt: null,
@@ -174,7 +175,7 @@ async function loadTriggerSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<TriggerSnapshot | null> {
-  const record = await em.findOne(IncidentTrigger, { id, ...scope })
+  const record = await incidentFindOne(em, IncidentTrigger, { id, ...scope })
   if (!record) return null
   return {
     id: record.id,
@@ -224,7 +225,7 @@ function createTriggerFromSnapshot(em: EntityManager, snapshot: TriggerSnapshot)
 }
 
 const createTriggerCommand: CommandHandler<IncidentTriggerCreateInput, TriggerCommandResult> = {
-  id: 'incidents.incident_triggers.create',
+  id: 'incidents.trigger.create',
   async execute(input, ctx) {
     const parsed = triggerCreateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -276,7 +277,7 @@ const createTriggerCommand: CommandHandler<IncidentTriggerCreateInput, TriggerCo
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentTrigger, { id: after.id, ...scope })
+    const record = await incidentFindOne(em, IncidentTrigger, { id: after.id, ...scope })
     if (!record) return
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -295,7 +296,7 @@ const createTriggerCommand: CommandHandler<IncidentTriggerCreateInput, TriggerCo
 }
 
 const updateTriggerCommand: CommandHandler<IncidentTriggerUpdateInput, TriggerCommandResult> = {
-  id: 'incidents.incident_triggers.update',
+  id: 'incidents.trigger.update',
   async prepare(input, ctx) {
     const parsed = triggerUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -307,7 +308,7 @@ const updateTriggerCommand: CommandHandler<IncidentTriggerUpdateInput, TriggerCo
     const parsed = triggerUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentTrigger, { id: parsed.id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentTrigger, { id: parsed.id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: '[internal] Incident trigger not found' })
     if (parsed.eventId !== undefined && parsed.eventId !== record.eventId) {
       await ensureUniqueTriggerEvent(em, scope, parsed.eventId, record.id)
@@ -354,7 +355,7 @@ const updateTriggerCommand: CommandHandler<IncidentTriggerUpdateInput, TriggerCo
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentTrigger, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentTrigger, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createTriggerFromSnapshot(em, before)
@@ -367,7 +368,7 @@ const updateTriggerCommand: CommandHandler<IncidentTriggerUpdateInput, TriggerCo
 }
 
 const deleteTriggerCommand: CommandHandler<TriggerDeleteInput, TriggerCommandResult> = {
-  id: 'incidents.incident_triggers.delete',
+  id: 'incidents.trigger.delete',
   async prepare(input, ctx) {
     const id = requireId(input, '[internal] Incident trigger id is required')
     const scope = resolveCommandScope(ctx, input)
@@ -379,7 +380,7 @@ const deleteTriggerCommand: CommandHandler<TriggerDeleteInput, TriggerCommandRes
     const id = requireId(input, '[internal] Incident trigger id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentTrigger, { id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentTrigger, { id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: '[internal] Incident trigger not found' })
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -408,7 +409,7 @@ const deleteTriggerCommand: CommandHandler<TriggerDeleteInput, TriggerCommandRes
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentTrigger, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentTrigger, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createTriggerFromSnapshot(em, before)

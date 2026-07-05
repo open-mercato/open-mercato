@@ -119,7 +119,7 @@ type FindSimilarOutput = {
 
 type AddTimelineNoteOutput = {
   recordId: string
-  commandName: 'incidents.timeline_entries.add'
+  commandName: 'incidents.timeline_entry.add'
   entryId: string | null
   incidentId: string
   visibility: 'internal' | 'customer_facing'
@@ -309,7 +309,7 @@ const addTimelineNoteTool = defineAiTool<AddTimelineNoteInput, AddTimelineNoteOu
   name: 'incidents.add_timeline_note',
   displayName: 'Add incident timeline note',
   description:
-    'Add an internal or customer-facing timeline note. Mutation tool: the runtime routes this through prepareMutation before executing incidents.timeline_entries.add.',
+    'Add an internal or customer-facing timeline note. Mutation tool: the runtime routes this through prepareMutation before executing incidents.timeline_entry.add.',
   inputSchema: addTimelineNoteInputSchema,
   requiredFeatures: ['incidents.incident.manage', 'incidents.ai.use'],
   tags: ['write', 'incidents'],
@@ -364,7 +364,7 @@ const addTimelineNoteTool = defineAiTool<AddTimelineNoteInput, AddTimelineNoteOu
     }
     return {
       recordId: incident.id,
-      commandName: 'incidents.timeline_entries.add',
+      commandName: 'incidents.timeline_entry.add',
       entryId: response.data?.entryId ?? null,
       incidentId: response.data?.incidentId ?? incident.id,
       visibility: input.visibility,

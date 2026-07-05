@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import {
@@ -192,7 +193,7 @@ async function ensureUniqueSeverityKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentSeverity, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentSeverity, { ...scope, key, deletedAt: null })
   assertUniqueConfigKey(existing?.id ?? null, excludeId)
 }
 
@@ -202,7 +203,7 @@ async function ensureUniqueTypeKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentType, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentType, { ...scope, key, deletedAt: null })
   assertUniqueConfigKey(existing?.id ?? null, excludeId)
 }
 
@@ -212,7 +213,7 @@ async function ensureUniqueRoleKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentRole, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentRole, { ...scope, key, deletedAt: null })
   assertUniqueConfigKey(existing?.id ?? null, excludeId)
 }
 
@@ -227,7 +228,7 @@ async function requireSeverityInScope(
   scope: IncidentScope,
 ): Promise<void> {
   if (!severityId) return
-  const severity = await em.findOne(IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
+  const severity = await incidentFindOne(em, IncidentSeverity, { id: severityId, ...scope, deletedAt: null })
   if (!severity) throw new CrudHttpError(400, { error: 'Incident severity not found' })
 }
 
@@ -248,7 +249,7 @@ async function requireRunbookInScope(
   scope: IncidentScope,
 ): Promise<void> {
   if (!runbookId) return
-  const runbook = await em.findOne(IncidentRunbook, { id: runbookId, ...scope, deletedAt: null })
+  const runbook = await incidentFindOne(em, IncidentRunbook, { id: runbookId, ...scope, deletedAt: null })
   if (!runbook) throw new CrudHttpError(400, { error: 'Incident runbook not found' })
 }
 
@@ -294,7 +295,7 @@ async function loadSeveritySnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<SeveritySnapshot | null> {
-  const record = await em.findOne(IncidentSeverity, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
+  const record = await incidentFindOne(em, IncidentSeverity, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,
@@ -351,7 +352,7 @@ async function loadTypeSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<TypeSnapshot | null> {
-  const record = await em.findOne(IncidentType, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
+  const record = await incidentFindOne(em, IncidentType, { id, organizationId: scope.organizationId, tenantId: scope.tenantId })
   if (!record) return null
   return {
     id: record.id,
@@ -414,7 +415,7 @@ async function loadRoleSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<RoleSnapshot | null> {
-  const record = await em.findOne(IncidentRole, { id, ...scope })
+  const record = await incidentFindOne(em, IncidentRole, { id, ...scope })
   if (!record) return null
   return {
     id: record.id,
@@ -458,7 +459,7 @@ async function loadSettingsSnapshotByScope(
   em: EntityManager,
   scope: IncidentScope,
 ): Promise<SettingsSnapshot | null> {
-  const record = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
+  const record = await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
   return record ? serializeSettings(record) : null
 }
 
@@ -467,7 +468,7 @@ async function loadSettingsSnapshotById(
   id: string,
   scope: IncidentScope,
 ): Promise<SettingsSnapshot | null> {
-  const record = await em.findOne(IncidentSettings, { id, ...scope })
+  const record = await incidentFindOne(em, IncidentSettings, { id, ...scope })
   return record ? serializeSettings(record) : null
 }
 
@@ -520,7 +521,7 @@ function createSettingsFromSnapshot(em: EntityManager, snapshot: SettingsSnapsho
 }
 
 const createSeverityCommand: CommandHandler<IncidentSeverityCreateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_severities.create',
+  id: 'incidents.incident_severity.create',
   async execute(input, ctx) {
     const parsed = severityCreateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -573,7 +574,7 @@ const createSeverityCommand: CommandHandler<IncidentSeverityCreateInput, ConfigC
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentSeverity, { id: after.id, ...scope })
+    const record = await incidentFindOne(em, IncidentSeverity, { id: after.id, ...scope })
     if (!record) return
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -591,7 +592,7 @@ const createSeverityCommand: CommandHandler<IncidentSeverityCreateInput, ConfigC
 }
 
 const updateSeverityCommand: CommandHandler<IncidentSeverityUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_severities.update',
+  id: 'incidents.incident_severity.update',
   async prepare(input, ctx) {
     const parsed = severityUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -603,7 +604,7 @@ const updateSeverityCommand: CommandHandler<IncidentSeverityUpdateInput, ConfigC
     const parsed = severityUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentSeverity, { id: parsed.id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentSeverity, { id: parsed.id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident severity not found' })
     if (parsed.key !== undefined && parsed.key !== record.key) {
       await ensureUniqueSeverityKey(em, scope, parsed.key, record.id)
@@ -649,7 +650,7 @@ const updateSeverityCommand: CommandHandler<IncidentSeverityUpdateInput, ConfigC
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentSeverity, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentSeverity, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createSeverityFromSnapshot(em, before)
@@ -662,7 +663,7 @@ const updateSeverityCommand: CommandHandler<IncidentSeverityUpdateInput, ConfigC
 }
 
 const deleteSeverityCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.incident_severities.delete',
+  id: 'incidents.incident_severity.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Incident severity id is required')
     const scope = resolveCommandScope(ctx, input)
@@ -674,7 +675,7 @@ const deleteSeverityCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResu
     const id = requireId(input, 'Incident severity id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentSeverity, { id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentSeverity, { id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident severity not found' })
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -703,7 +704,7 @@ const deleteSeverityCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResu
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentSeverity, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentSeverity, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createSeverityFromSnapshot(em, before)
@@ -718,7 +719,7 @@ const deleteSeverityCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResu
 }
 
 const createTypeCommand: CommandHandler<IncidentTypeCreateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_types.create',
+  id: 'incidents.incident_type.create',
   async execute(input, ctx) {
     const parsed = typeCreateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -773,7 +774,7 @@ const createTypeCommand: CommandHandler<IncidentTypeCreateInput, ConfigCommandRe
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentType, { id: after.id, ...scope })
+    const record = await incidentFindOne(em, IncidentType, { id: after.id, ...scope })
     if (!record) return
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -791,7 +792,7 @@ const createTypeCommand: CommandHandler<IncidentTypeCreateInput, ConfigCommandRe
 }
 
 const updateTypeCommand: CommandHandler<IncidentTypeUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_types.update',
+  id: 'incidents.incident_type.update',
   async prepare(input, ctx) {
     const parsed = typeUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -803,7 +804,7 @@ const updateTypeCommand: CommandHandler<IncidentTypeUpdateInput, ConfigCommandRe
     const parsed = typeUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentType, { id: parsed.id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentType, { id: parsed.id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident type not found' })
     if (parsed.key !== undefined && parsed.key !== record.key) {
       await ensureUniqueTypeKey(em, scope, parsed.key, record.id)
@@ -855,7 +856,7 @@ const updateTypeCommand: CommandHandler<IncidentTypeUpdateInput, ConfigCommandRe
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentType, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentType, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createTypeFromSnapshot(em, before)
@@ -868,7 +869,7 @@ const updateTypeCommand: CommandHandler<IncidentTypeUpdateInput, ConfigCommandRe
 }
 
 const deleteTypeCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.incident_types.delete',
+  id: 'incidents.incident_type.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Incident type id is required')
     const scope = resolveCommandScope(ctx, input)
@@ -880,7 +881,7 @@ const deleteTypeCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> 
     const id = requireId(input, 'Incident type id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentType, { id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentType, { id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident type not found' })
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -909,7 +910,7 @@ const deleteTypeCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> 
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentType, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentType, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createTypeFromSnapshot(em, before)
@@ -924,7 +925,7 @@ const deleteTypeCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> 
 }
 
 const createRoleCommand: CommandHandler<IncidentRoleCreateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_roles.create',
+  id: 'incidents.incident_role.create',
   async execute(input, ctx) {
     const parsed = roleCreateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -970,7 +971,7 @@ const createRoleCommand: CommandHandler<IncidentRoleCreateInput, ConfigCommandRe
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentRole, { id: after.id, ...scope })
+    const record = await incidentFindOne(em, IncidentRole, { id: after.id, ...scope })
     if (!record) return
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -988,7 +989,7 @@ const createRoleCommand: CommandHandler<IncidentRoleCreateInput, ConfigCommandRe
 }
 
 const updateRoleCommand: CommandHandler<IncidentRoleUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.incident_roles.update',
+  id: 'incidents.incident_role.update',
   async prepare(input, ctx) {
     const parsed = roleUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
@@ -1000,7 +1001,7 @@ const updateRoleCommand: CommandHandler<IncidentRoleUpdateInput, ConfigCommandRe
     const parsed = roleUpdateSchema.parse(input)
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentRole, { id: parsed.id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentRole, { id: parsed.id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident role not found' })
     if (parsed.key !== undefined && parsed.key !== record.key) {
       await ensureUniqueRoleKey(em, scope, parsed.key, record.id)
@@ -1041,7 +1042,7 @@ const updateRoleCommand: CommandHandler<IncidentRoleUpdateInput, ConfigCommandRe
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentRole, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentRole, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createRoleFromSnapshot(em, before)
@@ -1054,7 +1055,7 @@ const updateRoleCommand: CommandHandler<IncidentRoleUpdateInput, ConfigCommandRe
 }
 
 const deleteRoleCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.incident_roles.delete',
+  id: 'incidents.incident_role.delete',
   async prepare(input, ctx) {
     const id = requireId(input, 'Incident role id is required')
     const scope = resolveCommandScope(ctx, input)
@@ -1066,7 +1067,7 @@ const deleteRoleCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> 
     const id = requireId(input, 'Incident role id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(IncidentRole, { id, ...scope, deletedAt: null })
+    const record = await incidentFindOne(em, IncidentRole, { id, ...scope, deletedAt: null })
     if (!record) throw new CrudHttpError(404, { error: 'Incident role not found' })
     await withAtomicFlush(em, [() => {
       record.deletedAt = new Date()
@@ -1095,7 +1096,7 @@ const deleteRoleCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> 
     if (!before) return
     const scope = { organizationId: before.organizationId, tenantId: before.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentRole, { id: before.id, ...scope })
+    let record = await incidentFindOne(em, IncidentRole, { id: before.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (!record) {
         record = createRoleFromSnapshot(em, before)
@@ -1125,8 +1126,8 @@ const updateSettingsCommand: CommandHandler<IncidentSettingsUpdateInput, ConfigC
     const scope = resolveCommandScope(ctx, parsed)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = parsed.id
-      ? await em.findOne(IncidentSettings, { id: parsed.id, ...scope, deletedAt: null })
-      : await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
+      ? await incidentFindOne(em, IncidentSettings, { id: parsed.id, ...scope, deletedAt: null })
+      : await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
     if (parsed.id && !record) throw new CrudHttpError(404, { error: 'Incident settings not found' })
     const now = new Date()
     let wasCreated = false
@@ -1190,7 +1191,7 @@ const updateSettingsCommand: CommandHandler<IncidentSettingsUpdateInput, ConfigC
     if (!snapshot) return
     const scope = { organizationId: snapshot.organizationId, tenantId: snapshot.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentSettings, { id: snapshot.id, ...scope })
+    let record = await incidentFindOne(em, IncidentSettings, { id: snapshot.id, ...scope })
     await withAtomicFlush(em, [() => {
       if (before) {
         if (!record) {
@@ -1216,7 +1217,7 @@ const updateSettingsCommand: CommandHandler<IncidentSettingsUpdateInput, ConfigC
     if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for settings update' })
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let record = await em.findOne(IncidentSettings, { id: after.id, ...scope })
+    let record = await incidentFindOne(em, IncidentSettings, { id: after.id, ...scope })
     let wasCreated = false
     await withAtomicFlush(em, [() => {
       if (!record) {

@@ -33,9 +33,21 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: jest.fn(async (
+    em: { find: (...args: unknown[]) => Promise<unknown> },
+    entity: unknown,
+    where: unknown,
+    options?: unknown,
+  ) => em.find(entity, where, options)),
   findOneWithDecryption: jest.fn(async (em: { findOne: (...args: unknown[]) => Promise<unknown> }, entity: unknown, where: unknown) =>
     em.findOne(entity, where),
   ),
+  findAndCountWithDecryption: jest.fn(async (
+    em: { findAndCount: (...args: unknown[]) => Promise<unknown> },
+    entity: unknown,
+    where: unknown,
+    options?: unknown,
+  ) => em.findAndCount(entity, where, options)),
 }))
 
 jest.mock('../events', () => ({

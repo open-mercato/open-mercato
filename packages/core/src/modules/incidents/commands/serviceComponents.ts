@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
@@ -87,7 +88,7 @@ async function ensureUniqueComponentKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentServiceComponent, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentServiceComponent, { ...scope, key, deletedAt: null })
   if (existing?.id && existing.id !== excludeId) {
     throw new CrudHttpError(409, { error: 'Incident service component key already exists for this scope' })
   }
@@ -98,7 +99,7 @@ async function requireComponentInScope(
   scope: IncidentScope,
   id: string,
 ): Promise<IncidentServiceComponent> {
-  const component = await em.findOne(IncidentServiceComponent, { id, ...scope, deletedAt: null })
+  const component = await incidentFindOne(em, IncidentServiceComponent, { id, ...scope, deletedAt: null })
   if (!component) throw new CrudHttpError(404, { error: '[internal] incident service component not found' })
   return component
 }
@@ -108,7 +109,7 @@ async function requireDependencyInScope(
   scope: IncidentScope,
   id: string,
 ): Promise<IncidentServiceDependency> {
-  const dependency = await em.findOne(IncidentServiceDependency, { id, ...scope, deletedAt: null })
+  const dependency = await incidentFindOne(em, IncidentServiceDependency, { id, ...scope, deletedAt: null })
   if (!dependency) throw new CrudHttpError(404, { error: '[internal] incident service dependency not found' })
   return dependency
 }
@@ -124,7 +125,7 @@ async function ensureUniqueDependency(
   if (sourceComponentId === targetComponentId) {
     throw new CrudHttpError(400, { error: 'Incident service dependency cannot point to itself' })
   }
-  const existing = await em.findOne(IncidentServiceDependency, {
+  const existing = await incidentFindOne(em, IncidentServiceDependency, {
     ...scope,
     sourceComponentId,
     targetComponentId,
@@ -140,7 +141,7 @@ const createServiceComponentCommand: CommandHandler<
   IncidentServiceComponentCreateInput,
   ServiceComponentCommandResult
 > = {
-  id: 'incidents.service_components.create',
+  id: 'incidents.service_component.create',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = serviceComponentCreateSchema.parse(input)
@@ -170,7 +171,7 @@ const createServiceComponentCommand: CommandHandler<
         deletedAt: null,
       })
       em.persist(component)
-    }], { transaction: true, label: 'incidents.service_components.create' })
+    }], { transaction: true, label: 'incidents.service_component.create' })
     await emitSideEffects(ctx, 'created', component, serviceComponentIndexer)
     return { id: component.id, ...scope, updatedAt: component.updatedAt }
   },
@@ -180,7 +181,7 @@ const updateServiceComponentCommand: CommandHandler<
   IncidentServiceComponentUpdateInput,
   ServiceComponentCommandResult
 > = {
-  id: 'incidents.service_components.update',
+  id: 'incidents.service_component.update',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = serviceComponentUpdateSchema.parse(input)
@@ -205,21 +206,21 @@ const updateServiceComponentCommand: CommandHandler<
       if (parsed.snapshot !== undefined) component.snapshot = parsed.snapshot ?? null
       if (parsed.isActive !== undefined) component.isActive = parsed.isActive
       component.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.service_components.update' })
+    }], { transaction: true, label: 'incidents.service_component.update' })
     await emitSideEffects(ctx, 'updated', component, serviceComponentIndexer)
     return { id: component.id, ...scope, updatedAt: component.updatedAt }
   },
 }
 
 const deleteServiceComponentCommand: CommandHandler<ConfigDeleteInput, ServiceComponentCommandResult> = {
-  id: 'incidents.service_components.delete',
+  id: 'incidents.service_component.delete',
   isUndoable: false,
   async execute(input, ctx) {
     const id = requireId(input, 'Incident service component id is required')
     const scope = resolveCommandScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const component = await requireComponentInScope(em, scope, id)
-    const dependencies = await em.find(IncidentServiceDependency, {
+    const dependencies = await incidentFind(em, IncidentServiceDependency, {
       ...scope,
       deletedAt: null,
       $or: [{ sourceComponentId: id }, { targetComponentId: id }],
@@ -234,7 +235,7 @@ const deleteServiceComponentCommand: CommandHandler<ConfigDeleteInput, ServiceCo
         dependency.isActive = false
         dependency.updatedAt = now
       }
-    }], { transaction: true, label: 'incidents.service_components.delete' })
+    }], { transaction: true, label: 'incidents.service_component.delete' })
     for (const dependency of dependencies) {
       await emitSideEffects(ctx, 'deleted', dependency, serviceDependencyIndexer)
     }
@@ -247,7 +248,7 @@ const createServiceDependencyCommand: CommandHandler<
   IncidentServiceDependencyCreateInput,
   ServiceComponentCommandResult
 > = {
-  id: 'incidents.service_dependencies.create',
+  id: 'incidents.service_dependency.create',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = serviceDependencyCreateSchema.parse(input)
@@ -272,7 +273,7 @@ const createServiceDependencyCommand: CommandHandler<
         deletedAt: null,
       })
       em.persist(dependency)
-    }], { transaction: true, label: 'incidents.service_dependencies.create' })
+    }], { transaction: true, label: 'incidents.service_dependency.create' })
     await emitSideEffects(ctx, 'created', dependency, serviceDependencyIndexer)
     return { id: dependency.id, ...scope, updatedAt: dependency.updatedAt }
   },
@@ -282,7 +283,7 @@ const updateServiceDependencyCommand: CommandHandler<
   IncidentServiceDependencyUpdateInput,
   ServiceComponentCommandResult
 > = {
-  id: 'incidents.service_dependencies.update',
+  id: 'incidents.service_dependency.update',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = serviceDependencyUpdateSchema.parse(input)
@@ -308,14 +309,14 @@ const updateServiceDependencyCommand: CommandHandler<
       if (parsed.snapshot !== undefined) dependency.snapshot = parsed.snapshot ?? null
       if (parsed.isActive !== undefined) dependency.isActive = parsed.isActive
       dependency.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.service_dependencies.update' })
+    }], { transaction: true, label: 'incidents.service_dependency.update' })
     await emitSideEffects(ctx, 'updated', dependency, serviceDependencyIndexer)
     return { id: dependency.id, ...scope, updatedAt: dependency.updatedAt }
   },
 }
 
 const deleteServiceDependencyCommand: CommandHandler<ConfigDeleteInput, ServiceComponentCommandResult> = {
-  id: 'incidents.service_dependencies.delete',
+  id: 'incidents.service_dependency.delete',
   isUndoable: false,
   async execute(input, ctx) {
     const id = requireId(input, 'Incident service dependency id is required')
@@ -326,7 +327,7 @@ const deleteServiceDependencyCommand: CommandHandler<ConfigDeleteInput, ServiceC
       dependency.deletedAt = new Date()
       dependency.isActive = false
       dependency.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.service_dependencies.delete' })
+    }], { transaction: true, label: 'incidents.service_dependency.delete' })
     await emitSideEffects(ctx, 'deleted', dependency, serviceDependencyIndexer)
     return { id: dependency.id, ...scope, updatedAt: dependency.updatedAt }
   },

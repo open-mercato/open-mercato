@@ -326,7 +326,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
     const { result, logEntry } = await commandBus.execute<TimelineAddInput, TimelineAddResult>(
-      'incidents.timeline_entries.add',
+      'incidents.timeline_entry.add',
       { input, ctx },
     )
     const jsonResponse = NextResponse.json({

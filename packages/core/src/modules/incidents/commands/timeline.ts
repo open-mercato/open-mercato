@@ -115,7 +115,7 @@ async function buildTimelineLog(result: TimelineAddResult): Promise<CommandLogMe
 }
 
 const addTimelineEntryCommand: CommandHandler<TimelineAddInput, TimelineAddResult> = {
-  id: 'incidents.timeline_entries.add',
+  id: 'incidents.timeline_entry.add',
   isUndoable: false,
   async execute(rawInput, ctx) {
     const parsed = timelineAddSchema.parse(rawInput)

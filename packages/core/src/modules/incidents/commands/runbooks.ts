@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, requireId } from '@open-mercato/shared/lib/commands/helpers'
@@ -114,7 +115,7 @@ async function ensureUniqueRunbookKey(
   key: string,
   excludeId?: string,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentRunbook, { ...scope, key, deletedAt: null })
+  const existing = await incidentFindOne(em, IncidentRunbook, { ...scope, key, deletedAt: null })
   if (existing?.id && existing.id !== excludeId) {
     throw new CrudHttpError(409, { error: 'Incident runbook key already exists for this scope' })
   }
@@ -125,7 +126,7 @@ async function requireRunbookInScope(
   scope: IncidentScope,
   runbookId: string,
 ): Promise<IncidentRunbook> {
-  const runbook = await em.findOne(IncidentRunbook, { id: runbookId, ...scope, deletedAt: null })
+  const runbook = await incidentFindOne(em, IncidentRunbook, { id: runbookId, ...scope, deletedAt: null })
   if (!runbook) throw new CrudHttpError(404, { error: '[internal] incident runbook not found' })
   return runbook
 }
@@ -135,7 +136,7 @@ async function requireRunbookStepInScope(
   scope: IncidentScope,
   stepId: string,
 ): Promise<IncidentRunbookStep> {
-  const step = await em.findOne(IncidentRunbookStep, { id: stepId, ...scope, deletedAt: null })
+  const step = await incidentFindOne(em, IncidentRunbookStep, { id: stepId, ...scope, deletedAt: null })
   if (!step) throw new CrudHttpError(404, { error: '[internal] incident runbook step not found' })
   return step
 }
@@ -174,7 +175,7 @@ async function resolveActiveRunbook(
   runbookId: string | null | undefined,
 ): Promise<IncidentRunbook | null> {
   if (!runbookId) return null
-  return em.findOne(IncidentRunbook, {
+  return incidentFindOne(em, IncidentRunbook, {
     id: runbookId,
     ...scope,
     isActive: true,
@@ -193,12 +194,12 @@ export async function resolveRunbookForIncident(
   if (explicit) return explicit
 
   if (incident.incidentTypeId) {
-    const type = await em.findOne(IncidentType, { id: incident.incidentTypeId, ...scope, deletedAt: null })
+    const type = await incidentFindOne(em, IncidentType, { id: incident.incidentTypeId, ...scope, deletedAt: null })
     const typeRunbook = await resolveActiveRunbook(em, scope, type?.defaultRunbookId ?? null)
     if (typeRunbook) return typeRunbook
   }
 
-  const severity = await em.findOne(IncidentSeverity, { id: incident.severityId, ...scope, deletedAt: null })
+  const severity = await incidentFindOne(em, IncidentSeverity, { id: incident.severityId, ...scope, deletedAt: null })
   return resolveActiveRunbook(em, scope, severity?.defaultRunbookId ?? null)
 }
 
@@ -219,7 +220,7 @@ export function buildRunbookActionItemDrafts(
 }
 
 const createRunbookCommand: CommandHandler<IncidentRunbookCreateInput, ConfigCommandResult> = {
-  id: 'incidents.runbooks.create',
+  id: 'incidents.runbook.create',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = runbookCreateSchema.parse(input)
@@ -240,14 +241,14 @@ const createRunbookCommand: CommandHandler<IncidentRunbookCreateInput, ConfigCom
         deletedAt: null,
       })
       em.persist(runbook)
-    }], { transaction: true, label: 'incidents.runbooks.create' })
+    }], { transaction: true, label: 'incidents.runbook.create' })
     await emitSideEffects(ctx, 'created', runbook, runbookIndexer)
     return { id: runbook.id, ...scope, updatedAt: runbook.updatedAt }
   },
 }
 
 const updateRunbookCommand: CommandHandler<IncidentRunbookUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.runbooks.update',
+  id: 'incidents.runbook.update',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = runbookUpdateSchema.parse(input)
@@ -263,14 +264,14 @@ const updateRunbookCommand: CommandHandler<IncidentRunbookUpdateInput, ConfigCom
       if (parsed.description !== undefined) runbook.description = normalizeOptionalText(parsed.description)
       if (parsed.isActive !== undefined) runbook.isActive = parsed.isActive
       runbook.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.runbooks.update' })
+    }], { transaction: true, label: 'incidents.runbook.update' })
     await emitSideEffects(ctx, 'updated', runbook, runbookIndexer)
     return { id: runbook.id, ...scope, updatedAt: runbook.updatedAt }
   },
 }
 
 const deleteRunbookCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.runbooks.delete',
+  id: 'incidents.runbook.delete',
   isUndoable: false,
   async execute(input, ctx) {
     const id = requireId(input, 'Incident runbook id is required')
@@ -281,14 +282,14 @@ const deleteRunbookCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResul
       runbook.deletedAt = new Date()
       runbook.isActive = false
       runbook.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.runbooks.delete' })
+    }], { transaction: true, label: 'incidents.runbook.delete' })
     await emitSideEffects(ctx, 'deleted', runbook, runbookIndexer)
     return { id: runbook.id, ...scope, updatedAt: runbook.updatedAt }
   },
 }
 
 const createRunbookStepCommand: CommandHandler<IncidentRunbookStepCreateInput, ConfigCommandResult> = {
-  id: 'incidents.runbook_steps.create',
+  id: 'incidents.runbook_step.create',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = runbookStepCreateSchema.parse(input)
@@ -312,14 +313,14 @@ const createRunbookStepCommand: CommandHandler<IncidentRunbookStepCreateInput, C
         deletedAt: null,
       })
       em.persist(step)
-    }], { transaction: true, label: 'incidents.runbook_steps.create' })
+    }], { transaction: true, label: 'incidents.runbook_step.create' })
     await emitSideEffects(ctx, 'created', step, runbookStepIndexer)
     return { id: step.id, ...scope, updatedAt: step.updatedAt }
   },
 }
 
 const updateRunbookStepCommand: CommandHandler<IncidentRunbookStepUpdateInput, ConfigCommandResult> = {
-  id: 'incidents.runbook_steps.update',
+  id: 'incidents.runbook_step.update',
   isUndoable: false,
   async execute(input, ctx) {
     const parsed = runbookStepUpdateSchema.parse(input)
@@ -336,14 +337,14 @@ const updateRunbookStepCommand: CommandHandler<IncidentRunbookStepUpdateInput, C
       if (parsed.dueOffsetMinutes !== undefined) step.dueOffsetMinutes = parsed.dueOffsetMinutes ?? null
       if (parsed.isActive !== undefined) step.isActive = parsed.isActive
       step.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.runbook_steps.update' })
+    }], { transaction: true, label: 'incidents.runbook_step.update' })
     await emitSideEffects(ctx, 'updated', step, runbookStepIndexer)
     return { id: step.id, ...scope, updatedAt: step.updatedAt }
   },
 }
 
 const deleteRunbookStepCommand: CommandHandler<ConfigDeleteInput, ConfigCommandResult> = {
-  id: 'incidents.runbook_steps.delete',
+  id: 'incidents.runbook_step.delete',
   isUndoable: false,
   async execute(input, ctx) {
     const id = requireId(input, 'Incident runbook step id is required')
@@ -354,7 +355,7 @@ const deleteRunbookStepCommand: CommandHandler<ConfigDeleteInput, ConfigCommandR
       step.deletedAt = new Date()
       step.isActive = false
       step.updatedAt = new Date()
-    }], { transaction: true, label: 'incidents.runbook_steps.delete' })
+    }], { transaction: true, label: 'incidents.runbook_step.delete' })
     await emitSideEffects(ctx, 'deleted', step, runbookStepIndexer)
     return { id: step.id, ...scope, updatedAt: step.updatedAt }
   },
@@ -384,14 +385,14 @@ const instantiateRunbookCommand: CommandHandler<IncidentRunbookInstantiateInput,
       }
     }
 
-    const steps = await em.find(
+    const steps = await incidentFind(em,
       IncidentRunbookStep,
       { runbookId: runbook.id, ...scope, isActive: true, deletedAt: null },
       { orderBy: { position: 'asc' } },
     )
     const drafts = buildRunbookActionItemDrafts(runbook, steps, now)
     const existingItems = drafts.length > 0
-      ? await em.find(IncidentActionItem, {
+      ? await incidentFind(em, IncidentActionItem, {
           incidentId: incident.id,
           ...scope,
           externalRef: { $in: drafts.map((draft) => draft.externalRef) },

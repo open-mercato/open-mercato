@@ -377,7 +377,7 @@ describe('incidents customer update cadence runtime', () => {
   it('computes next update due on create from severity cadence settings', async () => {
     const harness = buildHarness()
 
-    await command<IncidentCreateInput, unknown>('incidents.incidents.create').execute({
+    await command<IncidentCreateInput, unknown>('incidents.incident.create').execute({
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
       title: 'Checkout outage',
@@ -418,7 +418,7 @@ describe('incidents customer update cadence runtime', () => {
     })
     const harness = buildHarness({ incident })
 
-    await command<TimelineAddInput, unknown>('incidents.timeline_entries.add').execute({
+    await command<TimelineAddInput, unknown>('incidents.timeline_entry.add').execute({
       id: INCIDENT_ID,
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
@@ -437,7 +437,7 @@ describe('incidents customer update cadence runtime', () => {
     const incident = makeIncident({ nextUpdateDueAt, updateOverdueNotifiedAt })
     const harness = buildHarness({ incident })
 
-    await command<TimelineAddInput, unknown>('incidents.timeline_entries.add').execute({
+    await command<TimelineAddInput, unknown>('incidents.timeline_entry.add').execute({
       id: INCIDENT_ID,
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
@@ -453,7 +453,7 @@ describe('incidents customer update cadence runtime', () => {
   it('persists timeline metadata for generated AI summaries', async () => {
     const harness = buildHarness()
 
-    await command<TimelineAddInput, unknown>('incidents.timeline_entries.add').execute({
+    await command<TimelineAddInput, unknown>('incidents.timeline_entry.add').execute({
       id: INCIDENT_ID,
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
@@ -564,7 +564,7 @@ describe('incidents customer update cadence runtime', () => {
   it('leaves cadence fields null when no cadence is configured', async () => {
     const harness = buildHarness({ settings: makeSettings(null) })
 
-    await command<IncidentCreateInput, unknown>('incidents.incidents.create').execute({
+    await command<IncidentCreateInput, unknown>('incidents.incident.create').execute({
       organizationId: ORG_ID,
       tenantId: TENANT_ID,
       title: 'Checkout outage',
@@ -586,7 +586,7 @@ describe('incidents customer update cadence runtime', () => {
     })
     const harness = buildHarness({ incident })
 
-    await command<IncidentUpdateInput, unknown>('incidents.incidents.update').execute({
+    await command<IncidentUpdateInput, unknown>('incidents.incident.update').execute({
       id: INCIDENT_ID,
       organizationId: ORG_ID,
       tenantId: TENANT_ID,

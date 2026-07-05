@@ -165,11 +165,11 @@ describe('incidents service-component / service-dependency commands', () => {
     await import('../commands/serviceComponents')
   })
 
-  describe('incidents.service_components.create', () => {
+  describe('incidents.service_component.create', () => {
     it('persists a new component and enforces the unique key check', async () => {
       const { em, ctx } = buildHarness()
 
-      const result = await handler('incidents.service_components.create').execute(
+      const result = await handler('incidents.service_component.create').execute(
         { ...baseScope, key: 'checkout', name: 'Checkout' },
         ctx as never,
       )
@@ -179,6 +179,7 @@ describe('incidents service-component / service-dependency commands', () => {
       expect(em.findOne).toHaveBeenCalledWith(
         IncidentServiceComponent,
         expect.objectContaining({ key: 'checkout', deletedAt: null, organizationId: ORG_ID, tenantId: TENANT_ID }),
+        undefined,
       )
       expect(em.create).toHaveBeenCalledWith(
         IncidentServiceComponent,
@@ -191,7 +192,7 @@ describe('incidents service-component / service-dependency commands', () => {
       const { ctx } = buildHarness({ components: [makeComponent(CHECKOUT_ID, 'checkout')] })
 
       await expectHttpError(
-        handler('incidents.service_components.create').execute(
+        handler('incidents.service_component.create').execute(
           { ...baseScope, key: 'checkout', name: 'Checkout again' },
           ctx as never,
         ),
@@ -200,14 +201,14 @@ describe('incidents service-component / service-dependency commands', () => {
     })
   })
 
-  describe('incidents.service_components.delete', () => {
+  describe('incidents.service_component.delete', () => {
     it('cascade soft-deletes dependency edges on both sides of the component', async () => {
       const outgoing = makeDependency(DEP_SRC_TARGET_ID, CHECKOUT_ID, PAYMENTS_ID)
       const incoming = makeDependency(DEP_TARGET_SRC_ID, INVENTORY_ID, CHECKOUT_ID)
       const component = makeComponent(CHECKOUT_ID, 'checkout')
       const { ctx } = buildHarness({ components: [component], dependencies: [outgoing, incoming] })
 
-      await handler('incidents.service_components.delete').execute(
+      await handler('incidents.service_component.delete').execute(
         { ...baseScope, id: CHECKOUT_ID },
         ctx as never,
       )
@@ -226,7 +227,7 @@ describe('incidents service-component / service-dependency commands', () => {
       })
 
       await expectHttpError(
-        handler('incidents.service_components.delete').execute(
+        handler('incidents.service_component.delete').execute(
           { ...baseScope, id: CHECKOUT_ID },
           ctx as never,
         ),
@@ -235,13 +236,13 @@ describe('incidents service-component / service-dependency commands', () => {
     })
   })
 
-  describe('incidents.service_dependencies.create', () => {
+  describe('incidents.service_dependency.create', () => {
     it('persists a dependency with the default kind once both endpoints resolve in scope', async () => {
       const { em, ctx } = buildHarness({
         components: [makeComponent(CHECKOUT_ID, 'checkout'), makeComponent(PAYMENTS_ID, 'payments')],
       })
 
-      const result = await handler('incidents.service_dependencies.create').execute(
+      const result = await handler('incidents.service_dependency.create').execute(
         { ...baseScope, sourceComponentId: CHECKOUT_ID, targetComponentId: PAYMENTS_ID },
         ctx as never,
       )
@@ -260,7 +261,7 @@ describe('incidents service-component / service-dependency commands', () => {
       })
 
       await expectHttpError(
-        handler('incidents.service_dependencies.create').execute(
+        handler('incidents.service_dependency.create').execute(
           { ...baseScope, sourceComponentId: CHECKOUT_ID, targetComponentId: PAYMENTS_ID },
           ctx as never,
         ),
@@ -272,7 +273,7 @@ describe('incidents service-component / service-dependency commands', () => {
       const { ctx } = buildHarness({ components: [makeComponent(CHECKOUT_ID, 'checkout')] })
 
       await expectHttpError(
-        handler('incidents.service_dependencies.create').execute(
+        handler('incidents.service_dependency.create').execute(
           { ...baseScope, sourceComponentId: CHECKOUT_ID, targetComponentId: MISSING_ID },
           ctx as never,
         ),
@@ -281,7 +282,7 @@ describe('incidents service-component / service-dependency commands', () => {
     })
   })
 
-  describe('incidents.service_dependencies.update', () => {
+  describe('incidents.service_dependency.update', () => {
     it('rejects a self-referential edge with 400 when an endpoint is repointed onto the other', async () => {
       const dependency = makeDependency(DEP_SRC_TARGET_ID, CHECKOUT_ID, PAYMENTS_ID)
       const { ctx } = buildHarness({
@@ -290,7 +291,7 @@ describe('incidents service-component / service-dependency commands', () => {
       })
 
       const error = await expectHttpError(
-        handler('incidents.service_dependencies.update').execute(
+        handler('incidents.service_dependency.update').execute(
           { ...baseScope, id: DEP_SRC_TARGET_ID, sourceComponentId: PAYMENTS_ID },
           ctx as never,
         ),

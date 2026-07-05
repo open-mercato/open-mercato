@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
@@ -295,8 +296,8 @@ async function runSlaPass(
   )
   if (incidents.length === 0) return
 
-  const settings = await em.findOne(IncidentSettings, { ...scope, deletedAt: null })
-  const severities = await em.find(IncidentSeverity, { ...scope, deletedAt: null })
+  const settings = await incidentFindOne(em, IncidentSettings, { ...scope, deletedAt: null })
+  const severities = await incidentFind(em, IncidentSeverity, { ...scope, deletedAt: null })
   const severityKeyById = new Map(severities.map((severity) => [severity.id, severity.key]))
 
   for (const incident of incidents) {

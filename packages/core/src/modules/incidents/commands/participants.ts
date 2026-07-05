@@ -1,3 +1,4 @@
+import { incidentFindOne } from '../lib/read'
 import { registerCommand, type CommandHandler, type CommandLogMetadata, type CommandRuntimeContext, type CommandUndoLogEntry } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { buildChanges, emitCrudSideEffects, snapshotsEqual } from '@open-mercato/shared/lib/commands/helpers'
@@ -83,7 +84,7 @@ async function loadParticipantSnapshot(
   id: string,
   scope: IncidentScope,
 ): Promise<ParticipantSnapshot | null> {
-  const participant = await em.findOne(IncidentParticipant, {
+  const participant = await incidentFindOne(em, IncidentParticipant, {
     id,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -145,7 +146,7 @@ async function loadActiveParticipant(
   incidentId: string,
   scope: IncidentScope,
 ): Promise<IncidentParticipant> {
-  const participant = await em.findOne(IncidentParticipant, {
+  const participant = await incidentFindOne(em, IncidentParticipant, {
     id,
     incidentId,
     ...scope,
@@ -161,7 +162,7 @@ async function requireRoleInScope(
   scope: IncidentScope,
 ): Promise<void> {
   if (!roleId) return
-  const role = await em.findOne(IncidentRole, { id: roleId, ...scope, deletedAt: null })
+  const role = await incidentFindOne(em, IncidentRole, { id: roleId, ...scope, deletedAt: null })
   if (!role) throw new CrudHttpError(400, { error: '[internal] incident role not found' })
 }
 
@@ -237,7 +238,7 @@ async function restoreParticipantSnapshot(
   em: EntityManager,
   snapshot: ParticipantSnapshot,
 ): Promise<IncidentParticipant> {
-  const participant = await em.findOne(IncidentParticipant, {
+  const participant = await incidentFindOne(em, IncidentParticipant, {
     id: snapshot.id,
     organizationId: snapshot.organizationId,
     tenantId: snapshot.tenantId,
@@ -281,7 +282,7 @@ async function undoToSnapshot(
 }
 
 const addParticipantCommand: CommandHandler<ParticipantAddInput, ParticipantCommandResult> = {
-  id: 'incidents.participants.add',
+  id: 'incidents.participant.add',
   async execute(rawInput, ctx) {
     const parsed = participantAddSchema.parse(rawInput)
     const scope = resolveCommandScope(ctx, parsed)
@@ -292,7 +293,7 @@ const addParticipantCommand: CommandHandler<ParticipantAddInput, ParticipantComm
     assertIncidentMutable(incident)
     await requireRoleInScope(em, parsed.roleId, scope)
 
-    const existing = await em.findOne(IncidentParticipant, {
+    const existing = await incidentFindOne(em, IncidentParticipant, {
       incidentId: incident.id,
       userId: parsed.userId,
       kind: parsed.kind,
@@ -342,7 +343,7 @@ const addParticipantCommand: CommandHandler<ParticipantAddInput, ParticipantComm
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const participant = await em.findOne(IncidentParticipant, { id: after.id, ...scope })
+    const participant = await incidentFindOne(em, IncidentParticipant, { id: after.id, ...scope })
     const incident = await findOneWithDecryption(
       em,
       Incident,
@@ -368,7 +369,7 @@ const addParticipantCommand: CommandHandler<ParticipantAddInput, ParticipantComm
 }
 
 const updateParticipantRoleCommand: CommandHandler<ParticipantUpdateInput, ParticipantCommandResult> = {
-  id: 'incidents.participants.update_role',
+  id: 'incidents.participant.update_role',
   async prepare(rawInput, ctx) {
     const parsed = participantUpdateSchema.parse(rawInput)
     const scope = resolveCommandScope(ctx, parsed)
@@ -420,7 +421,7 @@ const updateParticipantRoleCommand: CommandHandler<ParticipantUpdateInput, Parti
 }
 
 const removeParticipantCommand: CommandHandler<ParticipantRemoveInput, ParticipantCommandResult> = {
-  id: 'incidents.participants.remove',
+  id: 'incidents.participant.remove',
   async prepare(rawInput, ctx) {
     const parsed = participantRemoveSchema.parse(rawInput)
     const scope = resolveCommandScope(ctx, parsed)

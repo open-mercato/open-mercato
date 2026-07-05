@@ -1,3 +1,4 @@
+import { incidentFind } from './read'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
   IncidentImpact,
@@ -109,7 +110,7 @@ export async function resolveIncidentServiceContext(
   scope: IncidentServiceContextScope,
   incidentId: string,
 ): Promise<IncidentServiceContext> {
-  const impacts = await em.find(IncidentImpact, {
+  const impacts = await incidentFind(em, IncidentImpact, {
     incidentId,
     ...scope,
     deletedAt: null,
@@ -136,7 +137,7 @@ export async function resolveIncidentServiceContext(
     }
   }
 
-  const impactedComponents = await em.find(
+  const impactedComponents = await incidentFind(em,
     IncidentServiceComponent,
     {
       id: { $in: impactedComponentIds },
@@ -158,7 +159,7 @@ export async function resolveIncidentServiceContext(
     }
   }
 
-  const dependencies = await em.find(
+  const dependencies = await incidentFind(em,
     IncidentServiceDependency,
     {
       ...scope,
@@ -178,7 +179,7 @@ export async function resolveIncidentServiceContext(
     ...dependencies.map((dependency) => dependency.targetComponentId),
   ])
 
-  const components = await em.find(
+  const components = await incidentFind(em,
     IncidentServiceComponent,
     {
       id: { $in: componentIds },

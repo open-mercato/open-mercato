@@ -1,3 +1,4 @@
+import { incidentFindOne } from './lib/read'
 import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import {
@@ -142,7 +143,7 @@ export const setup: ModuleSetupConfig = {
     const missingRoles: RoleSeed[] = []
 
     for (const severity of DEFAULT_SEVERITIES) {
-      const existing = await ctx.em.findOne(IncidentSeverity, {
+      const existing = await incidentFindOne(ctx.em, IncidentSeverity, {
         ...scope,
         key: severity.key,
         deletedAt: null,
@@ -151,7 +152,7 @@ export const setup: ModuleSetupConfig = {
     }
 
     for (const type of DEFAULT_TYPES) {
-      const existing = await ctx.em.findOne(IncidentType, {
+      const existing = await incidentFindOne(ctx.em, IncidentType, {
         ...scope,
         key: type.key,
         deletedAt: null,
@@ -160,7 +161,7 @@ export const setup: ModuleSetupConfig = {
     }
 
     for (const role of DEFAULT_ROLES) {
-      const existing = await ctx.em.findOne(IncidentRole, {
+      const existing = await incidentFindOne(ctx.em, IncidentRole, {
         ...scope,
         key: role.key,
         deletedAt: null,
@@ -182,7 +183,7 @@ export const setup: ModuleSetupConfig = {
 
     await ctx.em.flush()
 
-    let defaultRunbook = await ctx.em.findOne(IncidentRunbook, {
+    let defaultRunbook = await incidentFindOne(ctx.em, IncidentRunbook, {
       ...scope,
       key: DEFAULT_RUNBOOK.key,
       deletedAt: null,
@@ -201,7 +202,7 @@ export const setup: ModuleSetupConfig = {
     }
 
     for (const step of DEFAULT_RUNBOOK.steps) {
-      const existingStep = await ctx.em.findOne(IncidentRunbookStep, {
+      const existingStep = await incidentFindOne(ctx.em, IncidentRunbookStep, {
         ...scope,
         runbookId: defaultRunbook.id,
         position: step.position,
@@ -220,12 +221,12 @@ export const setup: ModuleSetupConfig = {
       }
     }
 
-    const commander = await ctx.em.findOne(IncidentRole, {
+    const commander = await incidentFindOne(ctx.em, IncidentRole, {
       ...scope,
       key: 'commander',
       deletedAt: null,
     })
-    let defaultPolicy = await ctx.em.findOne(IncidentEscalationPolicy, {
+    let defaultPolicy = await incidentFindOne(ctx.em, IncidentEscalationPolicy, {
       ...scope,
       key: 'default',
       deletedAt: null,
@@ -248,7 +249,7 @@ export const setup: ModuleSetupConfig = {
       await ctx.em.flush()
     }
 
-    const existingSettings = await ctx.em.findOne(IncidentSettings, {
+    const existingSettings = await incidentFindOne(ctx.em, IncidentSettings, {
       ...scope,
       deletedAt: null,
     })
@@ -272,7 +273,7 @@ export const setup: ModuleSetupConfig = {
     }
 
     for (const trigger of DEFAULT_TRIGGERS) {
-      const existingTrigger = await ctx.em.findOne(IncidentTrigger, {
+      const existingTrigger = await incidentFindOne(ctx.em, IncidentTrigger, {
         ...scope,
         eventId: trigger.eventId,
       })
@@ -282,15 +283,15 @@ export const setup: ModuleSetupConfig = {
     }
 
     const defaultType =
-      await ctx.em.findOne(IncidentType, { ...scope, isDefault: true, deletedAt: null }) ??
-      await ctx.em.findOne(IncidentType, { ...scope, key: 'operational', deletedAt: null })
+      await incidentFindOne(ctx.em, IncidentType, { ...scope, isDefault: true, deletedAt: null }) ??
+      await incidentFindOne(ctx.em, IncidentType, { ...scope, key: 'operational', deletedAt: null })
     if (defaultType && !defaultType.defaultEscalationPolicyId) {
       defaultType.defaultEscalationPolicyId = defaultPolicy.id
       defaultType.updatedAt = new Date()
     }
 
     for (const key of ['customer_impacting', 'security']) {
-      const type = await ctx.em.findOne(IncidentType, { ...scope, key, deletedAt: null })
+      const type = await incidentFindOne(ctx.em, IncidentType, { ...scope, key, deletedAt: null })
       if (type && !type.defaultRunbookId) {
         type.defaultRunbookId = defaultRunbook.id
         type.updatedAt = new Date()
@@ -298,7 +299,7 @@ export const setup: ModuleSetupConfig = {
     }
 
     for (const key of ['sev1', 'sev2']) {
-      const severity = await ctx.em.findOne(IncidentSeverity, { ...scope, key, deletedAt: null })
+      const severity = await incidentFindOne(ctx.em, IncidentSeverity, { ...scope, key, deletedAt: null })
       if (severity && !severity.defaultRunbookId) {
         severity.defaultRunbookId = defaultRunbook.id
         severity.updatedAt = new Date()

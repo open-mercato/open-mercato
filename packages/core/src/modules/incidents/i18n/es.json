@@ -533,6 +533,8 @@
   "incidents.portal.description": "Actualizaciones para clientes sobre incidentes que afectan a tu cuenta.",
   "incidents.portal.empty.description": "Las actualizaciones de incidentes para clientes aparecerán aquí cuando tu cuenta esté afectada.",
   "incidents.portal.empty.title": "No hay incidentes",
+  "incidents.portal.error.authRequired": "Se requiere autenticación.",
+  "incidents.portal.error.invalidQuery": "Parámetros de consulta no válidos.",
   "incidents.portal.error.loadFailed": "No se pudieron cargar los incidentes.",
   "incidents.portal.label": "Soporte",
   "incidents.portal.nav.title": "Incidentes",

@@ -533,6 +533,8 @@
   "incidents.portal.description": "Kundenseitige Updates zu Vorfällen, die Ihr Konto betreffen.",
   "incidents.portal.empty.description": "Kundenseitige Vorfall-Updates erscheinen hier, wenn Ihr Konto betroffen ist.",
   "incidents.portal.empty.title": "Keine Vorfälle",
+  "incidents.portal.error.authRequired": "Authentifizierung erforderlich.",
+  "incidents.portal.error.invalidQuery": "Ungültige Abfrageparameter.",
   "incidents.portal.error.loadFailed": "Vorfälle konnten nicht geladen werden.",
   "incidents.portal.label": "Supportbereich",
   "incidents.portal.nav.title": "Vorfälle",

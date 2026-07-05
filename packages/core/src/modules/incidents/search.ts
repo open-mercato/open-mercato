@@ -68,7 +68,7 @@ export const searchConfig: SearchModuleConfig = {
       fieldPolicy: {
         searchable: ['title', 'description', 'number'],
         hashOnly: [],
-        excluded: [],
+        excluded: ['customer_impact_summary', 'customerImpactSummary'],
       },
       aclFeatures: ['incidents.incident.view'],
     },

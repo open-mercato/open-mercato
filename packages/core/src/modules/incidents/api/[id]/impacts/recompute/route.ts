@@ -1,3 +1,4 @@
+import { incidentFind } from '../../../../lib/read'
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -75,7 +76,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const refreshedAt = new Date()
     await withAtomicFlush(em, [
       async () => {
-        const impacts = await em.find(IncidentImpact, {
+        const impacts = await incidentFind(em, IncidentImpact, {
           incidentId: incident.id,
           ...scope,
           deletedAt: null,

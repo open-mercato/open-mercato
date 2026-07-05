@@ -1,3 +1,4 @@
+import { incidentFind, incidentFindOne } from '../lib/read'
 import {
   registerCommand,
   type CommandHandler,
@@ -127,7 +128,7 @@ async function loadImpactSnapshot(
   impactId: string,
   scope: IncidentScope,
 ): Promise<ImpactSnapshot | null> {
-  const impact = await em.findOne(IncidentImpact, {
+  const impact = await incidentFindOne(em, IncidentImpact, {
     id: impactId,
     organizationId: scope.organizationId,
     tenantId: scope.tenantId,
@@ -196,7 +197,7 @@ async function loadActiveImpact(
   incidentId: string,
   scope: IncidentScope,
 ): Promise<IncidentImpact> {
-  const impact = await em.findOne(IncidentImpact, {
+  const impact = await incidentFindOne(em, IncidentImpact, {
     id: impactId,
     incidentId,
     ...scope,
@@ -252,7 +253,7 @@ async function buildServiceComponentImpactSnapshot(
 ): Promise<Record<string, unknown> | null> {
   if (targetType !== 'service_component') return providedSnapshot ?? null
   if (!targetId) throw new CrudHttpError(400, { error: '[internal] service component id is required' })
-  const component = await em.findOne(IncidentServiceComponent, {
+  const component = await incidentFindOne(em, IncidentServiceComponent, {
     id: targetId,
     ...scope,
     isActive: true,
@@ -281,7 +282,7 @@ async function assertNoDuplicateTarget(
   targetId: string | null,
   componentLabel: string | null,
 ): Promise<void> {
-  const existing = await em.findOne(IncidentImpact, {
+  const existing = await incidentFindOne(em, IncidentImpact, {
     incidentId,
     targetType,
     ...(targetId ? { targetId } : { componentLabel }),
@@ -310,7 +311,7 @@ export async function recomputeIncidentRevenue(
   incident: Incident,
 ): Promise<void> {
   assertIncidentNotMerged(incident)
-  const impacts = await em.find(IncidentImpact, {
+  const impacts = await incidentFind(em, IncidentImpact, {
     incidentId: incident.id,
     ...scope,
     deletedAt: null,
@@ -429,7 +430,7 @@ async function restoreImpactSnapshot(
   em: EntityManager,
   snapshot: ImpactSnapshot,
 ): Promise<IncidentImpact> {
-  const impact = await em.findOne(IncidentImpact, {
+  const impact = await incidentFindOne(em, IncidentImpact, {
     id: snapshot.id,
     organizationId: snapshot.organizationId,
     tenantId: snapshot.tenantId,
@@ -558,7 +559,7 @@ const addImpactCommand: CommandHandler<IncidentImpactAddInput, ImpactCommandResu
     if (!after) return
     const scope = { organizationId: after.organizationId, tenantId: after.tenantId }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const impact = await em.findOne(IncidentImpact, { id: after.id, ...scope })
+    const impact = await incidentFindOne(em, IncidentImpact, { id: after.id, ...scope })
     const incident = await findOneWithDecryption(
       em,
       Incident,
