@@ -54,9 +54,10 @@ Combine four Dependabot PRs that target `main` into a single PR against `develop
 ### Phase 4: Validation gate + PR
 
 - [x] 4.1 Full gate (build:packages ✓, generate ✓, i18n checks ✓, typecheck 21/21 ✓, test 22/22 ✓, build:app ✓)
-- [ ] 4.2 Self code-review + BC review
-- [ ] 4.3 Open PR against develop, labels, om-auto-review-pr, summary comment
+- [x] 4.2 Self code-review + BC review (adversarial review: no blockers)
+- [x] 4.3 Open PR against develop, labels, om-auto-review-pr, summary comment
 
 ## Changelog
 
 - 2026-07-05: Plan created.
+- 2026-07-05: Full gate green; opened PR #3772 against develop (labels: review, dependencies, needs-qa, priority-medium, risk-high). Status: complete — manual QA pending.
