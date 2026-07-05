@@ -37,7 +37,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, mapProposal, type ProposalView } from '../../components/types'
+import { mapAgent, mapProposal, type AgentFactView, type ProposalView } from '../../components/types'
+import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
@@ -81,6 +82,14 @@ type QueueRow = {
   waitingValue: number
   isPending: boolean
   updatedAt: string | null
+}
+
+/** Full data behind one queue row, feeding the DecisionPane's facts/reasoning. */
+type DecisionDetail = {
+  proposal: ProposalView
+  facts?: AgentFactView[]
+  runInput: unknown
+  runOutput: unknown
 }
 
 function verbOf(confidencePct: number | null): CaseVerb {
@@ -193,7 +202,9 @@ export default function AgentCaseloadPage() {
   const router = useRouter()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
+  const [agentFacts, setAgentFacts] = React.useState<Map<string, AgentFactView[]>>(new Map())
   const [runClaims, setRunClaims] = React.useState<Map<string, string>>(new Map())
+  const [runIo, setRunIo] = React.useState<Map<string, { input: unknown; output: unknown }>>(new Map())
   const [runStats, setRunStats] = React.useState<{ running: number; waiting: number }>({ running: 0, waiting: 0 })
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -235,12 +246,17 @@ export default function AgentCaseloadPage() {
         const items = Array.isArray(proposalsCall.result?.items) ? proposalsCall.result!.items : []
         setProposals(items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row))
         const labels = new Map<string, string>()
+        const facts = new Map<string, AgentFactView[]>()
         for (const item of agents) {
           const agent = mapAgent(item)
-          if (agent) labels.set(agent.id, agent.label || agent.id)
+          if (!agent) continue
+          labels.set(agent.id, agent.label || agent.id)
+          if (agent.facts) facts.set(agent.id, agent.facts)
         }
         setAgentLabels(labels)
+        setAgentFacts(facts)
         const claims = new Map<string, string>()
+        const io = new Map<string, { input: unknown; output: unknown }>()
         let running = 0
         let waiting = 0
         for (const run of runs) {
@@ -248,11 +264,13 @@ export default function AgentCaseloadPage() {
           if (!id) continue
           const input = asObject(run.input)
           claims.set(id, (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || id.slice(0, 12))
+          io.set(id, { input: run.input ?? null, output: run.output ?? null })
           const runStatus = fieldOf(run, 'status').toLowerCase()
           if (runStatus === 'running' || runStatus === 'in_progress') running += 1
           else if (runStatus === 'queued' || runStatus === 'waiting' || runStatus === 'pending' || runStatus === 'scheduled') waiting += 1
         }
         setRunClaims(claims)
+        setRunIo(io)
         setRunStats({ running, waiting })
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.caseload.error'))
@@ -273,6 +291,20 @@ export default function AgentCaseloadPage() {
   useAppEvent('agent_orchestrator.proposal.*', () => {
     reload()
   })
+
+  const decisionDetails = React.useMemo<Map<string, DecisionDetail>>(() => {
+    const map = new Map<string, DecisionDetail>()
+    for (const proposal of proposals) {
+      const io = runIo.get(proposal.runId)
+      map.set(proposal.id, {
+        proposal,
+        facts: agentFacts.get(proposal.agentId),
+        runInput: io?.input ?? null,
+        runOutput: io?.output ?? null,
+      })
+    }
+    return map
+  }, [proposals, agentFacts, runIo])
 
   const allRows = React.useMemo<QueueRow[]>(() => {
     const now = Date.now()
@@ -642,6 +674,7 @@ export default function AgentCaseloadPage() {
               </div>
             }
             rows={sortedRows}
+            details={decisionDetails}
             counts={counts}
             total={searchedFiltered.length}
             segment={segment}
@@ -857,6 +890,7 @@ function WaitingLabel({ value, className }: { value: string; className?: string 
 function ExceptionsInbox({
   toolbar,
   rows,
+  details,
   counts,
   total,
   segment,
@@ -868,6 +902,7 @@ function ExceptionsInbox({
 }: {
   toolbar: React.ReactNode
   rows: QueueRow[]
+  details: Map<string, DecisionDetail>
   counts: { actionRequired: number; approved: number; rejected: number }
   total: number
   segment: SegmentKey
@@ -934,7 +969,14 @@ function ExceptionsInbox({
 
       <div className="min-w-0 rounded-xl border border-border bg-card">
         {selected ? (
-          <DecisionPane row={selected} busy={busy} onApprove={onApprove} onReject={onReject} onOpenDetail={onOpenDetail} />
+          <DecisionPane
+            row={selected}
+            detail={details.get(selected.id) ?? null}
+            busy={busy}
+            onApprove={onApprove}
+            onReject={onReject}
+            onOpenDetail={onOpenDetail}
+          />
         ) : (
           <div className="flex h-full min-h-[320px] items-center justify-center p-8 text-center">
             <div>
@@ -950,12 +992,14 @@ function ExceptionsInbox({
 
 function DecisionPane({
   row,
+  detail,
   busy,
   onApprove,
   onReject,
   onOpenDetail,
 }: {
   row: QueueRow
+  detail: DecisionDetail | null
   busy: boolean
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
@@ -963,11 +1007,6 @@ function DecisionPane({
 }) {
   const t = useT()
   const face = row.confidencePct != null ? confidenceFace(row.confidencePct) : null
-  const needsBackend = (
-    <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-      {t('agent_orchestrator.caseload.inbox.needsBackend')}
-    </span>
-  )
 
   return (
     <div className="flex h-full flex-col">
@@ -985,14 +1024,12 @@ function DecisionPane({
       </div>
 
       <div className="space-y-5 p-5">
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          {(['policyholder', 'policy', 'coverage', 'estimate'] as const).map((key) => (
-            <div key={key}>
-              <p className="truncate text-xs font-medium uppercase tracking-wide text-muted-foreground">{t(`agent_orchestrator.caseload.inbox.ctx.${key}`)}</p>
-              <div className="mt-1">{needsBackend}</div>
-            </div>
-          ))}
-        </div>
+        {detail ? (
+          <FactsGrid
+            facts={detail.facts}
+            sources={{ input: detail.runInput, payload: detail.proposal.payload, output: detail.runOutput }}
+          />
+        ) : null}
 
         <div className="overflow-hidden rounded-lg border border-border border-l-2 border-l-brand-violet bg-brand-violet/10 p-4">
           <div className="flex items-center gap-3">
@@ -1022,22 +1059,15 @@ function DecisionPane({
           </div>
         ) : null}
 
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('agent_orchestrator.caseload.inbox.reasoning')}</p>
-          <div className="mt-2 space-y-2">
-            {[0, 1, 2].map((index) => (
-              <div key={index} className="flex items-center gap-2 text-sm">
-                <Check className="size-4 shrink-0 text-status-success-text" />
-                {needsBackend}
-              </div>
-            ))}
-            <div className="flex items-center gap-2 text-sm">
-              <Check className="size-4 shrink-0 text-status-success-text" />
-              <span className="text-muted-foreground">{t('agent_orchestrator.caseload.inbox.guardrails')}</span>
-              {needsBackend}
-            </div>
-          </div>
-        </div>
+        {detail ? <ProposedFields payload={detail.proposal.payload} /> : null}
+
+        {detail ? (
+          <ReasoningList
+            rationale={detail.proposal.rationale}
+            input={detail.runInput}
+            guardResults={detail.proposal.guardResults}
+          />
+        ) : null}
       </div>
 
       <div className="mt-auto flex items-center gap-2 border-t border-border p-4">
