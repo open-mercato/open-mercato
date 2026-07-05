@@ -15,6 +15,8 @@ export type TranslateFn = (
 export type I18nContextValue = {
   locale: Locale
   t: TranslateFn
+  /** True when the locale is pinned via `OM_FORCE_LOCALE`; UI should hide switchers. */
+  localeLocked: boolean
 }
 
 const I18N_CONTEXT_KEY = '__openMercatoI18nContext'
@@ -46,9 +48,10 @@ function format(template: string, params?: TranslateParams) {
   })
 }
 
-export function I18nProvider({ children, locale, dict }: { children: ReactNode; locale: Locale; dict: Dict }) {
+export function I18nProvider({ children, locale, dict, localeLocked = false }: { children: ReactNode; locale: Locale; dict: Dict; localeLocked?: boolean }) {
   const value = useMemo<I18nContextValue>(() => ({
     locale,
+    localeLocked,
     t: (key, fallbackOrParams, params) => {
       let fallback: string | undefined
       let resolvedParams: TranslateParams | undefined
@@ -63,7 +66,7 @@ export function I18nProvider({ children, locale, dict }: { children: ReactNode; 
       const template = dict[key] ?? fallback ?? key
       return format(template, resolvedParams)
     },
-  }), [locale, dict])
+  }), [locale, dict, localeLocked])
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
 
@@ -88,4 +91,13 @@ export function useLocale() {
   const ctx = useContext(I18nContext)
   if (!ctx) throw new Error('useLocale must be used within I18nProvider')
   return ctx.locale
+}
+
+/**
+ * True when the active locale is pinned via `OM_FORCE_LOCALE`. Returns `false`
+ * when no provider is in scope so callers can render unconditionally.
+ */
+export function useLocaleLocked() {
+  const ctx = useContext(I18nContext)
+  return ctx?.localeLocked ?? false
 }

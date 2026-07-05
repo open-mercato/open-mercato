@@ -9,6 +9,12 @@
       "inputs": ["$TURBO_DEFAULT$", "generated/**"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**"]
     },
+    "create-mercato-app#build": {
+      "dependsOn": ["^build"],
+      "cache": true,
+      "inputs": ["$TURBO_DEFAULT$", "generated/**"],
+      "outputs": ["dist/**"]
+    },
     "start": {
       "cache": false,
       "persistent": true

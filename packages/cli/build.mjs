@@ -1,6 +1,6 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { atomicWriteFileSync } from '../../scripts/lib/add-js-extension.mjs'
 import { buildPackage } from '../../scripts/build-package.mjs'
 
@@ -35,6 +35,18 @@ await buildPackage(packageDir, {
     const guidesDestDir = join(outdir, 'agentic', 'guides')
     mkdirSync(guidesDestDir, { recursive: true })
 
+    // Clean stale per-module artifacts before regenerating so an incremental dist never
+    // retains a removed module's full guide or fact-sheet — a removed `core.<module>.md`
+    // (two-dot, per-module) must come back as a redirect stub, not linger as a full guide.
+    // Mirrors packages/create-app/build.mjs; the conceptual `module-system.md` and the
+    // single-dot package guides are re-copied/re-discovered below.
+    rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
+    for (const entry of readdirSync(guidesDestDir)) {
+      if (/^core\..+\.md$/.test(entry)) {
+        rmSync(join(guidesDestDir, entry))
+      }
+    }
+
     let guidesFound = 0
     for (const pkg of readdirSync(packagesDir)) {
       const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
@@ -57,6 +69,62 @@ await buildPackage(packageDir, {
 
     if (guidesFound > 0) {
       console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
+    }
+
+    // Generate per-module fact-sheets (Layer 2) from core module sources via the
+    // freshly built ts-morph extractor, so `mercato agentic:init` bundles the same
+    // guides as a create-mercato-app scaffold (packages/create-app/build.mjs).
+    const coreSrcRoot = join(packagesDir, 'core', 'src', 'modules')
+    if (existsSync(coreSrcRoot)) {
+      const { extractAllModuleFacts, renderModuleFactsJson } = await import(
+        pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
+      )
+      const registryPath = join(packagesDir, '..', 'apps', 'mercato', '.mercato', 'generated', 'modules.runtime.generated.ts')
+      let coreVersion = null
+      try {
+        coreVersion = JSON.parse(readFileSync(join(packagesDir, 'core', 'package.json'), 'utf8')).version ?? null
+      } catch {
+        coreVersion = null
+      }
+
+      const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+        coreSrcRoot,
+        registryPath: existsSync(registryPath) ? registryPath : null,
+        coreVersion,
+      })
+
+      const modulesGuidesDir = join(guidesDestDir, 'modules')
+      mkdirSync(modulesGuidesDir, { recursive: true })
+      for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
+        writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
+      }
+      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+
+      for (const warning of warnings) console.warn(warning)
+      console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+
+      // BC bridge (spec §7 generated-file contract): for any allowlisted module whose
+      // legacy full guide `core.<module>.md` is no longer bundled (its standalone-guide.md
+      // source was removed), emit a thin redirect stub pointing at the generated fact-sheet.
+      // Fresh scaffolds never link these names; they exist only for apps upgrading in place.
+      let stubsWritten = 0
+      for (const moduleId of Object.keys(markdownByModule)) {
+        const legacyGuidePath = join(guidesDestDir, `core.${moduleId}.md`)
+        if (!existsSync(legacyGuidePath)) {
+          writeFileSync(
+            legacyGuidePath,
+            `# core.${moduleId} — moved\n\n` +
+              `> This guide has moved. See [\`modules/${moduleId}.md\`](modules/${moduleId}.md) for the generated ` +
+              `\`${moduleId}\` fact-sheet, and [\`module-system.md\`](module-system.md) for conceptual module guidance.\n`,
+          )
+          stubsWritten++
+        }
+      }
+      if (stubsWritten > 0) {
+        console.log(`Wrote ${stubsWritten} legacy core.<module>.md redirect stubs → dist/agentic/guides/`)
+      }
+    } else {
+      console.warn(`[module-facts] core module sources not found at ${coreSrcRoot}; skipping fact-sheet generation`)
     }
   },
 })

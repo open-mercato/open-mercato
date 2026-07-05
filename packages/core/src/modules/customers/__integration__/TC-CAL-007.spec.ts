@@ -46,6 +46,11 @@ test.describe('TC-CAL-007: Calendar settings / customization modal', () => {
     let meetingId: string | null = null;
 
     try {
+      // Freeze to a weekday so this spec verifies the settings modal default.
+      // TC-CAL-010 separately covers the intentional "today is a weekend"
+      // exception where today's weekend column remains visible.
+      await page.clock.setFixedTime(new Date(2026, 5, 24, 10, 0, 0));
+
       adminToken = await getAuthToken(request, 'admin');
       personId = await createPersonFixture(request, adminToken, {
         firstName: 'CalSettings',
