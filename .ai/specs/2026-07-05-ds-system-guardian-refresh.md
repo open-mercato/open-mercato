@@ -119,6 +119,16 @@ Integration coverage: not applicable — no API or UI runtime paths change. The 
 - No contract surface modified; deprecation protocol not triggered.
 - Generated files untouched; no `yarn generate` needed (new workspace has no module auto-discovery files).
 
+### Workstream 5 — Tabs migration (added during implementation)
+
+Migrate the worst hand-rolled tab strips to the `Tabs` primitive (`variant="underline"`), per the new page-templates pattern:
+
+- `TabsList` gains an additive `aria-label` prop (primitive change, approved in-review) so bare section switchers stay accessible.
+- Migrated: `customers/DetailTabsLayout`, `integrations/[id]` page (pill→underline + `leading` icons, drops ~7 copies of a reset-override className), `planner/availability-rulesets/[id]` page, `ui/backend/detail/AttachmentMetadataDialog`.
+- `customers/deals/pipeline/ViewTabsRow` intentionally stays link-based (`<Link>` navigation between two routes — the state-driven primitive does not fit); aligned its tokens instead (`shadow-focus`, `border-accent-indigo`).
+- Remaining raw `role="tab"` call sites (follow-up, not this spec): `ui/backend/AppShell`, `ui/ai/ChatPaneTabs`, customers `MobilePersonDetail`/`PersonDetailTabs`/`CompanyDetailTabs`/`DealDetailTabs`, planner `AvailabilityRulesEditor`, `resources/[id]`, `audit_logs` page, staff `team-members/[id]`/`teams/[id]/edit`/`SavedViewTabs`, attachments `AttachmentContentPreview`.
+
 ## Changelog
 
 - 2026-07-05 — Spec created; scope agreed (full variant: drift refresh + guardian v2 + backend reference + structural lint).
+- 2026-07-05 — Workstream 5 added on review: in-PR migration of the four worst tab strips to `Tabs variant="underline"` + additive `aria-label` on `TabsList`; remaining call sites listed as follow-up.
