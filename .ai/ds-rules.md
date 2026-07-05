@@ -23,7 +23,9 @@ Decision tree — ask "what color do I need?":
 | Is it a chart/data visualization? | Yes → | `chart-blue`, `chart-emerald`, `chart-amber`, etc. |
 | Is it brand accent? | Yes → | `brand-violet` |
 
-Status token structure: `{property}-status-{status}-{role}` where status = `error`|`success`|`warning`|`info`|`neutral` and role = `bg`|`text`|`border`|`icon`.
+Status token structure: `{property}-status-{status}-{role}` where status = `error`|`success`|`warning`|`info`|`neutral`|`pink` and role = `bg`|`text`|`border`|`icon`.
+
+`pink` is a **categorical accent**, not a semantic state: use it for stage/category chips (e.g. pipeline stage badges, Tag variants) where a sixth distinct hue is needed. NEVER map an entity's success/failure state to `pink` — semantic outcomes stay on `error`/`success`/`warning`/`info`/`neutral`.
 
 ## Brand Colors
 
@@ -73,6 +75,20 @@ Decision tree — ask "is this a brand moment?":
 <div style={{ background: 'linear-gradient(135deg, #D4F372 0%, #EEFB63 50%, #BC9AFF 100%)' }} />
 ```
 
+## Chart Colors
+
+Data visualization uses the dedicated `--chart-*` palette — never status tokens, and status semantics never come from chart colors.
+
+| Token | Purpose |
+|-------|---------|
+| `chart-blue`, `chart-emerald`, `chart-amber`, `chart-rose`, `chart-violet`, `chart-cyan`, `chart-indigo`, `chart-pink`, `chart-teal`, `chart-orange` | Named series colors — pick in this order for multi-series charts so palettes stay consistent across dashboards |
+| `chart-1` … `chart-5` | Legacy unnamed base palette (shadcn default) — prefer the named tokens in new code |
+
+- Charts MUST use `chart-*` tokens (`text-chart-blue`, `bg-chart-emerald`, `stroke`/`fill` via `var(--chart-*)`)
+- NEVER color a chart series with `status-*` tokens, and never derive an entity's status color from `chart-*`
+- Exception: a chart that literally encodes status (e.g. error-rate line) may use `status-{status}-icon` for that one series — document it in the component
+- All `chart-*` tokens have dedicated dark-mode values — no `dark:` overrides
+
 ## Corner Radius
 - NEVER use arbitrary radius values (`rounded-[24px]`, `rounded-[32px]`, etc.)
 - NEVER use `rounded-2xl` or `rounded-3xl` — use `rounded-xl` (16px) for large radius
@@ -90,8 +106,9 @@ Decision tree — ask "is this a brand moment?":
 - NEVER use arbitrary text sizes (`text-[10px]`, `text-[11px]`, `text-[13px]`, `text-[15px]`)
 - NEVER use arbitrary tracking — use `tracking-widest` (0.1em) for uppercase labels
 - USE Tailwind scale: `text-xs` (12px), `text-sm` (14px), `text-base` (16px), `text-lg` (18px), `text-xl` (20px), `text-2xl` (24px)
-- For 11px uppercase labels: use `text-overline` (custom token)
-- Exception: `text-[9px]` for notification badge count (single use case, documented)
+- For 11px uppercase labels: use `text-overline` (custom token, 11px / 16px line-height)
+- Exception: `text-[9px]` for notification badge count and `Avatar size="sm"` initials (documented exceptions)
+- Font families come from tokens: `--font-geist-sans` (default UI) and `--font-geist-mono` (`font-mono`) — never declare `font-family` inline
 
 | What text am I styling? | Classes |
 |--------------------------|---------|
@@ -106,12 +123,13 @@ Decision tree — ask "is this a brand moment?":
 | Code / technical content | `text-sm font-mono` |
 
 ## Feedback
-- USE `Alert` for inline messages — NOT `Notice` (deprecated)
+- USE `Alert` for inline messages — `Notice`/`ErrorNotice` are deprecated shells (migration complete; a guard test enforces the BC allowlist — do not add new imports)
 - USE `flash()` for transient toast messages
 - USE `useConfirmDialog()` for destructive action confirmation
 - Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
 - Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
-- Alert variants: `default`, `destructive` (error), `success`, `warning`, `info`
+- Alert API: `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` — see `.ai/ui-components.md` § Alert for the full matrix
+- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — new code uses `status` + `style`
 
 ## Spacing
 - NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)
@@ -168,6 +186,7 @@ Decision tree — ask "is this a brand moment?":
 | Modal, dialog, drawer, side panel | `z-modal` | 40 |
 | Portaled overlay content (popover, select menu, combobox suggestions) | `z-popover` | 45 |
 | Toast / flash message | `z-toast` | 50 |
+| Modal stacked above another modal/drawer (confirm-on-drawer, dialog-in-dialog) | `z-modal-elevated` | 55 |
 | Tooltip | `z-tooltip` | 60 |
 | Global notice bar (cookie banner, system-wide) | `z-banner` | 70 |
 | Always-on-top (dev tools, AI chat, command palette) | `z-top` | 100 |
@@ -186,7 +205,10 @@ Decision tree — ask "is this a brand moment?":
 | Dialog, overlay, or popover | `shadow-lg` |
 | Floating panel (dockable chat, side drawer) | `shadow-xl` |
 | Top-level modal or command palette | `shadow-2xl` |
+| Focus halo on a custom focusable element | `shadow-focus` (composite two-ring token — see Focus States) |
 | Remove shadow | `shadow-none` |
+
+`--shadow-switch-thumb` exists for the Switch primitive's thumb only — component-internal, do not reuse.
 
 ## Motion & Transitions
 - NEVER use arbitrary duration values (`duration-[250ms]`, etc.)
@@ -241,7 +263,7 @@ const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
 ## Components — quick reference
 | I need to… | Use this |
 |---|---|
-| Show an error/success/warning message inline | `<Alert variant="destructive\|success\|warning\|info">` |
+| Show an error/success/warning message inline | `<Alert status="error\|success\|warning\|information\|feature" style="light\|lighter\|stroke\|filled">` |
 | Show a toast notification | `flash('message', 'success\|error\|warning\|info')` |
 | Confirm a destructive action | `useConfirmDialog()` |
 | Display entity status (active, draft, etc.) | `<StatusBadge variant={statusMap[status]} dot>` |
@@ -252,6 +274,9 @@ const dealStatusMap: StatusMap<'open' | 'won' | 'lost'> = {
 | Wrap a form field with label + error | `<FormField label="..." error={...}>` |
 | Build a section header with count + action | `<SectionHeader title="..." count={n} action={...}>` |
 | Build a collapsible section | `<CollapsibleSection title="...">content</CollapsibleSection>` |
+| Filter tabs with unread/result counts | `<Tabs variant="underline">` + `<TabsTrigger count={n}>` (see NotificationPanel) |
+| Side sheet / secondary form | `<Drawer>` + `DrawerContent/Header/Body/Footer` — never a hand-rolled fixed panel |
+| Single-month date picker | `DatePicker` — header click opens the built-in month/year grid; do not build custom month navigation |
 
 ## Reference Implementation
 When building a new module UI, use the **customers module** as reference:
@@ -299,19 +324,19 @@ When building a new module UI, use the **customers module** as reference:
 ## Focus States (Accessibility)
 - NEVER use `focus:` for rings/outline — use `focus-visible:` (rings appear on keyboard nav only)
 - NEVER use hardcoded focus colors (`focus-visible:ring-blue-500`, etc.)
-- USE the `--ring` token via `focus-visible:ring-ring`
 - USE `aria-invalid:` for error state rings
 
-Standard focus recipe:
+Standard focus recipe (the Figma two-ring halo — white inner ring + soft outer ring via `--focus-ring-inner`/`--focus-ring-outer`):
 ```
-focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2
+focus-visible:outline-none focus-visible:shadow-focus
 ```
 
 | What focus treatment? | Classes |
 |-----------------------|---------|
 | Button / Input / Select / standard form control | Already handled by the primitive |
-| Custom focusable element (div with tabIndex, link, interactive row) | `focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2` |
-| Tight layout where offset-2 overflows | `focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0` |
+| Custom focusable element (div with tabIndex, link, interactive row) | `focus-visible:outline-none focus-visible:shadow-focus` |
+| Legacy ring recipe (`focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`) | Still present in a few primitives — do not copy into new code; migrate to `shadow-focus` when touching the file (Boy Scout Rule) |
+| Tight layout where the halo overflows | `focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-0` |
 | Error state needing red focus ring | Add `aria-invalid:ring-destructive aria-invalid:ring-2` |
 | Menu item / dropdown item | `focus:bg-accent focus:text-accent-foreground` (without `-visible`) |
 | Disable focus ring | `focus-visible:ring-0` (rare — accessibility concern) |
