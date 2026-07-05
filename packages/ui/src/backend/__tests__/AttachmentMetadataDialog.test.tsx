@@ -54,6 +54,15 @@ describe('AttachmentMetadataDialog assignment layout', () => {
     label: 'Production order with a long label',
   }
 
+  const secondAssignment = {
+    type: 'sales.invoice',
+    id: 'invoice-with-a-long-record-id-0001-0002-0003-0004',
+    href: 'https://example.test/backend/sales/invoices/invoice-with-a-long-record-id-0001-0002-0003-0004',
+    label: 'Invoice settlement attachment',
+  }
+
+  const assignments = [longAssignment, secondAssignment]
+
   const item: AttachmentItem = {
     id: 'attachment-1',
     fileName: 'work-order-photo.png',
@@ -62,7 +71,7 @@ describe('AttachmentMetadataDialog assignment layout', () => {
     partitionCode: 'default',
     partitionTitle: 'Default',
     tags: [],
-    assignments: [longAssignment],
+    assignments,
   }
 
   beforeEach(() => {
@@ -75,7 +84,7 @@ describe('AttachmentMetadataDialog assignment layout', () => {
         item: {
           id: item.id,
           tags: [],
-          assignments: [longAssignment],
+          assignments,
           customFields: {},
           content: null,
         },
@@ -83,7 +92,7 @@ describe('AttachmentMetadataDialog assignment layout', () => {
     })
   })
 
-  it('bounds long assignment rows inside the dialog and names the remove action', async () => {
+  it('renders each assignment as a distinct wide edit card', async () => {
     renderWithProviders(
       <AttachmentMetadataDialog
         open
@@ -99,21 +108,34 @@ describe('AttachmentMetadataDialog assignment layout', () => {
     expect(typeWrapper).not.toBeNull()
 
     const fieldWrapper = typeWrapper?.parentElement
-    const row = fieldWrapper?.parentElement
-    expect(row).not.toBeNull()
+    const fieldsGrid = fieldWrapper?.parentElement
+    const card = fieldsGrid?.parentElement
+    expect(card).not.toBeNull()
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Remove' })).toBeInTheDocument()
+      expect(screen.getAllByRole('button', { name: 'Remove' })).toHaveLength(2)
     })
 
-    expect(row?.className).not.toContain('lg:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]')
-    expect(row?.className).toContain(
-      'lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_minmax(0,1fr)_auto]',
-    )
-    expect(row?.className).toContain('min-w-0')
+    const cards = Array.from(document.querySelectorAll('[data-assignment-card]'))
+    expect(cards).toHaveLength(2)
+    expect(cards[0]).toHaveTextContent(longAssignment.label)
+    expect(cards[1]).toHaveTextContent(secondAssignment.label)
+
+    expect(card?.className).not.toContain('lg:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]')
+    expect(card?.className).not.toContain('lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_minmax(0,1fr)_auto]')
+    expect(fieldsGrid?.className).toContain('md:grid-cols-2')
+    expect(fieldsGrid?.className).toContain('min-w-0')
     expect(fieldWrapper?.className).toContain('min-w-0')
 
-    const inputWrappers = Array.from(row?.querySelectorAll('[data-slot="input-wrapper"]') ?? [])
+    const hrefInput = screen.getByDisplayValue(longAssignment.href)
+    const hrefFieldWrapper = hrefInput.closest('[data-slot="input-wrapper"]')?.parentElement
+    expect(hrefFieldWrapper?.className).toContain('md:col-span-2')
+
+    const labelInput = screen.getByDisplayValue(longAssignment.label)
+    const labelFieldWrapper = labelInput.closest('[data-slot="input-wrapper"]')?.parentElement
+    expect(labelFieldWrapper?.className).toContain('md:col-span-2')
+
+    const inputWrappers = Array.from(card?.querySelectorAll('[data-slot="input-wrapper"]') ?? [])
     expect(inputWrappers).toHaveLength(4)
     inputWrappers.forEach((wrapper) => {
       expect((wrapper as HTMLElement).className).toContain('w-full')

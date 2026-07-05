@@ -168,59 +168,81 @@ function AssignmentInputRow({
   disabled?: boolean
   onRemove: () => void
 }) {
+  const trimmedLabel = value.label?.trim() ?? ''
+  const trimmedType = value.type?.trim() ?? ''
+  const trimmedId = value.id?.trim() ?? ''
+  const primaryLabel = trimmedLabel || trimmedType || trimmedId
+  const secondaryLabel = [
+    trimmedLabel ? trimmedType : '',
+    trimmedId && trimmedId !== primaryLabel ? trimmedId : '',
+  ]
+    .filter(Boolean)
+    .join(' - ')
+
   return (
-    <div className="grid min-w-0 grid-cols-1 gap-2 rounded-md border border-border/70 bg-background p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_minmax(0,1fr)_auto]">
-      <div className="min-w-0 space-y-1">
-        <label className="text-xs font-medium">{labels.type}</label>
-        <Input
-          className="w-full min-w-0"
-          value={value.type}
-          onChange={(event) => onChange({ ...value, type: event.target.value })}
-          placeholder="catalog.product"
-          disabled={disabled}
-        />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <label className="text-xs font-medium">{labels.id}</label>
-        <Input
-          className="w-full min-w-0"
-          value={value.id}
-          onChange={(event) => onChange({ ...value, id: event.target.value })}
-          placeholder="Record ID"
-          disabled={disabled}
-        />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <label className="text-xs font-medium">{labels.href}</label>
-        <Input
-          className="w-full min-w-0"
-          value={value.href ?? ''}
-          onChange={(event) => onChange({ ...value, href: event.target.value })}
-          placeholder="https://"
-          disabled={disabled}
-        />
-      </div>
-      <div className="min-w-0 space-y-1">
-        <label className="text-xs font-medium">{labels.label}</label>
-        <Input
-          className="w-full min-w-0"
-          value={value.label ?? ''}
-          onChange={(event) => onChange({ ...value, label: event.target.value })}
-          placeholder="Optional label"
-          disabled={disabled}
-        />
-      </div>
-      <div className="flex items-end">
+    <div data-assignment-card className="min-w-0 rounded-md border border-border/70 bg-background p-3">
+      <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          {primaryLabel ? (
+            <p className="truncate text-sm font-medium text-foreground">{primaryLabel}</p>
+          ) : null}
+          {secondaryLabel ? (
+            <p className="truncate text-xs text-muted-foreground">{secondaryLabel}</p>
+          ) : null}
+        </div>
         <IconButton
           type="button"
           variant="ghost"
-          size="lg"
+          size="default"
           aria-label={labels.remove}
           onClick={onRemove}
           disabled={disabled}
+          className="shrink-0"
         >
           <Trash2 className="size-4" />
         </IconButton>
+      </div>
+      <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2">
+        <div className="min-w-0 space-y-1">
+          <label className="text-xs font-medium">{labels.type}</label>
+          <Input
+            className="w-full min-w-0"
+            value={value.type}
+            onChange={(event) => onChange({ ...value, type: event.target.value })}
+            placeholder="catalog.product"
+            disabled={disabled}
+          />
+        </div>
+        <div className="min-w-0 space-y-1">
+          <label className="text-xs font-medium">{labels.id}</label>
+          <Input
+            className="w-full min-w-0"
+            value={value.id}
+            onChange={(event) => onChange({ ...value, id: event.target.value })}
+            placeholder="Record ID"
+            disabled={disabled}
+          />
+        </div>
+        <div className="min-w-0 space-y-1 md:col-span-2">
+          <label className="text-xs font-medium">{labels.href}</label>
+          <Input
+            className="w-full min-w-0"
+            value={value.href ?? ''}
+            onChange={(event) => onChange({ ...value, href: event.target.value })}
+            placeholder="https://"
+            disabled={disabled}
+          />
+        </div>
+        <div className="min-w-0 space-y-1 md:col-span-2">
+          <label className="text-xs font-medium">{labels.label}</label>
+          <Input
+            className="w-full min-w-0"
+            value={value.label ?? ''}
+            onChange={(event) => onChange({ ...value, label: event.target.value })}
+            placeholder="Optional label"
+            disabled={disabled}
+          />
+        </div>
       </div>
     </div>
   )
