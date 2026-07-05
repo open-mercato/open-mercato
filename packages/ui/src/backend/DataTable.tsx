@@ -2690,14 +2690,18 @@ export function DataTable<T>({
     return () => observer.disconnect()
   }, [tableScrollEl])
   const allRows = table.getRowModel().rows
-  const rowVirtualizer = virtualized
-    ? useVirtualizer({
-        count: allRows.length,
-        getScrollElement: () => virtualScrollRef.current,
-        estimateSize: () => 48,
-        overscan: virtualizedOverscan,
-      })
-    : null
+  // Hooks must run on every render regardless of props (Rules of Hooks). Call
+  // useVirtualizer unconditionally and keep it inert when virtualization is off
+  // (count 0, no scroll element → no observers, no measurement work), then
+  // derive the nullable handle from the prop. Mirrors the unconditional-hooks-
+  // first pattern in RowActions.
+  const rowVirtualizerInstance = useVirtualizer({
+    count: virtualized ? allRows.length : 0,
+    getScrollElement: () => (virtualized ? virtualScrollRef.current : null),
+    estimateSize: () => 48,
+    overscan: virtualizedOverscan,
+  })
+  const rowVirtualizer = virtualized ? rowVirtualizerInstance : null
   const virtualMaxHeightStyle: React.CSSProperties | undefined = virtualized
     ? {
         maxHeight: typeof virtualizedMaxHeight === 'number'
