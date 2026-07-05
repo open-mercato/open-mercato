@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { MODULE_FACTS_ALLOWLIST } from '../generators/module-facts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..')
@@ -14,6 +15,11 @@ const cliIntegrationRunnerPath = path.join(cliDir, 'src', 'lib', 'testing', 'int
 const standaloneTemplatePackageJsonPath = path.join(repoRoot, 'packages', 'create-app', 'template', 'package.json.template')
 const agenticRoot = path.join(repoRoot, 'packages', 'create-app', 'agentic')
 const packagesRoot = path.join(repoRoot, 'packages')
+
+// Modules the standalone fixture enables in src/modules.ts. Both are on the
+// fact-sheet allowlist, so agentic:init must ship exactly their fact-sheets
+// (enabled ∩ allowlist — spec D6) and list them in the AGENTS.md marker block.
+const FIXTURE_ENABLED_MODULES = ['customers', 'sales']
 
 function normalizePath(value: string): string {
   return value.split(path.sep).join('/')
@@ -57,7 +63,8 @@ function createStandaloneFixture(rootDir: string): string {
       2,
     ),
   )
-  writeFile(path.join(appDir, 'src', 'modules.ts'), 'export const enabledModules = []\n')
+  const moduleEntries = FIXTURE_ENABLED_MODULES.map((moduleId) => `  { id: '${moduleId}' },`).join('\n')
+  writeFile(path.join(appDir, 'src', 'modules.ts'), `export const enabledModules = [\n${moduleEntries}\n]\n`)
   return appDir
 }
 
@@ -167,6 +174,17 @@ function readPlaywrightConfigPathFromCliRunner(): string {
 function expectedGuideOutputNames(): string[] {
   const collected = new Set<string>()
 
+  // Static conceptual guides checked into create-app (e.g. module-system.md) are
+  // bundled into dist/agentic/guides by the CLI build and copied wholesale.
+  const staticGuidesRoot = path.join(agenticRoot, 'guides')
+  if (fs.existsSync(staticGuidesRoot)) {
+    for (const entry of fs.readdirSync(staticGuidesRoot, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.md')) {
+        collected.add(entry.name)
+      }
+    }
+  }
+
   for (const packageName of fs.readdirSync(packagesRoot)) {
     const packageGuide = path.join(packagesRoot, packageName, 'agentic', 'standalone-guide.md')
     if (fs.existsSync(packageGuide)) {
@@ -186,15 +204,18 @@ function expectedGuideOutputNames(): string[] {
     }
   }
 
-  // Static conceptual guides shipped under create-app/agentic/guides/ (e.g.
-  // module-system.md) are copied verbatim by build.mjs + agentic-setup, so the
-  // generated set includes them alongside the per-package/module standalone guides.
-  const staticGuidesRoot = path.join(agenticRoot, 'guides')
-  if (fs.existsSync(staticGuidesRoot)) {
-    for (const guideEntry of fs.readdirSync(staticGuidesRoot, { withFileTypes: true })) {
-      if (guideEntry.isFile() && guideEntry.name.endsWith('.md')) {
-        collected.add(guideEntry.name)
-      }
+  // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
+  // the module-facts.json sidecar is copied as-is, fact-sheets are filtered to the
+  // fixture's enabled modules, and every allowlisted module whose hand-written
+  // core.<module>.md guide no longer exists gets a legacy redirect stub.
+  collected.add('module-facts.json')
+  for (const moduleId of FIXTURE_ENABLED_MODULES) {
+    collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
+  }
+  for (const moduleId of MODULE_FACTS_ALLOWLIST) {
+    const legacyGuideSource = path.join(packagesRoot, 'core', 'src', 'modules', moduleId, 'agentic', 'standalone-guide.md')
+    if (!fs.existsSync(legacyGuideSource)) {
+      collected.add(`core.${moduleId}.md`)
     }
   }
 
@@ -241,6 +262,13 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       const agentsSource = fs.readFileSync(path.join(appDir, 'AGENTS.md'), 'utf8')
       expect(agentsSource).toContain('<!-- CODEX_ENFORCEMENT_RULES_START -->')
       expect(agentsSource).toContain('.ai/guides/core.md')
+
+      // The Module-Specific Guides marker block lists exactly the enabled modules'
+      // fact-sheets (enabled ∩ allowlist), not the full bundled set.
+      for (const moduleId of FIXTURE_ENABLED_MODULES) {
+        expect(agentsSource).toContain(`.ai/guides/modules/${moduleId}.md`)
+      }
+      expect(agentsSource).not.toContain('.ai/guides/modules/auth.md')
 
       const specsReadmeSource = fs.readFileSync(path.join(appDir, '.ai', 'specs', 'README.md'), 'utf8')
       expect(specsReadmeSource).toContain('sample-store')
