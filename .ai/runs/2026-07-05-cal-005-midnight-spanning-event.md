@@ -72,5 +72,5 @@ PR #3594 CI shows two distinct failure clusters:
 
 ### Phase 2: Validate and ship
 
-- [ ] 2.1 Run targeted validation (core lint/typecheck for the changed spec)
+- [x] 2.1 Run targeted validation (core lint/typecheck for the changed spec) — tsc: no syntax errors; `playwright test --list` collects the 1 test cleanly
 - [ ] 2.2 Open PR against develop, apply labels, run auto-review
