@@ -1,10 +1,9 @@
 "use client"
 
 import * as React from 'react'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Badge } from '@open-mercato/ui/primitives/badge'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import {
   Users,
   Handshake,
@@ -27,7 +26,7 @@ type TabDef = {
   id: CompanyTabId
   label: string
   icon?: React.ReactNode
-  badge?: React.ReactNode
+  count?: React.ReactNode
 }
 
 type CompanyDetailTabsProps = {
@@ -58,21 +57,9 @@ export function resolveLegacyTab(tab: string | null | undefined): CompanyTabId {
   return tab as CompanyTabId
 }
 
-function NewBadge() {
-  return (
-    <span className="ml-1.5 rounded bg-foreground px-1.5 py-0.5 text-overline font-semibold leading-none text-background">
-      NEW
-    </span>
-  )
-}
-
-function CountBadge({ count }: { count: number }) {
-  if (count <= 0) return null
-  return (
-    <span className="ml-1.5 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium leading-none text-muted-foreground">
-      {count > 999 ? '999+' : count}
-    </span>
-  )
+function formatTabCount(count: number): string | number | undefined {
+  if (count <= 0) return undefined
+  return count > 999 ? '999+' : count
 }
 
 export function CompanyDetailTabs({
@@ -94,31 +81,31 @@ export function CompanyDetailTabs({
         id: 'people',
         label: t('customers.companies.detail.tabs.people', 'People'),
         icon: <Users className="size-4" />,
-        badge: <CountBadge count={peopleCount} />,
+        count: formatTabCount(peopleCount),
       },
       {
         id: 'deals',
         label: t('customers.companies.detail.tabs.deals', 'Deals'),
         icon: <Handshake className="size-4" />,
-        badge: <CountBadge count={dealsCount} />,
+        count: formatTabCount(dealsCount),
       },
       {
         id: 'activity-log',
         label: t('customers.companies.detail.tabs.activityLog', 'Activity log'),
         icon: <Clock className="size-4" />,
-        badge: <CountBadge count={activitiesCount} />,
+        count: formatTabCount(activitiesCount),
       },
       {
         id: 'changelog',
         label: t('customers.companies.detail.tabs.changelog', 'Changelog'),
         icon: <History className="size-4" />,
-        badge: <NewBadge />,
+        count: 'NEW',
       },
       {
         id: 'files',
         label: t('customers.companies.detail.tabs.files', 'Files'),
         icon: <Paperclip className="size-4" />,
-        badge: <CountBadge count={filesCount} />,
+        count: formatTabCount(filesCount),
       },
     ],
     [t, peopleCount, dealsCount, activitiesCount, filesCount],
@@ -138,33 +125,24 @@ export function CompanyDetailTabs({
   return (
     <div>
       {/* Tab navigation */}
-      <div className="flex items-end justify-between gap-2 border-b" role="tablist" aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}>
-        <nav className="-mb-px flex flex-1 gap-1 overflow-x-auto px-1">
-          {allTabs.map((tab) => {
-            const isActive = activeTab === tab.id
-            return (
-              <Button
-                key={tab.id}
-                type="button"
-                variant="ghost"
-                size="sm"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => onTabChange(tab.id)}
-                className={cn(
-                  'h-auto shrink-0 rounded-none border-b-2 px-3 py-2.5 hover:bg-transparent',
-                  isActive
-                    ? 'border-foreground text-foreground font-semibold'
-                    : 'border-transparent text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {tab.icon && <span className="mr-1.5">{tab.icon}</span>}
+      <div className="flex items-end justify-between gap-2 border-b">
+        <Tabs
+          value={activeTab}
+          onValueChange={(value) => onTabChange(value as CompanyTabId)}
+          variant="underline"
+          className="min-w-0 flex-1"
+        >
+          <TabsList
+            aria-label={t('customers.companies.detail.tabs.label', 'Company detail sections')}
+            className="-mb-px w-full overflow-x-auto border-b-0 px-1"
+          >
+            {allTabs.map((tab) => (
+              <TabsTrigger key={tab.id} value={tab.id} leading={tab.icon} count={tab.count}>
                 {tab.label}
-                {tab.badge}
-              </Button>
-            )
-          })}
-        </nav>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
         {sectionAction ? (
           <Button
             type="button"
