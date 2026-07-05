@@ -95,6 +95,22 @@ Caches coverage statistics instead of recalculating them on every read. Suitable
 **Default:** `true`  
 Allows the hybrid engine to serve results even when coverage is partial. Responses include an `x-om-partial-index` header so admins can schedule a rebuild. Related docs: [Query index](https://docs.openmercato.com/docs/framework/database/query-index).
 
+### QUERY_INDEX_WARMUP_ENABLED {#query_index_warmup_enabled}
+**Default:** `true`  
+Kill switch for the `query_index.coverage.warmup` sweep fired after login. Set to `false` to disable the proactive warmup entirely and rely solely on the query engine's lazy, on-demand coverage refresh. Related docs: [Query index](https://docs.openmercato.com/docs/framework/database/query-index).
+
+### QUERY_INDEX_WARMUP_THROTTLE_MS {#query_index_warmup_throttle_ms}
+**Default:** `300000` (5 minutes)  
+Minimum time between warmup sweeps for the same entity type and tenant, checked both against an in-process cache and the persisted coverage snapshot so a process restart doesn't repeat the full sweep.
+
+### QUERY_INDEX_WARMUP_CONCURRENCY {#query_index_warmup_concurrency}
+**Default:** `10`  
+Number of `coverage.refresh` events dispatched per chunk during the warmup sweep. Lower this alongside `QUERY_INDEX_WARMUP_STAGGER_MS` to reduce peak concurrent database connections on memory-constrained deployments.
+
+### QUERY_INDEX_WARMUP_STAGGER_MS {#query_index_warmup_stagger_ms}
+**Default:** `0` (unchanged burst behaviour)  
+Delay in milliseconds added between successive warmup chunks. A non-zero value (e.g. `2000`) spreads the post-login coverage burst over time instead of firing every stale entity type at once, lowering peak RSS/connection usage without changing the total number of refreshes.
+
 ## Entity compatibility {#entities}
 
 ### ENTITIES_BACKCOMPAT_EAV_FOR_CUSTOM {#entities_backcompat_eav_for_custom}
