@@ -12,7 +12,7 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 1 | 1.1 | Add assignment layout regression coverage | done | 0467df1f0 |
-| 1 | 1.2 | Contain assignment row layout and accessible remove action | todo | — |
+| 1 | 1.2 | Contain assignment row layout and accessible remove action | done | pending |
 
 ## Goal
 

@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { z } from 'zod'
 import { Button } from '../../primitives/button'
+import { IconButton } from '../../primitives/icon-button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
@@ -168,37 +169,41 @@ function AssignmentInputRow({
   onRemove: () => void
 }) {
   return (
-    <div className="grid grid-cols-1 gap-2 rounded-md border border-border/70 bg-background p-3 sm:grid-cols-2 lg:grid-cols-[1.2fr_1.2fr_1.6fr_1fr_auto]">
-      <div className="space-y-1">
+    <div className="grid min-w-0 grid-cols-1 gap-2 rounded-md border border-border/70 bg-background p-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.6fr)_minmax(0,1fr)_auto]">
+      <div className="min-w-0 space-y-1">
         <label className="text-xs font-medium">{labels.type}</label>
         <Input
+          className="w-full min-w-0"
           value={value.type}
           onChange={(event) => onChange({ ...value, type: event.target.value })}
           placeholder="catalog.product"
           disabled={disabled}
         />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <label className="text-xs font-medium">{labels.id}</label>
         <Input
+          className="w-full min-w-0"
           value={value.id}
           onChange={(event) => onChange({ ...value, id: event.target.value })}
           placeholder="Record ID"
           disabled={disabled}
         />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <label className="text-xs font-medium">{labels.href}</label>
         <Input
+          className="w-full min-w-0"
           value={value.href ?? ''}
           onChange={(event) => onChange({ ...value, href: event.target.value })}
           placeholder="https://"
           disabled={disabled}
         />
       </div>
-      <div className="space-y-1">
+      <div className="min-w-0 space-y-1">
         <label className="text-xs font-medium">{labels.label}</label>
         <Input
+          className="w-full min-w-0"
           value={value.label ?? ''}
           onChange={(event) => onChange({ ...value, label: event.target.value })}
           placeholder="Optional label"
@@ -206,9 +211,16 @@ function AssignmentInputRow({
         />
       </div>
       <div className="flex items-end">
-        <Button type="button" variant="ghost" size="icon" onClick={onRemove} disabled={disabled}>
-          <Trash2 className="h-4 w-4" />
-        </Button>
+        <IconButton
+          type="button"
+          variant="ghost"
+          size="lg"
+          aria-label={labels.remove}
+          onClick={onRemove}
+          disabled={disabled}
+        >
+          <Trash2 className="size-4" />
+        </IconButton>
       </div>
     </div>
   )
