@@ -32,6 +32,13 @@ import {
  * asserted there; the week-grid assertion runs only when the expected start
  * deterministically falls inside the current Monday-start week.
  *
+ * A default start of the last full hour of the day (e.g. 11:00 PM) produces a
+ * 90-minute meeting that crosses midnight; such an event legitimately renders in
+ * two day cells (the day it starts and the day it ends), so the created-item
+ * locator can match more than one button. Presence assertions therefore target
+ * `.first()` to stay tolerant of that multi-cell rendering while still proving the
+ * event appeared without a reload.
+ *
  * Teardown resolves the created interaction id via the API (by exact title,
  * scoped to the fixture person) and deletes it along with the person.
  */
@@ -111,12 +118,12 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) });
       const currentWeek = mondayWeekRange(new Date());
       if (defaultStart.getTime() >= currentWeek.from.getTime() && defaultStart.getTime() <= currentWeek.to.getTime()) {
-        await expect(itemLocator).toBeVisible();
+        await expect(itemLocator.first()).toBeVisible();
       }
       await pressKeyUntil(page, 'a', async () => {
         await expect(page.getByRole('heading', { name: 'Upcoming' })).toBeVisible({ timeout: 1_000 });
       });
-      await expect(itemLocator).toBeVisible();
+      await expect(itemLocator.first()).toBeVisible();
 
       // -- Resolve the created id for teardown ------------------------------------
       createdInteractionId = await findInteractionIdByTitle(request, adminToken, {
