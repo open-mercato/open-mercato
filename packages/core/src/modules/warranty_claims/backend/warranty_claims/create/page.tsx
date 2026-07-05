@@ -543,6 +543,7 @@ function LineItemsEditor({
   const [orderPurchaseDate, setOrderPurchaseDate] = React.useState<string | null>(null)
   const [orderLinesLoading, setOrderLinesLoading] = React.useState(false)
   const [hideOrderImport, setHideOrderImport] = React.useState(false)
+  const lastLineRef = React.useRef<HTMLDivElement | null>(null)
 
   const updateLine = React.useCallback((index: number, patch: Partial<ClaimCreateLineValues>) => {
     const next = lines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line))
@@ -635,7 +636,11 @@ function LineItemsEditor({
     }))
     setLines([...lines.filter(lineHasContentBeyondQuantity), ...nextRows])
     setOrderDialogOpen(false)
-  }, [defaultWarrantyMonths, lines, orderLines, orderPurchaseDate, selectedOrderLineIds, setLines])
+    flash(t('warranty_claims.form.addFromOrder.added', '{count} line(s) added from order', { count: String(nextRows.length) }), 'success')
+    requestAnimationFrame(() => {
+      lastLineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }, [defaultWarrantyMonths, lines, orderLines, orderPurchaseDate, selectedOrderLineIds, setLines, t])
 
   const toggleOrderLine = React.useCallback((lineId: string, selected: boolean) => {
     setSelectedOrderLineIds((current) => {
@@ -662,7 +667,11 @@ function LineItemsEditor({
           parseWarrantyMonths(line.warrantyMonths),
         )
         return (
-          <div key={rowId} className="space-y-4 border-t border-border pt-4 first:border-t-0 first:pt-0">
+          <div
+            key={rowId}
+            ref={index === lines.length - 1 ? lastLineRef : undefined}
+            className="space-y-4 border-t border-border pt-4 first:border-t-0 first:pt-0"
+          >
             <div className="flex items-center justify-between gap-3">
               <h3 className="text-sm font-medium">{translations.lineLabel(rowNumber)}</h3>
               <IconButton
@@ -848,7 +857,7 @@ function LineItemsEditor({
               {t('common.cancel', 'Cancel')}
             </Button>
             <Button type="button" onClick={insertSelectedOrderLines} disabled={!selectedOrderLineIds.size}>
-              {t('warranty_claims.form.addFromOrder.confirm')}
+              {t('warranty_claims.form.addFromOrder.confirm', 'Add selected lines')}
             </Button>
           </DialogFooter>
         </DialogContent>

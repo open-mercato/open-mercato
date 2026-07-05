@@ -208,6 +208,7 @@ export function ClaimLineProductPicker(props: {
   onPick: (pick: ClaimProductPick) => void
   onClear: () => void
   disabled?: boolean
+  hideLabel?: boolean
 }): JSX.Element {
   const t = useT()
   const productOptionsRef = React.useRef<Map<string, ProductOption>>(new Map())
@@ -348,15 +349,17 @@ export function ClaimLineProductPicker(props: {
   return (
     <div className="space-y-3">
       <div className="space-y-2">
-        <div className="flex items-center justify-between gap-2">
-          <Label>{t('warranty_claims.form.productLookup')}</Label>
-          {productId ? (
-            <Button type="button" variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={clearProduct} disabled={props.disabled}>
-              <X className="size-3" aria-hidden="true" />
-              {t('warranty_claims.form.productLookup.clear')}
-            </Button>
-          ) : null}
-        </div>
+        {!props.hideLabel || productId ? (
+          <div className={props.hideLabel ? 'flex items-center justify-end gap-2' : 'flex items-center justify-between gap-2'}>
+            {!props.hideLabel ? <Label>{t('warranty_claims.form.productLookup')}</Label> : null}
+            {productId ? (
+              <Button type="button" variant="ghost" size="sm" className="h-auto px-2 py-1 text-xs" onClick={clearProduct} disabled={props.disabled}>
+                <X className="size-3" aria-hidden="true" />
+                {t('warranty_claims.form.productLookup.clear')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <LookupSelect
           value={productId}
           onChange={(next) => {

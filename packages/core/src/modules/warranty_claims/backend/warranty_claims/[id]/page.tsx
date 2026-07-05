@@ -740,6 +740,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [commentVisibility, setCommentVisibility] = React.useState<'internal' | 'customer'>('internal')
   const [aiSuggestion, setAiSuggestion] = React.useState<ClaimTriageSuggestion | null>(null)
   const [aiLoading, setAiLoading] = React.useState(false)
+  const [appliedTriageLineIds, setAppliedTriageLineIds] = React.useState<Set<string>>(new Set())
   const [draftReplyLoading, setDraftReplyLoading] = React.useState(false)
   const [draftReplyHidden, setDraftReplyHidden] = React.useState(false)
   const [riskAssessment, setRiskAssessment] = React.useState<ClaimRiskAssessment>(EMPTY_RISK_ASSESSMENT)
@@ -1056,6 +1057,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         { errorMessage: t('warranty_claims.detail.error.action') },
       )
       setAiSuggestion(suggestion)
+      setAppliedTriageLineIds(new Set())
     } catch (err) {
       const message = translateErrorMessage(err, t, 'warranty_claims.detail.error.action')
       flash(message, 'error')
@@ -1080,14 +1082,14 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         mutationPayload: { id: lineId, claimId: claim.id, disposition },
       })
       flash(t('warranty_claims.detail.lines.flash.saved'), 'success')
+      setAppliedTriageLineIds((prev) => new Set(prev).add(lineId))
       await loadData()
-      await loadAiSuggestion()
     } catch (err) {
       if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
       const message = translateErrorMessage(err, t, 'warranty_claims.detail.error.action')
       flash(message, 'error')
     }
-  }, [claim, lines, loadAiSuggestion, loadData, mutationContext, runMutation, t])
+  }, [claim, lines, loadData, mutationContext, runMutation, t])
 
   const handleTransition = React.useCallback(async (toStatus: ClaimStatus, values?: TransitionFormValues) => {
     if (!claim) return
@@ -1266,6 +1268,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             setFormValue?.('productId', null)
             setFormValue?.('variantId', null)
           }}
+          hideLabel
         />
       ),
     },
@@ -1775,10 +1778,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             {activeTab === 'ai' ? (
               <div className="grid gap-4 xl:grid-cols-2">
                 <div className="rounded-lg border border-border bg-card p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium">{t('warranty_claims.ai.panelTitle')}</h3>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-medium">{t('warranty_claims.triage.panelTitle')}</h3>
+                      <p className="mt-1 text-sm text-muted-foreground">{t('warranty_claims.triage.panelSubtitle')}</p>
+                    </div>
                     <Button type="button" variant="outline" onClick={loadAiSuggestion} disabled={aiLoading}>
-                      {t('warranty_claims.ai.suggestButton')}
+                      {t('warranty_claims.triage.suggestButton')}
                     </Button>
                   </div>
                   {aiSuggestion ? (
@@ -1795,45 +1801,56 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                         <p className="mt-2 text-sm text-muted-foreground">{formatTriageMessage(aiSuggestion.priority.reason, t)}</p>
                       </div>
                       <div className="space-y-2">
-                        {aiSuggestion.lines.map((suggestedLine) => (
-                          <div
-                            key={suggestedLine.lineId}
-                            className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-3"
-                          >
-                            <div className="min-w-0">
-                              <div className="text-sm font-medium">
-                                #{suggestedLine.lineNo}
-                                {' '}
-                                {suggestedLine.productName ?? suggestedLine.sku ?? suggestedLine.serialNumber ?? suggestedLine.lineId}
+                        {aiSuggestion.lines.map((suggestedLine) => {
+                          const applied = appliedTriageLineIds.has(suggestedLine.lineId)
+                          return (
+                            <div
+                              key={suggestedLine.lineId}
+                              className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-3"
+                            >
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">
+                                  #{suggestedLine.lineNo}
+                                  {' '}
+                                  {suggestedLine.productName ?? suggestedLine.sku ?? suggestedLine.serialNumber ?? suggestedLine.lineId}
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-2">
+                                  <StatusBadge variant={eligibilityBadgeVariant(suggestedLine.eligibility.status)}>
+                                    {t(`warranty_claims.eligibility.${suggestedLine.eligibility.status}`)}
+                                  </StatusBadge>
+                                  <StatusBadge variant="info">
+                                    {t(`warranty_claims.disposition.${suggestedLine.suggestedDisposition}`)}
+                                  </StatusBadge>
+                                </div>
+                                <p className="mt-2 text-sm text-muted-foreground">{formatTriageMessage(suggestedLine.reason, t)}</p>
+                                <p className="mt-1 text-xs text-muted-foreground">{formatTriageMessage(suggestedLine.eligibility.reason, t)}</p>
                               </div>
-                              <div className="mt-1 flex flex-wrap items-center gap-2">
-                                <StatusBadge variant={eligibilityBadgeVariant(suggestedLine.eligibility.status)}>
-                                  {t(`warranty_claims.eligibility.${suggestedLine.eligibility.status}`)}
-                                </StatusBadge>
-                                <StatusBadge variant="info">
+                              {applied ? (
+                                <StatusBadge variant="success">
+                                  {t('warranty_claims.triage.applied', 'Applied')}
+                                  {': '}
                                   {t(`warranty_claims.disposition.${suggestedLine.suggestedDisposition}`)}
                                 </StatusBadge>
-                              </div>
-                              <p className="mt-2 text-sm text-muted-foreground">{formatTriageMessage(suggestedLine.reason, t)}</p>
-                              <p className="mt-1 text-xs text-muted-foreground">{formatTriageMessage(suggestedLine.eligibility.reason, t)}</p>
+                              ) : (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => applyAiDisposition(suggestedLine.lineId, suggestedLine.suggestedDisposition)}
+                                >
+                                  {t('warranty_claims.triage.apply')}
+                                </Button>
+                              )}
                             </div>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => applyAiDisposition(suggestedLine.lineId, suggestedLine.suggestedDisposition)}
-                            >
-                              {t('warranty_claims.ai.apply')}
-                            </Button>
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
                     </div>
                   ) : (
                     <div className="mt-4">
                       <EmptyState
-                        title={t('warranty_claims.ai.panelTitle')}
-                        description={t('warranty_claims.ai.empty.description')}
+                        title={t('warranty_claims.triage.panelTitle')}
+                        description={t('warranty_claims.triage.empty.description')}
                         variant="subtle"
                       />
                     </div>

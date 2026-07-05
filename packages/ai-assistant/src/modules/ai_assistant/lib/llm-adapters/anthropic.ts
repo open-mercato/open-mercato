@@ -93,7 +93,12 @@ export function createAnthropicAdapter(): LlmProvider {
     createModel(options: LlmCreateModelOptions): unknown {
       const anthropic = createAnthropic({
         apiKey: options.apiKey,
-        ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+        // The AI SDK's Anthropic default baseURL is not being applied under the
+        // installed ai@6 / @ai-sdk/anthropic@3 pairing (requests hit
+        // `api.anthropic.com/messages` → 404 instead of `/v1/messages`), so pin
+        // the canonical Messages API base explicitly. A caller-provided baseURL
+        // (Messages-protocol relay) still wins.
+        baseURL: options.baseURL || 'https://api.anthropic.com/v1',
       })
       return anthropic(options.modelId)
     },
