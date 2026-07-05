@@ -166,6 +166,7 @@ export function useRegistrationFormConfig(
       id: 'serialNumber',
       label: t('warranty_claims.registrations.form.serialNumber', 'Serial number'),
       type: 'text',
+      required: true,
     },
     {
       id: 'productName',

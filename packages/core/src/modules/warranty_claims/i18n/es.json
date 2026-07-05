@@ -177,6 +177,7 @@
   "warranty_claims.errors.orderNotOwned": "Pedido no encontrado.",
   "warranty_claims.errors.organization_required": "Se requiere contexto de organización.",
   "warranty_claims.errors.receivingStatusInvalid": "Los detalles de recepción solo pueden guardarse cuando el reclamo está recibido o en inspección.",
+  "warranty_claims.errors.recoveryRateRange": "La tasa de recuperación debe estar entre 0 y 100.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Las etiquetas de devolución solo pueden crearse para reclamos aprobados que esperan devolución.",
   "warranty_claims.errors.save_failed": "No se pudo guardar el reclamo.",
   "warranty_claims.errors.unauthorized": "No autorizado",

@@ -61,6 +61,7 @@ const querySchema = z
     variantId: z.string().uuid().optional(),
     sku: z.string().trim().max(191).optional(),
     purchaseDate: z.string().trim().max(80).optional(),
+    excludeClaimId: z.string().uuid().optional(),
   })
   .strict()
 
@@ -122,18 +123,22 @@ async function resolveEntitlementContext(req: Request): Promise<EntitlementRoute
 async function resolveSerialHistory(
   context: Pick<EntitlementRouteContext, 'tenantId' | 'organizationId' | 'em'>,
   serialNumber: string | null | undefined,
+  excludeClaimId?: string | null,
 ): Promise<Pick<EntitlementResponse, 'hasPriorClaims' | 'priorClaimCount' | 'priorRegistrationCount'>> {
   const serial = serialNumber?.trim()
   if (!serial) return {}
   const db = context.em.getKysely<EntitlementHistoryDb>()
-  const claimRow = await db
+  let claimQuery = db
     .selectFrom('warranty_claim_lines')
     .select(sql<NumericAggregateValue>`count(distinct claim_id)`.as('count'))
     .where('tenant_id', '=', context.tenantId)
     .where('organization_id', '=', context.organizationId)
     .where('serial_number', '=', serial)
     .where('deleted_at', 'is', null)
-    .executeTakeFirst()
+  if (excludeClaimId) {
+    claimQuery = claimQuery.where('claim_id', '!=', excludeClaimId)
+  }
+  const claimRow = await claimQuery.executeTakeFirst()
   const registrationRow = await db
     .selectFrom('warranty_claim_registrations')
     .select(sql<NumericAggregateValue>`count(*)`.as('count'))
@@ -156,7 +161,7 @@ export async function GET(req: Request) {
     const query = querySchema.parse(Object.fromEntries(url.searchParams))
     const input = normalizeInput(query)
     const context = await resolveEntitlementContext(req)
-    const history = await resolveSerialHistory(context, input.serialNumber)
+    const history = await resolveSerialHistory(context, input.serialNumber, query.excludeClaimId)
     if (!hasAnyInput(input)) {
       return NextResponse.json({ ...UNKNOWN_ENTITLEMENT, ...history })
     }

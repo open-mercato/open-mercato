@@ -177,6 +177,7 @@
   "warranty_claims.errors.orderNotOwned": "Nie znaleziono zamówienia.",
   "warranty_claims.errors.organization_required": "Wymagany jest kontekst organizacji.",
   "warranty_claims.errors.receivingStatusInvalid": "Szczegóły przyjęcia można zapisać tylko, gdy reklamacja jest przyjęta lub w inspekcji.",
+  "warranty_claims.errors.recoveryRateRange": "Stopa odzysku musi mieścić się w zakresie od 0 do 100.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Etykiety zwrotne można tworzyć tylko dla zatwierdzonych reklamacji oczekujących na zwrot.",
   "warranty_claims.errors.save_failed": "Nie udało się zapisać reklamacji.",
   "warranty_claims.errors.unauthorized": "Brak autoryzacji",

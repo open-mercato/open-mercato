@@ -18,6 +18,8 @@ const clearableEmail = (max: number) =>
 const optionalString = (max: number) => z.string().trim().max(max).optional()
 const requiredOptionalString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max).optional())
+const requiredString = (max: number) =>
+  z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max))
 const positiveDecimal = () => z.coerce.number().positive().max(999_999_999)
 const nullableDecimal = () => z.coerce.number().min(0).max(999_999_999).nullable().optional()
 const nullableIsoDateString = () => z.preprocess(emptyStringToNull, z.string().datetime().nullable().optional())
@@ -418,7 +420,7 @@ export const externalClaimLookupQuerySchema = z
   })
 
 const registrationFields = {
-  serialNumber: clearableString(191),
+  serialNumber: requiredOptionalString(191),
   productId: uuid().nullable().optional(),
   variantId: uuid().nullable().optional(),
   sku: clearableString(191),
@@ -436,6 +438,7 @@ const registrationFields = {
 
 export const registrationCreateSchema = scopedSchema
   .extend(registrationFields)
+  .extend({ serialNumber: requiredString(191) })
   .strict()
 
 export const registrationUpdateSchema = z
@@ -450,9 +453,13 @@ export const registrationDeleteSchema = scopedSchema
 
 const recoveryRatePctSchema = z
   .union([
-    z.number().min(0).max(100),
-    z.string().trim().regex(/^\d+(\.\d{1,2})?$/).refine((value) => Number(value) <= 100),
+    z.number(),
+    z.string().trim().regex(/^\d+(\.\d{1,2})?$/),
   ])
+  .transform((value) => Number(value))
+  .refine((value) => value >= 0 && value <= 100, {
+    message: 'warranty_claims.errors.recoveryRateRange',
+  })
   .nullable()
   .optional()
 

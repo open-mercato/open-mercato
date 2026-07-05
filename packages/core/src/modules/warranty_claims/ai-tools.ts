@@ -186,6 +186,22 @@ function serializeTimelineEvent(event: WarrantyClaimEvent): Record<string, unkno
   }
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+async function resolveClaimId(em: EntityManager, scope: Scope, ref: string): Promise<string | null> {
+  const trimmed = ref.trim()
+  if (!trimmed) return null
+  if (UUID_PATTERN.test(trimmed)) return trimmed
+  const claim = await findOneWithDecryption(
+    em,
+    WarrantyClaim,
+    { claimNumber: trimmed, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+    {},
+    scope,
+  )
+  return claim?.id ?? null
+}
+
 async function loadClaim(em: EntityManager, scope: Scope, claimId: string): Promise<WarrantyClaim | null> {
   return findOneWithDecryption(
     em,
@@ -280,8 +296,14 @@ const listClaimsTool: WarrantyClaimsAiToolDefinition = {
   },
 }
 
+const claimRefSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .describe('Claim UUID or human-readable claim number (e.g. WTY-000123).')
+
 const getClaimInput = z.object({
-  claimId: z.string().uuid(),
+  claimId: claimRefSchema,
   includeTimeline: z.boolean().optional(),
 }).passthrough()
 
@@ -290,7 +312,7 @@ type GetClaimInput = z.infer<typeof getClaimInput>
 const getClaimTool: WarrantyClaimsAiToolDefinition = {
   name: 'warranty_claims.get_claim',
   displayName: 'Get warranty claim',
-  description: 'Fetch one claim with header fields, lines, and optional timeline summary. Returns { found: false } when outside scope.',
+  description: 'Fetch one claim with header fields, lines, and optional timeline summary. Accepts a claim UUID or the human-readable claim number (e.g. WTY-000123). Returns { found: false } when outside scope.',
   inputSchema: getClaimInput as z.ZodType<unknown>,
   requiredFeatures: ['warranty_claims.claim.view'],
   tags: ['read', 'warranty_claims'],
@@ -298,7 +320,8 @@ const getClaimTool: WarrantyClaimsAiToolDefinition = {
     const scope = assertScope(ctx)
     const input = getClaimInput.parse(rawInput)
     const em = resolveEm(ctx)
-    const claim = await loadClaim(em, scope, input.claimId)
+    const claimId = await resolveClaimId(em, scope, input.claimId)
+    const claim = claimId ? await loadClaim(em, scope, claimId) : null
     if (!claim) return { found: false, claimId: input.claimId }
     const [lines, timeline] = await Promise.all([
       loadLines(em, scope, claim.id),
@@ -335,7 +358,7 @@ const getClaimTool: WarrantyClaimsAiToolDefinition = {
 }
 
 const suggestTriageInput = z.object({
-  claimId: z.string().uuid(),
+  claimId: claimRefSchema,
 }).passthrough()
 
 type SuggestTriageInput = z.infer<typeof suggestTriageInput>
@@ -343,7 +366,7 @@ type SuggestTriageInput = z.infer<typeof suggestTriageInput>
 const suggestTriageTool: WarrantyClaimsAiToolDefinition = {
   name: 'warranty_claims.suggest_triage',
   displayName: 'Suggest warranty claim triage',
-  description: 'Read-only deterministic triage heuristics: warranty eligibility, line disposition suggestions, and priority/SLA recommendation.',
+  description: 'Read-only deterministic triage heuristics: warranty eligibility, line disposition suggestions, and priority/SLA recommendation. Accepts a claim UUID or the human-readable claim number (e.g. WTY-000123).',
   inputSchema: suggestTriageInput as z.ZodType<unknown>,
   requiredFeatures: ['warranty_claims.claim.view'],
   tags: ['read', 'warranty_claims'],
@@ -351,23 +374,25 @@ const suggestTriageTool: WarrantyClaimsAiToolDefinition = {
     const scope = assertScope(ctx)
     const input = suggestTriageInput.parse(rawInput)
     const em = resolveEm(ctx)
+    const claimId = await resolveClaimId(em, scope, input.claimId)
+    if (!claimId) return { found: false, claimId: input.claimId }
     return buildWarrantyClaimTriageSuggestion({
       em,
-      claimId: input.claimId,
+      claimId,
       scope,
     })
   },
 }
 
 const draftCustomerReplyInput = z.object({
-  claimId: z.string().uuid(),
+  claimId: claimRefSchema,
   tone: z.enum(['formal', 'friendly', 'concise']).optional(),
 }).passthrough()
 
 const draftCustomerReplyTool: WarrantyClaimsAiToolDefinition = {
   name: 'warranty_claims.draft_customer_reply',
   displayName: 'Draft customer reply',
-  description: 'Generate a suggested customer-facing warranty claim reply for the operator to review, edit, and send manually.',
+  description: 'Generate a suggested customer-facing warranty claim reply for the operator to review, edit, and send manually. Accepts a claim UUID or the human-readable claim number (e.g. WTY-000123).',
   inputSchema: draftCustomerReplyInput as z.ZodType<unknown>,
   requiredFeatures: ['warranty_claims.claim.manage'],
   tags: ['read', 'warranty_claims'],
@@ -375,12 +400,14 @@ const draftCustomerReplyTool: WarrantyClaimsAiToolDefinition = {
     const scope = assertScope(ctx)
     const input = draftCustomerReplyInput.parse(rawInput)
     const em = resolveEm(ctx)
+    const claimId = await resolveClaimId(em, scope, input.claimId)
+    if (!claimId) return { found: false, claimId: input.claimId }
     try {
       return await buildClaimReplyDraft({
         em,
         container: ctx.container,
         scope,
-        claimId: input.claimId,
+        claimId,
         tone: input.tone,
       })
     } catch (err) {
@@ -396,13 +423,13 @@ const draftCustomerReplyTool: WarrantyClaimsAiToolDefinition = {
 }
 
 const summarizeClaimInput = z.object({
-  claimId: z.string().uuid(),
+  claimId: claimRefSchema,
 }).passthrough()
 
 const summarizeClaimTool: WarrantyClaimsAiToolDefinition = {
   name: 'warranty_claims.summarize_claim',
   displayName: 'Summarize warranty claim',
-  description: 'Generate a concise internal summary of a warranty claim, including timeline history and open questions.',
+  description: 'Generate a concise internal summary of a warranty claim, including timeline history and open questions. Accepts a claim UUID or the human-readable claim number (e.g. WTY-000123).',
   inputSchema: summarizeClaimInput as z.ZodType<unknown>,
   requiredFeatures: ['warranty_claims.claim.view'],
   tags: ['read', 'warranty_claims'],
@@ -410,12 +437,14 @@ const summarizeClaimTool: WarrantyClaimsAiToolDefinition = {
     const scope = assertScope(ctx)
     const input = summarizeClaimInput.parse(rawInput)
     const em = resolveEm(ctx)
+    const claimId = await resolveClaimId(em, scope, input.claimId)
+    if (!claimId) return { found: false, claimId: input.claimId }
     try {
       return await buildClaimSummary({
         em,
         container: ctx.container,
         scope,
-        claimId: input.claimId,
+        claimId,
       })
     } catch (err) {
       if (isWarrantyAiNotConfiguredError(err)) {

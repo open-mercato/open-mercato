@@ -1,4 +1,10 @@
-import type { AiAgentDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import type {
+  AiAgentDefinition,
+  AiAgentPageContextInput,
+} from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { WarrantyClaim } from './data/entities'
 
 type PromptSectionName =
   | 'role'
@@ -109,6 +115,32 @@ function compilePrompt(sections: PromptSection[]): string {
     .join('\n\n')
 }
 
+const CLAIM_ENTITY_TYPE = 'warranty_claims.claim'
+
+async function resolveClaimPageContext(input: AiAgentPageContextInput): Promise<string | null> {
+  if (input.entityType !== CLAIM_ENTITY_TYPE) return null
+  if (!input.tenantId || !input.organizationId) return null
+  try {
+    const em = input.container.resolve<EntityManager>('em')
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const claim = await findOneWithDecryption(
+      em,
+      WarrantyClaim,
+      { id: input.recordId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+      {},
+      scope,
+    )
+    if (!claim) return null
+    return [
+      'CURRENT CLAIM CONTEXT',
+      `The operator is viewing claim ${claim.claimNumber} (status: ${claim.status}, type: ${claim.claimType}).`,
+      `When the operator refers to "this claim", call the warranty_claims tools with claimId "${claim.claimNumber}" (or the UUID "${claim.id}") without asking for the identifier.`,
+    ].join('\n')
+  } catch {
+    return null
+  }
+}
+
 const claimsAssistant: AiAgentDefinition = {
   id: CLAIMS_ASSISTANT_ID,
   moduleId: MODULE_ID,
@@ -125,6 +157,7 @@ const claimsAssistant: AiAgentDefinition = {
   requiredFeatures: ['warranty_claims.claim.view'],
   keywords: ['warranty', 'claim', 'rma', 'return', 'triage', 'sla'],
   domain: 'warranty_claims',
+  resolvePageContext: resolveClaimPageContext,
   loop: {
     maxSteps: 10,
     budget: { maxToolCalls: 10, maxWallClockMs: 60_000 },

@@ -177,6 +177,7 @@
   "warranty_claims.errors.orderNotOwned": "Auftrag nicht gefunden.",
   "warranty_claims.errors.organization_required": "Organisationskontext ist erforderlich.",
   "warranty_claims.errors.receivingStatusInvalid": "Wareneingangsdetails können nur gespeichert werden, wenn der Claim erhalten wurde oder in Prüfung ist.",
+  "warranty_claims.errors.recoveryRateRange": "Die Erstattungsrate muss zwischen 0 und 100 liegen.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Rücksendeetiketten können nur für genehmigte Claims erstellt werden, die auf Rücksendung warten.",
   "warranty_claims.errors.save_failed": "Claim konnte nicht gespeichert werden.",
   "warranty_claims.errors.unauthorized": "Nicht autorisiert",

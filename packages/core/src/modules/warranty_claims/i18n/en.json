@@ -177,6 +177,7 @@
   "warranty_claims.errors.orderNotOwned": "Order not found.",
   "warranty_claims.errors.organization_required": "Organization context is required.",
   "warranty_claims.errors.receivingStatusInvalid": "Receiving details can only be saved when the claim is received or under inspection.",
+  "warranty_claims.errors.recoveryRateRange": "Recovery rate must be between 0 and 100.",
   "warranty_claims.errors.returnLabelInvalidStatus": "Return labels can only be created for approved claims that are awaiting return.",
   "warranty_claims.errors.save_failed": "Failed to save warranty claim.",
   "warranty_claims.errors.unauthorized": "Unauthorized",

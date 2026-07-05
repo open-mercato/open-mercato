@@ -7,6 +7,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 
 type EntitlementClaim = {
+  id?: string | null
   orderId: string | null
 }
 
@@ -44,6 +45,7 @@ function buildEntitlementQuery(claim: EntitlementClaim, lines: EntitlementLine[]
   if (sourceLine?.productId) params.set('productId', sourceLine.productId)
   if (sourceLine?.sku) params.set('sku', sourceLine.sku)
   if (sourceLine?.purchaseDate) params.set('purchaseDate', sourceLine.purchaseDate)
+  if (claim.id) params.set('excludeClaimId', claim.id)
   const query = params.toString()
   return query.length ? query : null
 }

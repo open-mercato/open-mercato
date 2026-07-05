@@ -1862,7 +1862,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       key={chatSession.id}
                       agent={AGENT_ID}
                       conversationId={chatSession.conversationId}
-                      pageContext={{ recordId: claim.id }}
+                      pageContext={{ entityType: 'warranty_claims.claim', recordId: claim.id }}
                       className="h-full"
                       placeholder={t('warranty_claims.ai.chatPlaceholder')}
                       welcomeTitle={t('warranty_claims.ai.chatWelcomeTitle')}
