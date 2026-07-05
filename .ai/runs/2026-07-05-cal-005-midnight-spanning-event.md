@@ -67,8 +67,8 @@ PR #3594 CI shows two distinct failure clusters:
 
 ### Phase 1: Fix TC-CAL-005 midnight-spanning locator
 
-- [ ] 1.1 Make the created-event locator assertions tolerant of the event rendering across two day cells
-- [ ] 1.2 Clarify the spec docblock to record why the locator uses `.first()`
+- [x] 1.1 Make the created-event locator assertions tolerant of the event rendering across two day cells — f54c73d91
+- [x] 1.2 Clarify the spec docblock to record why the locator uses `.first()` — f54c73d91
 
 ### Phase 2: Validate and ship
 
