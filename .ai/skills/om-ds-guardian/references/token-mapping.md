@@ -136,7 +136,7 @@ Used by SocialButton / FancyButton / brand surfaces. NEVER hardcode brand hex va
 | `bg-black` (Apple / X) | `bg-brand-apple` / `bg-brand-x` |
 | `bg-white border-[#dadce0]` (Google) | `bg-background border-brand-google-stroke` |
 | `bg-[#BC9AFF]` (FancyButton violet) | `bg-brand-violet` |
-| `bg-[#D4F372]` (FancyButton lime) | `bg-brand-lime` |
+| `bg-[#B4F372]` (FancyButton lime) | `bg-brand-lime` |
 
 Tokens (theme-invariant — same value light & dark):
 - `--brand-violet`, `--brand-lime`, `--brand-apple`, `--brand-github`, `--brand-x`, `--brand-google-stroke`, `--brand-facebook`, `--brand-dropbox`, `--brand-linkedin`

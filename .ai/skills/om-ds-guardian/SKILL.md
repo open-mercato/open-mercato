@@ -84,7 +84,7 @@ echo "--- disabled:opacity-50 (use --bg-disabled / --text-disabled tokens) ---"
 grep -rn 'disabled:opacity-50\|disabled.*opacity-50' "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Hardcoded brand colors (use --brand-* tokens) ---"
-grep -rn '#1877F2\|#0A66C2\|#0061FF\|#181717\|#BC9AFF\|#D4F372\|bg-\[#[0-9A-Fa-f]\{3,6\}\]' \
+grep -rn '#1877F2\|#0A66C2\|#0061FF\|#181717\|#BC9AFF\|#B4F372\|#D4F372\|bg-\[#[0-9A-Fa-f]\{3,6\}\]' \
   "$MODULE_PATH/" --include="*.tsx" 2>/dev/null
 
 echo "--- Old focus ring (use shadow-focus token) ---"

@@ -4160,8 +4160,8 @@ Both share the underlying Radix Dialog, the same `Cmd/Ctrl+Enter` submit + `Esca
 
 | `side` | Slot | Default size | Use case |
 |---|---|---|---|
-| `right` (default) | `inset-y-0 right-0` | `w-full max-w-md` (~420px) | Detail panes, edit forms — the most common case |
-| `left` | `inset-y-0 left-0` | `w-full max-w-md` | Navigation drawers, mobile menus |
+| `right` (default) | `inset-y-0 right-0` | `w-full max-w-[400px]` (Figma: 400px) | Detail panes, edit forms — the most common case |
+| `left` | `inset-y-0 left-0` | `w-full max-w-[400px]` | Navigation drawers, mobile menus |
 | `top` | `inset-x-0 top-0` | `max-h-[80vh]` | Notification banners, quick filters |
 | `bottom` | `inset-x-0 bottom-0` | `max-h-[80vh]` | Mobile action sheets, command palette |
 
@@ -4270,7 +4270,7 @@ Matches Figma `Drawer Footer [1.1]` variants 1–6.
 - **Overlay:** `bg-foreground/40 backdrop-blur-sm` — page chrome stays visible-but-dimmed behind the drawer.
 - **Content panel:** `bg-background shadow-2xl` + rounded corners on the inner (viewport-facing) edges only. Per Figma there is NO border on the seam — the rounded corners + the shadow do the visual separation work. Resulting classes by side: `rounded-l-2xl` (right), `rounded-r-2xl` (left), `rounded-b-2xl` (top), `rounded-t-2xl` (bottom).
 - **No chrome dividers** between Header / Body / Footer. Section separators inside the body (e.g. "ELIGIBILITY CRITERIA" labels) come from content composition, not from the Drawer primitive.
-- Default `max-w-md` (~420px) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
+- Default `max-w-[400px]` (Figma Drawer width) for right/left works well for forms; pass `className="max-w-2xl"` on `DrawerContent` for wider detail panes.
 - Auto-rendered top-right close button (`X` icon, `size-8`, muted-foreground, hover bg `muted/40`). Use `hideCloseButton` when the body provides its own dismissal (e.g. a Save/Cancel footer alone).
 
 ---

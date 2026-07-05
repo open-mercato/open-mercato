@@ -33,7 +33,7 @@ Brand colors express identity and are **separate from semantic tokens**. Semanti
 
 | Token | Hex |
 |-------|-----|
-| Brand Lime | `#D4F372` |
+| Brand Lime | `#B4F372` |
 | Brand Yellow | `#EEFB63` |
 | Brand Violet | `#BC9AFF` |
 | Brand Black | `#0C0C0C` |
@@ -50,7 +50,7 @@ Brand colors do NOT flip in dark mode.
 |----------|-------|
 | **AI / intelligence touchpoints** (buttons, dots, chips marking AI features) | `brand-violet` |
 | **Custom views / perspectives pills** (user-created views saved by user) | `brand-violet` (10% bg, 30% border, 100% text) |
-| **Floating feedback / onboarding widgets** | Full gradient (`#D4F372 → #EEFB63 → #BC9AFF`) |
+| **Floating feedback / onboarding widgets** | Full gradient (`#B4F372 → #EEFB63 → #BC9AFF`) |
 | **Hero sections on marketing / landing pages** | Full gradient OR Brand Lime as standalone hero bg |
 | **Loading / progress for AI operations** | `brand-violet` or gradient stroke |
 | **Splash / onboarding / success celebration moments** | Full gradient |
@@ -61,7 +61,7 @@ Decision tree — ask "is this a brand moment?":
 |----------|--------|-------|
 | Is it flagging AI functionality or AI-generated content? | Yes → | `brand-violet` |
 | Is it a user-saved view / perspective / custom entity pill? | Yes → | `brand-violet` (10% bg, 30% border, 100% text) |
-| Is it a landing page hero, marketing banner, or splash screen? | Yes → | Full gradient `from-[#D4F372] via-[#EEFB63] to-[#BC9AFF]` |
+| Is it a landing page hero, marketing banner, or splash screen? | Yes → | Full gradient `from-[#B4F372] via-[#EEFB63] to-[#BC9AFF]` |
 | Is it a floating CTA widget (feedback, onboarding invite, celebration)? | Yes → | Full gradient |
 | Is it a standard UI element in the backend admin (button, input, card, table)? | **No brand** → | Use semantic tokens |
 | Is it a status indicator (error/success/warning/info)? | **No brand** → | Use status tokens |
@@ -72,7 +72,7 @@ Decision tree — ask "is this a brand moment?":
 <div className="bg-brand-violet/10 border-brand-violet/30 text-brand-violet" />
 
 // Brand gradient — inline style (floating widgets and hero sections only)
-<div style={{ background: 'linear-gradient(135deg, #D4F372 0%, #EEFB63 50%, #BC9AFF 100%)' }} />
+<div style={{ background: 'linear-gradient(135deg, #B4F372 0%, #EEFB63 50%, #BC9AFF 100%)' }} />
 ```
 
 ## Chart Colors
@@ -101,6 +101,8 @@ Data visualization uses the dedicated `--chart-*` palette — never status token
 | Interactive element (button, input, select, popover, dropdown) | `rounded-md` (8px) |
 | Tiny inline element (checkbox, color dot, small chip) | `rounded-sm` (6px) |
 | Remove radius (table cells, flush edges) | `rounded-none` |
+
+Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `SegmentedControl`, `ActiveFilterChips`) are `rounded-full` by design. When a design explicitly calls for **no-pill chips** (dense filter rows, "Add filter" affordances, toolbar chips), do NOT force the pill primitives — build the chip on semantic tokens with `rounded-md` (or use `Tag shape="square"`). Never mix pill and no-pill chips in one row.
 
 ## Typography
 - NEVER use arbitrary text sizes (`text-[10px]`, `text-[11px]`, `text-[13px]`, `text-[15px]`)
@@ -196,6 +198,7 @@ Data visualization uses the dedicated `--chart-*` palette — never status token
 ## Shadows
 - NEVER use arbitrary shadow values (`shadow-[...]`)
 - NEVER use colored shadows (e.g. `shadow-violet-500/25`) except for brand-specific decorative elements (AI dot)
+- NEVER build glow effects — no colored box-shadow halos and no radial-gradient glow backgrounds; for emphasis use solid color, border, scale, or opacity
 
 | What elevation does this element need? | Token |
 |----------------------------------------|-------|
@@ -229,6 +232,10 @@ Data visualization uses the dedicated `--chart-*` palette — never status token
 | Accordion/collapsible | `animate-accordion-down` / `animate-accordion-up` |
 
 Duration: **150ms** for micro-interactions, **200ms** for standard transitions, **300ms** for large layout changes.
+
+## Content & Copy
+- NEVER use "·" (middot) as a separator in UI text — use an em dash "—" or restructure the sentence
+- NEVER use raw amber/yellow text or fills in chips and badges (weak contrast) — warning chips go through `status-warning-*` tokens (the `text` role is darkened for contrast); for non-warning emphasis use `foreground`, `emerald`/success, or `destructive`
 
 ## Status Display
 - USE `StatusBadge` for entity status display — NEVER hardcode colors on Badge
