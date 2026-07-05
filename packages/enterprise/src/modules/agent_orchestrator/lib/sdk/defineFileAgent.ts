@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentRegistryEntry } from './defineAgent'
+import type { AgentFact, AgentRegistryEntry } from './defineAgent'
 import { parseAgentMarkdown } from './agentMarkdown'
 import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
@@ -159,6 +159,47 @@ function loadSampleInput(dir: string): unknown {
     return JSON.parse(fs.readFileSync(samplePath, 'utf8'))
   } catch {
     console.warn(`[internal] malformed SAMPLE.json at ${dir}; ignoring.`)
+    return undefined
+  }
+}
+
+const FACT_SOURCES = ['input', 'payload', 'output'] as const
+const FACT_FORMATS = ['text', 'number', 'boolean', 'percent'] as const
+
+/**
+ * Read the optional `agents/<id>/FACTS.json` Caseload fact declarations
+ * (`{ "facts": [...] }` or a bare array of `{ label, source, path, format? }`).
+ * Returns undefined when the file is absent or invalid — a malformed file must
+ * never block agent loading; the Caseload panel just falls back to its generic
+ * derivation. Must stay in sync with the generator's `discoverFacts`.
+ */
+function loadFacts(dir: string): AgentFact[] | undefined {
+  const factsPath = path.join(dir, 'FACTS.json')
+  if (!fs.existsSync(factsPath)) return undefined
+  try {
+    const parsed = JSON.parse(fs.readFileSync(factsPath, 'utf8')) as unknown
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === 'object' && Array.isArray((parsed as { facts?: unknown }).facts)
+        ? ((parsed as { facts: unknown[] }).facts)
+        : null
+    if (!entries) throw new Error('expected an array or { "facts": [...] }')
+    const facts = entries.filter((entry): entry is AgentFact => {
+      const fact = entry as Partial<AgentFact> | null
+      return Boolean(
+        fact &&
+          typeof fact.label === 'string' &&
+          fact.label.trim() &&
+          typeof fact.path === 'string' &&
+          fact.path.trim() &&
+          FACT_SOURCES.includes(fact.source as (typeof FACT_SOURCES)[number]) &&
+          (fact.format === undefined ||
+            FACT_FORMATS.includes(fact.format as (typeof FACT_FORMATS)[number])),
+      )
+    })
+    return facts.length > 0 ? facts : undefined
+  } catch (err) {
+    console.warn(`[internal] malformed FACTS.json at ${dir}; ignoring.`, err)
     return undefined
   }
 }
@@ -499,6 +540,7 @@ function loadSubAgentDir(dir: string): LoadedFileAgent {
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
     runtime: 'opencode',
     sampleInput: loadSampleInput(dir),
+    facts: loadFacts(dir),
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({
@@ -618,6 +660,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     loop: agent.maxSteps != null ? { maxSteps: agent.maxSteps } : undefined,
     runtime: 'opencode',
     sampleInput: loadSampleInput(dir),
+    facts: loadFacts(dir),
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({

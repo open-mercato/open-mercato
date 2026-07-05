@@ -17,10 +17,12 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
+import { FactsGrid, ReasoningList } from '../../../components/ProposalFacts'
 import {
   mapAgent,
   mapProposal,
   mapRun,
+  type AgentFactView,
   type ProposalView,
   type RunView,
 } from '../../../components/types'
@@ -39,6 +41,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
   const [proposal, setProposal] = React.useState<ProposalView | null>(null)
   const [run, setRun] = React.useState<RunView | null>(null)
   const [agentLabel, setAgentLabel] = React.useState<string | null>(null)
+  const [agentFacts, setAgentFacts] = React.useState<AgentFactView[] | undefined>(undefined)
   const [drawerOpen, setDrawerOpen] = React.useState(false)
   const [busy, setBusy] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -78,9 +81,13 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
               .map((item) => mapAgent(item as Record<string, unknown>))
               .find((agent) => agent?.id === mapped.agentId)
             setAgentLabel(found?.label ?? null)
+            setAgentFacts(found?.facts)
           }
         } catch {
-          if (!cancelled) setAgentLabel(null)
+          if (!cancelled) {
+            setAgentLabel(null)
+            setAgentFacts(undefined)
+          }
         }
         // Best-effort load of the originating run for the I/O drawer.
         try {
@@ -216,6 +223,12 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
           </div>
         </div>
 
+        <FactsGrid
+          facts={agentFacts}
+          sources={{ input: run?.input ?? null, payload: proposal.payload, output: run?.output ?? null }}
+          className="rounded-lg border border-border bg-card p-4"
+        />
+
         <ProposalCard
           proposal={proposal}
           agentLabel={agentLabel ?? undefined}
@@ -227,6 +240,13 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
             onEdit: (payload, reason) => dispose('edited', payload, reason),
             onReject: (reason) => dispose('rejected', undefined, reason),
           }}
+        />
+
+        <ReasoningList
+          rationale={null}
+          input={run?.input ?? null}
+          guardResults={proposal.guardResults}
+          className="rounded-lg border border-border bg-card p-4"
         />
       </PageBody>
 

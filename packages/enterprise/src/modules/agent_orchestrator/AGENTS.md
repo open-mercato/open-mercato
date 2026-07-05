@@ -88,6 +88,8 @@ Author file agents under `packages/<pkg>/src/modules/<module>/agents/<agent_id>/
 agents/<agent_id>/
 ├── AGENT.md            # frontmatter (id,label,description,provider?,model?,tools?,skills?,subAgents?,maxSteps?) + body = instructions
 ├── OUTCOME.md          # frontmatter `kind: informative|actionable` + FIRST fenced ```json block = JSON-Schema; trailing prose = guidance
+├── SAMPLE.json         # optional example input — Playground "Insert sample" button
+├── FACTS.json          # optional Caseload fact declarations (see below)
 ├── skills/<sid>/       # SKILL.md (+ optional TEMPLATE.md, examples/*.md, scripts/*.ts run via run_skill_script)
 ├── sub-agents/<subid>/ # AGENT.md + OUTCOME.md; informative-only, no further subAgents (depth cap 1)
 └── tools/*.ts          # `// @ref <defineAiTool id>` (preferred, ACL-gated) OR a sandboxed `run(args)` local tool
@@ -95,6 +97,7 @@ agents/<agent_id>/
 
 - **OUTCOME.md**: frontmatter carries ONLY `kind`; the result JSON-Schema is the FIRST fenced ` ```json ` block. `informative` ⇒ schema describes `data`; `actionable` ⇒ schema describes the `proposal` envelope. Compiles to the same `z.object({ kind, data|proposal })` the in-process path uses.
 - **Skills** inject instructions + union read-only tools into the agent's allowlist (deduped); read-only by construction.
+- **FACTS.json** (optional): declares the labelled facts the Caseload decision panel shows for this agent's proposals — `{ "facts": [{ "label", "source": "input"|"payload"|"output", "path", "format"?: "text"|"number"|"boolean"|"percent" }] }` where `path` is a dot-path (array indexes allowed) into the run input / proposal payload / run output. Agents without it get a generic derivation (input primitives + summarized upstream findings). In-process agents pass the same shape as `facts` to `defineAgent`. Rendering lives in `components/ProposalFacts.tsx`; resolution helpers in `components/proposalFacts.ts`.
 
 ## DI Services
 
@@ -139,7 +142,7 @@ Every route file MUST export `openApi`. Custom write routes MUST wire the mutati
 
 ## Backend Cockpit (`backend/`)
 
-`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `SkillDrawer`, `TraceView`.
+`overview` (KPI tiles + needs-attention queue), `agents` + `agents/:id` (registry with runtime tags), `playground`, `caseload` + `caseload/:proposalId` (operator dispose flow), `traces` + `traces/:id` (span/tool-call tree, nav-hidden), `audit` (nav-hidden). Components: `ProposalCard`, `ProposalFacts` (Caseload facts grid + reasoning, FACTS.json-driven with generic fallback), `SkillDrawer`, `TraceView`.
 
 ## Runtime Split — Key Files
 

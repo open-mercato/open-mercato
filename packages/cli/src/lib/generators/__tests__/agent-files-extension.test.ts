@@ -136,6 +136,51 @@ describe('createAgentFilesExtension', () => {
     ).toThrow(/malformed SAMPLE\.json/)
   })
 
+  it('emits an agent FACTS.json into the manifest as facts', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'FACTS.json'),
+      JSON.stringify({
+        facts: [
+          { label: 'Stage', source: 'input', path: 'deal.stage' },
+          { label: 'Confidence', source: 'payload', path: 'confidence', format: 'percent' },
+        ],
+      }),
+      'utf8',
+    )
+
+    const extension = createAgentFilesExtension()
+    extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase))
+    extension.generateOutput()
+
+    const manifest = fs.readFileSync(
+      path.join(repoRoot, 'packages/enterprise/src/modules/agent_orchestrator/generated/file-agents.generated.ts'),
+      'utf8',
+    )
+    expect(manifest).toContain(
+      'facts: [{"label":"Stage","source":"input","path":"deal.stage"},{"label":"Confidence","source":"payload","path":"confidence","format":"percent"}]',
+    )
+    expect(manifest).toContain('export type FileAgentFact')
+  })
+
+  it('fails generation on a FACTS.json entry missing label/source/path', () => {
+    const fixture = makeRepoFixture()
+    repoRoot = fixture.repoRoot
+    const agentDir = path.join(fixture.appBase, 'agents', 'deals_health_check')
+    fs.writeFileSync(
+      path.join(agentDir, 'FACTS.json'),
+      JSON.stringify({ facts: [{ label: 'Stage', source: 'nowhere', path: 'deal.stage' }] }),
+      'utf8',
+    )
+
+    const extension = createAgentFilesExtension()
+    expect(() =>
+      extension.scanModule(createScanContext('agent_examples', fixture.appBase, fixture.pkgBase)),
+    ).toThrow(/malformed FACTS\.json/)
+  })
+
   it('fails generation on a malformed agent dir (missing OUTCOME.md)', () => {
     const fixture = makeRepoFixture()
     repoRoot = fixture.repoRoot

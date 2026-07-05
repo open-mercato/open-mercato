@@ -82,6 +82,15 @@ type DiscoveredAgent = {
   model?: string
   /** Optional `SAMPLE.json` example input for the Playground "Insert sample" button. */
   sampleInput?: unknown
+  /** Optional `FACTS.json` declarations driving the Caseload facts panel. */
+  facts?: DiscoveredFact[]
+}
+
+type DiscoveredFact = {
+  label: string
+  source: 'input' | 'payload' | 'output'
+  path: string
+  format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
@@ -259,6 +268,63 @@ function discoverSampleInput(dir: string): unknown {
     const detail = err instanceof Error ? err.message : String(err)
     throw new Error(`[internal] malformed SAMPLE.json at ${dir}: ${detail}`)
   }
+}
+
+const FACT_SOURCES = ['input', 'payload', 'output'] as const
+const FACT_FORMATS = ['text', 'number', 'boolean', 'percent'] as const
+
+/**
+ * Read the optional `agents/<id>/FACTS.json` declarations that drive the
+ * Caseload decision panel's facts grid (label + dot-path into the run input,
+ * proposal payload, or run output). Accepts `{ "facts": [...] }` or a bare
+ * array. A missing file is fine; a malformed one fails generation LOUDLY
+ * (naming the dir). Must stay in sync with `lib/sdk/defineFileAgent.ts`
+ * `loadFacts`.
+ */
+function discoverFacts(dir: string): DiscoveredFact[] | undefined {
+  const factsPath = path.join(dir, 'FACTS.json')
+  if (!fs.existsSync(factsPath)) return undefined
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(fs.readFileSync(factsPath, 'utf8'))
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err)
+    throw new Error(`[internal] malformed FACTS.json at ${dir}: ${detail}`)
+  }
+  const entries = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === 'object' && Array.isArray((parsed as { facts?: unknown }).facts)
+      ? ((parsed as { facts: unknown[] }).facts)
+      : null
+  if (!entries) {
+    throw new Error(`[internal] malformed FACTS.json at ${dir}: expected an array or { "facts": [...] }`)
+  }
+  return entries.map((entry, index) => {
+    const fact = entry as Partial<DiscoveredFact> | null
+    if (
+      !fact ||
+      typeof fact.label !== 'string' ||
+      !fact.label.trim() ||
+      typeof fact.path !== 'string' ||
+      !fact.path.trim() ||
+      !FACT_SOURCES.includes(fact.source as (typeof FACT_SOURCES)[number])
+    ) {
+      throw new Error(
+        `[internal] malformed FACTS.json at ${dir}: entry ${index} needs label (string), source (${FACT_SOURCES.join('|')}), path (string)`,
+      )
+    }
+    if (fact.format !== undefined && !FACT_FORMATS.includes(fact.format as (typeof FACT_FORMATS)[number])) {
+      throw new Error(
+        `[internal] malformed FACTS.json at ${dir}: entry ${index} format must be one of ${FACT_FORMATS.join('|')}`,
+      )
+    }
+    return {
+      label: fact.label.trim(),
+      source: fact.source as DiscoveredFact['source'],
+      path: fact.path.trim(),
+      ...(fact.format !== undefined ? { format: fact.format as DiscoveredFact['format'] } : {}),
+    }
+  })
 }
 
 /**
@@ -546,6 +612,7 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       provider: agent.provider,
       model: agent.model,
       sampleInput: discoverSampleInput(dir),
+      facts: discoverFacts(dir),
     })
   }
   return subAgents
@@ -698,6 +765,9 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
   if (agent.sampleInput !== undefined) {
     optional.push(`${indent}  sampleInput: ${JSON.stringify(agent.sampleInput)},`)
   }
+  if (agent.facts !== undefined) {
+    optional.push(`${indent}  facts: ${JSON.stringify(agent.facts)},`)
+  }
   const skillsContent = agent.skillsContent.map((skill) => ({
     id: skill.id,
     instructions: skill.instructions,
@@ -760,6 +830,16 @@ export type FileAgentSkillContent = {
   scripts?: FileAgentScript[]
 }
 
+export type FileAgentFact = {
+  /** Human label shown in the Caseload facts grid. */
+  label: string
+  /** Where to resolve the value: run input, proposal payload, or run output. */
+  source: 'input' | 'payload' | 'output'
+  /** Dot-path into the source (array indexes allowed), e.g. "actions.0.payload.amount". */
+  path: string
+  format?: 'text' | 'number' | 'boolean' | 'percent'
+}
+
 export type FileAgentDescriptor = {
   id: string
   moduleId: string
@@ -787,6 +867,12 @@ export type FileAgentDescriptor = {
    * from \`agents/<id>/SAMPLE.json\`. Any JSON value the agent accepts as input.
    */
   sampleInput?: unknown
+  /**
+   * Optional fact declarations for the Caseload decision panel, read from
+   * \`agents/<id>/FACTS.json\`. Each maps a labelled dot-path into the run
+   * input / proposal payload / run output.
+   */
+  facts?: FileAgentFact[]
 }
 
 export const fileAgentDescriptors: FileAgentDescriptor[] = [${
@@ -885,6 +971,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         provider: agent.provider,
         model: agent.model,
         sampleInput: discoverSampleInput(dir),
+        facts: discoverFacts(dir),
       })
     }
   }

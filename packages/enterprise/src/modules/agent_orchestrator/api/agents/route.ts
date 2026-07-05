@@ -18,6 +18,17 @@ const agentItemSchema = z.object({
   description: z.string(),
   // Optional per-agent example input for the Playground "Insert sample" button.
   sampleInput: z.unknown().optional(),
+  // Optional declared Caseload facts (label + dot-path into run input/proposal payload/run output).
+  facts: z
+    .array(
+      z.object({
+        label: z.string(),
+        source: z.enum(['input', 'payload', 'output']),
+        path: z.string(),
+        format: z.enum(['text', 'number', 'boolean', 'percent']).optional(),
+      }),
+    )
+    .optional(),
 })
 
 const agentListResponseSchema = z.object({
@@ -39,6 +50,7 @@ export async function GET(req: Request) {
     label: entry.label,
     description: entry.description,
     sampleInput: entry.sampleInput,
+    facts: entry.facts,
   }))
   return NextResponse.json({ items })
 }
