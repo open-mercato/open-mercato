@@ -88,6 +88,7 @@ const crud = makeCrudRoute({
     tenantField: 'tenantId',
     softDeleteField: 'deletedAt',
   },
+  enrichers: { entityId: 'customers.company' },
   indexer: {
     entityType: E.customers.customer_entity,
   },

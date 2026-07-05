@@ -5,9 +5,10 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
-import { SalesOrder, SalesOrderLine } from '@open-mercato/core/modules/sales/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
 import {
@@ -15,6 +16,7 @@ import {
   type ClaimCreateInput,
   type PortalIntakeInput,
 } from '../../../data/validators'
+import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -46,8 +48,23 @@ type OrderValidationResult = {
   currencyCode: string | null
 }
 
+type PortalOrderLookup = {
+  id: string
+  currencyCode: string | null
+}
+
+type PortalOrderLineLookup = {
+  id: string
+  orderId: string
+}
+
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function stringField(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key]
+  return typeof value === 'string' ? value : null
 }
 
 function toIso(value: Date | string | null | undefined): string | null {
@@ -141,53 +158,70 @@ async function resolvePortalContext(req: Request): Promise<PortalContext | Respo
   }
 }
 
-async function loadOwnedOrder(
-  context: PortalContext,
-  orderId: string,
-): Promise<SalesOrder | null> {
-  return findOneWithDecryption(
-    context.em,
-    SalesOrder,
-    {
-      id: orderId,
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      customerEntityId: context.customerId,
-      deletedAt: null,
-    },
-    {},
-    { tenantId: context.tenantId, organizationId: context.organizationId },
-  )
+type PortalSalesDb = {
+  sales_orders: {
+    id: string
+    currency_code: string
+    customer_entity_id: string | null
+    tenant_id: string | null
+    organization_id: string | null
+    deleted_at: Date | null
+  }
+  sales_order_lines: {
+    id: string
+    order_id: string
+    tenant_id: string | null
+    organization_id: string | null
+    deleted_at: Date | null
+  }
+}
+
+async function loadOwnedOrder(context: PortalContext, orderId: string): Promise<PortalOrderLookup | null> {
+  try {
+    const db = context.em.fork().getKysely<PortalSalesDb>()
+    const row = await db
+      .selectFrom('sales_orders')
+      .select(['id', 'currency_code'])
+      .where('id', '=', orderId)
+      .where('tenant_id', '=', context.tenantId)
+      .where('organization_id', '=', context.organizationId)
+      .where('customer_entity_id', '=', context.customerId)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst()
+    if (!row) return null
+    return { id: row.id, currencyCode: row.currency_code ?? null }
+  } catch {
+    return null
+  }
 }
 
 async function loadOwnedOrderLine(
   context: PortalContext,
   orderLineId: string,
-): Promise<{ line: SalesOrderLine; order: SalesOrder } | null> {
-  const line = await findOneWithDecryption(
-    context.em,
-    SalesOrderLine,
-    {
-      id: orderLineId,
-      tenantId: context.tenantId,
-      organizationId: context.organizationId,
-      deletedAt: null,
-    },
-    { populate: ['order'] },
-    { tenantId: context.tenantId, organizationId: context.organizationId },
-  )
-  if (!line) return null
-  const orderId = relationId(line.order)
-  if (!orderId) return null
-  const order = await loadOwnedOrder(context, orderId)
-  return order ? { line, order } : null
+): Promise<{ line: PortalOrderLineLookup; order: PortalOrderLookup } | null> {
+  try {
+    const db = context.em.fork().getKysely<PortalSalesDb>()
+    const row = await db
+      .selectFrom('sales_order_lines')
+      .select(['id', 'order_id'])
+      .where('id', '=', orderLineId)
+      .where('tenant_id', '=', context.tenantId)
+      .where('organization_id', '=', context.organizationId)
+      .where('deleted_at', 'is', null)
+      .executeTakeFirst()
+    if (!row || !row.order_id) return null
+    const order = await loadOwnedOrder(context, row.order_id)
+    return order ? { line: { id: row.id, orderId: row.order_id }, order } : null
+  } catch {
+    return null
+  }
 }
 
 async function validatePortalOrderOwnership(
   context: PortalContext,
   input: PortalIntakeInput,
 ): Promise<OrderValidationResult | Response> {
-  let resolvedOrder: SalesOrder | null = null
+  let resolvedOrder: PortalOrderLookup | null = null
   if (input.orderId) {
     resolvedOrder = await loadOwnedOrder(context, input.orderId)
     if (!resolvedOrder) {
@@ -202,7 +236,11 @@ async function validatePortalOrderOwnership(
       return NextResponse.json({ ok: false, error: 'Claim order line not found' }, { status: 404 })
     }
     if (resolvedOrder && resolvedLine.order.id !== resolvedOrder.id) {
-      return NextResponse.json({ ok: false, error: 'Claim order line not found' }, { status: 404 })
+      const { translate } = await resolveTranslations()
+      return NextResponse.json(
+        { ok: false, error: translate('warranty_claims.errors.orderLineMismatch', 'Order line does not belong to the selected order') },
+        { status: 400 },
+      )
     }
     if (!resolvedOrder) resolvedOrder = resolvedLine.order
   }
@@ -211,6 +249,29 @@ async function validatePortalOrderOwnership(
     orderId: resolvedOrder?.id ?? input.orderId ?? null,
     currencyCode: resolvedOrder?.currencyCode ?? null,
   }
+}
+
+async function runPortalCreateGuard(
+  req: Request,
+  context: PortalContext,
+  mutationPayload: Record<string, unknown>,
+): Promise<RouteMutationGuardResult> {
+  return runRouteMutationGuards({
+    container: context.commandCtx.container,
+    req,
+    auth: {
+      userId: context.auth.sub,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userFeatures: [],
+    },
+    input: {
+      resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
+      resourceId: null,
+      operation: 'create',
+      mutationPayload,
+    },
+  })
 }
 
 export async function GET(req: Request) {
@@ -304,6 +365,7 @@ export async function POST(req: Request) {
       lineNo: index + 1,
       orderLineId: line.orderLineId ?? null,
       productId: line.productId ?? null,
+      productName: line.productName ?? null,
       sku: line.sku ?? null,
       serialNumber: line.serialNumber ?? null,
       faultCode: line.faultCode ?? null,
@@ -312,11 +374,30 @@ export async function POST(req: Request) {
     })),
   }
 
+  const guarded = await runPortalCreateGuard(req, context, { ...createInput })
+  if (!guarded.ok) {
+    return guarded.response
+  }
+  const effectiveInput: ClaimCreateInput = guarded.modifiedPayload
+    ? {
+        ...createInput,
+        ...guarded.modifiedPayload,
+        tenantId: createInput.tenantId,
+        organizationId: createInput.organizationId,
+        customerId: createInput.customerId,
+        channel: createInput.channel,
+        claimType: createInput.claimType,
+        orderId: createInput.orderId,
+        currencyCode: createInput.currencyCode,
+        lines: createInput.lines,
+      }
+    : createInput
+
   const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
   try {
     const createResult = await commandBus.execute<ClaimCreateInput, { claimId: string }>(
       'warranty_claims.claim.create',
-      { input: createInput, ctx: context.commandCtx },
+      { input: effectiveInput, ctx: context.commandCtx },
     )
     const claimId = createResult.result?.claimId
     if (typeof claimId !== 'string') {
@@ -334,6 +415,8 @@ export async function POST(req: Request) {
       ).catch(() => undefined)
       throw submitError
     }
+
+    await guarded.runAfterSuccess()
 
     return NextResponse.json({ ok: true, claimId }, { status: 201 })
   } catch (err) {

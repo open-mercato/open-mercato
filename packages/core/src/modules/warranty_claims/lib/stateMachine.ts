@@ -30,6 +30,7 @@ export const lineStatusGuards: Record<WarrantyClaimLineStatus, readonly Warranty
 
 const approvedRollupStatuses = new Set<WarrantyClaimLineStatus>(['approved', 'received', 'inspected', 'resolved'])
 const resolvedHeaderLineStatuses = new Set<WarrantyClaimLineStatus>(['rejected', 'resolved'])
+const terminalStatuses = new Set<WarrantyClaimStatus>(['closed', 'cancelled'])
 
 function amount(value: AmountValue): number {
   if (value === null || value === undefined) return 0
@@ -71,7 +72,7 @@ export function assertTransition(from: WarrantyClaimStatus, to: WarrantyClaimSta
 }
 
 export function isTerminal(status: WarrantyClaimStatus): boolean {
-  return nextStatuses(status).length === 0
+  return terminalStatuses.has(status)
 }
 
 export function canResolveWithLineStatuses(lines: readonly ClaimLineRollupInput[]): boolean {

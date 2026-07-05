@@ -26,7 +26,11 @@ async function createEntity(
   data: Record<string, unknown>,
   idKeys: string[],
 ): Promise<string> {
-  const response = await apiRequest(request, 'POST', path, { token, data });
+  let response = await apiRequest(request, 'POST', path, { token, data });
+  for (let attempt = 0; attempt < 3 && response.status() >= 500; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 1000 * (attempt + 1)));
+    response = await apiRequest(request, 'POST', path, { token, data });
+  }
   const body = (await response.json()) as unknown;
   expect(response.ok(), `Failed POST ${path}: ${response.status()}`).toBeTruthy();
   const id = readId(body, idKeys);

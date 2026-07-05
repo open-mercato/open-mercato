@@ -7,10 +7,11 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { runCrudMutationGuardAfterSuccess, validateCrudMutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { vendorRecoveryInputSchema, type VendorRecoveryInput } from '../../data/validators'
+import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../commands/shared'
 
 type ActionRouteContext = {
   ctx: CommandRuntimeContext
@@ -67,21 +68,25 @@ async function runGuard(
   req: Request,
   context: ActionRouteContext,
   input: VendorRecoveryInput,
-): Promise<Awaited<ReturnType<typeof validateCrudMutationGuard>>> {
+): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
     throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
-  return validateCrudMutationGuard(context.ctx.container, {
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    userId,
-    resourceKind: 'warranty_claims.claim',
-    resourceId: input.claimId,
-    operation: 'update',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-    mutationPayload: input,
+  return runRouteMutationGuards({
+    container: context.ctx.container,
+    req,
+    auth: {
+      userId,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    },
+    input: {
+      resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
+      resourceId: input.claimId,
+      operation: 'custom',
+      mutationPayload: { ...input },
+    },
   })
 }
 
@@ -91,34 +96,23 @@ export async function POST(req: Request) {
     const payload = toRecord(await readJsonSafe(req, {}))
     const scopedPayload = withScopedPayload(payload, context.ctx, context.translate)
     const input = toVendorRecoveryInput(scopedPayload)
-    const guardResult = await runGuard(req, context, input)
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    const guarded = await runGuard(req, context, input)
+    if (!guarded.ok) {
+      return guarded.response
     }
+    const commandInput = guarded.modifiedPayload ? toVendorRecoveryInput(guarded.modifiedPayload) : input
 
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<VendorRecoveryInput, { claimId: string }>(
       'warranty_claims.claim.create_vendor_recovery',
-      { input, ctx: context.ctx },
+      { input: commandInput, ctx: context.ctx },
     )
     const createdClaimId = result?.claimId
     if (typeof createdClaimId !== 'string') {
       throw new CrudHttpError(400, { error: context.translate('warranty_claims.errors.notFound', 'Warranty claim not found.') })
     }
 
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(context.ctx.container, {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        userId: context.ctx.auth!.sub,
-        resourceKind: 'warranty_claims.claim',
-        resourceId: input.claimId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-        metadata: guardResult.metadata ?? null,
-      })
-    }
+    await guarded.runAfterSuccess()
 
     return NextResponse.json({ ok: true, claimId: createdClaimId })
   } catch (err) {

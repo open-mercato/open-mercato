@@ -6,6 +6,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
+import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { Attachment, AttachmentPartition } from '@open-mercato/core/modules/attachments/data/entities'
@@ -32,6 +33,7 @@ import { attachmentCrudEvents, attachmentCrudIndexer } from '@open-mercato/core/
 import { E } from '#generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
+import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
 
@@ -110,6 +112,30 @@ async function loadOwnedClaim(context: PortalContext, claimId: string): Promise<
     {},
     { tenantId: context.tenantId, organizationId: context.organizationId },
   )
+}
+
+async function runPortalAttachmentGuard(
+  req: Request,
+  context: PortalContext,
+  claimId: string,
+  mutationPayload: Record<string, unknown>,
+): Promise<RouteMutationGuardResult> {
+  return runRouteMutationGuards({
+    container: context.container,
+    req,
+    auth: {
+      userId: context.auth.sub,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userFeatures: [],
+    },
+    input: {
+      resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
+      resourceId: claimId,
+      operation: 'create',
+      mutationPayload,
+    },
+  })
 }
 
 function serializeAttachment(attachment: Attachment) {
@@ -328,6 +354,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'Active content uploads are not allowed.' }, { status: 400 })
   }
 
+  const guarded = await runPortalAttachmentGuard(req, context, claim.id, {
+    claimId: claim.id,
+    fileName: safeName,
+    fileSize: file.size,
+    mimeType,
+  })
+  if (!guarded.ok) {
+    return guarded.response
+  }
+
   await ensureDefaultPartitions(context.em)
   const partitionCode = resolveDefaultPartitionCode(CLAIM_ATTACHMENT_ENTITY_ID)
   const partition = await context.em.findOne(AttachmentPartition, { code: partitionCode })
@@ -422,6 +458,8 @@ export async function POST(req: Request) {
     })
     await dataEngine.flushOrmEntityChanges()
   }
+
+  await guarded.runAfterSuccess()
 
   return NextResponse.json({
     ok: true,

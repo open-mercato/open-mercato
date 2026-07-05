@@ -2,6 +2,8 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
+import { evaluateClaimRisk, type ClaimRiskAssessment } from './risk'
+import { addWarrantyMonths } from './warrantyPreview'
 import type {
   WarrantyClaimDisposition,
   WarrantyClaimPriority,
@@ -14,12 +16,17 @@ export type WarrantyClaimTriageScope = {
   organizationId: string
 }
 
+export type WarrantyClaimTriageReason = {
+  messageKey: string
+  params?: Record<string, string | number>
+}
+
 export type WarrantyEligibilitySuggestion = {
   status: WarrantyClaimWarrantyStatus
   purchaseDate: string | null
   warrantyMonths: number | null
   warrantyExpiresAt: string | null
-  reason: string
+  reason: WarrantyClaimTriageReason
 }
 
 export type WarrantyClaimLineTriageSuggestion = {
@@ -32,7 +39,7 @@ export type WarrantyClaimLineTriageSuggestion = {
   eligibility: WarrantyEligibilitySuggestion
   suggestedDisposition: WarrantyClaimDisposition
   suggestedPath: 'replace' | 'repair_review' | 'deny' | 'credit_with_restocking_fee' | 'core_accept'
-  reason: string
+  reason: WarrantyClaimTriageReason
   restockingFeePercent: number | null
 }
 
@@ -42,7 +49,12 @@ export type WarrantyClaimPrioritySuggestion = {
   ageHours: number | null
   slaDueAt: string | null
   overdue: boolean
-  reason: string
+  reason: WarrantyClaimTriageReason
+}
+
+export type WarrantyClaimReviewEligibility = {
+  status: 'fast_track_candidate' | 'review_required'
+  reason: WarrantyClaimTriageReason
 }
 
 export type WarrantyClaimTriageSuggestion = {
@@ -55,8 +67,10 @@ export type WarrantyClaimTriageSuggestion = {
     submittedAt: string | null
     slaDueAt: string | null
   }
+  eligibility: WarrantyClaimReviewEligibility
   priority: WarrantyClaimPrioritySuggestion
   lines: WarrantyClaimLineTriageSuggestion[]
+  risk: ClaimRiskAssessment
   generatedAt: string
 }
 
@@ -71,10 +85,9 @@ function toDateOnlyIso(value: Date | string | null | undefined): string | null {
   return iso ? iso.slice(0, 10) : null
 }
 
-function addMonths(date: Date, months: number): Date {
-  const copy = new Date(date.getTime())
-  copy.setUTCMonth(copy.getUTCMonth() + months)
-  return copy
+
+function reason(messageKey: string, params?: Record<string, string | number>): WarrantyClaimTriageReason {
+  return params ? { messageKey, params } : { messageKey }
 }
 
 function parseAmount(value: string | number | null | undefined, fallback: number): number {
@@ -93,11 +106,11 @@ function resolveEligibility(line: WarrantyClaimLine, now: Date): WarrantyEligibi
       purchaseDate: toDateOnlyIso(line.purchaseDate),
       warrantyMonths: line.warrantyMonths ?? null,
       warrantyExpiresAt: toDateOnlyIso(line.warrantyExpiresAt),
-      reason: 'Purchase date or warranty term is missing.',
+      reason: reason('warranty_claims.triage.reason.missingWarrantyData'),
     }
   }
 
-  const expiresAt = addMonths(line.purchaseDate, line.warrantyMonths)
+  const expiresAt = addWarrantyMonths(line.purchaseDate, line.warrantyMonths)
   const status: WarrantyClaimWarrantyStatus = expiresAt.getTime() >= now.getTime() ? 'in_warranty' : 'out_of_warranty'
   return {
     status,
@@ -105,8 +118,8 @@ function resolveEligibility(line: WarrantyClaimLine, now: Date): WarrantyEligibi
     warrantyMonths: line.warrantyMonths,
     warrantyExpiresAt: toDateOnlyIso(expiresAt),
     reason: status === 'in_warranty'
-      ? 'Purchase date plus warranty term is still valid.'
-      : 'Purchase date plus warranty term has expired.',
+      ? reason('warranty_claims.triage.reason.warrantyStillValid')
+      : reason('warranty_claims.triage.reason.warrantyExpired'),
   }
 }
 
@@ -119,7 +132,7 @@ function suggestLineDisposition(
     return {
       suggestedDisposition: 'credit',
       suggestedPath: 'core_accept',
-      reason: 'Core return lines should follow the core acceptance path before credit is finalized.',
+      reason: reason('warranty_claims.triage.reason.coreAcceptancePath'),
       restockingFeePercent: null,
     }
   }
@@ -129,14 +142,14 @@ function suggestLineDisposition(
       return {
         suggestedDisposition: 'replace',
         suggestedPath: 'replace',
-        reason: 'The line is in warranty and the claimed quantity is low.',
+        reason: reason('warranty_claims.triage.reason.inWarrantyLowQuantity'),
         restockingFeePercent: null,
       }
     }
     return {
       suggestedDisposition: 'repair',
       suggestedPath: 'repair_review',
-      reason: 'The line is in warranty but quantity warrants inspection before replacement.',
+      reason: reason('warranty_claims.triage.reason.inWarrantyInspection'),
       restockingFeePercent: null,
     }
   }
@@ -145,7 +158,7 @@ function suggestLineDisposition(
     return {
       suggestedDisposition: 'credit',
       suggestedPath: 'credit_with_restocking_fee',
-      reason: 'The line is out of warranty, but a non-warranty return can be credited with a restocking fee.',
+      reason: reason('warranty_claims.triage.reason.outOfWarrantyReturnRestocking'),
       restockingFeePercent: 15,
     }
   }
@@ -154,7 +167,7 @@ function suggestLineDisposition(
     return {
       suggestedDisposition: 'deny',
       suggestedPath: 'deny',
-      reason: 'The line is outside the computed warranty window.',
+      reason: reason('warranty_claims.triage.reason.outsideWarrantyWindow'),
       restockingFeePercent: null,
     }
   }
@@ -162,7 +175,7 @@ function suggestLineDisposition(
   return {
     suggestedDisposition: 'repair',
     suggestedPath: 'repair_review',
-    reason: 'Eligibility is unknown, so inspection is recommended before disposition.',
+    reason: reason('warranty_claims.triage.reason.unknownEligibilityInspection'),
     restockingFeePercent: null,
   }
 }
@@ -172,18 +185,43 @@ function hoursBetween(from: Date | null | undefined, to: Date): number | null {
   return Math.max(0, Math.round(((to.getTime() - from.getTime()) / 3_600_000) * 10) / 10)
 }
 
-function suggestPriority(claim: WarrantyClaim, now: Date): WarrantyClaimPrioritySuggestion {
+const priorityRank: Record<WarrantyClaimPriority, number> = {
+  low: 0,
+  normal: 1,
+  high: 2,
+  urgent: 3,
+}
+
+function atLeastPriority(priority: WarrantyClaimPriority, minimum: WarrantyClaimPriority): WarrantyClaimPriority {
+  return priorityRank[priority] >= priorityRank[minimum] ? priority : minimum
+}
+
+function suggestPriority(claim: WarrantyClaim, now: Date, risk: ClaimRiskAssessment): WarrantyClaimPrioritySuggestion {
   const ageHours = hoursBetween(claim.submittedAt ?? claim.createdAt, now)
   const slaDueAt = toIso(claim.slaDueAt)
   const overdue = claim.slaDueAt ? claim.slaDueAt.getTime() < now.getTime() : false
+  const highRisk = risk.signals.some((signal) => signal.level === 'high')
   if (overdue) {
+    const suggestedPriority = atLeastPriority('urgent', highRisk ? 'high' : 'low')
     return {
       currentPriority: claim.priority,
-      suggestedPriority: 'urgent',
+      suggestedPriority,
       ageHours,
       slaDueAt,
       overdue,
-      reason: 'The claim is past its SLA due time.',
+      reason: highRisk
+        ? reason('warranty_claims.triage.reason.highRiskPriority')
+        : reason('warranty_claims.triage.reason.slaOverdue'),
+    }
+  }
+  if (highRisk) {
+    return {
+      currentPriority: claim.priority,
+      suggestedPriority: atLeastPriority(claim.priority, 'high'),
+      ageHours,
+      slaDueAt,
+      overdue,
+      reason: reason('warranty_claims.triage.reason.highRiskPriority'),
     }
   }
   if (claim.slaDueAt && claim.slaDueAt.getTime() - now.getTime() <= 6 * 3_600_000) {
@@ -193,7 +231,7 @@ function suggestPriority(claim: WarrantyClaim, now: Date): WarrantyClaimPriority
       ageHours,
       slaDueAt,
       overdue,
-      reason: 'The claim is within six hours of its SLA due time.',
+      reason: reason('warranty_claims.triage.reason.slaDueSoon', { hours: 6 }),
     }
   }
   if (ageHours !== null && ageHours >= 36) {
@@ -203,7 +241,7 @@ function suggestPriority(claim: WarrantyClaim, now: Date): WarrantyClaimPriority
       ageHours,
       slaDueAt,
       overdue,
-      reason: 'The claim has been open for at least 36 hours.',
+      reason: reason('warranty_claims.triage.reason.openAtLeastHours', { hours: 36 }),
     }
   }
   return {
@@ -213,8 +251,8 @@ function suggestPriority(claim: WarrantyClaim, now: Date): WarrantyClaimPriority
     slaDueAt,
     overdue,
     reason: claim.priority === 'low'
-      ? 'Claims awaiting triage should not remain low priority.'
-      : 'Current priority is consistent with age and SLA.',
+      ? reason('warranty_claims.triage.reason.lowPriorityEscalation')
+      : reason('warranty_claims.triage.reason.priorityConsistent'),
   }
 }
 
@@ -222,10 +260,19 @@ function serializeLineSuggestion(
   claimType: WarrantyClaimType,
   line: WarrantyClaimLine,
   now: Date,
+  risk: ClaimRiskAssessment,
 ): WarrantyClaimLineTriageSuggestion {
   const qtyClaimed = parseAmount(line.qtyClaimed, 1)
   const eligibility = resolveEligibility(line, now)
   const disposition = suggestLineDisposition(claimType, qtyClaimed, eligibility)
+  const riskAdjustedDisposition = risk.signals.length > 0 && disposition.suggestedPath === 'replace'
+    ? {
+        suggestedDisposition: 'repair' as const,
+        suggestedPath: 'repair_review' as const,
+        reason: reason('warranty_claims.triage.reason.riskSignalsRequireReview'),
+        restockingFeePercent: null,
+      }
+    : disposition
   return {
     lineId: line.id,
     lineNo: line.lineNo,
@@ -234,7 +281,29 @@ function serializeLineSuggestion(
     serialNumber: line.serialNumber ?? null,
     qtyClaimed,
     eligibility,
-    ...disposition,
+    ...riskAdjustedDisposition,
+  }
+}
+
+function resolveReviewEligibility(
+  lines: readonly WarrantyClaimLineTriageSuggestion[],
+  risk: ClaimRiskAssessment,
+): WarrantyClaimReviewEligibility {
+  if (risk.signals.length > 0) {
+    return {
+      status: 'review_required',
+      reason: reason('warranty_claims.triage.reason.riskSignalsReviewRequired', { count: risk.signals.length }),
+    }
+  }
+  if (lines.every((line) => line.eligibility.status === 'in_warranty' && line.suggestedPath === 'replace')) {
+    return {
+      status: 'fast_track_candidate',
+      reason: reason('warranty_claims.triage.reason.fastTrackCandidate'),
+    }
+  }
+  return {
+    status: 'review_required',
+    reason: reason('warranty_claims.triage.reason.lineReviewRequired'),
   }
 }
 
@@ -243,6 +312,7 @@ export async function buildWarrantyClaimTriageSuggestion(input: {
   claimId: string
   scope: WarrantyClaimTriageScope
   now?: Date
+  risk?: ClaimRiskAssessment
 }): Promise<WarrantyClaimTriageSuggestion> {
   const now = input.now ?? new Date()
   const claim = await findOneWithDecryption(
@@ -262,6 +332,8 @@ export async function buildWarrantyClaimTriageSuggestion(input: {
     { orderBy: { lineNo: 'ASC' } },
     input.scope,
   )
+  const risk = input.risk ?? await evaluateClaimRisk(input.em, claim, lines)
+  const lineSuggestions = lines.map((line) => serializeLineSuggestion(claim.claimType, line, now, risk))
   return {
     claim: {
       id: claim.id,
@@ -272,8 +344,10 @@ export async function buildWarrantyClaimTriageSuggestion(input: {
       submittedAt: toIso(claim.submittedAt),
       slaDueAt: toIso(claim.slaDueAt),
     },
-    priority: suggestPriority(claim, now),
-    lines: lines.map((line) => serializeLineSuggestion(claim.claimType, line, now)),
+    eligibility: resolveReviewEligibility(lineSuggestions, risk),
+    priority: suggestPriority(claim, now, risk),
+    lines: lineSuggestions,
+    risk,
     generatedAt: now.toISOString(),
   }
 }

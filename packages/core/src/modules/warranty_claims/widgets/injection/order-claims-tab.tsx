@@ -14,10 +14,10 @@ import { Badge } from '@open-mercato/ui/primitives/badge'
 import {
   StatusBadge,
   type StatusBadgeVariant,
-  type StatusMap,
 } from '@open-mercato/ui/primitives/status-badge'
 import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules/widgets/injection'
 import type { WarrantyClaimStatus } from '../../data/validators'
+import { CLAIM_STATUS_BADGE_VARIANTS } from '../../backend/components/ClaimStatusBadge'
 
 type OrderClaimsContext = {
   kind: 'order' | 'quote'
@@ -35,21 +35,6 @@ type ClaimListItem = {
 type ClaimsResponse = {
   items?: ClaimListItem[]
   total?: number
-}
-
-const statusVariantMap: StatusMap<WarrantyClaimStatus> = {
-  draft: 'neutral',
-  submitted: 'info',
-  in_review: 'info',
-  info_requested: 'neutral',
-  approved: 'warning',
-  awaiting_return: 'warning',
-  received: 'warning',
-  inspecting: 'warning',
-  resolved: 'success',
-  rejected: 'error',
-  closed: 'success',
-  cancelled: 'error',
 }
 
 function isValidContext(ctx: unknown): ctx is OrderClaimsContext {
@@ -72,7 +57,7 @@ function titleize(value: string | null | undefined): string {
 
 function claimStatusVariant(status: string | null | undefined): StatusBadgeVariant {
   if (!status) return 'neutral'
-  return statusVariantMap[status as WarrantyClaimStatus] ?? 'neutral'
+  return CLAIM_STATUS_BADGE_VARIANTS[status as WarrantyClaimStatus] ?? 'neutral'
 }
 
 function ClaimStatusBadge({ status }: { status: string | null | undefined }) {
@@ -101,7 +86,7 @@ function ClaimRow({ claim }: { claim: ClaimListItem }) {
             className="inline-flex max-w-full items-center gap-1.5 text-sm font-medium text-primary hover:underline focus-visible:outline-none focus-visible:shadow-focus"
           >
             <span className="truncate">{claim.claimNumber ?? t('warranty_claims.widgets.orderClaims.unnumbered', 'Unnumbered claim')}</span>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <ExternalLink className="size-4 shrink-0" aria-hidden />
           </Link>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{claim.claimType ? t(`warranty_claims.claimType.${claim.claimType}`, titleize(claim.claimType)) : t('warranty_claims.widgets.orderClaims.unknownType', 'Unknown type')}</span>
@@ -177,7 +162,7 @@ export function OrderClaimsTabWidget({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="gap-1.5">
-            <FileText className="h-3.5 w-3.5" aria-hidden />
+            <FileText className="size-4" aria-hidden />
             {countLabel}
           </Badge>
         </div>

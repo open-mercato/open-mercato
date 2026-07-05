@@ -8,6 +8,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaim } from '../data/entities'
 import {
+  claimChannelSchema,
   claimCreateSchema,
   claimPrioritySchema,
   claimStatusSchema,
@@ -44,7 +45,7 @@ const idsSchema = z.preprocess((value) => {
       .filter(Boolean)
   }
   return value
-}, z.array(uuid).min(1).max(10000).optional())
+}, z.array(uuid).min(1).max(500).optional())
 
 const booleanQuerySchema = z.preprocess((value) => parseBooleanFromUnknown(value) ?? undefined, z.boolean().optional())
 
@@ -54,6 +55,7 @@ const listSchema = z
     status: statusListSchema,
     'status[]': statusListSchema,
     claimType: claimTypeSchema.optional(),
+    channel: claimChannelSchema.optional(),
     priority: claimPrioritySchema.optional(),
     customerId: uuid.optional(),
     orderId: uuid.optional(),
@@ -147,6 +149,7 @@ function transformClaimItem(item: unknown): unknown {
     totalApprovedAmount: readString(record, 'total_approved_amount', 'totalApprovedAmount'),
     totalRecoveredAmount: readString(record, 'total_recovered_amount', 'totalRecoveredAmount'),
     slaDueAt: toIso(record.sla_due_at ?? record.slaDueAt),
+    slaPausedAt: toIso(record.sla_paused_at ?? record.slaPausedAt),
     submittedAt: toIso(record.submitted_at ?? record.submittedAt),
     resolvedAt: toIso(record.resolved_at ?? record.resolvedAt),
     closedAt: toIso(record.closed_at ?? record.closedAt),
@@ -195,6 +198,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       'total_approved_amount',
       'total_recovered_amount',
       'sla_due_at',
+      'sla_paused_at',
       'submitted_at',
       'resolved_at',
       'closed_at',
@@ -218,9 +222,11 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       if (query.overdueOnly === true) {
         statusFilter.$nin = [...TERMINAL_STATUSES]
         filters.sla_due_at = { $lt: new Date() }
+        filters.sla_paused_at = { $eq: null }
       }
       if (Object.keys(statusFilter).length) filters.status = statusFilter
       if (query.claimType) filters.claim_type = { $eq: query.claimType }
+      if (query.channel) filters.channel = { $eq: query.channel }
       if (query.priority) filters.priority = { $eq: query.priority }
       if (query.customerId) filters.customer_id = { $eq: query.customerId }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
@@ -303,6 +309,7 @@ const claimListItemSchema = z.object({
   totalApprovedAmount: z.string().nullable(),
   totalRecoveredAmount: z.string().nullable(),
   slaDueAt: z.string().nullable(),
+  slaPausedAt: z.string().nullable(),
   createdAt: z.string().nullable(),
   updatedAt: z.string().nullable(),
 }).passthrough()

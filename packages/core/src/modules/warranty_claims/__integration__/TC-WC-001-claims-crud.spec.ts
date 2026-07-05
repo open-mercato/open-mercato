@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
@@ -9,6 +10,7 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
+  assignClaim,
   cleanupDraftClaimWithLines,
   createClaimFixture,
   deleteClaimIfExists,
@@ -30,6 +32,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
 
     let roleId: string | null = null
     let noFeatureUserId: string | null = null
+    let danglingOrderClaimId: string | null = null
     let draftClaimId: string | null = null
     let submittedClaimId: string | null = null
 
@@ -53,6 +56,21 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
       const noFeatureToken = await getAuthToken(request, noFeatureEmail, noFeaturePassword)
       const forbidden = await apiRequest(request, 'GET', '/api/warranty_claims', { token: noFeatureToken })
       expect(forbidden.status(), 'user without warranty_claims.view should be forbidden').toBe(403)
+
+      const danglingOrderCreate = await apiRequest(request, 'POST', '/api/warranty_claims', {
+        token: adminToken,
+        data: {
+          claimType: 'return',
+          channel: 'staff',
+          customerName: `QA WC Dangling Order ${stamp}`,
+          orderId: randomUUID(),
+          reasonCode: 'damaged',
+          currencyCode: 'USD',
+        },
+      })
+      const danglingOrderBody = await readJsonSafe<{ id?: string | null; error?: string }>(danglingOrderCreate)
+      expect(danglingOrderCreate.status(), `dangling orderId should return 400: ${JSON.stringify(danglingOrderBody)}`).toBe(400)
+      expect(danglingOrderBody?.error).toBe('warranty_claims.errors.invalidReference')
 
       const claim = await createClaimFixture(request, adminToken, {
         claimType: 'return',
@@ -134,6 +152,16 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
       )
       expect(statusUpdate.status(), 'generic PUT must reject direct status changes').toBe(400)
 
+      const invalidAssignee = await assignClaim(
+        request,
+        adminToken,
+        { id: draftClaimId!, assigneeUserId: randomUUID() },
+        updated.updatedAt,
+      )
+      expect(invalidAssignee.status(), 'assigning a non-tenant/random user id should return 400').toBe(400)
+      const invalidAssigneeBody = await readJsonSafe<{ error?: string }>(invalidAssignee)
+      expect(invalidAssigneeBody?.error).toBe('warranty_claims.errors.invalidAssignee')
+
       const submitted = await createClaimFixture(request, adminToken, {
         claimType: 'warranty',
         customerName: `QA WC Non Draft ${stamp}`,
@@ -169,6 +197,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
     } finally {
       await deleteClaimIfExists(request, adminToken, submittedClaimId)
       await cleanupDraftClaimWithLines(request, adminToken, draftClaimId)
+      await cleanupDraftClaimWithLines(request, adminToken, danglingOrderClaimId)
       await deleteUserIfExists(request, adminToken, noFeatureUserId)
       await deleteRoleIfExists(request, adminToken, roleId)
     }

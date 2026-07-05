@@ -5,11 +5,13 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import { WarrantyClaim, WarrantyClaimEvent } from '../../../data/entities'
 import type { CommentClaimInput } from '../../../data/validators'
+import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -118,6 +120,30 @@ async function loadOwnedClaim(context: PortalContext, claimId: string): Promise<
   )
 }
 
+async function runPortalCommentGuard(
+  req: Request,
+  context: PortalContext,
+  claimId: string,
+  mutationPayload: Record<string, unknown>,
+): Promise<RouteMutationGuardResult> {
+  return runRouteMutationGuards({
+    container: context.commandCtx.container,
+    req,
+    auth: {
+      userId: context.auth.sub,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userFeatures: [],
+    },
+    input: {
+      resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
+      resourceId: claimId,
+      operation: 'create',
+      mutationPayload,
+    },
+  })
+}
+
 export async function GET(req: Request) {
   const contextOrResponse = await resolvePortalContext(req)
   if (contextOrResponse instanceof Response) return contextOrResponse
@@ -159,21 +185,33 @@ export async function POST(req: Request) {
   if (!claim) {
     return NextResponse.json({ ok: false, error: 'Claim not found' }, { status: 404 })
   }
+  const input: CommentClaimInput = {
+    claimId: claim.id,
+    body: parsed.data.body,
+    visibility: 'customer',
+    actorCustomerId: context.customerId,
+  }
+  const guarded = await runPortalCommentGuard(req, context, claim.id, { ...input })
+  if (!guarded.ok) {
+    return guarded.response
+  }
+  const effectiveInput: CommentClaimInput = guarded.modifiedPayload
+    ? {
+        ...input,
+        ...guarded.modifiedPayload,
+        claimId: input.claimId,
+        visibility: input.visibility,
+        actorCustomerId: input.actorCustomerId,
+      }
+    : input
 
   const commandBus = context.commandCtx.container.resolve('commandBus') as CommandBus
   try {
     await commandBus.execute<CommentClaimInput, { claimId: string }>(
       'warranty_claims.claim.comment',
-      {
-        input: {
-          claimId: claim.id,
-          body: parsed.data.body,
-          visibility: 'customer',
-          actorCustomerId: context.customerId,
-        },
-        ctx: context.commandCtx,
-      },
+      { input: effectiveInput, ctx: context.commandCtx },
     )
+    await guarded.runAfterSuccess()
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })

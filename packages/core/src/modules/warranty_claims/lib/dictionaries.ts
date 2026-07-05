@@ -85,6 +85,33 @@ export function getWarrantyClaimDictionaryDefinition(
   return DEFINITIONS[kind]
 }
 
+export type WarrantyClaimDictionaryOption = {
+  value: string
+  label: string
+}
+
+export async function loadWarrantyClaimDictionaryOptions(
+  em: EntityManager,
+  scope: SeedScope,
+  kind: WarrantyClaimDictionaryKind
+): Promise<WarrantyClaimDictionaryOption[]> {
+  const def = getWarrantyClaimDictionaryDefinition(kind)
+  const dictionary = await em.findOne(Dictionary, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    key: def.key,
+    isActive: true,
+    deletedAt: null,
+  })
+  if (!dictionary) return []
+  const entries = await em.find(
+    DictionaryEntry,
+    { dictionary, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { orderBy: { position: 'asc', label: 'asc' } }
+  )
+  return entries.map((entry) => ({ value: entry.value, label: entry.label }))
+}
+
 export async function ensureWarrantyClaimDictionary(params: {
   em: EntityManager
   tenantId: string

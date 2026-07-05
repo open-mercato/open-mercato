@@ -28,7 +28,7 @@ describe('warranty claim state machine', () => {
       ['draft', 'approved'],
       ['submitted', 'resolved'],
       ['received', 'cancelled'],
-      ['closed', 'in_review'],
+      ['closed', 'approved'],
       ['cancelled', 'submitted'],
     ]
 
@@ -47,7 +47,7 @@ describe('warranty claim state machine', () => {
     expect(isTerminal('closed')).toBe(true)
     expect(isTerminal('cancelled')).toBe(true)
     expect(isTerminal('resolved')).toBe(false)
-    expect(nextStatuses('closed')).toEqual([])
+    expect(nextStatuses('closed')).toEqual(['in_review'])
   })
 
   test('allows cancellation only before received', () => {

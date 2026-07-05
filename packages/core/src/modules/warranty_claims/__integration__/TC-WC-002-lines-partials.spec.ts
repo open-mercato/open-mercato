@@ -5,6 +5,7 @@ import {
   cancelThenDeleteClaimIfPossible,
   cleanupDraftClaimWithLines,
   createClaimFixture,
+  createClaimLine,
   expectClaimStatus,
   listClaimLines,
   numeric,
@@ -81,6 +82,18 @@ test.describe('TC-WC-002: warranty claim line partial approvals', () => {
         updatedLine.updatedAt,
       )
       expect(invalidApprove.status(), 'qtyApproved above qtyClaimed should be rejected').toBe(400)
+
+      const invalidReceived = await updateClaimLine(
+        request,
+        token,
+        {
+          id: updatedLine.id,
+          claimId: partialClaimId,
+          qtyReceived: 6,
+        },
+        updatedLine.updatedAt,
+      )
+      expect(invalidReceived.status(), 'qtyReceived above qtyClaimed should be rejected').toBe(400)
 
       const closedClaim = await createClaimFixture(request, token, {
         claimType: 'warranty',
@@ -199,6 +212,58 @@ test.describe('TC-WC-002: warranty claim line partial approvals', () => {
         code: 'optimistic_lock_conflict',
         expectedUpdatedAt: originalUpdatedAt,
       })
+    } finally {
+      await cleanupDraftClaimWithLines(request, token, claimId)
+    }
+  })
+
+  test('auto-assigns the next line number when creating an additional line without lineNo', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = uniqueLabel('tc-wc-002-line-no')
+
+    let claimId: string | null = null
+
+    try {
+      const claim = await createClaimFixture(request, token, {
+        claimType: 'warranty',
+        customerName: `QA WC Line Numbers ${stamp}`,
+        reasonCode: 'defective',
+        currencyCode: 'USD',
+        lines: [
+          {
+            lineNo: 1,
+            sku: `WC-002-LNO-A-${stamp}`,
+            productName: 'QA line number first part',
+            serialNumber: `SER-LNO-A-${stamp}`,
+            faultDescription: 'First line for line number coverage',
+            qtyClaimed: 1,
+            creditAmount: 10,
+          },
+        ],
+      })
+      claimId = claim.id
+
+      const created = await createClaimLine(
+        request,
+        token,
+        {
+          claimId,
+          sku: `WC-002-LNO-B-${stamp}`,
+          productName: 'QA line number second part',
+          serialNumber: `SER-LNO-B-${stamp}`,
+          faultDescription: 'Second line should receive max+1 lineNo',
+          qtyClaimed: 1,
+          creditAmount: 12,
+        },
+        claim.updatedAt,
+      )
+      expect(created.status(), 'line create without lineNo should return 201').toBe(201)
+
+      const lines = await listClaimLines(request, token, claimId!)
+      expect(lines, 'claim should have two lines after lines-API create').toHaveLength(2)
+      const lineNumbers = lines.map((line) => line.lineNo ?? 0).sort((left, right) => left - right)
+      expect(lineNumbers).toEqual([1, 2])
+      expect(Math.max(...lineNumbers), 'created line number should be greater than the existing max before create').toBeGreaterThan(1)
     } finally {
       await cleanupDraftClaimWithLines(request, token, claimId)
     }

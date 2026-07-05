@@ -26,7 +26,9 @@ export type ClaimLineStatus =
   | 'inspected'
   | 'resolved'
 
-const claimStatusVariants: Record<ClaimStatus, StatusBadgeVariant> = {
+export type ClaimPriority = 'low' | 'normal' | 'high' | 'urgent'
+
+export const CLAIM_STATUS_BADGE_VARIANTS: Record<ClaimStatus, StatusBadgeVariant> = {
   draft: 'neutral',
   submitted: 'info',
   in_review: 'info',
@@ -41,13 +43,27 @@ const claimStatusVariants: Record<ClaimStatus, StatusBadgeVariant> = {
   cancelled: 'error',
 }
 
-const lineStatusVariants: Record<ClaimLineStatus, StatusBadgeVariant> = {
+export const CLAIM_LINE_STATUS_BADGE_VARIANTS: Record<ClaimLineStatus, StatusBadgeVariant> = {
   pending: 'neutral',
   approved: 'info',
   rejected: 'error',
   received: 'warning',
   inspected: 'warning',
   resolved: 'success',
+}
+
+export const CLAIM_PRIORITY_BADGE_VARIANTS: Record<ClaimPriority, StatusBadgeVariant> = {
+  low: 'neutral',
+  normal: 'info',
+  high: 'warning',
+  urgent: 'error',
+}
+
+const claimStatusVariants = CLAIM_STATUS_BADGE_VARIANTS
+const lineStatusVariants = CLAIM_LINE_STATUS_BADGE_VARIANTS
+
+function isClaimPriority(value: string): value is ClaimPriority {
+  return Object.prototype.hasOwnProperty.call(CLAIM_PRIORITY_BADGE_VARIANTS, value)
 }
 
 function isClaimStatus(value: string): value is ClaimStatus {
@@ -98,6 +114,24 @@ export function ClaimLineStatusBadge({
   return (
     <StatusBadge variant={getClaimLineStatusBadgeVariant(normalized)} dot={dot} className={className}>
       {t(`warranty_claims.lineStatus.${normalized}`)}
+    </StatusBadge>
+  )
+}
+
+export function ClaimPriorityBadge({
+  priority,
+  dot = false,
+  className,
+}: {
+  priority: ClaimPriority | string | null | undefined
+  dot?: boolean
+  className?: string
+}) {
+  const t = useT()
+  const normalized = typeof priority === 'string' && isClaimPriority(priority) ? priority : 'normal'
+  return (
+    <StatusBadge variant={CLAIM_PRIORITY_BADGE_VARIANTS[normalized]} dot={dot} className={className}>
+      {t(`warranty_claims.priority.${normalized}`)}
     </StatusBadge>
   )
 }

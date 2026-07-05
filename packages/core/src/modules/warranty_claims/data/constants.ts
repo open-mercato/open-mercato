@@ -11,9 +11,13 @@ export const CLAIM_STATUS_TRANSITIONS: Record<WarrantyClaimStatus, WarrantyClaim
   inspecting: ['resolved'],
   resolved: ['closed'],
   rejected: ['in_review', 'closed'],
-  closed: [],
+  closed: ['in_review'],
   cancelled: [],
 }
+
+// Customer-detail claim metrics treat these states as no longer open. `rejected`
+// can be reopened by the lifecycle, but it must not count toward active claims.
+export const CLAIM_METRIC_TERMINAL_STATUSES = ['resolved', 'closed', 'cancelled', 'rejected'] as const
 
 export const DEFAULT_SLA_HOURS = 48
 

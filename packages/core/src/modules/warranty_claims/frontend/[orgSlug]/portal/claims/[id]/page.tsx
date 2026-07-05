@@ -4,8 +4,8 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ExternalLink, FileText, MessageSquare, Send, ShieldCheck, Upload } from 'lucide-react'
-import { cn } from '@open-mercato/shared/lib/utils'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -13,6 +13,7 @@ import { FormField } from '@open-mercato/ui/primitives/form-field'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
+import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitives/step-indicator'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
@@ -21,6 +22,10 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
+import {
+  CLAIM_LINE_STATUS_BADGE_VARIANTS,
+  CLAIM_STATUS_BADGE_VARIANTS,
+} from '../../../../../backend/components/ClaimStatusBadge'
 
 type Props = { params: { orgSlug: string; id: string } }
 
@@ -94,44 +99,99 @@ const CLAIM_STATUS_ORDER = [
   'closed',
 ] as const
 
-const CLAIM_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
-  draft: 'neutral',
-  info_requested: 'neutral',
-  submitted: 'info',
-  in_review: 'info',
-  approved: 'warning',
-  awaiting_return: 'warning',
-  received: 'warning',
-  inspecting: 'warning',
-  resolved: 'success',
-  closed: 'success',
-  rejected: 'error',
-  cancelled: 'error',
+const DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+const ATTACHMENT_ACCEPT_TYPES = [
+  '.avif',
+  '.bmp',
+  '.csv',
+  '.docx',
+  '.gif',
+  '.jpeg',
+  '.jpg',
+  '.json',
+  '.md',
+  '.pdf',
+  '.png',
+  '.pptx',
+  '.txt',
+  '.webp',
+  '.xlsx',
+  '.zip',
+  'application/json',
+  'application/pdf',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/zip',
+  'image/avif',
+  'image/bmp',
+  'image/gif',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'text/csv',
+  'text/markdown',
+  'text/plain',
+].join(',')
+
+const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
+  'application/xhtml+xml',
+  'application/xml',
+  'image/svg+xml',
+  'text/html',
+  'text/xml',
+])
+
+const ACTIVE_CONTENT_ATTACHMENT_EXTENSIONS = new Set([
+  'htm',
+  'html',
+  'svg',
+  'xhtml',
+  'xml',
+])
+
+const DANGEROUS_EXECUTABLE_EXTENSIONS = new Set([
+  'app',
+  'apk',
+  'bat',
+  'cmd',
+  'com',
+  'dll',
+  'exe',
+  'hta',
+  'htm',
+  'html',
+  'jar',
+  'js',
+  'jse',
+  'lnk',
+  'msi',
+  'pif',
+  'ps1',
+  'psm1',
+  'reg',
+  'scr',
+  'sh',
+  'vbe',
+  'vbs',
+  'wsf',
+  'wsh',
+])
+
+function hasClaimStatus(status: string): status is keyof typeof CLAIM_STATUS_BADGE_VARIANTS {
+  return Object.prototype.hasOwnProperty.call(CLAIM_STATUS_BADGE_VARIANTS, status)
 }
 
-const LINE_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
-  pending: 'neutral',
-  approved: 'warning',
-  rejected: 'error',
-  received: 'warning',
-  inspected: 'warning',
-  resolved: 'success',
-}
-
-const STATUS_SURFACE_CLASSES: Record<StatusBadgeVariant, string> = {
-  success: 'border-status-success-border bg-status-success-bg',
-  warning: 'border-status-warning-border bg-status-warning-bg',
-  error: 'border-status-error-border bg-status-error-bg',
-  info: 'border-status-info-border bg-status-info-bg',
-  neutral: 'border-status-neutral-border bg-status-neutral-bg',
+function hasLineStatus(status: string): status is keyof typeof CLAIM_LINE_STATUS_BADGE_VARIANTS {
+  return Object.prototype.hasOwnProperty.call(CLAIM_LINE_STATUS_BADGE_VARIANTS, status)
 }
 
 function statusVariant(status: string): StatusBadgeVariant {
-  return CLAIM_STATUS_VARIANTS[status] ?? 'neutral'
+  return hasClaimStatus(status) ? CLAIM_STATUS_BADGE_VARIANTS[status] : 'neutral'
 }
 
 function lineStatusVariant(status: string): StatusBadgeVariant {
-  return LINE_STATUS_VARIANTS[status] ?? 'neutral'
+  return hasLineStatus(status) ? CLAIM_LINE_STATUS_BADGE_VARIANTS[status] : 'neutral'
 }
 
 function formatDateTime(value: string | null, fallback: string): string {
@@ -152,6 +212,72 @@ function formatFileSize(bytes: number, t: TranslateFn): string {
   const kilobytes = bytes / 1024
   if (kilobytes < 1024) return t('warranty_claims.portal.file.kilobytes', { size: kilobytes.toFixed(1) })
   return t('warranty_claims.portal.file.megabytes', { size: (kilobytes / 1024).toFixed(1) })
+}
+
+function getFileExtensionSegments(fileName: string): string[] {
+  const parts = fileName.trim().split('.').filter(Boolean)
+  if (parts.length < 2) return []
+  return parts.slice(1).map((part) => part.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
+}
+
+async function fileLooksLikeActiveContent(file: File): Promise<boolean> {
+  try {
+    const sniff = (await file.slice(0, 512).text()).trimStart().toLowerCase()
+    return sniff.startsWith('<svg') || sniff.startsWith('<?xml') || sniff.startsWith('<!doctype html') || sniff.startsWith('<html')
+  } catch {
+    return false
+  }
+}
+
+async function validateAttachmentFile(file: File, t: TranslateFn): Promise<string | null> {
+  if (file.size > DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES) {
+    return t('attachments.errors.maxUploadSize')
+  }
+  const extensionSegments = getFileExtensionSegments(file.name)
+  const mimeType = file.type.trim().toLowerCase()
+  if (extensionSegments.some((extension) => DANGEROUS_EXECUTABLE_EXTENSIONS.has(extension))) {
+    return t('attachments.errors.dangerousExecutable')
+  }
+  if (
+    extensionSegments.some((extension) => ACTIVE_CONTENT_ATTACHMENT_EXTENSIONS.has(extension)) ||
+    (mimeType && BLOCKED_ATTACHMENT_MIME_TYPES.has(mimeType)) ||
+    await fileLooksLikeActiveContent(file)
+  ) {
+    return t('attachments.errors.activeContentBlocked')
+  }
+  return null
+}
+
+function buildClaimProgressSteps(status: string, t: TranslateFn): StepIndicatorStep[] {
+  if (status === 'draft') {
+    return [
+      { id: 'draft', label: t('warranty_claims.status.draft'), status: 'current', description: t('warranty_claims.portal.detail.notSubmitted') },
+      ...CLAIM_STATUS_ORDER.map((step) => ({ id: step, label: t(`warranty_claims.status.${step}`), status: 'pending' as const })),
+    ]
+  }
+
+  if (status === 'info_requested') {
+    return [
+      { id: 'submitted', label: t('warranty_claims.status.submitted'), status: 'complete' },
+      { id: 'in_review', label: t('warranty_claims.status.in_review'), status: 'complete' },
+      { id: 'info_requested', label: t('warranty_claims.portal.actionNeeded'), status: 'error', description: t('warranty_claims.portal.detail.actionNeededDescription') },
+      ...CLAIM_STATUS_ORDER.slice(2).map((step) => ({ id: step, label: t(`warranty_claims.status.${step}`), status: 'pending' as const })),
+    ]
+  }
+
+  if (status === 'rejected' || status === 'cancelled') {
+    return [
+      { id: 'submitted', label: t('warranty_claims.status.submitted'), status: 'complete' },
+      { id: status, label: t(`warranty_claims.status.${status}`), status: 'error', description: t(`warranty_claims.portal.detail.terminal.${status}`) },
+    ]
+  }
+
+  const currentStatusIndex = CLAIM_STATUS_ORDER.findIndex((step) => step === status)
+  return CLAIM_STATUS_ORDER.map((step, index) => ({
+    id: step,
+    label: t(`warranty_claims.status.${step}`),
+    status: currentStatusIndex < 0 ? 'pending' : index < currentStatusIndex ? 'complete' : index === currentStatusIndex ? 'current' : 'pending',
+  }))
 }
 
 function formatEventBody(event: PortalClaimEvent, t: TranslateFn): string {
@@ -278,6 +404,12 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       setError(t('warranty_claims.portal.detail.fileRequired'))
       return
     }
+    const validationError = await validateAttachmentFile(selectedFile, t)
+    if (validationError) {
+      setError(validationError)
+      flash(validationError, 'error')
+      return
+    }
     setUploading(true)
     setError(null)
     try {
@@ -312,6 +444,24 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       setUploading(false)
     }
   }, [claim, guardedMutation, refreshAttachments, selectedFile, t, uploading])
+
+  const handleSelectedFileChange = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null
+    if (!file) {
+      setSelectedFile(null)
+      return
+    }
+    const validationError = await validateAttachmentFile(file, t)
+    if (validationError) {
+      setSelectedFile(null)
+      setFileInputKey((current) => current + 1)
+      setError(validationError)
+      flash(validationError, 'error')
+      return
+    }
+    setError(null)
+    setSelectedFile(file)
+  }, [t])
 
   const handleCommentSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -362,7 +512,9 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
     return <ErrorMessage label={error ?? t('warranty_claims.portal.detail.loadError')} />
   }
 
-  const currentStatusIndex = CLAIM_STATUS_ORDER.findIndex((status) => status === claim.status)
+  const claimProgressSteps = buildClaimProgressSteps(claim.status, t)
+  const isDraft = claim.status === 'draft'
+  const needsCustomerAction = claim.status === 'info_requested'
   const isTerminalException = claim.status === 'rejected' || claim.status === 'cancelled'
 
   return (
@@ -402,35 +554,24 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             </StatusBadge>
           }
         />
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          {CLAIM_STATUS_ORDER.map((status, index) => {
-            const isCurrent = claim.status === status
-            const isComplete = currentStatusIndex >= 0 && index < currentStatusIndex
-            const variant = isCurrent ? statusVariant(status) : isComplete ? 'success' : 'neutral'
-            return (
-              <div
-                key={status}
-                className={cn(
-                  'rounded-lg border border-border bg-card p-3',
-                  isCurrent && STATUS_SURFACE_CLASSES[statusVariant(status)],
-                  isComplete && 'bg-muted/30',
-                )}
-                aria-current={isCurrent ? 'step' : undefined}
-              >
-                <StatusBadge variant={variant} dot>
-                  {t(`warranty_claims.status.${status}`)}
-                </StatusBadge>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {isCurrent
-                    ? t('warranty_claims.portal.detail.currentStatus')
-                    : isComplete
-                      ? t('warranty_claims.portal.detail.completedStatus')
-                      : t('warranty_claims.portal.detail.pendingStatus')}
-                </p>
-              </div>
-            )
-          })}
-        </div>
+        <StepIndicator steps={claimProgressSteps} orientation="vertical" />
+        {isDraft ? (
+          <Alert status="information" style="lighter" className="mt-4">
+            <AlertTitle>{t('warranty_claims.status.draft')}</AlertTitle>
+            <AlertDescription>{t('warranty_claims.portal.detail.notSubmitted')}</AlertDescription>
+          </Alert>
+        ) : null}
+        {needsCustomerAction ? (
+          <Alert status="warning" style="lighter" className="mt-4">
+            <AlertTitle>{t('warranty_claims.portal.actionNeeded')}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3">
+              <span>{t('warranty_claims.portal.detail.actionNeededDescription')}</span>
+              <Button asChild variant="outline" size="sm">
+                <a href="#warranty-claim-comment-box">{t('warranty_claims.portal.detail.goToComment')}</a>
+              </Button>
+            </AlertDescription>
+          </Alert>
+        ) : null}
       </PortalCard>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -447,7 +588,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.reasonCode')}</dt>
-              <dd className="mt-1 text-sm font-medium">{claim.reasonCode ?? t('warranty_claims.portal.value.notAvailable')}</dd>
+              <dd className="mt-1 text-sm font-medium">{claim.reasonCode ? localizeDictionaryLabel(t, 'reason', claim.reasonCode, claim.reasonCode) : t('warranty_claims.portal.value.notAvailable')}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">{t('warranty_claims.portal.detail.createdAt')}</dt>
@@ -568,7 +709,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           />
         )}
 
-        <form className="mt-6 flex flex-col gap-3" onSubmit={handleCommentSubmit}>
+        <form id="warranty-claim-comment-box" className="mt-6 flex flex-col gap-3" onSubmit={handleCommentSubmit}>
           <FormField label={t('warranty_claims.portal.detail.commentTitle')}>
             <Textarea
               value={comment}
@@ -637,7 +778,8 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
               <Input
                 key={fileInputKey}
                 type="file"
-                onChange={(event) => setSelectedFile(event.target.files?.[0] ?? null)}
+                accept={ATTACHMENT_ACCEPT_TYPES}
+                onChange={handleSelectedFileChange}
                 disabled={uploading}
               />
             </FormField>

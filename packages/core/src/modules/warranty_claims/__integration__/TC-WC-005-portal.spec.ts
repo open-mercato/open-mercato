@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { deleteAttachmentIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
-import { getTokenContext, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
+import { getTokenContext, getTokenScope, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+import { createOrderLineFixture, deleteSalesEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/salesFixtures'
 import {
   createCustomerCompanyFixture,
   createCustomerRoleFixture,
@@ -14,8 +14,15 @@ import {
   portalLogin,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import {
+  assignClaim,
   cancelThenDeleteClaimIfPossible,
+  listClaimLines,
   postClaimEvent,
+  readClaim,
+  readWarrantyClaimSettings,
+  restoreWarrantyClaimSettings,
+  saveWarrantyClaimSettings,
+  transitionClaim,
   uniqueLabel,
 } from './helpers'
 
@@ -42,24 +49,46 @@ type PortalEvents = {
   items?: Array<{ body?: string | null; visibility?: string }>
 }
 
+type PortalOptions = {
+  ok?: boolean
+  result?: {
+    reasons?: Array<{ value?: string; label?: string }>
+    faultCodes?: Array<{ value?: string; label?: string }>
+  }
+}
+
 test.describe('TC-WC-005: warranty claims customer portal API', () => {
   test('requires a portal session, scopes claims by customer, validates order ownership, and filters timeline/attachments', async ({ request }) => {
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId } = getTokenContext(adminToken)
     const stamp = uniqueLabel('tc-wc-005')
+    const settingsBefore = await readWarrantyClaimSettings(request, adminToken)
 
     let roleId: string | null = null
     let companyAId: string | null = null
     let companyBId: string | null = null
     let userAId: string | null = null
     let userBId: string | null = null
+    let orderAId: string | null = null
+    let orderALineId: string | null = null
     let orderBId: string | null = null
     let claimId: string | null = null
     let attachmentId: string | null = null
 
     try {
+      await saveWarrantyClaimSettings(request, adminToken, {
+        slaPauseOnInfoRequested: true,
+        autoApproveEnabled: false,
+        autoApproveMaxAmount: null,
+        autoApproveCurrencyCode: null,
+        autoApproveRequireInWarranty: true,
+      }, settingsBefore.updatedAt)
+
       const anonymousClaims = await request.get('/api/warranty_claims/portal/claims')
       expect(anonymousClaims.status(), 'portal claims list should require customer auth').toBe(401)
+
+      const anonymousOptions = await request.get('/api/warranty_claims/portal/options')
+      expect(anonymousOptions.status(), 'portal options should require customer auth').toBe(401)
 
       roleId = (await createCustomerRoleFixture(request, adminToken, {
         features: ['portal.account.manage'],
@@ -90,6 +119,20 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         tenantId,
       })
 
+      const optionsA = await request.get('/api/warranty_claims/portal/options', {
+        headers: portalCookieHeaders(sessionA),
+      })
+      expect(optionsA.status(), 'customer A should read portal warranty options').toBe(200)
+      const optionsBody = await readJsonSafe<PortalOptions>(optionsA)
+      const reasons = optionsBody?.result?.reasons ?? []
+      const faultCodes = optionsBody?.result?.faultCodes ?? []
+      expect(reasons.length, 'portal reasons should include seeded dictionary entries').toBeGreaterThan(0)
+      expect(faultCodes.length, 'portal fault codes should include seeded dictionary entries').toBeGreaterThan(0)
+      for (const option of [...reasons, ...faultCodes]) {
+        expect(typeof option.value, 'portal option value should be a string').toBe('string')
+        expect(typeof option.label, 'portal option label should be a string').toBe('string')
+      }
+
       const orderBCreate = await apiRequest(request, 'POST', '/api/sales/orders', {
         token: adminToken,
         data: {
@@ -101,6 +144,30 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       expect(orderBCreate.status(), 'sales order fixture for customer B should be created').toBe(201)
       orderBId = (await readJsonSafe<{ id?: string }>(orderBCreate))?.id ?? null
       expect(orderBId, 'sales order fixture should return id').toBeTruthy()
+
+      const orderANumber = `WC-PORTAL-ORDER-A-${stamp}`
+      const lineProductName = `QA WC Portal Product ${stamp}`
+      const orderACreate = await apiRequest(request, 'POST', '/api/sales/orders', {
+        token: adminToken,
+        data: {
+          currencyCode: 'USD',
+          customerEntityId: companyAId,
+          customerReference: orderANumber,
+          orderNumber: orderANumber,
+          placedAt: new Date().toISOString(),
+        },
+      })
+      expect(orderACreate.status(), 'sales order fixture for customer A should be created').toBe(201)
+      orderAId = (await readJsonSafe<{ id?: string }>(orderACreate))?.id ?? null
+      expect(orderAId, 'sales order fixture should return id').toBeTruthy()
+      orderALineId = await createOrderLineFixture(request, adminToken, orderAId!, {
+        kind: 'product',
+        name: lineProductName,
+        quantity: 2,
+        unitPriceNet: 10,
+        unitPriceGross: 12,
+        currencyCode: 'USD',
+      })
 
       const crossCustomerOrder = await request.post('/api/warranty_claims/portal/claims', {
         headers: portalCookieHeaders(sessionA, { 'Content-Type': 'application/json' }),
@@ -122,10 +189,13 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       const createClaim = await request.post('/api/warranty_claims/portal/claims', {
         headers: portalCookieHeaders(sessionA, { 'Content-Type': 'application/json' }),
         data: {
+          orderId: orderAId,
           reasonCode: 'damaged',
           notes: `Portal intake notes ${stamp}`,
           lines: [
             {
+              orderLineId: orderALineId,
+              productName: lineProductName,
               sku: `WC-005-A-${stamp}`,
               serialNumber: `SER-A-${stamp}`,
               faultDescription: 'Portal customer reported failure',
@@ -138,6 +208,11 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       claimId = (await readJsonSafe<{ claimId?: string }>(createClaim))?.claimId ?? null
       expect(claimId, 'portal create response should include claimId').toBeTruthy()
 
+      const staffLines = await listClaimLines(request, adminToken, claimId!)
+      const pickedLine = staffLines.find((line) => line.orderLineId === orderALineId)
+      expect(pickedLine, 'portal picked sales order line should be persisted on a claim line').toBeTruthy()
+      expect(pickedLine?.productName, 'portal-supplied productName should persist on the claim line').toBe(lineProductName)
+
       const detailA = await request.get(`/api/warranty_claims/portal/claims/${claimId}`, {
         headers: portalCookieHeaders(sessionA),
       })
@@ -146,6 +221,36 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       expect(detailBody?.item?.status).toBe('submitted')
       expect(detailBody?.item?.channel).toBe('portal')
       expect(detailBody?.item?.customerId).toBe(companyAId)
+
+      let staffClaim = await readClaim(request, adminToken, claimId!)
+      let staffTransition = await transitionClaim(
+        request,
+        adminToken,
+        { id: claimId!, toStatus: 'in_review' },
+        staffClaim.updatedAt,
+      )
+      expect(staffTransition.status(), 'staff should move the portal claim to in_review').toBe(200)
+      staffClaim = await readClaim(request, adminToken, claimId!)
+      const { userId: adminUserId } = getTokenScope(adminToken)
+      expect(adminUserId, 'admin token should include a user id').toBeTruthy()
+      const assignResponse = await assignClaim(
+        request,
+        adminToken,
+        { id: claimId!, assigneeUserId: adminUserId! },
+        staffClaim.updatedAt,
+      )
+      expect(assignResponse.status(), 'assigning the portal claim to the admin should return 200').toBe(200)
+      staffClaim = await readClaim(request, adminToken, claimId!)
+      staffTransition = await transitionClaim(
+        request,
+        adminToken,
+        { id: claimId!, toStatus: 'info_requested' },
+        staffClaim.updatedAt,
+      )
+      expect(staffTransition.status(), 'staff should request info on the portal claim').toBe(200)
+      staffClaim = await readClaim(request, adminToken, claimId!)
+      expect(staffClaim.status).toBe('info_requested')
+      expect(staffClaim.slaPausedAt, 'info_requested should pause the SLA when configured').toBeTruthy()
 
       const listA = await request.get('/api/warranty_claims/portal/claims?pageSize=100', {
         headers: portalCookieHeaders(sessionA),
@@ -172,6 +277,23 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         data: { claimId: claimId!, body: customerComment },
       })
       expect(portalComment.status(), 'portal customer comment should return 200').toBe(200)
+      const resumedClaim = await readClaim(request, adminToken, claimId!)
+      expect(resumedClaim.status, 'customer reply should move info_requested claim back to in_review').toBe('in_review')
+      expect(resumedClaim.slaPausedAt, 'customer reply should clear the SLA pause').toBeNull()
+
+      let customerReplyNotified = false
+      for (let attempt = 0; attempt < 20 && !customerReplyNotified; attempt += 1) {
+        const notifications = await apiRequest(
+          request,
+          'GET',
+          '/api/notifications?type=warranty_claims.claim.customer_replied&pageSize=50',
+          { token: adminToken },
+        )
+        const notificationsBody = await readJsonSafe<{ items?: Array<{ type?: string }> }>(notifications)
+        customerReplyNotified = Boolean(notificationsBody?.items?.length)
+        if (!customerReplyNotified) await new Promise((resolve) => setTimeout(resolve, 500))
+      }
+      expect(customerReplyNotified, 'assignee should receive a customer-replied notification').toBe(true)
 
       const internalComment = `Internal staff-only comment ${stamp}`
       const staffComment = await postClaimEvent(request, adminToken, {
@@ -236,8 +358,11 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       })
       expect(downloadB.status(), 'customer B must not download customer A attachment').toBe(404)
     } finally {
+      await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
       await deleteAttachmentIfExists(request, adminToken, attachmentId)
       await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/order-lines', orderALineId)
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderAId)
       await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderBId)
       await deleteCustomerUserFixture(request, adminToken, userBId)
       await deleteCustomerUserFixture(request, adminToken, userAId)

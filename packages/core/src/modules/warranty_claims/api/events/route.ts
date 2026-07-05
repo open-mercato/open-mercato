@@ -8,12 +8,12 @@ import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
-import { runCrudMutationGuardAfterSuccess, validateCrudMutationGuard } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaimEvent } from '../../data/entities'
 import { commentClaimInputSchema, type CommentClaimInput } from '../../data/validators'
-import { requireScopedClaim, type WarrantyClaimScope } from '../../commands/shared'
+import { requireScopedClaim, WARRANTY_CLAIM_RESOURCE_KIND, type WarrantyClaimScope } from '../../commands/shared'
 
 const eventListQuerySchema = z.object({
   claimId: z.string().uuid(),
@@ -100,21 +100,25 @@ async function runCommentGuard(
   req: Request,
   context: EventRouteContext,
   input: CommentClaimInput,
-): Promise<Awaited<ReturnType<typeof validateCrudMutationGuard>>> {
+): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
     throw new CrudHttpError(401, { error: context.translate('warranty_claims.errors.unauthorized', 'Unauthorized') })
   }
-  return validateCrudMutationGuard(context.ctx.container, {
-    tenantId: context.tenantId,
-    organizationId: context.organizationId,
-    userId,
-    resourceKind: 'warranty_claims.claim',
-    resourceId: input.claimId,
-    operation: 'update',
-    requestMethod: req.method,
-    requestHeaders: req.headers,
-    mutationPayload: input,
+  return runRouteMutationGuards({
+    container: context.ctx.container,
+    req,
+    auth: {
+      userId,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+    },
+    input: {
+      resourceKind: WARRANTY_CLAIM_RESOURCE_KIND,
+      resourceId: input.claimId,
+      operation: 'custom',
+      mutationPayload: { ...input },
+    },
   })
 }
 
@@ -149,32 +153,23 @@ export async function POST(req: Request) {
     const payload = toRecord(await readJsonSafe(req, {}))
     const parsed = commentClaimInputSchema.parse(payload)
     const input: CommentClaimInput = { ...parsed, actorCustomerId: undefined }
-    const guardResult = await runCommentGuard(req, context, input)
-    if (guardResult && !guardResult.ok) {
-      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    const guarded = await runCommentGuard(req, context, input)
+    if (!guarded.ok) {
+      return guarded.response
     }
+    const commandInput = guarded.modifiedPayload
+      ? { ...commentClaimInputSchema.parse(guarded.modifiedPayload), actorCustomerId: undefined }
+      : input
 
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
     const { result } = await commandBus.execute<CommentClaimInput, { claimId: string }>(
       'warranty_claims.claim.comment',
-      { input, ctx: context.ctx },
+      { input: commandInput, ctx: context.ctx },
     )
 
-    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
-      await runCrudMutationGuardAfterSuccess(context.ctx.container, {
-        tenantId: context.tenantId,
-        organizationId: context.organizationId,
-        userId: context.ctx.auth!.sub,
-        resourceKind: 'warranty_claims.claim',
-        resourceId: input.claimId,
-        operation: 'update',
-        requestMethod: req.method,
-        requestHeaders: req.headers,
-        metadata: guardResult.metadata ?? null,
-      })
-    }
+    await guarded.runAfterSuccess()
 
-    return NextResponse.json({ ok: true, claimId: result?.claimId ?? input.claimId })
+    return NextResponse.json({ ok: true, claimId: result?.claimId ?? commandInput.claimId })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()

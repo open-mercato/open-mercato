@@ -13,17 +13,29 @@ import { E } from '#generated/entities.ids.generated'
 import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
 import {
   claimLineCreateSchema,
+  claimLineReceiveSchema,
+  claimLineReleaseQuarantineSchema,
   claimLineUpdateSchema,
   type ClaimLineCreateInput,
+  type ClaimLineReceiveInput,
+  type ClaimLineReleaseQuarantineInput,
   type ClaimLineUpdateInput,
   type WarrantyClaimDisposition,
   type WarrantyClaimLineStatus,
   type WarrantyClaimWarrantyStatus,
 } from '../data/validators'
+import { emitWarrantyClaimsEvent } from '../events'
+import {
+  assertDispositionAllowedForGrade,
+  suggestedDispositionForGrade,
+  type ConditionGrade,
+} from '../lib/grading'
+import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { computeHeaderRollups, lineStatusGuards } from '../lib/stateMachine'
 import {
   WARRANTY_CLAIM_LINE_RESOURCE_KIND,
   WARRANTY_CLAIM_RESOURCE_KIND,
+  appendClaimEvent,
   enforceWarrantyClaimOptimisticLock,
   ensureOrganizationScope,
   ensureTenantScope,
@@ -31,6 +43,7 @@ import {
   requireScopedClaim,
   type WarrantyClaimScope,
 } from './shared'
+import { validateClaimReferences } from './claims'
 
 const claimCrudEvents: CrudEventsConfig = {
   module: 'warranty_claims',
@@ -48,6 +61,18 @@ const lineDeleteSchema = z
   .strict()
 
 type LineDeleteInput = z.infer<typeof lineDeleteSchema>
+
+const lineSetAssessmentSchema = z
+  .object({
+    id: z.string().uuid(),
+    organizationId: z.string().uuid().optional(),
+    tenantId: z.string().uuid().optional(),
+    assessmentPayload: z.record(z.string(), z.unknown()),
+    updatedAt: z.union([z.string().datetime(), z.date()]).nullable().optional(),
+  })
+  .strict()
+
+type LineSetAssessmentInput = z.infer<typeof lineSetAssessmentSchema>
 
 type ScopeInput = {
   organizationId?: string | null
@@ -77,7 +102,10 @@ type LineSnapshot = {
   qtyApproved: string | null
   qtyReceived: string | null
   conditionOnReceipt: string | null
+  conditionGrade: string | null
+  quarantineStatus: string
   inspectionNotes: string | null
+  assessmentPayload: Record<string, unknown> | null
   disposition: WarrantyClaimDisposition | null
   lineStatus: WarrantyClaimLineStatus
   creditAmount: string | null
@@ -85,6 +113,7 @@ type LineSnapshot = {
   coreChargeAmount: string | null
   coreCreditAmount: string | null
   vendorClaimLineId: string | null
+  vendorName: string | null
   deletedAt: string | null
   updatedAt: string | null
 }
@@ -169,8 +198,11 @@ function numberValue(value: string | number | null | undefined): number {
 }
 
 function addMonths(date: Date, months: number): Date {
+  const target = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + months, 1))
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
   const copy = new Date(date.getTime())
-  copy.setUTCMonth(copy.getUTCMonth() + months)
+  copy.setUTCDate(1)
+  copy.setUTCFullYear(target.getUTCFullYear(), target.getUTCMonth(), Math.min(date.getUTCDate(), lastDay))
   return copy
 }
 
@@ -198,10 +230,27 @@ function claimOf(line: WarrantyClaimLine): WarrantyClaim | null {
   return null
 }
 
+function sameDateValue(left: Date | null | undefined, right: Date | null | undefined): boolean {
+  const leftTime = left instanceof Date ? left.getTime() : null
+  const rightTime = right instanceof Date ? right.getTime() : null
+  return leftTime === rightTime
+}
+
 function assertParentMutable(claim: WarrantyClaim): void {
   if (!mutableParentStatuses.has(claim.status)) {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.lineLocked' })
   }
+}
+
+function assertReceivingStatus(claim: WarrantyClaim): void {
+  if (claim.status !== 'received' && claim.status !== 'inspecting') {
+    throw new CrudHttpError(400, { error: 'warranty_claims.errors.receivingStatusInvalid' })
+  }
+}
+
+function toConditionGrade(value: string | null | undefined): ConditionGrade | null {
+  if (value === 'A' || value === 'B' || value === 'C' || value === 'D') return value
+  return null
 }
 
 function assertLineQuantities(line: WarrantyClaimLine): void {
@@ -212,6 +261,9 @@ function assertLineQuantities(line: WarrantyClaimLine): void {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.lineLocked' })
   }
   if (qtyApproved !== null && qtyApproved > qtyClaimed) {
+    throw new CrudHttpError(400, { error: 'warranty_claims.errors.lineLocked' })
+  }
+  if (qtyReceived !== null && qtyReceived > qtyClaimed) {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.lineLocked' })
   }
 }
@@ -225,6 +277,7 @@ function assertLineStatusMove(from: WarrantyClaimLineStatus, to: WarrantyClaimLi
 function buildLineCreateData(
   claim: WarrantyClaim,
   input: ClaimLineCreateInput,
+  lineNo: number,
 ): Partial<WarrantyClaimLine> & {
   id: string
   claim: WarrantyClaim
@@ -245,7 +298,7 @@ function buildLineCreateData(
     claim,
     organizationId: claim.organizationId,
     tenantId: claim.tenantId,
-    lineNo: input.lineNo ?? 1,
+    lineNo,
     productId: input.productId ?? null,
     variantId: input.variantId ?? null,
     sku: input.sku ?? null,
@@ -255,7 +308,7 @@ function buildLineCreateData(
     lotNumber: input.lotNumber ?? null,
     purchaseDate,
     warrantyMonths,
-    warrantyExpiresAt: computedWarranty.warrantyExpiresAt,
+    warrantyExpiresAt: input.warrantyExpiresAt ?? computedWarranty.warrantyExpiresAt,
     warrantyStatus: input.warrantyStatus ?? computedWarranty.warrantyStatus,
     faultCode: input.faultCode ?? null,
     faultDescription: input.faultDescription ?? null,
@@ -276,6 +329,9 @@ function buildLineCreateData(
 }
 
 function applyLineUpdate(line: WarrantyClaimLine, input: ClaimLineUpdateInput): void {
+  const purchaseDateChanged = hasOwn(input, 'purchaseDate') && !sameDateValue(line.purchaseDate ?? null, input.purchaseDate ?? null)
+  const warrantyMonthsChanged = hasOwn(input, 'warrantyMonths') && (line.warrantyMonths ?? null) !== (input.warrantyMonths ?? null)
+  const hasExplicitWarranty = hasOwn(input, 'warrantyExpiresAt') || hasOwn(input, 'warrantyStatus')
   if (hasOwn(input, 'lineNo') && input.lineNo !== undefined) line.lineNo = input.lineNo
   if (hasOwn(input, 'productId')) line.productId = input.productId ?? null
   if (hasOwn(input, 'variantId')) line.variantId = input.variantId ?? null
@@ -304,7 +360,7 @@ function applyLineUpdate(line: WarrantyClaimLine, input: ClaimLineUpdateInput): 
   if (hasOwn(input, 'restockingFee')) line.restockingFee = nullableAmountString(input.restockingFee)
   if (hasOwn(input, 'coreChargeAmount')) line.coreChargeAmount = nullableAmountString(input.coreChargeAmount)
   if (hasOwn(input, 'coreCreditAmount')) line.coreCreditAmount = nullableAmountString(input.coreCreditAmount)
-  if (hasOwn(input, 'purchaseDate') || hasOwn(input, 'warrantyMonths')) {
+  if ((purchaseDateChanged || warrantyMonthsChanged) && !hasExplicitWarranty) {
     const computedWarranty = computeWarrantyDates(line.purchaseDate ?? null, line.warrantyMonths ?? null)
     line.warrantyExpiresAt = computedWarranty.warrantyExpiresAt
     line.warrantyStatus = computedWarranty.warrantyStatus
@@ -336,7 +392,10 @@ function snapshotLine(line: WarrantyClaimLine): LineSnapshot {
     qtyApproved: line.qtyApproved ?? null,
     qtyReceived: line.qtyReceived ?? null,
     conditionOnReceipt: line.conditionOnReceipt ?? null,
+    conditionGrade: line.conditionGrade ?? null,
+    quarantineStatus: line.quarantineStatus,
     inspectionNotes: line.inspectionNotes ?? null,
+    assessmentPayload: line.assessmentPayload ?? null,
     disposition: line.disposition ?? null,
     lineStatus: line.lineStatus,
     creditAmount: line.creditAmount ?? null,
@@ -344,6 +403,7 @@ function snapshotLine(line: WarrantyClaimLine): LineSnapshot {
     coreChargeAmount: line.coreChargeAmount ?? null,
     coreCreditAmount: line.coreCreditAmount ?? null,
     vendorClaimLineId: line.vendorClaimLineId ?? null,
+    vendorName: line.vendorName ?? null,
     deletedAt: toIso(line.deletedAt),
     updatedAt: toIso(line.updatedAt),
   }
@@ -383,7 +443,10 @@ function restoreLineFromSnapshot(line: WarrantyClaimLine, snapshot: LineSnapshot
   line.qtyApproved = snapshot.qtyApproved
   line.qtyReceived = snapshot.qtyReceived
   line.conditionOnReceipt = snapshot.conditionOnReceipt
+  line.conditionGrade = snapshot.conditionGrade
+  line.quarantineStatus = snapshot.quarantineStatus
   line.inspectionNotes = snapshot.inspectionNotes
+  line.assessmentPayload = snapshot.assessmentPayload
   line.disposition = snapshot.disposition
   line.lineStatus = snapshot.lineStatus
   line.creditAmount = snapshot.creditAmount
@@ -391,6 +454,7 @@ function restoreLineFromSnapshot(line: WarrantyClaimLine, snapshot: LineSnapshot
   line.coreChargeAmount = snapshot.coreChargeAmount
   line.coreCreditAmount = snapshot.coreCreditAmount
   line.vendorClaimLineId = snapshot.vendorClaimLineId
+  line.vendorName = snapshot.vendorName
   line.deletedAt = toDate(snapshot.deletedAt)
   line.updatedAt = new Date()
 }
@@ -535,10 +599,28 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     const claim = await requireScopedClaim(em, input.claimId, scope)
     await enforceWarrantyClaimOptimisticLock(ctx, claim)
     assertParentMutable(claim)
+    if (input.orderLineId) {
+      await validateClaimReferences(ctx, scope, {
+        lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
+      })
+    }
+    const existingLines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      {
+        claim: claim.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
+      {},
+      scope,
+    )
+    const nextLineNo = input.lineNo ?? existingLines.reduce((max, line) => Math.max(max, line.lineNo), 0) + 1
     let line!: WarrantyClaimLine
     await withAtomicFlush(em, [
       () => {
-        line = em.create(WarrantyClaimLine, buildLineCreateData(claim, input))
+        line = em.create(WarrantyClaimLine, buildLineCreateData(claim, input, nextLineNo))
         assertLineQuantities(line)
         em.persist(line)
       },
@@ -596,6 +678,15 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     }
     assertParentMutable(claim)
     await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND)
+    if (hasOwn(input, 'orderLineId') && input.orderLineId && (input.orderLineId ?? null) !== (line.orderLineId ?? null)) {
+      await validateClaimReferences(ctx, scope, {
+        lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
+      })
+    }
+    if (hasOwn(input, 'disposition')) {
+      const grade = hasOwn(input, 'conditionGrade') ? toConditionGrade(input.conditionGrade ?? null) : toConditionGrade(line.conditionGrade)
+      assertDispositionAllowedForGrade(grade, input.disposition ?? null)
+    }
     await withAtomicFlush(em, [
       () => {
         applyLineUpdate(line, input)
@@ -706,14 +797,247 @@ const deleteClaimLineCommand: CommandHandler<LineDeleteInput, { lineId: string; 
   },
 }
 
+const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: string; claimId: string }> = {
+  id: 'warranty_claims.claim_line.receive',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(claimLineReceiveSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadLineSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(claimLineReceiveSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await requireScopedLine(em, input.id, scope)
+    const claim = await requireScopedClaim(em, claimIdOf(line), scope)
+    assertReceivingStatus(claim)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+
+    const grade: ConditionGrade = input.conditionGrade
+    const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(em, scope)
+    const shouldQuarantine = Boolean(effectiveSettings.quarantineGrades?.includes(grade))
+
+    await withAtomicFlush(em, [
+      () => {
+        line.conditionGrade = grade
+        if (input.inspectionNotes !== undefined) line.inspectionNotes = input.inspectionNotes ?? null
+
+        const suggestedDisposition = suggestedDispositionForGrade(grade)
+        if (!line.disposition && suggestedDisposition) {
+          assertDispositionAllowedForGrade(grade, suggestedDisposition)
+          if (suggestedDisposition === 'restock' || suggestedDisposition === 'repair' || suggestedDisposition === 'scrap') {
+            line.disposition = suggestedDisposition
+          }
+        }
+        assertDispositionAllowedForGrade(grade, line.disposition ?? null)
+
+        if (shouldQuarantine) line.quarantineStatus = 'held'
+        line.updatedAt = new Date()
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          payload: {
+            action: 'line_received',
+            lineId: line.id,
+            conditionGrade: grade,
+            disposition: line.disposition ?? null,
+            quarantineStatus: line.quarantineStatus,
+            quarantineHeld: shouldQuarantine,
+          },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+      () => recomputeClaimRollups(em, claim),
+    ], { transaction: true, label: 'warranty_claims.claim_line.receive' })
+
+    await emitClaimUpdated(ctx, claim)
+    await emitLineCrud(ctx, 'updated', line)
+    if (shouldQuarantine) {
+      await emitWarrantyClaimsEvent('warranty_claims.claim.line_quarantined', {
+        id: line.id,
+        claimId: claim.id,
+        lineId: line.id,
+        grade,
+        scope,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      }, { persistent: true })
+    }
+    return { lineId: line.id, claimId: claim.id }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(claimLineReceiveSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadLineSnapshot(em, result.lineId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.receive', result.lineId, snapshots),
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<LineUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
+    if (!line) return
+    const claim = await requireScopedClaim(em, before.claimId, scope)
+    await withAtomicFlush(em, [
+      () => restoreLineFromSnapshot(line, before),
+      () => recomputeClaimRollups(em, claim),
+    ], { transaction: true, label: 'warranty_claims.claim_line.receive.undo' })
+    await emitClaimUpdated(ctx, claim)
+    await emitLineUndoCrud(ctx, 'updated', line)
+  },
+}
+
+const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuarantineInput, { lineId: string; claimId: string }> = {
+  id: 'warranty_claims.claim_line.release_quarantine',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(claimLineReleaseQuarantineSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadLineSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(claimLineReleaseQuarantineSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await requireScopedLine(em, input.id, scope)
+    const claim = await requireScopedClaim(em, claimIdOf(line), scope)
+    assertReceivingStatus(claim)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+
+    await withAtomicFlush(em, [
+      () => {
+        line.quarantineStatus = 'released'
+        line.updatedAt = new Date()
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          payload: {
+            action: 'line_quarantine_released',
+            lineId: line.id,
+            quarantineStatus: line.quarantineStatus,
+          },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+      () => recomputeClaimRollups(em, claim),
+    ], { transaction: true, label: 'warranty_claims.claim_line.release_quarantine' })
+
+    await emitClaimUpdated(ctx, claim)
+    await emitLineCrud(ctx, 'updated', line)
+    return { lineId: line.id, claimId: claim.id }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(claimLineReleaseQuarantineSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadLineSnapshot(em, result.lineId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.release_quarantine', result.lineId, snapshots),
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<LineUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
+    if (!line) return
+    const claim = await requireScopedClaim(em, before.claimId, scope)
+    await withAtomicFlush(em, [
+      () => restoreLineFromSnapshot(line, before),
+      () => recomputeClaimRollups(em, claim),
+    ], { transaction: true, label: 'warranty_claims.claim_line.release_quarantine.undo' })
+    await emitClaimUpdated(ctx, claim)
+    await emitLineUndoCrud(ctx, 'updated', line)
+  },
+}
+
+const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { lineId: string; claimId: string }> = {
+  id: 'warranty_claims.claim_line.set_assessment',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(lineSetAssessmentSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadLineSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(lineSetAssessmentSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await requireScopedLine(em, input.id, scope)
+    const claim = claimOf(line) ?? await requireScopedClaim(em, claimIdOf(line), scope)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+
+    await withAtomicFlush(em, [
+      () => {
+        line.assessmentPayload = input.assessmentPayload
+        line.updatedAt = new Date()
+        claim.updatedAt = new Date()
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          body: 'AI assessment recorded',
+          payload: {
+            action: 'ai_assessment_recorded',
+            lineId: line.id,
+          },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+    ], { transaction: true, label: 'warranty_claims.claim_line.set_assessment' })
+
+    await emitClaimUpdated(ctx, claim)
+    await emitLineCrud(ctx, 'updated', line)
+    return { lineId: line.id, claimId: claim.id }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(lineSetAssessmentSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadLineSnapshot(em, result.lineId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => buildLineLog('warranty_claims.audit.claim_line.set_assessment', result.lineId, snapshots),
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<LineUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const line = await findOneWithDecryption(em, WarrantyClaimLine, { id: before.id, tenantId: scope.tenantId, organizationId: scope.organizationId }, { populate: ['claim'] }, scope)
+    if (!line) return
+    const claim = claimOf(line) ?? await requireScopedClaim(em, before.claimId, scope)
+    await withAtomicFlush(em, [
+      () => restoreLineFromSnapshot(line, before),
+    ], { transaction: true, label: 'warranty_claims.claim_line.set_assessment.undo' })
+    await emitClaimUpdated(ctx, claim)
+    await emitLineUndoCrud(ctx, 'updated', line)
+  },
+}
+
 registerCommand(createClaimLineCommand)
 registerCommand(updateClaimLineCommand)
 registerCommand(deleteClaimLineCommand)
+registerCommand(receiveClaimLineCommand)
+registerCommand(releaseClaimLineQuarantineCommand)
+registerCommand(setClaimLineAssessmentCommand)
 
-export const claimLineCommands = [createClaimLineCommand, updateClaimLineCommand, deleteClaimLineCommand]
+export const claimLineCommands = [
+  createClaimLineCommand,
+  updateClaimLineCommand,
+  deleteClaimLineCommand,
+  receiveClaimLineCommand,
+  releaseClaimLineQuarantineCommand,
+  setClaimLineAssessmentCommand,
+]
 
 export {
   createClaimLineCommand,
   updateClaimLineCommand,
   deleteClaimLineCommand,
+  receiveClaimLineCommand,
+  releaseClaimLineQuarantineCommand,
+  setClaimLineAssessmentCommand,
 }

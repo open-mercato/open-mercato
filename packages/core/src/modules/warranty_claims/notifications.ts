@@ -58,6 +58,44 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     linkHref: '/backend/warranty_claims/{sourceEntityId}',
     expiresAfterHours: 168,
   },
+  {
+    type: 'warranty_claims.claim.escalated',
+    module: 'warranty_claims',
+    titleKey: 'warranty_claims.notifications.escalated.title',
+    bodyKey: 'warranty_claims.notifications.escalated.body',
+    icon: 'alarm-clock',
+    severity: 'warning',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/warranty_claims/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/warranty_claims/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
+  {
+    type: 'warranty_claims.claim.customer_replied',
+    module: 'warranty_claims',
+    titleKey: 'warranty_claims.notifications.customerReplied.title',
+    bodyKey: 'warranty_claims.notifications.customerReplied.body',
+    icon: 'message-square-reply',
+    severity: 'info',
+    actions: [
+      {
+        id: 'view',
+        labelKey: 'common.view',
+        variant: 'outline',
+        href: '/backend/warranty_claims/{sourceEntityId}',
+        icon: 'external-link',
+      },
+    ],
+    linkHref: '/backend/warranty_claims/{sourceEntityId}',
+    expiresAfterHours: 168,
+  },
 ]
 
 export default notificationTypes

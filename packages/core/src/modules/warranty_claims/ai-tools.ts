@@ -11,6 +11,15 @@ import {
   transitionClaimInputSchema,
   type TransitionClaimInput,
 } from './data/validators'
+import {
+  assessDamagePhoto,
+  buildClaimReplyDraft,
+  buildClaimSummary,
+  extractProofOfPurchase,
+  isWarrantyAiNotConfiguredError,
+  isWarrantyAiUnavailableError,
+} from './lib/aiAssist'
+import type { AiChatRequestContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/attachment-bridge-types'
 import { buildWarrantyClaimTriageSuggestion } from './lib/triage'
 
 export interface WarrantyClaimsToolContext {
@@ -85,6 +94,19 @@ function assertScope(ctx: WarrantyClaimsToolContext): Scope {
 
 function resolveEm(ctx: WarrantyClaimsToolContext): EntityManager {
   return ctx.container.resolve<EntityManager>('em')
+}
+
+function buildAttachmentAuthContext(ctx: WarrantyClaimsToolContext, scope: Scope): AiChatRequestContext {
+  if (!ctx.userId) {
+    throw new Error('User context is required for warranty_claims attachment-aware tools.')
+  }
+  return {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: ctx.userId,
+    features: ctx.userFeatures,
+    isSuperAdmin: ctx.isSuperAdmin,
+  }
 }
 
 function toIso(value: unknown): string | null {
@@ -337,6 +359,159 @@ const suggestTriageTool: WarrantyClaimsAiToolDefinition = {
   },
 }
 
+const draftCustomerReplyInput = z.object({
+  claimId: z.string().uuid(),
+  tone: z.enum(['formal', 'friendly', 'concise']).optional(),
+}).passthrough()
+
+const draftCustomerReplyTool: WarrantyClaimsAiToolDefinition = {
+  name: 'warranty_claims.draft_customer_reply',
+  displayName: 'Draft customer reply',
+  description: 'Generate a suggested customer-facing warranty claim reply for the operator to review, edit, and send manually.',
+  inputSchema: draftCustomerReplyInput as z.ZodType<unknown>,
+  requiredFeatures: ['warranty_claims.claim.manage'],
+  tags: ['read', 'warranty_claims'],
+  handler: async (rawInput, ctx) => {
+    const scope = assertScope(ctx)
+    const input = draftCustomerReplyInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    try {
+      return await buildClaimReplyDraft({
+        em,
+        container: ctx.container,
+        scope,
+        claimId: input.claimId,
+        tone: input.tone,
+      })
+    } catch (err) {
+      if (isWarrantyAiNotConfiguredError(err)) {
+        return { notConfigured: true }
+      }
+      if (isWarrantyAiUnavailableError(err)) {
+        return { unavailable: true }
+      }
+      throw err
+    }
+  },
+}
+
+const summarizeClaimInput = z.object({
+  claimId: z.string().uuid(),
+}).passthrough()
+
+const summarizeClaimTool: WarrantyClaimsAiToolDefinition = {
+  name: 'warranty_claims.summarize_claim',
+  displayName: 'Summarize warranty claim',
+  description: 'Generate a concise internal summary of a warranty claim, including timeline history and open questions.',
+  inputSchema: summarizeClaimInput as z.ZodType<unknown>,
+  requiredFeatures: ['warranty_claims.claim.view'],
+  tags: ['read', 'warranty_claims'],
+  handler: async (rawInput, ctx) => {
+    const scope = assertScope(ctx)
+    const input = summarizeClaimInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    try {
+      return await buildClaimSummary({
+        em,
+        container: ctx.container,
+        scope,
+        claimId: input.claimId,
+      })
+    } catch (err) {
+      if (isWarrantyAiNotConfiguredError(err)) {
+        return { notConfigured: true }
+      }
+      if (isWarrantyAiUnavailableError(err)) {
+        return { unavailable: true }
+      }
+      throw err
+    }
+  },
+}
+
+const assessDamagePhotoInput = z.object({
+  claimId: z.string().uuid(),
+  lineId: z.string().uuid(),
+  attachmentId: z.string().uuid(),
+}).passthrough()
+
+const assessDamagePhotoTool: WarrantyClaimsAiToolDefinition = {
+  name: 'warranty_claims.assess_damage_photo',
+  displayName: 'Assess damage photo',
+  description: 'Assess a warranty claim line damage photo and return structured facts without mutating amounts.',
+  inputSchema: assessDamagePhotoInput as z.ZodType<unknown>,
+  requiredFeatures: ['warranty_claims.claim.manage'],
+  tags: ['read', 'warranty_claims', 'attachments'],
+  isMutation: false,
+  supportsAttachments: true,
+  handler: async (rawInput, ctx) => {
+    const scope = assertScope(ctx)
+    const input = assessDamagePhotoInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    try {
+      return await assessDamagePhoto({
+        em,
+        container: ctx.container,
+        scope,
+        claimId: input.claimId,
+        lineId: input.lineId,
+        attachmentId: input.attachmentId,
+        authContext: buildAttachmentAuthContext(ctx, scope),
+      })
+    } catch (err) {
+      if (isWarrantyAiNotConfiguredError(err)) {
+        return { notConfigured: true }
+      }
+      if (isWarrantyAiUnavailableError(err)) {
+        return { unavailable: true }
+      }
+      throw err
+    }
+  },
+}
+
+const extractProofOfPurchaseInput = z.object({
+  claimId: z.string().uuid(),
+  attachmentId: z.string().uuid(),
+}).passthrough()
+
+const extractProofOfPurchaseTool: WarrantyClaimsAiToolDefinition = {
+  name: 'warranty_claims.extract_proof_of_purchase',
+  displayName: 'Extract proof of purchase',
+  description: 'Extract purchase date, serial, amount string, currency, and merchant facts from a receipt image or PDF.',
+  inputSchema: extractProofOfPurchaseInput as z.ZodType<unknown>,
+  requiredFeatures: ['warranty_claims.claim.manage'],
+  tags: ['read', 'warranty_claims', 'attachments'],
+  isMutation: false,
+  supportsAttachments: true,
+  handler: async (rawInput, ctx) => {
+    const scope = assertScope(ctx)
+    const input = extractProofOfPurchaseInput.parse(rawInput)
+    const em = resolveEm(ctx)
+    const claim = await loadClaim(em, scope, input.claimId)
+    if (!claim) {
+      throw new Error(`Warranty claim "${input.claimId}" is not accessible to the caller.`)
+    }
+    try {
+      return await extractProofOfPurchase({
+        em,
+        container: ctx.container,
+        scope,
+        attachmentId: input.attachmentId,
+        authContext: buildAttachmentAuthContext(ctx, scope),
+      })
+    } catch (err) {
+      if (isWarrantyAiNotConfiguredError(err)) {
+        return { notConfigured: true }
+      }
+      if (isWarrantyAiUnavailableError(err)) {
+        return { unavailable: true }
+      }
+      throw err
+    }
+  },
+}
+
 const transitionClaimToolInput = transitionClaimInputSchema.passthrough()
 
 type TransitionClaimToolInput = z.infer<typeof transitionClaimToolInput>
@@ -444,6 +619,10 @@ export const aiTools: WarrantyClaimsAiToolDefinition[] = [
   listClaimsTool,
   getClaimTool,
   suggestTriageTool,
+  draftCustomerReplyTool,
+  summarizeClaimTool,
+  assessDamagePhotoTool,
+  extractProofOfPurchaseTool,
   transitionClaimTool,
 ]
 

@@ -11,6 +11,7 @@ import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/ap
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../../lib/dictionaryLabels'
 
 type ClaimEditRecord = {
   id: string
@@ -106,7 +107,10 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
-  const loadDictionaryOptions = React.useCallback(async (dictionaryKey: string): Promise<CrudFieldOption[]> => {
+  const loadDictionaryOptions = React.useCallback(async (
+    dictionaryKey: string,
+    kind: DictionaryLabelKind,
+  ): Promise<CrudFieldOption[]> => {
     const dictionaries = await readApiResultOrThrow<{ items?: Array<{ id?: string; key?: string }> }>(
       '/api/dictionaries',
       undefined,
@@ -128,6 +132,10 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     return (entries.items ?? [])
       .map(normalizeDictionaryOption)
       .filter((option): option is CrudFieldOption => option !== null)
+      .map((option) => ({
+        ...option,
+        label: localizeDictionaryLabel(t, kind, option.value, option.label),
+      }))
   }, [t])
 
   const loadCustomerOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
@@ -203,7 +211,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           id: 'reasonCode',
           label: t('warranty_claims.form.reasonCode'),
           type: 'select',
-          loadOptions: () => loadDictionaryOptions(DICTIONARY_KEYS.claimReasons),
+          loadOptions: () => loadDictionaryOptions(DICTIONARY_KEYS.claimReasons, 'reason'),
         },
         {
           id: 'priority',

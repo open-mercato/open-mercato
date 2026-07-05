@@ -15,6 +15,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
+import { CLAIM_STATUS_BADGE_VARIANTS } from '../../../../backend/components/ClaimStatusBadge'
 
 type Props = { params: { orgSlug: string } }
 
@@ -35,23 +36,12 @@ type PortalClaimsResponse = {
   totalPages: number
 }
 
-const CLAIM_STATUS_VARIANTS: Record<string, StatusBadgeVariant> = {
-  draft: 'neutral',
-  info_requested: 'neutral',
-  submitted: 'info',
-  in_review: 'info',
-  approved: 'warning',
-  awaiting_return: 'warning',
-  received: 'warning',
-  inspecting: 'warning',
-  resolved: 'success',
-  closed: 'success',
-  rejected: 'error',
-  cancelled: 'error',
+function hasClaimStatus(status: string): status is keyof typeof CLAIM_STATUS_BADGE_VARIANTS {
+  return Object.prototype.hasOwnProperty.call(CLAIM_STATUS_BADGE_VARIANTS, status)
 }
 
 function statusVariant(status: string): StatusBadgeVariant {
-  return CLAIM_STATUS_VARIANTS[status] ?? 'neutral'
+  return hasClaimStatus(status) ? CLAIM_STATUS_BADGE_VARIANTS[status] : 'neutral'
 }
 
 function formatDate(value: string | null, fallback: string): string {
