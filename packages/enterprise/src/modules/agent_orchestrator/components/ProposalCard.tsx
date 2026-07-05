@@ -117,7 +117,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
   const agentId = proposal?.agentId ?? adHoc?.agentId ?? ''
   const confidence = proposal?.confidence ?? adHoc?.confidence ?? null
   const payload = proposal?.payload ?? adHoc?.payload ?? null
-  const rationale = adHoc?.rationale ?? null
+  const rationale = proposal?.rationale ?? adHoc?.rationale ?? null
   const confidenceLabel = formatConfidence(confidence)
   const verdict = proposalVerdict(confidence)
   const busy = actions?.busy ?? false

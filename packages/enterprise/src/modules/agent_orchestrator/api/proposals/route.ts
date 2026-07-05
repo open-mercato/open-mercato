@@ -40,6 +40,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       'step_id',
       'payload',
       'confidence',
+      'guard_results',
       'disposition',
       'disposition_by',
       'disposition_reason',

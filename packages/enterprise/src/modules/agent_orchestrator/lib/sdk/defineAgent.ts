@@ -75,6 +75,21 @@ export interface DefineAgentInput {
    * hide the button.
    */
   sampleInput?: unknown
+  /**
+   * Optional fact declarations for the Caseload decision panel. Each maps a
+   * labelled dot-path into the run input / proposal payload / run output so the
+   * operator sees the data behind a proposal. Additive/BC-safe: agents without
+   * it fall back to the panel's generic derivation.
+   */
+  facts?: AgentFact[]
+}
+
+/** One declared Caseload fact: label + dot-path into a run/proposal source. */
+export type AgentFact = {
+  label: string
+  source: 'input' | 'payload' | 'output'
+  path: string
+  format?: 'text' | 'number' | 'boolean' | 'percent'
 }
 
 export interface AgentRegistryEntry {
@@ -97,6 +112,8 @@ export interface AgentRegistryEntry {
   runtime: AgentRuntime
   /** Optional Playground "Insert sample" input (see DefineAgentInput). */
   sampleInput?: unknown
+  /** Optional Caseload fact declarations (see DefineAgentInput). */
+  facts?: AgentFact[]
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -142,6 +159,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     loop: input.loop,
     runtime: 'in-process',
     sampleInput: input.sampleInput,
+    facts: input.facts,
   })
   const skillSections = resolvedSkills.map(
     (skill) => `## Skill: ${skill.label}\n${skill.instructions}`,
@@ -343,6 +361,7 @@ async function loadFileAgents(): Promise<void> {
         loop: descriptor.maxSteps != null ? { maxSteps: descriptor.maxSteps } : undefined,
         runtime: 'opencode',
         sampleInput: descriptor.sampleInput,
+        facts: descriptor.facts,
       })
       // Phase 3: register the agent's resolved skill content into the runtime
       // lookup so `load_skill` can return it without fs access. Optional + BC: a
