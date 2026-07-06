@@ -59,8 +59,12 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const logService = container.resolve('integrationLogService') as IntegrationLogService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
-  const [credentials, state, analyticsMap] = await Promise.all([
+  const [credentials, credentialsUpdatedAt, state, analyticsMap] = await Promise.all([
     credentialsService.resolve(integration.id, scope).catch((err) => {
+      if (err instanceof CredentialsEncryptionUnavailableError) return null
+      throw err
+    }),
+    credentialsService.resolveUpdatedAt(integration.id, scope).catch((err) => {
       if (err instanceof CredentialsEncryptionUnavailableError) return null
       throw err
     }),
@@ -102,6 +106,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
             lastHealthCheckedAt: resolvedState.lastHealthCheckedAt?.toISOString() ?? null,
             lastHealthLatencyMs: resolvedState.lastHealthLatencyMs,
             enabledAt: resolvedState.enabledAt?.toISOString() ?? null,
+            updatedAt: resolvedState.updatedAt?.toISOString() ?? null,
           },
         }
       }),
@@ -132,8 +137,10 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
         lastHealthCheckedAt: state.lastHealthCheckedAt?.toISOString() ?? null,
         lastHealthLatencyMs: state.lastHealthLatencyMs,
         enabledAt: state.enabledAt?.toISOString() ?? null,
+        updatedAt: state.updatedAt?.toISOString() ?? null,
       },
       hasCredentials,
+      credentialsUpdatedAt: credentialsUpdatedAt?.toISOString() ?? null,
       healthStatus,
       analytics,
     },

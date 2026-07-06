@@ -5,6 +5,7 @@ import { ArrowDown, ArrowUp, Bell, Loader2, RotateCcw, Settings2, X } from 'luci
 import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Sheet, SheetContent, SheetTitle } from '../../primitives/sheet'
+import { Tabs, TabsList, TabsTrigger } from '../../primitives/tabs'
 import { NotificationItem } from './NotificationItem'
 import type { NotificationDto, NotificationRendererProps } from '@open-mercato/shared/modules/notifications/types'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
@@ -97,6 +98,12 @@ export function NotificationPanel({
     }
   }
 
+  const handleFilterChange = React.useCallback((next: string) => {
+    if (next === 'all' || next === 'unread' || next === 'action') {
+      setFilter(next)
+    }
+  }, [])
+
   // Preserve the body scroll lock contract that consumers (and integration
   // tests) rely on. Radix Dialog locks scroll via react-remove-scroll which
   // does not set `document.body.style.overflow` — we set it ourselves so the
@@ -124,15 +131,17 @@ export function NotificationPanel({
           </SheetTitle>
           <div className="flex items-center gap-1">
             {unreadCount > 0 ? (
-              <button
+              <Button
                 type="button"
+                variant="link"
+                size="sm"
                 onClick={handleMarkAllRead}
                 disabled={markingAllRead}
-                className="inline-flex items-center gap-1 rounded-md px-1 text-sm font-medium leading-5 text-accent-indigo transition-colors hover:text-accent-indigo/80 disabled:opacity-50"
+                className="gap-1 px-1 text-accent-indigo hover:text-accent-indigo/80 hover:no-underline"
               >
                 {markingAllRead ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 {t('notifications.markAllRead', 'Mark all read')}
-              </button>
+              </Button>
             ) : null}
             <IconButton
               type="button"
@@ -146,41 +155,29 @@ export function NotificationPanel({
           </div>
         </div>
 
-        <div role="tablist" className="flex items-center gap-5 border-b px-5 py-3.5">
-          {(['all', 'unread', 'action'] as const).map((value) => {
-            const isActive = filter === value
-            const label =
-              value === 'all'
-                ? t('notifications.filters.all', 'All')
-                : value === 'unread'
-                  ? t('notifications.filters.unread', 'Unread')
-                  : t('notifications.filters.actionRequired', 'Action Required')
-            return (
-              <button
-                key={value}
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                onClick={() => setFilter(value)}
-                className="relative inline-flex items-center gap-1.5 pb-2 text-sm font-medium leading-5 tracking-tight transition-colors focus:outline-none focus-visible:text-foreground data-[active=true]:text-foreground data-[active=false]:text-muted-foreground hover:text-foreground"
-                data-active={isActive}
-              >
-                <span>{label}</span>
-                {value === 'unread' && unreadCount > 0 ? (
-                  <span className="inline-flex min-w-4 items-center justify-center rounded-full bg-accent-indigo px-1 text-overline font-medium text-accent-indigo-foreground">
-                    {unreadCount > 99 ? '99+' : unreadCount}
-                  </span>
-                ) : null}
-                {isActive ? (
-                  <span
-                    className="absolute bottom-[-14px] left-0 right-0 h-0.5 bg-foreground"
-                    aria-hidden="true"
-                  />
-                ) : null}
-              </button>
-            )
-          })}
-        </div>
+        <Tabs value={filter} onValueChange={handleFilterChange} variant="underline">
+          <TabsList className="flex w-full px-5">
+            {(['all', 'unread', 'action'] as const).map((value) => {
+              const label =
+                value === 'all'
+                  ? t('notifications.filters.all', 'All')
+                  : value === 'unread'
+                    ? t('notifications.filters.unread', 'Unread')
+                    : t('notifications.filters.actionRequired', 'Action Required')
+              const count =
+                value === 'unread' && unreadCount > 0
+                  ? unreadCount > 99
+                    ? '99+'
+                    : unreadCount
+                  : undefined
+              return (
+                <TabsTrigger key={value} value={value} count={count}>
+                  {label}
+                </TabsTrigger>
+              )
+            })}
+          </TabsList>
+        </Tabs>
 
         {dismissUndo && onUndoDismiss && (
           <div className="border-b bg-muted/50 px-4 py-2 text-sm">

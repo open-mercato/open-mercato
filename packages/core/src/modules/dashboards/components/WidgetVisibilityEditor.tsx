@@ -6,8 +6,11 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { RadioField } from '@open-mercato/ui/primitives/radio-field'
 import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+const WIDGET_VISIBILITY_CONTEXT_ID = 'dashboards-widget-visibility:save'
 
 type WidgetCatalogItem = {
   id: string
@@ -94,6 +97,13 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     [t],
   )
   const { kind, targetId, tenantId, organizationId, preserveOnTenantChange = false } = props
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: WIDGET_VISIBILITY_CONTEXT_ID,
+  })
   const [catalog, setCatalog] = React.useState<WidgetCatalogItem[]>([])
   const [loading, setLoading] = React.useState(true)
   const [saving, setSaving] = React.useState(false)
@@ -183,9 +193,12 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       setLoading(true)
       setError(null)
       try {
-        await loadCatalog()
-        if (kind === 'role') await loadRoleData(tenantIdRef.current, organizationIdRef.current)
-        else await loadUserData(tenantIdRef.current, organizationIdRef.current)
+        await Promise.all([
+          loadCatalog(),
+          kind === 'role'
+            ? loadRoleData(tenantIdRef.current, organizationIdRef.current)
+            : loadUserData(tenantIdRef.current, organizationIdRef.current),
+        ])
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
         if (!cancelled) {
@@ -243,11 +256,20 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           widgetIds: selected,
         }
         // optimistic-lock-exempt: per-role widget visibility preference
-        await apiCallOrThrow('/api/dashboards/roles/widgets', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        }, { errorMessage: saveError })
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/roles/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.role_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         setOriginal(selected)
         setOriginalMode('override')
         setEffective(selected)
@@ -260,11 +282,20 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
           widgetIds: selected,
         }
         // optimistic-lock-exempt: per-user widget visibility preference
-        await apiCallOrThrow('/api/dashboards/users/widgets', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(payload),
-        }, { errorMessage: saveError })
+        await runMutation({
+          operation: () =>
+            apiCallOrThrow('/api/dashboards/users/widgets', {
+              method: 'PUT',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }, { errorMessage: saveError }),
+          context: {
+            formId: WIDGET_VISIBILITY_CONTEXT_ID,
+            resourceKind: 'dashboards.user_widget_visibility',
+            retryLastMutation,
+          },
+          mutationPayload: payload,
+        })
         setOriginal(selected)
         if (mode === 'inherit') {
           const refreshed = await readApiResultOrThrow<UserResponse>(
@@ -286,7 +317,7 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
     } finally {
       setSaving(false)
     }
-  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, selected, t, targetId, tenantId])
+  }, [catalog.length, dirty, error, kind, loading, mode, organizationId, retryLastMutation, runMutation, selected, t, targetId, tenantId])
 
   React.useImperativeHandle(ref, () => ({ save }), [save])
 

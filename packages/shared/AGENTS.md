@@ -35,6 +35,7 @@ yarn workspace @open-mercato/shared build
 | `api/` | When building scoped API payloads | `@open-mercato/shared/lib/api/scoped` |
 | `auth/` | When you need wildcard-aware feature matching or shared auth helpers | `@open-mercato/shared/lib/auth/featureMatch` |
 | `boolean/` | When parsing boolean strings from env/query params | `@open-mercato/shared/lib/boolean` |
+| `browser/` | When persisting client UI state to `localStorage` — use the safe wrappers and the versioned-envelope helper instead of raw `localStorage` reads/writes | `@open-mercato/shared/lib/browser/safeLocalStorage`, `@open-mercato/shared/lib/browser/versionedPreference` |
 | `commands/` | When implementing undo/redo command pattern | `@open-mercato/shared/lib/commands` |
 | `commands/flush` | When a command mutates entities across multiple phases (scalar + relation syncs) — wraps phases in a single atomic flush | `@open-mercato/shared/lib/commands/flush` — `withAtomicFlush(em, phases, { transaction? })` |
 | `commands/runCrudCommandWrite` | When a command writes an entity + custom fields + CRUD/index side effects in one logical operation — composes fork → atomic flush → custom-field write → side-effect queue in the only correct order. **Prefer this over composing the primitives by hand for new commands.** | `@open-mercato/shared/lib/commands/runCrudCommandWrite` — `runCrudCommandWrite({ ctx, entityId, action, scope, phases, customFields?, events?, indexer?, sideEffect })` |
@@ -47,6 +48,7 @@ yarn workspace @open-mercato/shared build
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
 | `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
+| `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
@@ -90,6 +92,24 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 ```typescript
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 ```
+
+### Browser Storage — use the shared helpers instead of raw `localStorage`
+
+Persisted client UI state MUST go through the shared `browser/` helpers, never raw `window.localStorage` reads/writes scattered per component:
+
+```typescript
+import { readJsonFromLocalStorage, writeJsonToLocalStorage } from '@open-mercato/shared/lib/browser/safeLocalStorage'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
+```
+
+- `safeLocalStorage` — SSR-safe, error-swallowing JSON get/set/remove. Use for raw values.
+- `versionedPreference` — wraps a value in a `{ v, data }` envelope so schema changes can migrate or safely discard stale data. `readVersionedPreference(key, version, isValid, fallback, { legacyIsValid })` validates the envelope, discards version-mismatched or malformed data, and (when `legacyIsValid` is supplied) migrates a pre-envelope bare value forward on the next write. `readVersionedIdSet`/`writeVersionedIdSet` are convenience wrappers for the common "set of ids" shape.
+
+**Versioning threshold** — when to reach for `versionedPreference` vs. a raw scalar:
+
+- **Trivial scalar flags** (a single boolean/number/string with no schema to evolve, e.g. `om:sidebarCollapsed`, `om:progress:expanded`) MAY stay raw via `safeLocalStorage` (or a plain `'1'`/`'0'`). Add a one-line comment noting the deliberate choice.
+- **Structured values** (objects, records, arrays of objects — anything whose shape can change incompatibly, e.g. a perspective snapshot, a model-picker selection, a sessions cache) MUST use a versioned envelope so a future shape change can migrate or discard old data instead of crashing or silently corrupting state.
+- A slot that already carries its own inline version discriminator (e.g. `{ v, ... }` checked on read) is already migratable and need not be re-wrapped — re-wrapping changes the on-disk format and discards existing user data.
 
 ### i18n — MUST use for all user-facing strings
 
