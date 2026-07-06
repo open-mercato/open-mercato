@@ -28,11 +28,13 @@ test.describe('TC-SALES-024: Create Invoice from Order', () => {
       await apiRequest(page.request, 'DELETE', '/api/sales/invoices', {
         token: authToken, data: { id: createdInvoiceId },
       }).catch(() => {});
+      createdInvoiceId = null;
     }
     if (createdOrderId) {
       await apiRequest(page.request, 'DELETE', '/api/sales/orders', {
         token: authToken, data: { id: createdOrderId },
       }).catch(() => {});
+      createdOrderId = null;
     }
   });
 

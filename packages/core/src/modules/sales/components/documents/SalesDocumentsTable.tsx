@@ -325,9 +325,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     if (supportsChannelsAndTags) {
       loadChannelOptions().catch(() => {})
       loadTagOptions().catch(() => {})
+      loadCustomerOptions().catch(() => {})
+      loadStatusMap().catch(() => setStatusMap({}))
     }
-    loadCustomerOptions().catch(() => {})
-    loadStatusMap().catch(() => setStatusMap({}))
   }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion, supportsChannelsAndTags])
 
   const filters = React.useMemo<FilterDef[]>(() => {
@@ -347,7 +347,10 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         label: t('sales.documents.list.filters.totalGrossMax', 'Max total (gross)'),
         type: 'text',
       },
-      {
+    ]
+
+    if (supportsChannelsAndTags) {
+      base.push({
         id: 'customerId',
         label: t('sales.documents.list.filters.customer', 'Customer'),
         type: 'tags',
@@ -358,10 +361,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           const match = customerOptions.find((opt) => opt.value === val)
           return match?.label ?? val
         },
-      },
-    ]
-
-    if (supportsChannelsAndTags) {
+      })
       base.unshift({
         id: 'channelId',
         label: t('sales.documents.list.filters.channel', 'Channel'),

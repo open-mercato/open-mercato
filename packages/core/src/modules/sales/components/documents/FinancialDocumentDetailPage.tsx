@@ -131,7 +131,7 @@ export default function FinancialDocumentDetailPage({
       setLoading(true)
       try {
         const result = await apiCall<{ items?: FinancialDocumentRecord[] }>(
-          `${config.apiPath}?id=${params.id}&pageSize=1`,
+          `${config.apiPath}?id=${encodeURIComponent(params.id)}&pageSize=1`,
         )
         if (result.ok && result.result?.items?.[0]) {
           setRecord(result.result.items[0])

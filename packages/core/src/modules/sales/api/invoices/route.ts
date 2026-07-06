@@ -28,6 +28,10 @@ const listSchema = z
     search: z.string().optional(),
     id: z.string().uuid().optional(),
     orderId: z.string().uuid().optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+    totalGrossMin: z.coerce.number().optional(),
+    totalGrossMax: z.coerce.number().optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })
@@ -73,11 +77,13 @@ const crud = makeCrudRoute({
       'updated_at',
     ],
     sortFieldMap: {
+      number: 'invoice_number',
       invoiceNumber: 'invoice_number',
       status: 'status',
       issueDate: 'issue_date',
       dueDate: 'due_date',
       grandTotalGrossAmount: 'grand_total_gross_amount',
+      outstandingAmount: 'outstanding_amount',
       createdAt: 'created_at',
     },
     transformItem: (item: Record<string, unknown>) => normalizeFinancialDocumentItem(item, 'invoice'),
@@ -85,6 +91,14 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
+      const issueDateRange: Record<string, unknown> = {}
+      if (query.dateFrom) issueDateRange.$gte = query.dateFrom
+      if (query.dateTo) issueDateRange.$lte = query.dateTo
+      if (Object.keys(issueDateRange).length) filters.issue_date = issueDateRange
+      const grossRange: Record<string, unknown> = {}
+      if (query.totalGrossMin != null) grossRange.$gte = query.totalGrossMin
+      if (query.totalGrossMax != null) grossRange.$lte = query.totalGrossMax
+      if (Object.keys(grossRange).length) filters.grand_total_gross_amount = grossRange
       if (query.search) {
         const term = `%${escapeLikePattern(query.search.trim())}%`
         filters.$or = [
@@ -160,16 +174,28 @@ export const DELETE = crud.DELETE
 
 const invoiceItemSchema = z.object({
   id: z.string().uuid(),
-  invoiceNumber: z.string(),
+  invoiceNumber: z.string().nullable(),
   status: z.string().nullable().optional(),
+  statusEntryId: z.string().uuid().nullable().optional(),
   issueDate: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
-  currencyCode: z.string(),
-  grandTotalGrossAmount: z.string().optional(),
-  grandTotalNetAmount: z.string().optional(),
-  taxTotalAmount: z.string().optional(),
-  paidTotalAmount: z.string().optional(),
-  outstandingAmount: z.string().optional(),
+  currencyCode: z.string().nullable(),
+  orderId: z.string().uuid().nullable().optional(),
+  order: z.object({ id: z.string().uuid(), orderNumber: z.string().nullable() }).nullable().optional(),
+  customerEntityId: z.string().uuid().nullable().optional(),
+  customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
+  subtotalNetAmount: z.number().nullable().optional(),
+  subtotalGrossAmount: z.number().nullable().optional(),
+  discountTotalAmount: z.number().nullable().optional(),
+  taxTotalAmount: z.number().nullable().optional(),
+  grandTotalGrossAmount: z.number().nullable().optional(),
+  grandTotalNetAmount: z.number().nullable().optional(),
+  paidTotalAmount: z.number().nullable().optional(),
+  outstandingAmount: z.number().nullable().optional(),
+  metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+  lines: z.array(z.record(z.string(), z.unknown())).optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
 })
 
 export const openApi = createSalesCrudOpenApi({

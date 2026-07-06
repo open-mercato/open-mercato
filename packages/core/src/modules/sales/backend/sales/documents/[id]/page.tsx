@@ -35,6 +35,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { matchFeature } from '@open-mercato/shared/lib/auth/featureMatch'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
@@ -2050,15 +2051,7 @@ export default function SalesDocumentDetailPage({
         const granted = Array.isArray(call.result?.granted)
           ? call.result?.granted.map((item) => String(item))
           : []
-        const has = granted.some((feature) => {
-          if (feature === '*') return true
-          if (feature === 'sales.invoices.manage') return true
-          if (feature.endsWith('.*')) {
-            const prefix = feature.slice(0, -2)
-            return 'sales.invoices.manage' === prefix || 'sales.invoices.manage'.startsWith(`${prefix}.`)
-          }
-          return false
-        })
+        const has = granted.some((feature) => matchFeature('sales.invoices.manage', feature))
         setCanCreateInvoice(Boolean(call.ok && has))
       } catch {
         if (active) setCanCreateInvoice(false)
@@ -2374,7 +2367,7 @@ export default function SalesDocumentDetailPage({
         { fallback: { items: [] } }
       )
       const items = Array.isArray(response.result?.items) ? response.result.items : []
-      setHasExistingInvoice(items.some((item) => item && typeof (item as any).id === 'string'))
+      setHasExistingInvoice(items.some((item) => item && typeof (item as { id?: unknown }).id === 'string'))
     } catch (err) {
       console.error('sales.documents.invoicesPresence', err)
     }
@@ -3799,7 +3792,7 @@ export default function SalesDocumentDetailPage({
         const orderLines = linesResult.ok && Array.isArray(linesResult.result?.items) ? linesResult.result.items : []
         const totalLines = linesResult.result?.total ?? orderLines.length
         if (totalLines > orderLines.length) {
-          flash(t('sales.invoices.createTruncatedWarning', `Only ${orderLines.length} of ${totalLines} lines included. Create remaining lines manually.`), 'warning')
+          flash(t('sales.invoices.createTruncatedWarning', 'Only {0} of {1} lines included. Create remaining lines manually.', { 0: orderLines.length, 1: totalLines }), 'warning')
         }
         const str = (v: unknown) => typeof v === 'string' ? v : undefined
         const num = (v: unknown) => typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '0'
