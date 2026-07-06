@@ -111,15 +111,35 @@ export async function ensureSalesDictionary(params: {
   return dictionary
 }
 
+// Per-process short-TTL memo for resolved dictionary-entry values. These rows are effectively static
+// config within a run/request (order status / fulfillment / payment labels, etc.), yet the
+// `sales.orders.*` command handlers fork a fresh EM per invocation and re-`findOne` the same few
+// entry ids on EVERY order — a measured N+1 (~2 reads + pooled-connection checkouts per order on a
+// bulk import, dominant once the aggregate itself is cheap). The value is non-PII config; the key is
+// tenant-scoped and staleness is bounded by the TTL, mirroring the process-global cache pattern in
+// `TenantDataEncryptionService`. A dictionary-value edit takes effect after at most one TTL window.
+const DICTIONARY_ENTRY_VALUE_TTL_MS = 60_000
+const dictionaryEntryValueCache = new Map<string, { value: string | null; expiresAt: number }>()
+
+/** Test-only: drop the memoized dictionary-entry values (jest). */
+export function resetDictionaryEntryValueCache(): void {
+  dictionaryEntryValueCache.clear()
+}
+
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined,
   scope: { tenantId: string }
 ): Promise<string | null> {
   if (!entryId) return null
+  const key = `${scope.tenantId}:${entryId}`
+  const now = Date.now()
+  const cached = dictionaryEntryValueCache.get(key)
+  if (cached && cached.expiresAt > now) return cached.value
   const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
-  if (!entry) return null
-  return entry.value?.trim() || null
+  const value = entry?.value?.trim() || null
+  dictionaryEntryValueCache.set(key, { value, expiresAt: now + DICTIONARY_ENTRY_VALUE_TTL_MS })
+  return value
 }
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }
