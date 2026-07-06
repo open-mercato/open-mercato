@@ -50,10 +50,10 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 
 ### Phase 2: cli tests
 
-- [ ] 2.1 New `module-facts.discovery.test.ts` (A1/A2/A3/A6 + dedupe)
-- [ ] 2.2 Rewrite `module-facts.bc-guard.test.ts` (discovery-derived set; drop strict namespacing; keep uniqueness + resolve-against-source)
-- [ ] 2.3 Update `TC-INT-008.spec.ts` to derive the set from discovery
-- [ ] 2.4 Confirm `module-facts.customers.fixture.test.ts` + `module-facts.malformed.test.ts` still pass unchanged
+- [x] 2.1 New `module-facts.discovery.test.ts` (A1/A2/A3/A6 + dedupe) — 9194f8042
+- [x] 2.2 Rewrite `module-facts.bc-guard.test.ts` (discovery-derived set; drop strict namespacing; keep colon-namespacing + uniqueness) — 9194f8042
+- [x] 2.3 `TC-INT-008.spec.ts` unchanged — its `MODULE_FACTS_ALLOWLIST` use is the legacy-redirect-stub set (historical 9), which stays correct; Phase 3 keeps the stub loop bound to the allowlist so no new stubs appear — 9194f8042
+- [x] 2.4 `module-facts.customers.fixture.test.ts` + `module-facts.malformed.test.ts` pass unchanged (full cli suite green: 1173 tests) — 9194f8042
 
 ### Phase 3: create-app bundle wiring
 
