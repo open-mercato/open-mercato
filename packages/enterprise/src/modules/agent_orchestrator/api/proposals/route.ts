@@ -51,11 +51,13 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
     ],
     sortFieldMap: {
       agentId: 'agent_id',
+      confidence: 'confidence',
       disposition: 'disposition',
       processId: 'process_id',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
+    defaultSort: { field: 'created_at', dir: 'desc' },
     buildFilters: async (query) => {
       // The query engine auto-excludes soft-deleted rows (`deleted_at IS NULL`)
       // in its base scope, so we do NOT add an explicit `deleted_at` filter here.
@@ -65,7 +67,10 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       if (query.id) filters.id = { $eq: query.id }
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.processId) filters.process_id = { $eq: query.processId }
-      if (query.disposition) filters.disposition = { $eq: query.disposition }
+      if (query.disposition) {
+        const dispositions = query.disposition.split(',')
+        filters.disposition = dispositions.length > 1 ? { $in: dispositions } : { $eq: dispositions[0] }
+      }
       return filters
     },
   },

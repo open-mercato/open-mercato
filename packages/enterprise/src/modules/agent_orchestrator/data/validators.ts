@@ -91,6 +91,24 @@ export const disposeProposalSchema = z
   })
 export type DisposeProposalInput = z.infer<typeof disposeProposalSchema>
 
+export const proposalDispositionValues = ['pending', 'auto_approved', 'approved', 'edited', 'rejected'] as const
+export type ProposalDispositionValue = (typeof proposalDispositionValues)[number]
+
+/**
+ * `disposition` accepts one value or a comma-separated list (e.g.
+ * `approved,auto_approved,edited` for the Caseload "Approved" tab) — additive
+ * on the original single-enum contract.
+ */
+const proposalDispositionFilter = z
+  .string()
+  .refine(
+    (value) =>
+      value
+        .split(',')
+        .every((token) => (proposalDispositionValues as readonly string[]).includes(token)),
+    { message: '[internal] invalid disposition filter' },
+  )
+
 /** Query schema for GET /proposals (list + ?id= detail). */
 export const proposalListQuerySchema = z
   .object({
@@ -99,7 +117,7 @@ export const proposalListQuerySchema = z
     id: z.string().uuid().optional(),
     agentId: z.string().optional(),
     processId: z.string().uuid().optional(),
-    disposition: z.enum(['pending', 'auto_approved', 'approved', 'edited', 'rejected']).optional(),
+    disposition: proposalDispositionFilter.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
   })

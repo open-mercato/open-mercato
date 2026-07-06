@@ -37,14 +37,21 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, mapProposal, type AgentFactView, type ProposalView } from '../../components/types'
+import {
+  mapAgent,
+  mapOverviewMetrics,
+  mapProposal,
+  type AgentFactView,
+  type OverviewMetricsView,
+  type ProposalView,
+} from '../../components/types'
+import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
 // Status column so the operator never has to reconcile two vocabularies.
 type CaseStatus = 'actionRequired' | 'approved' | 'rejected'
-type CaseVerb = 'decide' | 'answer' | 'do'
 type SegmentKey = CaseStatus | 'all'
 type ViewKey = 'inbox' | 'list'
 type SortKey = 'waitingDesc' | 'waitingAsc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
@@ -57,16 +64,20 @@ const SORT_OPTIONS: Array<{ key: SortKey; labelKey: string }> = [
   { key: 'agentAsc', labelKey: 'agent_orchestrator.caseload.sort.agentAsc' },
 ]
 
-function sortRows(rows: QueueRow[], key: SortKey): QueueRow[] {
-  const sorted = [...rows]
-  switch (key) {
-    case 'waitingAsc': sorted.sort((a, b) => a.waitingValue - b.waitingValue); break
-    case 'confidenceDesc': sorted.sort((a, b) => (b.confidencePct ?? -1) - (a.confidencePct ?? -1)); break
-    case 'confidenceAsc': sorted.sort((a, b) => (a.confidencePct ?? Number.POSITIVE_INFINITY) - (b.confidencePct ?? Number.POSITIVE_INFINITY)); break
-    case 'agentAsc': sorted.sort((a, b) => a.agentLabel.localeCompare(b.agentLabel)); break
-    default: sorted.sort((a, b) => b.waitingValue - a.waitingValue)
-  }
-  return sorted
+// Sort + segment translate to server-side query params so ordering and
+// filtering apply to the WHOLE backlog, not just the loaded page.
+const SORT_PARAMS: Record<SortKey, { field: string; dir: 'asc' | 'desc' }> = {
+  waitingDesc: { field: 'createdAt', dir: 'asc' },
+  waitingAsc: { field: 'createdAt', dir: 'desc' },
+  confidenceDesc: { field: 'confidence', dir: 'desc' },
+  confidenceAsc: { field: 'confidence', dir: 'asc' },
+  agentAsc: { field: 'agentId', dir: 'asc' },
+}
+const SEGMENT_DISPOSITIONS: Record<SegmentKey, string | null> = {
+  actionRequired: 'pending',
+  approved: 'approved,auto_approved,edited',
+  rejected: 'rejected',
+  all: null,
 }
 
 type QueueRow = {
@@ -78,7 +89,6 @@ type QueueRow = {
   waitingLabel: string
   waitingStale: boolean
   status: CaseStatus
-  verb: CaseVerb
   waitingValue: number
   isPending: boolean
   updatedAt: string | null
@@ -90,12 +100,6 @@ type DecisionDetail = {
   facts?: AgentFactView[]
   runInput: unknown
   runOutput: unknown
-}
-
-function verbOf(confidencePct: number | null): CaseVerb {
-  if (confidencePct == null || confidencePct < 45) return 'answer'
-  if (confidencePct > 80) return 'do'
-  return 'decide'
 }
 
 const STATUS_VARIANT: Record<CaseStatus, 'info' | 'success' | 'error'> = {
@@ -201,11 +205,13 @@ export default function AgentCaseloadPage() {
   const t = useT()
   const router = useRouter()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [agentFacts, setAgentFacts] = React.useState<Map<string, AgentFactView[]>>(new Map())
   const [runClaims, setRunClaims] = React.useState<Map<string, string>>(new Map())
   const [runIo, setRunIo] = React.useState<Map<string, { input: unknown; output: unknown }>>(new Map())
-  const [runStats, setRunStats] = React.useState<{ running: number; waiting: number }>({ running: 0, waiting: 0 })
+  const [runningCount, setRunningCount] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [view, setView] = React.useState<ViewKey>('inbox')
@@ -233,10 +239,17 @@ export default function AgentCaseloadPage() {
       setIsLoading(true)
       setError(null)
       try {
-        const [proposalsCall, agents, runs] = await Promise.all([
-          apiCall<ListResponse>('/api/agent_orchestrator/proposals?pageSize=100', undefined, { fallback: { items: [] } }),
+        const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+        const disposition = SEGMENT_DISPOSITIONS[segment]
+        if (disposition) params.set('disposition', disposition)
+        const sort = SORT_PARAMS[sortKey]
+        params.set('sortField', sort.field)
+        params.set('sortDir', sort.dir)
+        const [proposalsCall, overviewCall, agents, runningCall] = await Promise.all([
+          apiCall<ListResponse>(`/api/agent_orchestrator/proposals?${params.toString()}`, undefined, { fallback: { items: [] } }),
+          apiCall<Record<string, unknown>>('/api/agent_orchestrator/metrics/overview?window=7d'),
           fetchItems('/api/agent_orchestrator/agents'),
-          fetchItems('/api/agent_orchestrator/runs?pageSize=100'),
+          apiCall<ListResponse>('/api/agent_orchestrator/runs?status=running&pageSize=1', undefined, { fallback: { items: [] } }),
         ])
         if (cancelled) return
         if (!proposalsCall.ok) {
@@ -244,7 +257,19 @@ export default function AgentCaseloadPage() {
           return
         }
         const items = Array.isArray(proposalsCall.result?.items) ? proposalsCall.result!.items : []
-        setProposals(items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row))
+        const pageProposals = items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row)
+        // Enrich only the loaded page: fetch the runs its proposals reference.
+        const runIds = Array.from(new Set(pageProposals.map((row) => row.runId)))
+        const runs = runIds.length
+          ? await fetchItems(
+              `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
+            )
+          : []
+        if (cancelled) return
+        setProposals(pageProposals)
+        setTotal(typeof proposalsCall.result?.total === 'number' ? proposalsCall.result.total : pageProposals.length)
+        setMetrics(overviewCall.ok && overviewCall.result ? mapOverviewMetrics(overviewCall.result) : null)
+        setRunningCount(runningCall.ok && typeof runningCall.result?.total === 'number' ? runningCall.result.total : 0)
         const labels = new Map<string, string>()
         const facts = new Map<string, AgentFactView[]>()
         for (const item of agents) {
@@ -257,21 +282,15 @@ export default function AgentCaseloadPage() {
         setAgentFacts(facts)
         const claims = new Map<string, string>()
         const io = new Map<string, { input: unknown; output: unknown }>()
-        let running = 0
-        let waiting = 0
         for (const run of runs) {
           const id = fieldOf(run, 'id')
           if (!id) continue
           const input = asObject(run.input)
           claims.set(id, (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || id.slice(0, 12))
           io.set(id, { input: run.input ?? null, output: run.output ?? null })
-          const runStatus = fieldOf(run, 'status').toLowerCase()
-          if (runStatus === 'running' || runStatus === 'in_progress') running += 1
-          else if (runStatus === 'queued' || runStatus === 'waiting' || runStatus === 'pending' || runStatus === 'scheduled') waiting += 1
         }
         setRunClaims(claims)
         setRunIo(io)
-        setRunStats({ running, waiting })
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.caseload.error'))
       } finally {
@@ -282,14 +301,16 @@ export default function AgentCaseloadPage() {
     return () => {
       cancelled = true
     }
-  }, [reloadToken, t])
+  }, [segment, sortKey, page, pageSize, reloadToken, t])
 
   const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
 
   // Live-refresh when a proposal is created, disposed, or becomes ready
-  // (DOM Event Bridge, tenant/org-scoped server-side).
+  // (DOM Event Bridge, tenant/org-scoped server-side), coalesced so an event
+  // burst triggers at most one refetch per interval.
+  const coalescedReload = useCoalescedReload(reload)
   useAppEvent('agent_orchestrator.proposal.*', () => {
-    reload()
+    coalescedReload()
   })
 
   const decisionDetails = React.useMemo<Map<string, DecisionDetail>>(() => {
@@ -306,81 +327,60 @@ export default function AgentCaseloadPage() {
     return map
   }, [proposals, agentFacts, runIo])
 
-  const allRows = React.useMemo<QueueRow[]>(() => {
+  const pageRows = React.useMemo<QueueRow[]>(() => {
     const now = Date.now()
-    return proposals
-      .map((proposal) => {
-        const waiting = waitingFrom(proposal.createdAt, now)
-        const confidencePct = confidencePctOf(proposal.confidence)
-        return {
-          id: proposal.id,
-          agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
-          claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
-          proposes: summarizeProposal(proposal.payload),
-          confidencePct,
-          waitingLabel: waiting.label,
-          waitingStale: waiting.stale,
-          waitingValue: waiting.value,
-          status: statusOf(proposal.disposition),
-          verb: verbOf(confidencePct),
-          isPending: proposal.disposition === 'pending',
-          updatedAt: proposal.updatedAt,
-        }
-      })
-      .sort((a, b) => b.waitingValue - a.waitingValue)
+    return proposals.map((proposal) => {
+      const waiting = waitingFrom(proposal.createdAt, now)
+      const confidencePct = confidencePctOf(proposal.confidence)
+      return {
+        id: proposal.id,
+        agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
+        claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
+        proposes: summarizeProposal(proposal.payload),
+        confidencePct,
+        waitingLabel: waiting.label,
+        waitingStale: waiting.stale,
+        waitingValue: waiting.value,
+        status: statusOf(proposal.disposition),
+        isPending: proposal.disposition === 'pending',
+        updatedAt: proposal.updatedAt,
+      }
+    })
   }, [proposals, agentLabels, runClaims])
 
-  // Search + column filters are shared across both views; the status chips
-  // (inbox) / segment (list) narrow further, then the sort control orders the
-  // result. Inbox and List therefore always show the same filtered+sorted set.
-  const searchedFiltered = React.useMemo(
-    () => allRows.filter((row) => matchesSearch(row, search) && matchesFilters(row, agentFilters, proposesFilters)),
-    [allRows, search, agentFilters, proposesFilters],
+  // Segment + sort are server-applied; text search and the agent/decision
+  // pills narrow the LOADED page only, so both views show the same rows while
+  // pagination totals stay server-driven.
+  const visibleRows = React.useMemo(
+    () => pageRows.filter((row) => matchesSearch(row, search) && matchesFilters(row, agentFilters, proposesFilters)),
+    [pageRows, search, agentFilters, proposesFilters],
   )
-  const agentOptions = React.useMemo(() => Array.from(new Set(allRows.map((row) => row.agentLabel))).sort(), [allRows])
-  const proposesOptions = React.useMemo(() => Array.from(new Set(allRows.map((row) => row.proposes).filter((value) => value !== '—'))).sort(), [allRows])
+  const agentOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.agentLabel))).sort(), [pageRows])
+  const proposesOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.proposes).filter((value) => value !== '—'))).sort(), [pageRows])
+  // Tab counts come from the org-level metrics endpoint (indexed disposition
+  // counts), never from the loaded page.
   const counts = React.useMemo(() => {
-    let actionRequired = 0
-    let approved = 0
-    let rejected = 0
-    for (const row of searchedFiltered) {
-      if (row.status === 'actionRequired') actionRequired += 1
-      else if (row.status === 'approved') approved += 1
-      else rejected += 1
+    const dispositionCounts = metrics?.dispositionCounts ?? {}
+    const countOf = (key: string) => dispositionCounts[key] ?? 0
+    return {
+      actionRequired: countOf('pending'),
+      approved: countOf('approved') + countOf('auto_approved') + countOf('edited'),
+      rejected: countOf('rejected'),
     }
-    return { actionRequired, approved, rejected }
-  }, [searchedFiltered])
-  const lifecycle = React.useMemo(() => {
-    const now = new Date()
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()
-    let needYou = 0
-    let decide = 0
-    let answer = 0
-    let act = 0
-    let closedToday = 0
-    for (const row of allRows) {
-      if (row.status === 'actionRequired') {
-        needYou += 1
-        if (row.verb === 'decide') decide += 1
-        else if (row.verb === 'answer') answer += 1
-        else act += 1
-      } else {
-        const ts = row.updatedAt ? Date.parse(row.updatedAt) : Number.NaN
-        if (!Number.isNaN(ts) && ts >= startOfToday) closedToday += 1
-      }
-    }
-    return { needYou, decide, answer, act, waiting: runStats.waiting, running: runStats.running, closedToday }
-  }, [allRows, runStats])
-  const sortedRows = React.useMemo(() => {
-    const scoped = searchedFiltered.filter((row) => segment === 'all' || row.status === segment)
-    return sortRows(scoped, sortKey)
-  }, [searchedFiltered, segment, sortKey])
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize))
-  const pagedRows = React.useMemo(() => sortedRows.slice((page - 1) * pageSize, page * pageSize), [sortedRows, page, pageSize])
-  React.useEffect(() => { setPage(1) }, [segment, search, agentFilters, proposesFilters, sortKey, pageSize])
-  React.useEffect(() => { setSelectedIds(new Set()) }, [segment, reloadToken, view])
-  const selectableIds = React.useMemo(() => sortedRows.filter((row) => row.isPending).map((row) => row.id), [sortedRows])
-  const selectedRows = React.useMemo(() => sortedRows.filter((row) => selectedIds.has(row.id)), [sortedRows, selectedIds])
+  }, [metrics])
+  const grandTotal = counts.actionRequired + counts.approved + counts.rejected
+  // `waiting` stays 0 until runs can report a queued/scheduled status — the run
+  // model only knows running|ok|error|cancelled today, so the previous
+  // sample-derived value was always 0 as well.
+  const lifecycle = React.useMemo(
+    () => ({ needYou: counts.actionRequired, waiting: 0, running: runningCount }),
+    [counts.actionRequired, runningCount],
+  )
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  React.useEffect(() => { setPage(1) }, [segment, sortKey, pageSize])
+  React.useEffect(() => { setSelectedIds(new Set()) }, [segment, page, reloadToken, view])
+  const selectableIds = React.useMemo(() => visibleRows.filter((row) => row.isPending).map((row) => row.id), [visibleRows])
+  const selectedRows = React.useMemo(() => visibleRows.filter((row) => selectedIds.has(row.id)), [visibleRows, selectedIds])
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id))
   const someSelected = selectedIds.size > 0 && !allSelected
   const clearSelection = React.useCallback(() => setSelectedIds(new Set()), [])
@@ -623,7 +623,7 @@ export default function AgentCaseloadPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.caseload.title')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('agent_orchestrator.caseload.subtitlePersonal', undefined, { count: allRows.length })}</p>
+            <p className="mt-1 text-sm text-muted-foreground">{t('agent_orchestrator.caseload.subtitlePersonal', undefined, { count: grandTotal })}</p>
           </div>
           <div className="flex items-center gap-2">
             <SegmentedControl value={view} onValueChange={(value) => setView(value as ViewKey)}>
@@ -636,23 +636,26 @@ export default function AgentCaseloadPage() {
           </div>
         </div>
 
-        {!isLoading && !error && allRows.length > 0 ? (
+        {!isLoading && !error && (grandTotal > 0 || runningCount > 0) ? (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <LifecycleTile
               icon={Inbox}
               label={t('agent_orchestrator.caseload.lifecycle.needYou')}
               value={lifecycle.needYou}
-              sub={
-                <span className="flex flex-wrap gap-x-3 gap-y-0.5">
-                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.decide}</span> {t('agent_orchestrator.caseload.verb.decide')}</span>
-                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.answer}</span> {t('agent_orchestrator.caseload.verb.answer')}</span>
-                  <span><span className="font-medium tabular-nums text-foreground">{lifecycle.act}</span> {t('agent_orchestrator.caseload.verb.do')}</span>
-                </span>
-              }
+              sub={t('agent_orchestrator.caseload.lifecycle.needYouHint')}
             />
             <LifecycleTile icon={Clock} label={t('agent_orchestrator.caseload.lifecycle.waiting')} value={lifecycle.waiting} sub={t('agent_orchestrator.caseload.lifecycle.waitingHint')} />
             <LifecycleTile icon={Activity} label={t('agent_orchestrator.caseload.lifecycle.running')} value={lifecycle.running} sub={t('agent_orchestrator.caseload.lifecycle.runningHint')} />
-            <LifecycleTile icon={CheckCircle2} label={t('agent_orchestrator.caseload.lifecycle.closedToday')} value={lifecycle.closedToday} sub={t('agent_orchestrator.caseload.lifecycle.closedHint')} />
+            <LifecycleTile
+              icon={CheckCircle2}
+              label={t('agent_orchestrator.caseload.lifecycle.closedToday')}
+              value={
+                <span className="inline-flex items-center rounded-md border border-dashed border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
+                  {t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')}
+                </span>
+              }
+              sub={t('agent_orchestrator.caseload.lifecycle.closedHint')}
+            />
           </div>
         ) : null}
 
@@ -660,7 +663,7 @@ export default function AgentCaseloadPage() {
           <LoadingMessage label={t('agent_orchestrator.caseload.title')} />
         ) : error ? (
           <ErrorMessage label={error} />
-        ) : allRows.length === 0 ? (
+        ) : grandTotal === 0 && pageRows.length === 0 ? (
           <EmptyState
             title={t('agent_orchestrator.caseload.empty')}
             description={t('agent_orchestrator.caseload.emptyDescription')}
@@ -673,10 +676,10 @@ export default function AgentCaseloadPage() {
                 <div className="flex flex-wrap items-center gap-2">{filterPills}</div>
               </div>
             }
-            rows={sortedRows}
+            rows={visibleRows}
             details={decisionDetails}
             counts={counts}
-            total={searchedFiltered.length}
+            total={grandTotal}
             segment={segment}
             onSegmentChange={setSegment}
             busy={busy}
@@ -691,7 +694,7 @@ export default function AgentCaseloadPage() {
               <div className="flex flex-wrap items-center gap-2 sm:ml-auto">{filterPills}</div>
             </div>
 
-            <StatusTabs segment={segment} counts={counts} total={searchedFiltered.length} onSegmentChange={setSegment} />
+            <StatusTabs segment={segment} counts={counts} total={grandTotal} onSegmentChange={setSegment} />
 
             {selectedRows.length > 0 ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2">
@@ -714,14 +717,14 @@ export default function AgentCaseloadPage() {
 
             <DataTable<QueueRow>
               columns={columns}
-              data={pagedRows}
+              data={visibleRows}
               sortable
               rowActions={rowActions}
               onRowClick={(row) => openDetail(row)}
               pagination={{
                 page,
                 pageSize,
-                total: sortedRows.length,
+                total,
                 totalPages,
                 onPageChange: setPage,
                 pageSizeOptions: [10, 20, 50],

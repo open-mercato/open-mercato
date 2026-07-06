@@ -23,7 +23,12 @@ import {
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { callWebhookConfigSchema, invokeAgentConfigSchema } from '../data/validators'
-import { WorkflowActivityJob, WorkflowActivityJobInvokeAgent, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
+import {
+  WorkflowActivityJob,
+  WorkflowActivityJobInvokeAgent,
+  WORKFLOW_ACTIVITIES_QUEUE_NAME,
+  WORKFLOW_INVOKE_AGENT_QUEUE_NAME,
+} from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 
@@ -200,6 +205,7 @@ export class ActivityExecutionError extends Error {
 // ============================================================================
 
 let activityQueue: Queue<WorkflowActivityJob> | null = null
+let invokeAgentQueue: Queue<WorkflowActivityJob> | null = null
 
 /**
  * Get or create the activity queue (lazy initialization)
@@ -213,6 +219,24 @@ function getActivityQueue(): Queue<WorkflowActivityJob> {
   }
 
   return activityQueue
+}
+
+/**
+ * Get or create the dedicated invoke-agent queue (lazy initialization).
+ *
+ * Minute-long agent runs get their own queue so they never starve the fast
+ * activities sharing 'workflow-activities'. Consumer-side concurrency is
+ * governed by the workflow-invoke-agent worker's metadata.
+ */
+function getInvokeAgentQueue(): Queue<WorkflowActivityJob> {
+  if (!invokeAgentQueue) {
+    invokeAgentQueue = createModuleQueue<WorkflowActivityJob>(
+      WORKFLOW_INVOKE_AGENT_QUEUE_NAME,
+      { concurrency: parseInt(process.env.WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY || '5', 10) },
+    )
+  }
+
+  return invokeAgentQueue
 }
 
 /**
@@ -1064,11 +1088,11 @@ export async function executeInvokeAgent(
   // written into the still-open transaction so the separate mcp:serve-http
   // process could not see them to authenticate submit_outcome. Instead we enqueue
   // a dedicated job and PARK the step on the proposal-ready signal: the
-  // workflow-activities worker runs the agent on its own connection (committed,
+  // workflow-invoke-agent worker runs the agent on its own connection (committed,
   // cross-process visible) and resumes the parked step via sendSignal. user_task
   // outcomes stay parked until agent_orchestrator's human dispose fires the same
   // signal — identical to the prior park behavior.
-  const queue = getActivityQueue()
+  const queue = getInvokeAgentQueue()
   const job: WorkflowActivityJobInvokeAgent = {
     kind: 'invoke_agent',
     workflowInstanceId: context.workflowInstance.id,

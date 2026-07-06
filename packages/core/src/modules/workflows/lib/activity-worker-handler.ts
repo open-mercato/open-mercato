@@ -207,6 +207,16 @@ export function createActivityWorkerHandler(
 }
 
 /**
+ * Structural retryable-error marker. The agent runtime raises transient
+ * capacity rejections (e.g. `AgentCapacityError`) carrying `retryable: true`;
+ * core cannot import enterprise error classes, so the contract is duck-typed on
+ * that marker (mirrors how the bridge itself is resolved by DI key).
+ */
+function isRetryableError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { retryable?: unknown }).retryable === true
+}
+
+/**
  * Minimal surface of the optional agent_orchestrator bridge consumed here.
  * Resolved by DI key so @open-mercato/core does not import the enterprise module.
  */
@@ -298,6 +308,17 @@ export async function handleInvokeAgentJob(
       },
     })
   } catch (agentError: any) {
+    // Transient capacity rejection (structural `retryable: true`, e.g. the
+    // enterprise AgentCapacityError): the agent never ran, so rethrow and let
+    // the queue's retry/backoff re-attempt instead of fail-stopping the step.
+    // Only exhausted retries end the job as failed (the step then stays parked).
+    if (isRetryableError(agentError)) {
+      console.warn(
+        `[ActivityWorker] invoke_agent ${payload.agentId} rejected by capacity for instance ${payload.workflowInstanceId}; rethrowing for queue retry:`,
+        agentError?.message
+      )
+      throw agentError
+    }
     // Fail-stop: an INVOKE_AGENT step whose agent cannot produce an outcome
     // (unknown agent id, run error, guardrail block) must HALT the instance, not
     // silently retry the job forever while the step stays parked. Mark the parked

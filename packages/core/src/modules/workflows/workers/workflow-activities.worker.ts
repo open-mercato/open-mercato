@@ -91,6 +91,13 @@ export default async function handle(
   // OUTSIDE the workflow transaction (this worker has its own connection), then
   // resume the parked step via the proposal-ready signal. This is what keeps a
   // failing/cross-process agent run from aborting the workflow transaction.
+  /**
+   * @deprecated Drain bridge for the `workflow-invoke-agent` queue cutover.
+   * `executeInvokeAgent` now enqueues to the dedicated 'workflow-invoke-agent'
+   * queue; this branch only drains invoke_agent jobs enqueued before the
+   * cutover deploy. Retained for >=1 minor version per BACKWARD_COMPATIBILITY.md;
+   * removal is tracked in RELEASE_NOTES.md.
+   */
   if (payload.kind === 'invoke_agent') {
     await handleInvokeAgentJob(em, container, payload)
     return
