@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { SalesCreditMemo, SalesCreditMemoLine } from '../../../data/entities'
+import { SalesCreditMemo, SalesCreditMemoLine, SalesOrder } from '../../../data/entities'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -41,6 +41,9 @@ const detailSchema = z.object({
   grandTotalNetAmount: z.string(),
   grandTotalGrossAmount: z.string(),
   orderId: z.string().uuid().nullable(),
+  order: z.object({ id: z.string().uuid(), orderNumber: z.string().nullable() }).nullable(),
+  customerEntityId: z.string().uuid().nullable(),
+  customerSnapshot: z.record(z.string(), z.unknown()).nullable(),
   invoiceId: z.string().uuid().nullable(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   customFieldSetId: z.string().uuid().nullable(),
@@ -80,6 +83,16 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     scope,
   )
 
+  const orderId = creditMemo.order?.id ?? null
+  const order = orderId
+    ? await findOneWithDecryption(em, SalesOrder, {
+        id: orderId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      }, {}, scope)
+    : null
+
   return NextResponse.json({
     id: creditMemo.id,
     creditMemoNumber: creditMemo.creditMemoNumber,
@@ -93,7 +106,10 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     taxTotalAmount: creditMemo.taxTotalAmount,
     grandTotalNetAmount: creditMemo.grandTotalNetAmount,
     grandTotalGrossAmount: creditMemo.grandTotalGrossAmount,
-    orderId: creditMemo.order?.id ?? null,
+    orderId,
+    order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
+    customerEntityId: order?.customerEntityId ?? null,
+    customerSnapshot: order?.customerSnapshot ?? null,
     invoiceId: creditMemo.invoice?.id ?? null,
     metadata: creditMemo.metadata ?? null,
     customFieldSetId: creditMemo.customFieldSetId ?? null,

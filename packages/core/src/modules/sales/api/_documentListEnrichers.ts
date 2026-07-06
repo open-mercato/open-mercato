@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { findWithDecryption, type DecryptionScope } from '@open-mercato/shared/lib/encryption/find'
 import { SalesOrder, SalesInvoiceLine, SalesCreditMemoLine } from '../data/entities'
 import { CustomerEntity } from '../../customers/data/entities'
 
@@ -81,6 +82,13 @@ function scopeWhere(ctx: EnricherCtx, base: AnyRecord): AnyRecord {
   return where
 }
 
+function decryptionScope(ctx: EnricherCtx): DecryptionScope {
+  return {
+    tenantId: ctx?.auth?.tenantId ?? null,
+    organizationId: ctx?.selectedOrganizationId ?? ctx?.auth?.orgId ?? null,
+  }
+}
+
 function readId(value: unknown): string | null {
   if (typeof value === 'string' && value.length > 0) return value
   if (value && typeof value === 'object') {
@@ -147,7 +155,13 @@ export async function attachOrderContext(payload: { items?: unknown }, ctx: Enri
   const em = resolveEm(ctx)
   const orderById = new Map<string, SalesOrder>()
   if (orderIds.length && em) {
-    const orders = await em.find(SalesOrder, scopeWhere(ctx, { id: { $in: orderIds }, deletedAt: null }) as never)
+    const orders = await findWithDecryption(
+      em,
+      SalesOrder,
+      scopeWhere(ctx, { id: { $in: orderIds }, deletedAt: null }) as never,
+      undefined,
+      decryptionScope(ctx),
+    )
     for (const order of orders) orderById.set(order.id, order)
   }
 
@@ -170,9 +184,12 @@ export async function attachOrderContext(payload: { items?: unknown }, ctx: Enri
   )
   if (!customerIdsToHydrate.length || !em) return
 
-  const customers = await em.find(
+  const customers = await findWithDecryption(
+    em,
     CustomerEntity,
     scopeWhere(ctx, { id: { $in: customerIdsToHydrate }, deletedAt: null }) as never,
+    undefined,
+    decryptionScope(ctx),
   )
   const customerById = new Map<string, CustomerEntity>()
   for (const customer of customers) customerById.set(customer.id, customer)
@@ -198,9 +215,13 @@ export async function attachInvoiceLines(payload: { items?: unknown }, ctx: Enri
   if (!ids.length) return
   const em = resolveEm(ctx)
   if (!em) return
-  const lines = await em.find(SalesInvoiceLine, scopeWhere(ctx, { invoice: { $in: ids } }) as never, {
-    orderBy: { lineNumber: 'asc' },
-  })
+  const lines = await findWithDecryption(
+    em,
+    SalesInvoiceLine,
+    scopeWhere(ctx, { invoice: { $in: ids } }) as never,
+    { orderBy: { lineNumber: 'asc' } },
+    decryptionScope(ctx),
+  )
   const byParent = new Map<string, AnyRecord[]>()
   for (const line of lines as unknown as AnyRecord[]) {
     const parentId = readId(line.invoice)
@@ -222,9 +243,13 @@ export async function attachCreditMemoLines(payload: { items?: unknown }, ctx: E
   if (!ids.length) return
   const em = resolveEm(ctx)
   if (!em) return
-  const lines = await em.find(SalesCreditMemoLine, scopeWhere(ctx, { creditMemo: { $in: ids } }) as never, {
-    orderBy: { lineNumber: 'asc' },
-  })
+  const lines = await findWithDecryption(
+    em,
+    SalesCreditMemoLine,
+    scopeWhere(ctx, { creditMemo: { $in: ids } }) as never,
+    { orderBy: { lineNumber: 'asc' } },
+    decryptionScope(ctx),
+  )
   const byParent = new Map<string, AnyRecord[]>()
   for (const line of lines as unknown as AnyRecord[]) {
     const parentId = readId(line.creditMemo)

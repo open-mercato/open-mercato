@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { SalesInvoice, SalesInvoiceLine } from '../../../data/entities'
+import { SalesInvoice, SalesInvoiceLine, SalesOrder } from '../../../data/entities'
 
 const paramsSchema = z.object({ id: z.string().uuid() })
 
@@ -47,6 +47,9 @@ const detailSchema = z.object({
   paidTotalAmount: z.string(),
   outstandingAmount: z.string(),
   orderId: z.string().uuid().nullable(),
+  order: z.object({ id: z.string().uuid(), orderNumber: z.string().nullable() }).nullable(),
+  customerEntityId: z.string().uuid().nullable(),
+  customerSnapshot: z.record(z.string(), z.unknown()).nullable(),
   metadata: z.record(z.string(), z.unknown()).nullable(),
   customFieldSetId: z.string().uuid().nullable(),
   organizationId: z.string().uuid(),
@@ -85,6 +88,16 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     scope,
   )
 
+  const orderId = invoice.order?.id ?? null
+  const order = orderId
+    ? await findOneWithDecryption(em, SalesOrder, {
+        id: orderId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      }, {}, scope)
+    : null
+
   return NextResponse.json({
     id: invoice.id,
     invoiceNumber: invoice.invoiceNumber,
@@ -101,7 +114,10 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     grandTotalGrossAmount: invoice.grandTotalGrossAmount,
     paidTotalAmount: invoice.paidTotalAmount,
     outstandingAmount: invoice.outstandingAmount,
-    orderId: invoice.order?.id ?? null,
+    orderId,
+    order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
+    customerEntityId: order?.customerEntityId ?? null,
+    customerSnapshot: order?.customerSnapshot ?? null,
     metadata: invoice.metadata ?? null,
     customFieldSetId: invoice.customFieldSetId ?? null,
     organizationId: invoice.organizationId,
