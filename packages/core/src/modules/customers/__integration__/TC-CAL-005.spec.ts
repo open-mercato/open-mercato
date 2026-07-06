@@ -108,7 +108,11 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await expect(dialog).toBeHidden();
 
       // -- The new item renders without reload -----------------------------------
-      const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) });
+      // `.first()`: an event whose default slot crosses midnight (e.g. 11:00 PM–12:30 AM, which the
+      // editor produces when the test runs late in the day) correctly renders in BOTH day cells it
+      // spans, so a bare locator matches 2 buttons and trips Playwright strict mode. The assertion's
+      // intent is only "the event rendered", so target the first instance.
+      const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) }).first();
       const currentWeek = mondayWeekRange(new Date());
       if (defaultStart.getTime() >= currentWeek.from.getTime() && defaultStart.getTime() <= currentWeek.to.getTime()) {
         await expect(itemLocator).toBeVisible();
