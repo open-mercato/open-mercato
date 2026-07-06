@@ -469,20 +469,31 @@ describe('createGenericOptimisticLockReader', () => {
     expect(captures[0].options).toEqual({ fields: ['modifiedAt'] })
   })
 
-  it('fails open (returns null) when findOne throws — never 500s the mutation', async () => {
+  it('fails open (returns null) AND logs loudly with the resourceKind when findOne throws', async () => {
     const reader = createGenericOptimisticLockReader({ entity: FakeEntity })
     const em = {
       async findOne() {
-        throw new Error('column "updated_at" does not exist')
+        throw new Error('column "deleted_at" does not exist')
       },
     } as never
-    const result = await reader(em, {
-      resourceKind: 'k',
-      resourceId: 'r',
-      tenantId: 't',
-      organizationId: 'o',
-    })
-    expect(result).toBeNull()
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      const result = await reader(em, {
+        resourceKind: 'customers.tag',
+        resourceId: 'r',
+        tenantId: 't',
+        organizationId: 'o',
+      })
+      // Fail-open control flow preserved: a query error must never 500 the mutation.
+      expect(result).toBeNull()
+      // ...but a misconfig must be visible, naming the affected resourceKind.
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      const [message] = errorSpy.mock.calls[0]
+      expect(String(message)).toContain('customers.tag')
+      expect(String(message)).toContain('[optimistic-lock]')
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 
   it('returns null when the projected updatedAt is missing / null / non-Date', async () => {

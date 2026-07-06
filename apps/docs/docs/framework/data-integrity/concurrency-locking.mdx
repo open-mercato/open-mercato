@@ -6,19 +6,29 @@ sidebar_label: Concurrency & Locking
 
 # Concurrency & Record Locking
 
-Open Mercato ships a two-tier locking story:
+Open Mercato ships a two-tier locking story. The tiers are **layered**, not
+alternatives: the enterprise tier sits on top of the OSS tier and can only add
+to it, never open a hole in it.
 
 1. **OSS — optimistic locking via `updated_at`.** Lightweight, additive,
    no migration. Detects conflicts at write time and surfaces a
    structured 409 to the client. **Default ON** for every CRUD entity
-   (since 2026-05-27). Operators opt out with `OM_OPTIMISTIC_LOCK=off`.
-2. **Enterprise — full pessimistic locking** via the
+   (since 2026-05-27). This is the always-on **floor**. Operators opt out
+   with `OM_OPTIMISTIC_LOCK=off`.
+2. **Enterprise — collaborative-editing enrichment** via the
    [`record_locks`](https://github.com/open-mercato/open-mercato/tree/develop/packages/enterprise/src/modules/record_locks)
-   module: acquire/release/heartbeat, presence widgets, force-release,
-   conflict-merge UX, ACL features (`record_locks.*`).
+   module: live presence widgets ("Jane is editing this record"),
+   acquire/heartbeat, admin force-release, action-log conflict detection,
+   a field-level merge/conflict dialog, and ACL features (`record_locks.*`).
+   Enabled with `OM_ENABLE_ENTERPRISE_MODULES=true`.
 
-This page documents the **OSS optimistic-lock layer**. The enterprise
-pessimistic layer composes on top of it.
+This page documents the **OSS optimistic-lock floor** in full, then explains how
+the enterprise layer composes on top of it — see
+[Coexisting with the enterprise `record_locks` module](#coexisting-with-the-enterprise-record_locks-module).
+The key invariant: **enterprise = OSS safety _plus_ more, never less.** When
+`record_locks` is active its guard runs the OSS `updated_at` compare first and
+only then adds enrichment, fail-closed; both tiers obey the single
+`OM_OPTIMISTIC_LOCK` kill switch.
 
 ---
 
@@ -49,10 +59,11 @@ Set `OM_OPTIMISTIC_LOCK=off` in the server environment (also accepted:
 `config.mode === 'off'` before consulting the reader store, so the
 mutation path runs unchanged.
 
-When the enterprise `record_locks` module is also active it owns
-mutation guarding (its `di.ts` overrides the platform-default Awilix
-registration with the pessimistic lock service); the OSS check is
-documented here as the OSS-only path.
+`OM_OPTIMISTIC_LOCK=off` is the **single kill switch for both tiers**. When the
+enterprise `record_locks` module is active its guard is a *decorator* that runs
+the OSS compare first (see [Coexisting](#coexisting-with-the-enterprise-record_locks-module)),
+so turning the flag off short-circuits the enterprise enrichment too — there is
+no separate `record_locks` off switch.
 
 ---
 
@@ -437,33 +448,104 @@ row-level guard. Never double-guard a route (see the false-409 warning above).
 
 ## Coexisting with the enterprise `record_locks` module
 
-When both layers are active, the enterprise pessimistic check runs first
-(its registration overrides the OSS slot, because Awilix's `register`
-replaces existing bindings). The enterprise module already handles:
+> **Updated (2026-06-09, spec `enterprise/2026-06-09-record-locks-unified-coverage`).**
+> Earlier docs said the enterprise guard *replaces* the OSS slot and the OSS
+> compare is "not run alongside." That is no longer true. `record_locks` now
+> **layers on top of** the OSS floor instead of replacing it, and the layering
+> reaches every OSS lock site (CRUD entities, command-pattern writes, and raw
+> UI header-helper sites). The text below is the current behavior.
 
-- Pessimistic acquire with heartbeat.
-- Presence widgets ("User X is editing now").
-- Force-release.
-- Merge UX on conflicts.
+`record_locks` is a **strict superset** of the OSS guard: enterprise =
+OSS safety **plus** richer detection and UX, **never less**. The two never
+collide because the layering is resolved on the server (one 409 shape) and on
+the client (one conflict surface).
 
-The OSS optimistic check is not run alongside; it's a fallback for OSS-
-only deployments. A future improvement (tracked separately) will compose
-the two layers via priorities so the OSS optimistic check still runs as
-a second-line defense when the enterprise pessimistic check passes.
+### Enabling the rich dialogs
+
+There is **no `record_locks`-specific env flag**. Set:
+
+```bash
+OM_ENABLE_ENTERPRISE_MODULES=true
+```
+
+That activates `record_locks`, which auto-injects its widgets at three spots —
+`backend:record:current` (page-load presence/acquire), `backend-mutation:global`
+(mutation error handling), and `crud-form:*` (form-scoped locking). No per-page
+wiring is needed: detail pages already publish `{resourceKind, resourceId,
+updatedAt, …}` to the global record mount, so presence, heartbeat, force-release,
+and the field-level merge dialog light up automatically wherever the OSS guard
+was already wired. Grant the `record_locks.*` ACL features to the roles that
+should see presence and force-release.
+
+The kill switch is shared: `OM_OPTIMISTIC_LOCK=off` disables **both** tiers (see
+[Opting out](#opting-out)). The same allow-list narrows both.
+
+### Server side — a fail-closed decorator, not a replacement
+
+When the module is active, its `di.ts` registers a `crudMutationGuardService`
+(CRUD layer) and a `commandOptimisticLockGuardService` (command layer) that
+**decorate** the OSS guards:
+
+1. Run the OSS `updated_at` compare **first** (delegating to
+   `createOptimisticLockGuardService` / `createCommandOptimisticLockGuardService`).
+   This is the always-on floor and runs **independently of any client widget**.
+2. Only then add enterprise enrichment (action-log conflict detection, the
+   held-lock token source).
+3. **Fail closed:** if the enterprise service is misconfigured, throws, times
+   out, the resource can't be resolved, or — critically — **the merge-dialog
+   widget was never mounted / was removed from the layout**, the mutation still
+   hits the OSS floor and a concurrent edit still 409s. Degraded UX (plain
+   conflict bar), never a no-lock hole.
+
+Because the OSS floor is layered in rather than swapped out, removing or
+editing the enterprise widget can only downgrade the *experience*, never the
+*safety*.
+
+### Client side — a single conflict surface (no double UX)
+
+Both tiers can produce a 409, so the client deduplicates to exactly one surface
+via `surfaceRecordConflict(err, t)` from `@open-mercato/ui/backend/conflicts`
+(`CrudForm` and `useGuardedMutation` call it automatically):
+
+- The merge-dialog widget registers a handler on mount with
+  `registerRecordLockConflictHandler(...)`. When a `record_lock_conflict` 409
+  arrives **and** that handler owns the conflicting record, `surfaceRecordConflict`
+  defers to the **field-level merge dialog** and the OSS bar is **not** shown.
+- For a plain OSS `optimistic_lock_conflict`, or a `record_lock_conflict` with
+  no handler registered (widget absent/removed), it renders the **OSS conflict
+  bar**.
+
+So a conflict is **always** surfaced and **never** rendered twice — the worst
+case is plainer UX, never a swallowed conflict and never a bar *and* a dialog.
+
+### Command-layer coverage
+
+CRUD mutations are covered by the `crudMutationGuardService` decorator above.
+For **command/action endpoints** (see
+[Protecting command/action endpoints](#protecting-commandaction-endpoints-not-makecrudroute)),
+the enterprise layer plugs in through the same DI seam: the async
+`enforceCommandOptimisticLockWithGuards(container, input)` helper runs the OSS
+compare first, then awaits the registered `commandOptimisticLockGuardService`
+(fail-closed). The synchronous `enforceCommandOptimisticLock(input)` stays
+unchanged for backward compatibility. Sales document sub-resources, status
+transitions, and the other command sites flow through this seam, so record_locks
+covers them too — no `core → enterprise` import, no handler-side change.
 
 ---
 
 ## Spec & FAQ
 
-- **Spec:** [`.ai/specs/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-05-25-oss-optimistic-locking.md)
+- **Spec (OSS floor):** [`.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/implemented/2026-05-25-oss-optimistic-locking.md)
+- **Spec (enterprise layering):** [`.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md) — how `record_locks` layers on the OSS floor across every lock site.
 - **Source files:**
   - `packages/shared/src/lib/crud/optimistic-lock.ts`
   - `packages/shared/src/lib/crud/optimistic-lock-headers.ts`
-  - `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level guard + extension seam)
+  - `packages/shared/src/lib/crud/optimistic-lock-command.ts` (command-level guard + async `enforceCommandOptimisticLockWithGuards` seam)
   - `packages/ui/src/backend/utils/optimisticLock.ts`
-  - `packages/ui/src/backend/conflicts/` (unified conflict bar + `surfaceRecordConflict`)
+  - `packages/ui/src/backend/conflicts/` (unified conflict bar + `surfaceRecordConflict` + `registerRecordLockConflictHandler`)
   - `packages/core/src/modules/customers/di.ts` (reference wiring)
   - `packages/core/src/modules/sales/commands/shared.ts` (sales document-aggregate wrapper)
+  - `packages/enterprise/src/modules/record_locks/` (enterprise decorator, presence widgets, merge dialog)
 
 ### FAQ
 

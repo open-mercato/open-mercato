@@ -12,6 +12,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { Badge } from '@open-mercato/ui/primitives/badge'
+import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -1171,54 +1172,67 @@ function MetricCard({ label, value }: { label: string; value: string }) {
   )
 }
 
-function RunStatusBadge({
+type RunStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'idle'
+
+export const RUN_STATUS_BADGE_VARIANTS: StatusMap<RunStatus> = {
+  completed: 'success',
+  failed: 'error',
+  cancelled: 'neutral',
+  pending: 'info',
+  running: 'info',
+  idle: 'neutral',
+}
+
+export function RunStatusBadge({
   status,
   t,
 }: {
-  status: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled' | 'idle'
+  status: RunStatus
   t: ReturnType<typeof useT>
 }) {
+  const variant = RUN_STATUS_BADGE_VARIANTS[status] ?? 'neutral'
+
   if (status === 'completed') {
     return (
-      <Badge variant="outline" className="gap-1.5 border-emerald-500/30 bg-emerald-500/10 text-emerald-300">
+      <StatusBadge variant={variant} className="gap-1.5">
         <CheckCircle2 className="size-3.5" />
         {t('sync_excel.widget.run.status.completed', 'Completed')}
-      </Badge>
+      </StatusBadge>
     )
   }
 
   if (status === 'failed') {
     return (
-      <Badge variant="outline" className="gap-1.5 border-red-500/30 bg-red-500/10 text-red-300">
+      <StatusBadge variant={variant} className="gap-1.5">
         <AlertTriangle className="size-3.5" />
         {t('sync_excel.widget.run.status.failed', 'Failed')}
-      </Badge>
+      </StatusBadge>
     )
   }
 
   if (status === 'cancelled') {
     return (
-      <Badge variant="outline" className="gap-1.5 border-zinc-500/30 bg-zinc-500/10 text-zinc-300">
+      <StatusBadge variant={variant} className="gap-1.5">
         <XCircle className="size-3.5" />
         {t('sync_excel.widget.run.status.cancelled', 'Cancelled')}
-      </Badge>
+      </StatusBadge>
     )
   }
 
   if (status === 'pending' || status === 'running') {
     return (
-      <Badge variant="outline" className="gap-1.5 border-blue-500/30 bg-blue-500/10 text-blue-300">
+      <StatusBadge variant={variant} className="gap-1.5">
         <RefreshCw className={cn('size-3.5', status === 'running' ? 'animate-spin' : '')} />
         {status === 'pending'
           ? t('sync_excel.widget.run.status.pending', 'Pending')
           : t('sync_excel.widget.run.status.running', 'Running')}
-      </Badge>
+      </StatusBadge>
     )
   }
 
   return (
-    <Badge variant="outline" className="gap-1.5 border-zinc-500/30 bg-zinc-500/10 text-zinc-300">
+    <StatusBadge variant={variant}>
       {t('sync_excel.widget.run.status.idle', 'Idle')}
-    </Badge>
+    </StatusBadge>
   )
 }

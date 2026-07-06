@@ -316,7 +316,7 @@ export const aiAgentOverrides: AiAgentOverridesMap = {
 }
 ```
 
-Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-05-04-modules-ts-unified-overrides.md):
+Example `modules.ts` inline override (preferred for app-level decisions that do not deserve a fake module). All module contract domains live under the same `entry.overrides` umbrella per the [unified spec](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md):
 
 ```ts
 // src/modules.ts

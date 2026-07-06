@@ -204,9 +204,15 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       { tenantId: null, organizationId: parsed.organizationId },
     )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+    const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+    assertTargetTenantInScope(resolveActorTenantScope(ctx), tenantId, 'Organization not found')
 
     const emailHash = computeEmailHash(parsed.email)
-    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
+    // Email is unique per-tenant, not globally (see Migration20260610120000:
+    // users_tenant_email_hash_uniq). Scope the duplicate check to the target tenant so the same
+    // email may legitimately exist in other tenants without blocking creation or leaking
+    // cross-tenant account existence (#2934).
+    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }], deletedAt: null, tenantId } as any, {}, { tenantId: null, organizationId: null })
     if (duplicate) await throwDuplicateEmailError()
 
     let passwordHash: string | null = null
@@ -214,7 +220,6 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       const { hash } = await import('bcryptjs')
       passwordHash = await hash(parsed.password, 10)
     }
-    const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User
@@ -518,13 +523,34 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       ? await loadUserRoleNames(em, parsed.id)
       : null
 
+    // Resolve the tenant the user will belong to after this update first, so the email
+    // duplicate check below can be scoped to it. Email is unique per-tenant, not globally
+    // (see Migration20260610120000: users_tenant_email_hash_uniq) — a matching email in another
+    // tenant must not block the update or leak cross-tenant account existence (#2934).
+    let tenantId: string | null | undefined
+    if (parsed.organizationId !== undefined) {
+      const organization = await findOneWithDecryption(
+        em,
+        Organization,
+        { id: parsed.organizationId },
+        { populate: ['tenant'] },
+        { tenantId: null, organizationId: parsed.organizationId ?? null },
+      )
+      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+      tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+    }
+
     if (parsed.email !== undefined) {
+      const targetTenantId = tenantId !== undefined
+        ? tenantId
+        : await resolveUserTenantId(em, parsed.id)
       const duplicate = await findOneWithDecryption(
         em,
         User,
         {
           $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
           deletedAt: null,
+          tenantId: targetTenantId,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
         {},
@@ -541,19 +567,6 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     }
     if (parsed.email !== undefined) {
       emailHash = computeEmailHash(parsed.email)
-    }
-
-    let tenantId: string | null | undefined
-    if (parsed.organizationId !== undefined) {
-      const organization = await findOneWithDecryption(
-        em,
-        Organization,
-        { id: parsed.organizationId },
-        { populate: ['tenant'] },
-        { tenantId: null, organizationId: parsed.organizationId ?? null },
-      )
-      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
-      tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
     }
 
     const actorTenantScope = resolveActorTenantScope(ctx)
@@ -1067,6 +1080,11 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
   if (!left) return false
   if (left.length !== right.length) return false
   return left.every((value, idx) => value === right[idx])
+}
+
+async function resolveUserTenantId(em: EntityManager, id: string): Promise<string | null> {
+  const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+  return existing?.tenantId ? String(existing.tenantId) : null
 }
 
 async function throwDuplicateEmailError(): Promise<never> {

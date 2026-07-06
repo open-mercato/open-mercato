@@ -6,6 +6,7 @@
   "translations.locales.flash.error": "Failed to update locales",
   "translations.locales.flash.saved": "Locales updated",
   "translations.locales.loading": "Loading locales...",
+  "translations.locales.remove": "Remove {{locale}}",
   "translations.locales.title": "Supported locales",
   "translations.manager.actions.retry": "Retry",
   "translations.manager.actions.save": "Save translations",

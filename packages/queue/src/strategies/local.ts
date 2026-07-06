@@ -32,7 +32,10 @@ const fsp = fs.promises
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
  * - Not suitable for production or multi-process environments
- * - No retry mechanism for failed jobs
+ *
+ * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential
+ * backoff and moved to a dead-letter store once attempts are exhausted (see the
+ * retry handling in `process()` below).
  *
  * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
  * block the Node.js event loop. A per-queue promise chain serializes

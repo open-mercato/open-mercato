@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { dedupeStrings, labelFromLocalizedRecord, safeRecord, type AkeneoAttribute, type AkeneoAttributeOption, type AkeneoCategory, type AkeneoChannel, type AkeneoCredentialShape, type AkeneoFamily, type AkeneoFamilyVariant, type AkeneoLocale, type AkeneoProduct, type AkeneoProductModel } from './shared'
 
 type TokenState = {
@@ -200,6 +201,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+const DEFAULT_AKENEO_REQUEST_TIMEOUT_MS = 30_000
+const DEFAULT_AKENEO_MAX_RATE_LIMIT_RETRIES = 5
+const DEFAULT_AKENEO_RETRY_AFTER_CAP_MS = 60_000
+
+function resolvePositiveIntEnv(raw: string | undefined, fallback: number): number {
+  const parsed = Number.parseInt(raw ?? '', 10)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback
+}
+
+function resolveAkeneoRequestTimeoutMs(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS, DEFAULT_AKENEO_REQUEST_TIMEOUT_MS)
+}
+
+function resolveAkeneoMaxRateLimitRetries(env: NodeJS.ProcessEnv = process.env): number {
+  return resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES, DEFAULT_AKENEO_MAX_RATE_LIMIT_RETRIES)
+}
+
+function clampAkeneoRetryAfterMs(retryAfterHeader: string | null, env: NodeJS.ProcessEnv = process.env): number {
+  const retryAfter = Number(retryAfterHeader ?? '1')
+  const requestedMs = Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000
+  const cap = resolvePositiveIntEnv(env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS, DEFAULT_AKENEO_RETRY_AFTER_CAP_MS)
+  return Math.min(Math.max(requestedMs, 0), cap)
+}
+
 export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   const credentials = coerceCredentials(credentialsInput)
   const akeneoBaseUrl = new URL(`${credentials.apiUrl}/`)
@@ -226,8 +251,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   }
 
   async function acquirePasswordGrantToken(): Promise<TokenState> {
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -264,8 +290,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
   async function refreshAccessToken(current: TokenState): Promise<TokenState> {
     if (!current.refreshToken) return acquirePasswordGrantToken()
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -307,12 +334,14 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     pathOrUrl: string,
     init: RequestInit = {},
     retried = false,
+    rateLimitAttempts = 0,
   ): Promise<T> {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...init,
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         authorization: `Bearer ${token}`,
@@ -322,13 +351,16 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
     if (response.status === 401 && !retried) {
       await ensureToken(true)
-      return request<T>(pathOrUrl, init, true)
+      return request<T>(pathOrUrl, init, true, rateLimitAttempts)
     }
 
     if (response.status === 429) {
-      const retryAfter = Number(response.headers.get('retry-after') ?? '1')
-      await sleep(Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000)
-      return request<T>(pathOrUrl, init, retried)
+      if (rateLimitAttempts >= resolveAkeneoMaxRateLimitRetries()) {
+        const body = await response.text()
+        throw new Error(`Akeneo request failed (429): ${body}`)
+      }
+      await sleep(clampAkeneoRetryAfterMs(response.headers.get('retry-after')))
+      return request<T>(pathOrUrl, init, retried, rateLimitAttempts + 1)
     }
 
     if (!response.ok) {
@@ -347,6 +379,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     pathOrUrl: string,
     init: RequestInit = {},
     retried = false,
+    rateLimitAttempts = 0,
   ): Promise<{
     buffer: Buffer
     contentType: string | null
@@ -355,8 +388,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
       ...init,
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         authorization: `Bearer ${token}`,
         ...init.headers,
@@ -365,13 +399,16 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
     if (response.status === 401 && !retried) {
       await ensureToken(true)
-      return requestBinary(pathOrUrl, init, true)
+      return requestBinary(pathOrUrl, init, true, rateLimitAttempts)
     }
 
     if (response.status === 429) {
-      const retryAfter = Number(response.headers.get('retry-after') ?? '1')
-      await sleep(Number.isFinite(retryAfter) ? retryAfter * 1000 : 1000)
-      return requestBinary(pathOrUrl, init, retried)
+      if (rateLimitAttempts >= resolveAkeneoMaxRateLimitRetries()) {
+        const body = await response.text()
+        throw new Error(`Akeneo request failed (429): ${body}`)
+      }
+      await sleep(clampAkeneoRetryAfterMs(response.headers.get('retry-after')))
+      return requestBinary(pathOrUrl, init, retried, rateLimitAttempts + 1)
     }
 
     if (!response.ok) {
@@ -442,11 +479,11 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         version: typeof result.pim_version === 'string' ? result.pim_version : null,
       }
     } catch {
-      const attrs = await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
+      await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
         limit: 1,
         pagination_type: 'page',
       })
-      return { version: attrs.items.length >= 0 ? null : null }
+      return { version: null }
     }
   }
 

@@ -84,7 +84,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId, ctx.auth)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entity = await requireTimelineParentEntity(em, parsed.entityId)
+    const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
     ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
     const deal = await requireDealInScope(em, parsed.dealId, parsed.tenantId, parsed.organizationId)
 
@@ -176,7 +176,7 @@ const createCommentCommand: CommandHandler<CommentCreateInput, { commentId: stri
       appearanceColor: snapshot.appearanceColor,
     }),
     beforeRestore: async ({ em, snapshot }) => {
-      const entity = await requireTimelineParentEntity(em, snapshot.entityId)
+      const entity = await requireTimelineParentEntity(em, snapshot.entityId, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
       const deal = await requireDealInScope(em, snapshot.dealId, snapshot.tenantId, snapshot.organizationId)
       return { entity, deal }
     },
@@ -201,7 +201,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     ensureOrganizationScope(ctx, comment.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const entity = await requireTimelineParentEntity(em, parsed.entityId)
+      const entity = await requireTimelineParentEntity(em, parsed.entityId, { tenantId: comment.tenantId, organizationId: comment.organizationId })
       ensureSameScope(entity, comment.organizationId, comment.tenantId)
       comment.entity = entity
     }
@@ -275,7 +275,7 @@ const updateCommentCommand: CommandHandler<CommentUpdateInput, { commentId: stri
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let comment = await em.findOne(CustomerComment, { id: before.id })
-    const entity = await requireTimelineParentEntity(em, before.entityId)
+    const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
     const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
 
     if (!comment) {
@@ -380,7 +380,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const entity = await requireTimelineParentEntity(em, before.entityId)
+      const entity = await requireTimelineParentEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId })
       const deal = await requireDealInScope(em, before.dealId, before.tenantId, before.organizationId)
       let comment = await em.findOne(CustomerComment, { id: before.id })
       if (!comment) {

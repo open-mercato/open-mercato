@@ -16,7 +16,10 @@
  */
 import path from 'node:path'
 import fs from 'node:fs'
+import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const requireFromHere = createRequire(import.meta.url)
 
 /**
  * Locate a generated registry file (e.g. `ai-tools.generated.ts`) without
@@ -53,10 +56,12 @@ export function findGeneratedFile(fileName: string): string | null {
 }
 
 /**
- * Compile-and-import a generated registry file on the fly. Resolves the `@/`
- * alias to the app root, transpiles TS → ESM, and emits a sibling `.mjs` we can
- * `import()` from Node. Cached on mtime so repeat calls in the same process
- * don't recompile.
+ * Compile-and-import a generated registry file on the fly. Rewrites the entry
+ * specifiers Node can't resolve standalone (`@/...` aliases and the
+ * `../../src/...` relative imports the generator emits for `@app` local
+ * modules) to absolute file URLs, transpiles TS → ESM, and emits a sibling
+ * `.mjs` we can `import()` from Node. Cached on mtime so repeat calls in the
+ * same process don't recompile.
  *
  * Transpile-only (no bundling): the generated registries declare an array
  * literal whose entries are static `import("…")` arrow functions — we want
@@ -66,7 +71,8 @@ export function findGeneratedFile(fileName: string): string | null {
  * (e.g. `next/server` package-exports map).
  */
 export async function compileAndImportGenerated(tsPath: string): Promise<Record<string, unknown>> {
-  const jsPath = tsPath.replace(/\.ts$/, '.mjs')
+  const useJestCjsArtifact = isJestRuntime()
+  const jsPath = tsPath.replace(/\.ts$/, useJestCjsArtifact ? '.jest.cjs' : '.mjs')
   // appRoot is two directories up from `.mercato/generated/<file>.ts`.
   const appRoot = path.dirname(path.dirname(path.dirname(tsPath)))
 
@@ -81,10 +87,14 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
   if (needsCompile) {
     const esbuild = await import('esbuild')
     const tsSource = fs.readFileSync(tsPath, 'utf-8')
-    const aliasRewritten = rewriteGeneratedAliasImports(tsSource, appRoot)
+    const aliasRewritten = rewriteGeneratedAliasImportsForRuntime(
+      tsSource,
+      appRoot,
+      useJestCjsArtifact ? 'cjs' : 'esm',
+    )
     const result = await esbuild.transform(aliasRewritten, {
       loader: 'ts',
-      format: 'esm',
+      format: useJestCjsArtifact ? 'cjs' : 'esm',
       target: 'node18',
       sourcemap: false,
       sourcefile: tsPath,
@@ -92,32 +102,106 @@ export async function compileAndImportGenerated(tsPath: string): Promise<Record<
     fs.writeFileSync(jsPath, result.code)
   }
 
+  if (useJestCjsArtifact) {
+    return requireFromHere(jsPath) as Record<string, unknown>
+  }
   return (await import(pathToFileURL(jsPath).href)) as Record<string, unknown>
 }
 
+function isJestRuntime(): boolean {
+  return typeof process.env.JEST_WORKER_ID === 'string'
+}
+
+const UNSAFE_JS_STRING_CHAR_ESCAPES: Record<number, string> = {
+  0x3c: '\\u003C', // <  — HTML/script-tag breakout
+  0x3e: '\\u003E', // >  — HTML/script-tag breakout
+  0x2028: '\\u2028', // line separator — string content but a statement terminator pre-ES2019
+  0x2029: '\\u2029', // paragraph separator — same
+}
+
 /**
- * Rewrite `@/...` path-alias imports (both `from "@/x"` and dynamic
- * `import("@/x")`) in generated-registry source to absolute `file://` URLs
- * rooted at `appRoot`. The `@/` alias is a Next.js bundler convention; outside
- * the bundler Node treats `@/...` as a bare package specifier and throws
- * `ERR_MODULE_NOT_FOUND`. Exported for unit testing.
+ * Escape characters that `JSON.stringify` leaves intact but which can still
+ * break out of (or alter the meaning of) the JavaScript string literal that the
+ * stringified value is embedded into — notably `<`/`>` (HTML/script-tag
+ * breakout) and the U+2028 / U+2029 line separators (valid string content but
+ * statement terminators in pre-ES2019 parsers). Apply this on top of
+ * `JSON.stringify` so the emitted import source stays well-formed regardless of
+ * the resolved path. Exported for unit testing.
+ */
+export function escapeUnsafeJsStringChars(value: string): string {
+  return value.replace(
+    /[<>\u2028\u2029]/g,
+    (char) => UNSAFE_JS_STRING_CHAR_ESCAPES[char.charCodeAt(0)],
+  )
+}
+
+/**
+ * Stringify a resolved path into a JavaScript string literal that is safe to
+ * embed in generated source: `JSON.stringify` handles quoting/standard escapes,
+ * and `escapeUnsafeJsStringChars` neutralizes the characters it leaves intact.
+ */
+function toSafeJsStringLiteral(value: string): string {
+  return escapeUnsafeJsStringChars(JSON.stringify(value))
+}
+
+/**
+ * Rewrite the two specifier shapes the generator emits for module entries in a
+ * generated registry to absolute `file://` URLs Node can resolve in a
+ * standalone process:
+ *
+ *   1. `@/...` path-alias imports (both `from "@/x"` and dynamic `import("@/x")`).
+ *      The `@/` alias is a Next.js bundler convention; outside the bundler Node
+ *      treats `@/...` as a bare package specifier and throws
+ *      `ERR_MODULE_NOT_FOUND`. Resolved against `appRoot`.
+ *   2. `../../src/...` relative imports the generator emits for `@app` local
+ *      modules (e.g. `from "../../src/modules/<id>/ai-tools"`). esbuild's
+ *      transform (transpile-only) leaves these untouched, so the compiled
+ *      `.mjs` keeps an extensionless relative specifier that resolves to a
+ *      `.ts` file with no compiled `.js`/`.mjs` sibling — Node ESM then throws
+ *      `ERR_MODULE_NOT_FOUND`. Resolved against the generated file's directory
+ *      (`<appRoot>/.mercato/generated`), the location the generator wrote them
+ *      relative to. Package-backed modules (`@open-mercato/*`) are unaffected —
+ *      their bare specifiers resolve through `node_modules` to compiled `.js`.
+ *
+ * Both shapes reuse the same `.ts`-suffix probe so a source-only TypeScript
+ * target is loaded directly (Node strips types). Other specifiers (bare
+ * packages, sibling `./` imports) are left untouched. Exported for unit testing.
  */
 export function rewriteGeneratedAliasImports(source: string, appRoot: string): string {
-  const resolveAlias = (relativePath: string): string => {
-    const target = path.join(appRoot, relativePath)
+  return rewriteGeneratedAliasImportsForRuntime(source, appRoot, 'esm')
+}
+
+function rewriteGeneratedAliasImportsForRuntime(
+  source: string,
+  appRoot: string,
+  runtime: 'esm' | 'cjs',
+): string {
+  const generatedDir = path.join(appRoot, '.mercato', 'generated')
+  const toResolvedLiteral = (target: string): string => {
     const candidate = fs.existsSync(target)
       ? target
       : fs.existsSync(target + '.ts')
         ? target + '.ts'
         : target
-    return pathToFileURL(candidate).href
+    const specifier = runtime === 'esm' ? pathToFileURL(candidate).href : candidate
+    return toSafeJsStringLiteral(specifier)
   }
+  const resolveAlias = (relativePath: string): string =>
+    toResolvedLiteral(path.join(appRoot, relativePath))
+  const resolveRelative = (specifier: string): string =>
+    toResolvedLiteral(path.resolve(generatedDir, specifier))
   return source
     .replace(/from\s+["']@\/([^"']+)["']/g, (_match, relativePath: string) => {
-      return `from ${JSON.stringify(resolveAlias(relativePath))}`
+      return `from ${resolveAlias(relativePath)}`
     })
     .replace(/import\s*\(\s*["']@\/([^"']+)["']\s*\)/g, (_match, relativePath: string) => {
-      return `import(${JSON.stringify(resolveAlias(relativePath))})`
+      return `import(${resolveAlias(relativePath)})`
+    })
+    .replace(/from\s+["']((?:\.\.\/)+src\/[^"']+)["']/g, (_match, specifier: string) => {
+      return `from ${resolveRelative(specifier)}`
+    })
+    .replace(/import\s*\(\s*["']((?:\.\.\/)+src\/[^"']+)["']\s*\)/g, (_match, specifier: string) => {
+      return `import(${resolveRelative(specifier)})`
     })
 }
 

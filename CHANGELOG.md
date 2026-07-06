@@ -1,4 +1,412 @@
 
+# 0.6.6 (2026-06-26)
+
+## Highlights
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Public seam to resolve a CatalogProduct by SKU or externalId. (#3589) *(@adeptofvoltron)*
+- ✨ SalesOrderService.findByExternalReference(). (#3588) *(@adeptofvoltron)*
+- ✨ Add delete methods to ExternalIdMappingService. (#3587) *(@adeptofvoltron)*
+- ✨ Support dictionary custom field multiselect (supersedes #3423). (#3548) *(@pmadajthey, via @pkarw)*
+- ✨ Add label-based package previews. (#3497) *(@patzick)*
+- ✨ Set safe QueryClient defaults. (#3471) *(@haxiorz)*
+- ✨ Add Discord two-way communication channel + AI bot spec. (#3387) *(@pkarw)*
+- ✨ Cache GET /api/dictionaries/[id]/entries (reuse crud:dictionaries.entry tags). (#3158) *(@adeptofvoltron)*
+- ✨ Cache GET /api/notifications/unread-count. (#3157) *(@adeptofvoltron)*
+- ✨ Tenant-scoped search settings + verified provider availability. (#3153) *(@adeptofvoltron)*
+- ✨ Add spec tracking-issue mode to om-followup-issue-from-pr. (#3148) *(@pkarw)*
+- ✨ Cache GET /api/currencies/options (reuse crud:currencies.currency tags). (#3142) *(@adeptofvoltron)*
+- ✨ Add --agents flag for non-interactive agentic setup. (#3134) *(@MStaniaszek1998)*
+- ✨ Allow third-party module packages via --allow-third-party. (#3133) *(@adeptofvoltron)*
+- ✨ Add year/month grid navigation to Calendar header. (#3131) *(@pkarw)*
+- ✨ Add edit & delete actions for order returns. (#3066) *(@pkarw)*
+- ✨ Improve visibility of Product SEO Helper validation when save is blocked. (#3057) *(@zielivia)*
+- ✨ CRM Calendar — day/week/month/agenda views + responsive event editor. (#3044) *(@haxiorz)*
+- ✨ Compliance & commercial product fields batch (PL/EU). (#3040) *(@haxiorz)*
+
+## 🔒 Security
+- 🔒 Clear nodemailer/undici high audit findings and stabilize standalone integration CI. (#3390) *(@pkarw)*
+- 🔒 Bump undici resolution to 7.28.0 to clear high CVE. (#3355) *(@pat-lewczuk)*
+- 🔒 Clear high-severity protobufjs & ws CVEs via patched resolutions. (#3107) *(@pkarw)*
+- 🔒 Harden latent MCP server-config module — SSRF guard + CSPRNG ids. (#3019) *(@adeptofvoltron)*
+- 🔒 Rate-limit AI chat dispatch routes. (#3012) *(@adeptofvoltron)*
+- 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
+
+## 🐛 Fixes
+- 🐛 Gate calendar event peek Edit button by manage permission. (#3655) *(@adeptofvoltron)*
+- 🐛 Fall back to default Ollama URL when OLLAMA_BASE_URL is empty. (#3642) *(@adeptofvoltron)*
+- 🐛 Defer optimistic-lock floor to authorized record-lock keep-mine. (#3602) *(@pkarw)*
+- 🐛 Deep-link dictionary manage links (carry-forward of #3396). (#3599) *(@pmadajthey, via @pkarw)*
+- 🐛 Toggle conversation actions menu by archived/read state. (#3591) *(@adeptofvoltron)*
+- 🐛 Redirect to inbox after marking unread from detail. (#3590) *(@adeptofvoltron)*
+- 🐛 Actions dropdown clips long localized labels. (#3585) *(@adeptofvoltron)*
+- 📦 Dispatch package previews manually. (#3571) *(@patzick)*
+- 🐛 Defer OSS optimistic-lock 409 to conflict bar, not merge dialog. (#3569) *(@pkarw)*
+- 🐛 Route timesheet timer writes through guards (supersedes #3398). (#3565) *(@haxiorz, via @pkarw)*
+- 🐛 Stabilize all splash variants. (#3564) *(@patzick)*
+- 🐛 Seal gross>0 ⇒ net>0 invariant at sales line persistence. (#3558) *(@adeptofvoltron)*
+- 🐛 Provision pgvector in ephemeral integration Postgres. (#3557) *(@pkarw)*
+- 🔐 Enforce target-tenant scope on auth.users.create. (#3555) *(@rajanbor)*
+- 🐛 Localize timer errors, announce widget alert, fix dark Start contrast. (#3553) *(@adeptofvoltron)*
+- 🐛 Accept incoming resolves OSS-floor 409 instead of dead-ending. (#3551) *(@adeptofvoltron)*
+- 💰 Prevent ShipmentDialog infinite re-render loop when order has no address. (#3547) *(@adeptofvoltron)*
+- 🌍 CRM calendar i18n & a11y polish. (#3546) *(@adeptofvoltron)*
+- 🐛 Sort encrypted fields across all organizations. (#3545) *(@Heppe-SOFTIQ)*
+- 🐛 Keep today's column in week view when weekends are hidden. (#3544) *(@adeptofvoltron)*
+- 🐛 Load @app module ai-tools in standalone MCP loader. (#3543) *(@adeptofvoltron)*
+- 🐛 Localize CRM calendar date/time labels. (#3541) *(@adeptofvoltron)*
+- 💰 Regression-cover merged activities pagination order (P2 of #3386). (#3540) *(@rajanbor)*
+- 🐛 Enforce LF via .gitattributes to stop CRLF NODE_ENV corruption. (#3539) *(@adeptofvoltron)*
+- 🐛 Associate compliance field errors with inputs for a11y. (#3538) *(@adeptofvoltron)*
+- 🐛 Surface server error reason when creating a return. (#3536) *(@adeptofvoltron)*
+- 🐛 Wrap decision-makers tooltip in TooltipProvider. (#3535) *(@adeptofvoltron)*
+- 💰 PayPage DS controls (carry-forward of #3467 + develop merge). (#3513) *(@pkarw)*
+- 🐛 Stabilize ephemeral and standalone checks. (#3508) *(@patzick)*
+- 🐛 Fix broken override-list test (em.count not mocked) — unblocks develop CI. (#3506) *(@pkarw)*
+- 🐛 Dev splash stream and language picker. (#3496) *(@patzick)*
+- 🐛 Stabilize organization switcher hooks. (#3491) *(@Heppe-SOFTIQ)*
+- 🐛 Align starter chrome with design system. (#3473) *(@haxiorz)*
+- 🐛 Speed up injection widget lookup. (#3472) *(@haxiorz)*
+- 🐛 Migrate workflow dialogs to DS primitives. (#3468) *(@haxiorz)*
+- 🔐 Fix auth and onboarding feedback tokens. (#3466) *(@haxiorz)*
+- 🐛 Align field definitions editor controls. (#3465) *(@haxiorz)*
+- 🐛 Use functional state setters in editor/demo components. (#3459) *(@haxiorz)*
+- 🐳 Add jq to Dockerfile apt-get dependencies. (#3455) *(@rajanbor)*
+- 🐛 Wire mutation guard lifecycle to sales settings PUT routes. (#3454) *(@rajanbor)*
+- 🐛 Replace raw controls and hardcoded status colors in catalog injection widgets. (#3444) *(@haxiorz)*
+- 🔧 Make cache manage UI gating wildcard-aware. (#3442) *(@haxiorz)*
+- 🐛 Route cache purge UI writes through guarded mutations. (#3441) *(@haxiorz)*
+- 🔧 Replace hardcoded status and error colors in config panels. (#3440) *(@haxiorz)*
+- 🐛 Route currencies non-CrudForm UI writes through guarded mutations. (#3438) *(@haxiorz)*
+- 🔧 Replace currencies fetch-config raw controls and hardcoded status styling. (#3437) *(@haxiorz)*
+- 🐛 Wrap detail-page writes in useGuardedMutation. (#3436) *(@haxiorz)*
+- 🔧 Enforce optimistic locking on currency fetch-config updates. (#3435) *(@haxiorz)*
+- 🐛 Wire mutation guards into messages write routes. (#3433) *(@haxiorz)*
+- 🐛 Claim terminal actions before executing target commands. (#3432) *(@haxiorz)*
+- 🐛 Make terminal actions concurrency-safe before executing target commands. (#3431) *(@haxiorz)*
+- 🐛 Wrap notification client writes in useGuardedMutation. (#3428) *(@haxiorz)*
+- 🐛 Wire mutation guards for notification write routes. (#3427) *(@haxiorz)*
+- 🐛 Prevent repeated notification action execution. (#3426) *(@haxiorz)*
+- 🐛 Notifications do not update local state after failed API writes. (#3425) *(@haxiorz)*
+- 💰 Make status refresh a guarded write instead of a mutating GET. (#3422) *(@haxiorz)*
+- 💰 Wire mutation guards for payment gateway write routes. (#3421) *(@haxiorz)*
+- 🐛 Route DataTable perspective writes through useGuardedMutation. (#3420) *(@haxiorz)*
+- 💰 Enforce status-machine transitions on manual payment gateway actions. (#3419) *(@haxiorz)*
+- 🐛 Wire availability bulk POST routes through mutation guard lifecycle. (#3416) *(@haxiorz)*
+- 🐛 Route non-CrudForm planner availability writes through useGuardedMutation. (#3415) *(@haxiorz)*
+- 🐛 Enforce optimistic lock on planner date-specific availability replace. (#3414) *(@haxiorz)*
+- 🐛 Route reindex/purge writes through mutation guard. (#3413) *(@haxiorz)*
+- 🐛 Fix perspectives mutation guard lifecycle. (#3412) *(@haxiorz)*
+- 🐛 Enforce optimistic locking. (#3411) *(@haxiorz)*
+- 🔄 Batch status coverage reads, drop inline refresh on polls. (#3410) *(@haxiorz)*
+- 🐛 Use live-row uniqueness for saved perspectives. (#3409) *(@haxiorz)*
+- 🐛 Scope worker lifecycle methods by organizationId. (#3408) *(@haxiorz)*
+- 🔧 Route non-CrudForm sales config writes through useGuardedMutation. (#3407) *(@haxiorz)*
+- 🐛 Make resource-type counts opt-in to avoid full resources scan. (#3406) *(@haxiorz)*
+- 🐛 Wire command-backed POST routes through mutation guards. (#3404) *(@haxiorz)*
+- 🐛 Guard tag assignment routes. (#3403) *(@haxiorz)*
+- 🌍 Wire custom write routes through mutation guards. (#3402) *(@haxiorz)*
+- 🌍 Route TranslationManager writes through useGuardedMutation. (#3401) *(@haxiorz)*
+- 🐛 Inline timesheet description save handles failed API responses. (#3400) *(@haxiorz)*
+- 🐛 Send optimistic-lock header when toggling workflow definition enabled state. (#3397) *(@haxiorz)*
+- 🐛 Bounded encrypted-sort for interactions + labels (P1 of #3386). (#3395) *(@rajanbor)*
+- 🐛 Scope assigned role lookup to the current tenant. (#3394) *(@rajanbor)*
+- 🐛 Scope dashboard hidden-widget preference by org and user (fixes #3283). (#3392) *(@rajanbor)*
+- 📦 Wrap marketplace and bundle writes in useGuardedMutation. (#3385) *(@pat-lewczuk)*
+- 🐛 Return and enforce real optimistic-lock versions for state and credentials. (#3384) *(@pat-lewczuk)*
+- 🐛 Reload counts and settings when organization scope changes. (#3382) *(@pat-lewczuk)*
+- 🐛 Guard manual health-check mutations. (#3381) *(@pat-lewczuk)*
+- 🐛 Make draft reply sends idempotent before calling Resend. (#3380) *(@pat-lewczuk)*
+- 🐛 Align override list OpenAPI schema with live response. (#3379) *(@pat-lewczuk)*
+- 🐛 Wire proposal and email custom write routes through mutation guards. (#3377) *(@pat-lewczuk)*
+- 🐛 Show falsy defaults and call useT unconditionally. (#3376) *(@pat-lewczuk)*
+- 🐛 Global table deletes send optimistic-lock header. (#3374) *(@pat-lewczuk)*
+- 🐛 Guard encryption map saves and reject stale writes. (#3373) *(@pat-lewczuk)*
+- 🐛 Enforce stale-delete protection for custom entity records. (#3372) *(@pat-lewczuk)*
+- 🐛 Route override saves through mutation guard lifecycle. (#3371) *(@pat-lewczuk)*
+- 🐛 Bound tenant custom-field filters before pagination. (#3370) *(@pat-lewczuk)*
+- 🐛 Route custom entity definition writes through mutation guards. (#3369) *(@pat-lewczuk)*
+- 🐛 Route tenant and organization list deletes through useGuardedMutation. (#3368) *(@pat-lewczuk)*
+- 🐛 Harden organization branding PUT with mutation guards and optimistic locking. (#3367) *(@pat-lewczuk)*
+- 🐛 Load all tenants in TenantSelect via pagination. (#3366) *(@pat-lewczuk)*
+- 🐛 Route dictionary UI writes through useGuardedMutation. (#3364) *(@pat-lewczuk)*
+- 🐛 Add mutation guard lifecycle to custom write routes. (#3363) *(@pat-lewczuk)*
+- 🐛 Enforce optimistic locks on dictionary and entry deletes. (#3362) *(@pat-lewczuk)*
+- 🔄 Create ProgressJobs for scheduled sync runs. (#3361) *(@pat-lewczuk)*
+- 🔄 Guard custom write routes with mutation guard. (#3360) *(@pat-lewczuk)*
+- 🐛 Add mutation guards to custom dashboard write APIs. (#3359) *(@pat-lewczuk)*
+- 🔄 Wrap schedule and run lifecycle UI writes in useGuardedMutation. (#3358) *(@pat-lewczuk)*
+- 🐛 Wrap widget visibility saves in useGuardedMutation. (#3357) *(@pat-lewczuk)*
+- 🔧 Wrap config writes in useGuardedMutation. (#3354) *(@pat-lewczuk)*
+- 🐛 Guard custom command routes with mutation guard. (#3353) *(@pat-lewczuk)*
+- 🔧 Replace raw detail and config controls with shared UI primitives. (#3351) *(@pat-lewczuk)*
+- 🔐 Guard role ACL updates with optimistic locking and mutation guard. (#3348) *(@pat-lewczuk)*
+- 🐛 Wrap remaining non-CrudForm writes in useGuardedMutation. (#3346) *(@pat-lewczuk)*
+- 🐛 Emit invitation-created events from admin and portal invite routes. (#3344) *(@pat-lewczuk)*
+- 🐛 Align demo credential copy with seeded password. (#3343) *(@pat-lewczuk)*
+- 🐛 Wire mutation guard lifecycle for shipment create and cancel. (#3340) *(@haxiorz)*
+- 🐛 Guard shipment wizard create. (#3339) *(@haxiorz)*
+- 🐛 Replace hardcoded external-id status colors with status tokens. (#3336) *(@adeptofvoltron)*
+- 🐛 Add shipment-create idempotency contract. (#3328) *(@haxiorz)*
+- 🔄 Make shipping tracking GET read-only; add guarded POST /tracking/refresh. (#3327) *(@haxiorz)*
+- 🌍 Replace raw TranslationManager buttons with primitives. (#3326) *(@adeptofvoltron)*
+- 🔄 Replace hardcoded run status badge colors with StatusBadge. (#3325) *(@adeptofvoltron)*
+- 🐛 Atomic start-timer command so timer start can't orphan an entry. (#3322) *(@haxiorz)*
+- 🐛 Bound encrypted-field sort with two-phase fetch + chunked decrypt. (#3278) *(@rajanbor)*
+- 🔄 Avoid refetching dictionary list when selection changes. (#3247) *(@adeptofvoltron)*
+- 🐛 Pin eslint back to ^9 to restore Next eslint toolchain. (#3244) *(@matgren)*
+- 🐛 Propagate strategy index/delete/purge failures so the queue retries. (#3139) *(@adeptofvoltron)*
+- 🔐 Drop redundant tenant descriptor from login banner. (#3136) *(@adeptofvoltron)*
+- 🐛 Adjust labels tenant #3127. (#3135) *(@amtkacper)*
+- 🐛 Reject future return dates on create & edit. (#3124) *(@adeptofvoltron)*
+- 🐛 Skip system-entity registration POST so custom-field edit works. (#3123) *(@adeptofvoltron)*
+- 🐛 Add optimistic locking to entity definition edit form. (#3120) *(@pkarw)*
+- 🐛 Inline persistent event delivery in the ephemeral env to de-flake TC-CRM-028 & TC-WF-008. (#3113) *(@pkarw)*
+- 🐛 Recover a crashed deferred-provisioning runner in seconds, not 10 minutes (TC-ONB-002). (#3102) *(@pkarw)*
+- 🐛 Default-on single-delivery with worker guard; stop onboarding waiting on inline reindex. (#3101) *(@pkarw)*
+- 🐛 Mark workspace ready without waiting for the inline query-index rebuild. (#3095) *(@pkarw)*
+- 🐛 Preflight vector indexing; skip doomed runs with one warning. (#3094) *(@pkarw)*
+- 🐛 Bulkhead background workers against DB connection-pool exhaustion. (#3089) *(@pkarw)*
+- 🔄 Sync CustomFieldKind with runtime kinds + add cf.date/cf.datetime. (#3080) *(@adeptofvoltron)*
+- 🐛 Allow clearing company legal/brand/size/revenue/description fields. (#3059) *(@pkarw)*
+- 🐛 Expose updatedAt in super-admin org manage view so optimistic locking works. (#3013) *(@adeptofvoltron)*
+- 🐛 Version-check & bump rule set on weekly hours save. (#2996) *(@adeptofvoltron)*
+- 🐛 Decrypt encrypted entities on read in sales commands. (#2884) *(@pkarw)*
+
+## 🛠️ Improvements
+- 🛠️ Extract shared customers ai-tools helpers (companies/people packs). (#3644) *(@adeptofvoltron)*
+- 🛠️ Drop dead/misleading loop-counter reassignments in matchRoutePattern. (#3641) *(@adeptofvoltron)*
+- 🛠️ Audit encrypted-sort safety for sync-akeneo discovery and messages GET. (#3600) *(@rajanbor)*
+- 🛠️ Update mutation guard guidance. (#3519) *(@truongx)*
+- 🛠️ Bump http-proxy-middleware from 2.0.9 to 2.0.10. (#3490) *(@pkarw)*
+- 🛠️ Add dev memory trace attribution (fixes #3065). (#3478) *(@patzick)*
+- 🛠️ Normalize module/package license metadata to MIT. (#3476) *(@matgren)*
+- 🛠️ Align global error fallback with DS tokens. (#3474) *(@haxiorz)*
+- 🛠️ Migrate workflows checkout demo to DS tokens and primitives. (#3464) *(@haxiorz)*
+- 🛠️ Keep @xyflow/react inside the lazy graph/editor boundary. (#3462) *(@haxiorz)*
+- 🛠️ Migrate remaining ErrorNotice call sites to Alert. (#3463) *(@haxiorz)*
+- 🛠️ Parallelize independent detail refresh requests. (#3461) *(@haxiorz)*
+- 🛠️ Mirror optimizePackageImports in standalone app template. (#3460) *(@haxiorz)*
+- 🛠️ Hoist SalesDocumentForm custom render components out of the parent component. (#3458) *(@haxiorz)*
+- 🛠️ Standardize browser storage state with versioned envelopes. (#3457) *(@haxiorz)*
+- 🛠️ Derive checkout demo current step during render. (#3456) *(@haxiorz)*
+- 🛠️ Parallelize legacy activity timeline fallback page fetches. (#3451) *(@haxiorz)*
+- 🛠️ Parallelize deal detail API enrichment reads. (#3449) *(@haxiorz)*
+- 🛠️ Lazy-load markdown preview rendering in inline editors. (#3448) *(@haxiorz)*
+- 🛠️ Parallelize product-list filter prequeries. (#3447) *(@haxiorz)*
+- 🛠️ Parallelize product and variant form page loaders. (#3446) *(@haxiorz)*
+- 🛠️ Collapse duplicate MessageChannelLink lookups across message enrichers. (#3445) *(@haxiorz)*
+- 🛠️ Sanitize channel HTML server-side, off the client render path. (#3443) *(@haxiorz)*
+- 🛠️ Aggregate channel health counts in the database. (#3439) *(@haxiorz)*
+- 🛠️ Parallelize independent provider fetches in rate fetching. (#3434) *(@haxiorz)*
+- 🛠️ Route raw writes through guarded mutations. (#3405) *(@haxiorz)*
+- 🛠️ Version and scope persisted customer UI preferences. (#3393) *(@rajanbor)*
+- 🛠️ Paginate override list in the database and avoid O(n²) merge. (#3378) *(@pat-lewczuk)*
+- 🛠️ Fetch comparison widget data in parallel with primary query. (#3356) *(@pat-lewczuk)*
+- 🛠️ Parallelize people and company detail API enrichment. (#3352) *(@pat-lewczuk)*
+- 🛠️ Parallelize CRM display-name lookups on user detail. (#3345) *(@pat-lewczuk)*
+- 🛠️ Guard cache.get read failure in unread-count route. (#3331) *(@adeptofvoltron)*
+- 🛠️ Harden options cache — log set failures + defensive get fallback. (#3330) *(@adeptofvoltron)*
+- 🛠️ Share a single injection registry-change DOM listener. (#3323) *(@adeptofvoltron)*
+- 🛠️ Skip role visibility lookups when user override selects widgets. (#3253) *(@adeptofvoltron)*
+- 🛠️ Replace raw checkboxes and hardcoded status colors in admin UI. (#3252) *(@adeptofvoltron)*
+- 🛠️ Use Checkbox primitive and DS status tokens in field editor. (#3246) *(@adeptofvoltron)*
+- 🛠️ Gate tenant-aware stats() base.stats() call to memory backends. (#3238) *(@adeptofvoltron)*
+- 🛠️ Consolidate HTTP clients onto shared fetchWithTimeout. (#3138) *(@adeptofvoltron)*
+- 🛠️ Bump ai to 6.0.205 and @types/nodemailer to ^8.0.1. (#3121) *(@pkarw)*
+- 🛠️ Bump launch-editor to 2.14.1 and @babel/core to 7.29.7. (#3119) *(@pkarw)*
+- 🛠️ Avoid duplicate runtime Next output layer. (#3096) *(@pmadajthey)*
+- 🛠️ Bound memory sweep, add eviction/sweep counters + env test. (#3091) *(@adeptofvoltron)*
+
+## 🧪 Testing
+- 🧪 Make thread-token HMAC-tamper test deterministic. (#3646) *(@adeptofvoltron)*
+- 🧪 Add TC-CAL-010 calendar weekend today-column integration test. (#3592) *(@pkarw)*
+- 🧪 Cover list-page enabled-toggle optimistic lock. (#3572) *(@pkarw)*
+- 🧪 Integration test for auth.users.create tenant scope. (#3568) *(@pkarw)*
+- 🧪 Integration tests for guarded-mutation UI writes (follow-up to #3438). (#3567) *(@pkarw)*
+- 🧪 Migrate core integration specs to public helper imports. (#3237) *(@adeptofvoltron)*
+
+## 📝 Specs & Documentation
+- 📝 Prefer GitHub checks in auto review. (#3596) *(@patzick)*
+- 📝 Warn that enterprise-module contributions are not accepted. (#3586) *(@pkarw)*
+- 📝 Document versioned browser-storage envelopes (v0.6.6). (#3537) *(@pkarw)*
+- 📝 Support custom compose files, fix parse-error fallback, add Step 0 to code-review gate. (#3452) *(@rajanbor)*
+- 📝 Add om-auto-verify-pr-ui skill for PR UI QA verification. (#3388) *(@pkarw)*
+- 📝 Spec — configurable CRM interaction (task) statuses. (#3231) *(@matgren)*
+- 📝 Form-to-deals — deferred implementation spec. (#3210) *(@matgren)*
+- 📝 Enforce cross-module decoupling guardrail (events + injection) in spec-writing & code-review. (#3154) *(@matgren)*
+- 📝 Remove stacked merge-gate check, convert QA-approval gate to label policy. (#3144) *(@pkarw)*
+- 📝 Platform Map — module introspection for developers. (#3141) *(@adeptofvoltron)*
+- 📝 Add HIRING.md for Senior AI / Forward Deployed Engineer role. (#3132) *(@pkarw)*
+- 📝 Document MCP stdio fail-closed default and allowUnauthenticatedSuperadmin opt-in. (#3122) *(@adeptofvoltron)*
+- 📝 Queue-status-dashboard — deferred implementation spec. (#3104) *(@pkarw)*
+- 📝 Tenant-scoped search settings + verified provider availability. (#3093) *(@pkarw)*
+- 📝 Add standalone overlays for loop + integration skills. (#3088) *(@adeptofvoltron)*
+- 📝 Correct agentic skill drift from AGENTS.md. (#3084) *(@adeptofvoltron)*
+- 📝 Spec — unified record-locks coverage across CRM v2 and all OSS lock sites. (#2895) *(@pkarw)*
+- 📝 Spec for per-module picker + official-modules selection. (#2871) *(@pkarw)*
+
+## 👥 Contributors
+
+- @adeptofvoltron
+- @pmadajthey
+- @patzick
+- @haxiorz
+- @pkarw
+- @MStaniaszek1998
+- @zielivia
+- @pat-lewczuk
+- @rajanbor
+- @Heppe-SOFTIQ
+- @matgren
+- @amtkacper
+- @truongx
+
+---
+
+# 0.6.5 (2026-06-15)
+
+## Highlights
+
+Open Mercato `0.6.5` is a fast-follow release to `0.6.4` that closes out a broad **security-hardening sweep** and turns to **runtime reliability and performance**. The security work tightens tenant/org scoping and input validation across the AI assistant (attachment-resolver scope, Code Mode path-traversal rejection, generated-import-path escaping, env-var-only MCP API keys, project-root key lookup, fail-closed-on-missing-auth MCP stdio), audit-log redo, progress jobs, search (`$ilike` wildcard escaping, org-scoped index purge), checkout (gateway success/cancel URLs pinned to the server origin), onboarding (verify cookie handling plus rate-limited unauthenticated submissions), MFA compliance reporting, attachment storage-path containment and creation-time scope, customers `require*` helpers, entities batch caps, encryption (self-healing Vault KMS), and webhooks (provider failure paths plus Standard Webhooks signature-header protection) — rounded out by 500-response stack redaction, tenant-scoped user-email lookups, and a closed login account-enumeration oracle.
+
+This release leans hard into **stability under load**: the persistent-events BullMQ producer is now memoized process-wide (no more per-request Redis connection leaks) with flag-gated single-delivery dispatch, the queue worker isolates each job in its own request container, the cache service is a process-wide singleton with an LRU-bounded memory strategy, the database picks up env-gated `statement_timeout`/`lock_timeout` and a finite idle-in-transaction default, missing hot-path indexes land on `search_tokens` and `user_roles`, `access_logs` rotation is throttled, and a fail-loud production guard refuses unsafe single-instance strategies.
+
+The **AI assistant over MCP** gets a batch of correctness fixes: standalone MCP servers load the generated AI-tool and API-route manifests, agents (and MCP API keys) inherit the calling user's roles, the duplicate stdio spawn is gone, the active-participants partial index stops a spurious drop-index migration, and `list_offers` declares its ACL feature. Deployment tooling levels up with **one-command Railway deployment** in the CLI (now preserving module data in uploads, with clarified deploy-mode docs), a manual Dokploy dev compose workflow, and an AWS + Terraform deployment playbook spec.
+
+On the product surface, the CRM **deals list is redesigned** (with a follow-up misroute fix), the person v2 detail now shows addresses with decrypted snapshots, DataTable columns and the pagination footer stay usable on mobile, `InjectionSpot` no longer remounts widgets on context-identity changes, an organization sidebar logo lands, and staff/planner picks up single-active-timer and optimistic-lock-recovery fixes. Dev mode keeps shedding bundle weight by lazy-loading the schedule-calendar CSS and markdown preview, and dependency bumps land for undici, dompurify, shell-quote, `@grpc/grpc-js`, joi, webpack-dev-server, and esbuild. Enjoy!
+
+## ✨ Features
+- ✨ CLI: one-command Railway deployment. (#2683) *(@WXYZx)*
+- ✨ CRM: deals list redesign. (#2903) *(@haxiorz)*
+- ✨ Manual Dokploy Dev compose deployment workflow. (#2865) *(@MStaniaszek1998)*
+- ✨ Add the `om-help` workflow navigator skill. (#2140) *(@adeptofvoltron)*
+- ✨ Branding: add an organization sidebar logo. (#2822) *(@pmadajthey)*
+- ✨ Bootstrap: fail-loud production guard for single-instance strategies (#2987). (#3030) *(@adeptofvoltron)*
+
+## 🔒 Security
+- 🔒 Webhooks: harden unauthenticated provider webhook failures. (#2680) *(@sravan27)*
+- 🔒 Onboarding: the verify endpoint no longer clears auth cookies on error paths (#2714). (#2785) *(@pat-lewczuk)*
+- 🔒 Security: scope-enforce the MFA enforcement compliance report (#2708). (#2792) *(@pat-lewczuk)*
+- 🔒 Attachments: contain storage path resolution to its root (#2684). (#2833) *(@adeptofvoltron)*
+- 🔒 AI assistant: enforce tenant scope on the AI attachment resolver (#2663). (#2877) *(@pkarw)*
+- 🔒 AI assistant: reject Code Mode path traversal before authorization (#2667). (#2885) *(@pkarw)*
+- 🔒 AI assistant: escape unsafe chars when rewriting generated import paths (CodeQL #139). (#2904) *(@pkarw)*
+- 🔒 Checkout: pin gateway success/cancel URLs to the server origin (#2674). (#2882) *(@pkarw)*
+- 🔒 API: enforce tenant selection against all `tenantId` candidates (#2665). (#2883) *(@pkarw)*
+- 🔒 API: redact the 500 error stack from responses (#2933). (#2950) *(@haxiorz)*
+- 🔒 Auth: tenant-scope the user email lookup (#2934). (#2952) *(@haxiorz)*
+- 🔒 Customers: scope `require*` helpers by tenant/org at query time (#2116). (#2887) *(@pkarw)*
+- 🔒 Audit logs: harden the redo endpoint scope guard (#2931). (#2944) *(@adeptofvoltron)*
+- 🔒 Progress: scope job detail GET/PUT/DELETE by `organizationId` (#2930). (#2945) *(@adeptofvoltron)*
+- 🔒 Search: escape LIKE wildcards in list-search `$ilike` patterns (#2932). (#2946) *(@adeptofvoltron)*
+- 🔒 Search: scope the search-index purge by organization (#2935). (#2953) *(@haxiorz)*
+- 🔒 Auth: close the login account-enumeration oracle and timing leak (#2242). (#2886) *(@pkarw)*
+- 🔒 AI assistant: pass the MCP API key via env var instead of command-line argv (#2669). (#3021) *(@adeptofvoltron)*
+- 🔒 AI assistant: bound the `mcp:dev` API-key lookup to the project root and check file permissions (#2671). (#3020) *(@adeptofvoltron)*
+- 🔒 Encryption: self-heal `HashicorpVaultKmsService` instead of staying unhealthy for the instance lifetime (#2661). (#3016) *(@adeptofvoltron)*
+- 🔒 Webhooks: prevent custom headers from overriding Standard Webhooks signature headers (#2922). (#3001) *(@adeptofvoltron)*
+- 🔒 Onboarding: rate-limit unauthenticated onboarding submissions (#2923). (#2998) *(@adeptofvoltron)*
+- 🔒 Entities: cap the `definitions.batch` array to 1000 entries (#2924). (#2992) *(@adeptofvoltron)*
+- 🔒 Attachments: enforce the tenant/org scope invariant at creation (#2109). (#2879) *(@pkarw)*
+
+## 🐛 Fixes
+- 🐛 AI assistant: avoid a duplicate MCP stdio server spawn. (#2835) *(@pmadajthey)*
+- 🐛 AI assistant: load generated AI tools + the API route manifest in standalone MCP servers. (#2898) *(@pkarw)*
+- 🔐 AI assistant: agents over MCP + MCP API keys inherit user roles. (#2902) *(@pkarw)*
+- 🔐 Catalog: the `list_offers` AI tool declares `sales.channels.manage`. (#2899) *(@pkarw)*
+- 🐛 UI: make JsonBuilder Raw JSON editable and confirm destructive type changes (#2817). (#2837) *(@pkarw)*
+- 🐛 UI: render the profile dropdown in a body portal so it clears sticky table columns (#2941). (#2943) *(@adeptofvoltron)*
+- 🐛 Customers/staff/checkout: QA follow-up — select prefill, domain clear & stale-delete conflict (#2529). (#2840) *(@pkarw)*
+- 🐛 Customers: link Cmd+K search results to the v2 customer detail pages (#2843). (#2844) *(@pkarw)*
+- 🐛 Customers: degrade owner filters when the optional staff module is absent (#2649). (#2888) *(@pkarw)*
+- 🐛 Customers: align example seed data with dictionary values. (#2878) *(@Zamojski5)*
+- 🐛 CRM: fix the deals-list misroute (#2939). (#2942) *(@haxiorz)*
+- 🐛 Checkout: show a not-found state when editing a deleted template/link (#2849). (#2853) *(@pkarw)*
+- 🐛 Staff: surface and recover from an optimistic-lock 409 on availability-schedule switch (#2848). (#2854) *(@pkarw)*
+- 🐛 Staff: enforce the single-active-timer invariant on timer start (#2855). (#2873) *(@pkarw)*
+- 🐛 Staff: remove the doubled "Tags" heading in the team-member edit view (#2872). (#2875) *(@pkarw)*
+- 🐛 Entities: validate multi-value custom fields per element (#2650). (#2860) *(@adeptofvoltron)*
+- 🐛 Catalog: strip markdown from the product-list description. (#2862) *(@Zamojski5)*
+- 🐳 Docker: forward `APP_ALLOWED_ORIGINS` in the fullapp compose files (#2449). (#2889) *(@pkarw)*
+- 🔧 dev: pin the HMR WebSocket origin allowlist contract (#2446). (#2890) *(@pkarw)*
+- 🐛 Customers/sales: show addresses on the person v2 detail and decrypt address snapshots (#3038). (#3046) *(@haxiorz)*
+- 🐛 UI: keep DataTable columns and the pagination footer usable on mobile. (#3043) *(@haxiorz)*
+- 🐛 UI: stop `InjectionSpot` remounting widgets on context-identity changes (#2986). (#3006) *(@adeptofvoltron)*
+- 🐛 Events: add flag-gated single-delivery dispatch for persistent subscribers (#2960). (#3018) *(@adeptofvoltron)*
+- 🔄 Events: memoize the persistent-events BullMQ producer process-wide to stop per-request Redis connection leaks (#2959). (#3017) *(@adeptofvoltron)*
+- 🔧 Queue: isolate each `worker --all` job in its own request container (#2970). (#3011) *(@adeptofvoltron)*
+- 🔄 sync-akeneo/channel-gmail: cap Akeneo 429 retries, clamp retry-after, and add AbortSignal timeouts to external HTTP calls (#2976). (#3014) *(@adeptofvoltron)*
+- 🐛 Cache: bound `createMemoryStrategy` with LRU `maxEntries` eviction and an amortized expired-entry sweep (#2962). (#2995) *(@adeptofvoltron)*
+- 🔐 AI assistant: fail closed when the MCP stdio server has no auth context (#2673). (#3015) *(@adeptofvoltron)*
+- 🐛 AI assistant: declare the active-participants partial index to stop a spurious drop-index migration (#3025). (#3029) *(@adeptofvoltron)*
+- 💰 Sales: widen the orders/quotes number column to fit standard document numbers (#2947). (#2994) *(@adeptofvoltron)*
+- 🐛 Onboarding: single-flight deferred provisioning to stop the status-poll reindex stampede. (#3010) *(@haxiorz)*
+- 🐛 Onboarding: make post-provisioning steps non-fatal so verify never strands a workspace (fixes #2951). (#2954) *(@pkarw)*
+- 📦 create-app: preserve module data in Railway uploads. (#3072) *(@pkarw)*
+- 🐛 Workflows: remove the duplicate info icon in Alert callouts (#2759). (#2763) *(@adeptofvoltron)*
+
+## 🛠️ Improvements
+- 🛠️ AI assistant: support OpenRouter runtime configuration in Docker/OpenCode.
+- 🛠️ Directory: per-request memoize org-scope resolution and wire `org-scope:user` invalidation (#2259). (#2880) *(@pkarw)*
+- 🛠️ Query: drop the redundant `count(distinct)` on non-joined list COUNTs (#2227). (#2894) *(@pkarw)*
+- 🛠️ Shared: batch encrypted custom-field decryption with `Promise.all` (#2229). (#2896) *(@pkarw)*
+- 🛠️ Shared: add the `buildIlikeTerm()` search-term helper (#2367). (#2892) *(@pkarw)*
+- 🛠️ UI: share `formatCurrency`/`formatDate` for AI record cards (#2365). (#2893) *(@pkarw)*
+- 🛠️ dev: move react-big-calendar CSS from globals to the lazy `ScheduleCalendar` chunk (#2850). (#2856) *(@izqzmyli)*
+- 🛠️ dev: replace eager react-markdown in `AttachmentContentPreview` with lazy `MarkdownContent` (#2850). (#2938) *(@izqzmyli)*
+- 🛠️ deps: bump undici to ^8.4.1 in shared (migrates #2836). (#2838) *(@pkarw)*
+- 🛠️ deps: bump the minor-and-patch Dependabot group (migrates #2834). (#2841) *(@pkarw)*
+- 🛠️ deps: bump the minor-and-patch group across 1 directory with 11 updates. (#2870) *(@pkarw)*
+- 🛠️ deps: bump dompurify 3.3.3 → 3.4.8. (#2866) *(@pkarw)*
+- 🛠️ deps: consolidate dompurify 3.4.9 + shell-quote 1.8.4 onto develop (#2955, #2956). (#2957) *(@pkarw)*
+- 🛠️ Cache: hoist the cache service to a process-wide singleton in bootstrap (#2961). (#3031) *(@adeptofvoltron)*
+- 🛠️ DB: env-gated `statement_timeout`/`lock_timeout` with a finite idle-in-transaction default (#2964). (#3033) *(@adeptofvoltron)*
+- 🛠️ Query index/auth: add missing hot-path indexes — `search_tokens(tenant_id, token_hash)` and `user_roles(user_id)`/`(role_id)` (#2966). (#3000) *(@adeptofvoltron)*
+- 🛠️ Audit logs: throttle `access_logs` rotation and index `created_at` (#2965). (#2999) *(@adeptofvoltron)*
+- 🛠️ deps: migrate the Dependabot bumps (#3069, #3071) to develop. (#3074) *(@pkarw)*
+- 🛠️ deps: consolidate the joi, webpack-dev-server, and esbuild bumps. (#3054) *(@pkarw)*
+- 🛠️ deps: bump `@grpc/grpc-js` 1.14.3 → 1.14.4. (#3041) *(@pkarw)*
+
+## 🧪 Testing
+- 🧪 Checkout: undo integration coverage (#2583). (#2819) *(@haxiorz)*
+- 🧪 Scheduler: undo integration tests (#2582). (#2820) *(@haxiorz)*
+- 🧪 Webhooks: stabilize the TC-LOCK-OSS-043 stale-row locator after an out-of-band bump. (#2851) *(@izqzmyli)*
+- 🧪 UI: guard the CrudForm delete-conflict spec against a false success toast (#2409). (#2891) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Spec: enterprise usage telemetry "phone home" verification. (#2501) *(@pkarw)*
+- 📝 Spec: AWS + Terraform deployment playbook (economy + HA). (#2545) *(@MStaniaszek1998)*
+- 📝 Spec: cache-with-invalidation FRs for the hottest API endpoints. (#2905) *(@pkarw)*
+- 📝 Docs: MCP server setup & extension guide. (#2900) *(@pkarw)*
+- 📝 Docs: Turbopack cache troubleshooting. (#2846) *(@alinadivante)*
+- 📝 Skills: add `om-approve-merge-pr` and `om-followup-issue-from-pr`. (#2827) *(@pkarw)*
+- 📝 Specs: move 61 fully-implemented specs to `implemented/` and fix cross-references. (#2948) *(@adeptofvoltron)*
+- 📝 Docs: clarify the Railway deploy modes. (#3064) *(@pkarw)*
+- 📝 Process: broaden the priority labels and add a QA-approval merge gate. (#3055) *(@pkarw)*
+- 📝 Skills: make `om-troubleshooter` propose a fix and wait for confirmation. (#3003) *(@adeptofvoltron)*
+
+## 🚀 CI/CD & Infrastructure
+- 🚀 Test: stabilize the flaky markitdown install in the test job. (#3004) *(@pkarw)*
+- 🚀 Docker: improve full-app Dockerfile dependency caching by installing from workspace manifests before copying source files.
+
+## 👥 Contributors
+
+- @WXYZx
+- @haxiorz
+- @MStaniaszek1998
+- @adeptofvoltron
+- @sravan27
+- @pat-lewczuk
+- @pkarw
+- @pmadajthey
+- @Zamojski5
+- @izqzmyli
+- @alinadivante
+
+---
+
 # 0.6.4 (2026-06-08)
 
 ## Highlights

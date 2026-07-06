@@ -1,7 +1,7 @@
 /**
  * `customers.list_companies` + `customers.get_company` (Phase 1 WS-C, Step 3.9).
  *
- * Phase 3a of `.ai/specs/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
+ * Phase 3a of `.ai/specs/implemented/2026-04-27-ai-tools-api-backed-dry-refactor.md`:
  * `customers.list_companies` is now an API-backed wrapper over
  * `GET /api/customers/companies`. Tool name, schema, requiredFeatures, and
  * output shape are unchanged.
@@ -19,6 +19,12 @@ import {
   type AiToolExecutionContext,
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-api-operation-runner'
 import { assertTenantScope, type CustomersAiToolDefinition, type CustomersToolContext } from './types'
+import {
+  buildRelatedRecords,
+  toCustomerListSummary,
+  toIso,
+  type CustomerRelatedRecords,
+} from './_shared'
 
 const listCompaniesInput = z
   .object({
@@ -108,27 +114,13 @@ const listCompaniesTool = defineApiBackedAiTool<
     const data = (response.data ?? {}) as ListCompaniesApiResponse
     const rawItems: ListCompaniesApiItem[] = Array.isArray(data.items) ? data.items : []
     return {
-      items: rawItems.map((row) => {
-        const createdAtRaw = row.created_at ?? row.createdAt ?? null
-        const createdAt = createdAtRaw ? new Date(String(createdAtRaw)).toISOString() : null
-        return {
-          id: row.id,
-          displayName: row.display_name ?? row.displayName ?? null,
-          primaryEmail: row.primary_email ?? row.primaryEmail ?? null,
-          primaryPhone: row.primary_phone ?? row.primaryPhone ?? null,
-          status: row.status ?? null,
-          lifecycleStage: row.lifecycle_stage ?? row.lifecycleStage ?? null,
-          source: row.source ?? null,
-          ownerUserId: row.owner_user_id ?? row.ownerUserId ?? null,
-          organizationId: row.organization_id ?? row.organizationId ?? null,
-          tenantId: row.tenant_id ?? row.tenantId ?? null,
-          domain: row.domain ?? null,
-          websiteUrl: row.website_url ?? row.websiteUrl ?? null,
-          industry: row.industry ?? null,
-          sizeBucket: row.size_bucket ?? row.sizeBucket ?? null,
-          createdAt,
-        }
-      }),
+      items: rawItems.map((row) => ({
+        ...toCustomerListSummary(row),
+        domain: row.domain ?? null,
+        websiteUrl: row.website_url ?? row.websiteUrl ?? null,
+        industry: row.industry ?? null,
+        sizeBucket: row.size_bucket ?? row.sizeBucket ?? null,
+      })),
       total: typeof data.total === 'number' ? data.total : 0,
       limit,
       offset,
@@ -145,13 +137,6 @@ const getCompanyInput = z.object({
 })
 
 type GetCompanyInput = z.infer<typeof getCompanyInput>
-
-function toIsoCompany(value: unknown): string | null {
-  if (!value) return null
-  const dt = value instanceof Date ? value : new Date(String(value))
-  if (Number.isNaN(dt.getTime())) return null
-  return dt.toISOString()
-}
 
 const getCompanyTool: CustomersAiToolDefinition = {
   name: 'customers.get_company',
@@ -193,134 +178,9 @@ const getCompanyTool: CustomersAiToolDefinition = {
     const profileRow = (data.profile ?? null) as Record<string, unknown> | null
     const customFields = (data.customFields ?? {}) as Record<string, unknown>
 
-    let related: Record<string, unknown> | null = null
+    let related: CustomerRelatedRecords | null = null
     if (includeRelated) {
-      const addresses = Array.isArray(data.addresses) ? (data.addresses as Array<Record<string, unknown>>) : []
-      const activities = Array.isArray(data.activities) ? (data.activities as Array<Record<string, unknown>>) : []
-      const notes = Array.isArray(data.comments) ? (data.comments as Array<Record<string, unknown>>) : []
-      const todos = Array.isArray(data.todos) ? (data.todos as Array<Record<string, unknown>>) : []
-      const interactions = Array.isArray(data.interactions) ? (data.interactions as Array<Record<string, unknown>>) : []
-      const tagsRows = Array.isArray(data.tags) ? (data.tags as Array<Record<string, unknown>>) : []
-      const dealsRows = Array.isArray(data.deals) ? (data.deals as Array<Record<string, unknown>>) : []
-      const peopleRows = Array.isArray(data.people) ? (data.people as Array<Record<string, unknown>>) : []
-      related = {
-        addresses: addresses.map((address) => ({
-          id: address.id,
-          name: address.name ?? null,
-          purpose: address.purpose ?? null,
-          addressLine1: address.addressLine1 ?? null,
-          addressLine2: address.addressLine2 ?? null,
-          city: address.city ?? null,
-          region: address.region ?? null,
-          postalCode: address.postalCode ?? null,
-          country: address.country ?? null,
-          isPrimary: !!address.isPrimary,
-        })),
-        activities: activities.map((activity) => ({
-          id: activity.id,
-          activityType: activity.activityType,
-          subject: activity.subject ?? null,
-          body: activity.body ?? null,
-          occurredAt: toIsoCompany(activity.occurredAt),
-          createdAt: toIsoCompany(activity.createdAt),
-        })),
-        notes: notes.map((comment) => ({
-          id: comment.id,
-          body: comment.body,
-          authorUserId: comment.authorUserId ?? null,
-          createdAt: toIsoCompany(comment.createdAt),
-        })),
-        tasks: todos.map((task) => ({
-          id: task.id,
-          todoId: task.todoId ?? task.id,
-          todoSource: task.todoSource ?? null,
-          createdAt: toIsoCompany(task.createdAt),
-        })),
-        interactions: interactions.map((interaction) => ({
-          id: interaction.id,
-          interactionType: interaction.interactionType,
-          title: interaction.title ?? null,
-          status: interaction.status,
-          scheduledAt: toIsoCompany(interaction.scheduledAt),
-          occurredAt: toIsoCompany(interaction.occurredAt),
-        })),
-        tags: tagsRows
-          .map((tag) => {
-            if (!tag || typeof tag !== 'object') return null
-            const id = typeof tag.id === 'string' ? tag.id : null
-            const label = typeof tag.label === 'string' ? tag.label : null
-            if (!id || !label) return null
-            const slug = typeof tag.slug === 'string' ? tag.slug : label
-            const color = typeof tag.color === 'string' ? tag.color : null
-            return { id, slug, label, color }
-          })
-          .filter(
-            (entry): entry is { id: string; slug: string; label: string; color: string | null } =>
-              entry !== null,
-          ),
-        deals: dealsRows
-          .map((deal) => {
-            if (!deal || typeof deal !== 'object') return null
-            const id = typeof deal.id === 'string' ? deal.id : null
-            if (!id) return null
-            return {
-              id,
-              title: typeof deal.title === 'string' ? deal.title : '',
-              status: typeof deal.status === 'string' ? deal.status : null,
-              pipelineStageId:
-                typeof deal.pipelineStageId === 'string' ? deal.pipelineStageId : null,
-              valueAmount:
-                typeof deal.valueAmount === 'string'
-                  ? deal.valueAmount
-                  : deal.valueAmount === null || deal.valueAmount === undefined
-                    ? null
-                    : String(deal.valueAmount),
-              valueCurrency:
-                typeof deal.valueCurrency === 'string' ? deal.valueCurrency : null,
-            }
-          })
-          .filter(
-            (
-              value,
-            ): value is {
-              id: string
-              title: string
-              status: string | null
-              pipelineStageId: string | null
-              valueAmount: string | null
-              valueCurrency: string | null
-            } => value !== null,
-          ),
-        people: peopleRows
-          .map((person) => {
-            if (!person || typeof person !== 'object') return null
-            const id = typeof person.id === 'string' ? person.id : null
-            const displayName = typeof person.displayName === 'string' ? person.displayName : null
-            if (!id || !displayName) return null
-            return {
-              id,
-              displayName,
-              primaryEmail:
-                typeof person.primaryEmail === 'string' ? person.primaryEmail : null,
-              primaryPhone:
-                typeof person.primaryPhone === 'string' ? person.primaryPhone : null,
-              jobTitle: typeof person.jobTitle === 'string' ? person.jobTitle : null,
-              department: typeof person.department === 'string' ? person.department : null,
-            }
-          })
-          .filter(
-            (
-              value,
-            ): value is {
-              id: string
-              displayName: string
-              primaryEmail: string | null
-              primaryPhone: string | null
-              jobTitle: string | null
-              department: string | null
-            } => value !== null,
-          ),
-      }
+      related = buildRelatedRecords(data, { includePeople: true })
     }
     return {
       found: true as const,
@@ -336,8 +196,8 @@ const getCompanyTool: CustomersAiToolDefinition = {
         ownerUserId: companyRow.ownerUserId ?? null,
         organizationId: companyRow.organizationId ?? null,
         tenantId: companyRow.tenantId ?? null,
-        createdAt: toIsoCompany(companyRow.createdAt),
-        updatedAt: toIsoCompany(companyRow.updatedAt),
+        createdAt: toIso(companyRow.createdAt),
+        updatedAt: toIso(companyRow.updatedAt),
       },
       profile: profileRow
         ? {

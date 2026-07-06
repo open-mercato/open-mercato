@@ -2,7 +2,7 @@
  * Unified `modules.ts` override surface — one place for downstream apps to
  * replace or disable any contract a module presents.
  *
- * Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md`
+ * Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md`
  *
  * Each `ModuleEntry` in `apps/<app>/src/modules.ts` may carry an
  * `overrides` field whose sub-keys address one domain at a time:
@@ -229,7 +229,7 @@ const DOMAIN_KEYS: ModuleOverrideDomain[] = [
 ]
 
 const TRACKING_ISSUE_HINT =
-  'See `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` and tracking issue https://github.com/open-mercato/open-mercato/issues/1787.'
+  'See `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` and tracking issue https://github.com/open-mercato/open-mercato/issues/1787.'
 
 /**
  * Walk every `ModuleEntry` and dispatch its `overrides.<domain>` shape
@@ -312,7 +312,7 @@ export function applyModuleOverridesFromEnabledModules(
 // runtime override scenarios call the dispatcher / programmatic API
 // before `bootstrap.ts` triggers manifest registration.
 //
-// Spec: `.ai/specs/2026-05-04-modules-ts-unified-overrides.md` (Phases 2/3).
+// Spec: `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` (Phases 2/3).
 
 // ApiRouteManifestEntry / ApiHandler / HttpMethod live in ./registry. The
 // type-only import is erased at runtime, so there is no cycle even though

@@ -16,6 +16,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
@@ -39,6 +40,10 @@ type MethodMetadata = {
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
+  /** Route-declared opt-out from module-resource-usage tracking (e.g. an endpoint that itself
+   * reads/clears that telemetry, so tracking it would perturb the data it just reported). Set
+   * `skipModuleResourceUsageTracking: true` in the route's `metadata` export for the method. */
+  skipModuleResourceUsageTracking?: boolean
 }
 
 type HandlerContext = {
@@ -122,6 +127,9 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
       }
     }
   }
+  if (typeof source.skipModuleResourceUsageTracking === 'boolean') {
+    normalized.skipModuleResourceUsageTracking = source.skipModuleResourceUsageTracking
+  }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
 
@@ -139,7 +147,7 @@ function normalizeLoadedMetadata(
   return { [method]: metadata }
 }
 
-async function checkAuthorization(
+export async function checkAuthorization(
   methodMetadata: MethodMetadata | null,
   auth: AuthContext,
   req: NextRequest
@@ -167,24 +175,31 @@ async function checkAuthorization(
   }
 
   if (auth && requiresAuthentication) {
-    const rawTenantCandidate = await extractTenantCandidate(req)
-    if (rawTenantCandidate !== undefined) {
+    // HTTP parameter pollution hardening (issue #2665): a request can carry `tenantId`
+    // more than once — repeated `?tenantId=` query params, or in both the query string
+    // and the body. The dispatcher and downstream handlers may disagree on which
+    // occurrence wins (here historically `getAll().last`, handlers use `get()` first),
+    // so the authorization gate must validate EVERY distinct candidate. If any one
+    // targets a tenant the actor may not select, the request is rejected — making this
+    // decision binding regardless of how a handler later parses the same request.
+    const rawTenantCandidates = await extractTenantCandidates(req)
+    const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
+    const enforcedCandidates = new Set<string | null>()
+    for (const rawTenantCandidate of rawTenantCandidates) {
       const tenantCandidate = sanitizeTenantCandidate(rawTenantCandidate)
-      if (tenantCandidate !== undefined) {
-        const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
-        const actorTenant = normalizeTenantId(auth.tenantId ?? null) ?? null
-        const tenantDiffers = normalizedCandidate !== actorTenant
-        if (tenantDiffers) {
-          try {
-            const guardContainer = await ensureContainer()
-            await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
-          } catch (error) {
-            if (isCrudHttpError(error)) {
-              return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
-            }
-            throw error
-          }
+      if (tenantCandidate === undefined) continue
+      const normalizedCandidate = normalizeTenantId(tenantCandidate) ?? null
+      if (normalizedCandidate === actorTenant) continue
+      if (enforcedCandidates.has(normalizedCandidate)) continue
+      enforcedCandidates.add(normalizedCandidate)
+      try {
+        const guardContainer = await ensureContainer()
+        await enforceTenantSelection({ auth, container: guardContainer }, tenantCandidate)
+      } catch (error) {
+        if (isCrudHttpError(error)) {
+          return NextResponse.json(error.body ?? { error: t('api.errors.forbidden', 'Forbidden') }, { status: error.status })
         }
+        throw error
       }
     }
   }
@@ -248,17 +263,12 @@ function sanitizeTenantCandidate(candidate: unknown): unknown {
   return candidate
 }
 
-export async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
-  const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
-  if (tenantParams.length > 0) {
-    return tenantParams[tenantParams.length - 1]
-  }
-
+function bodyCarriesTenantId(req: NextRequest): boolean {
   const method = (req.method || 'GET').toUpperCase()
-  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') {
-    return undefined
-  }
+  return method !== 'GET' && method !== 'HEAD' && method !== 'OPTIONS'
+}
 
+async function extractBodyTenantCandidate(req: NextRequest): Promise<unknown> {
   const rawContentType = req.headers.get('content-type')
   if (!rawContentType) return undefined
   const contentType = rawContentType.split(';')[0].trim().toLowerCase()
@@ -282,6 +292,35 @@ export async function extractTenantCandidate(req: NextRequest): Promise<unknown>
   }
 
   return undefined
+}
+
+export async function extractTenantCandidate(req: NextRequest): Promise<unknown> {
+  const tenantParams = req.nextUrl?.searchParams?.getAll?.('tenantId') ?? []
+  if (tenantParams.length > 0) {
+    return tenantParams[tenantParams.length - 1]
+  }
+
+  if (!bodyCarriesTenantId(req)) {
+    return undefined
+  }
+
+  return extractBodyTenantCandidate(req)
+}
+
+// Returns every `tenantId` candidate the request carries — each repeated `?tenantId=`
+// query param plus any body-level value. The dispatcher enforces tenant selection
+// against all of them so a downstream handler that reads a different occurrence
+// (e.g. `searchParams.get()` first vs. `getAll()` last) cannot be tricked into using a
+// candidate that was never authorized (issue #2665).
+export async function extractTenantCandidates(req: NextRequest): Promise<unknown[]> {
+  const candidates: unknown[] = [...(req.nextUrl?.searchParams?.getAll?.('tenantId') ?? [])]
+
+  if (bodyCarriesTenantId(req)) {
+    const bodyCandidate = await extractBodyTenantCandidate(req)
+    if (bodyCandidate !== undefined) candidates.push(bodyCandidate)
+  }
+
+  return candidates
 }
 
 async function handleRequest(
@@ -379,7 +418,18 @@ async function handleRequest(
 
   try {
     const handlerContext: HandlerContext = { params: match.params, auth }
-    const response = await runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+    const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+    const response = methodMetadata?.skipModuleResourceUsageTracking !== true
+      ? await withModuleResourceUsage(
+        {
+          moduleId: match.route.moduleId,
+          surface: 'api',
+          operation: `${method} ${match.route.path}`,
+          resourceId: `${method} ${match.route.path}`,
+        },
+        runHandler,
+      )
+      : await runHandler()
     const finalResponse = authResolution.status === 'invalid' && response.status === 401
       ? clearStaffAuthCookies(response)
       : response

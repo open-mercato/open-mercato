@@ -27,6 +27,7 @@ import { fetchStuckDealIds } from '../../lib/stuckDeals'
 const rawBodySchema = z.object({}).passthrough()
 
 const stringOrStringArray = z.union([z.string(), z.array(z.string())])
+const OPEN_DEAL_STATUSES = ['open', 'in_progress'] as const
 const booleanQueryParam = z.preprocess((value) => {
   const parsed = parseBooleanFromUnknown(value)
   return parsed === null ? value : parsed
@@ -47,6 +48,7 @@ export const dealListQuerySchema = z
     expectedCloseAtTo: z.string().optional(),
     isStuck: booleanQueryParam,
     isOverdue: booleanQueryParam,
+    needsAttention: booleanQueryParam,
     valueCurrency: stringOrStringArray.optional(),
     sortField: z.string().optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -154,6 +156,43 @@ async function fetchDealIdsMatchingAssociations(
     values,
   )
   return rows.map((row) => row.id)
+}
+
+async function fetchNeedAttentionDealIds(
+  em: EntityManager,
+  organizationId: string,
+  tenantId: string,
+): Promise<string[]> {
+  const connection = em.getConnection()
+  const overdueRows = await connection.execute<Array<{ id: string }>>(
+    `SELECT id FROM customer_deals
+      WHERE organization_id = ?
+        AND tenant_id = ?
+        AND deleted_at IS NULL
+        AND status = 'open'
+        AND expected_close_at IS NOT NULL
+        AND expected_close_at < CURRENT_DATE`,
+    [organizationId, tenantId],
+  )
+
+  const attentionIds = new Set(overdueRows.map((row) => row.id))
+  const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
+  if (stuckIds.length > 0) {
+    const idPlaceholders = stuckIds.map(() => '?').join(',')
+    const statusPlaceholders = OPEN_DEAL_STATUSES.map(() => '?').join(',')
+    const openStuckRows = await connection.execute<Array<{ id: string }>>(
+      `SELECT id FROM customer_deals
+        WHERE organization_id = ?
+          AND tenant_id = ?
+          AND deleted_at IS NULL
+          AND status IN (${statusPlaceholders})
+          AND id IN (${idPlaceholders})`,
+      [organizationId, tenantId, ...OPEN_DEAL_STATUSES, ...stuckIds],
+    )
+    for (const row of openStuckRows) attentionIds.add(row.id)
+  }
+
+  return Array.from(attentionIds)
 }
 
 function normalizeCurrencyList(value: unknown): string[] {
@@ -302,7 +341,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = range
   }
 
-  if (query.isOverdue) {
+  if (query.isOverdue && !query.needsAttention) {
     const today = new Date()
     today.setHours(0, 0, 0, 0)
     if (statusList.length === 0) {
@@ -316,7 +355,7 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
     filters.expected_close_at = existingRange
   }
 
-  if (query.isStuck && ctx) {
+  if (query.isStuck && !query.needsAttention && ctx) {
     const tenantId = ctx.auth?.tenantId
     // CrudCtx.auth carries `orgId` (not `organizationId`). The previous code referenced
     // `organizationId` which is always `undefined`, so the typeof check below silently
@@ -326,6 +365,16 @@ export async function buildDealListFilters(query: DealListQuery, ctx?: import('@
       const em = ctx.container.resolve<EntityManager>('em')
       const stuckIds = await fetchStuckDealIds(em, organizationId, tenantId)
       intersectIds(stuckIds)
+    }
+  }
+
+  if (query.needsAttention && ctx) {
+    const tenantId = ctx.auth?.tenantId
+    const organizationId = ctx.auth?.orgId
+    if (typeof tenantId === 'string' && typeof organizationId === 'string') {
+      const em = ctx.container.resolve<EntityManager>('em')
+      const attentionIds = await fetchNeedAttentionDealIds(em, organizationId, tenantId)
+      intersectIds(attentionIds)
     }
   }
 

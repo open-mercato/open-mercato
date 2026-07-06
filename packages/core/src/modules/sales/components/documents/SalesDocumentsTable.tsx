@@ -23,6 +23,7 @@ import {
   createDictionaryMap,
   normalizeDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
+import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
 
 type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit-memo'
 
@@ -665,7 +666,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           ) : null}
         </div>
       ),
-      meta: { sticky: true },
+      meta: SALES_DOCUMENT_NUMBER_COLUMN_META,
     }
 
     const customerColumn: ColumnDef<SalesDocumentRow> = {

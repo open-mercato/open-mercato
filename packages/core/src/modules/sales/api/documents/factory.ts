@@ -17,7 +17,7 @@ import {
 } from '../openapi'
 import { parseScopedCommandInput, resolveCrudRecordId } from '../utils'
 import { documentUpdateSchema } from '../../commands/documents'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { recalculateOrderTotalsForDisplay } from '../../commands/returns'
@@ -101,7 +101,7 @@ function buildFilters(query: ListQuery, numberColumn: string, kind: DocumentKind
   const filters: Record<string, unknown> = {}
   if (query.id) filters.id = { $eq: query.id }
   if (query.search && query.search.trim().length > 0) {
-    const term = `%${escapeLikePattern(query.search.trim())}%`
+    const term = buildIlikeTerm(query.search.trim())
     filters[numberColumn] = { $ilike: term }
   }
   if (query.customerId) {
@@ -344,6 +344,27 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     ...(binding.kind === 'order' ? orderOnlyFields : quoteOnlyFields),
   ]
 
+  // Large JSONB snapshot/payload columns that only the detail page renders. The
+  // grid never reads them, so selecting them for list pages fetches and decrypts
+  // blobs over the wire for nothing (#2233). `customer_snapshot` is intentionally
+  // kept because the grid derives the customer name/email column from it.
+  const detailOnlyProjectionFields = new Set([
+    'billing_address_snapshot',
+    'shipping_address_snapshot',
+    'shipping_method_snapshot',
+    'payment_method_snapshot',
+    'totals_snapshot',
+    'metadata',
+  ])
+
+  const gridFields = listFields.filter((field) => !detailOnlyProjectionFields.has(field))
+
+  // The detail page fetches a single document through this same list route with an
+  // `?id=` filter (there is no separate detail endpoint), so it needs the full
+  // projection. Grid listings (no `id`) use the trimmed projection.
+  const resolveListFields = (query: ListQuery) =>
+    query && typeof query.id === 'string' && query.id.length ? listFields : gridFields
+
   return {
     metadata: routeMetadata,
     orm: {
@@ -359,7 +380,7 @@ export function buildDocumentCrudOptions(binding: DocumentBinding) {
     list: {
       schema: listSchema,
       entityId: binding.entityId,
-      fields: listFields,
+      fields: (query: ListQuery) => resolveListFields(query),
       sortFieldMap: buildSortMap(numberColumn),
       buildFilters: async (query: any) => buildFilters(query, numberColumn, binding.kind),
       decorateCustomFields: { entityIds: [binding.entityId] },

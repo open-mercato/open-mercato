@@ -105,6 +105,14 @@ function buildAuthEnvelope(ctx: AiToolExecutionContext): TrustedAuthContextEnvel
   if (!userId) {
     return { auth: null, status: 'invalid' }
   }
+  // MCP api-key contexts use an `api_key:<uuid>` subject (see auth.ts). Surface
+  // the bare key UUID as `keyId` so downstream actor logging resolves to a valid
+  // UUID — the CRUD factory computes `actorUserId = auth.keyId ?? auth.sub`, and
+  // the access-log schema rejects a non-UUID `actorUserId`. This matches real
+  // HTTP api-key auth, where `keyId` is the api key record id.
+  const apiKeyId = userId.startsWith('api_key:')
+    ? userId.slice('api_key:'.length)
+    : undefined
   const auth: AuthContext = {
     sub: userId,
     userId,
@@ -112,6 +120,7 @@ function buildAuthEnvelope(ctx: AiToolExecutionContext): TrustedAuthContextEnvel
     orgId: ctx.organizationId,
     roles: [],
     isSuperAdmin: ctx.isSuperAdmin,
+    ...(apiKeyId ? { keyId: apiKeyId } : {}),
   }
   return { auth, status: 'authenticated' }
 }

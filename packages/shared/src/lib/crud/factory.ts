@@ -189,9 +189,13 @@ export type CrudListCustomFieldDecorator = {
 
 export type ListConfig<TList> = {
   schema: z.ZodType<TList>
-  // Optional: use the QueryEngine when entityId + fields are provided
+  // Optional: use the QueryEngine when entityId + fields are provided.
+  // A function form lets a route narrow the projection per request — e.g. drop
+  // large detail-only JSONB columns from grid listings while still selecting
+  // them for single-document fetches (`?id=`). Returning fewer columns avoids
+  // fetching and decrypting blobs the list never renders (#2233).
   entityId?: any
-  fields?: any[]
+  fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
   sortFieldMap?: Record<string, any>
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
@@ -944,7 +948,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
 
   // OSS opt-in optimistic locking — auto-register a generic reader for every
   // CRUD entity using the factory's own ORM config (Step 13.3 of the spec at
-  // .ai/specs/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
+  // .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md). Hand-wired readers
   // registered earlier via module DI (customers/sales) always win because we
   // use the `IfAbsent` variant. Skipped silently when the route has no
   // resolvable resourceKind or no ORM entity class (e.g. virtual routes).
@@ -1654,8 +1658,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           finishProfile({ result: 'empty_scope', cacheStatus, itemCount: 0, total: 0 })
           return response
         }
+        const resolvedListFields = typeof opts.list.fields === 'function'
+          ? (opts.list.fields as (query: any, ctx: CrudCtx) => any[])(validated as any, ctx)
+          : opts.list.fields
         const queryOpts: any = {
-          fields: opts.list.fields!,
+          fields: resolvedListFields!,
           includeCustomFields: true,
           sort,
           page,

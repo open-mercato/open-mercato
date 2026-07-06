@@ -53,7 +53,7 @@ async function cleanupMessageCopies(
 
 /**
  * TC-MSG-013: Inbox Bulk Mark Read And Mark Unread
- * Source: .ai/specs/2026-04-23-messages-inbox-bulk-actions.md
+ * Source: .ai/specs/implemented/2026-04-23-messages-inbox-bulk-actions.md
  */
 test.describe('TC-MSG-013: Inbox Bulk Mark Read And Mark Unread', () => {
   test('should bulk mark inbox messages read and unread and keep selection on total failure', async ({ page, request }) => {

@@ -262,6 +262,7 @@ Declared in `events.ts` via `createModuleEvents`. Emit with `emitCustomerAccount
 | `customer_accounts.role.created` | crud | No |
 | `customer_accounts.role.updated` | crud | No |
 | `customer_accounts.role.deleted` | crud | No |
+| `customer_accounts.user.invited` | lifecycle | Yes |
 | `customer_accounts.invitation.accepted` | lifecycle | Yes |
 
 ## Subscribers
