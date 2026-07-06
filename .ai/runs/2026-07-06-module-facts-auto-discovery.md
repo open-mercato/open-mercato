@@ -43,10 +43,10 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 
 ### Phase 1: cli discovery + extractor generalisation
 
-- [ ] 1.1 Add `ModuleFactSource` type + `discoverEnabledModuleSources` / `discoverPackageModuleSources` in new `module-facts-discovery.ts`
-- [ ] 1.2 Generalise `extractModuleFacts` (`moduleRoot?`) + `extractAllModuleFacts` (`sources?`); `@deprecate` `MODULE_FACTS_ALLOWLIST` / `ModuleFactsModuleId`
-- [ ] 1.3 Switch `generateModuleFacts` to `discoverEnabledModuleSources`
-- [ ] 1.4 Regenerate `apps/mercato/src/module-facts.generated.json` snapshot via `yarn generate`
+- [x] 1.1 Add `ModuleFactSource` type + `discoverEnabledModuleSources` / `discoverPackageModuleSources` in new `module-facts-discovery.ts` — 31ef54051
+- [x] 1.2 Generalise `extractModuleFacts` (`moduleRoot?`) + `extractAllModuleFacts` (`sources?`); `@deprecate` `MODULE_FACTS_ALLOWLIST` / `ModuleFactsModuleId` — 31ef54051
+- [x] 1.3 Switch `generateModuleFacts` to `discoverEnabledModuleSources` — 31ef54051
+- [x] 1.4 Regenerate `apps/mercato/src/module-facts.generated.json` snapshot via `yarn generate` (9 → 47 modules; enterprise env-gated off by default, app-local excluded) — 31ef54051
 
 ### Phase 2: cli tests
 
