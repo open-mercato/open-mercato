@@ -62,8 +62,12 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 
 ### Phase 4: BC + docs + gate
 
-- [ ] 4.1 `RELEASE_NOTES.md` deprecation + widened-artifact note
-- [ ] 4.2 Full validation gate (build:packages → generate → build:packages → i18n → typecheck → test → build:app)
+- [x] 4.1 `RELEASE_NOTES.md` deprecation + widened-artifact note; spec reconciled — db2f8dd3f
+- [x] 4.2 Full validation gate green (build:packages ✓✓, generate ✓ deterministic, i18n ✓✓, typecheck ✓, build:app ✓; test ✓ except 2 pre-existing locale failures untouched by this diff: ui `format.test.ts`, core `DealsKpiStrip.test.tsx`)
+
+## Result
+
+All phases complete. Gate green modulo 2 pre-existing locale-dependent test failures outside the diff. Ready for review.
 
 ## Changelog
 
