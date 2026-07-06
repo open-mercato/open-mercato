@@ -2928,6 +2928,18 @@
       "indexes": [
         {
           "columnNames": [
+            "organization_id",
+            "disposition",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "agent_proposals_org_disposition_created_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "id"
           ],
           "composite": false,
@@ -3733,6 +3745,18 @@
         },
         {
           "columnNames": [
+            "organization_id",
+            "status",
+            "created_at"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "agent_runs_org_status_created_idx",
+          "primary": false,
+          "unique": false
+        },
+        {
+          "columnNames": [
             "id"
           ],
           "composite": false,
@@ -3762,6 +3786,15 @@
           "keyName": "agent_runs_tenant_org_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "agent_runs_eval_failed_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"agent_runs_eval_failed_idx\" on \"agent_runs\" (\"organization_id\", \"created_at\") where \"eval_passed\" = false"
         }
       ],
       "checks": [],

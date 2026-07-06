@@ -13,7 +13,16 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, mapProposal, mapRun, type ProposalView, type RunView } from '../../components/types'
+import {
+  mapAgent,
+  mapOverviewMetrics,
+  mapProposal,
+  mapRun,
+  type OverviewMetricsView,
+  type ProposalView,
+  type RunView,
+} from '../../components/types'
+import { useCoalescedReload } from '../../components/useCoalescedReload'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
@@ -22,11 +31,13 @@ type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
 type TrustRow = { id: string; label: string; runs: number; overridePct: number | null; status: Health }
 type StuckRow = { id: string; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
+type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
+type AgentMetricsResponse = { totalRuns?: number; overrideRate?: number | null; disposedProposals?: number }
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 const slaVariant: StatusMap<Sla> = { breach: 'error', risk: 'warning', ok: 'success' }
-const DISPOSED = ['approved', 'edited', 'rejected', 'auto_approved']
-const OVERRIDDEN = ['edited', 'rejected']
+const OVERVIEW_WINDOW = '7d'
+const NEEDS_ATTENTION_PAGE_SIZE = 20
 
 // SLA is derived from how long the proposal has been waiting (real, from created_at).
 function slaOf(waitingMin: number | null): Sla {
@@ -72,14 +83,13 @@ async function fetchList(path: string): Promise<{ items: Array<Record<string, un
 export default function AgentFleetOverviewPage() {
   const t = useT()
   const router = useRouter()
-  const [proposals, setProposals] = React.useState<ProposalView[]>([])
-  const [runs, setRuns] = React.useState<RunView[]>([])
-  const [runsTotal, setRunsTotal] = React.useState(0)
-  const [rawProposals, setRawProposals] = React.useState<Array<Record<string, unknown>>>([])
-  const [rawRuns, setRawRuns] = React.useState<Array<Record<string, unknown>>>([])
+  const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
+  const [pendingProposals, setPendingProposals] = React.useState<ProposalView[]>([])
+  const [pendingRuns, setPendingRuns] = React.useState<Map<string, RunView>>(new Map())
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [agentKinds, setAgentKinds] = React.useState<Map<string, string>>(new Map())
   const [agentIds, setAgentIds] = React.useState<string[]>([])
+  const [agentMetrics, setAgentMetrics] = React.useState<Map<string, AgentWindowMetrics>>(new Map())
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [refreshKey, setRefreshKey] = React.useState(0)
@@ -90,17 +100,20 @@ export default function AgentFleetOverviewPage() {
       setIsLoading(true)
       setError(null)
       try {
-        const [proposalsRes, runsRes, agentsRes] = await Promise.all([
-          fetchList('/api/agent_orchestrator/proposals?pageSize=100'),
-          fetchList('/api/agent_orchestrator/runs?pageSize=100'),
+        const [overviewCall, pendingRes, agentsRes] = await Promise.all([
+          apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${OVERVIEW_WINDOW}`),
+          fetchList(
+            `/api/agent_orchestrator/proposals?disposition=pending&sortField=createdAt&sortDir=asc&pageSize=${NEEDS_ATTENTION_PAGE_SIZE}`,
+          ),
           fetchList('/api/agent_orchestrator/agents'),
         ])
         if (cancelled) return
-        setRawProposals(proposalsRes.items)
-        setRawRuns(runsRes.items)
-        setProposals(proposalsRes.items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row))
-        setRuns(runsRes.items.map((item) => mapRun(item)).filter((row): row is RunView => !!row))
-        setRunsTotal(runsRes.total)
+        const overview = overviewCall.ok && overviewCall.result ? mapOverviewMetrics(overviewCall.result) : null
+        if (!overview) {
+          setError(t('agent_orchestrator.overview.error'))
+          return
+        }
+        const pending = pendingRes.items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row)
         const labels = new Map<string, string>()
         const kinds = new Map<string, string>()
         const ids: string[] = []
@@ -112,9 +125,46 @@ export default function AgentFleetOverviewPage() {
             ids.push(agent.id)
           }
         }
+        const runIds = Array.from(new Set(pending.map((row) => row.runId)))
+        const [runsRes, perAgentEntries] = await Promise.all([
+          runIds.length
+            ? fetchList(
+                `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
+              )
+            : Promise.resolve({ items: [] as Array<Record<string, unknown>>, total: 0 }),
+          Promise.all(
+            ids.map(async (id) => {
+              const call = await apiCall<AgentMetricsResponse>(
+                `/api/agent_orchestrator/agents/${encodeURIComponent(id)}/metrics?window=${OVERVIEW_WINDOW}`,
+              )
+              if (!call.ok || !call.result) return [id, null] as const
+              const stats: AgentWindowMetrics = {
+                totalRuns: typeof call.result.totalRuns === 'number' ? call.result.totalRuns : 0,
+                overrideRate: typeof call.result.overrideRate === 'number' ? call.result.overrideRate : null,
+                disposedProposals:
+                  typeof call.result.disposedProposals === 'number' ? call.result.disposedProposals : 0,
+              }
+              return [id, stats] as const
+            }),
+          ),
+        ])
+        if (cancelled) return
+        const runs = new Map<string, RunView>()
+        for (const item of runsRes.items) {
+          const run = mapRun(item)
+          if (run) runs.set(run.id, run)
+        }
+        const perAgent = new Map<string, AgentWindowMetrics>()
+        for (const [id, stats] of perAgentEntries) {
+          if (stats) perAgent.set(id, stats)
+        }
+        setMetrics(overview)
+        setPendingProposals(pending)
+        setPendingRuns(runs)
         setAgentLabels(labels)
         setAgentKinds(kinds)
         setAgentIds(ids)
+        setAgentMetrics(perAgent)
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.overview.error'))
       } finally {
@@ -126,87 +176,63 @@ export default function AgentFleetOverviewPage() {
   }, [t, refreshKey])
 
   // Live-refresh KPIs + needs-attention queue on any proposal lifecycle change
-  // (DOM Event Bridge, tenant/org-scoped server-side).
+  // (DOM Event Bridge, tenant/org-scoped server-side), coalesced so an event
+  // burst triggers at most one reload per interval.
+  const triggerReload = React.useCallback(() => setRefreshKey((key) => key + 1), [])
+  const coalescedReload = useCoalescedReload(triggerReload)
   useAppEvent('agent_orchestrator.proposal.*', () => {
-    setRefreshKey((key) => key + 1)
+    coalescedReload()
   })
 
   const kpi = React.useMemo(() => {
-    const disposed = proposals.filter((p) => p.disposition !== 'pending').length
-    const auto = proposals.filter((p) => p.disposition === 'auto_approved').length
-    const pending = proposals.filter((p) => p.disposition === 'pending')
-    const autoPct = disposed > 0 ? Math.round((auto / disposed) * 100) : null
-    const oldestMin = pending
-      .map((p) => minutesAgo(p.createdAt ?? null))
-      .filter((value): value is number => value != null)
-      .reduce<number | null>((max, value) => (max == null || value > max ? value : max), null)
-    return { autoPct, pendingCount: pending.length, oldestMin }
-  }, [proposals])
+    if (!metrics) return { autoPct: null as number | null, pendingCount: 0, oldestMin: null as number | null }
+    return {
+      autoPct: metrics.autoApproveRate == null ? null : Math.round(metrics.autoApproveRate * 100),
+      pendingCount: metrics.pendingCount,
+      oldestMin: minutesAgo(metrics.oldestPendingAt),
+    }
+  }, [metrics])
 
   const trust = React.useMemo<TrustRow[]>(() => {
-    // TODO(F2 follow-up): this tile computes override/run stats client-side from
-    // capped /proposals + /runs lists; repoint it at GET /agents/:id/metrics
-    // (which now prefers precomputed rollups) so large fleets read stable windows.
-    const runStats = new Map<string, { total: number; errors: number }>()
-    for (const run of rawRuns) {
-      const id = fieldOf(run, 'agent_id', 'agentId')
-      if (!id) continue
-      const stat = runStats.get(id) ?? { total: 0, errors: 0 }
-      stat.total += 1
-      if (run.status === 'error') stat.errors += 1
-      runStats.set(id, stat)
-    }
-    const proposalStats = new Map<string, { disposed: number; overrides: number }>()
-    for (const proposal of rawProposals) {
-      const id = fieldOf(proposal, 'agent_id', 'agentId')
-      if (!id) continue
-      const disposition = fieldOf(proposal, 'disposition') || 'pending'
-      const stat = proposalStats.get(id) ?? { disposed: 0, overrides: 0 }
-      if (DISPOSED.includes(disposition)) stat.disposed += 1
-      if (OVERRIDDEN.includes(disposition)) stat.overrides += 1
-      proposalStats.set(id, stat)
-    }
-    return agentIds.map((id) => {
-      const run = runStats.get(id) ?? { total: 0, errors: 0 }
-      const proposal = proposalStats.get(id) ?? { disposed: 0, overrides: 0 }
-      const overridePct = proposal.disposed > 0 ? Math.round((proposal.overrides / proposal.disposed) * 100) : null
-      const errorRate = run.total > 0 ? run.errors / run.total : 0
-      let status: Health = 'new'
-      if (run.total > 0 || proposal.disposed > 0) {
-        if ((overridePct ?? 0) > 30 || errorRate > 0.2) status = 'poor'
-        else if ((overridePct ?? 0) > 15) status = 'watch'
-        else status = 'good'
-      }
-      return { id, label: agentLabels.get(id) || id, runs: run.total, overridePct, status }
-    }).sort((a, b) => b.runs - a.runs)
-  }, [rawRuns, rawProposals, agentIds, agentLabels])
+    // Backed by GET /agents/:id/metrics (rollup-preferred, live fallback) so
+    // large fleets read stable windows instead of a capped 100-row sample.
+    return agentIds
+      .map((id) => {
+        const stats = agentMetrics.get(id) ?? null
+        const runsCount = stats?.totalRuns ?? 0
+        const overridePct = stats && stats.overrideRate != null ? Math.round(stats.overrideRate * 100) : null
+        let status: Health = 'new'
+        if (runsCount > 0 || (stats?.disposedProposals ?? 0) > 0) {
+          if ((overridePct ?? 0) > 30) status = 'poor'
+          else if ((overridePct ?? 0) > 15) status = 'watch'
+          else status = 'good'
+        }
+        return { id, label: agentLabels.get(id) || id, runs: runsCount, overridePct, status }
+      })
+      .sort((a, b) => b.runs - a.runs)
+  }, [agentIds, agentMetrics, agentLabels])
 
   const stuck = React.useMemo<StuckRow[]>(() => {
-    const runById = new Map<string, Record<string, unknown>>()
-    for (const run of rawRuns) {
-      const id = fieldOf(run, 'id')
-      if (id) runById.set(id, run)
-    }
-    return rawProposals
-      .filter((p) => (fieldOf(p, 'disposition') || 'pending') === 'pending')
+    return pendingProposals
       .map((proposal) => {
-        const agentId = fieldOf(proposal, 'agent_id', 'agentId')
-        const runId = fieldOf(proposal, 'run_id', 'runId')
-        const input = runById.get(runId) ? asObject(runById.get(runId)!.input) : null
-        const claim = (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || (runId ? runId.slice(0, 12) : fieldOf(proposal, 'id').slice(0, 12))
-        const waitingMin = minutesAgo(fieldOf(proposal, 'created_at', 'createdAt') || null)
+        const run = pendingRuns.get(proposal.runId) ?? null
+        const input = run ? asObject(run.input) : null
+        const claim =
+          (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) ||
+          proposal.runId.slice(0, 12)
+        const waitingMin = minutesAgo(proposal.createdAt)
         return {
-          id: fieldOf(proposal, 'id'),
+          id: proposal.id,
           claim,
-          agentLabel: agentLabels.get(agentId) || agentId || '—',
+          agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId || '—',
           waitingMin,
-          waitingFor: (agentKinds.get(agentId) === 'actionable' ? 'do' : 'review') as Verb,
+          waitingFor: (agentKinds.get(proposal.agentId) === 'actionable' ? 'do' : 'review') as Verb,
           sla: slaOf(waitingMin),
         }
       })
       .sort((a, b) => (b.waitingMin ?? 0) - (a.waitingMin ?? 0))
       .slice(0, 6)
-  }, [rawProposals, rawRuns, agentLabels, agentKinds])
+  }, [pendingProposals, pendingRuns, agentLabels, agentKinds])
 
   const backendChip = <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
   // Per-verb intervention counts need a backend taxonomy (Review/Question/Do/Notify/Know).
@@ -219,7 +245,10 @@ export default function AgentFleetOverviewPage() {
     { key: 'know', icon: BookOpen, count: 53, pct: 5 },
   ] as const
 
-  const empty = !isLoading && !error && proposals.length === 0 && runsTotal === 0
+  const dispositionTotal = metrics
+    ? Object.values(metrics.dispositionCounts).reduce((sum, count) => sum + count, 0)
+    : 0
+  const empty = !isLoading && !error && (!metrics || (metrics.runsTotal === 0 && dispositionTotal === 0))
 
   return (
     <Page>
@@ -230,10 +259,13 @@ export default function AgentFleetOverviewPage() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <ContextChip>{t('agent_orchestrator.overview.domain', 'Claims adjudication')}</ContextChip>
               <ContextChip>{t('agent_orchestrator.overview.period.week', 'last 7 days')}</ContextChip>
-              <ContextChip>{t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: runsTotal.toLocaleString('en-US') })}</ContextChip>
+              <ContextChip>{t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: (metrics?.runsTotal ?? 0).toLocaleString('en-US') })}</ContextChip>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {metrics?.source === 'live' ? (
+              <span className="hidden text-xs text-muted-foreground sm:inline">{t('agent_orchestrator.overview.liveSource', 'Live figures — rollups not computed yet')}</span>
+            ) : null}
             <span className="hidden text-xs text-muted-foreground sm:inline">{t('agent_orchestrator.overview.refreshed', 'Data refreshed just now')}</span>
             <Button variant="outline" size="sm" aria-label={t('agent_orchestrator.overview.refresh', 'Refresh')} onClick={() => setRefreshKey((value) => value + 1)}>
               <RotateCw className="size-4" />
@@ -261,7 +293,6 @@ export default function AgentFleetOverviewPage() {
               <KpiTile icon={CheckCircle2}
                 label={t('agent_orchestrator.overview.kpi.autoCompleted', 'Auto-completed')}
                 value={kpi.autoPct == null ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} /> : `${kpi.autoPct}%`}
-                chip={kpi.autoPct == null ? null : backendChip}
                 sub={t('agent_orchestrator.overview.kpi.autoCompletedSub', 'Cleared with no human touch')} />
               <KpiTile icon={ClipboardList}
                 label={t('agent_orchestrator.overview.kpi.needsDecision', 'Needs a decision')}

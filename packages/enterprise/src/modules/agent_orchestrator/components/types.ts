@@ -28,6 +28,17 @@ export type GuardCheckView = {
   result: string
 }
 
+/** Response of GET /metrics/overview — org-level cockpit aggregates. */
+export type OverviewMetricsView = {
+  window: string
+  autoApproveRate: number | null
+  pendingCount: number
+  oldestPendingAt: string | null
+  runsTotal: number
+  dispositionCounts: Record<string, number>
+  source: 'rollup' | 'live'
+}
+
 export type RunView = {
   id: string
   agentId: string
@@ -171,6 +182,28 @@ function mapGuardResults(raw: unknown): GuardCheckView[] {
       return { kind, result }
     })
     .filter((check): check is GuardCheckView => !!check)
+}
+
+export function mapOverviewMetrics(item: Record<string, unknown>): OverviewMetricsView | null {
+  const source = item.source === 'rollup' ? 'rollup' : item.source === 'live' ? 'live' : null
+  if (!source) return null
+  const dispositionCounts: Record<string, number> = {}
+  const countsRaw = item.dispositionCounts
+  if (countsRaw && typeof countsRaw === 'object' && !Array.isArray(countsRaw)) {
+    for (const [key, value] of Object.entries(countsRaw as Record<string, unknown>)) {
+      const count = asNumber(value)
+      if (count != null) dispositionCounts[key] = count
+    }
+  }
+  return {
+    window: asString(item.window) ?? '7d',
+    autoApproveRate: asNumber(item.autoApproveRate),
+    pendingCount: asNumber(item.pendingCount) ?? 0,
+    oldestPendingAt: asString(item.oldestPendingAt),
+    runsTotal: asNumber(item.runsTotal) ?? 0,
+    dispositionCounts,
+    source,
+  }
 }
 
 export function mapProposal(item: Record<string, unknown>): ProposalView | null {

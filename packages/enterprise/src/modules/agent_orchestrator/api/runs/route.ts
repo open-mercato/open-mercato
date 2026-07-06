@@ -73,6 +73,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
+    defaultSort: { field: 'created_at', dir: 'desc' },
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }

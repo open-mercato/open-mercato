@@ -1,0 +1,102 @@
+---
+title: Agent Orchestration Scaling
+description: Size the queue, worker fleet, and database connections for real agent-orchestration load, and monitor the pipeline in production.
+---
+
+# Agent Orchestration Scaling
+
+This runbook explains how to configure an Open Mercato deployment so the agent-orchestration pipeline (the enterprise `agent_orchestrator` module plus the core `workflows` engine) sustains real production load. Out of the box the platform is tuned for development, not for a fleet of LLM-bound agent runs.
+
+## Why the defaults are not enough
+
+The reference load target is **1,000 cases/day × ~12 agents per case ≈ 12,000 agent runs/day**. With an average run taking on the order of a minute, that works out to roughly **~20 concurrently executing LLM-bound runs in steady state** across a business-hours window (and 50–100 at peak). The default configuration — a file-based sequential queue processed by a single process at concurrency 1 — is an order of magnitude below that.
+
+Three things must change for production agent load: the queue strategy, the worker deployment, and (in containerized topologies) the OpenCode URL.
+
+## Queue strategy: `QUEUE_STRATEGY=async` is required
+
+```bash
+QUEUE_STRATEGY=async
+REDIS_URL=redis://your-redis:6379
+```
+
+The default `local` queue strategy (`packages/queue/src/strategies/local.ts`) stores jobs as JSON files under `.mercato/queue/<name>/` and processes them **sequentially** — the `concurrency` option is accepted for logging/compatibility only, and the strategy is explicitly not suitable for production or multi-process environments. A minute-long agent run therefore blocks every other job behind it, capping throughput near 1,400 one-minute runs/day no matter how much hardware you add.
+
+`QUEUE_STRATEGY=async` switches to the Redis-backed BullMQ strategy, which supports real per-queue concurrency, retries with backoff, and multiple worker processes consuming the same queue.
+
+## Run a dedicated worker fleet
+
+Do not rely on `AUTO_SPAWN_WORKERS` in the web process for agent load — that couples LLM-bound job execution to the web process's lifecycle, memory, and DB pool. Deploy dedicated worker processes instead:
+
+```bash
+# All discovered queues in one process:
+yarn mercato queue worker --all
+
+# Or one process per queue (preferred for isolating agent load):
+yarn mercato queue worker workflow-invoke-agent
+yarn mercato queue worker workflow-activities
+```
+
+### Sizing formula
+
+```
+runs/day × avg run seconds ÷ business-window seconds  ⇒  required concurrent slots
+```
+
+Worked example for the reference load: 12,000 runs/day × 60 s ≈ 720,000 busy-seconds/day. Spread over an 8-hour business window (28,800 s) that is **~25 slots**, so plan for **~20–30 concurrent slots** — for example **3 worker replicas × concurrency 10**. Runs are LLM-bound (I/O-wait), so a single Node process handles concurrency 10 comfortably; scale out with replicas rather than pushing per-process concurrency past 20 (the queue package's hard guideline).
+
+### Concurrency tuning knobs
+
+| Env var | Default | Queue | Meaning |
+|---|---|---|---|
+| `WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY` | `5` | `workflow-invoke-agent` | Per-process concurrency of the dedicated agent-job worker. This is the primary throughput knob for agent runs. |
+| `WORKERS_WORKFLOW_ACTIVITIES_CONCURRENCY` | `1` | `workflow-activities` | Per-process concurrency of the general workflow-activities worker (timers, emails, API calls, sub-workflow resume). |
+
+`INVOKE_AGENT` jobs run on the dedicated `workflow-invoke-agent` queue so minute-long LLM runs cannot starve the fast housekeeping activities on `workflow-activities`. Tune the two independently; there is rarely a reason to raise the activities concurrency for agent load.
+
+## DB connection budget
+
+Each in-flight worker job builds its own request container and checks out one pooled DB connection for the job's duration, so a worker process's peak connection demand is **Σ(per-queue concurrency)**. At startup, `mercato queue worker` fits that sum to a connection budget:
+
+- The budget defaults to the process's resolved `DB_POOL_MAX`; override it with `OM_WORKERS_DB_CONNECTION_BUDGET` (positive integer).
+- When the requested sum exceeds the budget, per-queue concurrency is **clamped**: every queue keeps a floor of 1 worker, no queue exceeds its requested concurrency, and leftover capacity is distributed to the queues furthest below their request (see `packages/cli/src/lib/worker-connection-budget.ts`).
+- If the budget is smaller than the number of queues, the floor of 1 per queue forces the total above the budget — the worker logs this as a misconfiguration; raise `DB_POOL_MAX` or the budget.
+
+**Always verify the effective (post-clamp) concurrency.** The worker logs the resolved plan at startup (`[worker] DB connection budget: …` and a clamp warning when it reduced anything). A silent clamp is the most common reason a fleet sized on paper for 30 slots actually runs 10. Keep the global invariant: `web_pool_max + worker_pool_max + overhead ≤ Postgres max_connections`, or front Postgres with pgbouncer.
+
+## Runtime protection
+
+The agent runtime enforces process-local protection around each run:
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `OM_AGENT_RUN_TIMEOUT_MS` | `300000` | Wall-clock deadline for one in-process agent run; on expiry the run is failed (no orphaned `running` row). |
+| `OM_AGENT_MAX_CONCURRENT_RUNS` | `25` | Process-local cap on concurrently executing top-level agent runs. |
+| `OM_AGENT_MAX_CONCURRENT_RUNS_PER_TENANT` | `10` | Per-tenant slice of the same admission gate. |
+| `OM_AGENT_ADMISSION_MAX_WAIT_MS` | `30000` | Max bounded wait for a slot before the run is rejected with a capacity error. |
+| `OM_AGENT_ADMISSION_MAX_QUEUE` | `100` | Max waiters per process; beyond this, rejection is immediate. |
+
+:::warning The admission cap is process-local, not fleet-wide
+`OM_AGENT_MAX_CONCURRENT_RUNS` bounds **one process**. The fleet-wide bound is `cap × replicas` — with 4 worker replicas at the default cap of 25, up to 100 runs can execute cluster-wide. The fleet-wide throttle is **worker concurrency** (`WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY` × replicas); the admission gate only protects each process's DB pool and the OpenCode service from direct-caller bursts (playground, scripts, agent fan-out).
+:::
+
+## OpenCode connectivity
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `OPENCODE_URL` | `http://localhost:4096` | Base URL of the OpenCode server. In containerized topologies this **must** point at the OpenCode service name — the compose bundles use `http://opencode:4096`. The `localhost` default is unreachable from inside an app or worker container. |
+| `OM_OPENCODE_RUN_TIMEOUT_MS` | `300000` | Wall-clock ceiling for one OpenCode-executed agent run. |
+
+## Index pre-creation on large tables
+
+The agent-orchestrator performance migration adds composite indexes on `agent_runs` and `agent_proposals` using `CREATE INDEX IF NOT EXISTS`. A plain `CREATE INDEX` blocks writes for the duration of the build, so on deployments where those tables are already large, pre-create the indexes with `CREATE INDEX CONCURRENTLY` **before** deploying — the migration then becomes a no-op thanks to `IF NOT EXISTS`.
+
+## Monitoring checklist
+
+Watch these signals in production:
+
+- **Queue depth and oldest-job age per queue** (`workflow-invoke-agent`, `workflow-activities`) — a growing oldest-job age means the fleet is undersized.
+- **Count of `agent_runs` with `status = 'running'`** — steady state should hover around the sized slot count; a monotonically growing count indicates hung runs or a timeout misconfiguration.
+- **429 / capacity-rejection rate** — sustained rejections mean the admission gate is saturated; add worker replicas or raise the caps deliberately.
+- **DB pool saturation** in both web and worker processes — see the connection-budget invariant above.
+- **OpenCode session count** — the single OpenCode container is a shared resource; remember the fleet-wide run bound is `cap × replicas`.
