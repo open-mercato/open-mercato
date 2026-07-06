@@ -17,6 +17,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useSalesChannelsEnabled } from '../../../components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '../../../components/SalesChannelsDisabledNotice'
 
 type ChannelRow = {
   id: string
@@ -190,18 +191,7 @@ export default function SalesChannelsPage() {
   }, [handleRefresh, mutationContext, runMutation, t])
 
   if (!channelsEnabled && !channelsEnabledLoading) {
-    return (
-      <Page>
-        <PageBody>
-          <div className="rounded-lg border bg-muted/50 p-6 text-sm text-muted-foreground">
-            {t(
-              'sales.channels.disabledNotice',
-              'Sales channels are disabled for this tenant. Enable the "Sales Channels" feature toggle to manage them.',
-            )}
-          </div>
-        </PageBody>
-      </Page>
-    )
+    return <SalesChannelsDisabledNotice />
   }
 
   return (

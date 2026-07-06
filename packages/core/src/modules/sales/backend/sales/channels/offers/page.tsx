@@ -18,6 +18,8 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from '@open-mercato/core/modules/sales/components/channels/offerTableUtils'
+import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '@open-mercato/core/modules/sales/components/SalesChannelsDisabledNotice'
 
 type OffersResponse = {
   items?: Array<Record<string, unknown>>
@@ -31,6 +33,7 @@ const SAVE_CONTEXT_ID = 'sales-channel-offers-list'
 
 export default function SalesChannelOffersListPage() {
   const t = useT()
+  const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
   const router = useRouter()
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -328,6 +331,10 @@ export default function SalesChannelOffersListPage() {
       </span>
     </div>
   )
+
+  if (!channelsEnabled && !channelsEnabledLoading) {
+    return <SalesChannelsDisabledNotice />
+  }
 
   return (
     <Page>
