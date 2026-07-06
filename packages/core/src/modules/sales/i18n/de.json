@@ -197,6 +197,7 @@
   "sales.channels.table.actions.edit": "Bearbeiten",
   "sales.channels.table.active": "Aktiv",
   "sales.channels.table.code": "Code",
+  "sales.channels.disabledNotice": "Vertriebskanäle sind für diesen Mandanten deaktiviert. Aktivieren Sie das Feature-Toggle \"Sales Channels\", um sie zu verwalten.",
   "sales.channels.table.empty": "Noch keine Kanäle.",
   "sales.channels.table.errors.delete": "Kanal konnte nicht gelöscht werden.",
   "sales.channels.table.errors.load": "Kanäle konnten nicht geladen werden.",

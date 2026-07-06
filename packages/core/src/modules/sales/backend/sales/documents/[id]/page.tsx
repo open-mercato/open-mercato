@@ -69,6 +69,7 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@op
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
 
 function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
@@ -1891,6 +1892,7 @@ export default function SalesDocumentDetailPage({
   includeAmountInMessageMetadata?: boolean
 }) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const router = useRouter()
   const searchParams = useSearchParams()
   const pathname = usePathname()
@@ -2575,11 +2577,11 @@ export default function SalesDocumentDetailPage({
   }, [record])
 
   React.useEffect(() => {
-    loadChannels().catch(() => {})
+    if (channelsEnabled) loadChannels().catch(() => {})
     loadStatuses().catch(() => {})
     loadShippingMethods().catch(() => {})
     loadPaymentMethods().catch(() => {})
-  }, [loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
+  }, [channelsEnabled, loadChannels, loadPaymentMethods, loadShippingMethods, loadStatuses, scopeVersion])
 
   React.useEffect(() => {
     void refreshPaymentPresence()
@@ -3952,11 +3954,11 @@ export default function SalesDocumentDetailPage({
       emptyLabel: t('sales.documents.detail.empty', 'Not set'),
       type: 'email' as const,
     },
-    {
-      key: 'channel',
+    ...(channelsEnabled ? [{
+      key: 'channel' as const,
       title: t('sales.documents.detail.channel', 'Channel'),
       value: record?.channelId ?? null,
-    },
+    }] : []),
     {
       key: 'status',
       title: t('sales.documents.detail.status', 'Status'),

@@ -197,6 +197,7 @@
   "sales.channels.table.actions.edit": "Edytuj",
   "sales.channels.table.active": "Aktywny",
   "sales.channels.table.code": "Kod",
+  "sales.channels.disabledNotice": "Kanały sprzedaży są wyłączone dla tego najemcy. Włącz przełącznik funkcji \"Sales Channels\", aby nimi zarządzać.",
   "sales.channels.table.empty": "Brak kanałów.",
   "sales.channels.table.errors.delete": "Nie udało się usunąć kanału.",
   "sales.channels.table.errors.load": "Nie udało się wczytać kanałów.",

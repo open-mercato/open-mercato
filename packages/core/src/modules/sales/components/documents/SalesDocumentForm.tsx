@@ -57,6 +57,7 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 
 type DocumentKind = 'quote' | 'order'
 
@@ -755,6 +756,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [channels, setChannels] = React.useState<ChannelOption[]>([])
@@ -1125,7 +1127,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         />
       ),
     },
-    {
+    ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.form.channel', 'Sales channel'),
       type: 'custom',
@@ -1147,7 +1149,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
         />
       ),
-    },
+    } satisfies CrudField] : []),
     {
       id: 'shippingAddressSection',
       label: '',
@@ -1268,6 +1270,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressOptions,
     addressesError,
     addressesLoading,
+    channelsEnabled,
     currencyLabels,
     fetchCurrencyOptions,
     loadAddresses,
@@ -1286,12 +1289,13 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       fields: [],
       component: (ctx) => <CustomerGroupComponent {...ctx} t={t} customers={customers} setCustomers={setCustomers} customerQuerySetter={customerQuerySetter} loadAddresses={loadAddresses} loadCustomers={loadCustomers} fetchCustomerEmail={fetchCustomerEmail} resetAddressFormState={resetAddressFormState} />,
     },
-    { id: 'channels-comments', title: '', column: 1, fields: ['channelId', 'comments'] },
+    { id: 'channels-comments', title: '', column: 1, fields: channelsEnabled ? ['channelId', 'comments'] : ['comments'] },
     { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
+    channelsEnabled,
     customers,
     fetchCustomerEmail,
     loadAddresses,
