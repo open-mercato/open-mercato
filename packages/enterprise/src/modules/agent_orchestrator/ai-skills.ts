@@ -37,7 +37,7 @@ function loadSkillsFromDisk(): SkillRegistryEntry[] {
   const files = fs
     .readdirSync(dir)
     .filter((file) => file.endsWith('.md'))
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
   const entries: SkillRegistryEntry[] = []
   for (const file of files) {
     const raw = fs.readFileSync(path.join(dir, file), 'utf8')

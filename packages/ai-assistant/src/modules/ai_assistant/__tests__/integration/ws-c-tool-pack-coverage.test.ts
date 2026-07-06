@@ -54,6 +54,16 @@ jest.mock('@open-mercato/shared/lib/ai/llm-provider-registry', () => ({
   },
 }))
 
+// The registry's generated-file fallback loads whatever agents the working tree
+// has generated (e.g. enterprise agent_orchestrator ships real agents), which
+// breaks the empty-registry cases on branches where those modules exist. Stub
+// the fallback so the registry only contains what each test seeds explicitly.
+jest.mock('../../lib/generated-registry-loader', () => ({
+  ...jest.requireActual('../../lib/generated-registry-loader'),
+  findGeneratedFile: jest.fn(() => null),
+  compileAndImportGenerated: jest.fn(async () => null),
+}))
+
 import {
   resetAgentRegistryForTests,
   seedAgentRegistryForTests,
