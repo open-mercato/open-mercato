@@ -45,6 +45,9 @@ export function UnitPriceDisplaySettings() {
     setEnabled(next)
     setSaving(true)
     try {
+      // optimistic-lock-exempt: tenant-scoped module-config toggle (single
+      // settings row via ModuleConfigService), not a versioned editable entity —
+      // no updated_at to lock against and no lost-update concern for this admin preference.
       const call = await apiCall('/api/catalog/settings', {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
