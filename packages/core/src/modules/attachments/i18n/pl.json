@@ -1,5 +1,4 @@
 {
-  "attachments.nav.group": "Media",
   "attachments.errors.activeContentBlocked": "Przesyłanie treści aktywnych nie jest dozwolone.",
   "attachments.errors.dangerousExecutable": "Pliki wykonywalne nie są dozwolone jako załączniki.",
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
@@ -93,6 +92,7 @@
   "attachments.library.upload.success": "Załącznik przesłany.",
   "attachments.library.upload.tagsPlaceholder": "Dodaj tagi",
   "attachments.library.upload.title": "Prześlij załącznik",
+  "attachments.nav.group": "Media",
   "attachments.partitions.actions.add": "Dodaj partycję",
   "attachments.partitions.actions.cancel": "Anuluj",
   "attachments.partitions.actions.create": "Utwórz partycję",

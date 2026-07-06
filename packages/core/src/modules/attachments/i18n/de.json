@@ -1,5 +1,4 @@
 {
-  "attachments.nav.group": "Medien",
   "attachments.errors.activeContentBlocked": "Das Hochladen aktiver Inhalte ist nicht erlaubt.",
   "attachments.errors.dangerousExecutable": "Ausführbare Dateitypen sind als Anhänge nicht erlaubt.",
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
@@ -93,6 +92,7 @@
   "attachments.library.upload.success": "Anhang hochgeladen.",
   "attachments.library.upload.tagsPlaceholder": "Tags hinzufügen",
   "attachments.library.upload.title": "Anhang hochladen",
+  "attachments.nav.group": "Medien",
   "attachments.partitions.actions.add": "Partition hinzufügen",
   "attachments.partitions.actions.cancel": "Abbrechen",
   "attachments.partitions.actions.create": "Partition erstellen",
