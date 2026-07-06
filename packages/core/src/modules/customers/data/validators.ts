@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const uuid = () => z.string().uuid()
@@ -264,8 +265,18 @@ export const addressCreateSchema = scopedSchema.extend({
   region: z.string().max(150).optional(),
   postalCode: z.string().max(30).optional(),
   country: z.string().max(150).optional(),
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  latitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.latitude.min)
+    .max(COORDINATE_RANGES.latitude.max)
+    .nullable()
+    .optional(),
+  longitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.longitude.min)
+    .max(COORDINATE_RANGES.longitude.max)
+    .nullable()
+    .optional(),
   isPrimary: z.boolean().optional(),
 })
 

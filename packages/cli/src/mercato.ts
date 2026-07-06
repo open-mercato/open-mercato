@@ -11,6 +11,7 @@ import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
+  resolveLazySpawnMode,
   resolveLazyPollMs,
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
@@ -66,7 +67,10 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
     if (mod.workers) {
-      allWorkers.push(...mod.workers)
+      allWorkers.push(...mod.workers.map((worker) => ({
+        ...worker,
+        moduleId: worker.moduleId ?? mod.id,
+      })))
     }
   }
   return allWorkers
@@ -2116,7 +2120,11 @@ export async function run(argv = process.argv) {
                   if (discoveredWorkerQueues.length === 0) {
                     console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
                   } else if (autoSpawnWorkersMode === 'lazy') {
-                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                    const lazySpawnMode = resolveLazySpawnMode(process.env)
+                    const lazyModeHint = lazySpawnMode === 'shared'
+                      ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                      : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                     activeLazySupervisor = startLazyWorkerSupervisor({
                       mercatoBin,
                       appDir,
@@ -2124,6 +2132,7 @@ export async function run(argv = process.argv) {
                       workers: discoveredWorkers,
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                      spawnMode: lazySpawnMode,
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2321,7 +2330,11 @@ export async function run(argv = process.argv) {
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
               } else if (autoSpawnWorkersMode === 'lazy') {
-                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                const lazySpawnMode = resolveLazySpawnMode(process.env)
+                const lazyModeHint = lazySpawnMode === 'shared'
+                  ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                  : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                 activeLazySupervisor = startLazyWorkerSupervisor({
                   mercatoBin,
                   appDir,
@@ -2329,6 +2342,7 @@ export async function run(argv = process.argv) {
                   workers: discoveredWorkers,
                   pollMs: resolveLazyPollMs(process.env),
                   restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  spawnMode: lazySpawnMode,
                 })
               } else {
                 console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
