@@ -57,8 +57,8 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 
 ### Phase 3: create-app bundle wiring
 
-- [ ] 3.1 `build.mjs` → resolver-routed `discoverPackageModuleSources`; remove hardcoded `coreSrcRoot`
-- [ ] 3.2 Update `agents-md.module-guides.test.ts` to the `enabled ∩ bundled` framing; sync `agentic/` template if table shape changed
+- [x] 3.1 Both `cli/build.mjs` + `create-app/build.mjs` → resolver-routed `discoverPackageModuleSources` (9 → 53 bundled); stub loop bound to allowlist (9 stubs) — 4e5a6ccef
+- [x] 3.2 Refreshed `agents-md.module-guides.test.ts` to `enabled ∩ bundled` framing; `agentic/` template unchanged (guides-table shape is data-driven, not restructured) — 4e5a6ccef
 
 ### Phase 4: BC + docs + gate
 
