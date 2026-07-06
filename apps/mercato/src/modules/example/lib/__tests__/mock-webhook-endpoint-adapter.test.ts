@@ -2,6 +2,7 @@ import { createHmac } from 'node:crypto'
 import {
   MOCK_INBOUND_DEV_WEBHOOK_SECRET,
   MOCK_INBOUND_SIGNATURE_HEADER,
+  MOCK_INBOUND_TOKEN_HEADER,
   computeMockInboundWebhookSignature,
   mockWebhookEndpointAdapter,
 } from '../mock-webhook-endpoint-adapter'
@@ -116,6 +117,42 @@ describe('mockWebhookEndpointAdapter.verifyWebhook', () => {
         method: 'POST',
       }),
     ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
+  })
+
+  it('accepts a request authenticated with the static token header', async () => {
+    const body = JSON.stringify({ type: 'mock.inbound.received', data: { externalId: 'ext-token' } })
+    await expect(
+      mockWebhookEndpointAdapter.verifyWebhook({
+        headers: { [MOCK_INBOUND_TOKEN_HEADER]: MOCK_INBOUND_DEV_WEBHOOK_SECRET },
+        body,
+        method: 'POST',
+      }),
+    ).resolves.toMatchObject({ eventType: 'mock.inbound.received' })
+  })
+
+  it('rejects a static token that does not equal the secret', async () => {
+    const body = JSON.stringify({ type: 'mock.inbound.received', data: {} })
+    await expect(
+      mockWebhookEndpointAdapter.verifyWebhook({
+        headers: { [MOCK_INBOUND_TOKEN_HEADER]: 'valid' },
+        body,
+        method: 'POST',
+      }),
+    ).rejects.toThrow(/Invalid mock webhook token/)
+  })
+
+  it('verifies the signature, not the token, when both headers are present', async () => {
+    const body = JSON.stringify({ type: 'mock.inbound.received', data: {} })
+    await expect(
+      mockWebhookEndpointAdapter.verifyWebhook({
+        headers: {
+          [MOCK_INBOUND_SIGNATURE_HEADER]: 'valid',
+          [MOCK_INBOUND_TOKEN_HEADER]: MOCK_INBOUND_DEV_WEBHOOK_SECRET,
+        },
+        body,
+        method: 'POST',
+      }),
+    ).rejects.toThrow(/Invalid mock webhook signature/)
   })
 
   it('refuses to fall back to the dev secret in production', async () => {

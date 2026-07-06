@@ -11,6 +11,16 @@ export const MOCK_INBOUND_DEV_WEBHOOK_SECRET = 'open-mercato-mock-dev-inbound-we
 
 export const MOCK_INBOUND_SIGNATURE_HEADER = 'x-mock-webhook-signature'
 
+/**
+ * Static-token alternative to the HMAC signature, for senders that can only attach
+ * fixed headers (e.g. the outbound webhook delivery worker, whose per-delivery body
+ * is generated server-side and cannot be pre-signed). The header value must equal the
+ * resolved webhook secret (timing-safe compare), so authentication still requires
+ * knowledge of the shared secret. Prefer the HMAC signature whenever the sender can
+ * compute it — the token does not bind the request body.
+ */
+export const MOCK_INBOUND_TOKEN_HEADER = 'x-mock-webhook-token'
+
 function parseJsonBody(body: string): Record<string, unknown> {
   const parsed = JSON.parse(body) as unknown
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
@@ -36,31 +46,40 @@ export function computeMockInboundWebhookSignature(rawBody: string, secret: stri
   return createHmac('sha256', secret).update(rawBody, 'utf-8').digest('hex')
 }
 
-function readSignatureHeader(headers: Record<string, string>): string {
-  const direct = headers[MOCK_INBOUND_SIGNATURE_HEADER]
-    ?? headers[MOCK_INBOUND_SIGNATURE_HEADER.toUpperCase()]
-    ?? headers[MOCK_INBOUND_SIGNATURE_HEADER.replace(/-/g, '_')]
+function readHeader(headers: Record<string, string>, name: string): string {
+  const direct = headers[name]
+    ?? headers[name.toUpperCase()]
+    ?? headers[name.replace(/-/g, '_')]
   return typeof direct === 'string' ? direct : ''
+}
+
+function timingSafeEqualStrings(provided: string, expected: string): boolean {
+  const providedBuffer = Buffer.from(provided, 'utf-8')
+  const expectedBuffer = Buffer.from(expected, 'utf-8')
+  return providedBuffer.length === expectedBuffer.length
+    && timingSafeEqual(providedBuffer, expectedBuffer)
 }
 
 export const mockWebhookEndpointAdapter: WebhookEndpointAdapter = {
   providerKey: 'mock_inbound',
   subscribedEvents: ['*'],
   async verifyWebhook(input) {
-    const providedSignature = readSignatureHeader(input.headers)
-    if (!providedSignature) {
-      throw new Error(`Missing ${MOCK_INBOUND_SIGNATURE_HEADER} header`)
+    const providedSignature = readHeader(input.headers, MOCK_INBOUND_SIGNATURE_HEADER)
+    const providedToken = readHeader(input.headers, MOCK_INBOUND_TOKEN_HEADER)
+    if (!providedSignature && !providedToken) {
+      throw new Error(
+        `Missing ${MOCK_INBOUND_SIGNATURE_HEADER} or ${MOCK_INBOUND_TOKEN_HEADER} header`,
+      )
     }
 
     const secret = resolveMockInboundWebhookSecret()
-    const expectedSignature = computeMockInboundWebhookSignature(input.body, secret)
-    const providedBuffer = Buffer.from(providedSignature, 'utf-8')
-    const expectedBuffer = Buffer.from(expectedSignature, 'utf-8')
-    if (
-      providedBuffer.length !== expectedBuffer.length
-      || !timingSafeEqual(providedBuffer, expectedBuffer)
-    ) {
-      throw new Error('Invalid mock webhook signature')
+    if (providedSignature) {
+      const expectedSignature = computeMockInboundWebhookSignature(input.body, secret)
+      if (!timingSafeEqualStrings(providedSignature, expectedSignature)) {
+        throw new Error('Invalid mock webhook signature')
+      }
+    } else if (!timingSafeEqualStrings(providedToken, secret)) {
+      throw new Error('Invalid mock webhook token')
     }
 
     const payload = parseJsonBody(input.body)
