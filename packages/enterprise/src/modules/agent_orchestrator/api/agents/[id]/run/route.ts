@@ -10,9 +10,11 @@ import { agentRunRequestSchema, baseAgentResultSchema } from '../../../../data/v
 import {
   AgentNotFoundError,
   AgentOutputInvalidError,
+  AgentRunTimeoutError,
   type AgentRunCtx,
   type AgentRuntimeService,
 } from '../../../../lib/runtime/agentRuntime'
+import { isAgentCapacityError, resolveAdmissionMaxWaitMs } from '../../../../lib/runtime/admission'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.run'] },
@@ -90,6 +92,16 @@ export async function POST(req: Request, ctx: RouteContext) {
     if (err instanceof AgentOutputInvalidError) {
       return NextResponse.json({ error: 'Agent produced invalid output' }, { status: 422 })
     }
+    if (err instanceof AgentRunTimeoutError) {
+      return NextResponse.json({ error: 'The agent run timed out before producing a result' }, { status: 422 })
+    }
+    if (isAgentCapacityError(err)) {
+      const retryAfterSeconds = Math.max(1, Math.ceil(resolveAdmissionMaxWaitMs() / 1000))
+      return NextResponse.json(
+        { error: 'Agent run capacity is exhausted — retry shortly' },
+        { status: 429, headers: { 'Retry-After': String(retryAfterSeconds) } },
+      )
+    }
     throw err
   }
 
@@ -131,7 +143,8 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: errorSchema },
         { status: 403, description: 'Missing agent_orchestrator.agents.run', schema: errorSchema },
         { status: 404, description: 'Unknown agent id', schema: errorSchema },
-        { status: 422, description: 'Invalid input or invalid model output', schema: errorSchema },
+        { status: 422, description: 'Invalid input, invalid model output, or run wall-clock timeout', schema: errorSchema },
+        { status: 429, description: 'Agent run capacity exhausted (admission control); includes Retry-After', schema: errorSchema },
       ],
     },
   },

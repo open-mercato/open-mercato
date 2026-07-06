@@ -10,7 +10,8 @@ import { resolveCurrentGroundingSet } from '../guardrails/syncGroundingSets'
 import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/contextResolver'
 import { resolveContextModule } from '../context/registry'
 import { OpenCodeAgentRunner } from './openCodeAgentRunner'
-import { withRunContext } from './runContext'
+import { withRunContext, getCurrentRunId } from './runContext'
+import { acquireAgentRunSlot, type AgentRunSlotRelease } from './admission'
 import { withAgentActor } from '../identity/agentWriteScope'
 import { registerAgentKindNoBypassSubscriber } from '../identity/agentNoBypassSubscriber'
 import {
@@ -31,6 +32,20 @@ export class AgentNotFoundError extends Error {
   constructor(agentId: string) {
     super(`[internal] unknown agent id "${agentId}"`)
     this.name = 'AgentNotFoundError'
+  }
+}
+
+/**
+ * The in-process wall-clock deadline (`OM_AGENT_RUN_TIMEOUT_MS`, default 5 min —
+ * symmetric with the OpenCode runner's `OM_OPENCODE_RUN_TIMEOUT_MS`) expired
+ * before the model finished. The run is already marked failed via `failRun`
+ * when this is thrown. Deterministic for a given deadline — NOT retryable.
+ */
+export class AgentRunTimeoutError extends Error {
+  readonly code = 'agent_run_timeout'
+  constructor(agentId: string, timeoutMs: number) {
+    super(`[internal] agent "${agentId}" run exceeded the ${timeoutMs}ms wall-clock deadline`)
+    this.name = 'AgentRunTimeoutError'
   }
 }
 
@@ -127,19 +142,34 @@ export class AgentRuntimeService {
       return this.runInProcess(agentId, entry, input, ctx)
     }
 
-    if (ctx.runAs) {
-      try {
-        registerAgentKindNoBypassSubscriber(this.container.resolve('em') as EntityManager)
-      } catch {
-        // best-effort registration; the actor scope below still fails closed for
-        // any EM that did get the subscriber (the shared request EM).
+    // Admission gate (performance hardening Phase 2): bounded global +
+    // per-tenant semaphore, acquired BEFORE any DB write so a rejected run
+    // leaves no `running` row. Top-level runs only — a nested run (a parent run
+    // id on the ctx, or an active in-process run context) executes within its
+    // parent's admitted budget; gating it too would livelock `delegate_agent`
+    // fan-out at saturation. Covers BOTH runtimes dispatched below.
+    const isNestedRun = Boolean(ctx.parentRunId ?? getCurrentRunId())
+    const releaseRunSlot: AgentRunSlotRelease | null = isNestedRun
+      ? null
+      : await acquireAgentRunSlot(ctx.tenantId)
+
+    try {
+      if (ctx.runAs) {
+        try {
+          registerAgentKindNoBypassSubscriber(this.container.resolve('em') as EntityManager)
+        } catch {
+          // best-effort registration; the actor scope below still fails closed for
+          // any EM that did get the subscriber (the shared request EM).
+        }
+        return await withAgentActor(
+          { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null },
+          dispatch,
+        )
       }
-      return withAgentActor(
-        { agentUserId: ctx.runAs.agentUserId, onBehalfOfUserId: ctx.runAs.onBehalfOfUserId ?? null },
-        dispatch,
-      )
+      return await dispatch()
+    } finally {
+      releaseRunSlot?.()
     }
-    return dispatch()
   }
 
   private async runInProcess(
@@ -241,13 +271,19 @@ export class AgentRuntimeService {
       isSuperAdmin: acl.isSuperAdmin,
     }
 
+    // Wall-clock deadline for the WHOLE model execution (performance hardening
+    // Phase 2) — the in-process symmetric of the OpenCode runner's 5-minute
+    // backstop, so a hung provider call can never pin a worker slot forever.
+    // The timer is cancellable + unref'd (same hygiene as openCodeAgentRunner).
+    const runTimeoutMs = resolveInProcessRunTimeoutMs()
+    const deadline = createRunDeadline(runTimeoutMs)
     let rawObject: unknown
     try {
       // Bind this run's id as the current in-process run so a `delegate_agent`
       // tool call (from a sub-agent-capable agent) can stamp `parent_run_id` on
       // its nested run for traceability (Phase 4).
-      const objectResult = await withRunContext(runId, () =>
-        runAiAgentObject({
+      const modelExecution = withRunContext(runId, async () => {
+        const objectResult = await runAiAgentObject({
           agentId,
           input: typeof input === 'string' ? input : JSON.stringify(input),
           authContext,
@@ -259,14 +295,36 @@ export class AgentRuntimeService {
           // generate when no tools resolve, so toolless agents are unaffected.
           // Writes never execute directly (read-only policy + proposal → effector).
           enableTools: true,
-        }),
-      )
-      // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
-      rawObject = objectResult.mode === 'stream' ? await objectResult.object : objectResult.object
+        })
+        // Object mode defaults to `mode: 'generate'`, resolving `.object` directly.
+        return objectResult.mode === 'stream' ? await objectResult.object : objectResult.object
+      })
+      const raced = await Promise.race([
+        modelExecution,
+        deadline.promise.then(() => RUN_TIMED_OUT),
+      ])
+      if (raced === RUN_TIMED_OUT) {
+        // The run is settled as timed out: swallow the late-arriving model
+        // settle (result OR rejection) so it can neither complete the run nor
+        // surface as an unhandled rejection.
+        void modelExecution.then(
+          () => undefined,
+          () => undefined,
+        )
+        await failRun(this.commandBus, commandCtx, {
+          runId,
+          errorMessage: `[internal] agent run exceeded the ${runTimeoutMs}ms wall-clock deadline`,
+        })
+        throw new AgentRunTimeoutError(agentId, runTimeoutMs)
+      }
+      rawObject = raced
     } catch (err) {
+      if (err instanceof AgentRunTimeoutError) throw err
       const message = err instanceof Error ? err.message : String(err)
       await failRun(this.commandBus, commandCtx, { runId, errorMessage: message })
       throw err
+    } finally {
+      deadline.cancel()
     }
 
     // POST-CALL output guardrail hook (Phase 1): the per-capability proposal
@@ -369,5 +427,42 @@ export class AgentRuntimeService {
     }
 
     return result
+  }
+}
+
+const RUN_TIMED_OUT = Symbol('agent-run-timed-out')
+
+/**
+ * Wall-clock deadline for one in-process agent run. Mirrors the OpenCode
+ * runner's `OM_OPENCODE_RUN_TIMEOUT_MS` semantics (default 5 minutes); read
+ * lazily per run so deployments and tests can vary the env without a restart.
+ */
+const DEFAULT_IN_PROCESS_RUN_TIMEOUT_MS = 5 * 60_000
+function resolveInProcessRunTimeoutMs(): number {
+  const raw = Number.parseInt(process.env.OM_AGENT_RUN_TIMEOUT_MS ?? '', 10)
+  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_IN_PROCESS_RUN_TIMEOUT_MS
+}
+
+/**
+ * A cancellable wall-clock deadline (same hygiene as the OpenCode runner's):
+ * `promise` resolves once `ms` elapses; `cancel()` clears the timer in the
+ * caller's `finally` so a completed run leaks no timer. The timer is `unref`'d
+ * so it never keeps the process alive on its own.
+ */
+function createRunDeadline(ms: number): { promise: Promise<void>; cancel: () => void } {
+  let timer: ReturnType<typeof setTimeout> | null = null
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, ms)
+    const maybeUnref = timer as { unref?: () => void }
+    if (typeof maybeUnref.unref === 'function') maybeUnref.unref()
+  })
+  return {
+    promise,
+    cancel() {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+    },
   }
 }

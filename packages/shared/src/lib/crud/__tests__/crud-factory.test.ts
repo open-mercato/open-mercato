@@ -345,6 +345,59 @@ describe('CRUD Factory', () => {
     ])
   })
 
+  const optionalSortQuerySchema = z.object({
+    page: z.coerce.number().default(1),
+    pageSize: z.coerce.number().default(50),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+
+  const makeDefaultSortRoute = () => makeCrudRoute({
+    metadata: { GET: { requireAuth: true } },
+    orm: { entity: Todo, idField: 'id', orgField: 'organizationId', tenantField: 'tenantId', softDeleteField: 'deletedAt' },
+    indexer: { entityType: 'example.todo' },
+    list: {
+      schema: optionalSortQuerySchema,
+      entityId: 'example.todo',
+      fields: ['id', 'title', 'created_at'],
+      sortFieldMap: { id: 'id', title: 'title', createdAt: 'created_at' },
+      defaultSort: { field: 'created_at', dir: 'desc' },
+      buildFilters: () => ({} as any),
+    },
+  })
+
+  it('GET applies list.defaultSort when the request has no sort params', async () => {
+    const defaultSortRoute = makeDefaultSortRoute()
+    await defaultSortRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'created_at', dir: 'desc' },
+    ])
+  })
+
+  it('GET keeps the id/asc default when no sort params and no defaultSort', async () => {
+    await route.GET(new Request('http://x/api/example/todos?page=1&pageSize=10'))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'id', dir: 'asc' },
+    ])
+  })
+
+  it('GET explicit sortField overrides list.defaultSort', async () => {
+    const defaultSortRoute = makeDefaultSortRoute()
+    await defaultSortRoute.GET(new Request('http://x/api/example/todos?page=1&pageSize=10&sortField=title&sortDir=asc'))
+
+    expect(queryEngine.query).toHaveBeenCalled()
+    const queryArgs = queryEngine.query.mock.calls.at(-1)?.[1]
+    expect(queryArgs?.sort).toEqual([
+      { field: 'title', dir: 'asc' },
+    ])
+  })
+
   it('GET intersects ids with existing buildFilters id constraint', async () => {
     const routeWithIdFilter = makeCrudRoute({
       metadata: { GET: { requireAuth: true } },

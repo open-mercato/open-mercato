@@ -175,6 +175,7 @@ agent_orchestrator/
 - **Enterprise package scope + licensing**: `packages/enterprise/AGENTS.md`
 - **Module conventions (commands, events, ACL sync, encryption, migrations)**: `packages/core/AGENTS.md`
 - **CLI generators (`yarn generate`)**: `packages/cli/AGENTS.md`
+- **Scaling/worker-fleet sizing (queue strategy, concurrency, DB budget, runtime protection)**: `apps/docs/docs/deployment/agent-orchestration-scaling.mdx`
 - **Full design**: `.ai/specs/2026-06-22-opencode-file-defined-agents.md` + `.ai/specs/enterprise/agent-orchestrator/`
 
 ## Known Follow-Ups

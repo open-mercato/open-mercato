@@ -76,8 +76,17 @@ type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
 }
 
-function resolveSortParams(queryParams: Record<string, unknown>) {
-  const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
+export type CrudDefaultSort = { field: string; dir: 'asc' | 'desc' }
+
+function resolveSortParams(queryParams: Record<string, unknown>, defaultSort?: CrudDefaultSort) {
+  const rawSortFieldParam = queryParams.sortField ?? queryParams.sort
+  if (defaultSort && rawSortFieldParam == null) {
+    const rawSortDir = queryParams.sortDir ?? queryParams.order ?? defaultSort.dir
+    const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : defaultSort.dir
+    const sortDir = normalizedDir === 'desc' ? SortDir.Desc : SortDir.Asc
+    return { sortField: defaultSort.field, sortDir }
+  }
+  const rawSortField = rawSortFieldParam ?? 'id'
   const rawSortDir = queryParams.sortDir ?? queryParams.order ?? 'asc'
   const sortField = typeof rawSortField === 'string' && rawSortField.trim().length > 0 ? rawSortField.trim() : 'id'
   const normalizedDir = typeof rawSortDir === 'string' ? rawSortDir.trim().toLowerCase() : 'asc'
@@ -193,6 +202,13 @@ export type ListConfig<TList> = {
   entityId?: any
   fields?: any[]
   sortFieldMap?: Record<string, any>
+  /**
+   * Sort applied when the request carries neither `sortField` nor `sort`.
+   * The field flows through the same `sortFieldMap`/custom-field normalization
+   * an explicit `sortField` would. Absent ⇒ the historical `'id'`/`'asc'`
+   * default, so existing routes are byte-for-byte unchanged (ADDITIVE-ONLY).
+   */
+  defaultSort?: CrudDefaultSort
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
   allowCsv?: boolean
@@ -1597,7 +1613,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
         profiler.mark('query_engine_prepare')
         const qe = (ctx.container.resolve('queryEngine') as QueryEngine)
         profiler.mark('query_engine_resolved')
-        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>)
+        const { sortField: sortFieldRaw, sortDir: sortDirRaw } = resolveSortParams(queryParams as Record<string, unknown>, opts.list.defaultSort)
         const mappedSortField = (opts.list.sortFieldMap && opts.list.sortFieldMap[sortFieldRaw]) || sortFieldRaw
         const sortField = typeof mappedSortField === 'string' ? normalizeSortFieldSelector(mappedSortField) : mappedSortField
         const sort: Sort[] = [{ field: sortField as any, dir: sortDirRaw } as any]

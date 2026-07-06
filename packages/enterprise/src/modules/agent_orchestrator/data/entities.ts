@@ -13,6 +13,12 @@ export type AgentToolCallStatus = 'ok' | 'error'
 @Index({ name: 'agent_runs_agent_idx', properties: ['organizationId', 'agentId'] })
 @Unique({ name: 'agent_runs_runtime_external_uq', properties: ['runtime', 'externalRunId'] })
 @Index({ name: 'agent_runs_agent_def_idx', properties: ['agentId', 'createdAt'] })
+@Index({ name: 'agent_runs_org_status_created_idx', properties: ['organizationId', 'status', 'createdAt'] })
+@Index({
+  name: 'agent_runs_eval_failed_idx',
+  expression:
+    `create index "agent_runs_eval_failed_idx" on "agent_runs" ("organization_id", "created_at") where "eval_passed" = false`,
+})
 export class AgentRun {
   [OptionalProps]?:
     | 'status'
@@ -885,6 +891,7 @@ export type AgentProposalDisposition =
 @Entity({ tableName: 'agent_proposals' })
 @Index({ name: 'agent_proposals_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_proposals_run_idx', properties: ['organizationId', 'runId'] })
+@Index({ name: 'agent_proposals_org_disposition_created_idx', properties: ['organizationId', 'disposition', 'createdAt'] })
 export class AgentProposal {
   [OptionalProps]?: 'disposition' | 'dispositionBy' | 'dispositionReason'
     | 'processId' | 'stepId' | 'confidence' | 'guardResults' | 'createdAt' | 'updatedAt' | 'deletedAt'

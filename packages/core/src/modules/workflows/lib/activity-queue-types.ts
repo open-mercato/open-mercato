@@ -88,3 +88,11 @@ export type WorkflowActivityJob =
   | WorkflowActivityJobResumeSubWorkflowParent
 
 export const WORKFLOW_ACTIVITIES_QUEUE_NAME = 'workflow-activities'
+
+/**
+ * Dedicated queue for `invoke_agent` jobs. Minute-long LLM runs must not share
+ * execution slots with fast workflow activities (timers, emails, API calls), so
+ * `executeInvokeAgent` enqueues here and the `workflow-invoke-agent` worker
+ * consumes with its own concurrency (`WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY`).
+ */
+export const WORKFLOW_INVOKE_AGENT_QUEUE_NAME = 'workflow-invoke-agent'

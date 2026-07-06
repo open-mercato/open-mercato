@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Workflows — dedicated `workflow-invoke-agent` queue (contract-adjacent change)
+
+`invoke_agent` workflow jobs are now enqueued to a **new dedicated queue**,
+`workflow-invoke-agent`, consumed by the new `workflows:workflow-invoke-agent`
+worker (concurrency via `WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY`, default
+**5**). Minute-long LLM agent runs no longer share execution slots with fast
+workflow activities on the `workflow-activities` queue.
+
+- **Drain bridge (deprecated)**: the `workflow-activities` worker keeps its
+  `invoke_agent` branch so jobs enqueued before the cutover deploy drain
+  normally. The branch is deprecated and scheduled for removal after one minor
+  version per `BACKWARD_COMPATIBILITY.md`.
+- **Action for operators** running per-queue workers (`mercato queue worker
+  <queue>`): also start a worker for `workflow-invoke-agent`; `worker --all`
+  picks it up automatically.
+
 ### Workflows — definition versioning (contract-surface change)
 
 The `workflow_definitions` unique constraint is **relaxed** from
