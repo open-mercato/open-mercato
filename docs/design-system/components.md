@@ -2,6 +2,8 @@
 
 > List of components to standardize with priorities and statuses. Methodology + analysis of 22 components.
 
+> **v5 status update (2026-05-18)** — Phase 5 of the DS Foundation programme is closed in spec `.ai/specs/2026-05-13-ds-foundation-v5.md`. Net delivered: **12 new primitives** (ScrollArea, ButtonGroup, SegmentedControl, Slider, Rating, StepIndicator, ColorPicker, Pagination, Drawer, CommandMenu, ActivityFeed, NotificationFeed) plus **8 rewrites** (Progress + CircularProgress, Notification toast auto-dismiss, Separator labeled/dashed/section, Avatar status+ring+badge, Tabs underline/vertical/leading/count, Table header strip + striped + footer/caption, Dialog size + leadingTone + footer leading, Badge size + dot + removable + brand). All Figma-anchored, all backward compatible. The component list below — from the original v0 hackathon scope — is historical context. For the live, canonical primitive reference see [`.ai/ui-components.md`](../../.ai/ui-components.md) and [`packages/ui/AGENTS.md`](../../packages/ui/AGENTS.md).
+
 ---
 
 ## Methodology

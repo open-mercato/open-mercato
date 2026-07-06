@@ -34,7 +34,7 @@ const mockSelectFrom = jest.fn((table: string) => {
 })
 const mockKysely = { selectFrom: mockSelectFrom }
 
-const mockEm = {
+const mockEm: Record<string, unknown> = {
   find: mockEmFind,
   findAndCount: mockEmFindAndCount,
   findOne: mockEmFindOne,
@@ -43,6 +43,7 @@ const mockEm = {
   flush: mockEmFlush,
   nativeUpdate: mockEmNativeUpdate,
   getKysely: jest.fn(() => mockKysely),
+  transactional: (cb: (tx: unknown) => Promise<unknown>) => cb(mockEm),
 }
 
 const mockContainer = {
@@ -168,6 +169,54 @@ describe('admin /api/customer_accounts/admin/users — GET listing', () => {
     )
     expect(customerUserRoleCalls).toHaveLength(0)
   })
+
+  it('returns an empty page and never queries the junction table when roleId is out of scope', async () => {
+    // roleId filter must first validate the role against the scoped CustomerRole
+    // set so the junction table cannot be used as a role-UUID existence oracle (#2693).
+    mockEmFindOne.mockResolvedValue(null)
+
+    const crossOrgRoleId = roleAlpha.id
+    const res = await GET(
+      buildRequest(`http://localhost/api/customer_accounts/admin/users?roleId=${crossOrgRoleId}`),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body).toEqual({ ok: true, items: [], total: 0, totalPages: 1, page: 1 })
+    const roleLookup = mockEmFindOne.mock.calls.find((call) => call[0] === CustomerRole)
+    expect(roleLookup).toBeDefined()
+    expect(roleLookup![1]).toMatchObject({
+      id: crossOrgRoleId,
+      tenantId,
+      organizationId: orgId,
+      deletedAt: null,
+    })
+    // The junction table is never touched once the role is out of scope.
+    const junctionCalls = mockEmFind.mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(junctionCalls).toHaveLength(0)
+    expect(mockEmFindAndCount).not.toHaveBeenCalled()
+  })
+
+  it('queries the junction table only after an in-scope roleId is validated', async () => {
+    mockEmFindOne.mockResolvedValue({ id: roleAlpha.id, name: 'Alpha' })
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity !== CustomerUserRole) return []
+      // The role-filter lookup keys on `role`; the page role-batch keys on `user`.
+      if (where?.role) return [{ user: { id: 'u1' } }]
+      return [{ user: { id: 'u1' }, role: roleAlpha }]
+    })
+    mockEmFindAndCount.mockResolvedValue([[makeUser('u1')], 1])
+
+    const res = await GET(
+      buildRequest(`http://localhost/api/customer_accounts/admin/users?roleId=${roleAlpha.id}`),
+    )
+    const body = await res.json()
+
+    expect(res.status).toBe(200)
+    expect(body.total).toBe(1)
+    const junctionCalls = mockEmFind.mock.calls.filter((call) => call[0] === CustomerUserRole)
+    expect(junctionCalls.length).toBeGreaterThanOrEqual(1)
+  })
 })
 
 describe('admin /api/customer_accounts/admin/users — GET search', () => {
@@ -226,7 +275,7 @@ describe('admin /api/customer_accounts/admin/users — GET search', () => {
     expect(Array.isArray(whereArg.$or)).toBe(true)
     expect(whereArg.$or).toEqual(expect.arrayContaining([
       { id: { $in: [tokenId] } },
-      expect.objectContaining({ emailHash: expect.any(String) }),
+      expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } }),
     ]))
   })
 
@@ -251,7 +300,7 @@ describe('admin /api/customer_accounts/admin/users — GET search', () => {
     expect(res.status).toBe(200)
     expect(mockEmFindAndCount).toHaveBeenCalled()
     const whereArg = mockEmFindAndCount.mock.calls[0][1] as Record<string, any>
-    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: expect.any(String) })])
+    expect(whereArg.$or).toEqual([expect.objectContaining({ emailHash: { $in: expect.arrayContaining([expect.any(String)]) } })])
     expect(body.total).toBe(0)
   })
 })
@@ -271,7 +320,7 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
     mockEmFind.mockResolvedValue([])
   })
 
-  it('validates all requested roles via a single $in query instead of per-role lookups', async () => {
+  it('validates all requested roles via a single $in query scoped to tenant AND organization', async () => {
     mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
       if (entity === CustomerRole) {
         return [
@@ -303,10 +352,111 @@ describe('admin /api/customer_accounts/admin/users — POST role validation', ()
     expect(roleFinds[0][1]).toMatchObject({
       id: { $in: [roleAlpha.id, roleBeta.id] },
       tenantId,
+      organizationId: orgId,
       deletedAt: null,
     })
     // Two persists for the user-role links (one per valid role)
     const userRoleCreates = mockEmCreate.mock.calls.filter((call) => call[0] === CustomerUserRole)
     expect(userRoleCreates).toHaveLength(2)
+  })
+
+  it('rejects with 400 when a requested role is missing from the scoped set (cross-org role UUID)', async () => {
+    // Role from another org in the same tenant: the org-scoped lookup returns
+    // only the in-scope role, so the cross-org UUID is rejected, not dropped.
+    mockEmFind.mockImplementation(async (entity: unknown, where: any) => {
+      if (entity === CustomerRole) {
+        return [{ id: roleAlpha.id, name: 'Alpha' }].filter((role) =>
+          (where?.id?.$in as string[]).includes(role.id),
+        )
+      }
+      return []
+    })
+
+    const crossOrgRoleId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      roleIds: [roleAlpha.id, crossOrgRoleId],
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+    const resBody = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(resBody.ok).toBe(false)
+    expect(resBody.error).toContain(crossOrgRoleId)
+    // No user is created when role validation fails.
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects with 400 when customerEntityId is not an owned company in the caller scope', async () => {
+    mockEmFind.mockResolvedValue([])
+    // Company lookup (findOneWithDecryption -> em.findOne) returns nothing:
+    // the company belongs to another org, so the link must be rejected.
+    mockEmFindOne.mockResolvedValue(null)
+
+    const foreignCompanyId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      customerEntityId: foreignCompanyId,
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+    const resBody = await res.json()
+
+    expect(res.status).toBe(400)
+    expect(resBody.ok).toBe(false)
+    // The company ownership lookup is scoped to tenant + org + kind=company.
+    const companyLookup = mockEmFindOne.mock.calls.find(
+      (call) => (call[1] as any)?.id === foreignCompanyId,
+    )
+    expect(companyLookup).toBeDefined()
+    expect(companyLookup![1]).toMatchObject({
+      id: foreignCompanyId,
+      tenantId,
+      organizationId: orgId,
+      kind: 'company',
+      deletedAt: null,
+    })
+    expect(mockCreateUser).not.toHaveBeenCalled()
+  })
+
+  it('persists a customerEntityId that is an owned company in the caller scope', async () => {
+    mockEmFind.mockResolvedValue([])
+    const ownedCompanyId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    mockEmFindOne.mockResolvedValue({ id: ownedCompanyId, kind: 'company' })
+
+    const body = {
+      email: 'new@example.com',
+      password: 'Secret123!',
+      displayName: 'New User',
+      customerEntityId: ownedCompanyId,
+    }
+    const req = buildRequest('http://localhost/api/customer_accounts/admin/users', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    const res = await POST(req)
+
+    expect(res.status).toBe(201)
+    const companyUpdate = mockEmNativeUpdate.mock.calls.find(
+      (call) => (call[2] as any)?.customerEntityId === ownedCompanyId,
+    )
+    expect(companyUpdate).toBeDefined()
   })
 })

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { DashboardWidgetComponentProps } from '@open-mercato/shared/modules/dashboard/widgets'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useWidgetData, type WidgetDataFetcher } from '@open-mercato/ui/backend/dashboard/widgetData'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { BarChart, type BarChartDataItem } from '@open-mercato/ui/backend/charts'
 import { DateRangeSelect, type DateRangePreset } from '@open-mercato/ui/backend/date-range'
@@ -11,7 +11,7 @@ import { DEFAULT_SETTINGS, hydrateSettings, type SalesByRegionSettings } from '.
 import type { WidgetDataResponse } from '../../../services/widgetDataService'
 import { formatCurrencyCompact } from '../../../lib/formatters'
 
-async function fetchSalesByRegionData(settings: SalesByRegionSettings): Promise<WidgetDataResponse> {
+async function fetchSalesByRegionData(settings: SalesByRegionSettings, fetchWidgetData: WidgetDataFetcher): Promise<WidgetDataResponse> {
   const body = {
     entityType: 'sales:orders',
     metric: {
@@ -28,18 +28,7 @@ async function fetchSalesByRegionData(settings: SalesByRegionSettings): Promise<
     },
   }
 
-  const call = await apiCall<WidgetDataResponse>('/api/dashboards/widgets/data', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-
-  if (!call.ok) {
-    const errorMsg = (call.result as Record<string, unknown>)?.error
-    throw new Error(typeof errorMsg === 'string' ? errorMsg : 'Failed to fetch sales by region data')
-  }
-
-  return call.result as WidgetDataResponse
+  return fetchWidgetData<WidgetDataResponse>(body)
 }
 
 const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionSettings>> = ({
@@ -55,12 +44,13 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
 
+  const fetchWidgetData = useWidgetData()
   const refresh = React.useCallback(async () => {
     onRefreshStateChange?.(true)
     setLoading(true)
     setError(null)
     try {
-      const result = await fetchSalesByRegionData(hydrated)
+      const result = await fetchSalesByRegionData(hydrated, fetchWidgetData)
       const chartData = result.data.map((item) => ({
         region: String(item.groupKey || t('dashboards.analytics.labels.unknown', 'Unknown')),
         Revenue: item.value ?? 0,
@@ -73,7 +63,7 @@ const SalesByRegionWidget: React.FC<DashboardWidgetComponentProps<SalesByRegionS
       setLoading(false)
       onRefreshStateChange?.(false)
     }
-  }, [hydrated, onRefreshStateChange, t])
+  }, [hydrated, fetchWidgetData, onRefreshStateChange, t])
 
   React.useEffect(() => {
     refresh().catch(() => {})

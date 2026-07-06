@@ -39,6 +39,7 @@ export type FullTextSearchDocument = {
 export type FullTextSearchQuery = {
   tenantId: string
   organizationId?: string | null
+  organizationIds?: string[] | null
   entityTypes?: EntityId[]
   limit?: number
   offset?: number
@@ -52,6 +53,7 @@ export type FullTextSearchHit = {
   recordId: string
   entityId: EntityId
   score: number
+  organizationId?: string | null
   presenter?: SearchResultPresenter
   url?: string
   links?: SearchResultLink[]
@@ -97,7 +99,7 @@ export interface FullTextSearchDriver {
 
   // Batch operations (optional)
   bulkIndex?(docs: FullTextSearchDocument[]): Promise<void>
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 
   // Index management (optional)
   clearIndex?(tenantId: string): Promise<void>

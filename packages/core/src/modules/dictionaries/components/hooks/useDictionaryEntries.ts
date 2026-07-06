@@ -71,6 +71,7 @@ export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion
     }
     const normalized = normalizeDictionaryEntries(
       parsed.map(({ value, label, color, icon }) => ({ value, label, color, icon })),
+      { sort: false },
     )
     return {
       entries: normalized,

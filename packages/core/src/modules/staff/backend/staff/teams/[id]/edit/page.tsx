@@ -2,11 +2,13 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -14,6 +16,7 @@ import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TeamForm, type TeamFormValues, buildTeamPayload } from '@open-mercato/core/modules/staff/components/TeamForm'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-fields-client'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
@@ -28,6 +31,8 @@ type TeamRecord = {
   description?: string | null
   isActive?: boolean
   is_active?: boolean
+  updatedAt?: string | null
+  updated_at?: string | null
 } & Record<string, unknown>
 
 type TeamResponse = {
@@ -56,9 +61,12 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const teamId = params?.id
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const scopeVersion = useOrganizationScopeVersion()
   const [initialValues, setInitialValues] = React.useState<TeamFormValues | null>(null)
+  const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<'details' | 'members'>('details')
   const [memberRows, setMemberRows] = React.useState<TeamMemberRow[]>([])
   const [memberPage, setMemberPage] = React.useState(1)
@@ -168,6 +176,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     const teamIdValue = teamId
     let cancelled = false
     async function loadTeam() {
+      if (!cancelled) {
+        setError(null)
+        setIsNotFound(false)
+      }
       try {
         const params = new URLSearchParams({ page: '1', pageSize: '1', ids: teamIdValue })
         const payload = await readApiResultOrThrow<TeamResponse>(
@@ -176,7 +188,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
           { errorMessage: t('staff.teams.errors.load', 'Failed to load team.') },
         )
         const record = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!record) throw new Error(t('staff.teams.errors.notFound', 'Team not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const customFields = extractCustomFieldEntries(record)
         const isActive = typeof record.isActive === 'boolean'
           ? record.isActive
@@ -189,12 +204,23 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
             name: record.name ?? '',
             description: record.description ?? '',
             isActive,
+            updatedAt: typeof record.updatedAt === 'string'
+              ? record.updatedAt
+              : typeof record.updated_at === 'string'
+                ? record.updated_at
+                : null,
             ...customFields,
           })
         }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : t('staff.teams.errors.load', 'Failed to load team.')
-        flash(message, 'error')
+      } catch (err) {
+        if (!cancelled) {
+          if ((err as { status?: number }).status === 404) {
+            setIsNotFound(true)
+          } else {
+            const message = err instanceof Error ? err.message : t('staff.teams.errors.load', 'Failed to load team.')
+            setError(message)
+          }
+        }
       }
     }
     loadTeam()
@@ -262,7 +288,10 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
   const handleUnassignMember = React.useCallback(async (entry: TeamMemberRow) => {
     if (!teamId || entry.teamId !== teamId) return
     try {
-      await updateCrud('staff/team-members', { id: entry.id, teamId: null }, { errorMessage: memberLabels.errors.unassign })
+      const headers = buildOptimisticLockHeader(entry.updatedAt)
+      await withScopedApiRequestHeaders(headers, () => (
+        updateCrud('staff/team-members', { id: entry.id, teamId: null }, { errorMessage: memberLabels.errors.unassign })
+      ))
       flash(memberLabels.messages.unassigned, 'success')
       handleMemberRefresh()
     } catch (error) {
@@ -288,6 +317,44 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
     router.push('/backend/staff/teams')
   }, [teamId, router, t])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `staff.team` + id explicitly.
+  // The resourceKind mirrors the TeamForm `versionHistory` so the held lock matches
+  // the save-time conflict surface for the same team.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'staff.team',
+      resourceId: teamId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('staff.teams.errors.notFound', 'Team not found.')}
+            backHref="/backend/staff/teams"
+            backLabel={t('staff.teams.actions.backToList', 'Back to teams')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error && !initialValues) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -306,7 +373,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
                   onClick={() => setActiveTab(tab.id as 'details' | 'members')}
                   className={`relative -mb-px border-b-2 px-0 py-2 text-sm font-medium transition-colors ${
                     activeTab === tab.id
-                      ? 'border-primary text-foreground'
+                      ? 'border-accent-indigo text-foreground'
                       : 'border-transparent text-muted-foreground hover:text-foreground'
                   }`}
                 >
@@ -428,4 +495,3 @@ function mapApiTeamMember(item: Record<string, unknown>): TeamMemberRow {
     teamId,
   }, item)
 }
-

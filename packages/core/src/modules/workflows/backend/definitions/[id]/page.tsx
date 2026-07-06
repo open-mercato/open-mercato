@@ -1,15 +1,19 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
-import { apiFetch } from '@open-mercato/ui/backend/utils/api'
+import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
+import { formatWorkflowValidationError } from '../../../lib/format-validation-error'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -32,6 +36,7 @@ import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 export default function EditWorkflowDefinitionPage() {
   const router = useRouter()
   const params = useParams()
+  const pathname = usePathname()
   const t = useT()
   const isMobile = useIsMobile()
 
@@ -48,13 +53,21 @@ export default function EditWorkflowDefinitionPage() {
     queryFn: async () => {
       const response = await apiFetch(`/api/workflows/definitions/${definitionId}`)
       if (!response.ok) {
-        throw new Error(t('workflows.errors.fetchFailed'))
+        const err = new Error(t('workflows.errors.fetchFailed')) as Error & { status?: number }
+        err.status = response.status
+        throw err
       }
       const result = await response.json()
       return result.data
     },
     enabled: !!definitionId,
+    retry: (failureCount, err) => {
+      if ((err as { status?: number }).status === 404) return false
+      return failureCount < 2
+    },
   })
+
+  const isNotFound = (error as { status?: number } | null)?.status === 404
 
   const initialValues = React.useMemo(() => {
     if (definition) {
@@ -85,17 +98,32 @@ export default function EditWorkflowDefinitionPage() {
 
   const handleSubmit = async (values: WorkflowDefinitionFormValues) => {
     const payload = buildWorkflowPayload({ ...values, triggers })
+    const optimisticLockHeader = buildOptimisticLockHeader(
+      typeof definition?.updatedAt === 'string' ? definition.updatedAt : null,
+    )
 
     await runMutation({
       operation: async () => {
-        const response = await apiFetch(`/api/workflows/definitions/${definitionId}`, {
+        const updateDefinition = () => apiFetch(`/api/workflows/definitions/${definitionId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         })
+        const response = Object.keys(optimisticLockHeader).length > 0
+          ? await withScopedApiHeaders(optimisticLockHeader, updateDefinition)
+          : await updateDefinition()
         if (!response.ok) {
-          const errorBody = await readJsonSafe<{ error?: string }>(response, null)
-          throw new Error(errorBody?.error || t('workflows.errors.updateFailed'))
+          const errorBody = await readJsonSafe<{
+            error?: string
+            code?: string
+            currentUpdatedAt?: string
+            expectedUpdatedAt?: string
+            details?: Array<{ path?: Array<string | number>; message?: string }>
+          }>(response, null)
+          throw Object.assign(
+            new Error(formatWorkflowValidationError(errorBody, t('workflows.errors.updateFailed'))),
+            { status: response.status, ...(errorBody ?? {}) },
+          )
         }
         return response
       },
@@ -195,6 +223,21 @@ export default function EditWorkflowDefinitionPage() {
     router.push(`/backend/definitions/visual-editor?id=${definitionId}`)
   }, [router, definitionId])
 
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `workflows.definition` + id
+  // explicitly. The resourceKind mirrors the save-time `useGuardedMutation` context
+  // and server guard so the held lock matches the conflict surface for the same
+  // definition across both the form and visual editors.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'workflows.definition',
+      resourceId: definitionId ?? null,
+      updatedAt: typeof definition?.updatedAt === 'string' ? definition.updatedAt : null,
+      data: (definition ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -208,12 +251,26 @@ export default function EditWorkflowDefinitionPage() {
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('workflows.errors.notFound', t('workflows.errors.loadFailed'))}
+            backHref="/backend/definitions"
+            backLabel={t('workflows.backToList')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !definition) {
     return (
       <Page>
         <PageBody>
-          <div className="flex h-[50vh] flex-col items-center justify-center gap-2 text-muted-foreground">
-            <p>{t('workflows.errors.loadFailed')}</p>
+          <ErrorMessage label={t('workflows.errors.loadFailed')} />
+          <div className="mt-4 flex justify-center">
             <Button asChild variant="outline">
               <a href="/backend/definitions">{t('workflows.backToList')}</a>
             </Button>

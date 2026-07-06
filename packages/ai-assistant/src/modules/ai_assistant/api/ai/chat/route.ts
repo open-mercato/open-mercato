@@ -29,6 +29,7 @@ import {
 import { AiTenantModelAllowlistRepository } from '../../../data/repositories/AiTenantModelAllowlistRepository'
 import { AiAgentRuntimeOverrideRepository } from '../../../data/repositories/AiAgentRuntimeOverrideRepository'
 import { createConversationStorage } from '../../../lib/conversation-storage'
+import { checkAiChatRateLimit } from '../../../lib/rate-limit'
 import type { EntityManager } from '@mikro-orm/postgresql'
 
 const MAX_MESSAGES = 100
@@ -446,6 +447,15 @@ export async function POST(req: NextRequest): Promise<Response> {
     await loadAgentRegistry()
 
     const container = await createRequestContainer()
+
+    const rateLimited = await checkAiChatRateLimit({
+      req,
+      container,
+      userId: auth.sub,
+      tenantId: auth.tenantId,
+    })
+    if (rateLimited) return rateLimited
+
     const rbacService = container.resolve<RbacService>('rbacService')
     const acl = await rbacService.loadAcl(auth.sub, {
       tenantId: auth.tenantId,
@@ -650,6 +660,9 @@ export async function POST(req: NextRequest): Promise<Response> {
         attachmentIds: bodyResult.data.attachmentIds,
       })
     } catch (error) {
+      if (error instanceof Error && error.name === 'AiChatConversationOrgNotFoundError') {
+        return jsonError(400, error.message, 'organization_not_found')
+      }
       console.error('[AI Chat Agent] Failed to persist user message:', error)
     }
 

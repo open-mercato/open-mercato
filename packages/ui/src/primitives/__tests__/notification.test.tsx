@@ -29,12 +29,12 @@ describe('Notification primitive', () => {
     expect(screen.getByText('On the latest deal').tagName).toBe('P')
   })
 
-  it('description gets opacity-72 per Figma Notification reference', () => {
+  it('description gets opacity-70 (DS opacity scale; was opacity-72 in early v5, snapped to scale per .ai/ds-rules.md)', () => {
     const { container } = render(
       <Notification title="t" description="body" />,
     )
     const desc = container.querySelector('[data-slot="notification-description"]')
-    expect(desc).toHaveClass('opacity-72')
+    expect(desc).toHaveClass('opacity-70')
   })
 
   it('renders the timestamp slot when provided', () => {
@@ -115,5 +115,105 @@ describe('Notification primitive', () => {
     render(<Notification ref={ref} title="t" />)
     expect(ref.current).not.toBeNull()
     expect(ref.current?.getAttribute('data-slot')).toBe('notification')
+  })
+
+  describe('autoDismissMs', () => {
+    beforeEach(() => {
+      jest.useFakeTimers()
+    })
+    afterEach(() => {
+      jest.runOnlyPendingTimers()
+      jest.useRealTimers()
+    })
+
+    it('fires onDismiss after the configured delay', () => {
+      const onDismiss = jest.fn()
+      render(
+        <Notification
+          title="Saved"
+          autoDismissMs={3000}
+          onDismiss={onDismiss}
+        />,
+      )
+      expect(onDismiss).not.toHaveBeenCalled()
+      jest.advanceTimersByTime(2999)
+      expect(onDismiss).not.toHaveBeenCalled()
+      jest.advanceTimersByTime(1)
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT fire onDismiss when autoDismissMs is undefined', () => {
+      const onDismiss = jest.fn()
+      render(<Notification title="Persistent" onDismiss={onDismiss} />)
+      jest.advanceTimersByTime(60000)
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fire onDismiss when autoDismissMs is 0', () => {
+      const onDismiss = jest.fn()
+      render(
+        <Notification title="t" autoDismissMs={0} onDismiss={onDismiss} />,
+      )
+      jest.advanceTimersByTime(10000)
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
+
+    it('pauses the timer on hover and resumes (restarts) on mouse leave when pauseOnHover defaults to true', () => {
+      const onDismiss = jest.fn()
+      const { container } = render(
+        <Notification
+          title="Hover me"
+          autoDismissMs={3000}
+          onDismiss={onDismiss}
+        />,
+      )
+      const root = container.querySelector('[data-slot="notification"]') as HTMLElement
+      // Advance ~half the delay
+      jest.advanceTimersByTime(1500)
+      // Hover pauses the timer
+      fireEvent.mouseEnter(root)
+      expect(root.getAttribute('data-auto-dismiss-paused')).toBe('true')
+      jest.advanceTimersByTime(10000)
+      expect(onDismiss).not.toHaveBeenCalled()
+      // Leave restarts the timer from zero — full delay needed
+      fireEvent.mouseLeave(root)
+      expect(root.getAttribute('data-auto-dismiss-paused')).toBeNull()
+      jest.advanceTimersByTime(2999)
+      expect(onDismiss).not.toHaveBeenCalled()
+      jest.advanceTimersByTime(1)
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('honors pauseOnHover=false — timer keeps running on hover', () => {
+      const onDismiss = jest.fn()
+      const { container } = render(
+        <Notification
+          title="No pause"
+          autoDismissMs={2000}
+          pauseOnHover={false}
+          onDismiss={onDismiss}
+        />,
+      )
+      const root = container.querySelector('[data-slot="notification"]') as HTMLElement
+      fireEvent.mouseEnter(root)
+      expect(root.getAttribute('data-auto-dismiss-paused')).toBeNull()
+      jest.advanceTimersByTime(2000)
+      expect(onDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('cancels the timer when autoDismissMs prop is removed (set to undefined)', () => {
+      const onDismiss = jest.fn()
+      const { rerender } = render(
+        <Notification
+          title="Cancel me"
+          autoDismissMs={3000}
+          onDismiss={onDismiss}
+        />,
+      )
+      jest.advanceTimersByTime(1000)
+      rerender(<Notification title="Cancel me" onDismiss={onDismiss} />)
+      jest.advanceTimersByTime(10000)
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
   })
 })

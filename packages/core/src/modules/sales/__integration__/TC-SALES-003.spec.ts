@@ -8,6 +8,10 @@ import { createSalesDocument } from '@open-mercato/core/modules/core/__integrati
  */
 test.describe('TC-SALES-003: Order Creation', () => {
   test('should create a sales order from UI create form', async ({ page }) => {
+    // Heavy multi-hop UI flow (login + createSalesDocument) routinely exceeds
+    // Playwright's 20s default on a loaded ephemeral shard; opt into the
+    // sanctioned per-test budget (see TC-SALES-005). Global bump is disallowed.
+    test.slow();
     await login(page, 'admin');
     const orderId = await createSalesDocument(page, { kind: 'order' });
 

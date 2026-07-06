@@ -1,0 +1,33 @@
+• turbo 2.9.14
+
+   • Packages in scope: @open-mercato/app
+   • Running generate in 1 packages
+   • Remote caching disabled, using shared worktree cache
+
+@open-mercato/app:generate: cache bypass, force executing 1c23f29a9fc6df64
+@open-mercato/app:generate: ◇ injected env (96) from .env // tip: ⌘ custom filepath { path: '/custom/path/.env' }
+@open-mercato/app:generate: ╔═══════════════════════╗
+@open-mercato/app:generate: ║  🧩 Open Mercato CLI  ║
+@open-mercato/app:generate: ╚═══════════════════════╝
+@open-mercato/app:generate: 
+@open-mercato/app:generate: 🚀 Running generate:all 
+@open-mercato/app:generate: Running all generators...
+@open-mercato/app:generate: Generated .mercato/generated/module-package-sources.css
+@open-mercato/app:generate: [OpenAPI] Found 358 API route files
+@open-mercato/app:generate: [OpenAPI] Bundle approach: 358 paths, 265 with requestBody schemas
+@open-mercato/app:generate: [OpenAPI] Skipped (unchanged): /home/pkarw/Projects/mercato-development/.ai/tmp/auto-continue-pr/pr-2055-20260525-104412/apps/mercato/.mercato/generated/openapi.generated.json
+@open-mercato/app:generate: [generate] Purging structural cache for all tenants...
+@open-mercato/app:generate: [41m[97m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+@open-mercato/app:generate: [41m[97m 🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)                                         [0m
+@open-mercato/app:generate: [41m[97m Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY                                                                  [0m
+@open-mercato/app:generate: [41m[97m Secret: dev-tenant-encryption-fallback-key-32chars                                                           [0m
+@open-mercato/app:generate: [41m[97m Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.           [0m
+@open-mercato/app:generate: [41m[97m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━[0m
+@open-mercato/app:generate: [generate] Skipping structural cache purge: PostgreSQL at localhost:5432/open-mercato is not reachable: it refused the connection. This command needs PostgreSQL. Start the database service or fix DATABASE_URL in .env, then retry `yarn mercato configs cache`.
+@open-mercato/app:generate: All generators completed.
+@open-mercato/app:generate: ⏱️ Done in 10715ms
+
+ Tasks:    1 successful, 1 total
+Cached:    0 cached, 1 total
+  Time:    12.144s 
+

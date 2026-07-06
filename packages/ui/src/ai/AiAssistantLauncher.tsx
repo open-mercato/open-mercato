@@ -22,6 +22,7 @@
  */
 
 import * as React from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import {
   AlertTriangle,
   BadgeQuestionMark,
@@ -49,6 +50,7 @@ import { Kbd, KbdShortcut } from '../primitives/kbd'
 import { useAiDock } from './AiDock'
 import { useAiChatSessions } from './AiChatSessions'
 import { ChatPaneTabs } from './ChatPaneTabs'
+import { ConversationShareButton } from './ConversationShareButton'
 import { AiIcon } from './AiIcon'
 import type { AiChatContextItem, AiChatSuggestion } from './AiChat'
 
@@ -201,6 +203,10 @@ export function AiAssistantLauncher({
 }: AiAssistantLauncherProps) {
   const t = useT()
   const dock = useAiDock()
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const deepLinkParam = searchParams.get('openAiConversation')
   const [healthy, setHealthy] = React.useState<boolean | null>(skipHealthCheck ? true : null)
   const [agents, setAgents] = React.useState<AiAssistantLauncherAgent[]>([])
   const [agentsLoaded, setAgentsLoaded] = React.useState(false)
@@ -214,6 +220,43 @@ export function AiAssistantLauncher({
   const [chatOpen, setChatOpen] = React.useState(false)
   const [query, setQuery] = React.useState('')
   const [highlight, setHighlight] = React.useState(0)
+  const [deepLinkConversationId, setDeepLinkConversationId] = React.useState<string | null>(null)
+  // Tracks the last conversation ID whose deep-link fetch was dispatched, so we never
+  // double-handle the same ID (guards against re-renders and URL staying unchanged).
+  const deepLinkHandledRef = React.useRef<string | null>(null)
+
+  // Reactively update deepLinkConversationId from the URL so client-side navigation
+  // (e.g. clicking a notification while already on the app) is also handled — a
+  // mount-only useEffect would miss those transitions since AppShell never remounts.
+  React.useEffect(() => {
+    if (deepLinkParam) setDeepLinkConversationId(deepLinkParam)
+  }, [deepLinkParam])
+
+  React.useEffect(() => {
+    if (!deepLinkConversationId || !agentsLoaded || agents.length === 0) return
+    if (deepLinkHandledRef.current === deepLinkConversationId) return
+    deepLinkHandledRef.current = deepLinkConversationId
+    let cancelled = false
+    apiCall<{ conversation: { agentId: string } }>(
+      `/api/ai_assistant/ai/conversations/${deepLinkConversationId}`,
+      { headers: { 'x-om-forbidden-redirect': '0', 'x-om-unauthorized-redirect': '0' } },
+    )
+      .then((res) => {
+        if (cancelled || !res.ok || !res.result) return
+        const { agentId } = res.result.conversation
+        const matched = agents.find((a) => a.id === agentId) ?? agents[0]
+        if (!matched) return
+        setActiveAgent(matched)
+        setChatOpen(true)
+        // Strip the deep-link param from the URL so future normal chat opens
+        // don't accidentally inherit the shared conversation ID.
+        router.replace(pathname, { scroll: false })
+      })
+      .catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [deepLinkConversationId, agentsLoaded, agents, router, pathname])
 
   // Health check — best-effort signal only. We do NOT gate the launcher
   // behind it any more: a flaky / slow / transiently-401 health endpoint on
@@ -329,6 +372,9 @@ export function AiAssistantLauncher({
   }, [openPicker])
 
   const handleSelectAgent = React.useCallback((agent: AiAssistantLauncherAgent) => {
+    // Manual agent selection → discard any pending deep-link so the user gets
+    // a fresh session instead of the shared conversation.
+    setDeepLinkConversationId(null)
     if (dock.state.assistant?.agent === agent.id) {
       dock.dock(dock.state.assistant)
       setPickerOpen(false)
@@ -613,7 +659,13 @@ export function AiAssistantLauncher({
           ) : null}
         </DialogContent>
       </Dialog>
-      <Dialog open={chatOpen} onOpenChange={setChatOpen}>
+      <Dialog open={chatOpen} onOpenChange={(open) => {
+        setChatOpen(open)
+        if (!open) {
+          setDeepLinkConversationId(null)
+          deepLinkHandledRef.current = null
+        }
+      }}>
         <DialogContent
           className={cn(
             // Mobile: full-screen sheet (matches per-page assistant
@@ -701,6 +753,7 @@ export function AiAssistantLauncher({
                 'ai_assistant.launcher.composerPlaceholder',
                 'Ask anything…',
               )}
+              sharedConversationId={deepLinkConversationId ?? undefined}
             />
           ) : null}
         </DialogContent>
@@ -715,6 +768,8 @@ interface LauncherChatBodyProps {
   contextItems: AiChatContextItem[]
   welcomeFallback: string
   placeholder: string
+  /** When set, bypass session management and load this conversation directly (e.g. from a notification deep-link). */
+  sharedConversationId?: string
 }
 
 function LauncherChatBody({
@@ -723,24 +778,44 @@ function LauncherChatBody({
   contextItems,
   welcomeFallback,
   placeholder,
+  sharedConversationId,
 }: LauncherChatBodyProps) {
   const sessions = useAiChatSessions()
+
+  // When a shared conversation is opened via deep-link, find its session from
+  // the server-synced list so it shows as a named tab rather than being hidden.
+  const sharedSession = React.useMemo(
+    () =>
+      sharedConversationId
+        ? (sessions.state.sessions.find((s) => s.conversationId === sharedConversationId) ?? null)
+        : null,
+    [sharedConversationId, sessions.state.sessions],
+  )
+
   const session = sessions.getActiveSession(activeAgent.id)
 
   React.useEffect(() => {
+    if (sharedSession) {
+      sessions.setActiveSession(sharedSession.id)
+      return
+    }
+    if (sharedConversationId) return
     if (!session) sessions.ensureSession(activeAgent.id)
-  }, [activeAgent.id, session, sessions])
+  }, [activeAgent.id, session, sessions, sharedConversationId, sharedSession])
+
+  const conversationId = session?.conversationId ?? sharedConversationId
+  const chatKey = session?.id ?? sharedConversationId
 
   return (
     <>
       <ChatPaneTabs agentId={activeAgent.id} className="border-b" />
       <div className="min-h-0 flex-1" data-ai-launcher-chat-container="">
-        {session ? (
+        {conversationId ? (
           <React.Suspense fallback={null}>
             <LazyAiChat
-              key={session.id}
+              key={chatKey}
               agent={activeAgent.id}
-              conversationId={session.conversationId}
+              conversationId={conversationId}
               pageContext={{}}
               className="h-full"
               placeholder={placeholder}
@@ -748,6 +823,7 @@ function LauncherChatBody({
               contextItems={contextItems}
               welcomeTitle={activeAgent.label}
               welcomeDescription={activeAgent.description ?? welcomeFallback}
+              headerActions={<ConversationShareButton conversationId={conversationId} />}
             />
           </React.Suspense>
         ) : null}

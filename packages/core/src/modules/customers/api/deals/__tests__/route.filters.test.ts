@@ -1,8 +1,45 @@
 /** @jest-environment node */
 
+const mockFetchStuckDealIds = jest.fn()
+
+jest.mock('../../../lib/stuckDeals', () => ({
+  fetchStuckDealIds: (...args: unknown[]) => mockFetchStuckDealIds(...args),
+}))
+
 import { buildDealListFilters, dealListQuerySchema } from '../route'
+import type { CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+
+const tenantId = '11111111-1111-4111-8111-111111111111'
+const organizationId = '22222222-2222-4222-8222-222222222222'
+
+function createDealFilterContext(rows: Array<{ id: string }>, url = 'https://example.test/api/customers/deals'): {
+  ctx: CrudCtx
+  execute: jest.Mock
+} {
+  const execute = jest.fn(async () => rows)
+  const em = {
+    getConnection: () => ({ execute }),
+  }
+  const ctx = {
+    auth: { tenantId, orgId: organizationId },
+    request: new Request(url),
+    container: {
+      resolve: (key: string) => {
+        if (key !== 'em') throw new Error(`Unexpected container key: ${key}`)
+        return em
+      },
+    },
+  } as unknown as CrudCtx
+
+  return { ctx, execute }
+}
 
 describe('customers deals list filters', () => {
+  beforeEach(() => {
+    mockFetchStuckDealIds.mockReset()
+    mockFetchStuckDealIds.mockResolvedValue([])
+  })
+
   it('parses explicit false booleans without applying stuck or overdue filters', async () => {
     const parsed = dealListQuerySchema.parse({
       isStuck: 'false',
@@ -59,7 +96,7 @@ describe('customers deals list filters', () => {
   it('applies date range filter when expectedCloseAtFrom/To are provided', async () => {
     const parsed = dealListQuerySchema.parse({
       expectedCloseAtFrom: '2026-01-01',
-      expectedCloseAtTo: '2026-12-31',
+      expectedCloseAtTo: new Date(Date.now() + 180 * 86_400_000).toISOString().slice(0, 10),
     })
     const filters = await buildDealListFilters(parsed)
     expect(filters.expected_close_at).toMatchObject({
@@ -91,5 +128,93 @@ describe('customers deals list filters', () => {
     const parsed = dealListQuerySchema.parse({ isStuck: 'true' })
     const filters = await buildDealListFilters(parsed)
     expect(filters.id).toBeUndefined()
+  })
+
+  it('needsAttention=true unions overdue open deals with open stuck deals before pagination', async () => {
+    const overdueDeal = '66666666-6666-4666-8666-666666666666'
+    const openStuckDeal = '77777777-7777-4777-8777-777777777777'
+    const closedStuckDeal = '88888888-8888-4888-8888-888888888888'
+    const { ctx, execute } = createDealFilterContext([])
+    execute
+      .mockResolvedValueOnce([{ id: overdueDeal }])
+      .mockResolvedValueOnce([{ id: openStuckDeal }])
+    mockFetchStuckDealIds.mockResolvedValue([openStuckDeal, closedStuckDeal])
+
+    const parsed = dealListQuerySchema.parse({ needsAttention: 'true' })
+    const filters = await buildDealListFilters(parsed, ctx)
+
+    expect(filters.id).toEqual({ $in: [overdueDeal, openStuckDeal] })
+    expect(execute).toHaveBeenCalledTimes(2)
+    expect(execute.mock.calls[0]?.[0]).toContain('expected_close_at < CURRENT_DATE')
+    expect(execute.mock.calls[1]?.[0]).toContain('status IN (?,?)')
+    expect(execute.mock.calls[1]?.[1]).toEqual([
+      organizationId,
+      tenantId,
+      'open',
+      'in_progress',
+      openStuckDeal,
+      closedStuckDeal,
+    ])
+  })
+
+  it('narrows canonical personId/companyId filters before pagination', async () => {
+    const personA = '33333333-3333-4333-8333-333333333333'
+    const personB = '44444444-4444-4444-8444-444444444444'
+    const companyA = '55555555-5555-4555-8555-555555555555'
+    const dealA = '66666666-6666-4666-8666-666666666666'
+    const dealB = '77777777-7777-4777-8777-777777777777'
+    const { ctx, execute } = createDealFilterContext([{ id: dealA }, { id: dealB }])
+    const parsed = dealListQuerySchema.parse({
+      personId: `${personA},${personB}`,
+      companyId: [companyA],
+    })
+
+    const filters = await buildDealListFilters(parsed, ctx)
+
+    expect(filters.id).toEqual({ $in: [dealA, dealB] })
+    expect(execute).toHaveBeenCalledTimes(1)
+    expect(execute.mock.calls[0]?.[0]).toContain('FROM customer_deals')
+    expect(execute.mock.calls[0]?.[0]).toContain('customer_deal_people')
+    expect(execute.mock.calls[0]?.[0]).toContain('customer_deal_companies')
+    expect(execute.mock.calls[0]?.[1]).toEqual([
+      organizationId,
+      tenantId,
+      personA,
+      personB,
+      companyA,
+    ])
+  })
+
+  it('keeps legacy personEntityId/companyEntityId aliases as pre-pagination filters', async () => {
+    const personA = '33333333-3333-4333-8333-333333333333'
+    const personB = '44444444-4444-4444-8444-444444444444'
+    const companyA = '55555555-5555-4555-8555-555555555555'
+    const dealA = '66666666-6666-4666-8666-666666666666'
+    const url =
+      `https://example.test/api/customers/deals?personEntityId=${personA}` +
+      `&personEntityId=${personB}&companyEntityId=${companyA}`
+    const { ctx, execute } = createDealFilterContext([{ id: dealA }], url)
+    const parsed = dealListQuerySchema.parse({})
+
+    const filters = await buildDealListFilters(parsed, ctx)
+
+    expect(filters.id).toEqual({ $in: [dealA] })
+    expect(execute.mock.calls[0]?.[1]).toEqual([
+      organizationId,
+      tenantId,
+      personA,
+      personB,
+      companyA,
+    ])
+  })
+
+  it('collapses person/company association filters to no-match before pagination', async () => {
+    const personA = '33333333-3333-4333-8333-333333333333'
+    const { ctx } = createDealFilterContext([])
+    const parsed = dealListQuerySchema.parse({ personId: personA })
+
+    const filters = await buildDealListFilters(parsed, ctx)
+
+    expect(filters.id).toEqual({ $eq: '00000000-0000-0000-0000-000000000000' })
   })
 })

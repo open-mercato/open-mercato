@@ -32,7 +32,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Select,
@@ -41,7 +41,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
-import { apiCall, apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -81,6 +83,11 @@ import { BulkActionsBar } from './components/BulkActionsBar'
 import { ChangeStageDialog } from './components/ChangeStageDialog'
 import { ChangeOwnerDialog } from './components/ChangeOwnerDialog'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import {
+  readVersionedPreference,
+  writeVersionedPreference,
+  clearVersionedPreference,
+} from '@open-mercato/shared/lib/browser/versionedPreference'
 import { runBulkDelete, groupBulkDeleteFailures } from '@open-mercato/ui/backend/utils/bulkDelete'
 import {
   fetchAssignableStaffMembers,
@@ -168,35 +175,37 @@ const MIN_LANE_WIDTH = 240
 const MAX_LANE_WIDTH = 576
 const LANE_GAP = 14
 const LANE_WIDTHS_STORAGE_KEY_PREFIX = 'kanban-lane-widths-v2'
+const LANE_WIDTHS_STORAGE_VERSION = 1
+
+function isNumberRecord(value: unknown): value is Record<string, number> {
+  return !!value && typeof value === 'object' && !Array.isArray(value)
+    && Object.values(value as Record<string, unknown>).every((v) => typeof v === 'number')
+}
 
 function loadLaneWidths(scopeKey: string): Record<string, number> {
-  if (typeof window === 'undefined') return {}
-  try {
-    const raw = window.localStorage.getItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`)
-    if (!raw) return {}
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return {}
-    const out: Record<string, number> = {}
-    for (const [k, v] of Object.entries(parsed)) {
-      if (typeof v === 'number' && Number.isFinite(v) && v >= MIN_LANE_WIDTH && v <= MAX_LANE_WIDTH) {
-        out[k] = v
-      }
+  const raw = readVersionedPreference<Record<string, number>>(
+    `${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`,
+    LANE_WIDTHS_STORAGE_VERSION,
+    isNumberRecord,
+    {},
+    { legacyIsValid: isNumberRecord },
+  )
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(raw)) {
+    if (Number.isFinite(v) && v >= MIN_LANE_WIDTH && v <= MAX_LANE_WIDTH) {
+      out[k] = v
     }
-    return out
-  } catch {
-    return {}
   }
+  return out
 }
 
 function saveLaneWidths(scopeKey: string, widths: Record<string, number>) {
-  if (typeof window === 'undefined') return
-  try {
-    if (Object.keys(widths).length === 0) {
-      window.localStorage.removeItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`)
-    } else {
-      window.localStorage.setItem(`${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`, JSON.stringify(widths))
-    }
-  } catch {}
+  const key = `${LANE_WIDTHS_STORAGE_KEY_PREFIX}:${scopeKey}`
+  if (Object.keys(widths).length === 0) {
+    clearVersionedPreference(key)
+  } else {
+    writeVersionedPreference(key, LANE_WIDTHS_STORAGE_VERSION, widths)
+  }
 }
 
 function normalizeAmount(value: unknown): number | null {
@@ -597,10 +606,10 @@ export default function DealsKanbanPage(): React.ReactElement {
     () => ({
       pipelineId: selectedPipelineId,
       search: search.trim(),
-      status: statusFilters.slice().sort().join(','),
-      owners: ownerFilters.slice().sort().join(','),
-      people: peopleFilters.slice().sort().join(','),
-      companies: companyFilters.slice().sort().join(','),
+      status: statusFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      owners: ownerFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      people: peopleFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
+      companies: companyFilters.slice().sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(','),
       closeFrom: closeDateFilter.from ?? '',
       closeTo: closeDateFilter.to ?? '',
       currency: currencyFilter ?? '',
@@ -1107,22 +1116,29 @@ export default function DealsKanbanPage(): React.ReactElement {
       }
       setPendingDealId(dealId)
 
+      // The moved deal's version, so a concurrent edit/move from another tab is
+      // refused instead of silently overwritten (#2055).
+      const dealVersion = typeof movingItem?.updated_at === 'string' ? movingItem.updated_at : null
+
       runMoveMutation({
         operation: async () => {
-          await apiCallOrThrow(
-            '/api/customers/deals',
-            {
-              method: 'PUT',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({ id: dealId, pipelineStageId: targetStageId }),
-            },
-            {
-              errorMessage: translateWithFallback(
-                t,
-                'customers.deals.pipeline.moveError',
-                'Failed to update deal stage.',
-              ),
-            },
+          await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(dealVersion),
+            () => apiCallOrThrow(
+              '/api/customers/deals',
+              {
+                method: 'PUT',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: dealId, pipelineStageId: targetStageId }),
+              },
+              {
+                errorMessage: translateWithFallback(
+                  t,
+                  'customers.deals.pipeline.moveError',
+                  'Failed to update deal stage.',
+                ),
+              },
+            ),
           )
         },
         context: {
@@ -1145,6 +1161,8 @@ export default function DealsKanbanPage(): React.ReactElement {
           }
           // Restore extra-pages cache to pre-move snapshot
           setExtraCardsByStage(extraSnapshot)
+          // A stale move surfaces the unified conflict bar — skip the generic flash.
+          if (surfaceRecordConflict(error, t)) return
           const message =
             error instanceof Error && error.message
               ? error.message
@@ -1740,24 +1758,28 @@ export default function DealsKanbanPage(): React.ReactElement {
 
   const updateDealStatus = React.useCallback(
     async (dealId: string, status: 'win' | 'loose') => {
+      const dealVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
         await runDealMutation({
           operation: async () => {
-            await apiCallOrThrow(
-              '/api/customers/deals',
-              {
-                method: 'PUT',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: dealId, status }),
-              },
-              {
-                errorMessage: translateWithFallback(
-                  t,
-                  'customers.deals.kanban.menu.error.status',
-                  'Failed to update deal status.',
-                ),
-              },
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(dealVersion),
+              () => apiCallOrThrow(
+                '/api/customers/deals',
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: dealId, status }),
+                },
+                {
+                  errorMessage: translateWithFallback(
+                    t,
+                    'customers.deals.kanban.menu.error.status',
+                    'Failed to update deal status.',
+                  ),
+                },
+              ),
             )
           },
           context: {
@@ -1783,6 +1805,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         invalidateKanbanData()
       } catch (error) {
+        if (surfaceRecordConflict(error, t)) { invalidateKanbanData(); return }
         const message =
           error instanceof Error && error.message
             ? error.message
@@ -1796,7 +1819,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         setPendingDealId(null)
       }
     },
-    [invalidateKanbanData, retryDealMutation, runDealMutation, t],
+    [deals, invalidateKanbanData, retryDealMutation, runDealMutation, t],
   )
 
   const deleteDeal = React.useCallback(
@@ -1818,18 +1841,22 @@ export default function DealsKanbanPage(): React.ReactElement {
       })
       if (!confirmed) return
 
+      const lockVersion = deals.find((deal) => deal.id === dealId)?.updatedAt ?? null
       setPendingDealId(dealId)
       try {
         await runDealMutation({
           operation: async () => {
-            await deleteCrud('customers/deals', {
-              body: { id: dealId },
-              errorMessage: translateWithFallback(
-                t,
-                'customers.deals.kanban.menu.delete.error',
-                'Failed to delete deal.',
-              ),
-            })
+            await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(lockVersion),
+              () => deleteCrud('customers/deals', {
+                body: { id: dealId },
+                errorMessage: translateWithFallback(
+                  t,
+                  'customers.deals.kanban.menu.delete.error',
+                  'Failed to delete deal.',
+                ),
+              }),
+            )
           },
           context: {
             formId: dealMutationContextId,
@@ -1844,6 +1871,11 @@ export default function DealsKanbanPage(): React.ReactElement {
         )
         invalidateKanbanData()
       } catch (error) {
+        // A stale delete surfaces the unified conflict bar — skip the generic flash (#2332).
+        if (surfaceRecordConflict(error, t)) {
+          invalidateKanbanData()
+          return
+        }
         const message =
           error instanceof Error && error.message
             ? error.message
@@ -1857,7 +1889,7 @@ export default function DealsKanbanPage(): React.ReactElement {
         setPendingDealId(null)
       }
     },
-    [confirm, invalidateKanbanData, retryDealMutation, runDealMutation, t],
+    [confirm, deals, invalidateKanbanData, retryDealMutation, runDealMutation, t],
   )
 
   const bulkSelectionSummary = React.useMemo(() => {
@@ -2517,6 +2549,7 @@ export default function DealsKanbanPage(): React.ReactElement {
   return (
     <Page>
       <PageBody>
+        <ViewTabsRow active="kanban" className="mb-4" />
         <div className="flex flex-col gap-2">
           <Breadcrumb>
             <BreadcrumbList>
@@ -2685,8 +2718,6 @@ export default function DealsKanbanPage(): React.ReactElement {
           ) : null}
         </div>
 
-        <ViewTabsRow active="kanban" className="mt-4" />
-
         <FilterBarRow
           leadingChips={leadingChipsNode}
           chips={filterChips}
@@ -2710,17 +2741,18 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <ErrorNotice
-              message={
-                firstError instanceof Error
+            <Alert variant="destructive">
+              <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
+              <AlertDescription>
+                {firstError instanceof Error
                   ? firstError.message
                   : translateWithFallback(
                       t,
                       'customers.deals.pipeline.loadError',
                       'Failed to load deals.',
-                    )
-              }
-            />
+                    )}
+              </AlertDescription>
+            </Alert>
           </div>
         ) : (
           <DndContext

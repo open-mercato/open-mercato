@@ -4,27 +4,19 @@
  * Tests for WAIT_FOR_SIGNAL step type and signal handling
  */
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findOneWithDecryption: jest.fn(),
+  findWithDecryption: jest.fn(),
+}))
+
+import {
+  findOneWithDecryption,
+  findWithDecryption,
+} from '@open-mercato/shared/lib/encryption/find'
 import { sendSignal, sendSignalByCorrelationKey, SignalError } from '../signal-handler'
-import { logWorkflowEvent } from '../event-logger'
-import { executeWorkflow } from '../workflow-executor'
-import * as stepHandler from '../step-handler'
-import * as transitionHandler from '../transition-handler'
 
-// Mock dependencies
-jest.mock('../event-logger')
-jest.mock('../workflow-executor')
-jest.mock('../step-handler')
-jest.mock('../transition-handler')
-
-const mockLogWorkflowEvent = logWorkflowEvent as jest.MockedFunction<typeof logWorkflowEvent>
-const mockExecuteWorkflow = executeWorkflow as jest.MockedFunction<typeof executeWorkflow>
-const mockExitStep = stepHandler.exitStep as jest.MockedFunction<typeof stepHandler.exitStep>
-const mockFindValidTransitions = transitionHandler.findValidTransitions as jest.MockedFunction<
-  typeof transitionHandler.findValidTransitions
->
-const mockExecuteTransition = transitionHandler.executeTransition as jest.MockedFunction<
-  typeof transitionHandler.executeTransition
->
+const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
+const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
 
 describe('Workflow Signals - Phase 9.1', () => {
   // Test data
@@ -35,12 +27,29 @@ describe('Workflow Signals - Phase 9.1', () => {
   const definitionId = 'def-123'
 
   const mockEm = {
-    findOne: jest.fn(),
-    find: jest.fn(),
     flush: jest.fn(),
   } as any
 
-  const mockContainer = {} as any
+  const mockLogWorkflowEvent = jest.fn()
+  const mockExitStep = jest.fn()
+  const mockFindValidTransitions = jest.fn()
+  const mockExecuteTransition = jest.fn()
+  const mockExecuteWorkflow = jest.fn()
+
+  const mockContainer = {
+    resolve: jest.fn((token: string) => {
+      switch (token) {
+        case 'eventLogger': return { logWorkflowEvent: mockLogWorkflowEvent }
+        case 'stepHandler': return { exitStep: mockExitStep }
+        case 'transitionHandler': return {
+          findValidTransitions: mockFindValidTransitions,
+          executeTransition: mockExecuteTransition,
+        }
+        case 'workflowExecutor': return { executeWorkflow: mockExecuteWorkflow }
+        default: throw new Error(`Unexpected DI token in test: ${token}`)
+      }
+    }),
+  } as any
 
   const mockInstance = {
     id: instanceId,
@@ -61,6 +70,8 @@ describe('Workflow Signals - Phase 9.1', () => {
   const mockDefinition = {
     id: definitionId,
     workflowId: 'signal_workflow',
+    tenantId,
+    organizationId,
     definition: {
       steps: [
         { stepId: 'start', stepType: 'START' },
@@ -108,10 +119,10 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Basic Signal Sending', () => {
     it('should send signal to paused workflow instance', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance }) // Instance lookup
-        .mockResolvedValueOnce({ ...mockDefinition }) // Definition lookup
-        .mockResolvedValueOnce({ ...mockStepInstance }) // Step instance lookup
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       await sendSignal(mockEm, mockContainer, {
         instanceId,
@@ -158,11 +169,20 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should merge signal payload into workflow context', async () => {
-      const instance: any = { ...mockInstance, context: { existingData: 'value' }, version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
-      mockEm.findOne
-        .mockResolvedValueOnce(instance) // Instance
-        .mockResolvedValueOnce(mockDefinition) // Definition
-        .mockResolvedValueOnce(mockStepInstance) // Step instance
+      const instance: any = {
+        ...mockInstance,
+        context: { existingData: 'value' },
+        version: 1,
+        workflowId: 'signal_workflow',
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance)
+        .mockResolvedValueOnce(mockDefinition as any)
+        .mockResolvedValueOnce(mockStepInstance as any)
 
       await sendSignal(mockEm, mockContainer, {
         instanceId,
@@ -185,10 +205,10 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should handle signal without payload', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance })
-        .mockResolvedValueOnce({ ...mockDefinition })
-        .mockResolvedValueOnce({ ...mockStepInstance })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       await sendSignal(mockEm, mockContainer, {
         instanceId,
@@ -206,7 +226,7 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Error Handling', () => {
     it('should throw INSTANCE_NOT_FOUND when workflow does not exist', async () => {
-      mockEm.findOne.mockResolvedValueOnce(null) // Instance not found
+      mockFindOneWithDecryption.mockResolvedValueOnce(null) // Instance not found
 
       await expect(
         sendSignal(mockEm, mockContainer, {
@@ -218,6 +238,7 @@ describe('Workflow Signals - Phase 9.1', () => {
         })
       ).rejects.toThrow(SignalError)
 
+      mockFindOneWithDecryption.mockResolvedValueOnce(null)
       await expect(
         sendSignal(mockEm, mockContainer, {
           instanceId,
@@ -230,10 +251,10 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should throw WORKFLOW_NOT_PAUSED when workflow is not paused', async () => {
-      mockEm.findOne.mockResolvedValueOnce({
+      mockFindOneWithDecryption.mockResolvedValueOnce({
         ...mockInstance,
         status: 'RUNNING',
-      })
+      } as any)
 
       await expect(
         sendSignal(mockEm, mockContainer, {
@@ -247,8 +268,8 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should throw DEFINITION_NOT_FOUND when definition does not exist', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance }) // Instance found
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any) // Instance found
         .mockResolvedValueOnce(null) // Definition not found
 
       await expect(
@@ -275,9 +296,9 @@ describe('Workflow Signals - Phase 9.1', () => {
         },
       }
 
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance })
-        .mockResolvedValueOnce(definitionWithoutSignal)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce(definitionWithoutSignal as any)
 
       await expect(
         sendSignal(mockEm, mockContainer, {
@@ -291,9 +312,9 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should throw SIGNAL_NAME_MISMATCH when signal name does not match', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance })
-        .mockResolvedValueOnce({ ...mockDefinition })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
 
       await expect(
         sendSignal(mockEm, mockContainer, {
@@ -309,26 +330,31 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Signal by Correlation Key', () => {
     it('should send signal to multiple workflows with same correlation key', async () => {
-      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
-      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
-      const instance3 = { ...mockInstance, id: 'instance-3', correlationKey: 'batch-001', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
+      const baseExtras = {
+        version: 1,
+        workflowId: 'signal_workflow',
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-001', ...baseExtras }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-001', ...baseExtras }
+      const instance3 = { ...mockInstance, id: 'instance-3', correlationKey: 'batch-001', ...baseExtras }
 
-      mockEm.find.mockResolvedValueOnce([instance1, instance2, instance3])
+      mockFindWithDecryption.mockResolvedValueOnce([instance1, instance2, instance3] as any)
 
-      // Mock for each instance
-      mockEm.findOne
-        // Instance 1
-        .mockResolvedValueOnce(instance1)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-1' })
-        // Instance 2
-        .mockResolvedValueOnce(instance2)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-2' })
-        // Instance 3
-        .mockResolvedValueOnce(instance3)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-3' })
+      // Each sendSignal invocation does 3 findOneWithDecryption calls (instance, definition, step instance)
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(instance1 as any)
+        .mockResolvedValueOnce(mockDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-1' } as any)
+        .mockResolvedValueOnce(instance2 as any)
+        .mockResolvedValueOnce(mockDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-2' } as any)
+        .mockResolvedValueOnce(instance3 as any)
+        .mockResolvedValueOnce(mockDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-3' } as any)
 
       const count = await sendSignalByCorrelationKey(mockEm, mockContainer, {
         correlationKey: 'batch-001',
@@ -347,7 +373,7 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should return 0 when no workflows match correlation key', async () => {
-      mockEm.find.mockResolvedValueOnce([]) // No workflows found
+      mockFindWithDecryption.mockResolvedValueOnce([])
 
       const count = await sendSignalByCorrelationKey(mockEm, mockContainer, {
         correlationKey: 'non-existent',
@@ -362,18 +388,28 @@ describe('Workflow Signals - Phase 9.1', () => {
     })
 
     it('should continue processing other instances if one fails', async () => {
-      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-002', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
-      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-002', version: 1, workflowId: 'signal_workflow', startedAt: new Date(), retryCount: 0, createdAt: new Date(), updatedAt: new Date() }
+      const baseExtras = {
+        version: 1,
+        workflowId: 'signal_workflow',
+        startedAt: new Date(),
+        retryCount: 0,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
+      const instance1 = { ...mockInstance, id: 'instance-1', correlationKey: 'batch-002', ...baseExtras }
+      const instance2 = { ...mockInstance, id: 'instance-2', correlationKey: 'batch-002', ...baseExtras }
 
-      mockEm.find.mockResolvedValueOnce([instance1, instance2])
+      mockFindWithDecryption.mockResolvedValueOnce([instance1, instance2] as any)
 
-      // Instance 1 fails (not paused)
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...instance1, status: 'RUNNING' })
+      mockFindOneWithDecryption
+        // Instance 1 fails (not paused)
+        .mockResolvedValueOnce({ ...instance1, status: 'RUNNING' } as any)
         // Instance 2 succeeds
-        .mockResolvedValueOnce(instance2)
-        .mockResolvedValueOnce(mockDefinition)
-        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-2' })
+        .mockResolvedValueOnce(instance2 as any)
+        .mockResolvedValueOnce(mockDefinition as any)
+        .mockResolvedValueOnce({ ...mockStepInstance, workflowInstanceId: 'instance-2' } as any)
+
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
 
       const count = await sendSignalByCorrelationKey(mockEm, mockContainer, {
         correlationKey: 'batch-002',
@@ -383,6 +419,8 @@ describe('Workflow Signals - Phase 9.1', () => {
         organizationId,
       })
 
+      consoleErrorSpy.mockRestore()
+
       // Only 1 succeeded
       expect(count).toBe(1)
     })
@@ -390,7 +428,7 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Multi-tenant Isolation', () => {
     it('should enforce tenant scope in instance lookup', async () => {
-      mockEm.findOne.mockResolvedValueOnce(null) // Not found due to tenant mismatch
+      mockFindOneWithDecryption.mockResolvedValueOnce(null) // Not found due to tenant mismatch
 
       await expect(
         sendSignal(mockEm, mockContainer, {
@@ -402,19 +440,53 @@ describe('Workflow Signals - Phase 9.1', () => {
         })
       ).rejects.toThrow('not found')
 
-      // Verify findOne was called with tenant filter
-      expect(mockEm.findOne).toHaveBeenCalledWith(
+      // Verify findOneWithDecryption was called with tenant filter + scope
+      expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+        mockEm,
         expect.anything(),
         expect.objectContaining({
           id: instanceId,
           tenantId: 'different-tenant',
           organizationId,
+        }),
+        undefined,
+        expect.objectContaining({ tenantId: 'different-tenant', organizationId }),
+      )
+    })
+
+    it('should enforce tenant scope when loading definition', async () => {
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any) // instance
+        .mockResolvedValueOnce(null) // definition not found
+
+      await expect(
+        sendSignal(mockEm, mockContainer, {
+          instanceId,
+          signalName: 'test',
+          userId,
+          tenantId,
+          organizationId,
         })
+      ).rejects.toThrow('definition not found')
+
+      // Second call (definition) must be scoped + deletedAt: null
+      expect(mockFindOneWithDecryption).toHaveBeenNthCalledWith(
+        2,
+        mockEm,
+        expect.anything(),
+        expect.objectContaining({
+          id: definitionId,
+          tenantId,
+          organizationId,
+          deletedAt: null,
+        }),
+        undefined,
+        expect.objectContaining({ tenantId, organizationId }),
       )
     })
 
     it('should enforce tenant scope in correlation key lookup', async () => {
-      mockEm.find.mockResolvedValueOnce([]) // No workflows in different tenant
+      mockFindWithDecryption.mockResolvedValueOnce([])
 
       const count = await sendSignalByCorrelationKey(mockEm, mockContainer, {
         correlationKey: 'test-key',
@@ -426,25 +498,28 @@ describe('Workflow Signals - Phase 9.1', () => {
 
       expect(count).toBe(0)
 
-      // Verify find was called with tenant filter
-      expect(mockEm.find).toHaveBeenCalledWith(
+      // Verify findWithDecryption was called with tenant filter
+      expect(mockFindWithDecryption).toHaveBeenCalledWith(
+        mockEm,
         expect.anything(),
         expect.objectContaining({
           correlationKey: 'test-key',
           status: 'PAUSED',
           tenantId: 'tenant-a',
           organizationId: 'org-a',
-        })
+        }),
+        undefined,
+        expect.objectContaining({ tenantId: 'tenant-a', organizationId: 'org-a' }),
       )
     })
   })
 
   describe('Transition Execution', () => {
     it('should find and execute valid transitions after signal', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance })
-        .mockResolvedValueOnce({ ...mockDefinition })
-        .mockResolvedValueOnce({ ...mockStepInstance })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       await sendSignal(mockEm, mockContainer, {
         instanceId,
@@ -486,10 +561,10 @@ describe('Workflow Signals - Phase 9.1', () => {
       }
 
       const testInstance = { ...mockInstance }
-      mockEm.findOne
-        .mockResolvedValueOnce(testInstance)
-        .mockResolvedValueOnce(definitionNoTransitions)
-        .mockResolvedValueOnce({ ...mockStepInstance })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(testInstance as any)
+        .mockResolvedValueOnce(definitionNoTransitions as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       await sendSignal(mockEm, mockContainer, {
         instanceId,
@@ -506,10 +581,10 @@ describe('Workflow Signals - Phase 9.1', () => {
 
     it('should handle case with no valid transitions', async () => {
       const testInstance = { ...mockInstance }
-      mockEm.findOne
-        .mockResolvedValueOnce(testInstance)
-        .mockResolvedValueOnce({ ...mockDefinition })
-        .mockResolvedValueOnce({ ...mockStepInstance })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce(testInstance as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       mockFindValidTransitions.mockResolvedValueOnce([
         { transition: null, isValid: false }, // No valid transitions
@@ -531,10 +606,10 @@ describe('Workflow Signals - Phase 9.1', () => {
 
   describe('Event Logging', () => {
     it('should log SIGNAL_RECEIVED event with full details', async () => {
-      mockEm.findOne
-        .mockResolvedValueOnce({ ...mockInstance })
-        .mockResolvedValueOnce({ ...mockDefinition })
-        .mockResolvedValueOnce({ ...mockStepInstance })
+      mockFindOneWithDecryption
+        .mockResolvedValueOnce({ ...mockInstance } as any)
+        .mockResolvedValueOnce({ ...mockDefinition } as any)
+        .mockResolvedValueOnce({ ...mockStepInstance } as any)
 
       const payload = { approved: true, approver: 'Alice', timestamp: '2024-01-01T10:00:00Z' }
 

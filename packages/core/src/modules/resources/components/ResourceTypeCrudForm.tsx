@@ -13,6 +13,7 @@ export type ResourceTypeFormValues = {
   name: string
   description?: string
   appearance?: { icon?: string | null; color?: string | null }
+  updatedAt?: string | null
 } & Record<string, unknown>
 
 type ResourceTypeCrudFormProps = {
@@ -78,7 +79,7 @@ export function ResourceTypeCrudForm({
 
   const fields = React.useMemo<CrudField[]>(() => [
     { id: 'name', label: t('resources.resourceTypes.form.name', 'Name'), type: 'text', required: true },
-    { id: 'description', label: t('resources.resourceTypes.form.description', 'Description'), type: 'richtext', editor: 'html' },
+    { id: 'description', label: t('resources.resourceTypes.form.description', 'Description'), type: 'richtext', editor: 'uiw' },
     {
       id: 'appearance',
       label: t('resources.resourceTypes.form.appearance.label', 'Appearance'),
@@ -118,6 +119,7 @@ export function ResourceTypeCrudForm({
       groups={groups}
       entityId={E.resources.resources_resource_type}
       initialValues={initialValues}
+      optimisticLockUpdatedAt={mode === 'edit' ? initialValues.updatedAt : undefined}
       isLoading={isLoading}
       onSubmit={onSubmit}
       onDelete={mode === 'edit' ? onDelete : undefined}

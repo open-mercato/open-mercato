@@ -8,9 +8,15 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 const mockTranslate = (key: string, fallback?: string) => fallback ?? key
+const mockRunMutation = jest.fn(({ operation }: { operation: () => unknown }) => operation())
+const mockRetryLastMutation = jest.fn()
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
+}))
+
+jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
+  useGuardedMutation: () => ({ runMutation: mockRunMutation, retryLastMutation: mockRetryLastMutation }),
 }))
 
 jest.mock('next/link', () => ({ children, href }: any) => <a href={href}>{children}</a>)
@@ -61,6 +67,7 @@ jest.mock('@open-mercato/ui/backend/ValueIcons', () => ({
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
+  withScopedApiRequestHeaders: (_headers: unknown, run: () => unknown) => run(),
 }))
 
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({
@@ -130,5 +137,18 @@ describe('ExchangeRatesPage', () => {
       expect(deleteCall).toBeDefined()
       expect(deleteCall[0]).toBe('/api/currencies/exchange-rates')
     })
+  })
+
+  // Regression for #3191: the delete write must route through the guarded mutation.
+  it('routes delete through the guarded mutation', async () => {
+    render(<ExchangeRatesPage />)
+    await waitFor(() => expect(apiCall).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByTestId('row-action-delete'))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalled())
+    const ctx = mockRunMutation.mock.calls.at(-1)?.[0]?.context
+    expect(ctx?.resourceKind).toBe('currencies.exchange_rate')
+    expect(typeof ctx?.retryLastMutation).toBe('function')
   })
 })

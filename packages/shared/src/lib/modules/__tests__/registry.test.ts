@@ -111,4 +111,31 @@ describe('shared modules registry', () => {
       debugSpy.mockRestore()
     }
   })
+
+  it('does not let i18n-only registrations clobber runtime module contracts', () => {
+    const registry = loadRegistry()
+    const handler = jest.fn()
+    registry.registerModules([
+      {
+        id: 'checkout',
+        subscribers: [{ id: 'checkout-gateway-payment-failed', event: 'payment_gateways.payment.failed', handler }],
+        translations: { en: { old: 'Old' } },
+      } as Module,
+    ])
+
+    registry.registerModules([
+      {
+        id: 'checkout',
+        translations: { en: { fresh: 'Fresh' } },
+      } as Module,
+    ])
+
+    expect(registry.getModules()).toEqual([
+      expect.objectContaining({
+        id: 'checkout',
+        subscribers: [expect.objectContaining({ id: 'checkout-gateway-payment-failed' })],
+        translations: { en: { fresh: 'Fresh' } },
+      }),
+    ])
+  })
 })

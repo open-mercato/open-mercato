@@ -1,5 +1,6 @@
 import {
   calculateDocumentTotals,
+  rebuildDocumentResult,
   registerSalesTotalsCalculator,
 } from '../calculations'
 import type { SalesAdjustmentDraft, SalesLineSnapshot } from '../types'
@@ -366,5 +367,136 @@ describe('calculateDocumentTotals', () => {
     // 100 - 20 (discount) + 5 (surcharge net) + 10 (shipping net) = 95 net.
     expect(positiveResult.totals.subtotalNetAmount).toBeCloseTo(95, 4)
     expect(positiveResult.totals.discountTotalAmount).toBeCloseTo(20, 4)
+  })
+
+  it('derives line tax from the net/gross delta when the rate is missing but gross embeds tax (issue #2457)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        unitPriceGross: 123,
+        totalNetAmount: 100,
+        totalGrossAmount: 123,
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.subtotalNetAmount).toBeCloseTo(100, 4)
+    expect(result.totals.subtotalGrossAmount).toBeCloseTo(123, 4)
+    expect(result.totals.taxTotalAmount).toBeCloseTo(23, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(123, 4)
+  })
+
+  it('does not invent tax when gross equals net (issue #2457 guard)', async () => {
+    const lines: SalesLineSnapshot[] = [
+      {
+        kind: 'product',
+        quantity: 1,
+        currencyCode: 'USD',
+        unitPriceNet: 100,
+        unitPriceGross: 100,
+        totalNetAmount: 100,
+        totalGrossAmount: 100,
+      },
+    ]
+
+    const result = await calculateDocumentTotals({
+      documentKind: 'order',
+      lines,
+      adjustments: [],
+      context: { ...baseContext, metadata: {} },
+    })
+
+    expect(result.totals.taxTotalAmount).toBeCloseTo(0, 4)
+    expect(result.totals.grandTotalGrossAmount).toBeCloseTo(100, 4)
+  })
+
+  it('preserves payment totals when a totals calculator rebuilds the result (issue #2455)', async () => {
+    // Mirrors the provider totals calculator, which rebuilds the document from
+    // lines+adjustments via rebuildDocumentResult and would otherwise reset
+    // paid/refunded/outstanding to a pre-payment snapshot.
+    const unregister = registerSalesTotalsCalculator(({ documentKind, lines, current }) =>
+      rebuildDocumentResult({
+        documentKind,
+        currencyCode: current.currencyCode,
+        lines,
+        adjustments: current.adjustments,
+        metadata: current.metadata,
+      }),
+    )
+
+    try {
+      const result = await calculateDocumentTotals({
+        documentKind: 'order',
+        lines: [
+          {
+            kind: 'product',
+            quantity: 1,
+            currencyCode: 'USD',
+            unitPriceNet: 1000,
+            taxRate: 0,
+          },
+        ],
+        adjustments: [],
+        context: { ...baseContext, metadata: {} },
+        existingTotals: { paidTotalAmount: 1000, refundedTotalAmount: 0 },
+      })
+
+      expect(result.totals.grandTotalGrossAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.paidTotalAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.refundedTotalAmount).toBeCloseTo(0, 4)
+      expect(result.totals.outstandingAmount).toBeCloseTo(0, 4)
+    } finally {
+      unregister()
+    }
+  })
+
+  it('recomputes outstanding against the post-calculation grand total (issue #2455)', async () => {
+    // A totals calculator that adds a surcharge changes the grand total; the
+    // preserved payment totals must produce outstanding against the new total.
+    const unregister = registerSalesTotalsCalculator(({ documentKind, lines, current }) =>
+      rebuildDocumentResult({
+        documentKind,
+        currencyCode: current.currencyCode,
+        lines,
+        adjustments: [
+          ...current.adjustments,
+          { scope: 'order', kind: 'surcharge', amountNet: 100, amountGross: 100, currencyCode: 'USD' },
+        ],
+        metadata: current.metadata,
+      }),
+    )
+
+    try {
+      const result = await calculateDocumentTotals({
+        documentKind: 'order',
+        lines: [
+          {
+            kind: 'product',
+            quantity: 1,
+            currencyCode: 'USD',
+            unitPriceNet: 1000,
+            taxRate: 0,
+          },
+        ],
+        adjustments: [],
+        context: { ...baseContext, metadata: {} },
+        existingTotals: { paidTotalAmount: 1000, refundedTotalAmount: 0 },
+      })
+
+      expect(result.totals.grandTotalGrossAmount).toBeCloseTo(1100, 4)
+      expect(result.totals.paidTotalAmount).toBeCloseTo(1000, 4)
+      expect(result.totals.outstandingAmount).toBeCloseTo(100, 4)
+    } finally {
+      unregister()
+    }
   })
 })

@@ -11,18 +11,42 @@ RUN apk add --no-cache python3 make g++ ca-certificates openssl
 # Enable Corepack for Yarn
 RUN corepack enable
 
-# Copy workspace configuration files
+# Copy workspace manifests first so dependency installs stay cached across source-only changes.
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
+COPY apps/docs/package.json ./apps/docs/
+COPY apps/mercato/package.json ./apps/mercato/
+COPY packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-gmail/package.json ./packages/channel-gmail/
+COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/checkout/package.json ./packages/checkout/
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/content/package.json ./packages/content/
+COPY packages/core/package.json ./packages/core/
+COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/enterprise/package.json ./packages/enterprise/
+COPY packages/events/package.json ./packages/events/
+COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/onboarding/package.json ./packages/onboarding/
+COPY packages/queue/package.json ./packages/queue/
+COPY packages/scheduler/package.json ./packages/scheduler/
+COPY packages/search/package.json ./packages/search/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/storage-s3/package.json ./packages/storage-s3/
+COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/webhooks/package.json ./packages/webhooks/
+COPY scripts/official-modules-setup.mjs ./scripts/
+COPY scripts/lib/official-modules.mjs ./scripts/lib/
 
-# Copy all packages and apps (including package.json files for dependency installation)
+# Install all dependencies (including devDependencies for build).
+RUN yarn install --immutable
+
+# Copy source files after dependencies are installed.
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
-
-# Install all dependencies (including devDependencies for build)
-# Note: Using plain install because peer dependency warnings cause lockfile changes
-RUN yarn install
 
 # Copy other necessary files
 COPY newrelic.js ./
@@ -48,10 +72,36 @@ RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
+COPY apps/docs/package.json ./apps/docs/
+COPY apps/mercato/package.json ./apps/mercato/
+COPY packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-gmail/package.json ./packages/channel-gmail/
+COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/checkout/package.json ./packages/checkout/
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/content/package.json ./packages/content/
+COPY packages/core/package.json ./packages/core/
+COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/enterprise/package.json ./packages/enterprise/
+COPY packages/events/package.json ./packages/events/
+COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/onboarding/package.json ./packages/onboarding/
+COPY packages/queue/package.json ./packages/queue/
+COPY packages/scheduler/package.json ./packages/scheduler/
+COPY packages/search/package.json ./packages/search/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/storage-s3/package.json ./packages/storage-s3/
+COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/webhooks/package.json ./packages/webhooks/
+COPY scripts/official-modules-setup.mjs ./scripts/
+COPY scripts/lib/official-modules.mjs ./scripts/lib/
+RUN yarn install --immutable
+
 COPY packages/ ./packages/
 COPY apps/ ./apps/
 COPY scripts/ ./scripts/
-RUN yarn install
 
 COPY newrelic.js ./
 COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
@@ -89,13 +139,34 @@ RUN corepack enable
 COPY package.json yarn.lock .yarnrc.yml turbo.json ./
 COPY tsconfig.base.json tsconfig.json ./
 COPY --from=builder /app/.yarn ./.yarn
-
-# Copy all packages and app metadata for dependency resolution
-COPY --from=builder /app/packages/ ./packages/
 COPY --from=builder /app/apps/mercato/package.json ./apps/mercato/
+COPY --from=builder /app/packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY --from=builder /app/packages/cache/package.json ./packages/cache/
+COPY --from=builder /app/packages/channel-gmail/package.json ./packages/channel-gmail/
+COPY --from=builder /app/packages/channel-imap/package.json ./packages/channel-imap/
+COPY --from=builder /app/packages/checkout/package.json ./packages/checkout/
+COPY --from=builder /app/packages/cli/package.json ./packages/cli/
+COPY --from=builder /app/packages/content/package.json ./packages/content/
+COPY --from=builder /app/packages/core/package.json ./packages/core/
+COPY --from=builder /app/packages/create-app/package.json ./packages/create-app/
+COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
+COPY --from=builder /app/packages/events/package.json ./packages/events/
+COPY --from=builder /app/packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY --from=builder /app/packages/onboarding/package.json ./packages/onboarding/
+COPY --from=builder /app/packages/queue/package.json ./packages/queue/
+COPY --from=builder /app/packages/scheduler/package.json ./packages/scheduler/
+COPY --from=builder /app/packages/search/package.json ./packages/search/
+COPY --from=builder /app/packages/shared/package.json ./packages/shared/
+COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
+COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY --from=builder /app/packages/ui/package.json ./packages/ui/
+COPY --from=builder /app/packages/webhooks/package.json ./packages/webhooks/
 
 # Install only production dependencies
 RUN yarn workspaces focus @open-mercato/app --production
+
+# Copy workspace sources after production dependencies are installed.
+COPY --from=builder /app/packages/ ./packages/
 
 # Copy built Next.js application
 COPY --from=builder /app/apps/mercato/.mercato/next ./apps/mercato/.mercato/next
@@ -106,7 +177,7 @@ COPY --from=builder /app/apps/mercato/tsconfig.json ./apps/mercato/
 COPY --from=builder /app/apps/mercato/postcss.config.mjs ./apps/mercato/
 
 # Copy generated files and other runtime necessities
-COPY --from=builder /app/apps/mercato/.mercato ./apps/mercato/.mercato
+COPY --from=builder /app/apps/mercato/.mercato/generated ./apps/mercato/.mercato/generated
 COPY --from=builder /app/apps/mercato/src ./apps/mercato/src
 COPY --from=builder /app/apps/mercato/types ./apps/mercato/types
 
@@ -124,7 +195,7 @@ RUN mkdir -p /app/apps/mercato/storage
 
 # Create non-root user and grant passwordless sudo for chown only
 RUN adduser -D -u 1001 omuser \
- && chown -R omuser:omuser /app \
+ && chown -R omuser:omuser /app/apps/mercato/storage \
  && echo "omuser ALL=(root) NOPASSWD: /bin/chown" > /etc/sudoers.d/omuser \
  && chmod 0440 /etc/sudoers.d/omuser
 

@@ -1,7 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -16,8 +19,10 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Switch } from '@open-mercato/ui/primitives/switch'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { getSyncSummaryVariant } from '../lib/syncRunStatus'
 import {
   CalendarClock,
   Play,
@@ -54,6 +59,7 @@ type SyncScheduleRecord = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type SyncSchedulesResponse = {
@@ -68,6 +74,7 @@ type SyncScheduleEditorState = {
   fullSync: boolean
   isEnabled: boolean
   lastRunAt: string | null
+  updatedAt?: string | null
 }
 
 type IntegrationScheduleTabProps = {
@@ -94,6 +101,7 @@ function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState 
     fullSync: normalized !== 'products',
     isEnabled: true,
     lastRunAt: null,
+    updatedAt: null,
   }
 }
 
@@ -127,6 +135,7 @@ function buildScheduleEditors(
             fullSync: record.fullSync,
             isEnabled: record.isEnabled,
             lastRunAt: record.lastRunAt,
+            updatedAt: record.updatedAt ?? null,
           }
           : buildDefaultScheduleState(entityType),
       ])
@@ -138,6 +147,9 @@ function buildScheduleEditors(
 export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.integrationTab',
+  })
   const [option, setOption] = React.useState<SyncOption | null>(null)
   const [schedules, setSchedules] = React.useState<Record<string, SyncScheduleEditorState>>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -214,17 +226,32 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     setRunningKey(scheduleKey)
     try {
       const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
-      const call = await apiCall<{ id: string }>('/api/data_sync/run', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      const call = await runMutation({
+        // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
+        operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            integrationId: props.integrationId,
+            entityType,
+            direction,
+            fullSync: scheduleState.fullSync,
+            batchSize: 100,
+          }),
+        }, { fallback: null }),
+        mutationPayload: {
           integrationId: props.integrationId,
           entityType,
           direction,
           fullSync: scheduleState.fullSync,
           batchSize: 100,
-        }),
-      }, { fallback: null })
+        },
+        context: {
+          operation: 'create',
+          actionId: 'start-sync-run',
+          integrationId: props.integrationId,
+        },
+      })
 
       if (!call.ok) {
         throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to start sync')
@@ -237,16 +264,34 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setRunningKey(null)
     }
-  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, schedules, t])
+  }, [option?.canStartRun, props.hasCredentials, props.integrationId, props.isEnabled, runMutation, schedules, t])
 
   const handleSaveSchedule = React.useCallback(async (entityType: string, direction: 'import' | 'export', scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey] ?? buildDefaultScheduleState(entityType)
     setSavingKey(scheduleKey)
     try {
-      const call = await apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
+      // Keyed upsert (POST). When the server resolves an existing row the save
+      // version-checks against this schedule's loaded `updatedAt`; for a brand
+      // new row the header is empty so the create path is unaffected.
+      const call = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleState.updatedAt),
+          () => apiCall<SyncScheduleRecord>('/api/data_sync/schedules', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              integrationId: props.integrationId,
+              entityType,
+              direction,
+              scheduleType: scheduleState.scheduleType,
+              scheduleValue: scheduleState.scheduleValue,
+              timezone: scheduleState.timezone,
+              fullSync: scheduleState.fullSync,
+              isEnabled: scheduleState.isEnabled,
+            }),
+          }, { fallback: null }),
+        ),
+        mutationPayload: {
           integrationId: props.integrationId,
           entityType,
           direction,
@@ -255,11 +300,26 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
           timezone: scheduleState.timezone,
           fullSync: scheduleState.fullSync,
           isEnabled: scheduleState.isEnabled,
-        }),
-      }, { fallback: null })
+        },
+        context: {
+          operation: 'update',
+          actionId: 'save-sync-schedule',
+          integrationId: props.integrationId,
+        },
+      })
 
       if (!call.ok || !call.result) {
-        throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule')
+        const conflictError = Object.assign(
+          new Error((call.result as { error?: string } | null)?.error ?? 'Failed to save schedule'),
+          {
+            status: call.status,
+            ...(call.result && typeof call.result === 'object' ? call.result : {}),
+          },
+        )
+        if (surfaceRecordConflict(conflictError, t)) {
+          return
+        }
+        throw conflictError
       }
 
       updateScheduleEditor(scheduleKey, {
@@ -270,6 +330,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
         fullSync: call.result.fullSync,
         isEnabled: call.result.isEnabled,
         lastRunAt: call.result.lastRunAt,
+        updatedAt: call.result.updatedAt ?? null,
       }, entityType)
       flash(t('data_sync.dashboard.schedule.success', 'Recurring schedule saved'), 'success')
     } catch (error) {
@@ -278,7 +339,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setSavingKey(null)
     }
-  }, [props.integrationId, schedules, t, updateScheduleEditor])
+  }, [props.integrationId, runMutation, schedules, t, updateScheduleEditor])
 
   const handleDeleteSchedule = React.useCallback(async (entityType: string, scheduleKey: string) => {
     const scheduleState = schedules[scheduleKey]
@@ -289,9 +350,21 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
 
     setDeletingKey(scheduleKey)
     try {
-      const call = await apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id)}`, {
-        method: 'DELETE',
-      }, { fallback: null })
+      const call = await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(scheduleState.updatedAt),
+          () => apiCall(`/api/data_sync/schedules/${encodeURIComponent(scheduleState.id as string)}`, {
+            method: 'DELETE',
+          }, { fallback: null }),
+        ),
+        mutationPayload: {
+          scheduleId: scheduleState.id,
+        },
+        context: {
+          operation: 'delete',
+          actionId: 'delete-sync-schedule',
+        },
+      })
 
       if (!call.ok) {
         throw new Error((call.result as { error?: string } | null)?.error ?? 'Failed to delete schedule')
@@ -308,7 +381,7 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
     } finally {
       setDeletingKey(null)
     }
-  }, [schedules, t, updateScheduleEditor])
+  }, [runMutation, schedules, t, updateScheduleEditor])
 
   if (isLoading) {
     return (
@@ -333,13 +406,13 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className={props.isEnabled ? 'border-emerald-300 text-emerald-700' : 'border-amber-300 text-amber-700'}>
+            <Badge variant={getSyncSummaryVariant(props.isEnabled ? 'enabled' : 'disabled')}>
               {props.isEnabled ? <ShieldCheck className="mr-2 h-3.5 w-3.5" /> : <ShieldAlert className="mr-2 h-3.5 w-3.5" />}
               {props.isEnabled
                 ? t('data_sync.dashboard.start.status.enabled', 'Integration enabled')
                 : t('data_sync.dashboard.start.status.disabled', 'Integration disabled')}
             </Badge>
-            <Badge variant="outline" className={props.hasCredentials ? 'border-sky-300 text-sky-700' : 'border-amber-300 text-amber-700'}>
+            <Badge variant={getSyncSummaryVariant(props.hasCredentials ? 'ready' : 'missing')}>
               <CalendarClock className="mr-2 h-3.5 w-3.5" />
               {props.hasCredentials
                 ? t('data_sync.dashboard.start.status.credentialsReady', 'Credentials ready')
@@ -450,22 +523,22 @@ export function IntegrationScheduleTab(props: IntegrationScheduleTabProps) {
                     </td>
                     <td className="px-3 py-3">
                       <label className="flex min-h-10 items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
+                        <Switch
                           checked={scheduleState.fullSync}
-                          onChange={(event) => updateScheduleEditor(row.key, { fullSync: event.target.checked }, row.entityType)}
+                          onCheckedChange={(checked) => updateScheduleEditor(row.key, { fullSync: checked }, row.entityType)}
                           disabled={controlsDisabled}
+                          aria-label={t('data_sync.dashboard.start.fullSync', 'Run as full sync')}
                         />
                         <span>{t('data_sync.integrationTab.fullSyncShort', 'Full')}</span>
                       </label>
                     </td>
                     <td className="px-3 py-3">
                       <label className="flex min-h-10 items-center gap-2 text-sm">
-                        <input
-                          type="checkbox"
+                        <Switch
                           checked={scheduleState.isEnabled}
-                          onChange={(event) => updateScheduleEditor(row.key, { isEnabled: event.target.checked }, row.entityType)}
+                          onCheckedChange={(checked) => updateScheduleEditor(row.key, { isEnabled: checked }, row.entityType)}
                           disabled={controlsDisabled}
+                          aria-label={t('data_sync.dashboard.schedule.enabled', 'Schedule enabled')}
                         />
                         <span>{scheduleState.isEnabled ? t('data_sync.dashboard.schedule.status.shortEnabled', 'Scheduled') : t('data_sync.dashboard.schedule.status.shortDisabled', 'Paused')}</span>
                       </label>

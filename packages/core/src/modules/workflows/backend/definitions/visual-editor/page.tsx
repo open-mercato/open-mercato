@@ -6,10 +6,10 @@ import { NodeEditDialog } from '../../../components/NodeEditDialog'
 import { EdgeEditDialog } from '../../../components/EdgeEditDialog'
 import { NodeEditDialogCrudForm } from '../../../components/NodeEditDialogCrudForm'
 import { EdgeEditDialogCrudForm } from '../../../components/EdgeEditDialogCrudForm'
-import { Node, Edge, addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from '@xyflow/react'
+import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
-import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, ValidationError } from '../../../lib/graph-utils'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
+import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -32,9 +32,12 @@ import { Alert, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { CircleQuestionMark, Info, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
+import { CircleQuestionMark, PanelTopClose, PanelTopOpen, Play, Save, Trash2 } from 'lucide-react'
 import { NODE_TYPE_ICONS, NODE_TYPE_COLORS, NODE_TYPE_LABELS } from '../../../lib/node-type-icons'
 import { DefinitionTriggersEditor } from '../../../components/DefinitionTriggersEditor'
 import { MobileVisualEditor } from '../../../components/mobile/MobileVisualEditor'
@@ -59,6 +62,7 @@ export default function VisualEditorPage() {
   const t = useT()
   const router = useRouter()
   const searchParams = useSearchParams()
+  const pathname = usePathname()
   const definitionId = searchParams.get('id')
   const isMobile = useIsMobile()
 
@@ -107,6 +111,7 @@ export default function VisualEditorPage() {
   const [effectiveTo, setEffectiveTo] = useState('')
   const [triggers, setTriggers] = useState<WorkflowDefinitionTrigger[]>([])
   const [source, setSource] = useState<'code' | 'code_override' | 'user' | null>(null)
+  const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
   const isCodeOnly = source === 'code'
   const isCodeOverride = source === 'code_override'
@@ -154,6 +159,7 @@ export default function VisualEditorPage() {
         // code → read-only with Customize button; code_override → editable
         // with Reset to code; user → editable, no banner.
         setSource((definition.source as 'code' | 'code_override' | 'user') ?? null)
+        setUpdatedAt(typeof definition.updatedAt === 'string' ? definition.updatedAt : null)
       } catch (error) {
         console.error('Error loading workflow definition:', error)
         flash('Failed to load workflow definition', 'error')
@@ -165,16 +171,18 @@ export default function VisualEditorPage() {
     loadDefinition()
   }, [definitionId])
 
-  // Handle node changes from ReactFlow
-  const handleNodesChange = useCallback((changes: NodeChange[]) => {
+  // Handle node changes from ReactFlow. The lazy graph applies React Flow's
+  // change reducers internally (#3169) and hands back the resolved nodes, so
+  // this page never imports the @xyflow/react runtime.
+  const handleNodesChange = useCallback((nextNodes: Node[]) => {
     if (isCodeOnly) return
-    setNodes((nds) => applyNodeChanges(changes, nds))
+    setNodes(nextNodes)
   }, [isCodeOnly])
 
-  // Handle edge changes from ReactFlow
-  const handleEdgesChange = useCallback((changes: EdgeChange[]) => {
+  // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
+  const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
     if (isCodeOnly) return
-    setEdges((eds) => applyEdgeChanges(changes, eds))
+    setEdges(nextEdges)
   }, [isCodeOnly])
 
   // Handle adding new node from palette
@@ -281,7 +289,7 @@ export default function VisualEditorPage() {
       },
     }
 
-    setEdges((eds) => addEdge(newEdge, eds))
+    setEdges((eds) => appendWorkflowEdge(eds, newEdge))
   }, [])
 
   // Validate workflow
@@ -372,20 +380,23 @@ export default function VisualEditorPage() {
         // edits (name, description, version, category, tags, icon, effective
         // dates) actually persist. Previously only `definition` + `enabled`
         // were sent, silently dropping every other field.
-        result = await apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            workflowName,
-            description: description || null,
-            version,
-            definition: definitionData,
-            metadata: Object.keys(metadata).length > 0 ? metadata : null,
-            enabled,
-            effectiveFrom: effectiveFrom || null,
-            effectiveTo: effectiveTo || null,
+        result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(updatedAt),
+          () => apiCall<{ data: any; error?: string }>(`/api/workflows/definitions/${definitionId}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              workflowName,
+              description: description || null,
+              version,
+              definition: definitionData,
+              metadata: Object.keys(metadata).length > 0 ? metadata : null,
+              enabled,
+              effectiveFrom: effectiveFrom || null,
+              effectiveTo: effectiveTo || null,
+            }),
           }),
-        })
+        )
       } else {
         // Create new definition
         result = await apiCall<{ data: any; error?: string }>('/api/workflows/definitions', {
@@ -406,7 +417,13 @@ export default function VisualEditorPage() {
       }
 
       if (!result.ok) {
-        flash(`Failed to save: ${result.result?.error || 'Unknown error'}`, 'error')
+        const conflictError = Object.assign(new Error(t('workflows.messages.saveFailed', 'Failed to save')), {
+          status: result.status,
+          ...(result.result && typeof result.result === 'object' ? result.result : {}),
+        })
+        if (!surfaceRecordConflict(conflictError, t)) {
+          flash(`Failed to save: ${result.result?.error || 'Unknown error'}`, 'error')
+        }
         return
       }
 
@@ -425,7 +442,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, router])
+  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -601,6 +618,22 @@ export default function VisualEditorPage() {
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
   }, [])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `workflows.definition` + id
+  // explicitly. This is the highest-value record_locks target (long-lived visual
+  // edits): presence holds the lock while the graph is open, and the raw `apiCall`
+  // save already routes its 409 through `surfaceRecordConflict`. Cleared on create
+  // (no `definitionId`) and on unmount. Mirrors the form edit page's resourceKind so
+  // a lock held in either editor surfaces in the other.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'workflows.definition',
+      resourceId: definitionId,
+      updatedAt,
+      path: pathname,
+    }),
+  )
 
   // Show loading spinner while loading definition
   if (isLoading) {
@@ -989,7 +1022,7 @@ export default function VisualEditorPage() {
               <p className="mb-3 text-xs text-muted-foreground">{t('workflows.visualEditor.tapToAdd')}</p>
 
               <div className="flex gap-2 overflow-x-auto pb-1">
-                {(['start', 'userTask', 'automated', 'waitForSignal', 'subWorkflow', 'end'] as const).map((nodeType) => {
+                {(['start', 'userTask', 'automated', 'waitForSignal', 'waitForTimer', 'subWorkflow', 'end'] as const).map((nodeType) => {
                   const Icon = NODE_TYPE_ICONS[nodeType]
                   return (
                     <button
@@ -1078,6 +1111,21 @@ export default function VisualEditorPage() {
                   <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForSignal.description}</div>
                 </button>
 
+                {/* WAIT_FOR_TIMER Step */}
+                <button
+                  onClick={() => handleAddNode('waitForTimer')}
+                  className="group relative w-full cursor-pointer rounded-xl border-2 border-border bg-background px-4 py-3 text-left transition-all hover:border-muted-foreground/30 hover:shadow-md"
+                >
+                  <div className={`absolute right-2 top-2 ${NODE_TYPE_COLORS.waitForTimer} opacity-60 transition-opacity group-hover:opacity-100`}>
+                    {(() => {
+                      const Icon = NODE_TYPE_ICONS.waitForTimer
+                      return <Icon className="h-4 w-4" />
+                    })()}
+                  </div>
+                  <div className="text-sm font-semibold text-foreground">{NODE_TYPE_LABELS.waitForTimer.title}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">{NODE_TYPE_LABELS.waitForTimer.description}</div>
+                </button>
+
                 {/* SUB_WORKFLOW Step */}
                 <button
                   onClick={() => handleAddNode('subWorkflow')}
@@ -1111,7 +1159,6 @@ export default function VisualEditorPage() {
 
               {/* Instructions */}
               <Alert variant="info" className="mt-6">
-                <Info className="size-4" />
                 <AlertTitle className="text-xs">{t('workflows.visualEditor.howToUse', 'How to use:')}</AlertTitle>
                 <div className="mt-2">
                   <ul className="list-inside list-disc space-y-1 text-xs">
@@ -1182,6 +1229,7 @@ function getDefaultLabel(nodeType: string): string {
     automated: 'New Automated Task',
     decision: 'Decision Point',
     waitForSignal: 'Wait for Signal',
+    waitForTimer: 'Wait for Timer',
   }
   return labels[nodeType] || 'New Step'
 }
@@ -1194,6 +1242,7 @@ function getDefaultBadge(nodeType: string): string {
     automated: 'Automated',
     decision: 'Decision',
     waitForSignal: 'Wait for Signal',
+    waitForTimer: 'Wait for Timer',
   }
   return badges[nodeType] || 'Task'
 }

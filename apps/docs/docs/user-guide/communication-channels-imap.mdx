@@ -1,0 +1,96 @@
+---
+title: Set up IMAP + SMTP
+description: Connect a generic IMAP/SMTP mailbox (Fastmail, iCloud, self-hosted, Gmail via app password, and more) with the correct host, port, TLS mode, and per-app password.
+sidebar_label: IMAP + SMTP
+---
+
+# Set up IMAP + SMTP
+
+IMAP + SMTP connects almost any mailbox that isn't covered by a dedicated provider — Fastmail, iCloud, Yahoo, self-hosted/on-prem mail servers, or even Gmail via an app password. Unlike Gmail, **there's nothing for an administrator to set up**: each user connects their own mailbox directly from their profile with their server settings.
+
+- **IMAP** handles **receiving** (inbound).
+- **SMTP** handles **sending** (outbound).
+
+They're configured separately because many providers use different hosts/ports for each.
+
+:::tip Prefer OAuth where it exists
+For Gmail, the [OAuth flow](communication-channels-gmail.mdx) is more secure and avoids app passwords. Use IMAP for Gmail only if OAuth isn't an option for you.
+:::
+
+## What you'll need
+
+Have these ready before you start (from your mail provider's "mail client / IMAP settings" help page):
+
+| Field | What it is | Typical value |
+|---|---|---|
+| **IMAP host** | Incoming server hostname | `imap.fastmail.com` |
+| **IMAP port** | `993` for implicit TLS, `143` for STARTTLS | `993` |
+| **IMAP TLS mode** | Implicit TLS / STARTTLS / None | Implicit TLS |
+| **IMAP username** | Usually your full email address | `you@example.com` |
+| **IMAP password** | Your password — **or an app password** (see below) | — |
+| **SMTP host** | Outgoing server hostname | `smtp.fastmail.com` |
+| **SMTP port** | `465` for implicit TLS, `587` for STARTTLS | `465` |
+| **SMTP TLS mode** | Implicit TLS / STARTTLS / None | Implicit TLS |
+| **SMTP username** | Usually the same as IMAP | `you@example.com` |
+| **SMTP password** | Usually the same as the IMAP password | — |
+| **From address** | The address used in the `From:` header; must be deliverable by your SMTP server | `you@example.com` |
+
+:::warning Use an app password when 2FA is on
+Most providers (Gmail, Fastmail, Yahoo, iCloud, …) **reject your normal account password** over IMAP/SMTP once two-factor authentication is enabled. Generate a **per-app / app-specific password** in your provider's account/security settings and use that here. It's stored encrypted at rest.
+:::
+
+## Common provider settings
+
+| Provider | IMAP | SMTP | Notes |
+|---|---|---|---|
+| **Fastmail** | `imap.fastmail.com:993` (TLS) | `smtp.fastmail.com:465` (TLS) | Requires an app password |
+| **iCloud Mail** | `imap.mail.me.com:993` (TLS) | `smtp.mail.me.com:587` (STARTTLS) | Requires an app-specific password |
+| **Yahoo Mail** | `imap.mail.yahoo.com:993` (TLS) | `smtp.mail.yahoo.com:465` (TLS) | Requires an app password |
+| **Gmail (via IMAP)** | `imap.gmail.com:993` (TLS) | `smtp.gmail.com:465` (TLS) | Enable IMAP in Gmail settings + use an app password. Prefer [OAuth](communication-channels-gmail.mdx). |
+| **Self-hosted / on-prem** | your server `:993` (TLS) | your server `:465` (TLS) | Use `587`/STARTTLS if implicit TLS isn't offered |
+
+Always confirm against your provider's own documentation — hostnames and ports occasionally differ.
+
+## Connect your mailbox
+
+1. **Profile → My communication channels → Connect IMAP**.
+2. Fill in the IMAP and SMTP sections from the table above, plus the **From address**, and acknowledge the security notice (IMAP/SMTP basic auth is less secure than OAuth).
+3. Click **Connect**.
+
+Open Mercato performs a **live IMAP login and an SMTP check** against your servers before saving anything. If the host, port, TLS mode, or password is wrong, you get a field-level error immediately — nothing is stored until both servers accept the login.
+
+After connecting, new inbox mail appears within ~5 minutes (IMAP is polled, not pushed). To pull in older mail, use **Import history** on the channel — see the [Communication Channels guide](communication-channels.mdx#6-import-older-messages-optional).
+
+## TLS modes explained
+
+| Mode | When to use | IMAP port | SMTP port |
+|---|---|---|---|
+| **Implicit TLS** | Default, most secure — TLS from the first byte | `993` | `465` |
+| **STARTTLS** | When the provider only offers it | `143` | `587` |
+| **None** | **Testing only**, inside a private network — disables encryption | — | — |
+
+Pick the port that matches the mode. A mismatch (e.g. port `993` with STARTTLS) is the most common connection failure.
+
+## Troubleshooting
+
+### "Authentication rejected by the server. Check the username and password."
+The server refused the login (often SMTP error `535`). Usually one of:
+
+- **Wrong password** — re-enter it.
+- **App password required** — generate one in your provider's security settings; your normal password won't work with 2FA on.
+- **IMAP/SMTP disabled** — some providers turn IMAP off by default; enable it in their settings.
+
+### "Could not reach the server. Check the host and port."
+The host/port isn't reachable (`ETIMEDOUT` / `ECONNREFUSED` / `ENOTFOUND`). Verify the hostname against your provider's docs and confirm the port matches the TLS mode (`993` implicit TLS, `143` STARTTLS for IMAP; `465` / `587` for SMTP).
+
+### Connects, but sending fails
+IMAP (receiving) and SMTP (sending) are validated separately. If inbound works but outbound doesn't, re-check the **SMTP** host/port/TLS and that the **From address** is one your SMTP server is allowed to send as.
+
+### Channel flips to "Needs reconnection"
+A rotated password or revoked app password invalidates the stored credentials. Open the profile page, click **Reconnect**, and re-enter the (new) password.
+
+## Related
+
+- [Communication Channels](communication-channels.mdx) — the end-user connect / send / receive guide
+- [Set up Gmail](communication-channels-gmail.mdx) — OAuth + optional real-time push
+- [Communications Hub architecture](../framework/modules/communication-channels.mdx) — developer reference

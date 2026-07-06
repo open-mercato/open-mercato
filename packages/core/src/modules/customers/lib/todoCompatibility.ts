@@ -26,6 +26,7 @@ export type CustomerTodoRow = {
   todoDueAt?: string | null
   todoCustomValues?: Record<string, unknown> | null
   todoOrganizationId: string | null
+  todoUpdatedAt?: string | null
   organizationId: string
   tenantId: string
   createdAt: string
@@ -46,6 +47,7 @@ export type LegacyTodoDetail = {
   description: string | null
   dueAt: string | null
   organizationId: string | null
+  updatedAt: string | null
   customValues: Record<string, unknown> | null
 }
 
@@ -336,6 +338,15 @@ export async function resolveLegacyTodoDetails(
           }
         }
 
+        const updatedAt = (() => {
+          const candidates = [record.updated_at, record.updatedAt]
+          for (const candidate of candidates) {
+            const parsed = parseDateValue(candidate)
+            if (parsed) return parsed
+          }
+          return null
+        })()
+
         details.set(`${source}:${rawId}`, {
           title: extractTodoTitle(record),
           isDone,
@@ -344,6 +355,7 @@ export async function resolveLegacyTodoDetails(
           description,
           dueAt,
           organizationId,
+          updatedAt,
           customValues: Object.keys(customValues).length > 0 ? customValues : null,
         })
       }
@@ -550,6 +562,7 @@ export function mapLegacyTodoLinkToRow(
     todoDueAt: detail?.dueAt ?? null,
     todoCustomValues: detail?.customValues ?? null,
     todoOrganizationId: detail?.organizationId ?? link.organizationId ?? null,
+    todoUpdatedAt: detail?.updatedAt ?? null,
     organizationId: link.organizationId,
     tenantId: link.tenantId,
     createdAt: link.createdAt.toISOString(),
@@ -595,6 +608,7 @@ export function mapInteractionRecordToTodoRow(
     todoDueAt: interaction.scheduledAt ?? null,
     todoCustomValues: Object.keys(customValues).length > 0 ? customValues : null,
     todoOrganizationId: interaction.organizationId ?? null,
+    todoUpdatedAt: interaction.updatedAt ?? null,
     organizationId: interaction.organizationId ?? '',
     tenantId: interaction.tenantId ?? '',
     createdAt: interaction.createdAt,

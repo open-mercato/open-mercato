@@ -26,6 +26,31 @@ const DEFAULT_MERGE_CONFIG: ResultMergeConfig = {
  */
 const STRATEGY_AVAILABILITY_CACHE_TTL_MS = 2_000
 
+function normalizeOrganizationFilter(options: SearchOptions): string[] | null {
+  const single = typeof options.organizationId === 'string' ? options.organizationId.trim() : ''
+  if (single) return [single]
+  if (!Array.isArray(options.organizationIds)) return null
+
+  const values = Array.from(new Set(
+    options.organizationIds
+      .map((value) => (typeof value === 'string' ? value.trim() : ''))
+      .filter((value) => value.length > 0),
+  ))
+  return values
+}
+
+function filterResultsByOrganizationScope(results: SearchResult[], options: SearchOptions): SearchResult[] {
+  const organizationIds = normalizeOrganizationFilter(options)
+  if (!organizationIds) return results
+  if (organizationIds.length === 0) return []
+
+  const allowed = new Set(organizationIds)
+  return results.filter((result) => {
+    const organizationId = typeof result.organizationId === 'string' ? result.organizationId.trim() : ''
+    return organizationId.length > 0 && allowed.has(organizationId)
+  })
+}
+
 /**
  * SearchService orchestrates multiple search strategies, executing searches in parallel
  * and merging results using the RRF algorithm.
@@ -87,6 +112,11 @@ export class SearchService {
    * @returns Merged and ranked search results
    */
   async search(query: string, options: SearchOptions): Promise<SearchResult[]> {
+    const organizationIds = normalizeOrganizationFilter(options)
+    if (organizationIds && organizationIds.length === 0) {
+      return []
+    }
+
     const strategyIds = options.strategies ?? this.defaultStrategies
     const activeStrategies = await this.getAvailableStrategies(strategyIds)
 
@@ -126,9 +156,10 @@ export class SearchService {
 
     // Merge and rank results
     const merged = mergeAndRankResults(allResults, this.mergeConfig)
+    const scoped = filterResultsByOrganizationScope(merged, options)
 
     // Enrich results missing presenter or navigation metadata
-    return this.enrichResultsWithPresenter(merged, options.tenantId, options.organizationId)
+    return this.enrichResultsWithPresenter(scoped, options.tenantId, options.organizationId)
   }
 
   /**
@@ -171,19 +202,10 @@ export class SearchService {
       strategies.map((strategy) => this.executeStrategyIndex(strategy, record)),
     )
 
-    // Log any failures
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.status === 'rejected') {
-        const strategy = strategies[i]
-        searchError('SearchService', 'Strategy index failed', {
-          strategyId: strategy?.id,
-          entityId: record.entityId,
-          recordId: record.recordId,
-          error: result.reason instanceof Error ? result.reason.message : result.reason,
-        })
-      }
-    }
+    this.throwOnStrategyFailures('index', strategies, results, {
+      entityId: record.entityId,
+      recordId: record.recordId,
+    })
   }
 
   /**
@@ -200,19 +222,7 @@ export class SearchService {
       strategies.map((strategy) => this.executeStrategyDelete(strategy, entityId, recordId, tenantId)),
     )
 
-    // Log any failures
-    for (let i = 0; i < results.length; i++) {
-      const result = results[i]
-      if (result.status === 'rejected') {
-        const strategy = strategies[i]
-        searchError('SearchService', 'Strategy delete failed', {
-          strategyId: strategy?.id,
-          entityId,
-          recordId,
-          error: result.reason instanceof Error ? result.reason.message : result.reason,
-        })
-      }
-    }
+    this.throwOnStrategyFailures('delete', strategies, results, { entityId, recordId })
   }
 
   /**
@@ -269,30 +279,66 @@ export class SearchService {
    * @param entityId - Entity type to purge
    * @param tenantId - Tenant for isolation
    */
-  async purge(entityId: string, tenantId: string): Promise<void> {
+  async purge(entityId: string, tenantId: string, organizationId?: string | null): Promise<void> {
     const strategies = await this.getAvailableStrategies()
 
     const results = await Promise.allSettled(
       strategies.map((strategy) => {
         if (strategy.purge) {
-          return strategy.purge(entityId, tenantId)
+          return strategy.purge(entityId, tenantId, organizationId)
         }
         return Promise.resolve()
       }),
     )
 
-    // Log any failures
+    this.throwOnStrategyFailures('purge', strategies, results, { entityId })
+  }
+
+  /**
+   * Inspect the settled results of a per-strategy write operation, log every
+   * rejection, and re-throw an aggregated error when any strategy failed.
+   *
+   * Write operations (index/delete/purge) must surface failures to the caller
+   * so the queue worker re-throws and the job is retried. Swallowing rejections
+   * here causes silent, permanent index gaps on transient failures such as
+   * Postgres connection-pool exhaustion (issue #3103). Successful strategies
+   * still commit their work; only the aggregated failure propagates.
+   */
+  private throwOnStrategyFailures(
+    operation: 'index' | 'delete' | 'purge',
+    strategies: SearchStrategy[],
+    results: PromiseSettledResult<unknown>[],
+    context: { entityId: string; recordId?: string },
+  ): void {
+    const failures: Array<{ strategyId: string; reason: unknown }> = []
+
     for (let i = 0; i < results.length; i++) {
       const result = results[i]
       if (result.status === 'rejected') {
         const strategy = strategies[i]
-        searchError('SearchService', 'Strategy purge failed', {
+        failures.push({ strategyId: strategy?.id || 'unknown', reason: result.reason })
+        searchError('SearchService', `Strategy ${operation} failed`, {
           strategyId: strategy?.id,
-          entityId,
+          entityId: context.entityId,
+          recordId: context.recordId,
           error: result.reason instanceof Error ? result.reason.message : result.reason,
         })
       }
     }
+
+    if (failures.length === 0) return
+
+    const summary = `Search ${operation} failed for ${failures.length} strategy(ies): ${failures
+      .map((failure) => {
+        const message = failure.reason instanceof Error ? failure.reason.message : String(failure.reason)
+        return `${failure.strategyId} (${message})`
+      })
+      .join(', ')}`
+
+    throw new AggregateError(
+      failures.map((failure) => failure.reason),
+      summary,
+    )
   }
 
   /**

@@ -10,9 +10,10 @@ import {
   SelectValue,
 } from "@open-mercato/ui/primitives/select";
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { booleanOverrideSelectValue } from "./overrideFormConfig";
 
 
-export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderProps) {
+export function DefaultValueField(props: CrudCustomFieldRenderProps) {
     const t = useT()
     const selectedType = props.values?.type as string;
 
@@ -22,7 +23,7 @@ export function renderDefaultValueCreateComponent(props: CrudCustomFieldRenderPr
                 <div>
                     <label className="block text-sm font-medium mb-2">{t('feature_toggles.form.fields.defaultValue.boolean.label', 'Default Value (Boolean)')}</label>
                     <Select
-                        value={props.value as string || 'false'}
+                        value={booleanOverrideSelectValue(props.value)}
                         onValueChange={(value) => props.setValue(value === 'true')}
                         disabled={props.disabled}
                     >
@@ -131,7 +132,7 @@ export function createFieldDefinitions(
             id: 'defaultValue',
             label: '',
             type: 'custom',
-            component: renderDefaultValueCreateComponent,
+            component: (props) => <DefaultValueField {...props} />,
             description: t('feature_toggles.form.fields.defaultValue.description'),
         },
     ]

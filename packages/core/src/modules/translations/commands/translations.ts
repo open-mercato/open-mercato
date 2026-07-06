@@ -80,39 +80,56 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
 
   async execute(input, ctx) {
     const db = resolveDb(ctx) as any
-    const existing = await db
-      .selectFrom('entity_translations')
-      .select(['id'])
-      .where('entity_type', '=', input.entityType)
-      .where('entity_id', '=', input.entityId)
-      .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
-      .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-      .executeTakeFirst() as { id: string } | undefined
 
-    if (existing) {
-      await db
-        .updateTable('entity_translations')
-        .set({
-          translations: sql`${JSON.stringify(input.translations)}::jsonb`,
-          updated_at: sql`now()`,
-        } as any)
-        .where('id', '=', existing.id)
-        .execute()
-    } else {
-      await db
-        .insertInto('entity_translations')
-        .values({
-          entity_type: input.entityType,
-          entity_id: input.entityId,
-          organization_id: input.organizationId,
-          tenant_id: input.tenantId,
-          translations: sql`${JSON.stringify(input.translations)}::jsonb`,
-          created_at: sql`now()`,
-          updated_at: sql`now()`,
-        } as any)
-        .execute()
-    }
+    // Run the lookup + upsert + id read in one transaction so a concurrent
+    // writer cannot slip between the existence check and the insert/update.
+    const rowId = await db.transaction().execute(async (trx: any) => {
+      const existing = await trx
+        .selectFrom('entity_translations')
+        .select(['id'])
+        .where('entity_type', '=', input.entityType)
+        .where('entity_id', '=', input.entityId)
+        .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
+        .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
+        .executeTakeFirst() as { id: string } | undefined
 
+      if (existing) {
+        await trx
+          .updateTable('entity_translations')
+          .set({
+            translations: sql`${JSON.stringify(input.translations)}::jsonb`,
+            updated_at: sql`now()`,
+          } as any)
+          .where('id', '=', existing.id)
+          .execute()
+      } else {
+        await trx
+          .insertInto('entity_translations')
+          .values({
+            entity_type: input.entityType,
+            entity_id: input.entityId,
+            organization_id: input.organizationId,
+            tenant_id: input.tenantId,
+            translations: sql`${JSON.stringify(input.translations)}::jsonb`,
+            created_at: sql`now()`,
+            updated_at: sql`now()`,
+          } as any)
+          .execute()
+      }
+
+      const saved = await trx
+        .selectFrom('entity_translations')
+        .select(['id'])
+        .where('entity_type', '=', input.entityType)
+        .where('entity_id', '=', input.entityId)
+        .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
+        .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
+        .executeTakeFirst() as { id: string } | undefined
+
+      return saved?.id ?? ''
+    })
+
+    // Emit AFTER the write commits — never announce a change that rolled back.
     await emitTranslationsEvent('translations.translation.updated', {
       entityType: input.entityType,
       entityId: input.entityId,
@@ -120,16 +137,7 @@ const saveTranslationCommand: CommandHandler<SaveInput, { rowId: string }> = {
       tenantId: input.tenantId,
     }, { persistent: true }).catch(() => undefined)
 
-    const saved = await db
-      .selectFrom('entity_translations')
-      .select(['id'])
-      .where('entity_type', '=', input.entityType)
-      .where('entity_id', '=', input.entityId)
-      .where(sql<boolean>`tenant_id is not distinct from ${input.tenantId}`)
-      .where(sql<boolean>`organization_id is not distinct from ${input.organizationId}`)
-      .executeTakeFirst() as { id: string } | undefined
-
-    return { rowId: saved?.id ?? '' }
+    return { rowId }
   },
 
   async captureAfter(input, _result, ctx) {

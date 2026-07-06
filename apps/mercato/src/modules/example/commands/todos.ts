@@ -10,6 +10,7 @@ import {
   normalizeCustomFieldValues,
 } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEmitContext, CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityData, EntityManager, FilterQuery } from '@mikro-orm/postgresql'
@@ -184,6 +185,28 @@ const createTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
       indexer: todoCrudIndexer,
     })
   },
+  redo: makeCreateRedo<Todo, SerializedTodo, Record<string, unknown>, Todo>({
+    entityClass: Todo,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: todoSeedFromSnapshot,
+    buildResult: (entity) => entity,
+    events: todoCrudEvents,
+    indexer: todoCrudIndexer,
+    afterRestore: async ({ ctx, entity, snapshot }) => {
+      if (!snapshot.custom || !Object.keys(snapshot.custom).length) return
+      const de = (ctx.container.resolve('dataEngine') as DataEngine)
+      const values = normalizeCustomFieldValues(snapshot.custom)
+      if (!Object.keys(values).length) return
+      await de.setCustomFields({
+        entityId: ENTITY_ID,
+        recordId: String(entity.id),
+        tenantId: entity.tenantId ? String(entity.tenantId) : null,
+        organizationId: entity.organizationId ? String(entity.organizationId) : null,
+        values,
+        notify: false,
+      })
+    },
+  }),
 }
 
 const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
@@ -469,6 +492,16 @@ function resolveUndoScope(
     organizationId = snapshot.organizationId
   }
   return { tenantId, organizationId }
+}
+
+function todoSeedFromSnapshot(snapshot: SerializedTodo): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    title: snapshot.title,
+    isDone: snapshot.is_done,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+  }
 }
 
 function serializeTodo(todo: Todo, custom?: Record<string, unknown> | null): SerializedTodo {

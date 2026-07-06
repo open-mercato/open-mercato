@@ -349,6 +349,118 @@ describe('resolveAttachmentParts — tenant / org scope enforcement', () => {
     expect(parts).toEqual([])
     expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('not found'))
   })
+
+  // Regression for #2663 — null-scoped rows used to bypass the tenant check via
+  // a truthiness short-circuit and leak into the caller's LLM context.
+  it('drops a null-tenant (global) record for a non super-admin caller', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(
+      makeRow({
+        id: 'null-tenant-1',
+        tenantId: null,
+        organizationId: null,
+        mimeType: 'image/png',
+        fileSize: 64,
+        content: 'secret OCR text',
+      }),
+    )
+
+    const parts = await resolveAttachmentParts({
+      attachmentIds: ['null-tenant-1'],
+      authContext: makeAuth({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      container: makeContainer(),
+    })
+
+    expect(parts).toEqual([])
+    expect(fsReadFileMock).not.toHaveBeenCalled()
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'))
+  })
+
+  // Regression for #2663 — `tenantId='X', organizationId=null` used to be
+  // readable by every org within tenant X.
+  it('drops a null-org record in the caller tenant for an org-scoped caller', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(
+      makeRow({
+        id: 'null-org-1',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        mimeType: 'image/png',
+        fileSize: 64,
+      }),
+    )
+
+    const parts = await resolveAttachmentParts({
+      attachmentIds: ['null-org-1'],
+      authContext: makeAuth({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      container: makeContainer(),
+    })
+
+    expect(parts).toEqual([])
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining('out of scope'))
+  })
+
+  it('lets a tenant-wide caller (null org) read any org within its tenant', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(
+      makeRow({
+        id: 'same-tenant-other-org',
+        tenantId: 'tenant-1',
+        organizationId: 'org-OTHER',
+        mimeType: 'application/zip',
+        fileSize: 64,
+        content: null,
+      }),
+    )
+
+    const parts = await resolveAttachmentParts({
+      attachmentIds: ['same-tenant-other-org'],
+      authContext: makeAuth({ tenantId: 'tenant-1', organizationId: null }),
+      container: makeContainer(),
+    })
+
+    expect(parts).toHaveLength(1)
+    expect(parts[0].attachmentId).toBe('same-tenant-other-org')
+  })
+
+  it('scopes the ORM query by tenant + org for a non super-admin caller', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(makeRow({ id: 'att-scope-1', fileSize: 0 }))
+
+    await resolveAttachmentParts({
+      attachmentIds: ['att-scope-1'],
+      authContext: makeAuth({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      container: makeContainer(),
+    })
+
+    const whereArg = findOneWithDecryptionMock.mock.calls[0][2]
+    expect(whereArg).toEqual({ id: 'att-scope-1', tenantId: 'tenant-1', organizationId: 'org-1' })
+  })
+
+  it('omits org from the ORM query for a tenant-wide caller (null org)', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(makeRow({ id: 'att-scope-2', fileSize: 0 }))
+
+    await resolveAttachmentParts({
+      attachmentIds: ['att-scope-2'],
+      authContext: makeAuth({ tenantId: 'tenant-1', organizationId: null }),
+      container: makeContainer(),
+    })
+
+    const whereArg = findOneWithDecryptionMock.mock.calls[0][2]
+    expect(whereArg).toEqual({ id: 'att-scope-2', tenantId: 'tenant-1' })
+    expect(whereArg).not.toHaveProperty('organizationId')
+  })
+
+  it('does not scope the ORM query for super-admin callers', async () => {
+    findOneWithDecryptionMock.mockResolvedValueOnce(
+      makeRow({ id: 'att-scope-3', tenantId: 'tenant-OTHER', organizationId: 'org-OTHER', fileSize: 0 }),
+    )
+
+    await resolveAttachmentParts({
+      attachmentIds: ['att-scope-3'],
+      authContext: makeAuth({ isSuperAdmin: true }),
+      container: makeContainer(),
+    })
+
+    const whereArg = findOneWithDecryptionMock.mock.calls[0][2]
+    expect(whereArg).toEqual({ id: 'att-scope-3' })
+  })
 })
 
 describe('resolveAttachmentParts — unavailable service graceful skip', () => {

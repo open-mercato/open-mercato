@@ -1,6 +1,12 @@
 import { executeActionSchema } from '../../../data/validators'
 import { actionResultResponseSchema, errorResponseSchema } from '../../openapi'
-import { resolveNotificationContext } from '../../../lib/routeHelpers'
+import {
+  NOTIFICATION_RESOURCE_KIND,
+  notificationCrudErrorResponse,
+  notificationValidationErrorResponse,
+  resolveNotificationContext,
+  runGuardedNotificationWrite,
+} from '../../../lib/routeHelpers'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 
 export const metadata = {
@@ -9,13 +15,30 @@ export const metadata = {
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const { service, scope } = await resolveNotificationContext(req)
+  const { service, scope, ctx } = await resolveNotificationContext(req)
 
   const body = await req.json().catch(() => ({}))
-  const input = executeActionSchema.parse(body)
+  const parsed = executeActionSchema.safeParse(body)
+  if (!parsed.success) {
+    return notificationValidationErrorResponse(parsed.error)
+  }
+  const input = parsed.data
 
   try {
-    const { notification, result } = await service.executeAction(id, input, scope)
+    const guarded = await runGuardedNotificationWrite(
+      ctx.container,
+      scope,
+      req,
+      {
+        resourceKind: NOTIFICATION_RESOURCE_KIND,
+        resourceId: id,
+        operation: 'custom',
+        payload: input as Record<string, unknown>,
+      },
+      () => service.executeAction(id, input, scope),
+    )
+    if (!guarded.ok) return guarded.response
+    const { notification, result } = guarded.result
 
     const action = notification.actionData?.actions?.find((a) => a.id === input.actionId)
     const href = action?.href?.replace('{sourceEntityId}', notification.sourceEntityId ?? '')
@@ -26,6 +49,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
       href,
     })
   } catch (error) {
+    const errorResponse = notificationCrudErrorResponse(error)
+    if (errorResponse) return errorResponse
+
     const { t } = await resolveTranslations()
     const fallback = t('notifications.error.action', 'Failed to execute action')
     const message = error instanceof Error && error.message ? error.message : fallback

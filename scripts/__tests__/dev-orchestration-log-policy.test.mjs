@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 
 import {
   isIgnorableBoxDrawingLine,
+  isIgnorableConsolidatedWatchLine,
   isIgnorableEnvInjectionLine,
   isIgnorableFailureLine,
   isIgnorableMercatoCliBannerLine,
@@ -101,7 +102,25 @@ test('isIgnorableTurboLine treats empty/whitespace and turbo noise predicates as
   assert.equal(isIgnorableTurboLine('^C    ...Finishing writing to cache...'), true)
   assert.equal(isIgnorableTurboLine('^C'), true)
   assert.equal(isIgnorableTurboLine('command canceled'), true)
+  // Consolidated watcher output is expected and must not surface as a failure
+  assert.equal(isIgnorableTurboLine('[watch] consolidated watcher: tracking 16 packages (cache, core, …)'), true)
+  assert.equal(isIgnorableTurboLine('[watch] shared: rebuilding...'), true)
+  assert.equal(isIgnorableTurboLine('[watch] shared: rebuild complete'), true)
   // Real progress lines should NOT be filtered
   assert.equal(isIgnorableTurboLine('@open-mercato/core:build: building'), false)
   assert.equal(isIgnorableTurboLine('Error: turbo failed'), false)
+})
+
+test('isIgnorableConsolidatedWatchLine catches consolidated watcher progress only', () => {
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] consolidated watcher: tracking 16 packages (a, b)'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] consolidated watcher: stopping...'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: rebuilding...'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: rebuild complete'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: no source files found, skipping rebuild'), true)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] no workspace packages with a `watch` script and `src/` directory were found'), true)
+  // Real errors must NOT be filtered — they pass through to the failure surface
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: rebuild failed: ENOENT'), false)
+  assert.equal(isIgnorableConsolidatedWatchLine('[watch] shared: failed to start fs.watch: EMFILE'), false)
+  assert.equal(isIgnorableConsolidatedWatchLine('Error: something else'), false)
+  assert.equal(isIgnorableConsolidatedWatchLine(null), false)
 })

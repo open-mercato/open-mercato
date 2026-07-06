@@ -44,7 +44,7 @@ export interface AiChatMessageUiPart {
 
 /**
  * Snapshot of a single task in the visible agent task plan
- * (spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
+ * (spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`). Tasks are
  * streamed as additive `data-agent-task-plan` / `data-agent-task-update`
  * SSE chunks and rendered above raw tool-call rows in `<AiChat>`.
  *
@@ -69,6 +69,8 @@ export interface AiChatMessage {
   reasoning?: string
   reasoningStreaming?: boolean
   toolCalls?: AiChatToolCallSnapshot[]
+  /** User ID of the message author. Present for server-loaded messages; null for AI messages and locally-composed messages. */
+  senderUserId?: string | null
   /**
    * UI parts emitted by the agent during this message's lifecycle. Today
    * the only producer is `prepareMutation` (mutation approval flow):
@@ -116,6 +118,15 @@ export interface UseAiChatInput {
    * configured default (no override sent).
    */
   modelOverride?: string | null
+  /**
+   * Called when the server returns 404 for the active `conversationId`.
+   * Used by hosts to remove a stale session entry (e.g. the AI dock
+   * closes the session tab) when a conversation no longer exists for the
+   * current tenant/org scope. A 404 here distinguishes a missing
+   * conversation from a transient transport failure — the hook never
+   * imports local messages onto the new scope when this fires.
+   */
+  onConversationNotFound?: () => void
 }
 
 export interface AiChatErrorEnvelope {
@@ -145,6 +156,11 @@ export interface UseAiChatResult {
    * Phase 4 of spec `2026-04-28-ai-agents-agentic-loop-controls`.
    */
   lastLoopTrace: LoopTracePanelTrace | null
+  /**
+   * Whether the authenticated caller owns the loaded conversation. `true` for owners,
+   * `false` for shared participants (read-only view), `null` while unresolved.
+   */
+  isOwner: boolean | null
   sendMessage: (input: string, files?: AiChatMessageFile[]) => Promise<void>
   cancel: () => void
   reset: () => void
@@ -179,6 +195,13 @@ const SESSION_UPDATED_EVENT = 'om-ai-chat-session-updated'
 const SESSION_STREAM_STATE_EVENT = 'om-ai-chat-session-stream-state'
 const activeSessionStreams = new Set<string>()
 
+// This slot already implements its own versioned, migratable shape: the inline
+// `v` discriminator is checked on read and the value is discarded on mismatch
+// (see `readPersistedSession`). It is intentionally NOT migrated to the generic
+// `{ v, data }` envelope from `@open-mercato/shared/lib/browser/versionedPreference`
+// — doing so would change the on-disk format and discard users' in-progress
+// sessions, and the write path needs bespoke transient-blob-URL stripping that
+// the generic helper does not express.
 interface PersistedAiChatSession {
   v: number
   conversationId: string
@@ -772,7 +795,7 @@ async function readErrorEnvelope(response: Response): Promise<AiChatErrorEnvelop
 }
 
 export function useAiChat(input: UseAiChatInput): UseAiChatResult {
-  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride } = input
+  const { agent, apiPath, pageContext, attachmentIds, debug, initialMessages, onError, conversationId: conversationIdInput, providerOverride, modelOverride, onConversationNotFound } = input
 
   // Minted once on mount when the caller does not supply a conversationId.
   // The ref keeps the id stable across re-renders and is reused for every
@@ -918,10 +941,14 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     const localCandidate = readPersistedSession(agent, persistKey)
 
     async function hydrateFromServer(): Promise<void> {
-      const transcript = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
+      const transcriptResult = await loadAiServerTranscript(effectiveConversationId, { limit: 100 })
       if (cancelled || latestStatusRef.current !== 'idle') return
 
-      if (transcript) {
+      if (transcriptResult.ok) {
+        const transcript = transcriptResult.data
+        if (typeof transcript.conversation.isOwner === 'boolean') {
+          setIsOwner(transcript.conversation.isOwner)
+        }
         const serverMessages = transcript.messages
           .map(serverMessageToChatMessage)
           .filter((message): message is AiChatMessage => message !== null)
@@ -932,8 +959,25 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
         }
       }
 
+      // 404 — the conversation does not exist for the current tenant/org
+      // scope (e.g. the user switched scope and the stale conversationId
+      // came from the previous bucket's localStorage). Self-heal: drop
+      // the local cache, signal the host so it can prune its session
+      // registry, and NEVER fall through to importAiLocalConversation —
+      // that would silently write the previous scope's messages onto the
+      // new scope's server.
+      if (!transcriptResult.ok && transcriptResult.notFound) {
+        updateMessages([])
+        clearPersistedSession(agent, persistKey)
+        onConversationNotFoundRef.current?.()
+        return
+      }
+
       if (!localCandidate || localCandidate.messages.length === 0) {
-        if (!transcript) {
+        if (!transcriptResult.ok) {
+          // Transient transport failure (network down, 5xx, …). Mint a
+          // new server-side record optimistically; the next idle hydrate
+          // will reconcile.
           void createAiServerConversation({
             agentId: agent,
             conversationId: effectiveConversationId,
@@ -974,12 +1018,17 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
   >(null)
 
   const [lastLoopTrace, setLastLoopTrace] = React.useState<LoopTracePanelTrace | null>(null)
+  const [isOwner, setIsOwner] = React.useState<boolean | null>(null)
 
   const abortRef = React.useRef<AbortController | null>(null)
   const onErrorRef = React.useRef(onError)
   React.useEffect(() => {
     onErrorRef.current = onError
   }, [onError])
+  const onConversationNotFoundRef = React.useRef(onConversationNotFound)
+  React.useEffect(() => {
+    onConversationNotFoundRef.current = onConversationNotFound
+  }, [onConversationNotFound])
 
   const emitError = React.useCallback((envelope: AiChatErrorEnvelope) => {
     if (mountedRef.current) {
@@ -1319,6 +1368,7 @@ export function useAiChat(input: UseAiChatInput): UseAiChatResult {
     lastResponseDebug,
     conversationId: effectiveConversationId,
     lastLoopTrace,
+    isOwner,
     sendMessage,
     cancel,
     reset,

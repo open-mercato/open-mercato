@@ -95,11 +95,11 @@ Run the full ephemeral integration suite from the run host. If Docker is unavail
 
 4.1 Run the full validation gate (`yarn build:packages`, `yarn generate`, `yarn build:packages`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn typecheck`, `yarn test`, `yarn build:app`).
 
-4.2 Self code-review per `.ai/skills/code-review/SKILL.md`. Self BC-review per `BACKWARD_COMPATIBILITY.md`.
+4.2 Self code-review per `.ai/skills/om-code-review/SKILL.md`. Self BC-review per `BACKWARD_COMPATIBILITY.md`.
 
 4.3 Open the PR against `develop` with `Tracking plan:` line, push, label `review`, label `needs-qa` (touches CRM bulk worker behavior end-to-end + sales UI tests — manual QA exercise is reasonable to confirm no false positives).
 
-4.4 Run `.ai/skills/auto-review-pr/SKILL.md` against the PR in autofix mode. Apply any actionable findings as new commits.
+4.4 Run `.ai/skills/om-auto-review-pr/SKILL.md` against the PR in autofix mode. Apply any actionable findings as new commits.
 
 4.5 Wait for CI. If anything red, fix and re-push.
 

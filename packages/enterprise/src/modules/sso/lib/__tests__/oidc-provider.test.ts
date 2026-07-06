@@ -1,6 +1,38 @@
 jest.mock('openid-client', () => ({}))
 
-import { extractIdentityGroups, coerceClaimValues } from '../oidc-provider'
+import {
+  extractIdentityGroups,
+  coerceClaimValues,
+  normalizeEmailVerifiedClaim,
+} from '../oidc-provider'
+
+describe('normalizeEmailVerifiedClaim', () => {
+  test('preserves explicit true', () => {
+    expect(normalizeEmailVerifiedClaim(true)).toBe(true)
+  })
+
+  test('preserves explicit false', () => {
+    expect(normalizeEmailVerifiedClaim(false)).toBe(false)
+  })
+
+  test('returns undefined when the claim is missing (Microsoft Entra ID case)', () => {
+    expect(normalizeEmailVerifiedClaim(undefined)).toBeUndefined()
+  })
+
+  test('returns undefined for null', () => {
+    expect(normalizeEmailVerifiedClaim(null)).toBeUndefined()
+  })
+
+  test('returns undefined for non-boolean string values (does not coerce "true")', () => {
+    expect(normalizeEmailVerifiedClaim('true')).toBeUndefined()
+    expect(normalizeEmailVerifiedClaim('false')).toBeUndefined()
+  })
+
+  test('returns undefined for numeric values', () => {
+    expect(normalizeEmailVerifiedClaim(1)).toBeUndefined()
+    expect(normalizeEmailVerifiedClaim(0)).toBeUndefined()
+  })
+})
 
 describe('coerceClaimValues', () => {
   test('returns empty array for null', () => {

@@ -13,8 +13,10 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -40,6 +42,7 @@ type Pipeline = {
   isDefault: boolean
   organizationId: string
   tenantId: string
+  updatedAt?: string | null
 }
 
 type PipelineStage = {
@@ -49,6 +52,7 @@ type PipelineStage = {
   order: number
   color: string | null
   icon: string | null
+  updatedAt?: string | null
 }
 
 type PipelineDialogState =
@@ -66,6 +70,7 @@ function normalizePipeline(raw: Record<string, unknown>): Pipeline {
     isDefault: raw.isDefault === true || raw.is_default === true,
     organizationId: typeof raw.organizationId === 'string' ? raw.organizationId : (typeof raw.organization_id === 'string' ? raw.organization_id : ''),
     tenantId: typeof raw.tenantId === 'string' ? raw.tenantId : (typeof raw.tenant_id === 'string' ? raw.tenant_id : ''),
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : (typeof raw.updated_at === 'string' ? raw.updated_at : null),
   }
 }
 
@@ -77,6 +82,7 @@ function normalizeStage(raw: Record<string, unknown>): PipelineStage {
     order: typeof raw.order === 'number' ? raw.order : 0,
     color: typeof raw.color === 'string' && raw.color.trim().length ? raw.color.trim() : null,
     icon: typeof raw.icon === 'string' && raw.icon.trim().length ? raw.icon.trim() : null,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : (typeof raw.updated_at === 'string' ? raw.updated_at : null),
   }
 }
 
@@ -97,6 +103,31 @@ export default function PipelineSettings(): React.ReactElement {
   const [stageDialog, setStageDialog] = React.useState<StageDialogState | null>(null)
   const [stageForm, setStageForm] = React.useState({ label: '', color: null as string | null, icon: null as string | null })
   const [submittingStage, setSubmittingStage] = React.useState(false)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: 'customers-pipeline-settings',
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const pipelineMutationContext = React.useMemo(
+    () => ({
+      formId: 'customers-pipeline-settings',
+      resourceKind: 'customers.pipeline',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
+  const stageMutationContext = React.useMemo(
+    () => ({
+      formId: 'customers-pipeline-settings',
+      resourceKind: 'customers.pipeline_stage',
+      retryLastMutation,
+    }),
+    [retryLastMutation],
+  )
 
   const loadPipelines = React.useCallback(async () => {
     setLoadingPipelines(true)
@@ -160,34 +191,50 @@ export default function PipelineSettings(): React.ReactElement {
     setSubmittingPipeline(true)
     try {
       if (pipelineDialog?.mode === 'create') {
-        const res = await apiCall('/api/customers/pipelines', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
+        await runMutation({
+          operation: async () => {
+            const res = await apiCall('/api/customers/pipelines', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
+            })
+            if (!res.ok) {
+              await raiseCrudError(res.response, t('customers.pipelines.errors.createFailed', 'Failed to create pipeline'))
+            }
+          },
+          context: pipelineMutationContext,
+          mutationPayload: { action: 'create', name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault },
         })
-        if (!res.ok) {
-          await raiseCrudError(res.response, t('customers.pipelines.errors.createFailed', 'Failed to create pipeline'))
-          return
-        }
         flash(t('customers.pipelines.flash.created', 'Pipeline created'), 'success')
       } else if (pipelineDialog?.mode === 'edit') {
-        const res = await apiCall('/api/customers/pipelines', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: pipelineDialog.entry.id, name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
+        await runMutation({
+          operation: async () => {
+            const res = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(pipelineDialog.entry.updatedAt),
+              () =>
+                apiCall('/api/customers/pipelines', {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: pipelineDialog.entry.id, name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault }),
+                }),
+            )
+            if (!res.ok) {
+              await raiseCrudError(res.response, t('customers.pipelines.errors.updateFailed', 'Failed to update pipeline'))
+            }
+          },
+          context: pipelineMutationContext,
+          mutationPayload: { action: 'update', id: pipelineDialog.entry.id, name: pipelineForm.name.trim(), isDefault: pipelineForm.isDefault },
         })
-        if (!res.ok) {
-          await raiseCrudError(res.response, t('customers.pipelines.errors.updateFailed', 'Failed to update pipeline'))
-          return
-        }
         flash(t('customers.pipelines.flash.updated', 'Pipeline updated'), 'success')
       }
       setPipelineDialog(null)
       await loadPipelines()
+    } catch {
+      return
     } finally {
       setSubmittingPipeline(false)
     }
-  }, [pipelineDialog, pipelineForm, loadPipelines, t])
+  }, [pipelineDialog, pipelineForm, loadPipelines, pipelineMutationContext, runMutation, t])
 
   const handleDeletePipeline = React.useCallback(async (pipeline: Pipeline) => {
     const confirmed = await confirm({
@@ -197,21 +244,36 @@ export default function PipelineSettings(): React.ReactElement {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const res = await apiCall('/api/customers/pipelines', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: pipeline.id }),
-    })
-    if (!res.ok) {
-      const body = (res.result ?? {}) as Record<string, unknown>
-      const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.deleteFailed', 'Failed to delete pipeline')
+    try {
+      await runMutation({
+        operation: async () => {
+          const res = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(pipeline.updatedAt),
+            () =>
+              apiCall('/api/customers/pipelines', {
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: pipeline.id }),
+              }),
+          )
+          if (!res.ok) {
+            const body = (res.result ?? {}) as Record<string, unknown>
+            const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.deleteFailed', 'Failed to delete pipeline')
+            throw new Error(msg)
+          }
+        },
+        context: pipelineMutationContext,
+        mutationPayload: { action: 'delete', id: pipeline.id },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.pipelines.errors.deleteFailed', 'Failed to delete pipeline')
       flash(msg, 'error')
       return
     }
     flash(t('customers.pipelines.flash.deleted', 'Pipeline deleted'), 'success')
     if (expandedPipelineId === pipeline.id) setExpandedPipelineId(null)
     await loadPipelines()
-  }, [confirm, expandedPipelineId, loadPipelines, t])
+  }, [confirm, expandedPipelineId, loadPipelines, pipelineMutationContext, runMutation, t])
 
   const openCreateStage = React.useCallback((pipelineId: string) => {
     setStageForm({ label: '', color: null, icon: null })
@@ -236,35 +298,53 @@ export default function PipelineSettings(): React.ReactElement {
       if (stageForm.icon) appearance.icon = stageForm.icon
 
       if (stageDialog?.mode === 'create') {
-        const res = await apiCall('/api/customers/pipeline-stages', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ pipelineId: stageDialog.pipelineId, label: stageForm.label.trim(), ...appearance }),
+        const targetPipelineId = stageDialog.pipelineId
+        await runMutation({
+          operation: async () => {
+            const res = await apiCall('/api/customers/pipeline-stages', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ pipelineId: targetPipelineId, label: stageForm.label.trim(), ...appearance }),
+            })
+            if (!res.ok) {
+              await raiseCrudError(res.response, t('customers.pipelines.errors.stageCreateFailed', 'Failed to create stage'))
+            }
+          },
+          context: stageMutationContext,
+          mutationPayload: { action: 'create', pipelineId: targetPipelineId, label: stageForm.label.trim(), ...appearance },
         })
-        if (!res.ok) {
-          await raiseCrudError(res.response, t('customers.pipelines.errors.stageCreateFailed', 'Failed to create stage'))
-          return
-        }
         flash(t('customers.pipelines.flash.stageCreated', 'Stage created'), 'success')
-        await loadStages(stageDialog.pipelineId)
+        await loadStages(targetPipelineId)
       } else if (stageDialog?.mode === 'edit') {
-        const res = await apiCall('/api/customers/pipeline-stages', {
-          method: 'PUT',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ id: stageDialog.entry.id, label: stageForm.label.trim(), ...appearance }),
+        const targetStage = stageDialog.entry
+        await runMutation({
+          operation: async () => {
+            const res = await withScopedApiRequestHeaders(
+              buildOptimisticLockHeader(targetStage.updatedAt),
+              () =>
+                apiCall('/api/customers/pipeline-stages', {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: targetStage.id, label: stageForm.label.trim(), ...appearance }),
+                }),
+            )
+            if (!res.ok) {
+              await raiseCrudError(res.response, t('customers.pipelines.errors.stageUpdateFailed', 'Failed to update stage'))
+            }
+          },
+          context: stageMutationContext,
+          mutationPayload: { action: 'update', id: targetStage.id, label: stageForm.label.trim(), ...appearance },
         })
-        if (!res.ok) {
-          await raiseCrudError(res.response, t('customers.pipelines.errors.stageUpdateFailed', 'Failed to update stage'))
-          return
-        }
         flash(t('customers.pipelines.flash.stageUpdated', 'Stage updated'), 'success')
-        await loadStages(stageDialog.entry.pipelineId)
+        await loadStages(targetStage.pipelineId)
       }
       setStageDialog(null)
+    } catch {
+      return
     } finally {
       setSubmittingStage(false)
     }
-  }, [stageDialog, stageForm, loadStages, t])
+  }, [stageDialog, stageForm, loadStages, runMutation, stageMutationContext, t])
 
   const handleDeleteStage = React.useCallback(async (stage: PipelineStage) => {
     const confirmed = await confirm({
@@ -274,20 +354,35 @@ export default function PipelineSettings(): React.ReactElement {
       variant: 'destructive',
     })
     if (!confirmed) return
-    const res = await apiCall('/api/customers/pipeline-stages', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: stage.id }),
-    })
-    if (!res.ok) {
-      const body = (res.result ?? {}) as Record<string, unknown>
-      const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.stageDeleteFailed', 'Failed to delete stage')
+    try {
+      await runMutation({
+        operation: async () => {
+          const res = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(stage.updatedAt),
+            () =>
+              apiCall('/api/customers/pipeline-stages', {
+                method: 'DELETE',
+                headers: { 'content-type': 'application/json' },
+                body: JSON.stringify({ id: stage.id }),
+              }),
+          )
+          if (!res.ok) {
+            const body = (res.result ?? {}) as Record<string, unknown>
+            const msg = typeof body.error === 'string' ? body.error : t('customers.pipelines.errors.stageDeleteFailed', 'Failed to delete stage')
+            throw new Error(msg)
+          }
+        },
+        context: stageMutationContext,
+        mutationPayload: { action: 'delete', id: stage.id },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.pipelines.errors.stageDeleteFailed', 'Failed to delete stage')
       flash(msg, 'error')
       return
     }
     flash(t('customers.pipelines.flash.stageDeleted', 'Stage deleted'), 'success')
     await loadStages(stage.pipelineId)
-  }, [confirm, loadStages, t])
+  }, [confirm, loadStages, runMutation, stageMutationContext, t])
 
   const handleMoveStage = React.useCallback(async (stage: PipelineStage, direction: 'up' | 'down') => {
     const pipelineStages = stages[stage.pipelineId] ?? []
@@ -302,17 +397,28 @@ export default function PipelineSettings(): React.ReactElement {
     reordered[swapIdx] = temp
 
     const orderedStages = reordered.map((s, i) => ({ id: s.id, order: i }))
-    const res = await apiCall('/api/customers/pipeline-stages/reorder', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ stages: orderedStages }),
-    })
-    if (!res.ok) {
-      flash(t('customers.pipelines.errors.reorderFailed', 'Failed to reorder stages'), 'error')
+    try {
+      await runMutation({
+        operation: async () => {
+          const res = await apiCall('/api/customers/pipeline-stages/reorder', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ stages: orderedStages }),
+          })
+          if (!res.ok) {
+            throw new Error(t('customers.pipelines.errors.reorderFailed', 'Failed to reorder stages'))
+          }
+        },
+        context: stageMutationContext,
+        mutationPayload: { action: 'reorder', stages: orderedStages },
+      })
+    } catch (err) {
+      const msg = err instanceof Error && err.message ? err.message : t('customers.pipelines.errors.reorderFailed', 'Failed to reorder stages')
+      flash(msg, 'error')
       return
     }
     await loadStages(stage.pipelineId)
-  }, [stages, loadStages, t])
+  }, [stages, loadStages, runMutation, stageMutationContext, t])
 
   const handleKeyDown = React.useCallback(
     (handler: () => void) => (e: React.KeyboardEvent) => {

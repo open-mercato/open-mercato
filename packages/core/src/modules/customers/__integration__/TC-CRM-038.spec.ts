@@ -47,7 +47,7 @@ test.describe('TC-CRM-038: Assignable staff lookup for customer flows', () => {
       const lookupResponse = await apiRequest(
         request,
         'GET',
-        `/api/customers/assignable-staff?pageSize=20&search=${encodeURIComponent(memberName)}`,
+        `/api/staff/team-members/assignable?pageSize=20&search=${encodeURIComponent(memberName)}`,
         { token: employeeToken },
       )
       expect(

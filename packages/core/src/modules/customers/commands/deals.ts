@@ -9,6 +9,8 @@ import {
   normalizeAuthorUserId,
 } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { runCrudCommandWrite } from '@open-mercato/shared/lib/commands/runCrudCommandWrite'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
@@ -73,8 +75,26 @@ type DealStageTransitionSnapshot = {
   stageId: string
   stageLabel: string
   stageOrder: number
-  transitionedAt: Date
+  transitionedAt: Date | string
   transitionedByUserId: string | null
+}
+
+function coerceSnapshotDate(value: Date | string | null | undefined, fieldName: string): Date | null {
+  if (value === undefined || value === null) return null
+  if (value instanceof Date) return value
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`[internal] Invalid ${fieldName} undo snapshot date: ${value}`)
+  }
+  return date
+}
+
+function coerceRequiredSnapshotDate(value: Date | string, fieldName: string): Date {
+  const date = coerceSnapshotDate(value, fieldName)
+  if (!date) {
+    throw new Error(`[internal] Missing ${fieldName} undo snapshot date`)
+  }
+  return date
 }
 
 async function loadPipelineStageSnapshot(
@@ -108,6 +128,34 @@ async function resolvePipelineStageValue(
     value: stage.label,
   })
   return entry?.value ?? stage.label
+}
+
+function resolvePipelineAssignment(input: {
+  pipelineId?: string | null
+  pipelineStageId?: string | null
+  stageSnapshot: PipelineStageSnapshot | null
+}): { pipelineId: string | null; pipelineStageId: string | null } {
+  const requestedPipelineId = input.pipelineId ?? null
+  const requestedPipelineStageId = input.pipelineStageId ?? null
+
+  if (requestedPipelineStageId && !input.stageSnapshot) {
+    throw new CrudHttpError(400, { error: 'Pipeline stage not found' })
+  }
+
+  if (
+    requestedPipelineId &&
+    input.stageSnapshot &&
+    input.stageSnapshot.pipelineId !== requestedPipelineId
+  ) {
+    throw new CrudHttpError(400, {
+      error: 'Pipeline stage does not belong to the selected pipeline',
+    })
+  }
+
+  return {
+    pipelineId: requestedPipelineId ?? input.stageSnapshot?.pipelineId ?? null,
+    pipelineStageId: requestedPipelineStageId,
+  }
 }
 
 async function upsertDealStageTransition(
@@ -192,7 +240,7 @@ async function restoreDealStageTransitions(
       stageId: transitionSnapshot.stageId,
       stageLabel: transitionSnapshot.stageLabel,
       stageOrder: transitionSnapshot.stageOrder,
-      transitionedAt: transitionSnapshot.transitionedAt,
+      transitionedAt: coerceRequiredSnapshotDate(transitionSnapshot.transitionedAt, 'transitionedAt'),
       transitionedByUserId: transitionSnapshot.transitionedByUserId,
       isActive: true,
     })
@@ -214,7 +262,7 @@ type DealSnapshot = {
     valueAmount: string | null
     valueCurrency: string | null
     probability: number | null
-    expectedCloseAt: Date | null
+    expectedCloseAt: Date | string | null
     ownerUserId: string | null
     source: string | null
     closureOutcome: string | null
@@ -328,7 +376,7 @@ async function syncDealPeople(
   if (!personIds || !personIds.length) return
   const unique = Array.from(new Set(personIds))
   for (const personId of unique) {
-    const person = await requireCustomerEntity(em, personId, 'person', 'Person not found')
+    const person = await requireCustomerEntity(em, personId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'person', 'Person not found')
     ensureSameScope(person, deal.organizationId, deal.tenantId)
     const link = em.create(CustomerDealPersonLink, {
       deal,
@@ -348,7 +396,7 @@ async function syncDealCompanies(
   if (!companyIds || !companyIds.length) return
   const unique = Array.from(new Set(companyIds))
   for (const companyId of unique) {
-    const company = await requireCustomerEntity(em, companyId, 'company', 'Company not found')
+    const company = await requireCustomerEntity(em, companyId, { tenantId: deal.tenantId, organizationId: deal.organizationId }, 'company', 'Company not found')
     ensureSameScope(company, deal.organizationId, deal.tenantId)
     const link = em.create(CustomerDealCompanyLink, {
       deal,
@@ -369,12 +417,21 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
     let deal!: CustomerDeal
     let stageSnapshot: PipelineStageSnapshot | null = null
+    let pipelineAssignment: { pipelineId: string | null; pipelineStageId: string | null } = {
+      pipelineId: null,
+      pipelineStageId: null,
+    }
     let resolvedPipelineStageLabel: string | null = null
     await withAtomicFlush(em, [
       async () => {
         stageSnapshot = parsed.pipelineStageId
           ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, parsed.tenantId, parsed.organizationId)
           : null
+        pipelineAssignment = resolvePipelineAssignment({
+          pipelineId: parsed.pipelineId,
+          pipelineStageId: parsed.pipelineStageId,
+          stageSnapshot,
+        })
         resolvedPipelineStageLabel = stageSnapshot
           ? (await ensureDictionaryEntry(em, {
             tenantId: parsed.tenantId,
@@ -384,7 +441,7 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           }))?.value ?? stageSnapshot.label
           : parsed.pipelineStage ?? null
       },
-      () => {
+      async () => {
         deal = em.create(CustomerDeal, {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
@@ -392,8 +449,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           description: parsed.description ?? null,
           status: parsed.status ?? 'open',
           pipelineStage: resolvedPipelineStageLabel,
-          pipelineId: parsed.pipelineId ?? null,
-          pipelineStageId: parsed.pipelineStageId ?? null,
+          pipelineId: pipelineAssignment.pipelineId,
+          pipelineStageId: pipelineAssignment.pipelineStageId,
           valueAmount: toNumericString(parsed.valueAmount),
           valueCurrency: parsed.valueCurrency ?? null,
           probability: parsed.probability ?? null,
@@ -405,10 +462,8 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
           lossNotes: parsed.lossNotes ?? null,
         })
         em.persist(deal)
+        await em.flush()
       },
-    ], { transaction: true })
-
-    await withAtomicFlush(em, [
       async () => {
         const snapshot = stageSnapshot
         if (!snapshot) return
@@ -485,6 +540,73 @@ const createDealCommand: CommandHandler<DealCreateInput, { dealId: string }> = {
     em.remove(deal)
     await em.flush()
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<DealSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for deal create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let deal = await findOneWithDecryption(em, CustomerDeal, { id: after.deal.id })
+    if (!deal) {
+      deal = em.create(CustomerDeal, {
+        id: after.deal.id,
+        organizationId: after.deal.organizationId,
+        tenantId: after.deal.tenantId,
+        title: after.deal.title,
+        description: after.deal.description,
+        status: after.deal.status,
+        pipelineStage: after.deal.pipelineStage,
+        pipelineId: after.deal.pipelineId,
+        pipelineStageId: after.deal.pipelineStageId,
+        valueAmount: after.deal.valueAmount,
+        valueCurrency: after.deal.valueCurrency,
+        probability: after.deal.probability,
+        expectedCloseAt: after.deal.expectedCloseAt,
+        ownerUserId: after.deal.ownerUserId,
+        source: after.deal.source,
+        closureOutcome: after.deal.closureOutcome,
+        lossReasonId: after.deal.lossReasonId,
+        lossNotes: after.deal.lossNotes,
+      })
+      em.persist(deal)
+    }
+    const restoredDeal = deal
+    await withAtomicFlush(em, [
+      () => syncDealPeople(em, restoredDeal, after.people),
+      () => syncDealCompanies(em, restoredDeal, after.companies),
+      () => deleteDealStageTransitions(em, restoredDeal),
+      () => restoreDealStageTransitions(em, restoredDeal, after.transitions),
+    ], { transaction: true })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredDeal,
+      identifiers: {
+        id: restoredDeal.id,
+        organizationId: restoredDeal.organizationId,
+        tenantId: restoredDeal.tenantId,
+      },
+      indexer: dealCrudIndexer,
+      events: dealCrudEvents,
+    })
+
+    const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(restoreValues).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: de,
+        entityId: DEAL_ENTITY_ID,
+        recordId: restoredDeal.id,
+        organizationId: restoredDeal.organizationId,
+        tenantId: restoredDeal.tenantId,
+        values: restoreValues,
+        notify: false,
+      })
+    }
+
+    return { dealId: restoredDeal.id }
+  },
 }
 
 const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
@@ -509,105 +631,121 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
     const normalizedTransitionAuthorUserId = normalizeAuthorUserId(null, ctx.auth)
 
     let nextStageSnapshot: PipelineStageSnapshot | null = null
+    let nextPipelineAssignment: { pipelineId: string | null; pipelineStageId: string | null } = {
+      pipelineId: record.pipelineId ?? null,
+      pipelineStageId: record.pipelineStageId ?? null,
+    }
     let nextPipelineStageLabel: string | null = null
     let resolvedCurrentPipelineStageLabel: string | null = null
 
-    await withAtomicFlush(em, [
-      async () => {
-        nextStageSnapshot = parsed.pipelineStageId
-          ? await loadPipelineStageSnapshot(em, parsed.pipelineStageId, record.tenantId, record.organizationId)
-          : null
-        nextPipelineStageLabel = nextStageSnapshot
-          ? (await ensureDictionaryEntry(em, {
-            tenantId: record.tenantId,
-            organizationId: record.organizationId,
-            kind: 'pipeline_stage',
-            value: nextStageSnapshot.label,
-          }))?.value ?? nextStageSnapshot.label
-          : null
-        resolvedCurrentPipelineStageLabel =
-          !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
-            ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
-            : null
-      },
-      () => {
-        if (parsed.title !== undefined) record.title = parsed.title
-        if (parsed.description !== undefined) record.description = parsed.description ?? null
-        if (parsed.status !== undefined) record.status = parsed.status ?? record.status
-        if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
-        if (parsed.pipelineId !== undefined) record.pipelineId = parsed.pipelineId ?? null
-        if (parsed.pipelineStageId !== undefined) record.pipelineStageId = parsed.pipelineStageId ?? null
-
-        if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
-          record.pipelineStage = nextPipelineStageLabel
-        } else if (resolvedCurrentPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
-          record.pipelineStage = resolvedCurrentPipelineStageLabel
-        }
-
-        if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
-        if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
-        if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
-        if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
-        if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
-        if (parsed.source !== undefined) record.source = parsed.source ?? null
-        if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
-        if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
-        if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
-      },
-      async () => {
-        // CRITICAL: persist the scalar mutations above before any further `em.findOne` / sync
-        // helpers run inside this transaction. MikroORM v7's identity-map silently discards
-        // pending scalar changes on `record` if a query (such as the stage-transition lookup
-        // inside `upsertDealStageTransition`, or the linked-entity finds inside
-        // `syncDealPeople` / `syncDealCompanies`) executes on the same `EntityManager`
-        // before we explicitly flush. Without this flush, the entire kanban drag-and-drop
-        // returns 200 OK but never actually updates `customer_deals` rows — the card
-        // snaps back to its source lane on the next refetch (see SPEC-018).
-        await em.flush()
-      },
-      async () => {
-        const snapshot = nextStageSnapshot
-        if (!snapshot) return
-        const shouldRecord =
-          parsed.pipelineStageId !== undefined &&
-          parsed.pipelineStageId !== null &&
-          parsed.pipelineStageId !== previousPipelineStageId
-        if (!shouldRecord) return
-        await upsertDealStageTransition(em, {
-          deal: record,
-          pipelineId: snapshot.pipelineId,
-          stageId: snapshot.id,
-          stageLabel: nextPipelineStageLabel ?? snapshot.label,
-          stageOrder: snapshot.order,
-          transitionedByUserId: normalizedTransitionAuthorUserId,
-        })
-      },
-      () => syncDealPeople(em, record, parsed.personIds),
-      () => syncDealCompanies(em, record, parsed.companyIds),
-    ], { transaction: true })
-
-    const de = (ctx.container.resolve('dataEngine') as DataEngine)
-    await setCustomFieldsIfAny({
-      dataEngine: de,
+    await runCrudCommandWrite({
+      ctx,
+      em,
       entityId: DEAL_ENTITY_ID,
-      recordId: record.id,
-      organizationId: record.organizationId,
-      tenantId: record.tenantId,
-      values: custom,
-      notify: false,
-    })
-
-    await emitCrudSideEffects({
-      dataEngine: de,
       action: 'updated',
-      entity: record,
-      identifiers: {
-        id: record.id,
-        organizationId: record.organizationId,
-        tenantId: record.tenantId,
-      },
-      indexer: dealCrudIndexer,
+      scope: { tenantId: record.tenantId, organizationId: record.organizationId },
+      customFields: custom,
       events: dealCrudEvents,
+      indexer: dealCrudIndexer,
+      sideEffect: () => ({
+        entity: record,
+        identifiers: {
+          id: record.id,
+          organizationId: record.organizationId,
+          tenantId: record.tenantId,
+        },
+      }),
+      phases: [
+        async () => {
+          const pipelineAssignmentChanged =
+            parsed.pipelineId !== undefined || parsed.pipelineStageId !== undefined
+          const requestedPipelineStageId =
+            parsed.pipelineStageId !== undefined
+              ? parsed.pipelineStageId ?? null
+              : record.pipelineStageId ?? null
+          const requestedPipelineId =
+            parsed.pipelineId !== undefined ? parsed.pipelineId ?? null : record.pipelineId ?? null
+
+          nextStageSnapshot = requestedPipelineStageId && (pipelineAssignmentChanged || !record.pipelineStage)
+            ? await loadPipelineStageSnapshot(em, requestedPipelineStageId, record.tenantId, record.organizationId)
+            : null
+          if (pipelineAssignmentChanged) {
+            nextPipelineAssignment = resolvePipelineAssignment({
+              pipelineId: requestedPipelineId,
+              pipelineStageId: requestedPipelineStageId,
+              stageSnapshot: nextStageSnapshot,
+            })
+          }
+          nextPipelineStageLabel = nextStageSnapshot
+            ? (await ensureDictionaryEntry(em, {
+              tenantId: record.tenantId,
+              organizationId: record.organizationId,
+              kind: 'pipeline_stage',
+              value: nextStageSnapshot.label,
+            }))?.value ?? nextStageSnapshot.label
+            : null
+          resolvedCurrentPipelineStageLabel =
+            !nextStageSnapshot && record.pipelineStageId && (parsed.pipelineStageId !== undefined || !record.pipelineStage)
+              ? await resolvePipelineStageValue(em, record.pipelineStageId, record.tenantId, record.organizationId)
+              : null
+        },
+        () => {
+          if (parsed.title !== undefined) record.title = parsed.title
+          if (parsed.description !== undefined) record.description = parsed.description ?? null
+          if (parsed.status !== undefined) record.status = parsed.status ?? record.status
+          if (parsed.pipelineStage !== undefined) record.pipelineStage = parsed.pipelineStage ?? null
+          if (parsed.pipelineId !== undefined || (parsed.pipelineStageId !== undefined && nextStageSnapshot)) {
+            record.pipelineId = nextPipelineAssignment.pipelineId
+          }
+          if (parsed.pipelineStageId !== undefined) record.pipelineStageId = nextPipelineAssignment.pipelineStageId
+
+          if (nextPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+            record.pipelineStage = nextPipelineStageLabel
+          } else if (resolvedCurrentPipelineStageLabel && (parsed.pipelineStageId !== undefined || !record.pipelineStage)) {
+            record.pipelineStage = resolvedCurrentPipelineStageLabel
+          }
+
+          if (parsed.valueAmount !== undefined) record.valueAmount = toNumericString(parsed.valueAmount)
+          if (parsed.valueCurrency !== undefined) record.valueCurrency = parsed.valueCurrency ?? null
+          if (parsed.probability !== undefined) record.probability = parsed.probability ?? null
+          if (parsed.expectedCloseAt !== undefined) record.expectedCloseAt = parsed.expectedCloseAt ?? null
+          if (parsed.ownerUserId !== undefined) record.ownerUserId = parsed.ownerUserId ?? null
+          if (parsed.source !== undefined) record.source = parsed.source ?? null
+          if (parsed.closureOutcome !== undefined) record.closureOutcome = parsed.closureOutcome ?? null
+          if (parsed.lossReasonId !== undefined) record.lossReasonId = parsed.lossReasonId ?? null
+          if (parsed.lossNotes !== undefined) record.lossNotes = parsed.lossNotes ?? null
+        },
+        async () => {
+          // CRITICAL: persist the scalar mutations above before any further `em.findOne` / sync
+          // helpers run inside this transaction. MikroORM v7's identity-map silently discards
+          // pending scalar changes on `record` if a query (such as the stage-transition lookup
+          // inside `upsertDealStageTransition`, or the linked-entity finds inside
+          // `syncDealPeople` / `syncDealCompanies`) executes on the same `EntityManager`
+          // before we explicitly flush. Without this flush, the entire kanban drag-and-drop
+          // returns 200 OK but never actually updates `customer_deals` rows — the card
+          // snaps back to its source lane on the next refetch (see SPEC-018).
+          await em.flush()
+        },
+        async () => {
+          const snapshot = nextStageSnapshot
+          if (!snapshot) return
+          const shouldRecord =
+            parsed.pipelineStageId !== undefined &&
+            parsed.pipelineStageId !== null &&
+            parsed.pipelineStageId !== previousPipelineStageId
+          if (!shouldRecord) return
+          await upsertDealStageTransition(em, {
+            deal: record,
+            pipelineId: snapshot.pipelineId,
+            stageId: snapshot.id,
+            stageLabel: nextPipelineStageLabel ?? snapshot.label,
+            stageOrder: snapshot.order,
+            transitionedByUserId: normalizedTransitionAuthorUserId,
+          })
+        },
+        () => syncDealPeople(em, record, parsed.personIds),
+        () => syncDealCompanies(em, record, parsed.companyIds),
+      ],
     })
 
     // Emit a lifecycle event for deal won/lost status changes; the notifications
@@ -687,7 +825,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         valueAmount: before.deal.valueAmount,
         valueCurrency: before.deal.valueCurrency,
         probability: before.deal.probability,
-        expectedCloseAt: before.deal.expectedCloseAt,
+        expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
         ownerUserId: before.deal.ownerUserId,
         source: before.deal.source,
         closureOutcome: before.deal.closureOutcome,
@@ -719,7 +857,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
         deal.valueAmount = before.deal.valueAmount
         deal.valueCurrency = before.deal.valueCurrency
         deal.probability = before.deal.probability
-        deal.expectedCloseAt = before.deal.expectedCloseAt
+        deal.expectedCloseAt = coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt')
         deal.ownerUserId = before.deal.ownerUserId
         deal.source = before.deal.source
         deal.closureOutcome = before.deal.closureOutcome
@@ -857,7 +995,7 @@ const deleteDealCommand: CommandHandler<{ body?: Record<string, unknown>; query?
           valueAmount: before.deal.valueAmount,
           valueCurrency: before.deal.valueCurrency,
           probability: before.deal.probability,
-          expectedCloseAt: before.deal.expectedCloseAt,
+          expectedCloseAt: coerceSnapshotDate(before.deal.expectedCloseAt, 'expectedCloseAt'),
           ownerUserId: before.deal.ownerUserId,
           source: before.deal.source,
           closureOutcome: before.deal.closureOutcome,

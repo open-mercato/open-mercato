@@ -6,6 +6,8 @@ import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { loadCustomFieldSnapshot, buildCustomFieldResetMap } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot, restoreCreatedRow } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
@@ -17,14 +19,18 @@ import {
 } from '../data/entities'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { Attachment } from '@open-mercato/core/modules/attachments/data/entities'
+import { resolveAttachmentScopePair } from '@open-mercato/core/modules/attachments/lib/scope'
 import {
   variantCreateSchema,
   variantUpdateSchema,
   type VariantCreateInput,
   type VariantUpdateInput,
 } from '../data/validators'
+import { isValidGtin, normalizeGtinValue } from '../lib/gtin'
+import type { CatalogGtinType } from '../data/types'
 import {
   cloneJson,
+  commandActorScope,
   ensureOrganizationScope,
   ensureTenantScope,
   emitCatalogQueryIndexEvent,
@@ -56,6 +62,8 @@ type VariantSnapshot = {
   name: string | null
   sku: string | null
   barcode: string | null
+  gtinType: CatalogGtinType | null
+  hsCode: string | null
   statusEntryId: string | null
   isDefault: boolean
   isActive: boolean
@@ -83,6 +91,8 @@ const VARIANT_CHANGE_KEYS = [
   'name',
   'sku',
   'barcode',
+  'gtinType',
+  'hsCode',
   'statusEntryId',
   'isDefault',
   'isActive',
@@ -103,7 +113,12 @@ async function loadVariantSnapshot(
 ): Promise<VariantSnapshot | null> {
   const record = await em.findOne(CatalogProductVariant, { id, deletedAt: null })
   if (!record) return null
-  const prices = options.includePrices ? await loadVariantPriceSnapshots(em, record.id) : null
+  const prices = options.includePrices
+    ? await loadVariantPriceSnapshots(em, record.id, {
+        tenantId: record.tenantId,
+        organizationId: record.organizationId,
+      })
+    : null
   const custom = await loadCustomFieldSnapshot(em, {
     entityId: E.catalog.catalog_product_variant,
     recordId: record.id,
@@ -119,6 +134,8 @@ async function loadVariantSnapshot(
     name: record.name ?? null,
     sku: record.sku ?? null,
     barcode: record.barcode ?? null,
+    gtinType: record.gtinType ?? null,
+    hsCode: record.hsCode ?? null,
     statusEntryId: record.statusEntryId ?? null,
     isDefault: record.isDefault,
     isActive: record.isActive,
@@ -137,12 +154,41 @@ async function loadVariantSnapshot(
   }
 }
 
+function variantSeedFromSnapshot(snapshot: VariantSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    product: snapshot.productId,
+    organizationId: snapshot.organizationId,
+    tenantId: snapshot.tenantId,
+    name: snapshot.name ?? null,
+    sku: snapshot.sku ?? null,
+    barcode: snapshot.barcode ?? null,
+    gtinType: snapshot.gtinType ?? null,
+    hsCode: snapshot.hsCode ?? null,
+    statusEntryId: snapshot.statusEntryId ?? null,
+    isDefault: snapshot.isDefault,
+    isActive: snapshot.isActive,
+    weightValue: snapshot.weightValue ?? null,
+    weightUnit: snapshot.weightUnit ?? null,
+    taxRateId: snapshot.taxRateId ?? null,
+    taxRate: snapshot.taxRate ?? null,
+    dimensions: snapshot.dimensions ? cloneJson(snapshot.dimensions) : null,
+    metadata: snapshot.metadata ? cloneJson(snapshot.metadata) : null,
+    optionValues: snapshot.optionValues ? cloneJson(snapshot.optionValues) : null,
+    customFieldsetCode: snapshot.customFieldsetCode ?? null,
+    createdAt: new Date(snapshot.createdAt),
+    updatedAt: new Date(snapshot.updatedAt),
+  }
+}
+
 function applyVariantSnapshot(record: CatalogProductVariant, snapshot: VariantSnapshot): void {
   record.organizationId = snapshot.organizationId
   record.tenantId = snapshot.tenantId
   record.name = snapshot.name ?? null
   record.sku = snapshot.sku ?? null
   record.barcode = snapshot.barcode ?? null
+  record.gtinType = snapshot.gtinType ?? null
+  record.hsCode = snapshot.hsCode ?? null
   record.statusEntryId = snapshot.statusEntryId ?? null
   record.isDefault = snapshot.isDefault
   record.isActive = snapshot.isActive
@@ -223,14 +269,15 @@ type VariantPriceSnapshot = {
 
 async function loadVariantPriceSnapshots(
   em: EntityManager,
-  variantId: string
+  variantId: string,
+  scope: { tenantId: string; organizationId: string }
 ): Promise<VariantPriceSnapshot[]> {
   const prices = await findWithDecryption(
     em,
     CatalogProductPrice,
-    { variant: variantId },
+    { variant: variantId, tenantId: scope.tenantId, organizationId: scope.organizationId },
     { populate: ['priceKind', 'product', 'offer'] },
-    { tenantId: null, organizationId: null },
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
   )
   const snapshots: VariantPriceSnapshot[] = []
   for (const price of prices) {
@@ -312,7 +359,10 @@ async function restoreVariantPricesFromSnapshots(
   if (!snapshots.length) return
   const productRef =
     typeof variant.product === 'string'
-      ? await requireProduct(em, variant.product)
+      ? await requireProduct(em, variant.product, {
+          tenantId: variant.tenantId,
+          organizationId: variant.organizationId,
+        })
       : variant.product
   for (const snapshot of snapshots) {
     const product =
@@ -513,11 +563,15 @@ async function aggregateVariantMediaToProduct(
   for (const source of attachments) {
     const key = buildKey(source)
     if (existingKeys.has(key)) continue
+    // Carry a scope pair across as a unit (source row first, else the variant
+    // scope, else global) so independent `??` coalescing can't produce a
+    // partial-null attachment row.
+    const scope = resolveAttachmentScopePair(source, variant) ?? { organizationId: null, tenantId: null }
     const clone = em.create(Attachment, {
       entityId: E.catalog.catalog_product,
       recordId: productId,
-      organizationId: source.organizationId ?? variant.organizationId ?? null,
-      tenantId: source.tenantId ?? variant.tenantId ?? null,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
       partitionCode: source.partitionCode,
       fileName: source.fileName,
       mimeType: source.mimeType,
@@ -541,7 +595,7 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(variantCreateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const product = await requireProduct(em, parsed.productId)
+    const product = await requireProduct(em, parsed.productId, commandActorScope(ctx))
     ensureTenantScope(ctx, product.tenantId)
     ensureOrganizationScope(ctx, product.organizationId)
     const { taxRateId, taxRate } = await resolveVariantTaxRate(
@@ -555,6 +609,12 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
     const resolvedOptionValues =
       parsed.optionValues ?? (metadataSplit.hadOptionValues ? metadataSplit.optionValues : null)
 
+    const gtinType = parsed.gtinType ?? null
+    const barcode =
+      gtinType && parsed.barcode
+        ? normalizeGtinValue(gtinType, parsed.barcode)
+        : (parsed.barcode ?? null)
+
     const now = new Date()
     const record = em.create(CatalogProductVariant, {
       organizationId: product.organizationId,
@@ -562,7 +622,9 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       product,
       name: parsed.name ?? null,
       sku: parsed.sku ?? null,
-      barcode: parsed.barcode ?? null,
+      barcode,
+      gtinType,
+      hsCode: parsed.hsCode ?? null,
       statusEntryId: parsed.statusEntryId ?? null,
       isDefault: parsed.isDefault ?? false,
       isActive: parsed.isActive ?? true,
@@ -578,21 +640,25 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       updatedAt: now,
     })
     em.persist(record)
+    let previousDefaultVariantId: string | null = null
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    let previousDefaultVariantId: string | null = null
-    if (record.isDefault) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-      try {
-        await em.flush()
-      } catch (error) {
-        await rethrowVariantUniqueConstraint(error)
-      }
-    }
-    await aggregateVariantMediaToProduct(em, record)
     await setCustomFieldsIfAny({
       dataEngine: ctx.container.resolve('dataEngine'),
       entityId: E.catalog.catalog_product_variant,
@@ -678,6 +744,66 @@ const createVariantCommand: CommandHandler<VariantCreateInput, { variantId: stri
       })
     }
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<VariantSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for variant create' })
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const record = await restoreCreatedRow(
+      em,
+      CatalogProductVariant,
+      after.id,
+      () => variantSeedFromSnapshot(after),
+    )
+    applyVariantSnapshot(record, after)
+    let previousDefaultVariantId: string | null = null
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          () => em.flush(),
+          async () => {
+            if (record.isDefault) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+              await em.flush()
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
+    } catch (error) {
+      await rethrowVariantUniqueConstraint(error)
+    }
+    if (after.custom && Object.keys(after.custom).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine'),
+        entityId: E.catalog.catalog_product_variant,
+        recordId: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+        values: after.custom,
+      })
+    }
+    await emitCatalogQueryIndexEvent(ctx, {
+      entityType: E.catalog.catalog_product_variant,
+      recordId: record.id,
+      organizationId: record.organizationId,
+      tenantId: record.tenantId,
+      action: 'created',
+    })
+    await emitCrudSideEffects({
+      dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: variantCrudEvents,
+    })
+    return { variantId: record.id, previousDefaultVariantId }
+  },
 }
 
 const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: string; previousDefaultVariantId?: string | null }> = {
@@ -699,7 +825,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     if (!record) throw new CrudHttpError(404, { error: 'Catalog variant not found' })
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    const product = await requireProduct(em, record.product.id)
+    const product = await requireProduct(em, record.product.id, {
+      tenantId: record.tenantId,
+      organizationId: record.organizationId,
+    })
 
     if (!product) throw new CrudHttpError(400, { error: 'Variant product missing' })
 
@@ -708,47 +837,79 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
       ? await resolveVariantTaxRate(em, product, parsed.taxRateId ?? null, parsed.taxRate)
       : null
 
-    if (parsed.name !== undefined) record.name = parsed.name ?? null
-    if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
-    if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
-    if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
-    if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
-    if (parsed.isActive !== undefined) record.isActive = parsed.isActive
-    if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
-      record.weightValue = toNumericString(parsed.weightValue)
-    }
-    if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
-    if (parsed.dimensions !== undefined) {
-      record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
-    }
-    let metadataSplit: MetadataSplitResult | null = null
-    if (parsed.metadata !== undefined) {
-      metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
-      record.metadata = metadataSplit.metadata
-    }
-    if (parsed.optionValues !== undefined) {
-      record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
-    } else if (metadataSplit?.hadOptionValues) {
-      record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
-    }
-    if (taxRateProvided) {
-      record.taxRateId = resolvedTaxRate?.taxRateId ?? null
-      record.taxRate = resolvedTaxRate?.taxRate ?? null
-    }
-    if (parsed.customFieldsetCode !== undefined) {
-      record.customFieldsetCode = parsed.customFieldsetCode ?? null
+    // Re-validate GTIN against the merged record state: a partial update may
+    // carry only one of (gtinType, barcode) while the other half is stored.
+    let normalizedGtinBarcode: string | null = null
+    if (parsed.gtinType !== undefined || parsed.barcode !== undefined) {
+      const effectiveGtinType =
+        parsed.gtinType !== undefined ? (parsed.gtinType ?? null) : (record.gtinType ?? null)
+      if (effectiveGtinType) {
+        const effectiveBarcode =
+          parsed.barcode !== undefined ? (parsed.barcode ?? null) : (record.barcode ?? null)
+        if (!effectiveBarcode || !effectiveBarcode.trim().length) {
+          await throwGtinBarcodeRequiredError()
+        } else {
+          const normalized = normalizeGtinValue(effectiveGtinType, effectiveBarcode)
+          if (!isValidGtin(effectiveGtinType, normalized)) {
+            await throwInvalidGtinError()
+          }
+          normalizedGtinBarcode = normalized
+        }
+      }
     }
 
     let previousDefaultVariantId: string | null = null
-    if (parsed.isDefault === true) {
-      previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
-    }
     try {
-      await em.flush()
+      await withAtomicFlush(
+        em,
+        [
+          () => {
+            if (parsed.name !== undefined) record.name = parsed.name ?? null
+            if (parsed.sku !== undefined) record.sku = parsed.sku ?? null
+            if (parsed.barcode !== undefined) record.barcode = parsed.barcode ?? null
+            if (parsed.gtinType !== undefined) record.gtinType = parsed.gtinType ?? null
+            if (parsed.hsCode !== undefined) record.hsCode = parsed.hsCode ?? null
+            if (normalizedGtinBarcode !== null) record.barcode = normalizedGtinBarcode
+            if (parsed.statusEntryId !== undefined) record.statusEntryId = parsed.statusEntryId ?? null
+            if (parsed.isDefault !== undefined) record.isDefault = parsed.isDefault
+            if (parsed.isActive !== undefined) record.isActive = parsed.isActive
+            if (Object.prototype.hasOwnProperty.call(parsed, 'weightValue')) {
+              record.weightValue = toNumericString(parsed.weightValue)
+            }
+            if (parsed.weightUnit !== undefined) record.weightUnit = parsed.weightUnit ?? null
+            if (parsed.dimensions !== undefined) {
+              record.dimensions = parsed.dimensions ? cloneJson(parsed.dimensions) : null
+            }
+            let metadataSplit: MetadataSplitResult | null = null
+            if (parsed.metadata !== undefined) {
+              metadataSplit = splitOptionValuesFromMetadata(parsed.metadata)
+              record.metadata = metadataSplit.metadata
+            }
+            if (parsed.optionValues !== undefined) {
+              record.optionValues = parsed.optionValues ? cloneJson(parsed.optionValues) : null
+            } else if (metadataSplit?.hadOptionValues) {
+              record.optionValues = metadataSplit.optionValues ? cloneJson(metadataSplit.optionValues) : null
+            }
+            if (taxRateProvided) {
+              record.taxRateId = resolvedTaxRate?.taxRateId ?? null
+              record.taxRate = resolvedTaxRate?.taxRate ?? null
+            }
+            if (parsed.customFieldsetCode !== undefined) {
+              record.customFieldsetCode = parsed.customFieldsetCode ?? null
+            }
+          },
+          async () => {
+            if (parsed.isDefault === true) {
+              previousDefaultVariantId = await enforceSingleDefaultVariant(em, record)
+            }
+          },
+          () => aggregateVariantMediaToProduct(em, record),
+        ],
+        { transaction: true }
+      )
     } catch (error) {
       await rethrowVariantUniqueConstraint(error)
     }
-    await aggregateVariantMediaToProduct(em, record)
     if (custom && Object.keys(custom).length) {
       await setCustomFieldsIfAny({
         dataEngine: ctx.container.resolve('dataEngine'),
@@ -821,7 +982,10 @@ const updateVariantCommand: CommandHandler<VariantUpdateInput, { variantId: stri
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       record = em.create(CatalogProductVariant, {
         id: before.id,
         product,
@@ -904,7 +1068,10 @@ const deleteVariantCommand: CommandHandler<
     const priceSnapshots =
       snapshot?.prices && snapshot.prices.length
         ? snapshot.prices
-        : await loadVariantPriceSnapshots(baseEm, id)
+        : await loadVariantPriceSnapshots(baseEm, id, {
+            tenantId: record.tenantId,
+            organizationId: record.organizationId,
+          })
 
     if (priceSnapshots.length) {
       await em.nativeDelete(CatalogProductPrice, { id: { $in: priceSnapshots.map((price) => price.id) } })
@@ -985,7 +1152,10 @@ const deleteVariantCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(CatalogProductVariant, { id: before.id })
     if (!record) {
-      const product = await requireProduct(em, before.productId)
+      const product = await requireProduct(em, before.productId, {
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+      })
       record = em.create(CatalogProductVariant, {
         id: before.id,
         product,
@@ -1038,6 +1208,45 @@ async function throwDuplicateVariantSkuError(): Promise<never> {
   })
 }
 
+async function throwDuplicateVariantGtinError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.errors.gtinExists',
+    'Another variant already uses this identifier.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'duplicate', origin: 'validation' }],
+  })
+}
+
+async function throwGtinBarcodeRequiredError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.validation.gtinBarcodeRequired',
+    'A barcode value is required when an identifier type is set.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'invalid', origin: 'validation' }],
+  })
+}
+
+async function throwInvalidGtinError(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'catalog.variants.validation.gtinChecksum',
+    'The barcode does not match the selected identifier type.',
+  )
+  throw new CrudHttpError(400, {
+    error: message,
+    fieldErrors: { barcode: message },
+    details: [{ path: ['barcode'], message, code: 'invalid', origin: 'validation' }],
+  })
+}
+
 async function rethrowVariantUniqueConstraint(error: unknown): Promise<never> {
   if (error instanceof UniqueConstraintViolationException) {
     const constraint = getErrorConstraint(error)
@@ -1047,6 +1256,12 @@ async function rethrowVariantUniqueConstraint(error: unknown): Promise<never> {
       message.includes('catalog_product_variants_sku_unique')
     ) {
       await throwDuplicateVariantSkuError()
+    }
+    if (
+      constraint === 'catalog_product_variants_gtin_scope_unique' ||
+      message.includes('catalog_product_variants_gtin_scope_unique')
+    ) {
+      await throwDuplicateVariantGtinError()
     }
   }
   throw error

@@ -1,4 +1,4 @@
-import { checkAttachmentAccess } from '../access'
+import { assertAttachmentScopeInvariant, checkAttachmentAccess } from '../access'
 
 function attachment(overrides: Record<string, unknown> = {}) {
   return { tenantId: 'tenant-1', organizationId: 'org-1', ...overrides } as any
@@ -68,5 +68,113 @@ describe('checkAttachmentAccess — cross-tenant public partition fix', () => {
     const superAuth = auth({ isSuperAdmin: true, tenantId: 'other-tenant' })
     expect(checkAttachmentAccess(superAuth, attachment(), partition(false)).ok).toBe(true)
     expect(checkAttachmentAccess(superAuth, attachment(), partition(true)).ok).toBe(true)
+  })
+})
+
+describe('checkAttachmentAccess — partial-null scope fail-closed', () => {
+  it('blocks cross-org auth when attachment has tenantId set but organizationId null (private)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-2' }),
+      attachment({ tenantId: 'tenant-1', organizationId: null }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks cross-tenant auth when attachment has organizationId set but tenantId null (private)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'other-tenant', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: 'org-1' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks cross-org auth when attachment has tenantId set but organizationId null (public)', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-2' }),
+      attachment({ tenantId: 'tenant-1', organizationId: null }),
+      partition(true),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('blocks any authenticated principal from a scoped attachment whose other column is null', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: 'org-2' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.status).toBe(403)
+  })
+
+  it('preserves access for fully-unscoped (global) attachments to authenticated principals', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: null, organizationId: null }),
+      partition(false),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  it('still allows same-scope auth when both attachment columns are set and match', () => {
+    const result = checkAttachmentAccess(
+      auth({ tenantId: 'tenant-1', orgId: 'org-1' }),
+      attachment({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+      partition(false),
+    )
+    expect(result.ok).toBe(true)
+  })
+})
+
+describe('assertAttachmentScopeInvariant — both-or-neither creation guard', () => {
+  it('accepts a fully-scoped attachment (both tenant and organization set)', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: 'tenant-1', organizationId: 'org-1' }),
+    ).not.toThrow()
+  })
+
+  it('accepts a fully-global attachment (both null)', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: null, organizationId: null }),
+    ).not.toThrow()
+  })
+
+  it('accepts a fully-global attachment (both undefined)', () => {
+    expect(() => assertAttachmentScopeInvariant({})).not.toThrow()
+  })
+
+  it('rejects a partial-null scope (tenant set, organization null)', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: 'tenant-1', organizationId: null }),
+    ).toThrow(/scope invariant/i)
+  })
+
+  it('rejects a partial-null scope (organization set, tenant null)', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: null, organizationId: 'org-1' }),
+    ).toThrow(/scope invariant/i)
+  })
+
+  it('treats blank/whitespace scope strings as null (rejects partial, accepts both-blank)', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: 'tenant-1', organizationId: '   ' }),
+    ).toThrow(/scope invariant/i)
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: '', organizationId: '' }),
+    ).not.toThrow()
+  })
+
+  it('names the missing column in the error message', () => {
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: 'tenant-1', organizationId: null }),
+    ).toThrow(/organization_id/)
+    expect(() =>
+      assertAttachmentScopeInvariant({ tenantId: null, organizationId: 'org-1' }),
+    ).toThrow(/tenant_id/)
   })
 })

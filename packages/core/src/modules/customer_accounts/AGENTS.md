@@ -2,7 +2,7 @@
 
 Customer-facing identity and portal authentication with a two-tier RBAC model. This module manages customer user accounts, sessions, roles, invitations, and the authentication flow for the customer portal. It is separate from the internal `auth` module, which handles staff authentication.
 
-## MUST Rules
+## Always
 
 1. **MUST hash passwords with `bcryptjs` (cost >= 10)** — never store plaintext passwords
 2. **MUST return minimal error messages on auth endpoints** — never reveal whether an email exists (use generic "Invalid email or password")
@@ -10,11 +10,31 @@ Customer-facing identity and portal authentication with a two-tier RBAC model. T
 4. **MUST validate all inputs with zod** — schemas live in `data/validators.ts`
 5. **MUST export `openApi`** from every API route file
 6. **MUST scope all queries by `tenantId`** and filter `deletedAt: null` for soft-deleted records
-7. **MUST NOT expose cross-tenant data** — session validation checks tenant match
-8. **MUST use `hashForLookup` for email-based lookups** — emails are stored with a deterministic hash for indexed queries
-9. **MUST use `hashToken` for storing session/verification/reset tokens** — raw tokens are never persisted
-10. **MUST emit events via `emitCustomerAccountsEvent`** for all state changes (login, signup, lock, password reset)
-11. **MUST NOT import staff auth services** — customer auth is a fully separate identity system
+7. **MUST use `hashForLookup` for email-based lookups** — emails are stored with a deterministic hash for indexed queries
+8. **MUST use `hashToken` for storing session/verification/reset tokens** — raw tokens are never persisted
+9. **MUST emit events via `emitCustomerAccountsEvent`** for all state changes (login, signup, lock, password reset)
+
+## Ask First
+
+- Ask before changing cookie names, token TTLs, JWT claim shape, rate limits, lockout thresholds, or portal RBAC semantics.
+- Ask before moving customer portal navigation into a different staff IA group.
+- Ask before changing CRM auto-linking behavior.
+
+## Never
+
+- Never store plaintext passwords or raw tokens.
+- Never reveal whether an email exists.
+- Never expose cross-tenant data — session validation checks tenant match.
+- Never import staff auth services; customer auth is a fully separate identity system.
+- Never use exact `includes(...)` checks for portal wildcard ACL matching.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Data Model
 
@@ -242,6 +262,7 @@ Declared in `events.ts` via `createModuleEvents`. Emit with `emitCustomerAccount
 | `customer_accounts.role.created` | crud | No |
 | `customer_accounts.role.updated` | crud | No |
 | `customer_accounts.role.deleted` | crud | No |
+| `customer_accounts.user.invited` | lifecycle | Yes |
 | `customer_accounts.invitation.accepted` | lifecycle | Yes |
 
 ## Subscribers

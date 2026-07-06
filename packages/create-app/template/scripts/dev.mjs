@@ -23,15 +23,19 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
+import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
+import { resolveSplashBindHost } from './dev-splash-shared.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 
 function detectDevRuntimeMode() {
   const cwd = process.cwd()
@@ -118,10 +122,6 @@ function shouldRefreshStandaloneRegistryPackages() {
   return !hasExistingStandaloneInstall()
 }
 
-function isContainerRuntime() {
-  return fs.existsSync('/.dockerenv')
-}
-
 function parsePortNumber(value) {
   if (typeof value !== 'string' && typeof value !== 'number') return null
   const parsed = Number.parseInt(String(value).trim(), 10)
@@ -192,6 +192,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -199,8 +203,12 @@ const splashMode = greenfield ? 'greenfield' : setupMode ? 'setup' : 'dev'
 const standaloneStageTotal = setupMode ? 5 : 4
 const splashEnabled = !classic && !appOnly && splashPortConfig.enabled
 const autoOpenSplash = splashEnabled && process.stdout.isTTY && process.env.CI !== 'true' && process.env.OM_DEV_AUTO_OPEN !== '0'
-const splashBindHost = isContainerRuntime() ? '0.0.0.0' : '127.0.0.1'
+const splashBindHost = resolveSplashBindHost(process.env)
 const standaloneRuntimeScript = path.join(process.cwd(), 'scripts', 'dev-runtime.mjs')
+const warmupReadyFilePath = path.join(
+  process.cwd(),
+  isMonorepo ? 'apps/mercato/.mercato/dev-warmup-ready.json' : '.mercato/dev-warmup-ready.json',
+)
 const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_DEV_LOG_TEE === 'false'
 
 let devLogSessionInstance = null
@@ -313,6 +321,32 @@ function printDevLogLocation() {
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
   console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
+function ensureDevFileWatchLimits() {
+  const result = ensureDevInotifyLimits()
+  if (result.fixed) {
+    console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
+    return true
+  }
+  if (result.ok) {
+    return true
+  }
+
+  updateSplashState({
+    phase: 'File-watch limits too low',
+    detail: 'Raise Linux inotify limits before starting Turbopack',
+    failed: true,
+    failureLines: result.message.split('\n').filter(Boolean).slice(0, 10),
+    failureCommand: 'yarn dev:fix-wsl-watchers',
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    activity: 'File-watch limit preflight failed',
+  })
+  console.error(result.message)
+  shutdown(1)
+  return false
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -491,7 +525,7 @@ function resolveSplashLocaleConfig() {
   return splashLocaleConfig
 }
 
-function buildSplashChildEnv() {
+function buildSplashChildEnv(options = {}) {
   const childEnv = devLogTeeDisabled
     ? {}
     : {
@@ -500,23 +534,42 @@ function buildSplashChildEnv() {
       }
 
   if (!splashChildStateFile) {
-    return Object.keys(childEnv).length > 0 ? childEnv : undefined
+    const env = {
+      ...childEnv,
+      OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
+    }
+    return Object.keys(env).length > 0 ? env : undefined
   }
 
   return {
     ...childEnv,
     OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFile,
+    OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     OM_DEV_SPLASH_MODE: splashMode,
+    OM_DEV_SHUTDOWN_NOTICE_OWNER: 'parent',
+    ...(Number.isFinite(options.stageCurrent) ? { OM_DEV_SPLASH_STAGE_CURRENT: String(options.stageCurrent) } : {}),
+    ...(Number.isFinite(options.stageTotal) ? { OM_DEV_SPLASH_STAGE_TOTAL: String(options.stageTotal) } : {}),
   }
 }
 
 function applyLocalDevBackgroundServiceDefaults(childEnv) {
-  const env = childEnv ?? {}
+  const env = {
+    ...(childEnv ?? {}),
+    OM_DEV_WARMUP_READY_FILE: (childEnv && 'OM_DEV_WARMUP_READY_FILE' in childEnv)
+      ? childEnv.OM_DEV_WARMUP_READY_FILE
+      : warmupReadyFilePath,
+  }
   if (
     typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
   ) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
   }
   if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
@@ -527,8 +580,8 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   return env
 }
 
-function buildAppDevEnv() {
-  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv() ?? {})
+function buildAppDevEnv(options = {}) {
+  return applyLocalDevBackgroundServiceDefaults(buildSplashChildEnv(options) ?? {})
 }
 
 function launchStandaloneDev(options = {}) {
@@ -565,7 +618,7 @@ function launchStandaloneDev(options = {}) {
 
   const app = spawnCommand(process.execPath, runtimeArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code) => {
@@ -995,6 +1048,18 @@ function closeSplashServer() {
   writeSplashChildStateFileClear()
 }
 
+function announceShutdown() {
+  const message = 'Shutting down services...'
+  updateSplashState({
+    phase: message,
+    detail: 'Stopping app runtime, watchers, workers, and scheduler',
+    ready: false,
+    progressLabel: message,
+    activity: message,
+  })
+  console.log(message)
+}
+
 function openBrowser(url) {
   try {
     let child
@@ -1013,25 +1078,27 @@ function openBrowser(url) {
 function shutdown(exitCode = 0) {
   if (shuttingDown) return
   shuttingDown = true
-  closeSplashServer()
+  announceShutdown()
 
   const alive = Array.from(children).filter((child) => !child.killed)
   if (alive.length === 0) {
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
     return
   }
 
   for (const child of alive) {
-    child.kill('SIGTERM')
+    killProcessTree(child, 'SIGTERM')
   }
 
   setTimeout(() => {
     for (const child of children) {
       if (!child.killed) {
-        child.kill('SIGKILL')
+        killProcessTree(child, 'SIGKILL')
       }
     }
+    closeSplashServer()
     closeDevLogSession()
     process.exit(exitCode)
   }, 3000)
@@ -1492,12 +1559,38 @@ async function runPassthroughStage(label, commandArgs, options = {}) {
   console.log(`✅ ${formatProgressLine(label, stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))} in ${formatDuration(Date.now() - startedAt)}`)
 }
 
+function resolveWatchPackagesScript() {
+  // `OM_WATCH_PACKAGES_MODE=legacy` falls back to the Turbo per-package
+  // fan-out for developers who need the old behavior (debugging, or pairing
+  // with `OM_PACKAGE_WATCH_MODE=persistent` for hot rebuilds at the cost of
+  // ~1 GB more idle RSS). Default is the consolidated single-process watcher.
+  const raw = String(process.env.OM_WATCH_PACKAGES_MODE ?? '').trim().toLowerCase()
+  return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
+}
+
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
+  const watchScript = resolveWatchPackagesScript()
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
+
   if (classic) {
-    const child = spawnCommand(yarnCommand, ['watch:packages'], {
-      label: 'watch:packages',
+    const child = spawnCommand(yarnCommand, [watchScript], {
+      label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1519,9 +1612,14 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  if (activeScope !== 'all') {
+    console.log(`   ↳ watch scope: ${activeScope} (set OM_WATCH_SCOPE=all or pass --watch=all to watch every package)`)
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: activeScope === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${activeScope})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1529,19 +1627,11 @@ function startPackageWatch() {
     activity: 'Workspace package watch started',
   })
 
-  const child = spawnCommand(yarnCommand, [
-    'turbo',
-    'run',
-    'watch',
-    '--filter=./packages/*',
-    '--concurrency=32',
-    '--output-logs=errors-only',
-    '--log-order=grouped',
-    '--log-prefix=none',
-  ], {
+  const child = spawnCommand(yarnCommand, [watchScript], {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {
@@ -1612,7 +1702,7 @@ function launchMonorepoAppDev() {
   })
   const app = spawnCommand(yarnCommand, appArgs, {
     stdio: 'inherit',
-    env: buildAppDevEnv(),
+    env: buildAppDevEnv({ stageCurrent, stageTotal }),
   })
 
   app.on('close', (code, signal) => {
@@ -1725,6 +1815,7 @@ async function runClassicStandaloneDev() {
 async function main() {
   printDevLogLocation()
   await startSplashServer()
+  if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
     if (setupMode) {

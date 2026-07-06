@@ -63,7 +63,7 @@ export function DetailTabsLayout<TId extends string = string>({
               className={cn(
                 'h-auto rounded-none border-b-2 px-0 py-1',
                 activeTab === tab.id
-                  ? 'border-primary text-foreground hover:bg-transparent'
+                  ? 'border-accent-indigo text-foreground hover:bg-transparent'
                   : 'border-transparent text-muted-foreground hover:text-foreground hover:bg-transparent'
               )}
             >

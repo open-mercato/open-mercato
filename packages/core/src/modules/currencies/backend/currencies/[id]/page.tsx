@@ -1,17 +1,22 @@
 'use client'
 
 import * as React from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { DataLoader } from '@open-mercato/ui/primitives/DataLoader'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
 type CurrencyData = {
   id: string
@@ -25,16 +30,30 @@ type CurrencyData = {
   isActive: boolean
   organizationId: string
   tenantId: string
+  updatedAt?: string | null
+  updated_at?: string | null
 }
 
 export default function EditCurrencyPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
+  const mutationContextId = 'currencies-edit:delete'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    resourceId: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const [currency, setCurrency] = React.useState<CurrencyData | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   React.useEffect(() => {
     async function loadCurrency() {
@@ -42,8 +61,10 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
         const response = await apiCall<{ items: CurrencyData[] }>(`/api/currencies/currencies?id=${params?.id}`)
         if (response.ok && response.result && response.result.items.length > 0) {
           setCurrency(response.result.items[0])
+        } else if (!response.ok) {
+          setError(t('currencies.form.errors.load'))
         } else {
-          setError(t('currencies.form.errors.notFound'))
+          setIsNotFound(true)
         }
       } catch (err) {
         setError(t('currencies.form.errors.load'))
@@ -137,18 +158,54 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     if (!confirmed) return
 
     try {
-      await apiCall('/api/currencies/currencies', {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
+      await runMutation({
+        operation: async () => {
+          const headers = buildOptimisticLockHeader(currency.updatedAt ?? currency.updated_at ?? null)
+          const call = await withScopedApiRequestHeaders(headers, () => (
+            apiCall('/api/currencies/currencies', {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id: currency.id, organizationId: currency.organizationId, tenantId: currency.tenantId }),
+            })
+          ))
+          if (!call.ok) {
+            throw Object.assign(new Error('[internal] currencies.delete failed'), {
+              status: call.status,
+              ...((call.result as Record<string, unknown> | null) ?? {}),
+            })
+          }
+          return call
+        },
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'currencies.currency',
+          resourceId: currency.id,
+          retryLastMutation,
+        },
+        mutationPayload: { id: currency.id },
       })
 
       flash(t('currencies.flash.deleted'), 'success')
       router.push('/backend/currencies')
     } catch (error) {
+      if (surfaceRecordConflict(error, t)) return
       flash(t('currencies.flash.deleteError'), 'error')
     }
-  }, [currency, t, router, confirmDialog])
+  }, [currency, t, router, confirmDialog, mutationContextId, retryLastMutation, runMutation])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `currencies.currency` + id
+  // explicitly. The resourceKind mirrors the CrudForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same currency.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'currencies.currency',
+      resourceId: currency?.id ?? null,
+      updatedAt: currency?.updatedAt ?? currency?.updated_at ?? null,
+      data: currency as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (loading) {
     return (
@@ -163,11 +220,26 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
     )
   }
 
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('currencies.form.errors.notFound', 'Currency not found.')}
+            backHref="/backend/currencies"
+            backLabel={t('currencies.form.actions.backToList', 'Back to currencies')}
+          />
+        </PageBody>
+        {ConfirmDialogElement}
+      </Page>
+    )
+  }
+
   if (error || !currency) {
     return (
       <Page>
         <PageBody>
-          <div className="text-destructive">{error || t('currencies.form.errors.notFound')}</div>
+          <ErrorMessage label={error ?? t('currencies.form.errors.notFound', 'Currency not found.')} />
         </PageBody>
         {ConfirmDialogElement}
       </Page>
@@ -202,6 +274,7 @@ export default function EditCurrencyPage({ params }: { params?: { id?: string } 
           )}
           fields={[]}
           groups={groups}
+          optimisticLockUpdatedAt={currency.updatedAt ?? currency.updated_at ?? null}
           initialValues={{
             code: currency.code,
             name: currency.name,

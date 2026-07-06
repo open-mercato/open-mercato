@@ -67,7 +67,15 @@ export async function POST(req: Request) {
     const hashedToken = hashAuthToken(token)
     const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
 
-    const quote = await em.transactional(async (trx) => {
+    const commandBus = container.resolve('commandBus') as CommandBus
+
+    // Lock the quote, flip it to confirmed, and convert it to an order inside a
+    // single transaction. The conversion command reuses this transaction (and its
+    // PESSIMISTIC_WRITE lock) via ctx.transactionalEm, so the status flip and the
+    // order creation are atomic: if conversion fails the whole transaction rolls
+    // back, leaving the quote in its prior 'sent' state with no partial order and
+    // no need for an out-of-band compensating write.
+    const { quote, orderId } = await em.transactional(async (trx) => {
       const findQuoteByToken = (acceptanceToken: string) =>
         findOneWithDecryption(
           trx,
@@ -106,45 +114,21 @@ export async function POST(req: Request) {
       trx.persist(quote)
       await trx.flush()
 
-      return quote
-    })
-
-    const commandBus = container.resolve('commandBus') as CommandBus
-    const ctx: CommandRuntimeContext = {
-      container,
-      auth: null,
-      organizationScope: null,
-      selectedOrganizationId: quote.organizationId,
-      organizationIds: [quote.organizationId],
-      request: req,
-    }
-
-    let result: ConvertToOrderResult | null
-    try {
-      result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
-    } catch (conversionError) {
-      const freshEm = (container.resolve('em') as EntityManager).fork()
-      const staleQuote = await findOneWithDecryption(
-        freshEm,
-        SalesQuote,
-        { id: quote.id, deletedAt: null },
-        {},
-        tenantScope,
-      )
-      if (staleQuote) {
-        staleQuote.status = 'sent'
-        staleQuote.statusEntryId = await resolveStatusEntryIdByValue(freshEm, {
-          tenantId: staleQuote.tenantId,
-          organizationId: staleQuote.organizationId,
-          value: 'sent',
-        })
-        staleQuote.updatedAt = new Date()
-        freshEm.persist(staleQuote)
-        await freshEm.flush()
+      const ctx: CommandRuntimeContext = {
+        container,
+        auth: null,
+        organizationScope: null,
+        selectedOrganizationId: quote.organizationId,
+        organizationIds: [quote.organizationId],
+        request: req,
+        transactionalEm: trx,
       }
-      throw conversionError
-    }
-    const orderId = result?.result?.orderId ?? result?.orderId ?? quote.id
+
+      const result = (await commandBus.execute('sales.quotes.convert_to_order', { input: { quoteId: quote.id }, ctx })) as ConvertToOrderResult | null
+      const orderId = result?.result?.orderId ?? result?.orderId ?? quote.id
+
+      return { quote, orderId }
+    })
 
     const order = await findOneWithDecryption(em, SalesOrder, { id: orderId, deletedAt: null }, {}, tenantScope)
     const orderNumber = order?.orderNumber ?? orderId

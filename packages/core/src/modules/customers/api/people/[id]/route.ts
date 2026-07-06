@@ -37,8 +37,11 @@ import type { EntityId } from '@open-mercato/shared/modules/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanFromUnknown, parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/personCompanies'
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
+import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
+import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -452,10 +455,17 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     })
     const em = (container.resolve('em') as EntityManager)
 
+    const tenantScope = resolveCustomerDetailTenantScope(parse.data.id, 'person', auth)
+    if (!tenantScope.allowed) {
+      statusCode = 404
+      profileMeta = { reason: 'person_tenant_mismatch' }
+      return notFound('Person not found')
+    }
+
     const person = await findOneWithDecryption(
       em,
       CustomerEntity,
-      { id: parse.data.id, kind: 'person', deletedAt: null },
+      tenantScope.where,
       {},
       {
         tenantId: scope?.tenantId ?? auth.tenantId ?? null,
@@ -469,65 +479,78 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return notFound('Person not found')
     }
 
-    if (auth.tenantId && person.tenantId !== auth.tenantId) {
-      statusCode = 404
-      profileMeta = { reason: 'person_tenant_mismatch' }
-      return notFound('Person not found')
-    }
-    const allowedOrgIds = new Set<string>()
-    if (scope?.filterIds?.length) scope.filterIds.forEach((id) => allowedOrgIds.add(id))
-    else if (auth.orgId) allowedOrgIds.add(auth.orgId)
-
-    if (allowedOrgIds.size && person.organizationId && !allowedOrgIds.has(person.organizationId)) {
+    if (!isOrganizationReadAccessAllowed({ scope, auth, organizationId: person.organizationId })) {
       statusCode = 403
       profileMeta = { reason: 'organization_forbidden' }
       return forbidden('Access denied')
     }
 
-    profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+    const [profileResult, personCompanyLinks] = await Promise.all([
+      findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }),
+      loadPersonCompanyLinks(em, person),
+    ])
+    profile = profileResult
     profiler.mark('profile_loaded', { found: !!profile })
-    companies = summarizePersonCompanies(profile, await loadPersonCompanyLinks(em, person))
+    companies = summarizePersonCompanies(profile, personCompanyLinks)
 
-    if (includeAddresses) {
-      addresses = await findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
-      profiler.mark('addresses_loaded', { count: addresses.length })
-    }
+    // Per-user email privacy (CRM email integration spec, "Layer 1 — DB filter"):
+    // exclude private email interactions owned by other users from every read
+    // path that returns customer_interactions. Non-email rows, shared emails, and
+    // legacy null-visibility rows pass through. v1 is strict owner-only: there is
+    // NO admin bypass — the filter ignores caller features, and
+    // `customers.email.view_private` is reserved (inert) for v2 oversight.
+    const emailVisibilityFilter = buildEmailVisibilityMikroFilter({
+      currentUserId: viewerUserId,
+      userFeatures: undefined,
+    })
 
-    tagAssignments = await findWithDecryption(
-      em,
-      CustomerTagAssignment,
-      { entity: person.id },
-      { populate: ['tag'] },
-      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-    )
-    profiler.mark('tags_loaded', { count: tagAssignments.length })
-
-    const labelAssignments = await findWithDecryption(
-      em,
-      CustomerLabelAssignment,
-      { entity: person.id },
-      { populate: ['label'] },
-      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-    )
-    profiler.mark('labels_loaded', { count: labelAssignments.length })
-
-    if (includeComments) {
-      comments = await findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
-      profiler.mark('comments_loaded', { count: comments.length })
-    }
-
+    const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
-    const canonicalInteractionRows = shouldLoadCanonicalInteractions
-      ? await findWithDecryption(
-          em,
-          CustomerInteraction,
-          interactionFlags.unified
-            ? { entity: person.id, deletedAt: null }
-            : { entity: person.id },
-          { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
-          { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-        )
-      : []
+
+    // Audited for #3386 rollout (P3): every findWithDecryption call in this
+    // block and in the activities/todoLinks fetches below sorts only on
+    // non-encrypted system columns (isPrimary, createdAt, occurredAt,
+    // scheduledAt). Each fetch is bounded by entity scope (one person) plus
+    // an explicit limit, so neither the paginated-list hazard (#3278) nor the
+    // two-phase encrypted-sort migration apply here.
+    //
+    // These reads only depend on the resolved person + scope + email visibility
+    // filter, so dispatch them together to avoid a server-side request waterfall
+    // before the detail surface can render (issue #3203).
+    const [
+      addressesResult,
+      tagAssignmentsResult,
+      labelAssignments,
+      commentsResult,
+      canonicalInteractionRows,
+    ] = await Promise.all([
+      includeAddresses
+        ? findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, personScope)
+        : Promise.resolve<CustomerAddress[]>([]),
+      findWithDecryption(em, CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] }, personScope),
+      findWithDecryption(em, CustomerLabelAssignment, { entity: person.id }, { populate: ['label'] }, personScope),
+      includeComments
+        ? findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, personScope)
+        : Promise.resolve<CustomerComment[]>([]),
+      shouldLoadCanonicalInteractions
+        ? findWithDecryption(
+            em,
+            CustomerInteraction,
+            interactionFlags.unified
+              ? { entity: person.id, deletedAt: null, ...emailVisibilityFilter }
+              : { entity: person.id, ...emailVisibilityFilter },
+            { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+            personScope,
+          )
+        : Promise.resolve<CustomerInteraction[]>([]),
+    ])
+    addresses = addressesResult
+    tagAssignments = tagAssignmentsResult
+    comments = commentsResult
+    profiler.mark('addresses_loaded', { count: addresses.length })
+    profiler.mark('tags_loaded', { count: tagAssignments.length })
+    profiler.mark('labels_loaded', { count: labelAssignments.length })
+    profiler.mark('comments_loaded', { count: comments.length })
     profiler.mark('canonical_interactions_loaded', { count: canonicalInteractionRows.length })
     const canonicalActiveInteractions = canonicalInteractionRows.filter((interaction) => !interaction.deletedAt)
     const canonicalInteractions = shouldLoadCanonicalInteractions
@@ -569,6 +592,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
               deletedAt: null,
               status: 'planned',
               interactionType: { $ne: 'task' },
+              ...emailVisibilityFilter,
             },
             { orderBy: { scheduledAt: 'ASC', createdAt: 'ASC' }, limit: plannedPreviewLimit },
             { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
@@ -663,35 +687,39 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profiler.mark('deals_loaded', { count: deals.length })
     }
 
-    const entityCustomFieldValues = await loadCustomFieldValues({
-      em,
-      entityId: E.customers.customer_entity,
-      recordIds: [person.id],
-      tenantIdByRecord: { [person.id]: person.tenantId ?? null },
-      organizationIdByRecord: { [person.id]: person.organizationId ?? null },
-      tenantFallbacks: [
-        person.tenantId ?? auth.tenantId ?? null,
-      ].filter((v): v is string => !!v),
-    })
-    profiler.mark('entity_custom_fields_loaded', { keys: Object.keys(entityCustomFieldValues?.[person.id] ?? {}).length })
-
-    let profileCustomFieldValues: Record<string, Record<string, unknown>> = {}
+    // Entity custom fields, profile custom fields, and the routing lookup do not
+    // depend on each other (profileId is already resolved above), so load them in
+    // parallel instead of three sequential awaits (issue #3203).
     const profileId = profile?.id ?? null
-    if (profileId) {
-      profileCustomFieldValues = await loadCustomFieldValues({
+    const [entityCustomFieldValues, profileCustomFieldValues, routing] = await Promise.all([
+      loadCustomFieldValues({
         em,
-        entityId: E.customers.customer_person_profile,
-        recordIds: [profileId],
-        tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
-        organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+        entityId: E.customers.customer_entity,
+        recordIds: [person.id],
+        tenantIdByRecord: { [person.id]: person.tenantId ?? null },
+        organizationIdByRecord: { [person.id]: person.organizationId ?? null },
         tenantFallbacks: [
-          profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+          person.tenantId ?? auth.tenantId ?? null,
         ].filter((v): v is string => !!v),
-      })
+      }),
+      profileId
+        ? loadCustomFieldValues({
+            em,
+            entityId: E.customers.customer_person_profile,
+            recordIds: [profileId],
+            tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
+            organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+            tenantFallbacks: [
+              profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+            ].filter((v): v is string => !!v),
+          })
+        : Promise.resolve<Record<string, Record<string, unknown>>>({}),
+      resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null),
+    ])
+    profiler.mark('entity_custom_fields_loaded', { keys: Object.keys(entityCustomFieldValues?.[person.id] ?? {}).length })
+    if (profileId) {
       profiler.mark('profile_custom_fields_loaded', { keys: Object.keys(profileCustomFieldValues?.[profileId] ?? {}).length })
     }
-
-    const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
     profiler.mark('custom_field_routing_resolved', { keys: routing.size })
     customFields = normalizeCustomerDetailCustomFields(
       mergePersonCustomFieldValues(
@@ -703,53 +731,73 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
 
     const viewerUserIdFinal = viewerUserId
-    const counts = {
-      tags: tagAssignments.length + labelAssignments.length,
-      comments: includeComments
-        ? comments.length
-        : await em.count(CustomerComment, {
+    // The count fields are independent of each other; dispatch them together so
+    // the response counts object is assembled in one round of parallel queries
+    // instead of an inline await waterfall (issue #3203).
+    const [
+      commentsCount,
+      activitiesCount,
+      interactionsCount,
+      todosCount,
+      addressesCount,
+      dealsCount,
+    ] = await Promise.all([
+      includeComments
+        ? Promise.resolve(comments.length)
+        : em.count(CustomerComment, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      activities: await em.count(CustomerInteraction, {
+      em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
         interactionType: { $ne: 'task' },
+        ...emailVisibilityFilter,
       }),
-      interactions: await em.count(CustomerInteraction, {
+      em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
+        ...emailVisibilityFilter,
       }),
-      todos: interactionFlags.unified
-        ? await em.count(CustomerInteraction, {
+      interactionFlags.unified
+        ? em.count(CustomerInteraction, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
             deletedAt: null,
             interactionType: 'task',
           })
-        : await em.count(CustomerTodoLink, {
+        : em.count(CustomerTodoLink, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      addresses: includeAddresses
-        ? addresses.length
-        : await em.count(CustomerAddress, {
+      includeAddresses
+        ? Promise.resolve(addresses.length)
+        : em.count(CustomerAddress, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      deals: includeDeals
-        ? deals.length
-        : await em.count(CustomerDealPersonLink, {
+      includeDeals
+        ? Promise.resolve(deals.length)
+        : em.count(CustomerDealPersonLink, {
             person: person.id,
           }),
+    ])
+    const counts = {
+      tags: tagAssignments.length + labelAssignments.length,
+      comments: commentsCount,
+      activities: activitiesCount,
+      interactions: interactionsCount,
+      todos: todosCount,
+      addresses: addressesCount,
+      deals: dealsCount,
       companies: companies.length,
     }
 

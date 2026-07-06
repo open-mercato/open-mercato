@@ -4,12 +4,14 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { invalidateCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { upsertCustomEntitySchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { ErrorNotice } from '@open-mercato/ui/primitives/ErrorNotice'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import Link from 'next/link'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { loadGeneratedFieldRegistrations } from '@open-mercato/ui/backend/fields/registry'
@@ -27,10 +29,16 @@ import { normalizeCustomFieldOptions } from '@open-mercato/shared/modules/entiti
 import { TranslationManager } from '@open-mercato/core/modules/translations/components/TranslationManager'
 
 type Def = FieldDefinition
+export type EntitySource = 'code' | 'custom'
 type EntitiesListResponse = { items?: Array<Record<string, unknown>> }
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetDefinition = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
-type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean } }
+type DefinitionsManageResponse = { items?: any[]; deletedKeys?: string[]; fieldsets?: FieldsetDefinition[]; settings?: { singleFieldsetPerRecord?: boolean }; version?: string | null }
+type DefinitionsBatchResponse = { ok?: boolean; version?: string | null }
+
+function readVersionToken(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
 
 type DefErrors = FieldDefinitionError
 
@@ -43,10 +51,11 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
   const queryClient = useQueryClient()
   const entityId = useMemo(() => decodeURIComponent((params?.entityId as any) || ''), [params])
   const [label, setLabel] = useState('')
-  const [entitySource, setEntitySource] = useState<'code'|'custom'>('custom')
+  const [entitySource, setEntitySource] = useState<EntitySource>('custom')
   const [entityFormLoading, setEntityFormLoading] = useState(true)
-  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean }>({})
+  const [entityInitial, setEntityInitial] = useState<{ label?: string; description?: string; labelField?: string; defaultEditor?: string; showInSidebar?: boolean; updatedAt?: string }>({})
   const [defs, setDefs] = useState<Def[]>([])
+  const [defsVersion, setDefsVersion] = useState<string | null>(null)
   const [orderDirty, setOrderDirty] = useState(false)
   const [orderSaving, setOrderSaving] = useState(false)
   const listRef = React.useRef<HTMLDivElement | null>(null)
@@ -171,6 +180,8 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           const defaultEditorValue =
             typeof record?.defaultEditor === 'string' ? record.defaultEditor : ''
           const showInSidebarValue = record?.showInSidebar === true
+          const updatedAtValue =
+            typeof record?.updatedAt === 'string' && record.updatedAt.length > 0 ? record.updatedAt : undefined
           setLabel(labelValue)
           if (record?.source === 'code' || record?.source === 'custom') setEntitySource(record.source)
           setEntityInitial({
@@ -179,6 +190,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             labelField: labelFieldValue,
             defaultEditor: defaultEditorValue,
             showInSidebar: showInSidebarValue,
+            updatedAt: updatedAtValue,
           })
           setEntityFormLoading(false)
         }
@@ -193,6 +205,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
             (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
           )
           setDefs(loaded)
+          setDefsVersion(readVersionToken(json.version))
           setDefErrors({})
           setDeletedKeys(Array.isArray(json.deletedKeys) ? json.deletedKeys : [])
           const loadedFieldsets = Array.isArray(json.fieldsets) ? json.fieldsets : []
@@ -249,6 +262,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         (a, b) => Number(a.configJson?.priority ?? 0) - Number(b.configJson?.priority ?? 0)
       )
       setDefs(loaded)
+      setDefsVersion(readVersionToken(j2.version))
       setDeletedKeys(Array.isArray(j2.deletedKeys) ? j2.deletedKeys : [])
       flash(`Restored ${key}`, 'success')
       await invalidateCustomFieldDefs(queryClient, entityId)
@@ -274,14 +288,19 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const call = await apiCall('/api/entities/definitions.batch', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+        }),
+      )
       if (!call.ok) {
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) return
         await raiseCrudError(call.response, 'Failed to save definitions')
       }
+      setDefsVersion(readVersionToken(call.result?.version))
       await invalidateCustomFieldDefs(queryClient, entityId)
       router.push(`/backend/entities/user?flash=Definitions%20saved&type=success`)
     } catch (e: any) {
@@ -296,7 +315,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
     if (!def) return
     if (def.key) {
       try {
-        const call = await apiCall('/api/entities/definitions', {
+        const call = await apiCall<DefinitionsBatchResponse>('/api/entities/definitions', {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ entityId, key: def.key }),
@@ -304,6 +323,9 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
         if (!call.ok) {
           await raiseCrudError(call.response, 'Failed to delete field')
         }
+        // Keep the optimistic-lock token in sync after an out-of-band delete so a
+        // later Save does not falsely 409 against our own change (issue #3152).
+        setDefsVersion(readVersionToken(call.result?.version))
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Failed to delete field'
         flash(message, 'error')
@@ -360,12 +382,23 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           isActive: d.isActive !== false,
         })),
       }
-      const call = await apiCall('/api/entities/definitions.batch', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload)
-      })
+      const call = await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(defsVersion),
+        () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+          method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload),
+        }),
+      )
       if (!call.ok) {
+        // A stale reorder auto-save (another tab changed the schema first) returns a
+        // 409; surface the shared conflict bar and stop the retry loop instead of a
+        // generic flash (issue #3152).
+        if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+          setOrderDirty(false)
+          return
+        }
         await raiseCrudError(call.response, 'Failed to save order')
       }
+      setDefsVersion(readVersionToken(call.result?.version))
       setOrderDirty(false)
       flash('Order saved', 'success')
       await invalidateCustomFieldDefs(queryClient, entityId)
@@ -388,13 +421,15 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       showInSidebar: z.boolean().optional(),
     }) as z.ZodType<Record<string, unknown>>
 
+  const metadataFieldsReadOnly = entitySource === 'code'
   const fields: CrudField[] = [
-    { id: 'label', label: 'Label', type: 'text', required: true },
-    { id: 'description', label: 'Description', type: 'textarea' },
+    { id: 'label', label: 'Label', type: 'text', required: true, readOnly: metadataFieldsReadOnly },
+    { id: 'description', label: 'Description', type: 'textarea', readOnly: metadataFieldsReadOnly },
     {
       id: 'defaultEditor',
       label: 'Default Editor (multiline)',
       type: 'select',
+      readOnly: metadataFieldsReadOnly,
       options: [
         { value: '', label: 'Default (Markdown)' },
         { value: 'markdown', label: 'Markdown (UIW)' },
@@ -473,56 +508,58 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       flash('Please fix validation errors in field definitions', 'error')
       throw createCrudFormError('Please fix validation errors in field definitions')
     }
-    if (entitySource === 'custom') {
-      const partial = upsertCustomEntitySchema
-        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
-        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
-      const normalized = {
-        ...(vals as any),
-        defaultEditor: (vals as any)?.defaultEditor || undefined,
-      }
-      const parsed = partial.safeParse(normalized)
-      if (!parsed.success) throw createCrudFormError('Validation failed')
+    // Code-declared system entities are not registered as custom entities — their
+    // metadata is owned by code and `POST /api/entities/entities` is fail-closed for
+    // ORM-backed system ids (#3115). Only their field definitions are user-editable, so
+    // skip the registration call and persist definitions below.
+    if (shouldRegisterEntityMetadata(entitySource)) {
+      const entityPayload = buildEntityMetadataPayload(entitySource, vals)
+      if (!entityPayload) throw createCrudFormError('Validation failed')
       const callEntity = await apiCall('/api/entities/entities', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ entityId, ...(parsed.data as any) }),
+        body: JSON.stringify({ entityId, ...entityPayload }),
       })
       if (!callEntity.ok) {
         await raiseCrudError(callEntity.response, 'Failed to save entity')
       }
       try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     }
-    const defsPayload = {
+    const defsPayload = buildDefinitionsBatchPayload({
       entityId,
-      definitions: defs.filter((d) => !!d.key).map((d) => ({
-        key: d.key,
-        kind: d.kind,
-        configJson: d.configJson,
-        isActive: d.isActive !== false,
-      })),
+      defs,
       fieldsets: buildFieldsetPayload(),
       singleFieldsetPerRecord,
-    }
-    const callDefs = await apiCall('/api/entities/definitions.batch', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(defsPayload),
     })
+    // Send the aggregate schema version so a concurrent edit is rejected with a 409
+    // instead of silently overwriting the other tab (issue #3152). CrudForm's submit
+    // catch detects the optimistic-lock conflict and shows the shared conflict bar.
+    const callDefs = await withScopedApiRequestHeaders(
+      buildOptimisticLockHeader(defsVersion),
+      () => apiCall<DefinitionsBatchResponse>('/api/entities/definitions.batch', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(defsPayload),
+      }),
+    )
     if (!callDefs.ok) {
       await raiseCrudError(callDefs.response, 'Failed to save definitions')
     }
+    setDefsVersion(readVersionToken(callDefs.result?.version))
     try { window.dispatchEvent(new Event('om:refresh-sidebar')) } catch {}
     await invalidateCustomFieldDefs(queryClient, entityId)
     flash('Definitions saved', 'success')
-  }, [buildFieldsetPayload, defs, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
+  }, [buildFieldsetPayload, defs, defsVersion, entityId, entitySource, queryClient, singleFieldsetPerRecord, validateAll])
 
   if (!entityId) {
     return (
       <Page>
         <PageBody>
           <div className="p-6">
-            <ErrorNotice title="Invalid entity" message="The requested entity ID is missing or invalid." />
+            <Alert variant="destructive">
+              <AlertTitle>Invalid entity</AlertTitle>
+              <AlertDescription>The requested entity ID is missing or invalid.</AlertDescription>
+            </Alert>
           </div>
         </PageBody>
       </Page>
@@ -602,4 +639,45 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
       </Dialog>
     </Page>
   )
+}
+
+export function shouldRegisterEntityMetadata(entitySource: EntitySource): boolean {
+  return entitySource === 'custom'
+}
+
+export function buildDefinitionsBatchPayload(options: {
+  entityId: string
+  defs: Array<Pick<Def, 'key' | 'kind' | 'configJson' | 'isActive'>>
+  fieldsets: FieldsetDefinition[]
+  singleFieldsetPerRecord: boolean
+}) {
+  return {
+    entityId: options.entityId,
+    definitions: options.defs.filter((d) => !!d.key).map((d) => ({
+      key: d.key,
+      kind: d.kind,
+      configJson: d.configJson,
+      isActive: d.isActive !== false,
+    })),
+    fieldsets: options.fieldsets,
+    singleFieldsetPerRecord: options.singleFieldsetPerRecord,
+  }
+}
+
+export function buildEntityMetadataPayload(
+  entitySource: EntitySource,
+  vals: Record<string, unknown>,
+): Record<string, unknown> | null {
+  const partial = entitySource === 'custom'
+    ? upsertCustomEntitySchema
+        .pick({ label: true, description: true, labelField: true as any, defaultEditor: true as any })
+        .extend({ showInSidebar: z.boolean().optional() }) as unknown as z.ZodTypeAny
+    : upsertCustomEntitySchema
+        .pick({ label: true, description: true, defaultEditor: true as any }) as unknown as z.ZodTypeAny
+  const normalized = {
+    ...vals,
+    defaultEditor: typeof vals.defaultEditor === 'string' && vals.defaultEditor ? vals.defaultEditor : undefined,
+  }
+  const parsed = partial.safeParse(normalized)
+  return parsed.success ? (parsed.data as Record<string, unknown>) : null
 }

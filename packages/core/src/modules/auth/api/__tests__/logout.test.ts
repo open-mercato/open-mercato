@@ -15,10 +15,15 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => createRequestContainer(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => ({
-  buildRequestOriginUrl: (_req: Request, path: string) => `http://localhost${path}`,
-}))
+jest.mock('@open-mercato/core/modules/auth/lib/requestRedirect', () => {
+  const { NextResponse } = require('next/server')
+  return {
+    buildSafeRedirectResponse: (_req: Request, path: string) =>
+      new NextResponse(null, { status: 307, headers: { Location: `http://localhost${path}` } }),
+  }
+})
 
+import * as logoutRoute from '@open-mercato/core/modules/auth/api/logout'
 import { POST } from '@open-mercato/core/modules/auth/api/logout'
 
 beforeAll(() => {
@@ -127,5 +132,19 @@ describe('POST /api/auth/logout — session revocation', () => {
     await POST(req)
 
     expect(deleteSessionById).not.toHaveBeenCalled()
+  })
+})
+
+describe('logout route — CSRF hardening (POST-only)', () => {
+  it('does not expose a GET handler so a cross-origin embed cannot trigger logout', () => {
+    expect((logoutRoute as Record<string, unknown>).GET).toBeUndefined()
+  })
+
+  it('declares only POST in route metadata', () => {
+    expect(Object.keys(logoutRoute.metadata)).toEqual(['POST'])
+  })
+
+  it('documents only POST in the OpenAPI spec', () => {
+    expect(Object.keys(logoutRoute.openApi.methods)).toEqual(['POST'])
   })
 })

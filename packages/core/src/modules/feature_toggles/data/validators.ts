@@ -1,13 +1,20 @@
 import { z } from 'zod'
 
-export const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_]*$/
+// Namespaced feature-flag identifiers use dots and dashes as separators
+// (e.g. the seeded `customers.interactions.legacy-adapters`), so the validator
+// accepts lowercase letters, digits, `_`, `.`, and `-` after the leading
+// lowercase letter (#2055 QA round-6).
+export const IDENTIFIER_PATTERN = /^[a-z][a-z0-9_.-]*$/
+
+export const IDENTIFIER_PATTERN_MESSAGE =
+  'identifier must start with a lowercase letter and contain only lowercase letters, numbers, dots, dashes, and underscores'
 
 export const toggleTypeSchema = z.enum(['boolean', 'string', 'number', 'json'])
 
 export const toggleCreateSchema = z.object({
   identifier: z.string().min(1).regex(
     IDENTIFIER_PATTERN,
-    'identifier must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
+    IDENTIFIER_PATTERN_MESSAGE,
   ),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
@@ -42,6 +49,7 @@ export const featureToggleOverrideResponseSchema = z.object({
   tenantName: z.string(),
   tenantId: z.string().uuid(),
   toggleType: toggleTypeSchema,
+  updatedAt: z.string().nullable().optional(),
 })
 
 export type FeatureToggleOverrideResponse = z.infer<typeof featureToggleOverrideResponseSchema>
@@ -70,7 +78,7 @@ export const featureToggleSchema = z.object({
   id: z.string().uuid().optional(),
   identifier: z.string().min(1).regex(
     IDENTIFIER_PATTERN,
-    'identifier must start with a lowercase letter and contain only lowercase letters, numbers, and underscores',
+    IDENTIFIER_PATTERN_MESSAGE,
   ),
   name: z.string().min(1),
   description: z.string().nullable().optional(),
@@ -82,8 +90,13 @@ export const featureToggleSchema = z.object({
   updatedAt: z.string().optional(),
 })
 
+// Inherited rows (no per-tenant override) intentionally carry an empty-string
+// `id` sentinel instead of a UUID, so the row id must accept both a UUID (real
+// override rows) and the empty inherited sentinel. See lib/queries.ts.
+export const overrideRowIdSchema = z.union([z.string().uuid(), z.literal('')])
+
 export const overrideListResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: overrideRowIdSchema,
   toggleId: z.string().uuid(),
   tenantName: z.string(),
   tenantId: z.string().uuid(),
@@ -91,6 +104,7 @@ export const overrideListResponseSchema = z.object({
   name: z.string(),
   category: z.string(),
   isOverride: z.boolean(),
+  updatedAt: z.string().nullable().optional(),
 });
 
 export type OverrideListResponse = z.infer<typeof overrideListResponseSchema>

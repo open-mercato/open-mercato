@@ -68,6 +68,14 @@ const allDeclaredEventIds = new Set<string>()
 // Global registry of all declared events with their full definitions
 const allDeclaredEvents: EventDefinition[] = []
 
+function addDeclaredEvent(event: EventDefinition): void {
+  allDeclaredEventIds.add(event.id)
+  // Avoid duplicates if createModuleEvents/registerEventModuleConfigs is called multiple times (e.g., HMR)
+  if (!allDeclaredEvents.find(e => e.id === event.id)) {
+    allDeclaredEvents.push(event)
+  }
+}
+
 /**
  * Check if an event ID has been declared by any module.
  * Used for runtime validation to ensure only declared events are emitted.
@@ -125,6 +133,11 @@ export function registerEventModuleConfigs(configs: EventModuleConfig[]): void {
     console.debug('[Bootstrap] Event module configs re-registered (this may occur during HMR)')
   }
   _registeredEventConfigs = configs
+  for (const config of configs) {
+    for (const event of config.events) {
+      addDeclaredEvent(event)
+    }
+  }
 }
 
 /**
@@ -189,15 +202,9 @@ export function createModuleEvents<
     module: moduleId,
   }))
 
-  // Register all event IDs and definitions in the global registry
-  for (const eventId of validEventIds) {
-    allDeclaredEventIds.add(eventId)
-  }
+  // Register all event IDs and definitions in the global registry.
   for (const event of fullEvents) {
-    // Avoid duplicates if createModuleEvents is called multiple times (e.g., HMR)
-    if (!allDeclaredEvents.find(e => e.id === event.id)) {
-      allDeclaredEvents.push(event)
-    }
+    addDeclaredEvent(event)
   }
 
   /**

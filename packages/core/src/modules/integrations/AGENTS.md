@@ -6,6 +6,37 @@ The `integrations` module is the foundation layer for all external connectors (p
 
 ---
 
+## Always
+
+- **Always scope by organizationId + tenantId** — every entity query and service call
+- **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
+- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
+- **Health check services** must be registered in DI by the provider module, not by integrations
+- **API routes must export `openApi`** for documentation generation
+- **All user-facing strings** via i18n keys in `i18n/en.json`
+- **Keep ACL default export shape** consistent: `export const features = [...]; export default features`
+- **Registry/type contracts** live in `@open-mercato/shared/modules/integrations/types`
+
+## Ask First
+
+- Ask before changing credential resolution order, registry type contracts, canonical API routes, or compatibility surfaces.
+- Ask before moving provider-specific logic into this module.
+- Ask before changing health-check timeouts, log retention semantics, or credential redaction behavior.
+
+## Never
+
+- Never import from provider modules — integrations module is generic; providers import from integrations, not vice versa.
+- Never log credential values — log service strips secret fields from payload.
+- Never special-case provider env presets, credentials, mappings, or enabled state in core.
+- Never remove legacy `integrations.detail:tabs` fallback without a compatibility plan.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/core build
+```
+
 ## Module Structure
 
 ```
@@ -101,6 +132,15 @@ For platform connectors with multiple integrations (e.g., MedusaJS):
 2. If `bundleId` is set, fallback to bundle's credentials
 3. Return `null` if neither exists
 
+## Per-User Credential Scoping
+
+`IntegrationScope` carries an optional `userId?: string | null` (added 2026-05-26 for per-user email channels). Every `createCredentialsService` method scopes by it:
+
+- **Omit `scope.userId`** (or pass `null`) for tenant-wide credentials (shared API keys, e.g. Stripe/Akeneo) — the filter pins `user_id IS NULL`, the historical behaviour.
+- **Pass `scope.userId`** for per-user credentials (Gmail/IMAP mailboxes) — reads and writes land on that user's own row.
+
+Uniqueness across `(integration_id, organization_id, tenant_id, user_id)` is enforced by the partial unique index `integration_credentials_user_lookup_idx` (`WHERE user_id IS NOT NULL AND deleted_at IS NULL`). **Callers MUST thread the correct `userId` on every per-user read AND write** — a tenant-wide scope can never read a user-scoped row and vice versa, so a missing `userId` silently resolves the wrong (or no) credentials.
+
 ## Events
 
 | Event ID | Emitted When |
@@ -192,16 +232,3 @@ The integrations module itself uses UMES to inject external ID displays on any e
 - Module-local integration tests go under `__integration__/`
 - Use helpers from `@open-mercato/core/modules/core/__integration__/helpers/*`
 - Tests must create prerequisites via API and clean up in `finally`
-
-## MUST Rules
-
-- **Never import from provider modules** — integrations module is generic; providers import from integrations, not vice versa
-- **Always scope by organizationId + tenantId** — every entity query and service call
-- **Use `findWithDecryption`/`findOneWithDecryption`** for credential reads
-- **New providers MUST support provider-owned env preconfiguration** when credentials/settings are deployment-managed; implement it in the provider package, not in core
-- **Never log credential values** — log service strips secret fields from payload
-- **Health check services** must be registered in DI by the provider module, not by integrations
-- **API routes must export `openApi`** for documentation generation
-- **All user-facing strings** via i18n keys in `i18n/en.json`
-- **Keep ACL default export shape** consistent: `export const features = [...]; export default features`
-- **Registry/type contracts** live in `@open-mercato/shared/modules/integrations/types`

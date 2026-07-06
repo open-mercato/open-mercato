@@ -4,6 +4,7 @@ import { getCurrentCacheTenant, runWithCacheTenant } from '@open-mercato/cache'
 import { UserAcl, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { buildOrgScopeUserCacheTag, buildOrgScopeTenantCacheTag } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { matchFeature as sharedMatchFeature, hasAllFeatures as sharedHasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { filterGrantsByEnabledModules, getOwningModuleId, getEnabledModuleIds } from '@open-mercato/shared/security/enabledModulesRegistry'
 
@@ -70,6 +71,13 @@ export class RbacService {
     return sharedHasAllFeatures(required, granted)
   }
 
+  private roleAclAllowsOrganization(acl: RoleAcl, organizationId: string | null | undefined): boolean {
+    if (!organizationId) return true
+    const organizations = Array.isArray(acl.organizationsJson) ? acl.organizationsJson : null
+    if (!organizations || !organizations.length || organizations.includes('__all__')) return true
+    return organizations.includes(organizationId)
+  }
+
   private getCacheKey(userId: string, scope: { tenantId: string | null; organizationId: string | null }): string {
     return `rbac:${userId}:${scope.tenantId || 'null'}:${scope.organizationId || 'null'}`
   }
@@ -123,7 +131,12 @@ export class RbacService {
    */
   async invalidateUserCache(userId: string): Promise<void> {
     this.globalSuperAdminCache.delete(userId)
-    await this.deleteCacheByTags([this.getUserTag(userId)])
+    // Also drop the directory OrganizationScope cache for this user. That scope's
+    // accessible-org set is derived from this user's ACL/role grants, so any
+    // permission change that invalidates the RBAC cache must invalidate the
+    // resolved scope too. This is the missing `org-scope:user:*` caller required
+    // before the cross-request scope TTL can be safely enabled (issue #2259).
+    await this.deleteCacheByTags([this.getUserTag(userId), buildOrgScopeUserCacheTag(userId)])
   }
 
   /**
@@ -135,7 +148,10 @@ export class RbacService {
    */
   async invalidateTenantCache(tenantId: string): Promise<void> {
     this.globalSuperAdminCache.clear()
-    await this.deleteCacheByTags([this.getTenantTag(tenantId)], [tenantId])
+    // Role ACL changes invalidate every user in the tenant; the resolved
+    // OrganizationScope for those users derives from the same grants, so drop
+    // the tenant-tagged scope entries alongside the RBAC ones (issue #2259).
+    await this.deleteCacheByTags([this.getTenantTag(tenantId), buildOrgScopeTenantCacheTag(tenantId)], [tenantId])
   }
 
   /**
@@ -370,6 +386,37 @@ export class RbacService {
   ): Promise<string[]> {
     const acl = await this.loadAcl(userId, scope)
     return Array.isArray(acl.features) ? acl.features : []
+  }
+
+  /**
+   * Checks whether any tenant role grants a feature.
+   *
+   * This supports non-user runtimes such as scheduler workers that execute with
+   * tenant scope but without an authenticated user.
+   */
+  async tenantHasFeature(
+    tenantId: string | null | undefined,
+    feature: string,
+    opts?: { organizationId?: string | null },
+  ): Promise<boolean> {
+    if (!tenantId || !feature) return false
+
+    const enabledIds = getEnabledModuleIds()
+    if (enabledIds.length && !enabledIds.includes(getOwningModuleId(feature))) return false
+
+    const em = this.em.fork()
+    const roleAcls = await em.find(RoleAcl, { tenantId, deletedAt: null } as any, {})
+    const list = Array.isArray(roleAcls) ? roleAcls : []
+    const organizationId = opts?.organizationId ?? null
+
+    for (const acl of list) {
+      if (!this.roleAclAllowsOrganization(acl, organizationId)) continue
+      if (acl.isSuperAdmin) return true
+      const grants = Array.isArray(acl.featuresJson) ? acl.featuresJson : []
+      if (this.hasAllFeatures([feature], filterGrantsByEnabledModules(grants))) return true
+    }
+
+    return false
   }
 
   /**

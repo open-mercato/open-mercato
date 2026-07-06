@@ -155,6 +155,8 @@
   "inbox_ops.preview.sku": "SKU",
   "inbox_ops.processing_log": "Dziennik przetwarzania",
   "inbox_ops.proposal": "Propozycja",
+  "inbox_ops.proposal.backToList": "Wróć do skrzynki",
+  "inbox_ops.proposal.notFound": "Nie znaleziono propozycji.",
   "inbox_ops.recategorize": "Zmie\u0144 kategori\u0119",
   "inbox_ops.received_at": "Odebrano",
   "inbox_ops.reply.send": "Wy\u015blij odpowied\u017a",

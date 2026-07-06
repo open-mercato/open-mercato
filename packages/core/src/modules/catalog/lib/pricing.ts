@@ -95,6 +95,14 @@ export function selectBestPrice(rows: PriceRow[], ctx: PricingContext): PriceRow
     const startA = a.startsAt ? a.startsAt.getTime() : 0
     const startB = b.startsAt ? b.startsAt.getTime() : 0
     if (startA !== startB) return startB - startA
+    // minQuantity tie-break is direction-dependent on the resolved kind.
+    // Within the same kind we pick the more specific tier (higher minQuantity wins — issue #1706).
+    // Across kinds we keep the pre-#1706 ascending order so a row whose kind has a higher
+    // scoreBase still wins when scorePrice's "+1 for minQuantity > 1" bonus produces a
+    // cross-kind collision (e.g. promotion[minQty=1]=4 vs tier[minQty=3]=4).
+    if (resolvePriceKindCode(a) === resolvePriceKindCode(b)) {
+      return (b.minQuantity ?? 1) - (a.minQuantity ?? 1)
+    }
     return (a.minQuantity ?? 1) - (b.minQuantity ?? 1)
   })
   return candidates[0]
@@ -179,4 +187,13 @@ export async function resolveCatalogPrice(
   }
 
   return resolved ?? null
+}
+
+export async function resolveCatalogPriceBatch(
+  entries: Array<{ rows: PriceRow[]; context: PricingContext }>,
+  options?: { eventBus?: EventBus | null }
+): Promise<Array<PriceRow | null>> {
+  return Promise.all(
+    entries.map(({ rows, context }) => resolveCatalogPrice(rows, context, options))
+  )
 }

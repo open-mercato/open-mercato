@@ -6,6 +6,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -56,6 +57,8 @@ const normalizeState = (payload?: Partial<SettingsResponse> | null): FormState =
       : '1',
 })
 
+const SAVE_CONTEXT_ID = 'sales-document-number-settings'
+
 export function DocumentNumberSettings() {
   const t = useT()
   const scopeVersion = useOrganizationScopeVersion()
@@ -63,6 +66,15 @@ export function DocumentNumberSettings() {
   const [loading, setLoading] = React.useState(false)
   const [saving, setSaving] = React.useState(false)
   const [tokens, setTokens] = React.useState(DOCUMENT_NUMBER_TOKENS)
+
+  const { runMutation, retryLastMutation } = useGuardedMutation<{
+    formId: string
+    resourceKind: string
+    retryLastMutation: () => Promise<boolean>
+  }>({
+    contextId: SAVE_CONTEXT_ID,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
 
   const translations = React.useMemo(() => ({
     title: t('sales.config.numbering.title', 'Document numbers'),
@@ -128,15 +140,26 @@ export function DocumentNumberSettings() {
         orderNextNumber: Number.parseInt(formState.orderNextNumber, 10) || undefined,
         quoteNextNumber: Number.parseInt(formState.quoteNextNumber, 10) || undefined,
       }
-      const call = await apiCall<SettingsResponse>('/api/sales/settings/document-numbers', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+      const call = await runMutation({
+        // optimistic-lock-exempt: single-row tenant numbering settings blob — no per-record version / concurrent record edit
+        operation: async () => {
+          const response = await apiCall<SettingsResponse>('/api/sales/settings/document-numbers', {
+            method: 'PUT',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(payload),
+          })
+          if (!response.ok) {
+            throw new Error(translations.errors.save)
+          }
+          return response
+        },
+        context: {
+          formId: SAVE_CONTEXT_ID,
+          resourceKind: 'sales.settings',
+          retryLastMutation,
+        },
+        mutationPayload: payload,
       })
-      if (!call.ok) {
-        flash(translations.errors.save, 'error')
-        return
-      }
       setFormState(normalizeState(call.result))
       setTokens(Array.isArray(call.result?.tokens) && call.result.tokens.length ? call.result.tokens : DOCUMENT_NUMBER_TOKENS)
       flash(translations.messages.saved, 'success')
@@ -146,7 +169,7 @@ export function DocumentNumberSettings() {
     } finally {
       setSaving(false)
     }
-  }, [formState.orderNextNumber, formState.orderNumberFormat, formState.quoteNextNumber, formState.quoteNumberFormat, translations.errors.save, translations.messages.saved])
+  }, [formState.orderNextNumber, formState.orderNumberFormat, formState.quoteNextNumber, formState.quoteNumberFormat, retryLastMutation, runMutation, translations.errors.save, translations.messages.saved])
 
   const handleReset = React.useCallback(() => {
     setFormState(DEFAULT_STATE)

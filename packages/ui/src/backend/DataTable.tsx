@@ -3,7 +3,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { useReactTable, getCoreRowModel, getSortedRowModel, flexRender, type ColumnDef, type SortingState, type Column as TableColumn, type VisibilityState, type RowSelectionState } from '@tanstack/react-table'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check } from 'lucide-react'
+import { RefreshCw, Loader2, SlidersHorizontal, MoreHorizontal, Circle, Filter, Columns3, ChevronUp, ChevronDown, ChevronsUpDown, Check, Inbox } from 'lucide-react'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../primitives/table'
 import { Button } from '../primitives/button'
 import { Checkbox } from '../primitives/checkbox'
@@ -15,12 +15,14 @@ import {
   SelectValue,
 } from '../primitives/select'
 import { CompactSelectTrigger } from '../primitives/compact-select'
+import { Pagination } from '../primitives/pagination'
 import { Spinner } from '../primitives/spinner'
 import { EmptyState } from '../primitives/empty-state'
 import { TooltipProvider } from '../primitives/tooltip'
 import { TruncatedCell } from './TruncatedCell'
 import { FilterBar, type FilterDef, type FilterValues } from './FilterBar'
 import { FilteredEmptyResults } from './filters/FilteredEmptyResults'
+import { SearchEmptyResults } from './filters/SearchEmptyResults'
 import { useCustomFieldFilterDefs } from './utils/customFieldFilters'
 import { fetchCustomFieldDefinitionsPayload, type CustomFieldsetDto } from './utils/customFieldDefs'
 import { RowActions, type RowActionItem } from './RowActions'
@@ -30,12 +32,15 @@ import { useAppEvent } from './injection/useAppEvent'
 import { useInjectionDataWidgets } from './injection/useInjectionDataWidgets'
 import { resolveInjectedIcon } from './injection/resolveInjectedIcon'
 import { serializeExport, defaultExportFilename, type PreparedExport } from '@open-mercato/shared/lib/crud/exporters'
-import { apiCall } from './utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from './utils/apiCall'
+import { buildOptimisticLockHeader } from './utils/optimisticLock'
+import { useGuardedMutation } from './injection/useGuardedMutation'
 import { raiseCrudError } from './utils/serverErrors'
 import { PerspectiveSidebar } from './PerspectiveSidebar'
 import { Popover, PopoverTrigger, PopoverContent } from '../primitives/popover'
 import { formatWithPublicDateFormat, normalizeDateFormatPattern } from '../primitives/date-format'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { readVersionedPreference, writeVersionedPreference, clearVersionedPreference } from '@open-mercato/shared/lib/browser/versionedPreference'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from './FlashMessages'
 import { useConfirmDialog } from './confirm-dialog'
@@ -216,6 +221,7 @@ export type DataTableProps<T> = {
   actions?: React.ReactNode
   refreshButton?: DataTableRefreshButton
   sortable?: boolean
+  manualSorting?: boolean
   sorting?: SortingState
   onSortingChange?: (s: SortingState) => void
   pagination?: PaginationProps
@@ -248,8 +254,19 @@ export type DataTableProps<T> = {
   injectionSpotId?: string
   injectionContext?: Record<string, unknown>
   replacementHandle?: string
+  /**
+   * Stable id used to derive the `data-table:<id>:*` widget injection spots
+   * (`:columns`, `:row-actions`, `:bulk-actions`, `:filters`, `:toolbar`,
+   * `:search-trailing`, `:header`, `:footer`) when the host does not need a
+   * full perspective config. Cheaper than wiring a perspective just to enable
+   * widget injection. Falls back to `perspective?.tableId` and `injectionSpotId`
+   * if not provided.
+   */
+  extensionTableId?: string
   stickyFirstColumn?: boolean
   stickyActionsColumn?: boolean
+  /** Horizontal alignment of the row-actions (kebab) column header + cell. Defaults to 'right'. */
+  actionsColumnAlign?: 'right' | 'center'
   virtualized?: boolean
   virtualizedMaxHeight?: number | string
   virtualizedOverscan?: number
@@ -258,7 +275,7 @@ export type DataTableProps<T> = {
    * or the legacy flat `AdvancedFilterState` shape as a backward-compatibility
    * bridge. The bridge is provided for one minor version; legacy callers SHOULD
    * migrate to the tree shape — see the spec
-   * `.ai/specs/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
+   * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
    * Compatibility" section and `RELEASE_NOTES.md`.
    *
    * When the legacy flat shape is detected, DataTable converts it to a tree via
@@ -344,6 +361,21 @@ const EXPORT_LABELS: Record<DataTableExportFormat, string> = {
 }
 const EMPTY_FILTER_DEFS: FilterDef[] = []
 const EMPTY_FILTER_VALUES: FilterValues = Object.freeze({}) as FilterValues
+
+// Directional shadow utilities for sticky table cells. `border-collapse: collapse`
+// blocks `box-shadow` on `<td>`/`<th>`, so we paint the shadow as a pseudo-element
+// gradient on the outside edge — the side opposite to the sticky anchor:
+//   sticky right-0  → shadow falls to the LEFT  (use `before:` + `-left-2` + `to-l`)
+//   sticky left-0   → shadow falls to the RIGHT (use `after:`  + `-right-2` + `to-r`)
+// `foreground/8` matches the `--shadow-md` token opacity (8%) and is theme-aware.
+// Column pinning (and these shadows) is md-and-up only: below `md` the pinned
+// first column + actions column can be wider than the whole viewport, which
+// leaves the scrollable middle columns no visible window at all — narrow
+// screens fall back to plain horizontal scroll so every column stays reachable.
+const STICKY_RIGHT_SHADOW_CLASS =
+  'md:before:absolute md:before:inset-y-0 md:before:-left-2 md:before:w-2 md:before:bg-gradient-to-l md:before:from-foreground/8 md:before:to-transparent md:before:pointer-events-none'
+const STICKY_LEFT_SHADOW_CLASS =
+  'md:after:absolute md:after:inset-y-0 md:after:-right-2 md:after:w-2 md:after:bg-gradient-to-r md:after:from-foreground/8 md:after:to-transparent md:after:pointer-events-none'
 
 type BulkActionExecuteResult = {
   ok: boolean
@@ -453,6 +485,19 @@ type PerspectiveSnapshot = {
   updatedAt: number
 }
 
+// Versioned-envelope discriminator for the persisted perspective snapshot. Bump
+// when the snapshot shape changes incompatibly and add a read-old migration
+// branch; see `@open-mercato/shared/lib/browser/versionedPreference`.
+const PERSPECTIVE_SNAPSHOT_VERSION = 1
+
+type StoredPerspectiveSnapshot = { perspectiveId?: unknown; settings?: unknown; updatedAt?: unknown }
+
+function isStoredPerspectiveSnapshot(value: unknown): value is StoredPerspectiveSnapshot {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const settings = (value as Record<string, unknown>).settings
+  return typeof settings === 'object' && settings !== null
+}
+
 function readPerspectiveCookie(tableId: string): string | null {
   if (typeof document === 'undefined') return null
   const key = `${PERSPECTIVE_COOKIE_PREFIX}:${tableId}`
@@ -469,40 +514,31 @@ function writePerspectiveCookie(tableId: string, perspectiveId: string | null): 
   document.cookie = `${key}=${value}; Path=/; ${expires}; SameSite=Lax`
 }
 
-function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw)
-    if (!parsed || typeof parsed !== 'object') return null
-    const perspectiveId =
-      typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
-        ? parsed.perspectiveId
-        : null
-    const settings = typeof parsed.settings === 'object' && parsed.settings !== null
-      ? parsed.settings as PerspectiveSettings
+export function readPerspectiveSnapshot(tableId: string): PerspectiveSnapshot | null {
+  const parsed = readVersionedPreference<StoredPerspectiveSnapshot | null>(
+    `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`,
+    PERSPECTIVE_SNAPSHOT_VERSION,
+    (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value),
+    null,
+    { legacyIsValid: (value): value is StoredPerspectiveSnapshot | null => isStoredPerspectiveSnapshot(value) },
+  )
+  if (!parsed) return null
+  const perspectiveId =
+    typeof parsed.perspectiveId === 'string' && parsed.perspectiveId.trim().length > 0
+      ? parsed.perspectiveId
       : null
-    const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
-    if (!settings) return null
-    return { perspectiveId, settings, updatedAt }
-  } catch {
-    return null
-  }
+  const settings = parsed.settings as PerspectiveSettings
+  const updatedAt = typeof parsed.updatedAt === 'number' ? parsed.updatedAt : Date.now()
+  return { perspectiveId, settings, updatedAt }
 }
 
-function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
-  if (typeof window === 'undefined') return
+export function writePerspectiveSnapshot(tableId: string, snapshot: PerspectiveSnapshot | null) {
   const key = `${PERSPECTIVE_STORAGE_PREFIX}:${tableId}`
-  try {
-    if (!snapshot) {
-      window.localStorage.removeItem(key)
-      return
-    }
-    window.localStorage.setItem(key, JSON.stringify(snapshot))
-  } catch {
-    // ignore storage errors
+  if (!snapshot) {
+    clearVersionedPreference(key)
+    return
   }
+  writeVersionedPreference(key, PERSPECTIVE_SNAPSHOT_VERSION, snapshot)
 }
 
 function sanitizePerspectiveSettings(source?: PerspectiveSettings | null): PerspectiveSettings | null {
@@ -941,6 +977,7 @@ export function DataTable<T>({
   actions,
   refreshButton,
   sortable,
+  manualSorting,
   sorting: sortingProp,
   onSortingChange,
   pagination,
@@ -971,8 +1008,10 @@ export function DataTable<T>({
   injectionSpotId,
   injectionContext,
   replacementHandle,
+  extensionTableId: extensionTableIdProp,
   stickyFirstColumn = false,
   stickyActionsColumn = false,
+  actionsColumnAlign = 'right',
   virtualized = false,
   virtualizedMaxHeight,
   virtualizedOverscan = 10,
@@ -996,7 +1035,7 @@ export function DataTable<T>({
   // (`triggerRef`, `externalPopover`, `onApplyTree`, `onTriggerClick`) are
   // undefined for legacy callers — they were added in this PR and didn't exist
   // in the legacy contract.
-  // See spec `.ai/specs/2026-05-10-crm-list-filter-redesign.md` ("Migration &
+  // See spec `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` ("Migration &
   // Backward Compatibility") and BACKWARD_COMPATIBILITY.md §3.
   type AdvancedFilterNormalized = {
     fields?: AdvancedFilterFieldDef[]
@@ -1145,6 +1184,7 @@ export function DataTable<T>({
           perspectives: [],
           defaultPerspectiveId: null,
           rolePerspectives: [],
+          manageableRolePerspectives: [],
           roles: [],
           canApplyToRoles: false,
         }
@@ -1167,14 +1207,34 @@ export function DataTable<T>({
 
   const extensionTableId = React.useMemo(() => {
     if (perspective?.tableId) return perspective.tableId
+    if (extensionTableIdProp) return extensionTableIdProp
     if (injectionSpotId?.startsWith('data-table:')) return injectionSpotId.slice('data-table:'.length)
     return null
-  }, [injectionSpotId, perspective?.tableId])
-  const resolvedInjectionSpotId = injectionSpotId ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+  }, [injectionSpotId, perspective?.tableId, extensionTableIdProp])
+  const resolvedInjectionSpotId =
+    injectionSpotId
+    ?? (perspective?.tableId ? `data-table:${perspective.tableId}` : null)
+    ?? (extensionTableIdProp ? `data-table:${extensionTableIdProp}` : null)
   const resolvedReplacementHandle = replacementHandle ?? ComponentReplacementHandles.dataTable(extensionTableId ?? 'unknown')
   const baseInjectionContext = React.useMemo(
-    () => injectionContext ?? { tableId: perspective?.tableId ?? null, title: typeof title === 'string' ? title : undefined },
-    [injectionContext, perspective?.tableId, title]
+    () => {
+      // R2-M2 / F9 (2026-05-26): the default injection context now derives
+      // `tableId` from `extensionTableId ?? perspective?.tableId` (was
+      // `perspective?.tableId` only). Note `extensionTableId` itself now falls
+      // back to the `data-table:` suffix of `injectionSpotId` (see the memo
+      // above), so a caller passing only `injectionSpotId="data-table:foo"`
+      // (no `injectionContext`/`perspective`) now receives
+      // `context.tableId = "foo"` instead of the previous `null`. This only
+      // populates a field that was null before, so toolbar/header/footer/
+      // search-trailing widgets that read `tableId` get a value while widgets
+      // that ignore it are unaffected. Explicit `injectionContext` from the
+      // caller still wins as-is — preserves the existing public contract.
+      if (injectionContext) return injectionContext
+      const resolvedTableId = extensionTableId ?? perspective?.tableId ?? null
+      const baseTitle = typeof title === 'string' ? title : undefined
+      return { tableId: resolvedTableId, title: baseTitle }
+    },
+    [injectionContext, perspective?.tableId, extensionTableId, title]
   )
   const headerInjectionSpotId = React.useMemo(
     () => (resolvedInjectionSpotId ? `${resolvedInjectionSpotId}:header` : null),
@@ -1424,11 +1484,13 @@ export function DataTable<T>({
   const hasInjectedBulkActions = injectedBulkActions.length > 0 || hasPropBulkActions
   const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({})
   const selectionScopeKeyRef = React.useRef<string | undefined>(selectionScopeKey)
+  const enableClientSorting = sortable && !manualSorting
   const table = useReactTable<T>({
     data: clientFilteredData,
     columns: mergedColumns,
     getCoreRowModel: getCoreRowModel(),
-    ...(sortable ? { getSortedRowModel: getSortedRowModel() } : {}),
+    ...(enableClientSorting ? { getSortedRowModel: getSortedRowModel() } : {}),
+    manualSorting: manualSorting === true,
     getRowId: resolveDataTableRowId,
     state: { sorting, columnVisibility, columnOrder, rowSelection },
     enableRowSelection: hasInjectedBulkActions,
@@ -1655,9 +1717,49 @@ export function DataTable<T>({
   }
 
   const perspectiveQueryKey: [string, string | null] = ['table-perspectives', perspectiveTableId]
+  const rolePerspectivesForLocking = React.useMemo(
+    () => perspectiveData?.manageableRolePerspectives ?? perspectiveData?.rolePerspectives ?? [],
+    [perspectiveData],
+  )
+
+  type PerspectiveMutationContext = {
+    formId: string
+    resourceKind: 'perspective'
+    retryLastMutation: () => Promise<boolean>
+  }
+  const perspectiveMutationContextId = `data-table-perspectives:${perspectiveTableId ?? 'unknown'}`
+  const { runMutation: runPerspectiveMutation, retryLastMutation: retryPerspectiveMutation } =
+    useGuardedMutation<PerspectiveMutationContext>({
+      contextId: perspectiveMutationContextId,
+      blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+    })
+  const perspectiveMutationContext = React.useMemo<PerspectiveMutationContext>(
+    () => ({
+      formId: perspectiveMutationContextId,
+      resourceKind: 'perspective',
+      retryLastMutation: retryPerspectiveMutation,
+    }),
+    [perspectiveMutationContextId, retryPerspectiveMutation],
+  )
+
   const savePerspectiveMutation = useMutation<PerspectiveSaveResponse, Error, SavePerspectivePayload>({
     mutationFn: async (input) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
+      const roleExpectedUpdatedAtByRoleId: Record<string, string> = {}
+      const roleExpectedUpdatedAtByPerspectiveId: Record<string, string> = {}
+      for (const roleId of input.applyToRoles) {
+        const rolePerspectives = rolePerspectivesForLocking.filter((p) => p.roleId === roleId)
+        const matching = rolePerspectives.find((p) => p.name.trim() === input.name.trim()) ?? null
+        const defaultPerspective = input.setRoleDefault
+          ? rolePerspectives.find((p) => p.isDefault) ?? null
+          : null
+        for (const candidate of [matching, defaultPerspective]) {
+          if (!candidate?.updatedAt) continue
+          roleExpectedUpdatedAtByPerspectiveId[candidate.id] = candidate.updatedAt
+        }
+        const roleFallback = matching ?? defaultPerspective
+        if (roleFallback?.updatedAt) roleExpectedUpdatedAtByRoleId[roleId] = roleFallback.updatedAt
+      }
       const payload = {
         perspectiveId: input.perspectiveId ?? undefined,
         name: input.name,
@@ -1665,28 +1767,46 @@ export function DataTable<T>({
         isDefault: input.isDefault,
         applyToRoles: input.applyToRoles,
         setRoleDefault: input.setRoleDefault,
+        ...(Object.keys(roleExpectedUpdatedAtByRoleId).length > 0
+          ? { roleExpectedUpdatedAtByRoleId }
+          : {}),
+        ...(Object.keys(roleExpectedUpdatedAtByPerspectiveId).length > 0
+          ? { roleExpectedUpdatedAtByPerspectiveId }
+          : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
         // eslint-disable-next-line no-console
         console.debug('[DataTable] perspective payload', payload)
       }
-      const call = await apiCall<PerspectiveSaveResponse>(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
+      const existing = input.perspectiveId
+        ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
+        : null
+      return runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall<PerspectiveSaveResponse>(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              },
+            ),
+          )
+          if (call.status === 404) {
+            throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
+          }
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          }
+          const result = call.result
+          if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
+          return result
         },
-      )
-      if (call.status === 404) {
-        throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` to regenerate module routes and restart the dev server.'))
-      }
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      }
-      const result = call.result
-      if (!result) throw new Error(t('ui.dataTable.perspectives.error.save', 'Failed to save perspective'))
-      return result
+        context: perspectiveMutationContext,
+        mutationPayload: payload,
+      })
     },
     onSuccess: (data) => {
       if (perspectiveTableId) {
@@ -1694,6 +1814,13 @@ export function DataTable<T>({
       }
       if (data.perspective) {
         applyPerspectiveSettings(data.perspective.settings, data.perspective.id)
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
     },
   })
@@ -1718,14 +1845,24 @@ export function DataTable<T>({
   const deletePerspectiveMutation = useMutation<void, Error, { perspectiveId: string }>({
     mutationFn: async ({ perspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
-        { method: 'DELETE' },
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
-      }
+      const existing = perspectiveData?.perspectives.find((p) => p.id === perspectiveId) ?? null
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(existing?.updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/${encodeURIComponent(perspectiveId)}`,
+              { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.delete', 'Failed to delete perspective'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { perspectiveId },
+      })
     },
     onMutate: ({ perspectiveId }) => {
       setDeletingIds((prev) => prev.includes(perspectiveId) ? prev : [...prev, perspectiveId])
@@ -1749,19 +1886,47 @@ export function DataTable<T>({
         initialPerspectiveAppliedRef.current = false
       }
     },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
+      }
+    },
   })
 
-  const clearRoleMutation = useMutation<void, Error, { roleId: string }>({
-    mutationFn: async ({ roleId }) => {
+  const clearRoleMutation = useMutation<void, Error, {
+    roleId: string
+    updatedAt?: string | null
+    expectedUpdatedAtByPerspectiveId?: Record<string, string>
+  }>({
+    mutationFn: async ({ roleId, updatedAt, expectedUpdatedAtByPerspectiveId }) => {
       if (!perspectiveTableId) throw new Error('Missing table id')
-      const call = await apiCall(
-        `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
-        { method: 'DELETE' },
-      )
-      if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
-      if (!call.ok) {
-        await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
-      }
+      const hasPerRowVersions = expectedUpdatedAtByPerspectiveId
+        && Object.keys(expectedUpdatedAtByPerspectiveId).length > 0
+      await runPerspectiveMutation({
+        operation: async () => {
+          const call = await withScopedApiRequestHeaders(
+            hasPerRowVersions ? {} : buildOptimisticLockHeader(updatedAt ?? null),
+            () => apiCall(
+              `/api/perspectives/${encodeURIComponent(perspectiveTableId)}/roles/${encodeURIComponent(roleId)}`,
+              hasPerRowVersions
+                ? {
+                  method: 'DELETE',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ roleExpectedUpdatedAtByPerspectiveId: expectedUpdatedAtByPerspectiveId }),
+                }
+                : { method: 'DELETE' },
+            ),
+          )
+          if (call.status === 404) throw new Error(t('ui.dataTable.perspectives.error.apiUnavailable', 'Perspectives API is not available. Run `yarn generate` and restart the dev server.'))
+          if (!call.ok) {
+            await raiseCrudError(call.response, t('ui.dataTable.perspectives.error.clearRoles', 'Failed to clear role perspectives'))
+          }
+        },
+        context: perspectiveMutationContext,
+        mutationPayload: { roleId },
+      })
     },
     onMutate: ({ roleId }) => {
       setRoleClearingIds((prev) => prev.includes(roleId) ? prev : [...prev, roleId])
@@ -1783,6 +1948,13 @@ export function DataTable<T>({
           initialSnapshotRef.current = null
           initialPerspectiveAppliedRef.current = false
         }
+      }
+    },
+    onError: () => {
+      // Conflict surfacing is handled inside `runPerspectiveMutation`
+      // (surfaceRecordConflict); only the cache refresh remains here.
+      if (perspectiveTableId) {
+        void queryClient.invalidateQueries({ queryKey: perspectiveQueryKey })
       }
     },
   })
@@ -1807,9 +1979,18 @@ export function DataTable<T>({
     await deletePerspectiveMutation.mutateAsync({ perspectiveId })
   }, [deletePerspectiveMutation])
 
-  const handleClearRole = React.useCallback(async (roleId: string) => {
-    await clearRoleMutation.mutateAsync({ roleId })
-  }, [clearRoleMutation])
+  const handleClearRole = React.useCallback(async (perspective: RolePerspectiveDto) => {
+    const expectedUpdatedAtByPerspectiveId = Object.fromEntries(
+      rolePerspectivesForLocking
+        .filter((item) => item.roleId === perspective.roleId && item.updatedAt)
+        .map((item) => [item.id, item.updatedAt as string]),
+    )
+    await clearRoleMutation.mutateAsync({
+      roleId: perspective.roleId,
+      updatedAt: perspective.updatedAt ?? null,
+      expectedUpdatedAtByPerspectiveId,
+    })
+  }, [clearRoleMutation, rolePerspectivesForLocking])
 
   const handleColumnChooserToggle = React.useCallback((key: string) => {
     const column = table.getColumn(key)
@@ -1950,7 +2131,7 @@ export function DataTable<T>({
         title={t('ui.dataTable.pagination.cache.title', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}
       >
         <Circle
-          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-emerald-500' : 'text-amber-500'}`}
+          className={`h-3.5 w-3.5 ${normalizedCacheStatus === 'hit' ? 'text-status-success-icon' : 'text-status-warning-icon'}`}
           strokeWidth={3}
         />
         <span className="sr-only">{t('ui.dataTable.pagination.cache.srOnly', 'Cache {status}', { status: normalizedCacheStatus.toUpperCase() })}</span>
@@ -1963,65 +2144,36 @@ export function DataTable<T>({
             .filter((size): size is number => typeof size === 'number' && Number.isFinite(size) && size > 0)
             .map((size) => Math.max(1, Math.floor(size))),
         )).sort((left, right) => left - right)
-      : []
-    const pageSizeSelect = pageSizeOptions.length > 0 && pagination.onPageSizeChange ? (
-      <span className="inline-flex flex-none items-center gap-1.5 whitespace-nowrap">
-        <Select
-          value={String(pagination.pageSize)}
-          onValueChange={(value) => {
-            pagination.onPageSizeChange!(Number(value))
-            scrollTableIntoView()
-          }}
-        >
-          <CompactSelectTrigger
-            className="min-w-[4rem]"
-            aria-label={t('ui.dataTable.pagination.rowsPerPage', 'Rows per page')}
-          >
-            <SelectValue />
-          </CompactSelectTrigger>
-          <SelectContent>
-            {pageSizeOptions.map((size) => (
-              <SelectItem key={size} value={String(size)}>{size}</SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <span className="whitespace-nowrap text-muted-foreground">{t('ui.dataTable.pagination.perPage', 'per page')}</span>
-      </span>
-    ) : null
+      : [10, 25, 50, 100]
 
     return (
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-4 py-3 border-t">
-        <div className="text-sm text-muted-foreground flex items-center justify-center sm:justify-start gap-2 flex-wrap">
-          <span>
-            {durationLabel
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 px-4 py-3 border-t">
+        {cacheBadge ? (
+          <div className="flex items-center justify-center sm:justify-start gap-2 text-sm text-muted-foreground">
+            {cacheBadge}
+          </div>
+        ) : null}
+        <Pagination
+          page={page}
+          pageSize={pagination.pageSize}
+          total={pagination.total}
+          onPageChange={(next) => { onPageChange(next); scrollTableIntoView() }}
+          onPageSizeChange={pagination.onPageSizeChange ? (next) => {
+            pagination.onPageSizeChange!(next)
+            scrollTableIntoView()
+          } : undefined}
+          pageSizeOptions={pageSizeOptions}
+          formatPageInfo={() =>
+            durationLabel
               ? t('ui.dataTable.pagination.resultsWithDuration', 'Showing {start} to {end} of {total} results in {duration}', { start: startItem, end: endItem, total: pagination.total, duration: durationLabel })
               : t('ui.dataTable.pagination.results', 'Showing {start} to {end} of {total} results', { start: startItem, end: endItem, total: pagination.total })
-            }
-          </span>
-          {cacheBadge}
-          {pageSizeSelect}
-        </div>
-        <div className="flex items-center justify-center sm:justify-end gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { onPageChange(page - 1); scrollTableIntoView() }}
-            disabled={page <= 1}
-          >
-            {t('ui.dataTable.pagination.previous', 'Previous')}
-          </Button>
-          <span className="text-sm whitespace-nowrap">
-            {t('ui.dataTable.pagination.pageInfo', 'Page {page} of {totalPages}', { page, totalPages })}
-          </span>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => { onPageChange(page + 1); scrollTableIntoView() }}
-            disabled={page >= totalPages}
-          >
-            {t('ui.dataTable.pagination.next', 'Next')}
-          </Button>
-        </div>
+          }
+          formatPageSizeLabel={(size) =>
+            `${size} ${t('ui.dataTable.pagination.perPage', 'per page')}`
+          }
+          aria-label={t('ui.dataTable.pagination.navAriaLabel', 'Table pagination')}
+          className="flex-1"
+        />
       </div>
     )
   }, [pagination, measuredDurationMs, scrollTableIntoView, t])
@@ -2521,15 +2673,35 @@ export function DataTable<T>({
   const tableScrollWrapperClassName = embedded ? '' : 'overflow-auto'
 
   const virtualScrollRef = React.useRef<HTMLDivElement>(null)
+  // Measure the horizontal scroll viewport so the empty state can center within
+  // the visible area instead of within the (often wider, overflowing) table.
+  const [tableScrollEl, setTableScrollEl] = React.useState<HTMLDivElement | null>(null)
+  const [emptyStateViewportWidth, setEmptyStateViewportWidth] = React.useState<number | null>(null)
+  const setTableScrollWrapperRef = React.useCallback((node: HTMLDivElement | null) => {
+    setTableScrollEl(node)
+    virtualScrollRef.current = node
+  }, [])
+  React.useEffect(() => {
+    if (!tableScrollEl || typeof ResizeObserver === 'undefined') return
+    const update = () => setEmptyStateViewportWidth(tableScrollEl.clientWidth)
+    update()
+    const observer = new ResizeObserver(update)
+    observer.observe(tableScrollEl)
+    return () => observer.disconnect()
+  }, [tableScrollEl])
   const allRows = table.getRowModel().rows
-  const rowVirtualizer = virtualized
-    ? useVirtualizer({
-        count: allRows.length,
-        getScrollElement: () => virtualScrollRef.current,
-        estimateSize: () => 48,
-        overscan: virtualizedOverscan,
-      })
-    : null
+  // Hooks must run on every render regardless of props (Rules of Hooks). Call
+  // useVirtualizer unconditionally and keep it inert when virtualization is off
+  // (count 0, no scroll element → no observers, no measurement work), then
+  // derive the nullable handle from the prop. Mirrors the unconditional-hooks-
+  // first pattern in RowActions.
+  const rowVirtualizerInstance = useVirtualizer({
+    count: virtualized ? allRows.length : 0,
+    getScrollElement: () => (virtualized ? virtualScrollRef.current : null),
+    estimateSize: () => 48,
+    overscan: virtualizedOverscan,
+  })
+  const rowVirtualizer = virtualized ? rowVirtualizerInstance : null
   const virtualMaxHeightStyle: React.CSSProperties | undefined = virtualized
     ? {
         maxHeight: typeof virtualizedMaxHeight === 'number'
@@ -2637,7 +2809,7 @@ export function DataTable<T>({
         columnIds={headerColumnIds}
         onDragEnd={handleHeaderDragEnd}
       >
-      <div ref={virtualized ? virtualScrollRef : undefined} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
+      <div ref={setTableScrollWrapperRef} className={tableScrollWrapperClassName} style={virtualMaxHeightStyle}>
         <Table className="min-w-[640px] md:min-w-0">
           <TableHeader>
             {table.getHeaderGroups().map((hg) => (
@@ -2657,12 +2829,12 @@ export function DataTable<T>({
                   const columnMeta = (header.column.columnDef as any)?.meta
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
-                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ' sticky left-0 z-10 bg-background' : ''
+                  const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                   const headerCellContent = header.isPlaceholder ? null : (
                     <Button
                       variant="ghost"
                       type="button"
-                      className={`h-auto p-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
+                      className={`h-auto p-0 has-[>svg]:px-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
                       onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -2689,8 +2861,8 @@ export function DataTable<T>({
                 {rowActions || injectedRowActions.length > 0 ? (
                   <TableHead
                     className={cn(
-                      'w-0 text-right',
-                      stickyActionsColumn && 'sticky right-0 z-20 bg-background',
+                      actionsColumnAlign === 'center' ? 'w-0 text-center' : 'w-0 text-right',
+                      stickyActionsColumn && `md:sticky md:right-0 md:z-20 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                     )}
                   >
                     {t('ui.dataTable.actionsColumn', 'Actions')}
@@ -2812,7 +2984,7 @@ export function DataTable<T>({
                       ) : content
 
                       return (
-                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ' sticky left-0 z-10 bg-background' : '')}>
+                        <TableCell key={cell.id} className={responsiveClass(priority, columnMeta?.hidden) + (isStickyCell ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : '')}>
                           {wrappedContent}
                         </TableCell>
                       )
@@ -2820,8 +2992,8 @@ export function DataTable<T>({
                     {rowActions || injectedRowActions.length > 0 ? (
                       <TableCell
                         className={cn(
-                          'text-right whitespace-nowrap',
-                          stickyActionsColumn && 'sticky right-0 z-10 bg-background',
+                          actionsColumnAlign === 'center' ? 'text-center whitespace-nowrap' : 'text-right whitespace-nowrap',
+                          stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                         )}
                         data-actions-cell
                       >
@@ -2840,26 +3012,44 @@ export function DataTable<T>({
               </>
             ) : (
               <TableRow>
-                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="py-6">
-                  {filterAwareEmptyState?.active ? (
-                    <FilteredEmptyResults
-                      entityNamePlural={filterAwareEmptyState.entityNamePlural}
-                      canRemoveLast={filterAwareEmptyState.canRemoveLast}
-                      onClearAll={filterAwareEmptyState.onClearAll}
-                      onRemoveLast={filterAwareEmptyState.onRemoveLast}
-                    />
-                  ) : emptyState && typeof emptyState !== 'string' ? (
-                    emptyState
-                  ) : (
-                    <EmptyState
-                      size="sm"
-                      title={
-                        typeof emptyState === 'string'
-                          ? emptyState
-                          : t('ui.dataTable.emptyState.default', 'No results.')
-                      }
-                    />
-                  )}
+                <TableCell colSpan={mergedColumns.length + (rowActions || injectedRowActions.length > 0 ? 1 : 0) + (hasInjectedBulkActions ? 1 : 0)} className="p-0">
+                  <div
+                    className={cn('sticky left-0 flex justify-center py-6', emptyStateViewportWidth ? '' : 'w-fit')}
+                    style={emptyStateViewportWidth ? { width: emptyStateViewportWidth } : undefined}
+                  >
+                    {filterAwareEmptyState?.active ? (
+                      <FilteredEmptyResults
+                        entityNamePlural={filterAwareEmptyState.entityNamePlural}
+                        canRemoveLast={filterAwareEmptyState.canRemoveLast}
+                        onClearAll={filterAwareEmptyState.onClearAll}
+                        onRemoveLast={filterAwareEmptyState.onRemoveLast}
+                        onClearSearch={searchValue && searchValue.trim().length > 0 && onSearchChange ? () => onSearchChange('') : undefined}
+                      />
+                    ) : searchValue && searchValue.trim().length > 0 && onSearchChange ? (
+                      <SearchEmptyResults
+                        query={searchValue.trim()}
+                        entityNamePlural={filterAwareEmptyState?.entityNamePlural}
+                        onClearSearch={() => onSearchChange('')}
+                      />
+                    ) : emptyState && typeof emptyState !== 'string' ? (
+                      emptyState
+                    ) : (
+                      <EmptyState
+                        variant="subtle"
+                        icon={<Inbox className="size-6" aria-hidden />}
+                        title={
+                          typeof emptyState === 'string'
+                            ? emptyState
+                            : t('ui.dataTable.emptyState.default', 'No results.')
+                        }
+                        description={
+                          typeof emptyState === 'string'
+                            ? undefined
+                            : t('ui.dataTable.emptyState.defaultDescription', 'Items will appear here once added.')
+                        }
+                      />
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             )}

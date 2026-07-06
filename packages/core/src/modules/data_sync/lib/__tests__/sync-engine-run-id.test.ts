@@ -67,6 +67,7 @@ function createSyncRunService(run: Record<string, unknown>): SyncRunService {
       }),
     updateCounts: jest.fn(async () => undefined),
     updateCursor: jest.fn(async () => undefined),
+    commitBatchProgress: jest.fn(async () => undefined),
   } as unknown as SyncRunService
 }
 

@@ -254,6 +254,10 @@ export const translateProposalSchema = z.object({
 export const updateSettingsSchema = z.object({
   workingLanguage: z.enum(['en', 'de', 'es', 'pl']).optional(),
   isActive: z.boolean().optional(),
+  // Per-tenant inbound-webhook secret. Write-only: it is never returned by the
+  // settings GET. A non-empty value binds custom-provider webhook signatures for
+  // this inbox to this secret; null/empty clears it and reverts to the global key.
+  webhookSecret: z.string().trim().min(16).max(256).nullable().optional(),
 })
 
 // ---------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-import { GenericContainer } from 'testcontainers'
 import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -8,6 +7,7 @@ import path from 'node:path'
 import { createInterface, type Interface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import spawn from 'cross-spawn'
+import { fetchWithTimeout, type FetchWithTimeoutInit } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { resolveEnvironment } from '../resolver'
 import { resolveSpawnCommand } from '../spawn'
 import { discoverIntegrationSpecFiles as discoverIntegrationSpecFilesShared } from './integration-discovery'
@@ -157,6 +157,31 @@ const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const EPHEMERAL_POSTGRES_IMAGE_ENV_VAR = 'OM_INTEGRATION_POSTGRES_IMAGE'
+// Dev/prod and the dev container run pgvector-enabled Postgres (see docker-compose*.yml,
+// docker/postgres-init.sh, .devcontainer/docker-compose.yml). The ephemeral integration DB
+// MUST match so that `CREATE EXTENSION vector` (packages/search/src/vector/drivers/pgvector)
+// and any vector-search code path succeed. A plain `postgres:*` image lacks the extension
+// files. Stay on pg16 to avoid behavioral drift in the existing suite; only add pgvector.
+const DEFAULT_EPHEMERAL_POSTGRES_IMAGE = 'pgvector/pgvector:pg16'
+// Eagerly create the extensions the platform relies on so they are guaranteed present in the
+// fresh database, not merely available in the image. The ephemeral superuser can run these.
+// Mirrors docker/postgres-init.sh (default DB + template1 so any future DB inherits them).
+const EPHEMERAL_POSTGRES_INIT_SQL = `CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+\\connect template1
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+`
+
+export function resolveEphemeralPostgresImage(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[EPHEMERAL_POSTGRES_IMAGE_ENV_VAR]?.trim()
+  return override && override.length > 0 ? override : DEFAULT_EPHEMERAL_POSTGRES_IMAGE
+}
+
+export function ephemeralPostgresInitSql(): string {
+  return EPHEMERAL_POSTGRES_INIT_SQL
+}
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
   /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
@@ -774,6 +799,14 @@ function delay(milliseconds: number): Promise<void> {
   })
 }
 
+// Each readiness probe fetch is bounded so a single stuck connection cannot consume the whole
+// readiness budget; on timeout it surfaces as a probe failure and the next cycle retries.
+const READINESS_PROBE_FETCH_TIMEOUT_MS = 15_000
+
+function probeFetch(input: string, init: FetchWithTimeoutInit = {}): Promise<Response> {
+  return fetchWithTimeout(input, { timeoutMs: READINESS_PROBE_FETCH_TIMEOUT_MS, ...init })
+}
+
 export function resolveBuildCacheTtlSeconds(logPrefix: string): number {
   const rawValue = process.env[BUILD_CACHE_TTL_ENV_VAR]
   if (!rawValue) {
@@ -1105,10 +1138,17 @@ export async function shouldRebuildBuildArtifacts(
 }
 
 async function getFreePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
+  const tryListen = (host: string): Promise<number | null> => new Promise((resolve, reject) => {
     const server = createServer()
-    server.on('error', reject)
-    server.listen(0, '127.0.0.1', () => {
+    server.on('error', (error) => {
+      const errorCode = (error as NodeJS.ErrnoException).code
+      if (errorCode === 'EAFNOSUPPORT') {
+        resolve(null)
+        return
+      }
+      reject(error)
+    })
+    server.listen(0, host, () => {
       const address = server.address()
       if (!address || typeof address === 'string') {
         server.close()
@@ -1125,6 +1165,8 @@ async function getFreePort(): Promise<number> {
       })
     })
   })
+
+  return (await tryListen('::')) ?? await tryListen('127.0.0.1') ?? Promise.reject(new Error('Unable to allocate free port'))
 }
 
 async function isPortAvailable(port: number): Promise<boolean> {
@@ -1145,17 +1187,17 @@ async function isPortAvailable(port: number): Promise<boolean> {
     })
   })
 
+  const wildcardIpv6Availability = await canBind('::')
+  if (wildcardIpv6Availability === false) {
+    return false
+  }
+
   const ipv4Availability = await canBind('127.0.0.1')
   if (ipv4Availability === false) {
     return false
   }
 
-  const ipv6Availability = await canBind('::1')
-  if (ipv6Availability === false) {
-    return false
-  }
-
-  return ipv4Availability === true || ipv6Availability === true
+  return wildcardIpv6Availability === true || ipv4Availability === true
 }
 
 async function getPreferredPort(preferredPort: number): Promise<number> {
@@ -1263,7 +1305,7 @@ function isSuccessfulBrowserNavigationStatus(status: number): boolean {
 
 async function probeLoginPage(baseUrl: string): Promise<LoginPageProbeResult> {
   try {
-    const response = await fetch(`${baseUrl}/login`, {
+    const response = await probeFetch(`${baseUrl}/login`, {
       method: 'GET',
       redirect: 'manual',
     })
@@ -1309,7 +1351,7 @@ async function probeBackendLoginEndpoint(baseUrl: string): Promise<BackendLoginP
     const form = new URLSearchParams()
     form.set('email', 'integration-healthcheck@example.invalid')
     form.set('password', 'invalid-password')
-    const response = await fetch(`${baseUrl}/api/auth/login`, {
+    const response = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1341,7 +1383,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
     const form = new URLSearchParams()
     form.set('email', 'admin@acme.com')
     form.set('password', 'secret')
-    const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+    const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
       method: 'POST',
       redirect: 'manual',
       headers: {
@@ -1372,7 +1414,7 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
       }
     }
 
-    const apiResponse = await fetch(`${baseUrl}/api/customers/people?pageSize=1`, {
+    const apiResponse = await probeFetch(`${baseUrl}/api/customers/people?pageSize=1`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -1643,13 +1685,31 @@ function buildReusableEnvironment(
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // Integration probe + tests expect `admin@acme.com / secret` and
+    // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
+    // password resolution through the random-fallback branch unless these
+    // env vars are explicitly set; without the override every fresh
+    // ephemeral run would mint random passwords and the login probe would
+    // never converge. This is the documented production contract: set
+    // OM_INIT_*_PASSWORD to fix the seeded credential.
+    OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+    OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SECURITY: process.env.OM_ENABLE_ENTERPRISE_MODULES_SECURITY ?? enterpriseModulesFlag,
     OM_TEST_MODE: '1',
     OM_TEST_AUTH_RATE_LIMIT_MODE: 'opt-in',
+    // Tests assert on access_logs immediately after CRUD reads; keep the
+    // blocking write path on inside the integration runtime so tests do
+    // not have to call flushPendingCrudAccessLogs() explicitly.
+    OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+    // Keep the bus in the Playwright process (used by in-test queue-drain helpers)
+    // on the same delivery mode as the app server it drives: inline persistent
+    // delivery so event side effects are deterministic for assertions. See the
+    // matching OM_EVENTS_SINGLE_DELIVERY note on the app server environment below.
+    OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
@@ -1728,30 +1788,51 @@ export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptio
   }
 }
 
-async function waitForApplicationReadiness(
+export async function waitForApplicationReadiness(
   baseUrl: string,
   appProcess: ChildProcess,
-  options: { timeoutMs: number },
+  options: { timeoutMs: number; intervalMs?: number; stabilizationMs?: number },
 ): Promise<void> {
   const startTimestamp = Date.now()
-  const exitPromise = getProcessExitPromise(appProcess)
-  const readinessStabilizationMs = 600
+  const intervalMs = options.intervalMs ?? APP_READY_INTERVAL_MS
+  const readinessStabilizationMs = options.stabilizationMs ?? 600
   let lastProbe: ApplicationReadinessProbeResult | null = null
 
+  // Wrap process exit into a single never-rejecting promise so we can race it without piling up
+  // rejection handlers or losing the exit code across loop iterations.
+  let exitCode: number | null = null
+  const exitSignal = getProcessExitPromise(appProcess).then(
+    (code) => {
+      exitCode = code ?? null
+      return { exited: true as const }
+    },
+    () => {
+      exitCode = null
+      return { exited: true as const }
+    },
+  )
+  const exitError = () =>
+    new Error(`Application process exited before readiness check (exit ${exitCode ?? 'unknown'})`)
+
   while (Date.now() - startTimestamp < options.timeoutMs) {
-    const result = await Promise.race([
-      probeApplicationReadiness(baseUrl).then((probe) => ({ kind: 'probe' as const, probe })),
-      exitPromise.then((code) => ({ kind: 'exit' as const, code })),
-      delay(APP_READY_INTERVAL_MS).then(() => ({ kind: 'timeout' as const })),
+    // Run one probe cycle to completion before starting the next. Overlapping cycles (the previous
+    // race-against-a-1s-tick design) abandoned slow probes without cancelling them, so every second
+    // a fresh /api/auth/login attempt piled onto the most expensive endpoint — amplifying the very
+    // contention that delays readiness when 15 ephemeral shards boot in parallel. Each fetch is
+    // independently bounded by fetchWithTimeout, so a stuck connection cannot stall the cycle.
+    const cycle = await Promise.race([
+      probeApplicationReadiness(baseUrl).then((probe) => ({ probe })),
+      exitSignal,
     ])
 
-    if (result.kind === 'probe') {
-      lastProbe = result.probe
-      if (!result.probe.ready) {
-        continue
-      }
+    if ('exited' in cycle) {
+      throw exitError()
+    }
+
+    lastProbe = cycle.probe
+    if (cycle.probe.ready) {
       const processExited = await Promise.race([
-        exitPromise.then(() => true),
+        exitSignal.then(() => true),
         delay(readinessStabilizationMs).then(() => false),
       ])
       if (processExited) {
@@ -1759,8 +1840,15 @@ async function waitForApplicationReadiness(
       }
       return
     }
-    if (result.kind === 'exit') {
-      throw new Error(`Application process exited before readiness check (exit ${result.code ?? 'unknown'})`)
+
+    const remainingMs = options.timeoutMs - (Date.now() - startTimestamp)
+    if (remainingMs <= 0) break
+    const waited = await Promise.race([
+      exitSignal,
+      delay(Math.min(intervalMs, remainingMs)).then(() => null),
+    ])
+    if (waited && 'exited' in waited) {
+      throw exitError()
     }
   }
 
@@ -2881,12 +2969,22 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseUser = 'mercato'
     const databasePassword = 'secret'
 
-    const databaseContainer = await new GenericContainer('postgres:16')
+    const { GenericContainer } = await import('testcontainers')
+    const databaseContainer = await new GenericContainer(resolveEphemeralPostgresImage())
       .withEnvironment({
         POSTGRES_DB: databaseName,
         POSTGRES_USER: databaseUser,
         POSTGRES_PASSWORD: databasePassword,
       })
+      // Guarantee the pgvector (and pgcrypto) extensions exist in the fresh database before the
+      // app boots, so vector-search code paths and `CREATE EXTENSION vector` succeed. The
+      // Postgres entrypoint runs *.sql files under /docker-entrypoint-initdb.d/ on first init.
+      .withCopyContentToContainer([
+        {
+          content: ephemeralPostgresInitSql(),
+          target: '/docker-entrypoint-initdb.d/00-open-mercato-extensions.sql',
+        },
+      ])
       .withExposedPorts(5432)
       .start()
 
@@ -2906,6 +3004,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
+      // See the auth-probe block above: pin derived-user passwords to the
+      // documented 'secret' so the ephemeral login probe converges under
+      // NODE_ENV=production.
+      OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+      OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed
@@ -2936,8 +3039,34 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
-      AUTO_SPAWN_WORKERS: 'false',
+      AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
+      // Process persistent event subscribers INLINE in the request that emits
+      // the event (legacy dual-dispatch), rather than the production default of
+      // worker-only single delivery. Integration specs assert event side effects
+      // (sync mappings, workflow-trigger instances, notifications) immediately
+      // after the emitting API call and poll for them on short budgets; routing
+      // those subscribers through the async events worker makes the side effect
+      // race the poll under the 15-shard CI load, which surfaced as flaky
+      // timeouts in TC-CRM-028 (inbound sync mapping) and TC-WF-008 (event-
+      // triggered workflow) once single-delivery became default-ON. Inline
+      // delivery makes the side effects deterministic for tests; production keeps
+      // the single-delivery default. Honor an explicit override if the caller set one.
+      OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
       AUTO_SPAWN_SCHEDULER: 'false',
+      // Hide the demo feedback floating action button — it lives at
+      // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer
+      // events on row-action menus and other bottom-of-viewport UI elements
+      // (e.g. TC-WF-006 Delete menuitem click). The widget is already gated
+      // on `DEMO_MODE !== 'false'` in the backend layout, so opting out here
+      // only affects the integration test runtime — dev + prod stay unchanged.
+      DEMO_MODE: 'false',
+      // Disable the feature-toggle resolution cache. Tests flip overrides
+      // (e.g. example_customers_sync enabled/bidirectional) between cases; the
+      // 1-minute resolution cache can serve a stale value across set/clear
+      // under fast churn, which made the example.todo.* persistent subscribers
+      // skip enqueueing inbound sync jobs (TC-CRM-028 inbound trio flake).
+      // Fresh DB reads make flag-gated sync deterministic in tests only.
+      OM_FEATURE_TOGGLES_CACHE_DISABLED: '1',
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,

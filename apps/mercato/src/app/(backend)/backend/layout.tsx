@@ -5,6 +5,7 @@ import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AppShell } from '@open-mercato/ui/backend/AppShell'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { profilePathPrefixes } from '@open-mercato/core/modules/auth/lib/profile-sections'
 import { APP_VERSION } from '@open-mercato/shared/lib/version'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
@@ -82,6 +83,11 @@ export default async function BackendLayout({
   const initialCollapsed = collapsedCookie === '1'
   const demoModeEnabled = parseBooleanWithDefault(process.env.DEMO_MODE, true)
   const deployEnv = process.env.DEPLOY_ENV
+  const grantedFeatures = Array.isArray(auth?.features)
+    ? auth.features.filter((feature): feature is string => typeof feature === 'string')
+    : []
+  const canManageUpgradeActions =
+    auth?.isSuperAdmin === true || hasAllFeatures(['configs.manage'], grantedFeatures)
   const baseProductName = translate('appShell.productName', 'Open Mercato')
   const productName = deployEnv && deployEnv !== 'local'
     ? `${baseProductName} (${deployEnv.charAt(0).toUpperCase() + deployEnv.slice(1)})`
@@ -99,6 +105,7 @@ export default async function BackendLayout({
       <AppShell
         productName={productName}
         email={auth?.email}
+        canManageUpgradeActions={canManageUpgradeActions}
         groups={[]}
         currentTitle={currentTitle}
         breadcrumb={breadcrumb}

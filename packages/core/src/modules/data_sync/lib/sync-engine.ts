@@ -435,7 +435,7 @@ export function createSyncEngine(deps: EngineDeps) {
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
         })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
           }
@@ -445,15 +445,15 @@ export function createSyncEngine(deps: EngineDeps) {
           processedCount += processedBatchCount
           totalCount = batch.totalEstimate ?? totalCount
 
-          await syncRunService.updateCounts(
+          await syncRunService.commitBatchProgress(
             run.id,
             {
               ...delta,
               batchesCompleted: 1,
             },
+            batch.cursor,
             scope,
           )
-          await syncRunService.updateCursor(run.id, batch.cursor, scope)
 
           await updateProgress(run.progressJobId, processedCount, totalCount, scope)
           await refreshCoverageSnapshots(batch.refreshCoverageEntityTypes, scope)
@@ -579,7 +579,7 @@ export function createSyncEngine(deps: EngineDeps) {
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
         })) {
-          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId)) {
+          if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
             return
           }
@@ -587,7 +587,7 @@ export function createSyncEngine(deps: EngineDeps) {
           const delta = applyExportCounters(batch)
           processedCount += delta.processedCount
 
-          await syncRunService.updateCounts(
+          await syncRunService.commitBatchProgress(
             run.id,
             {
               createdCount: 0,
@@ -596,10 +596,9 @@ export function createSyncEngine(deps: EngineDeps) {
               failedCount: delta.failedCount,
               batchesCompleted: 1,
             },
+            batch.cursor,
             scope,
           )
-
-          await syncRunService.updateCursor(run.id, batch.cursor, scope)
           await updateProgress(run.progressJobId, processedCount, null, scope)
 
           await writeOperationalLog({

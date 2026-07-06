@@ -7,7 +7,7 @@ description: End-to-end walkthrough — declare an agent, register typed tools, 
 
 This page walks through everything a coding agent needs to add a fully-working AI assistant to a module: agent definition, typed tool packs, ACL grants, mutation approvals, custom UI parts, embedding, and the verification checklist.
 
-It mirrors the [`create-ai-agent` skill](https://github.com/) at `.ai/skills/create-ai-agent/SKILL.md` for use during pull-request review and one-shot generation.
+It mirrors the [`om-create-ai-agent` skill](https://github.com/) at `.ai/skills/om-create-ai-agent/SKILL.md` for use during pull-request review and one-shot generation.
 
 ## Prerequisites
 
@@ -233,7 +233,7 @@ Write-capable agents in this codebase ship with **`mutationPolicy: 'confirm-requ
 
 ### Step 4b — declarative agentic loop (optional)
 
-Multi-step agents that need more than a step cap declare a `loop` block. Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/2026-04-28-ai-agents-agentic-loop-controls.md) is the full reference; the everyday primitives:
+Multi-step agents that need more than a step cap declare a `loop` block. Spec [`2026-04-28-ai-agents-agentic-loop-controls`](https://github.com/open-mercato/open-mercato/blob/main/.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md) is the full reference; the everyday primitives:
 
 ```ts
 const accountAssistant: AiAgentDefinition = {
@@ -367,4 +367,4 @@ Run through this list before opening the PR:
 - [Playground](./playground) — interactive smoke-test surface
 - [Global Launcher](./launcher) — topbar + Cmd/Ctrl+L
 - [Architecture](./architecture) — system map and request flow
-- The `create-ai-agent` skill at `.ai/skills/create-ai-agent/SKILL.md` (consumed by Claude Code agents)
+- The `om-create-ai-agent` skill at `.ai/skills/om-create-ai-agent/SKILL.md` (consumed by Claude Code agents)

@@ -100,7 +100,7 @@ export function RowActions({ items = [] }: { items?: RowActionItem[] }) {
         variant="ghost"
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={(e) => { e.stopPropagation(); setOpen((v) => !v); requestAnimationFrame(updatePosition) }}
+        onClick={(e) => { e.stopPropagation(); setOpen(true); requestAnimationFrame(updatePosition) }}
       >
         <span aria-hidden="true">⋯</span>
         <span className="sr-only">{t('ui.rowActions.openActions', 'Open actions')}</span>

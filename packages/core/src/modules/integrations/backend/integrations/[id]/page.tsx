@@ -24,9 +24,10 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -35,7 +36,7 @@ import {
   type IntegrationCredentialField,
   type IntegrationDetailBuiltInTab,
 } from '@open-mercato/shared/modules/integrations/types'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Activity, AlertTriangle, Bell, Calendar, CheckCircle2, CreditCard, FileText, FileX, HardDrive, Key, MessageSquare, RefreshCw, Settings, Truck, Webhook, XCircle, Zap } from 'lucide-react'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -47,6 +48,11 @@ import {
   resolveIntegrationDetailWidgetSpotId,
   resolveRequestedIntegrationDetailTab,
 } from '../detail-page-widgets'
+import {
+  refreshIntegrationDetailPanels,
+  refreshIntegrationRunActivityPanels,
+} from '../detail-page-refresh'
+import { isValidCredentialUrl } from '../../../lib/credentials-field-validation'
 
 type CredentialField = IntegrationCredentialField
 type BuiltInIntegrationDetailTab = 'credentials' | 'version' | 'health' | 'logs' | 'data-sync-schedule'
@@ -100,8 +106,10 @@ type IntegrationDetail = {
     lastHealthCheckedAt: string | null
     lastHealthLatencyMs: number | null
     enabledAt: string | null
+    updatedAt: string | null
   }
   hasCredentials: boolean
+  credentialsUpdatedAt?: string | null
   healthStatus: 'healthy' | 'degraded' | 'unhealthy' | 'unconfigured'
   analytics: IntegrationLogAnalytics
 }
@@ -148,16 +156,16 @@ type DataSyncRunDetail = {
 }
 
 const LOG_LEVEL_STYLES: Record<string, string> = {
-  info: 'bg-blue-100 text-blue-800',
-  warn: 'bg-yellow-100 text-yellow-800',
-  error: 'bg-red-100 text-red-800',
+  info: 'bg-status-info-bg text-status-info-text',
+  warn: 'bg-status-warning-bg text-status-warning-text',
+  error: 'bg-status-error-bg text-status-error-text',
 }
 
 const HEALTH_STATUS_STYLES: Record<string, string> = {
-  healthy: 'bg-green-100 text-green-800',
-  degraded: 'bg-yellow-100 text-yellow-800',
-  unhealthy: 'bg-red-100 text-red-800',
-  unconfigured: 'bg-zinc-100 text-zinc-700',
+  healthy: 'bg-status-success-bg text-status-success-text',
+  degraded: 'bg-status-warning-bg text-status-warning-text',
+  unhealthy: 'bg-status-error-bg text-status-error-text',
+  unconfigured: 'bg-status-neutral-bg text-status-neutral-text',
 }
 
 const HEALTH_STATUS_ICONS: Record<string, React.ElementType> = {
@@ -203,12 +211,12 @@ function RunActivityStrip({
   const processed = typeof run.progressJob?.processedCount === 'number' ? run.progressJob.processedCount : 0
   const total = typeof run.progressJob?.totalCount === 'number' ? run.progressJob.totalCount : null
   const statusClass = run.status === 'completed'
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
     : run.status === 'failed'
-      ? 'border-red-500/30 bg-red-500/10 text-red-700 dark:text-red-300'
+      ? 'border-status-error-border bg-status-error-bg text-status-error-text'
       : run.status === 'cancelled'
-        ? 'border-zinc-500/30 bg-zinc-500/10 text-zinc-700 dark:text-zinc-300'
-        : 'border-blue-500/30 bg-blue-500/10 text-blue-700 dark:text-blue-300'
+        ? 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
+        : 'border-status-info-border bg-status-info-bg text-status-info-text'
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/20 px-4 py-3 text-sm">
@@ -415,8 +423,10 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const [detail, setDetail] = React.useState<IntegrationDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   const [credValues, setCredValues] = React.useState<Record<string, unknown>>({})
+  const [credentialsUpdatedAt, setCredentialsUpdatedAt] = React.useState<string | null>(null)
   const [credentialsFormKey, setCredentialsFormKey] = React.useState(0)
   const [isSavingCredentials, setIsSavingCredentials] = React.useState(false)
 
@@ -451,6 +461,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       return
     }
     if (showLoading) setError(null)
+    if (showLoading) setIsNotFound(false)
     if (showLoading) setIsLoading(true)
     try {
       const call = await apiCall<IntegrationDetail>(
@@ -459,7 +470,11 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         { fallback: null },
       )
       if (!call.ok || !call.result) {
-        if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        if (call.status === 404) {
+          if (showLoading) setIsNotFound(true)
+        } else {
+          if (showLoading) setError(t('integrations.detail.loadError', 'Failed to load integration'))
+        }
         if (showLoading) setIsLoading(false)
         return
       }
@@ -475,11 +490,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   const loadCredentials = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
     if (!currentIntegrationId) return
-    const call = await apiCall<{ credentials: Record<string, unknown> }>(
+    const call = await apiCall<{ credentials: Record<string, unknown>; updatedAt?: string | null }>(
       `/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`,
       undefined,
       { fallback: null },
     )
+    if (call.ok && call.result) {
+      setCredentialsUpdatedAt(call.result.updatedAt ?? null)
+    }
     if (call.ok && call.result?.credentials) {
       const next = { ...call.result.credentials }
       if (currentIntegrationId === 'storage_s3') {
@@ -524,8 +542,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     spotId: detailWidgetSpotId,
   })
   const refreshDetail = React.useCallback(async () => {
-    await loadDetail({ showLoading: false })
-    await loadCredentials()
+    await refreshIntegrationDetailPanels({ loadDetail, loadCredentials })
   }, [loadCredentials, loadDetail])
   const refreshLogs = React.useCallback(async () => {
     await loadLogs()
@@ -542,13 +559,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     }
     if (options?.showLoading) setIsRefreshingRunActivity(true)
     try {
-      const call = await apiCall<DataSyncRunDetail>(
-        `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
-        undefined,
-        { fallback: null },
-      )
-      await loadLogs()
-      await loadDetail({ showLoading: false })
+      const [call] = await Promise.all([
+        apiCall<DataSyncRunDetail>(
+          `/api/data_sync/runs/${encodeURIComponent(runIdFromUrl)}`,
+          undefined,
+          { fallback: null },
+        ),
+        refreshIntegrationRunActivityPanels({ loadLogs, loadDetail }),
+      ])
       if (call.ok && call.result) {
         setActiveRunDetail(call.result)
         setActiveRunRefreshedAt(new Date().toISOString())
@@ -660,11 +678,14 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
       const call = await runMutationWithContext({
         actionId: 'toggle-state',
         mutationPayload: { integrationId: currentIntegrationId, isEnabled: enabled },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isEnabled: enabled }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/state`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ isEnabled: enabled }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? {
@@ -676,6 +697,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
           },
         } : prev)
         flash(t('integrations.detail.stateUpdated'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.stateError'), 'error')
       }
@@ -684,7 +706,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
     } finally {
       setIsTogglingState(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleSaveCredentials = React.useCallback(async (values: Record<string, unknown>) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -708,33 +730,36 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         actionId: 'save-credentials',
         tabId: 'credentials',
         mutationPayload: { integrationId: currentIntegrationId, credentials: sanitizedValues },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ credentials: sanitizedValues }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(credentialsUpdatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/credentials`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ credentials: sanitizedValues }),
+          }, { fallback: null }),
+        ),
       })
 
       if (call.ok) {
         setCredValues(sanitizedValues)
         setCredentialsFormKey((current) => current + 1)
         flash(t('integrations.detail.credentials.saved'), 'success')
+        void loadCredentials()
         return
       }
 
-      const result = call.result as {
-        error?: string
-        details?: { fieldErrors?: Record<string, string>; formErrors?: string[] }
-      } | null
-      throw createCrudFormError(
-        result?.error ?? t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
-        result?.details?.fieldErrors,
-        { details: result?.details },
+      // Re-raise with status + response body (not a bare message) so the host CrudForm
+      // recognizes optimistic-lock 409s and surfaces them on the unified conflict bar
+      // with a localized message instead of toasting the raw `record_modified` code.
+      // apiCall reads the body via response.clone(), so call.response is still readable.
+      await raiseCrudError(
+        call.response,
+        t('integrations.detail.credentials.saveError', 'Failed to save credentials'),
       )
     } finally {
       setIsSavingCredentials(false)
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [credentialsUpdatedAt, loadCredentials, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleVersionChange = React.useCallback(async (version: string) => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -744,22 +769,26 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         actionId: 'change-version',
         tabId: 'version',
         mutationPayload: { integrationId: currentIntegrationId, apiVersion: version },
-        operation: () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiVersion: version }),
-        }, { fallback: null }),
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.state.updatedAt),
+          () => apiCall(`/api/integrations/${encodeURIComponent(currentIntegrationId)}/version`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ apiVersion: version }),
+          }, { fallback: null }),
+        ),
       })
       if (call.ok) {
         setDetail((prev) => prev ? { ...prev, state: { ...prev.state, apiVersion: version } } : prev)
         flash(t('integrations.detail.version.saved'), 'success')
+        void refreshDetail()
       } else {
         flash(t('integrations.detail.version.saveError'), 'error')
       }
     } catch {
       flash(t('integrations.detail.version.saveError'), 'error')
     }
-  }, [resolveCurrentIntegrationId, runMutationWithContext, t])
+  }, [detail?.state.updatedAt, refreshDetail, resolveCurrentIntegrationId, runMutationWithContext, t])
 
   const handleHealthCheck = React.useCallback(async () => {
     const currentIntegrationId = resolveCurrentIntegrationId()
@@ -868,6 +897,18 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
         }
 
         if (
+          field.type === 'url'
+          && normalizedValue.trim().length > 0
+          && !isValidCredentialUrl(normalizedValue.trim())
+        ) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [field.key],
+            message: t('integrations.detail.credentials.validation.url', '{field} must be a valid http(s) URL.', { field: field.label }),
+          })
+        }
+
+        if (
           field.type === 'select'
           && normalizedValue
           && field.options
@@ -958,8 +999,8 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   ] satisfies IntegrationDetailTab[]
   const StateIcon = resolvedState?.isEnabled ? CheckCircle2 : XCircle
   const stateBadgeClass = resolvedState?.isEnabled
-    ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-    : 'border-zinc-500/30 bg-zinc-500/10 text-zinc-300'
+    ? 'border-status-success-border bg-status-success-bg text-status-success-text'
+    : 'border-status-neutral-border bg-status-neutral-bg text-status-neutral-text'
 
   const showCredentialActions = showCredentialsTab && activeTab === 'credentials' && credentialFormFields.length > 0
 
@@ -1012,6 +1053,19 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
   }, [activeTab, refreshRunActivity, runIdFromUrl])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('integrations.detail.title')} /></PageBody></Page>
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('integrations.detail.notFound', 'Integration not found.')}
+            backHref="/backend/integrations"
+            backLabel={t('integrations.detail.backToList', 'Back to integrations')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
   if (error || !detail || !resolvedIntegration || !resolvedState) {
     return <Page><PageBody><ErrorMessage label={error ?? t('integrations.detail.loadError')} /></PageBody></Page>
   }
@@ -1150,7 +1204,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showCredentialsTab ? (
               <TabsTrigger
                 value="credentials"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Key className="h-4 w-4" />
@@ -1161,7 +1215,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {leadingInjectedTab ? (
               <TabsTrigger
                 value={leadingInjectedTab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
@@ -1172,7 +1226,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showVersionTab ? (
               <TabsTrigger
                 value="version"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <RefreshCw className="h-4 w-4" />
@@ -1183,7 +1237,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showDataSyncScheduleTab ? (
               <TabsTrigger
                 value="data-sync-schedule"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Calendar className="h-4 w-4" />
@@ -1194,7 +1248,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showHealthTab ? (
               <TabsTrigger
                 value="health"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Activity className="h-4 w-4" />
@@ -1205,7 +1259,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             {showLogsTab ? (
               <TabsTrigger
                 value="logs"
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <FileText className="h-4 w-4" />
@@ -1217,7 +1271,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
               <TabsTrigger
                 key={tab.id}
                 value={tab.id}
-                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-foreground aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
+                className="mr-8 h-auto rounded-none border-b-2 border-transparent bg-transparent px-0 py-2.5 text-sm font-medium text-muted-foreground shadow-none transition-colors hover:bg-transparent hover:text-foreground aria-selected:border-accent-indigo aria-selected:bg-transparent aria-selected:text-foreground aria-selected:shadow-none last:mr-0"
               >
                 <span className="inline-flex items-center gap-2">
                   <Settings className="h-4 w-4" />
@@ -1231,7 +1285,7 @@ export default function IntegrationDetailPage({ params }: IntegrationDetailPageP
             <TabsContent value="credentials" className="mt-0">
               <section className="space-y-4 rounded-lg border bg-card p-6">
                 {detail.bundle ? (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
+                  <div className="rounded-lg border border-status-info-border bg-status-info-bg p-3 text-sm text-status-info-text">
                     {t('integrations.detail.credentials.bundleShared', { bundle: detail.bundle.title })}
                   </div>
                 ) : null}

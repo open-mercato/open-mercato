@@ -6,7 +6,9 @@ const expiresAtSchema = z.preprocess((value) => {
   if (value === undefined || value === null || value === '') return null
   const date = value instanceof Date ? value : new Date(String(value))
   return Number.isNaN(date.getTime()) ? undefined : date
-}, z.date().nullable())
+}, z.date().nullable().refine((date) => date === null || date.getTime() > Date.now(), {
+  message: 'expiresAt must be in the future',
+}))
 
 export const createApiKeySchema = z.object({
   name: z.string().min(1).max(120),

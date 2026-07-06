@@ -490,6 +490,7 @@ const dealAnalyzer: AiAgentDefinition = {
     prepareStep: buildDealAnalyzerPrepareStep() as AiAgentDefinition['loop'] extends undefined
       ? never
       : NonNullable<AiAgentDefinition['loop']>['prepareStep'],
+    stopWhen: [{ kind: 'hasToolCall', toolName: 'customers.update_deal_stage' }],
     budget: {
       maxToolCalls: 12,
       maxWallClockMs: 60_000,

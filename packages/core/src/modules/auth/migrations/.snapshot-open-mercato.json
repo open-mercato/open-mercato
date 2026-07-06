@@ -72,6 +72,22 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamptz",
@@ -618,6 +634,22 @@
           "enumItems": [],
           "mappedType": "datetime"
         },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamptz",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": 6,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "datetime"
+        },
         "deleted_at": {
           "name": "deleted_at",
           "type": "timestamptz",
@@ -636,16 +668,6 @@
         }
       },
       "indexes": [
-        {
-          "columnNames": [
-            "email"
-          ],
-          "composite": false,
-          "keyName": "users_email_unique",
-          "constraint": true,
-          "primary": false,
-          "unique": true
-        },
         {
           "columnNames": [
             "email_hash"
@@ -1710,6 +1732,26 @@
         }
       },
       "indexes": [
+        {
+          "keyName": "user_roles_user_id_idx",
+          "columnNames": [
+            "user_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
+        {
+          "keyName": "user_roles_role_id_idx",
+          "columnNames": [
+            "role_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "user_roles_pkey",
           "columnNames": [

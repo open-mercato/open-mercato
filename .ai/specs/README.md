@@ -50,11 +50,12 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | SPEC | Date | Title | Description |
 | --- | --- | --- | --- |
 | [SPEC-008](SPEC-008-2026-01-27-product-quality-widget.md) | 2026-01-27 | Product Quality Widget | Dashboard widget for tracking products with missing images/descriptions |
-| [SPEC-012](SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
-| [SPEC-018](SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` — N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
+| [SPEC-012](implemented/SPEC-012-2026-01-27-ai-assistant-schema-discovery.md) | 2026-01-27 | AI Assistant Schema Discovery | Entity schema extraction and OpenAPI integration for MCP tools |
+| [SPEC-018](implemented/SPEC-018-2026-02-05-safe-entity-flush.md) | 2026-02-05 | Atomic Phased Flush | `withAtomicFlush` — N-phase flush pipeline with optional transactions to prevent UoW data loss and partial commits |
 | [SPEC-021](SPEC-021-2026-02-07-compound-commands-graph-save.md) | 2026-02-07 | Compound Commands & Graph Save | Graph-save pattern for aggregate roots and compound command wrapper for atomic multi-command operations |
 | [SPEC-022](SPEC-022-2026-02-07-pos-module.md) | 2026-02-07 | POS Module | Point of Sale module for in-store retail operations |
 | [SPEC-022a](SPEC-022a-2026-02-09-pos-tile-browsing.md) | 2026-02-09 | POS Tile Browsing | Tile-based product browsing UI for POS checkout |
+| [SPEC-024](SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification (epic-level; not yet implemented) |
 | [SPEC-025](SPEC-025-2026-02-12-ai-assisted-business-rules.md) | 2026-02-12 | AI-Assisted Business Rules | AI-assisted business rule editing |
 | [SPEC-029](SPEC-029-2026-02-17-ecommerce-storefront-module.md) | 2026-02-17 | Ecommerce Storefront Module | Dedicated `ecommerce` core module + `apps/storefront` starter with org-scoped stores, localized catalog APIs, faceted filters, and workflow-driven checkout |
 | [SPEC-033](SPEC-033-2026-02-18-omnibus-price-tracking.md) | 2026-02-18 | Omnibus Price Tracking | EU Omnibus compliance with append-only catalog price history, lowest-price lookback resolution, and admin configuration |
@@ -75,23 +76,32 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [SPEC-055](SPEC-055-2026-02-23-promotions-module.md) | 2026-02-23 | Promotions Module | Standalone promotions module with recursive rule tree, extensible evaluation engine, and resolved cart effects |
 | [SPEC-056](SPEC-056-2026-02-22-whatsapp-ai-chat-integration.md) | 2026-02-22 | WhatsApp AI Chat Integration | WhatsApp conversation history, AI summaries, and tiered AI replies |
 | [SPEC-058](SPEC-058-2026-03-05-sales-native-payment-gateway-refactor.md) | 2026-03-05 | Sales Native Payment Gateway Refactor | Refactor sales module payment gateway integration to native pattern |
-| [SPEC-058](SPEC-058-2026-03-08-custom-route-auth-interceptor-local-pattern.md) | 2026-03-08 | Custom Route Auth Interceptor (Local Pattern) | Pattern spec for custom route authentication interceptors |
-| [SPEC-059](SPEC-059-2026-03-08-middleware-injection-registry.md) | 2026-03-08 | Middleware Injection Registry | Middleware injection registry for extensible request processing |
+| [SPEC-058](implemented/SPEC-058-2026-03-08-custom-route-auth-interceptor-local-pattern.md) | 2026-03-08 | Custom Route Auth Interceptor (Local Pattern) | Pattern spec for custom route authentication interceptors |
+| [SPEC-059](implemented/SPEC-059-2026-03-08-middleware-injection-registry.md) | 2026-03-08 | Middleware Injection Registry | Middleware injection registry for extensible request processing |
 | [SPEC-059](SPEC-059-2026-03-09-order-status-history-tab.md) | 2026-03-09 | Order Status History Tab (Superseded) | Feature merged into existing History tab |
 | [SPEC-062](SPEC-062-2026-03-18-sales-native-shipping-carrier-refactor.md) | 2026-03-18 | Sales Native Shipping Carrier Refactor | Refactor sales module shipping carrier integration to native pattern |
-| [SPEC-067](SPEC-067-2026-03-17-cli-standalone-app-support.md) | 2026-03-17 | CLI Standalone App Support | CLI tooling support for standalone app development |
+| [SPEC-067](implemented/SPEC-067-2026-03-17-cli-standalone-app-support.md) | 2026-03-17 | CLI Standalone App Support | CLI tooling support for standalone app development |
 | [SPEC-068](SPEC-068-2026-03-02-use-case-examples-framework.md) | 2026-03-02 | Use-Case Examples Framework | `create-mercato-app --example` pattern for bootstrapping use-case solutions |
-| [SPEC-069](SPEC-069-2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies |
+| [SPEC-069](implemented/2026-02-23-core-timesheets.md) | 2026-02-23 | Core Timesheets Functionality | Core timesheets functionality in the `staff` module with My Timesheets, Projects, and phase-based approvals/policies |
 | [Checkout](2026-03-19-checkout-simple-checkout.md) | 2026-03-19 | Simple Checkout | Checkout flow specification for Phase B |
 | [Checkout Wireframes](2026-03-19-checkout-simple-checkout-wireframes.md) | 2026-03-19 | Simple Checkout Wireframes | Companion wireframes for the Simple Checkout spec |
-| [Registry](2026-03-20-decentralize-module-registry-generator.md) | 2026-03-20 | Decentralize Module Registry Generator | CLI refactoring for decentralized module registry generation |
+| [Registry](implemented/2026-03-20-decentralize-module-registry-generator.md) | 2026-03-20 | Decentralize Module Registry Generator | CLI refactoring for decentralized module registry generation |
 | [Sync Playbook](2026-03-20-official-modules-platform-sync-playbook.md) | 2026-03-20 | Official Modules Platform Sync Playbook | Playbook for syncing official modules with platform releases |
 | [Snapshots](2026-03-21-open-mercato-develop-snapshot-release.md) | 2026-03-21 | Develop Snapshot Release | Develop branch snapshot release workflow |
 | [Webhooks](2026-03-23-inbound-webhook-handlers.md) | 2026-03-23 | Inbound Webhook Handlers | Inbound webhook handler architecture and registration |
 | [Build Check](2026-03-25-safe-build-dev-coexistence.md) | 2026-03-25 | Safe Package Verification Build | Isolated `build:check` output so verification builds never touch live `dist/` artifacts |
-| [Not Found](2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
+| [Not Found](implemented/2026-03-23-unified-record-not-found-ui-state.md) | 2026-03-23 | Unified Record Not-Found UI State | Consistent UI state for missing/deleted records |
 | [Sync Excel Customers Import Foundation](2026-03-29-sync-excel-customers-import-foundation.md) | 2026-03-29 | Sync Excel Customers Import Foundation | Partially implemented `sync_excel` CSV import provider for `customers.person`, including upload/preview/import flow, integration-detail UI, and an explicit pending DB migration blocker |
-| [API Key Error](2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
+| [API Key Error](implemented/2026-04-16-actionable-missing-api-key-error.md) | 2026-04-16 | Actionable Missing API Key Error | Include expected env var names in missing AI provider API key error (#1433) |
+| [Harness Validation Gate](implemented/2026-05-28-harness-validation-gate.md) | 2026-05-28 | Harness Validation Gate + Module Scaffold Template Fixes | Correct stale API patterns in module-scaffold skill template; add a SKILL-level post-scaffold validation gate (yarn generate → structural cache purge → ACL sync → typecheck → /login check) in `module-scaffold/SKILL.md` §12 (#2209) |
+| [Dictionary Entry Sort Mode](implemented/2026-06-02-dictionary-entry-sort-mode.md) | 2026-06-02 | Dictionary Entry Sort Mode | Configurable server-side dictionary entry ordering for generic and customer dictionaries |
+| [runCrudCommandWrite](implemented/2026-06-05-run-crud-command-write-helper.md) | 2026-06-05 | runCrudCommandWrite Helper | Unified command-write helper composing fork → atomic flush → custom fields → side-effects in the only correct order (#2598) |
+| [Sales Payments Tenant Scope](implemented/2026-06-06-sales-recompute-order-payment-totals-tenant-scope.md) | 2026-06-06 | sales(payments): scope `recomputeOrderPaymentTotals` order lookups by tenant/organization | Defence-in-depth scope filter + `ensureSameScope` on 7 `findOne(SalesOrder, …)` sites in `payments.ts` (#2111) |
+| [Checkout Cookie sessionVersion](implemented/2026-06-06-checkout-access-cookie-non-reversible-session-version.md) | 2026-06-06 | Derive checkout access cookie sessionVersion | Non-reversible HMAC-SHA256 derivation of the embedded `sessionVersion` so the bcrypt `passwordHash` never appears in the client-readable cookie payload (#2675) |
+| [Organization Sidebar Logo](2026-06-08-organization-sidebar-logo.md) | 2026-06-08 | Organization Sidebar Logo | Organization-level backend sidebar logo branding with additive `organizations.logo_url`, branding API, Directory settings UI, and admin nav brand payload |
+| [Coding-Agent Session Collection](2026-06-15-coding-agent-session-collection.md) | 2026-06-15 | Coding-Agent Session Collection (Dev Session Insights) | Opt-in, consent-gated collection of sanitized Claude Code / Codex sessions: `create-mercato-app` hook installer, local PII/secret redaction (`@open-mercato/dev-session-kit`), fail-open shipper, and the OSS `coding_sessions` ingestion module (token `202` endpoint, async worker with server-side re-scan + quarantine, filesystem-first blobs + metadata index). Complements the telemetry/phone-home specs |
+| [Dictionary Custom Field Multiselect](2026-06-19-dictionary-custom-field-multiselect.md) | 2026-06-19 | Dictionary Custom Field Multiselect | Dictionary-backed custom fields can opt into multi-select CRUD form rendering while reusing existing EAV array persistence |
+| [Package Previews](2026-06-22-label-based-package-previews.md) | 2026-06-22 | Label-Based Package Previews | Label-triggered pkg.pr.new previews with npm canary snapshots moved behind a separate opt-in label |
 
 ### Implemented Specifications
 
@@ -117,7 +127,6 @@ Fully implemented and deployed. Canonical files live in [`implemented/`](impleme
 | [SPEC-019](implemented/SPEC-019-2026-02-05-two-factor-authentication.md) | 2026-02-05 | Two-Factor Authentication | Legacy OSS placeholder; enterprise implementation maintained separately |
 | [SPEC-020](implemented/SPEC-020-2026-02-07-related-entity-version-history.md) | 2026-02-07 | Related Entity Version History | Show child entity changes in parent entity version history panel |
 | [SPEC-023](implemented/SPEC-023-2026-02-11-confirmation-dialog-migration.md) | 2026-02-11 | ConfirmDialog Refactor | Native `<dialog>` migration and `window.confirm` elimination |
-| [SPEC-024](implemented/SPEC-024-2026-02-11-financial-module.md) | 2026-02-11 | ERP Financial Modules | ERP financial modules specification |
 | [SPEC-026](implemented/SPEC-026-2026-02-11-catalog-localization.md) | 2026-02-11 | System-Wide Entity Translations | Dedicated `entity_translations` table, global locale support, `applyLocalizedContent` helper |
 | [SPEC-026a](implemented/SPEC-026a-2026-02-15-entity-translations-phase2.md) | 2026-02-15 | Entity Translations Phase 2 | TranslationManager UI, search indexer `l10n:*` fields, per-entity translatable field definitions |
 | [SPEC-027](implemented/SPEC-027-2026-02-08-integration-testing-automation.md) | 2026-02-08 | Integration Testing Automation | Integration testing automation specification |

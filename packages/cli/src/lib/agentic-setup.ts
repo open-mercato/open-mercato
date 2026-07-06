@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync, readdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Project, SyntaxKind } from 'ts-morph'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // In the built output (dist/lib/agentic-setup.js), __dirname is dist/lib/.
@@ -52,14 +53,125 @@ function copyFile(srcDir: string, srcRelative: string, destPath: string): void {
   copyFileSync(srcPath, destPath)
 }
 
+// ─── Module fact-sheet selection (mirrors packages/create-app/src/setup/tools/shared.ts) ──
+
+// AST-parse the static `enabledModules` array literal in the app's src/modules.ts
+// and collect each entry's `id`. Only the static literal is read (conditional
+// .push()/spread entries are intentionally not seen — see spec D6).
+function readEnabledModuleIds(modulesPath: string): string[] {
+  if (!existsSync(modulesPath)) return []
+  try {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sourceFile = project.createSourceFile('modules.ts', readFileSync(modulesPath, 'utf-8'))
+    const declaration = sourceFile.getVariableDeclaration('enabledModules')
+    const arrayLiteral = declaration?.getInitializerIfKind(SyntaxKind.ArrayLiteralExpression)
+    if (!arrayLiteral) return []
+    const ids: string[] = []
+    for (const element of arrayLiteral.getElements()) {
+      const objectLiteral = element.asKind(SyntaxKind.ObjectLiteralExpression)
+      if (!objectLiteral) continue
+      const idProperty = objectLiteral.getProperty('id')?.asKind(SyntaxKind.PropertyAssignment)
+      const idValue = idProperty?.getInitializerIfKind(SyntaxKind.StringLiteral)?.getLiteralValue()
+      if (idValue) ids.push(idValue)
+    }
+    return ids
+  } catch {
+    return []
+  }
+}
+
+// Resolve which per-module fact-sheets to ship: the intersection of the bundled
+// fact-sheets (the D5 allowlist, materialized by build.mjs) with the app's enabled
+// modules. Falls back to the full bundled set when the enabled set cannot be read
+// (R5 — degraded, never empty).
+function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
+  const available = existsSync(modulesSubdir)
+    ? readdirSync(modulesSubdir)
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => file.replace(/\.md$/, ''))
+    : []
+  if (available.length === 0) return []
+  const enabled = new Set(readEnabledModuleIds(join(targetDir, 'src', 'modules.ts')))
+  const selected = available.filter((moduleId) => enabled.has(moduleId))
+  return selected.length > 0 ? selected : available
+}
+
+const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
+const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
+
+// Read each module's guide label from the bundled `module-facts.json` (emitted by
+// build.mjs from the generator's extraction of each module's own `metadata`). The
+// label falls back description → title → generic, so the CLI never re-declares
+// specific module names or descriptions. A missing/malformed sidecar degrades to an
+// empty map (generic labels), never a throw.
+function readModuleGuideLabels(guidesDir: string): Record<string, string> {
+  const factsPath = join(guidesDir, 'module-facts.json')
+  if (!existsSync(factsPath)) return {}
+  try {
+    const parsed = JSON.parse(readFileSync(factsPath, 'utf-8')) as Record<
+      string,
+      { description?: unknown; title?: unknown }
+    >
+    const labels: Record<string, string> = {}
+    for (const [moduleId, entry] of Object.entries(parsed)) {
+      const label =
+        (entry && typeof entry.description === 'string' && entry.description) ||
+        (entry && typeof entry.title === 'string' && entry.title) ||
+        ''
+      if (label) labels[moduleId] = label
+    }
+    return labels
+  } catch {
+    return {}
+  }
+}
+
+function renderModuleGuidesBlock(selected: string[], labels: Record<string, string>): string {
+  if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const rows = selected.map((moduleId) => {
+    const label = labels[moduleId] ?? `Use the ${moduleId} module`
+    return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
+  })
+  return ['| Task | Load |', '|---|---|', ...rows].join('\n')
+}
+
+// Regenerate the marker-delimited Module-Specific Guides block in the written
+// AGENTS.md from the selected module set. Replaces strictly between the markers so
+// surrounding prose is untouched and repeat runs are idempotent.
+function injectModuleGuides(
+  agentsMdPath: string,
+  selected: string[],
+  labels: Record<string, string> = {},
+): void {
+  if (!existsSync(agentsMdPath)) return
+  const content = readFileSync(agentsMdPath, 'utf-8')
+  const startIndex = content.indexOf(MODULE_GUIDES_START)
+  const endIndex = content.indexOf(MODULE_GUIDES_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.warn(
+      `[agentic] Module-Specific Guides markers (${MODULE_GUIDES_START} … ${MODULE_GUIDES_END}) not found in ${agentsMdPath}; the per-module guide list was not generated.`,
+    )
+    return
+  }
+  const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
+  const after = content.slice(endIndex)
+  const next = `${before}\n${renderModuleGuidesBlock(selected, labels)}\n${after}`
+  if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
 // ─── Generators ──────────────────────────────────────────────────────────
 
 function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
   const srcDir = join(AGENTIC_DIR, 'shared')
 
+  // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  const moduleGuideLabels = readModuleGuideLabels(GUIDES_DIR)
+
   // AGENTS.md
   writeTemplate(srcDir, 'AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules, moduleGuideLabels)
 
   // .ai/ structure
   writeTemplate(srcDir, 'ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)
@@ -69,127 +181,158 @@ function generateShared(config: AgenticConfig): void {
   // .ai/skills/
   writeTemplate(
     srcDir,
-    'ai/skills/spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'SKILL.md'),
+    'ai/skills/om-spec-writing/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
     config,
   )
   copyFile(
     srcDir,
-    'ai/skills/spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-template.md'),
+    'ai/skills/om-spec-writing/references/spec-template.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'spec-writing', 'references', 'spec-checklist.md'),
+    'ai/skills/om-spec-writing/references/spec-checklist.md',
+    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/backend-ui-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'SKILL.md'),
+    'ai/skills/om-backend-ui-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'SKILL.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/backend-ui-design/references/ui-components.md',
-    join(targetDir, '.ai', 'skills', 'backend-ui-design', 'references', 'ui-components.md'),
+    'ai/skills/om-backend-ui-design/references/ui-components.md',
+    join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'code-review', 'SKILL.md'),
+    'ai/skills/om-code-review/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'code-review', 'references', 'review-checklist.md'),
+    'ai/skills/om-code-review/references/review-checklist.md',
+    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
-  copyFile(srcDir, 'ai/skills/integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'integration-builder', 'SKILL.md'))
+  copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
+  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      srcDir,
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
   copyFile(
     srcDir,
-    'ai/skills/integration-builder/references/adapter-contracts.md',
-    join(targetDir, '.ai', 'skills', 'integration-builder', 'references', 'adapter-contracts.md'),
+    'ai/skills/om-integration-builder/references/adapter-contracts.md',
+    join(targetDir, '.ai', 'skills', 'om-integration-builder', 'references', 'adapter-contracts.md'),
+  )
+  if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
+    copyFile(
+      srcDir,
+      'ai/skills/om-integration-builder/STANDALONE.md',
+      join(targetDir, '.ai', 'skills', 'om-integration-builder', 'STANDALONE.md'),
+    )
+  }
+
+  copyFile(
+    srcDir,
+    'ai/skills/om-system-extension/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-system-extension', 'SKILL.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-system-extension/references/extension-contracts.md',
+    join(targetDir, '.ai', 'skills', 'om-system-extension', 'references', 'extension-contracts.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/system-extension/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'SKILL.md'),
+    'ai/skills/om-module-scaffold/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'SKILL.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/system-extension/references/extension-contracts.md',
-    join(targetDir, '.ai', 'skills', 'system-extension', 'references', 'extension-contracts.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/module-scaffold/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'SKILL.md'),
+    'ai/skills/om-module-scaffold/references/naming-conventions.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'naming-conventions.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/module-scaffold/references/naming-conventions.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'naming-conventions.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/module-scaffold/references/navigation-patterns.md',
-    join(targetDir, '.ai', 'skills', 'module-scaffold', 'references', 'navigation-patterns.md'),
+    'ai/skills/om-module-scaffold/references/navigation-patterns.md',
+    join(targetDir, '.ai', 'skills', 'om-module-scaffold', 'references', 'navigation-patterns.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/troubleshooter/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'SKILL.md'),
+    'ai/skills/om-troubleshooter/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'SKILL.md'),
   )
   copyFile(
     srcDir,
-    'ai/skills/troubleshooter/references/diagnostic-commands.md',
-    join(targetDir, '.ai', 'skills', 'troubleshooter', 'references', 'diagnostic-commands.md'),
-  )
-
-  copyFile(
-    srcDir,
-    'ai/skills/eject-and-customize/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'eject-and-customize', 'SKILL.md'),
+    'ai/skills/om-troubleshooter/references/diagnostic-commands.md',
+    join(targetDir, '.ai', 'skills', 'om-troubleshooter', 'references', 'diagnostic-commands.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/data-model-design/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/data-model-design/references/mikro-orm-cheatsheet.md',
-    join(targetDir, '.ai', 'skills', 'data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
+    'ai/skills/om-eject-and-customize/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-eject-and-customize', 'SKILL.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/implement-spec/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'implement-spec', 'SKILL.md'),
+    'ai/skills/om-data-model-design/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'SKILL.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-data-model-design/references/mikro-orm-cheatsheet.md',
+    join(targetDir, '.ai', 'skills', 'om-data-model-design', 'references', 'mikro-orm-cheatsheet.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'integration-tests', 'SKILL.md'),
+    'ai/skills/om-implement-spec/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-implement-spec', 'SKILL.md'),
   )
 
   copyFile(
     srcDir,
-    'ai/skills/auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
+    'ai/skills/om-integration-tests/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
+  )
+
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/skills-catalog.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'skills-catalog.md'),
+  )
+  copyFile(
+    srcDir,
+    'ai/skills/om-help/references/workflow-sequences.md',
+    join(targetDir, '.ai', 'skills', 'om-help', 'references', 'workflow-sequences.md'),
+  )
+
+  copyFile(
+    srcDir,
+    'ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
   for (const autoSkill of [
-    'auto-create-pr',
-    'auto-continue-pr',
-    'auto-create-pr-loop',
-    'auto-continue-pr-loop',
-    'auto-review-pr',
-    'auto-fix-github',
+    'om-auto-create-pr',
+    'om-auto-continue-pr',
+    'om-auto-create-pr-loop',
+    'om-auto-continue-pr-loop',
+    'om-auto-review-pr',
+    'om-auto-fix-github',
+    'om-prepare-issue',
   ]) {
     copyFile(
       srcDir,
@@ -207,12 +350,15 @@ function generateShared(config: AgenticConfig): void {
 
   copyFile(
     srcDir,
-    'ai/skills/trim-unused-modules/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'trim-unused-modules', 'SKILL.md'),
+    'ai/skills/om-trim-unused-modules/SKILL.md',
+    join(targetDir, '.ai', 'skills', 'om-trim-unused-modules', 'SKILL.md'),
   )
 
   copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
+  // Package & conceptual guides are copied wholesale (framework-wide). Per-module
+  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // module set; the combined module-facts.json sidecar is copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -221,6 +367,20 @@ function generateShared(config: AgenticConfig): void {
       const destPath = join(guidesDestDir, file)
       ensureDir(destPath)
       copyFileSync(srcPath, destPath)
+    }
+
+    const moduleFactsPath = join(GUIDES_DIR, 'module-facts.json')
+    if (existsSync(moduleFactsPath)) {
+      const destPath = join(guidesDestDir, 'module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsPath, destPath)
+    }
+
+    const modulesSubdir = join(GUIDES_DIR, 'modules')
+    for (const moduleId of selectedModules) {
+      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
+      ensureDir(destPath)
+      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
     }
   }
 }

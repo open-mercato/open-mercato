@@ -76,49 +76,13 @@ import { useAiChatUpload } from './useAiChatUpload'
 import { useAiShortcuts } from './useAiShortcuts'
 import { LoopTracePanel, type LoopTracePanelTrace } from './LoopTracePanel'
 import { AiIcon } from './AiIcon'
+import { readModelPickerValue, writeModelPickerValue } from './modelPickerStorage'
 
 // Cap inline previews so we do not blow past localStorage quota (~5MB on most
 // browsers). Images larger than this still upload + send to the LLM as inline
 // base64 server-side; only the in-chat preview is dropped on reload.
 const PREVIEW_DATA_URL_MAX_BYTES = 2 * 1024 * 1024
 const COMPACT_FOOTER_MAX_WIDTH = 640
-
-const MODEL_PICKER_STORAGE_PREFIX = 'om-ai-model-picker:'
-
-function readModelPickerValue(agentId: string): ModelPickerValue | null {
-  if (typeof window === 'undefined') return null
-  try {
-    const raw = window.localStorage.getItem(`${MODEL_PICKER_STORAGE_PREFIX}${agentId}`)
-    if (!raw) return null
-    const parsed = JSON.parse(raw) as unknown
-    if (
-      parsed &&
-      typeof parsed === 'object' &&
-      typeof (parsed as Record<string, unknown>).providerId === 'string' &&
-      typeof (parsed as Record<string, unknown>).modelId === 'string'
-    ) {
-      const value = parsed as ModelPickerValue
-      return { providerId: value.providerId, modelId: value.modelId }
-    }
-    return null
-  } catch {
-    return null
-  }
-}
-
-function writeModelPickerValue(agentId: string, value: ModelPickerValue | null): void {
-  if (typeof window === 'undefined') return
-  try {
-    const key = `${MODEL_PICKER_STORAGE_PREFIX}${agentId}`
-    if (value === null) {
-      window.localStorage.removeItem(key)
-    } else {
-      window.localStorage.setItem(key, JSON.stringify({ providerId: value.providerId, modelId: value.modelId }))
-    }
-  } catch {
-    // Quota exceeded / privacy mode — silently ignore.
-  }
-}
 
 interface ModelsApiResponse {
   agentId: string
@@ -305,6 +269,18 @@ export interface AiChatProps {
   welcomeDescription?: string
   /** Initial compact composer state used before the footer has been measured. */
   defaultCompactFooter?: boolean
+  /** Optional extra action nodes rendered in the conversation header bar. */
+  headerActions?: React.ReactNode
+  /** Called once on mount (and on reset) with the effective conversation id. */
+  onConversationIdChange?: (conversationId: string) => void
+  /**
+   * Called when the server returns 404 for the active `conversationId`,
+   * e.g. when the id was carried over from a previous tenant/org scope
+   * and no longer exists. The host (typically the AI dock) should remove
+   * the corresponding session entry so the stale tab disappears instead
+   * of staying empty.
+   */
+  onConversationNotFound?: () => void
 }
 
 interface ServerEmittedUiPartRef {
@@ -420,7 +396,7 @@ function formatToolCaption(call: AiChatToolCallSnapshot): string {
 
 /**
  * Visible agent task plan rendered above raw tool-call rows. Phase 1
- * implementation of spec `.ai/specs/2026-05-13-ai-chat-visible-task-plan.md`:
+ * implementation of spec `.ai/specs/implemented/2026-05-13-ai-chat-visible-task-plan.md`:
  * compact, fixed-height rows with icon + label + status badge so the
  * panel does not jump while streaming. Source of truth is the
  * client-local `taskPlan` array on the assistant message.
@@ -773,16 +749,22 @@ function MessageRow({
   message,
   registry,
   onMutationRequested,
+  isOwner,
 }: {
   message: AiChatMessage
   registry?: AiUiPartRegistry
   onMutationRequested?: (pendingActionId: string) => void
+  /** Whether the current viewer owns the conversation. Used to label foreign user messages. */
+  isOwner?: boolean | null
 }) {
   const t = useT()
   const isAssistant = message.role === 'assistant'
+  const isOtherUsersMessage = !isAssistant && isOwner === false
   const label = isAssistant
     ? t('ai_assistant.chat.assistantRoleLabel', 'Assistant')
-    : t('ai_assistant.chat.userRoleLabel', 'You')
+    : isOtherUsersMessage
+      ? t('ai_assistant.chat.ownerRoleLabel', 'Owner')
+      : t('ai_assistant.chat.userRoleLabel', 'You')
   const Icon = isAssistant ? Bot : User
   const [copied, setCopied] = React.useState(false)
   const copyTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1135,8 +1117,15 @@ export function AiChat({
   welcomeTitle,
   welcomeDescription,
   defaultCompactFooter = false,
+  headerActions,
+  onConversationIdChange,
+  onConversationNotFound,
 }: AiChatProps) {
   const t = useT()
+  const onConversationIdChangeRef = React.useRef(onConversationIdChange)
+  React.useLayoutEffect(() => {
+    onConversationIdChangeRef.current = onConversationIdChange
+  })
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
   const transcriptRef = React.useRef<HTMLDivElement | null>(null)
   const fileInputRef = React.useRef<HTMLInputElement | null>(null)
@@ -1261,11 +1250,16 @@ export function AiChat({
     conversationId,
     providerOverride: effectiveModelPickerValue?.providerId ?? null,
     modelOverride: effectiveModelPickerValue?.modelId ?? null,
+    onConversationNotFound,
   })
 
   const isStreaming = chat.status === 'streaming'
   const isSubmitting = chat.status === 'submitting'
   const isBusy = isStreaming || isSubmitting
+
+  React.useEffect(() => {
+    onConversationIdChangeRef.current?.(chat.conversationId)
+  }, [chat.conversationId])
 
   // Surface a "Thinking..." placeholder so the chat does not look frozen.
   // Visible whenever ANY of the following is true while a turn is in flight:
@@ -1569,6 +1563,7 @@ export function AiChat({
             </span>
           )}
         </div>
+        {headerActions ?? null}
         <IconButton
           type="button"
           variant="ghost"
@@ -1603,6 +1598,7 @@ export function AiChat({
               message={message}
               registry={activeRegistry}
               onMutationRequested={onMutationRequested}
+              isOwner={chat.isOwner}
             />
           ))
         )}
@@ -1639,8 +1635,16 @@ export function AiChat({
         </Alert>
       ) : null}
 
+      {chat.isOwner === false ? (
+        <div
+          className="flex items-center justify-center rounded-md border border-border bg-muted/30 px-3 py-3 text-xs text-muted-foreground"
+          data-ai-chat-read-only-notice=""
+        >
+          {t('ai_assistant.chat.readOnlyNotice', 'This is a shared conversation. You can read but not reply.')}
+        </div>
+      ) : null}
       <form
-        className="flex min-w-0 flex-col gap-2"
+        className={cn('flex min-w-0 flex-col gap-2', chat.isOwner === false && 'hidden')}
         onSubmit={(event) => {
           event.preventDefault()
           handleSubmit()

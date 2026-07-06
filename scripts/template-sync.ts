@@ -52,6 +52,16 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-cache-purge.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-inotify-limits.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-inotify-limits.mjs'),
+    rel: 'scripts/dev-inotify-limits.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'fix-wsl-inotify.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'fix-wsl-inotify.mjs'),
+    rel: 'scripts/fix-wsl-inotify.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-splash-state.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-splash-state.mjs'),
     rel: 'scripts/dev-splash-state.mjs',
@@ -77,9 +87,19 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     rel: 'scripts/dev-orchestration-log-policy.mjs',
   },
   {
+    sourceFile: path.join(ROOT, 'scripts', 'dev-shutdown-utils.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-shutdown-utils.mjs'),
+    rel: 'scripts/dev-shutdown-utils.mjs',
+  },
+  {
     sourceFile: path.join(ROOT, 'scripts', 'dev-database-url.mjs'),
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-database-url.mjs'),
     rel: 'scripts/dev-database-url.mjs',
+  },
+  {
+    sourceFile: path.join(ROOT, 'scripts', 'watch-scope.mjs'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'watch-scope.mjs'),
+    rel: 'scripts/watch-scope.mjs',
   },
   {
     sourceFile: path.join(ROOT, 'apps', 'mercato', 'scripts', 'dev.mjs'),
@@ -91,8 +111,15 @@ const EXPLICIT_TEMPLATE_FILE_MAPPINGS = [
     templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'scripts', 'dev-runtime-log-policy.mjs'),
     rel: 'scripts/dev-runtime-log-policy.mjs',
   },
+  {
+    sourceFile: path.join(ROOT, 'docker', 'redis', 'redis.conf'),
+    templateFile: path.join(ROOT, 'packages', 'create-app', 'template', 'docker', 'redis', 'redis.conf'),
+    rel: 'docker/redis/redis.conf',
+  },
 ] as const
 const TEMPLATE_ONLY_RELATIVE_FILES = new Set<string>([
+  'app/api/healthz/__tests__/route.test.ts',
+  'app/api/healthz/route.ts',
   'modules/auth/__integration__/TC-AUTH-001.spec.ts',
   'modules/auth/__integration__/helpers/auth.ts',
 ])
@@ -113,9 +140,9 @@ const TEMPLATE_CONTENT_TRANSFORMS: Record<string, (content: string) => string> =
   'app/globals.css': (content) => content.replaceAll('../../../../node_modules/', '../../node_modules/'),
   'scripts/dev-cache-purge.mjs': (content) =>
     content
-      .replace('configured Next.js distDir (`apps/mercato/.mercato/next`) plus the legacy\n// `apps/mercato/.next` location', 'configured Next.js distDir (`.mercato/next`) plus the legacy `.next` location')
-      .replace('// and middleware manifest from scratch on the next launch. See issue #1950.', '// and middleware manifest from scratch on the next launch.')
-      .replace("  Object.freeze(['apps', 'mercato', '.mercato', 'next']),\n  Object.freeze(['apps', 'mercato', '.next']),", "  Object.freeze(['.mercato', 'next']),\n  Object.freeze(['.next']),"),
+      .replaceAll("['apps', 'mercato', '.mercato', 'next'", "['.mercato', 'next'")
+      .replaceAll("['apps', 'mercato', '.next']", "['.next']")
+      .replace('`.mercato/next/dev/cache/turbopack`. See issue\n// #1950.', '`.mercato/next/dev/cache/turbopack`.')
 }
 const MAX_DIFFS_TO_SHOW = 20
 
@@ -164,7 +191,7 @@ function collectSourceFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(APP_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function collectTemplateFiles(): string[] {
@@ -179,7 +206,7 @@ function collectTemplateFiles(): string[] {
   const rootFiles = SYNC_ROOT_FILES
     .map((rel) => path.join(TEMPLATE_SRC_ROOT, rel))
     .filter((abs) => fs.existsSync(abs))
-  return [...folderFiles, ...rootFiles].sort()
+  return [...folderFiles, ...rootFiles].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 function getExpectedTemplateContent(rel: string, source: Buffer): Buffer {

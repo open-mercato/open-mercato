@@ -8,6 +8,8 @@ import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { SearchX, Check } from 'lucide-react'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
@@ -36,7 +38,7 @@ export default function PortalSignupPage({ params }: Props) {
       setError(null)
       setFieldErrors({})
 
-      if (!tenant.tenantId || !tenant.organizationId) {
+      if (!tenant.organizationId) {
         setError(t('portal.org.invalid', 'Organization not found.'))
         return
       }
@@ -46,7 +48,7 @@ export default function PortalSignupPage({ params }: Props) {
         const result = await apiCall<SignupResponse>('/api/customer_accounts/signup', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, displayName, tenantId: tenant.tenantId, organizationId: tenant.organizationId }),
+          body: JSON.stringify({ email, password, displayName, organizationId: tenant.organizationId }),
         })
 
         if (result.status === 202 && result.result?.ok) {
@@ -82,7 +84,7 @@ export default function PortalSignupPage({ params }: Props) {
         setSubmitting(false)
       }
     },
-    [displayName, email, password, tenant.tenantId, tenant.organizationId, t],
+    [displayName, email, password, tenant.organizationId, t],
   )
 
   const injectionContext = useMemo(
@@ -97,9 +99,12 @@ export default function PortalSignupPage({ params }: Props) {
   if (tenant.error) {
     return (
       <div className="mx-auto w-full max-w-md py-12">
-        <Alert variant="destructive">
-          <AlertDescription>{t('portal.org.invalid', 'Organization not found.')}</AlertDescription>
-        </Alert>
+        <EmptyState
+          variant="subtle"
+          size="lg"
+          icon={<SearchX className="h-6 w-6" aria-hidden />}
+          title={t('portal.org.invalid', 'Organization not found.')}
+        />
       </div>
     )
   }
@@ -108,9 +113,7 @@ export default function PortalSignupPage({ params }: Props) {
     return (
       <div className="mx-auto w-full max-w-sm text-center">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-foreground text-background">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="size-6">
-            <polyline points="20 6 9 17 4 12" />
-          </svg>
+          <Check className="size-6" />
         </div>
         <h1 className="text-2xl font-bold tracking-tight">{t('portal.signup.success.title', 'Check your email')}</h1>
         <p className="mt-1.5 text-sm text-muted-foreground">{t(

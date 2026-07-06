@@ -9,7 +9,7 @@
  */
 
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
-import { WORKFLOW_ACTIVITIES_QUEUE_NAME, type WorkflowActivityJob } from '../lib/activity-queue-types'
+import type { WorkflowActivityJob } from '../lib/activity-queue-types'
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../data/entities'
@@ -23,12 +23,18 @@ import {
   executeFunction,
 } from '../lib/activity-executor'
 
-// Worker metadata for auto-discovery
+// Worker metadata for auto-discovery.
+// NOTE: `queue` MUST be a string literal (or locally-declared const) so the
+// generator's AST-based extractor can resolve it when Node cannot import the
+// .ts source file directly. Importing `WORKFLOW_ACTIVITIES_QUEUE_NAME` from
+// another module breaks auto-discovery and silently drops the worker from
+// `modules.generated.ts`.
+const WORKFLOW_ACTIVITIES_QUEUE = 'workflow-activities'
 const DEFAULT_CONCURRENCY = 1
 const envConcurrency = process.env.WORKERS_WORKFLOW_ACTIVITIES_CONCURRENCY
 
 export const metadata: WorkerMeta = {
-  queue: WORKFLOW_ACTIVITIES_QUEUE_NAME,
+  queue: WORKFLOW_ACTIVITIES_QUEUE,
   id: 'workflows:workflow-activities',
   concurrency: envConcurrency ? parseInt(envConcurrency, 10) : DEFAULT_CONCURRENCY,
 }
@@ -54,16 +60,34 @@ export default async function handle(
   const { payload } = job
   const startTime = Date.now()
 
-  console.log(
-    `[workflows:activity-worker] Processing activity ${payload.activityId} (${payload.activityType}) for workflow instance ${payload.workflowInstanceId} (job ${ctx.jobId}, attempt ${ctx.attemptNumber})`
-  )
-
   // Resolve services from DI container
   const em = ctx.resolve<EntityManager>('em')
 
   // Create a container-like object from ctx.resolve for activity executors
   // The ctx already has the resolve method we need, we just need to cast it
   const container = ctx as unknown as AwilixContainer
+
+  // Timer jobs (kind: 'timer') are a distinct flow — they resume a paused
+  // workflow at a WAIT_FOR_TIMER step rather than running an activity.
+  if (payload.kind === 'timer') {
+    console.log(
+      `[workflows:activity-worker] Firing timer for instance ${payload.workflowInstanceId} (job ${ctx.jobId})`
+    )
+    const { fireTimer } = await import('../lib/timer-handler')
+    await fireTimer(em, container, {
+      instanceId: payload.workflowInstanceId,
+      stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
+      tenantId: payload.tenantId,
+      organizationId: payload.organizationId,
+      userId: payload.userId,
+    })
+    return
+  }
+
+  console.log(
+    `[workflows:activity-worker] Processing activity ${payload.activityId} (${payload.activityType}) for workflow instance ${payload.workflowInstanceId} (job ${ctx.jobId}, attempt ${ctx.attemptNumber})`
+  )
 
   try {
     // Fetch workflow instance with tenant/org scoping
@@ -85,6 +109,7 @@ export default async function handle(
       workflowContext: payload.workflowContext,
       stepContext: payload.stepContext,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       userId: payload.userId,
     }
 
@@ -114,6 +139,9 @@ export default async function handle(
           return await executeCallWebhook(payload.activityConfig, activityContext, { signal })
         case 'EXECUTE_FUNCTION':
           return await executeFunction(payload.activityConfig, activityContext, container)
+        case 'WAIT':
+          // Delay already handled by queue's delayMs — return success immediately
+          return { waited: true }
         default:
           throw new Error(`Unsupported activity type: ${payload.activityType}`)
       }
@@ -151,6 +179,7 @@ export default async function handle(
     await logWorkflowEvent(em, {
       workflowInstanceId: payload.workflowInstanceId,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       eventType: 'ACTIVITY_COMPLETED',
       eventData: {
         activityId: payload.activityId,
@@ -172,7 +201,7 @@ export default async function handle(
     )
 
     // Attempt to resume workflow if all activities complete
-    await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId)
+    await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId, payload.branchInstanceId)
   } catch (error: any) {
     const executionTimeMs = Date.now() - startTime
 
@@ -185,6 +214,7 @@ export default async function handle(
     await logWorkflowEvent(em, {
       workflowInstanceId: payload.workflowInstanceId,
       stepInstanceId: payload.stepInstanceId,
+      branchInstanceId: payload.branchInstanceId,
       eventType: 'ACTIVITY_FAILED',
       eventData: {
         activityId: payload.activityId,
@@ -209,7 +239,7 @@ export default async function handle(
         `[workflows:activity-worker] Activity ${payload.activityId} (${payload.activityType}) failed after ${maxAttempts} attempts for workflow instance ${payload.workflowInstanceId} - triggering workflow failure handling`
       )
       // Final failure - attempt to resume workflow (may transition to FAILED state)
-      await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId)
+      await checkAndResumeWorkflow(em, ctx, payload.workflowInstanceId, payload.branchInstanceId)
     }
 
     // Re-throw to let BullMQ handle retry logic
@@ -230,7 +260,8 @@ export default async function handle(
 async function checkAndResumeWorkflow(
   em: EntityManager,
   ctx: HandlerContext,
-  workflowInstanceId: string
+  workflowInstanceId: string,
+  branchInstanceId?: string | null
 ): Promise<void> {
   // Import here to avoid circular dependency
   const { resumeWorkflowAfterActivities } = await import('../lib/workflow-executor')
@@ -239,7 +270,7 @@ async function checkAndResumeWorkflow(
   const container = ctx as unknown as AwilixContainer
 
   try {
-    await resumeWorkflowAfterActivities(em, container, workflowInstanceId)
+    await resumeWorkflowAfterActivities(em, container, workflowInstanceId, branchInstanceId)
   } catch (error: any) {
     // Ignore error if workflow not ready to resume yet (activities still pending)
     if (!error.message?.includes('Activities still pending')) {

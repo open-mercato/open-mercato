@@ -124,6 +124,61 @@ const assignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInp
       organizationId: before.organizationId,
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceTagAssignmentUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for tag assignment' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const tag = await em.findOne(ResourcesResourceTag, {
+      id: before.tagId,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
+    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found.' })
+    const resource = await findOneWithDecryption(
+      em,
+      ResourcesResource,
+      { id: before.resourceId, tenantId: before.tenantId, organizationId: before.organizationId, deletedAt: null },
+      undefined,
+      { tenantId: before.tenantId, organizationId: before.organizationId },
+    )
+    if (!resource) throw new CrudHttpError(404, { error: 'Resource not found.' })
+    let assignment = await em.findOne(ResourcesResourceTagAssignment, {
+      tag,
+      resource,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
+    if (!assignment) {
+      assignment = em.create(ResourcesResourceTagAssignment, {
+        tag,
+        resource,
+        tenantId: before.tenantId,
+        organizationId: before.organizationId,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(assignment)
+      await em.flush()
+    }
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'updated',
+      entity: assignment,
+      identifiers: {
+        id: assignment.id,
+        tenantId: assignment.tenantId,
+        organizationId: assignment.organizationId,
+      },
+      events: resourcesResourceTagAssignmentCrudEvents,
+    })
+
+    return { assignmentId: assignment.id }
+  },
 }
 
 const unassignResourceTagCommand: CommandHandler<ResourcesResourceTagAssignmentInput, { assignmentId: string | null }> = {

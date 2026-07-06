@@ -13,6 +13,7 @@ import {
   redactPostgresUrl,
 } from '../packages/cli/src/lib/testing/runtime-utils'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
+import { createEphemeralShutdownController } from './dev-ephemeral-shutdown.mjs'
 import { normalizeSplashDisplayState } from './dev-splash-state.mjs'
 import {
   resolveDevBaseUrl,
@@ -125,8 +126,9 @@ const autoOpenSplash = !classic
   && process.env.CI !== 'true'
   && process.env.OM_DEV_AUTO_OPEN !== '0'
 const splashChildStateFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-splash-child-state.json')
+const warmupReadyFilePath = path.join(projectRootDirectory, '.mercato', 'dev-ephemeral-warmup-ready.json')
 const splashState = {
-  mode: 'dev',
+  mode: 'ephemeral',
   phase: 'Ephemeral dev environment is starting...',
   detail: 'Preparing isolated PostgreSQL and app runtime',
   failed: false,
@@ -442,17 +444,33 @@ function closeSplashServer(): void {
   rmSync(splashChildStateFilePath, { force: true })
 }
 
-let activePostgresContainerId: string | null = null
+function announceShutdown(): void {
+  if (shuttingDown) return
+  shuttingDown = true
+  const message = 'Shutting down services...'
+  updateSplashState({
+    phase: message,
+    detail: 'Stopping app runtime and ephemeral PostgreSQL',
+    ready: false,
+    progressLabel: message,
+    activity: message,
+  })
+  console.log(message)
+}
 
-function shutdown(exitCode: number): never {
-  if (!shuttingDown) {
-    shuttingDown = true
+const shutdownController = createEphemeralShutdownController({
+  stopContainer: (containerId: string) => stopPostgresContainer(containerId),
+  beforeExit: () => {
+    announceShutdown()
     closeSplashServer()
-    if (activePostgresContainerId) {
-      stopPostgresContainer(activePostgresContainerId).catch(() => {})
-    }
-  }
-  process.exit(exitCode)
+  },
+  onInterrupt: () => {
+    announceShutdown()
+  },
+})
+
+async function shutdown(exitCode: number): Promise<never> {
+  return shutdownController.shutdown(exitCode)
 }
 
 async function fileExists(filePath: string): Promise<boolean> {
@@ -941,6 +959,7 @@ function openUrlInBrowser(url: string): Promise<boolean> {
 async function waitForDevServerReady(baseUrl: string): Promise<boolean> {
   const deadline = Date.now() + startupTimeoutMs
   while (Date.now() < deadline) {
+    if (shuttingDown) return false
     const responsive = await isEndpointResponsive(`${baseUrl}/backend/login`, probeTimeoutMs)
     if (responsive) {
       return true
@@ -966,6 +985,7 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     DATABASE_URL: postgres.databaseUrl,
     APP_URL: publicBaseUrl,
     NEXT_PUBLIC_APP_URL: publicBaseUrl,
+    OM_DEV_WARMUP_READY_FILE: warmupReadyFilePath,
     ...(autoOpenSplash
       ? {
           OM_DEV_SPLASH_CHILD_STATE_FILE: splashChildStateFilePath,
@@ -987,6 +1007,39 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
   if (!Number.isInteger(devCommand.pid) || devCommand.pid <= 0) {
     throw new Error('Failed to start development runtime process.')
   }
+
+  shutdownController.setActiveChild(devCommand)
+
+  let resolveExit: (code: number) => void = () => {}
+  let rejectExit: (reason: Error) => void = () => {}
+  const devExitPromise = new Promise<number>((resolve, reject) => {
+    resolveExit = resolve
+    rejectExit = reject
+  })
+  // The real handling happens via `await` in main(); suppress Node's
+  // unhandled-rejection guard for the window before that await is attached.
+  devExitPromise.catch(() => {})
+
+  // Register the child lifecycle handlers immediately so a signal that arrives
+  // while waiting for readiness (which forwards a kill to the child) still runs
+  // cleanup — otherwise the 'exit' event would fire before any handler exists.
+  devCommand.on('error', async (error) => {
+    shutdownController.setActiveChild(null)
+    await unregisterCurrentDevInstance(devCommand.pid as number)
+    await stopPostgresContainer(postgres.containerId)
+    shutdownController.setActiveContainerId(null)
+    closeSplashServer()
+    rejectExit(error)
+  })
+
+  devCommand.on('exit', async (code, _signal) => {
+    shutdownController.setActiveChild(null)
+    await unregisterCurrentDevInstance(devCommand.pid as number)
+    await stopPostgresContainer(postgres.containerId)
+    shutdownController.setActiveContainerId(null)
+    closeSplashServer()
+    resolveExit(code ?? 1)
+  })
 
   const instanceState: DevEphemeralInstance = {
     id: `${devCommand.pid}:${new Date().toISOString()}`,
@@ -1052,34 +1105,12 @@ async function startDevServer(port: number, postgres: EphemeralPostgresHandle): 
     }
   }
 
-  const forwardSignal = (signal: NodeJS.Signals): void => {
-    if (!devCommand.killed) {
-      devCommand.kill(signal)
-    }
-  }
-
-  process.on('SIGINT', () => forwardSignal('SIGINT'))
-  process.on('SIGTERM', () => forwardSignal('SIGTERM'))
-
-  return new Promise((resolve, reject) => {
-    devCommand.on('error', async (error) => {
-      await unregisterCurrentDevInstance(devCommand.pid as number)
-      await stopPostgresContainer(postgres.containerId)
-      closeSplashServer()
-      reject(error)
-    })
-
-    devCommand.on('exit', async (code, _signal) => {
-      await unregisterCurrentDevInstance(devCommand.pid as number)
-      await stopPostgresContainer(postgres.containerId)
-      closeSplashServer()
-      resolve(code ?? 1)
-    })
-  })
+  return devExitPromise
 }
 
 async function main(): Promise<void> {
   try {
+    shutdownController.installSignalHandlers()
     await startSplashServer()
     assertNode24Runtime({
       context: 'dev ephemeral mode',
@@ -1097,7 +1128,7 @@ async function main(): Promise<void> {
     })
     if (installExitCode !== 0) {
       await waitForSplashFailureRender()
-      shutdown(installExitCode)
+      await shutdown(installExitCode)
       return
     }
 
@@ -1109,7 +1140,7 @@ async function main(): Promise<void> {
     })
     if (buildPackagesExitCode !== 0) {
       await waitForSplashFailureRender()
-      shutdown(buildPackagesExitCode)
+      await shutdown(buildPackagesExitCode)
       return
     }
 
@@ -1121,7 +1152,7 @@ async function main(): Promise<void> {
     })
     if (generateExitCode !== 0) {
       await waitForSplashFailureRender()
-      shutdown(generateExitCode)
+      await shutdown(generateExitCode)
       return
     }
 
@@ -1136,7 +1167,7 @@ async function main(): Promise<void> {
       activity: 'Starting isolated PostgreSQL',
     })
     const postgres = await startEphemeralPostgres()
-    activePostgresContainerId = postgres.containerId
+    shutdownController.setActiveContainerId(postgres.containerId)
     const baseUrl = resolveDevBaseUrl(process.env, {
       actualPort: port,
       defaultHostname: '127.0.0.1',
@@ -1163,15 +1194,14 @@ async function main(): Promise<void> {
       },
     )
     if (initializeExitCode !== 0) {
-      await stopPostgresContainer(postgres.containerId)
       await waitForSplashFailureRender()
-      shutdown(initializeExitCode)
+      await shutdown(initializeExitCode)
       return
     }
 
     console.log(`[dev:ephemeral] Starting development runtime on ${baseUrl}/backend`)
     const exitCode = await startDevServer(port, postgres)
-    shutdown(exitCode)
+    await shutdown(exitCode)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     updateSplashState({
@@ -1186,7 +1216,7 @@ async function main(): Promise<void> {
     })
     await waitForSplashFailureRender()
     console.error(`[dev:ephemeral] ${message}`)
-    shutdown(1)
+    await shutdown(1)
   }
 }
 

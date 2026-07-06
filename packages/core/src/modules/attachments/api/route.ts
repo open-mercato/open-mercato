@@ -12,6 +12,7 @@ import { requestOcrProcessing } from '../lib/ocrQueue'
 import { StorageDriverFactory } from '../lib/drivers'
 import { OcrService, shouldUseLlmOcr } from '../lib/ocrService'
 import { clearAttachmentThumbnailCache } from '../lib/thumbnailCache'
+import { assertAttachmentScopeInvariant } from '../lib/access'
 import {
   mergeAttachmentMetadata,
   normalizeAttachmentAssignments,
@@ -258,7 +259,18 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // A superadmin browsing with "All organizations" selected has no concrete
+  // organization scope, but an attachment must be stored under exactly one
+  // organization (the scope invariant forbids partial-null rows). Reject with a
+  // clear, actionable error instead of a 401 — a 401 makes the client-side
+  // fetch layer treat it as session expiry, show a misleading toast, and reset
+  // the in-progress form (#3764).
+  if (!auth.orgId) {
+    return NextResponse.json({
+      error: t('attachments.errors.selectOrganization', 'Select a specific organization before uploading an attachment.'),
+    }, { status: 400 })
+  }
   const tenantId = auth.tenantId
   const orgId = auth.orgId
 
@@ -421,6 +433,7 @@ export async function POST(req: Request) {
   }
   const metadata = mergeAttachmentMetadata(null, { assignments, tags })
   const attachmentId = randomUUID()
+  assertAttachmentScopeInvariant({ tenantId: auth.tenantId, organizationId: auth.orgId })
   const att = em.create(Attachment, {
     id: attachmentId,
     entityId,
@@ -437,7 +450,26 @@ export async function POST(req: Request) {
     content: extractedContent,
     storageMetadata: metadata,
   })
-  await em.persist(att).flush()
+  // Persist the attachment row and its custom-field values atomically so a
+  // custom-field failure cannot leave behind a committed orphan attachment.
+  try {
+    await em.transactional(async (tx) => {
+      await tx.persist(att).flush()
+      if (dataEngine) {
+        await setCustomFieldsIfAny({
+          dataEngine,
+          entityId: E.attachments.attachment,
+          recordId: attachmentId,
+          tenantId,
+          organizationId: orgId,
+          values: customFieldValues,
+        })
+      }
+    })
+  } catch (error) {
+    console.error('[attachments] failed to persist attachment with custom attributes', error)
+    return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
+  }
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
@@ -448,19 +480,6 @@ export async function POST(req: Request) {
   }
 
   if (dataEngine) {
-    try {
-      await setCustomFieldsIfAny({
-        dataEngine,
-        entityId: E.attachments.attachment,
-        recordId: attachmentId,
-        tenantId,
-        organizationId: orgId,
-        values: customFieldValues,
-      })
-    } catch (error) {
-      console.error('[attachments] failed to persist custom attributes', error)
-      return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
-    }
     await emitCrudSideEffects({
       dataEngine,
       action: 'created',
@@ -519,7 +538,7 @@ async function readTenantAttachmentUsageBytes(em: EntityManager, tenantId: strin
 
 export async function DELETE(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth || !auth.tenantId || !auth.orgId) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!auth || !auth.tenantId || (!auth.orgId && !auth.isSuperAdmin)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const url = new URL(req.url)
   const id = url.searchParams.get('id') || ''
   if (!id) return NextResponse.json({ error: 'Attachment id is required' }, { status: 400 })
@@ -528,7 +547,12 @@ export async function DELETE(req: Request) {
   const dataEngine = resolve('dataEngine')
   const storageDriverFactory =
     (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
-  const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId!, organizationId: auth.orgId }
+  // Mirror the GET handler's superadmin bypass: a superadmin browsing with "All
+  // organizations" selected has no concrete org, so scope the delete by tenant
+  // only and let them remove any attachment in the tenant. Non-superadmins stay
+  // scoped to their own organization (#3764).
+  const deleteFilter: Record<string, unknown> = { id, tenantId: auth.tenantId! }
+  if (auth.orgId) deleteFilter.organizationId = auth.orgId
   const record = await em.findOne(Attachment, deleteFilter)
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.remove(record).flush()
@@ -538,7 +562,7 @@ export async function DELETE(req: Request) {
   if (record.storagePath) {
     const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {
       tenantId: record.tenantId ?? auth.tenantId!,
-      organizationId: record.organizationId ?? auth.orgId,
+      organizationId: record.organizationId ?? auth.orgId ?? '',
     })
     await delDriver.delete(record.partitionCode, record.storagePath)
   }

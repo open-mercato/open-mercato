@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { apiCall } from "@open-mercato/ui/backend/utils/apiCall";
+import { apiCall, withScopedApiRequestHeaders } from "@open-mercato/ui/backend/utils/apiCall";
+import { buildOptimisticLockHeader } from "@open-mercato/ui/backend/utils/optimisticLock";
 import { deleteCrud } from "@open-mercato/ui/backend/utils/crud";
 import { normalizeCrudServerError } from "@open-mercato/ui/backend/utils/serverErrors";
 import { LoadingMessage, TabEmptyState } from "@open-mercato/ui/backend/detail";
@@ -19,6 +20,7 @@ import { useOrganizationScopeDetail } from "@open-mercato/shared/lib/frontend/us
 import { useConfirmDialog } from "@open-mercato/ui/backend/confirm-dialog";
 import { emitSalesDocumentTotalsRefresh } from "@open-mercato/core/modules/sales/lib/frontend/documentTotalsEvents";
 import { LineItemDialog } from "./LineItemDialog";
+import { handleSectionMutationError } from "./optimisticLock";
 import type { SalesLineRecord } from "./lineItemTypes";
 import { formatMoney, normalizeNumber } from "./lineItemUtils";
 import type { SectionAction } from "@open-mercato/ui/backend/detail";
@@ -109,6 +111,7 @@ type SalesDocumentItemsSectionProps = {
   documentId: string;
   kind: "order" | "quote";
   currencyCode: string | null | undefined;
+  documentUpdatedAt?: string | null;
   organizationId?: string | null;
   tenantId?: string | null;
   onActionChange?: (action: SectionAction | null) => void;
@@ -119,6 +122,7 @@ export function SalesDocumentItemsSection({
   documentId,
   kind,
   currencyCode,
+  documentUpdatedAt,
   organizationId: orgFromProps,
   tenantId: tenantFromProps,
   onActionChange,
@@ -157,7 +161,7 @@ export function SalesDocumentItemsSection({
       }>(`/api/sales/order-line-statuses?${params.toString()}`, undefined, {
         fallback: { items: [] },
       });
-      const entries = normalizeDictionaryEntries(response.result?.items ?? []);
+      const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false });
       setLineStatusMap(createDictionaryMap(entries));
     } catch (err) {
       console.error("sales.document.line-statuses.load", err);
@@ -449,24 +453,29 @@ export function SalesDocumentItemsSection({
       });
       if (!confirmed) return;
       try {
-        const result = await deleteCrud(resourcePath, {
-          body: {
-            id: line.id,
-            [documentKey]: documentId,
-            organizationId: resolvedOrganizationId ?? undefined,
-            tenantId: resolvedTenantId ?? undefined,
-          },
-          errorMessage: t(
-            "sales.documents.items.errorDelete",
-            "Failed to delete line.",
-          ),
-        });
+        const result = await withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(documentUpdatedAt),
+          () =>
+            deleteCrud(resourcePath, {
+              body: {
+                id: line.id,
+                [documentKey]: documentId,
+                organizationId: resolvedOrganizationId ?? undefined,
+                tenantId: resolvedTenantId ?? undefined,
+              },
+              errorMessage: t(
+                "sales.documents.items.errorDelete",
+                "Failed to delete line.",
+              ),
+            }),
+        );
         if (result.ok) {
           flash(t("sales.documents.items.deleted", "Line removed."), "success");
           await loadItems();
           emitSalesDocumentTotalsRefresh({ documentId, kind });
         }
       } catch (err) {
+        if (handleSectionMutationError(err, t, () => void loadItems())) return;
         console.error("sales.document.items.delete", err);
         const normalized = normalizeCrudServerError(err);
         const fallback = t(
@@ -480,6 +489,7 @@ export function SalesDocumentItemsSection({
       confirm,
       documentId,
       documentKey,
+      documentUpdatedAt,
       kind,
       loadItems,
       resolvedOrganizationId,
@@ -800,6 +810,7 @@ export function SalesDocumentItemsSection({
         kind={kind}
         documentId={documentId}
         currencyCode={currencyCode}
+        documentUpdatedAt={documentUpdatedAt}
         organizationId={resolvedOrganizationId}
         tenantId={resolvedTenantId}
         initialLine={lineForEdit}

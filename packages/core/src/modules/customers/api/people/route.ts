@@ -19,7 +19,7 @@ import {
   withScopedPayload,
 } from '../utils'
 import { buildCustomFieldFiltersFromQuery, extractAllCustomFieldEntries, splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
-import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { consumeAdvancedFilterState, mergeAdvancedFilterTree } from '@open-mercato/shared/lib/crud/advanced-filter-integration'
@@ -31,6 +31,8 @@ import {
 import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
+  withCustomerPersonCompanyLinkScope,
+  withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeProfilePayload } from './payload'
 
@@ -105,9 +107,16 @@ const crud = makeCrudRoute({
       'tenant_id',
       'kind',
       'created_at',
+      'updated_at',
     ],
     sortFieldMap: {
       name: 'display_name',
+      email: 'primary_email',
+      primaryEmail: 'primary_email',
+      status: 'status',
+      lifecycleStage: 'lifecycle_stage',
+      source: 'source',
+      nextInteractionAt: 'next_interaction_at',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -164,7 +173,7 @@ const crud = makeCrudRoute({
         if (matchingIds !== null && matchingIds.length > 0) {
           applyEntityIdRestriction(filters, matchingIds)
         } else {
-          const searchPattern = `%${escapeLikePattern(query.search)}%`
+          const searchPattern = buildIlikeTerm(query.search)
           filters.$or = [
             { display_name: { $ilike: searchPattern } },
             { primary_email: { $ilike: searchPattern } },
@@ -180,9 +189,9 @@ const crud = makeCrudRoute({
       if (email) {
         filters.primary_email = { $eq: email }
       } else if (emailStartsWith) {
-        filters.primary_email = { $ilike: `${escapeLikePattern(emailStartsWith)}%` }
+        filters.primary_email = { $ilike: buildIlikeTerm(emailStartsWith, 'startsWith') }
       } else if (emailContains) {
-        filters.primary_email = { $ilike: `%${escapeLikePattern(emailContains)}%` }
+        filters.primary_email = { $ilike: buildIlikeTerm(emailContains) }
       }
       if (query.status) {
         filters.status = { $eq: query.status }
@@ -220,7 +229,7 @@ const crud = makeCrudRoute({
           }
           const linkWhere = await withActiveCustomerPersonCompanyLinkFilter(
             em,
-            { company: query.excludeLinkedCompanyId },
+            withCustomerPersonCompanyLinkScope({ company: query.excludeLinkedCompanyId }, decryptionScope),
             'customers.people.GET',
           )
           const links = filterActivePersonCompanyLinks(
@@ -250,9 +259,7 @@ const crud = makeCrudRoute({
           const links = await findWithDecryption(
             em,
             CustomerDealPersonLink,
-            {
-              deal: query.excludeLinkedDealId,
-            },
+            withScopedCustomerDealLinkWhere(query.excludeLinkedDealId, decryptionScope),
             { populate: ['person'] },
             decryptionScope,
           )
@@ -392,7 +399,17 @@ const crud = makeCrudRoute({
         const parsed = personUpdateSchema.parse(base)
         return Object.keys(custom).length ? { ...parsed, customFields: custom } : parsed
       },
-      response: () => ({ ok: true }),
+      // Return the freshly-bumped updatedAt so inline-edit detail pages can refresh
+      // their optimistic-lock token between sequential saves (#2055).
+      response: (arg: { result?: unknown; updatedAt?: Date | string | null }) => {
+        const raw = arg?.updatedAt
+          ?? (arg?.result as { updatedAt?: Date | string | null } | null | undefined)?.updatedAt
+          ?? null
+        return {
+          ok: true,
+          updatedAt: raw instanceof Date ? raw.toISOString() : (typeof raw === 'string' ? raw : null),
+        }
+      },
     },
     delete: {
       commandId: 'customers.people.delete',
@@ -427,37 +444,39 @@ const crud = makeCrudRoute({
         tenantId: ctx.auth?.tenantId ?? null,
         organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null,
       }
-      const entities = await findWithDecryption(
-        em,
-        CustomerEntity,
-        {
-          id: { $in: ids },
-          deletedAt: null,
-          kind: 'person',
-        } as FilterQuery<CustomerEntity>,
-        undefined,
-        decryptionScope,
-      )
-      const entitiesById = new Map<string, CustomerEntity>()
-      for (const entity of entities) {
-        entitiesById.set(entity.id, entity)
-      }
-
-      const where: Record<string, unknown> = {
+      const profileWhere: Record<string, unknown> = {
         entity: { $in: ids },
         tenantId: ctx.auth?.tenantId ?? null,
       }
       if (ctx.selectedOrganizationId) {
-        where.organizationId = ctx.selectedOrganizationId
+        profileWhere.organizationId = ctx.selectedOrganizationId
       }
 
-      const profiles = await findWithDecryption(
-        em,
-        CustomerPersonProfile,
-        where as FilterQuery<CustomerPersonProfile>,
-        { populate: ['entity', 'company'] },
-        decryptionScope,
-      )
+      const [entities, profiles] = await Promise.all([
+        findWithDecryption(
+          em,
+          CustomerEntity,
+          {
+            id: { $in: ids },
+            deletedAt: null,
+            kind: 'person',
+          } as FilterQuery<CustomerEntity>,
+          undefined,
+          decryptionScope,
+        ),
+        findWithDecryption(
+          em,
+          CustomerPersonProfile,
+          profileWhere as FilterQuery<CustomerPersonProfile>,
+          { populate: ['entity', 'company'] },
+          decryptionScope,
+        ),
+      ])
+
+      const entitiesById = new Map<string, CustomerEntity>()
+      for (const entity of entities) {
+        entitiesById.set(entity.id, entity)
+      }
 
       const profilesByEntityId = new Map<string, CustomerPersonProfile>()
       for (const profile of profiles) {

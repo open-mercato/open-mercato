@@ -13,10 +13,15 @@ test.describe('TC-AUTH-003: Login with Remember Me', () => {
     ]);
 
     await page.goto('/login');
-    await page.getByLabel('Email').fill('admin@acme.com');
-    await page.getByLabel('Password', { exact: true }).fill('secret');
+    await page.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
+    const emailInput = page.getByLabel('Email');
+    const passwordInput = page.getByLabel('Password', { exact: true });
+    await emailInput.fill('admin@acme.com');
+    await expect(emailInput).toHaveValue('admin@acme.com');
+    await passwordInput.fill('secret');
+    await expect(passwordInput).toHaveValue('secret');
     await page.getByRole('checkbox', { name: /remember me/i }).check();
-    await page.getByLabel('Password', { exact: true }).press('Enter');
+    await passwordInput.press('Enter');
 
     await expect(page).toHaveURL(/\/backend(?:\/.*)?$/);
 

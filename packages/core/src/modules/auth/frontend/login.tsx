@@ -102,6 +102,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
+  const redirectParam = searchParams.get('redirect') || ''
   const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
   const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
   const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
@@ -111,6 +112,7 @@ export default function LoginPage() {
   const [authOverride, setAuthOverride] = useState<AuthOverride | null>(null)
   const [authOverridePending, setAuthOverridePending] = useState(false)
   const [clientReady, setClientReady] = useState(false)
+  const [activeAuthenticatedUser, setActiveAuthenticatedUser] = useState(false)
   const [email, setEmail] = useState('')
   const [tenantId, setTenantId] = useState<string | null>(null)
   const [tenantName, setTenantName] = useState<string | null>(null)
@@ -128,6 +130,7 @@ export default function LoginPage() {
 
   useEffect(() => {
     let cancelled = false
+    const hasAclChallenge = requiredFeatures.length > 0 || requiredRoles.length > 0
     void (async () => {
       try {
         const res = await apiCall<{ userId?: string }>('/api/auth/feature-check', {
@@ -139,7 +142,14 @@ export default function LoginPage() {
         if (cancelled) return
         const activeUserId = typeof res.result?.userId === 'string' ? res.result.userId : ''
         if (!activeUserId) return
-        const rawRedirect = searchParams.get('redirect') || ''
+        setActiveAuthenticatedUser(true)
+        // When a feature/role challenge is present in the URL, the user already
+        // failed an ACL check while authenticated. Auto-redirecting back to
+        // `redirect` would re-trigger the same 403 and re-bounce here,
+        // producing an infinite loop (see GH #2070). Stay on the login page so
+        // the access-denied banner is visible.
+        if (hasAclChallenge) return
+        const rawRedirect = redirectParam
         let destination = '/backend'
         if (rawRedirect) {
           try {
@@ -161,7 +171,7 @@ export default function LoginPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [router, searchParams])
+  }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()
@@ -364,31 +374,40 @@ export default function LoginPage() {
                   </AlertDescription>
                 </Alert>
               )}
+              {activeAuthenticatedUser && (translatedRoles.length || translatedFeatures.length) ? (
+                <div className="flex justify-center" data-testid="login-return-dashboard">
+                  <Button asChild type="button" variant="outline" size="sm">
+                    <Link href="/backend">
+                      {translate('auth.accessDenied.dashboard', 'Go to Dashboard')}
+                    </Link>
+                  </Button>
+                </div>
+              ) : null}
               {showTenantInvalid ? (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-xs text-red-700">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-xs text-status-error-text">
                   <div className="font-medium">{translate('auth.login.errors.tenantInvalid', 'Tenant not found. Clear the tenant selection and try again.')}</div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-red-300 text-red-700" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-error-border text-status-error-text hover:text-status-error-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : tenantId ? (
-                <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-center text-xs text-emerald-900">
+                <div className="rounded-md border border-status-success-border bg-status-success-bg px-3 py-2 text-center text-xs text-status-success-text">
                   <div className="font-medium">
                     {tenantLoading
                       ? translate('auth.login.tenantLoading', 'Loading tenant details...')
-                      : translate('auth.login.tenantBanner', "You're logging in to {tenant} tenant.", {
+                      : translate('auth.login.tenantBanner', "You're logging in to {tenant}.", {
                           tenant: tenantName || tenantId,
                         })}
                   </div>
-                  <Button type="button" variant="outline" size="sm" className="mt-2 border-emerald-300 text-emerald-900" onClick={handleClearTenant}>
+                  <Button type="button" variant="outline" size="sm" className="mt-2 border-status-success-border text-status-success-text hover:text-status-success-text" onClick={handleClearTenant}>
                     <X className="mr-2 size-4" aria-hidden="true" />
                     {translate('auth.login.tenantClear', 'Clear')}
                   </Button>
                 </div>
               ) : null}
               {error && !showTenantInvalid && (
-                <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700" role="alert" aria-live="polite">
+                <div className="rounded-md border border-status-error-border bg-status-error-bg px-3 py-2 text-center text-sm text-status-error-text" role="alert" aria-live="polite">
                   {error}
                 </div>
               )}

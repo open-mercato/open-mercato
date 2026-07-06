@@ -2,13 +2,32 @@
 
 Use the currencies module for multi-currency support, exchange rates, and currency conversion.
 
-## MUST Rules
+## Always
 
 1. **MUST store currency amounts with 4 decimal precision** — never truncate to 2 decimals internally
 2. **MUST use date-based exchange rates** — always resolve rates for the transaction date, not "current" rate
 3. **MUST record both transaction currency and base currency amounts** — dual recording is mandatory for reporting
 4. **MUST calculate realized gains/losses** on payment: `(payment rate - invoice rate) × foreign amount`
-5. **MUST NOT hard-delete exchange rate records** — rates are historical reference data
+5. **MUST keep financial postings atomic** — full transaction rollback on error
+
+## Ask First
+
+- Ask before changing precision, exchange-rate lookup semantics, realized gain/loss formulas, or financial reporting fields.
+- Ask before changing historical exchange-rate retention behavior.
+
+## Never
+
+- Never truncate internal currency amounts to 2 decimals.
+- Never hard-delete exchange rate records — rates are historical reference data.
+- Never delete posted transactions or audit-trail entries.
+
+## Validation Commands
+
+```bash
+yarn db:generate
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Key Files
 

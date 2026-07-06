@@ -2,7 +2,7 @@
 
 Use the progress module for every user-visible bulk operation and every long-running operation. Keep `ProgressTopBar` the single shared progress surface.
 
-## MUST Rules
+## Always
 
 1. **MUST create `ProgressJob` for durable work** — imports, exports, bulk mutations, reindexing, external sync, and queued work must persist progress server-side.
 2. **MUST return `progressJobId` to the UI** — DataTable bulk actions and start-operation APIs must expose the job id so the top bar can track it.
@@ -11,7 +11,25 @@ Use the progress module for every user-visible bulk operation and every long-run
 5. **MUST use queue workers for durable work** — use `@open-mercato/queue`; do not implement custom queues, timers, or page polling loops.
 6. **MUST run mutations through commands** — workers must use `commandBus.execute(...)` for domain writes so audit, undo, cache, events, and index invalidation stay intact.
 7. **MUST use client-local progress only for browser-bound loops** — local `client:*` progress events are best-effort and must not represent work that should survive navigation.
-8. **MUST NOT build per-module progress bars for global operations** — use `ProgressTopBar` and shared progress hooks.
+
+## Ask First
+
+- Ask before adding a new progress mode, changing job terminal states, or changing cancellation semantics.
+- Ask before creating a module-specific progress UI for work that could use the shared top bar.
+
+## Never
+
+- Never leave running jobs without heartbeat/progress updates.
+- Never implement custom queues, timers, or page polling loops for durable work.
+- Never represent durable server work with client-local `client:*` progress events.
+- Never build per-module progress bars for global operations — use `ProgressTopBar` and shared progress hooks.
+
+## Validation Commands
+
+```bash
+yarn generate
+yarn workspace @open-mercato/core build
+```
 
 ## Choosing Progress Mode
 

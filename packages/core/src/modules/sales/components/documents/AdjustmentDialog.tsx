@@ -4,6 +4,7 @@
 
 import * as React from 'react'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -119,6 +120,33 @@ const formatTaxRateLabel = (rate: TaxRateOption): string => {
   return `${rate.name} • ${extras.join(' · ')}`
 }
 
+const mapTaxRateOption = (item: Record<string, unknown>): TaxRateOption | null => {
+  const id = typeof item.id === 'string' ? item.id : null
+  const name =
+    typeof item.name === 'string' && item.name.trim().length
+      ? item.name.trim()
+      : typeof item.code === 'string'
+        ? item.code
+        : null
+  if (!id || !name) return null
+  const rate = normalizeNumber((item as any).rate)
+  const code =
+    typeof (item as any).code === 'string' && (item as any).code.trim().length
+      ? (item as any).code.trim()
+      : null
+  const isDefault = Boolean((item as any).isDefault ?? (item as any).is_default)
+  return { id, name, code, rate: Number.isFinite(rate) ? rate : null, isDefault }
+}
+
+const mergeTaxRateOptions = (
+  options: TaxRateOption[],
+  selected: TaxRateOption | null,
+): TaxRateOption[] => {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
 const roundAmount = (value: number): number => Math.round((value + Number.EPSILON) * 100) / 100
 
 const resolveModeFromAdjustment = (adjustment?: AdjustmentRowData | null): 'rate' | 'amount' => {
@@ -213,23 +241,7 @@ export function AdjustmentDialog({
       )
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       const parsed = items
-        .map<TaxRateOption | null>((item) => {
-          const id = typeof item.id === 'string' ? item.id : null
-          const name =
-            typeof item.name === 'string' && item.name.trim().length
-              ? item.name.trim()
-              : typeof item.code === 'string'
-                ? item.code
-                : null
-          if (!id || !name) return null
-          const rate = normalizeNumber((item as any).rate)
-          const code =
-            typeof (item as any).code === 'string' && (item as any).code.trim().length
-              ? (item as any).code.trim()
-              : null
-          const isDefault = Boolean((item as any).isDefault ?? (item as any).is_default)
-          return { id, name, code, rate: Number.isFinite(rate) ? rate : null, isDefault }
-        })
+        .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
         .filter((entry): entry is TaxRateOption => Boolean(entry))
       taxRatesRef.current = parsed
       taxRatesLoadedRef.current = true
@@ -243,6 +255,34 @@ export function AdjustmentDialog({
       return []
     }
   }, [])
+
+  const loadTaxRateById = React.useCallback(async (taxRateId: string): Promise<TaxRateOption | null> => {
+    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    const items = Array.isArray(response.result?.items) ? response.result.items : []
+    return (
+      items
+        .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
+        .find((entry): entry is TaxRateOption => entry?.id === taxRateId) ?? null
+    )
+  }, [])
+
+  React.useEffect(() => {
+    const selectedId =
+      typeof initialValues.taxRateId === 'string' && initialValues.taxRateId.trim().length
+        ? initialValues.taxRateId.trim()
+        : null
+    if (!selectedId || taxRates.some((rate) => rate.id === selectedId)) return
+    loadTaxRateById(selectedId)
+      .then((selected) => {
+        taxRatesRef.current = mergeTaxRateOptions(taxRatesRef.current, selected)
+        setTaxRates((current) => mergeTaxRateOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [initialValues.taxRateId, loadTaxRateById, taxRates])
 
   const applyOppositeAmount = React.useCallback(
     (
@@ -357,6 +397,7 @@ export function AdjustmentDialog({
             allowInlineCreate={false}
             manageHref="/backend/config/sales#adjustment-kinds"
             selectClassName="w-full"
+            sortOptions="none"
             labels={{
               placeholder: t('sales.documents.adjustments.kindSelect.placeholder', 'Select adjustment kind…'),
               addLabel: t('sales.config.adjustmentKinds.actions.add', 'Add adjustment kind'),
@@ -505,6 +546,7 @@ export function AdjustmentDialog({
               )
               return match?.id ?? null
             })()
+          const selectedTaxRate = rateId ? taxRateMap.get(rateId) ?? null : null
           const handleChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
             const nextId = event.target.value || null
             const option = nextId ? taxRateMap.get(nextId) ?? null : null
@@ -543,7 +585,9 @@ export function AdjustmentDialog({
                         ? t('sales.documents.adjustments.taxRate.placeholder', 'No tax class selected')
                         : t('sales.documents.adjustments.taxRate.empty', 'No tax classes available')
                     }
-                  />
+                  >
+                    {selectedTaxRate ? formatTaxRateLabel(selectedTaxRate) : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {taxRates.map((rate) => (
@@ -654,6 +698,22 @@ export function AdjustmentDialog({
           )
         }
       }
+      const resolvedKind =
+        typeof values.kind === 'string' && values.kind.trim().length ? values.kind.trim() : 'custom'
+      if (resolvedKind === 'return') {
+        const hasNonZeroValue =
+          calculationMode === 'rate'
+            ? Number.isFinite(percentageRate) && percentageRate !== 0
+            : (Number.isFinite(amountNet) && amountNet !== 0) ||
+              (Number.isFinite(amountGross) && amountGross !== 0)
+        if (!hasNonZeroValue) {
+          const message = t(
+            'sales.documents.adjustments.errorReturnZero',
+            'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead.'
+          )
+          throw createCrudFormError(message, { amountNet: message })
+        }
+      }
       const customFields = collectCustomFieldValues(values, {
         transform: (value) => normalizeCustomFieldSubmitValue(value),
       })
@@ -716,22 +776,20 @@ export function AdjustmentDialog({
     ]
   )
 
+  const handleSubmitForm = React.useCallback(
+    () => dialogContentRef.current?.querySelector('form')?.requestSubmit(),
+    [],
+  )
+  const handleKeyDown = useDialogKeyHandler({
+    onConfirm: handleSubmitForm,
+    onCancel: () => onOpenChange(false),
+  })
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="sm:max-w-5xl"
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault()
-            onOpenChange(false)
-            return
-          }
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-            event.preventDefault()
-            const form = dialogContentRef.current?.querySelector('form')
-            form?.requestSubmit()
-          }
-        }}
+        onKeyDown={handleKeyDown}
         ref={dialogContentRef}
       >
         <DialogHeader>

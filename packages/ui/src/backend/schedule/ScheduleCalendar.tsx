@@ -1,5 +1,6 @@
 "use client"
 
+import 'react-big-calendar/lib/css/react-big-calendar.css'
 import * as React from 'react'
 import { Calendar, dateFnsLocalizer, type View, type SlotInfo } from 'react-big-calendar'
 import { addDays } from 'date-fns/addDays'

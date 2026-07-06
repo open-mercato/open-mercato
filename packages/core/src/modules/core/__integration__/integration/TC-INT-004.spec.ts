@@ -1,7 +1,7 @@
 import { expect, test, type BrowserContext } from '@playwright/test';
-import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api';
-import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__/helpers/authUi';
+import { login } from '@open-mercato/core/helpers/integration/auth';
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
+import { createUserViaUi } from '@open-mercato/core/helpers/integration/authUi';
 
 /**
  * TC-INT-004: User to Role to Permission to Access Verification
@@ -9,6 +9,7 @@ import { createUserViaUi } from '@open-mercato/core/modules/core/__integration__
  */
 test.describe('TC-INT-004: User to Role to Permission to Access Verification', () => {
   test('should apply restricted role and deny access to protected admin area', async ({ page, request }) => {
+    test.setTimeout(90_000);
     const stamp = Date.now();
     const roleName = `qa-int-004-role-${stamp}`;
     const email = `qa-int-004-${stamp}@acme.com`;
@@ -46,10 +47,17 @@ test.describe('TC-INT-004: User to Role to Permission to Access Verification', (
       limitedContext = ctx;
       const limitedPage = await ctx.newPage();
       await limitedPage.goto('/login');
-      await limitedPage.getByLabel('Email').fill(email);
-      await limitedPage.getByLabel('Password', { exact: true }).fill(password);
-      await limitedPage.getByLabel('Password', { exact: true }).press('Enter');
-      await limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 10_000 });
+      await limitedPage.waitForSelector('form[data-auth-ready="1"]', { state: 'visible', timeout: 30_000 });
+      const emailInput = limitedPage.getByLabel('Email');
+      const passwordInput = limitedPage.getByLabel('Password', { exact: true });
+      await emailInput.fill(email);
+      await expect(emailInput).toHaveValue(email);
+      await passwordInput.fill(password);
+      await expect(passwordInput).toHaveValue(password);
+      await Promise.all([
+        limitedPage.waitForURL(/\/backend|\/login\?requireFeature=/, { timeout: 30_000 }),
+        passwordInput.press('Enter'),
+      ]);
 
       if (/\/login\?requireFeature=/.test(limitedPage.url())) {
         await expect(limitedPage.getByText(/don't have access to this feature|permission/i).first()).toBeVisible();

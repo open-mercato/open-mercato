@@ -12,7 +12,7 @@
  * file.
  *
  * @see ./llm-adapters/openai.ts
- * @see .ai/specs/2026-04-14-llm-provider-ports-and-adapters.md
+ * @see .ai/specs/implemented/2026-04-14-llm-provider-ports-and-adapters.md
  */
 
 import type { OpenAICompatiblePreset } from './llm-adapters/openai'
@@ -271,6 +271,27 @@ const OPENROUTER_PRESET: OpenAICompatiblePreset = {
 }
 
 /**
+ * Requesty — unified OpenAI-compatible LLM gateway providing access to
+ * models from many providers via a single endpoint, using `provider/model`
+ * naming (e.g. `openai/gpt-4o-mini`).
+ */
+const REQUESTY_PRESET: OpenAICompatiblePreset = {
+  id: 'requesty',
+  name: 'Requesty',
+  baseURL: 'https://router.requesty.ai/v1',
+  baseURLEnvKeys: ['REQUESTY_BASE_URL'],
+  envKeys: ['REQUESTY_API_KEY'],
+  defaultModel: 'openai/gpt-4o-mini',
+  defaultModels: [
+    {
+      id: 'openai/gpt-4o-mini',
+      name: 'GPT-4o mini',
+      contextWindow: 128000,
+    },
+  ],
+}
+
+/**
  * LM Studio — local model server for development and offline use.
  * Default port 1234 can be overridden via `LM_STUDIO_BASE_URL`.
  * `defaultModel` is intentionally empty — LM Studio auto-detects
@@ -302,5 +323,6 @@ export const OPENAI_COMPATIBLE_PRESETS: readonly OpenAICompatiblePreset[] = [
   LITELLM_PRESET,
   OLLAMA_PRESET,
   OPENROUTER_PRESET,
+  REQUESTY_PRESET,
   LM_STUDIO_PRESET,
 ]
