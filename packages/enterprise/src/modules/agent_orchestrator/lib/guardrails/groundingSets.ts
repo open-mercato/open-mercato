@@ -26,7 +26,7 @@ const REGISTRY = new Map<string, GuardrailSetBody>()
  * stable across declaration order — the durable, replayable version key.
  */
 export function guardrailSetVersionFor(body: GuardrailSetBody): string {
-  const canonical = JSON.stringify(body, Object.keys(body).sort())
+  const canonical = JSON.stringify(body, Object.keys(body).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
   return `g1-${createHash('sha256').update(canonical).digest('hex').slice(0, 24)}`
 }
 

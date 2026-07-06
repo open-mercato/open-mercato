@@ -8,6 +8,7 @@ import {Button} from '@open-mercato/ui/primitives/button'
 import {Input} from '@open-mercato/ui/primitives/input'
 import {Textarea} from '@open-mercato/ui/primitives/textarea'
 import {Checkbox} from '@open-mercato/ui/primitives/checkbox'
+import {RadioGroup, Radio} from '@open-mercato/ui/primitives/radio'
 import {Badge} from '@open-mercato/ui/primitives/badge'
 import {
   Select,
@@ -1708,7 +1709,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
               {/* Invoke Agent Configuration */}
               {node.type === 'invokeAgent' && (
                 <>
-                  <div className="border-t border-gray-200 pt-4 mt-4">
+                  <div className="border-t border-border pt-4 mt-4">
                     <h3 className="text-sm font-semibold text-foreground mb-3">
                       {t('workflows.nodeTypes.invokeAgent')}
                     </h3>
@@ -1716,7 +1717,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
                   {/* Agent */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                    <label className="block text-sm font-medium text-foreground mb-1">
                       {t('workflows.form.invokeAgent.agent')} *
                     </label>
                     <Select value={agentId} onValueChange={setAgentId}>
@@ -1737,7 +1738,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         ))}
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t('workflows.form.invokeAgent.agentDescription')}
                     </p>
                   </div>
@@ -1745,7 +1746,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                   {/* Input */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label className="block text-sm font-medium text-foreground">
                         {t('workflows.form.invokeAgent.input')}
                       </label>
                       <Button
@@ -1772,7 +1773,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             placeholder={t('workflows.form.invokeAgent.inputKeyPlaceholder')}
                             className="flex-1"
                           />
-                          <span className="text-gray-400">=</span>
+                          <span className="text-muted-foreground">=</span>
                           <Input
                             type="text"
                             value={row.value}
@@ -1797,25 +1798,29 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                         </div>
                       ))}
                     </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t('workflows.form.invokeAgent.inputDescription')}
                     </p>
                   </div>
 
                   {/* On result */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                    <label className="block text-sm font-medium text-foreground mb-2">
                       {t('workflows.form.invokeAgent.onResult')}
                     </label>
-                    <div className="space-y-3">
-                      <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input
-                          type="radio"
-                          name="invoke-agent-on-result"
-                          checked={agentResultMode === 'autoApprove'}
-                          onChange={() => setAgentResultMode('autoApprove')}
-                          className="h-4 w-4"
-                        />
+                    <RadioGroup
+                      className="space-y-3"
+                      name="invoke-agent-on-result"
+                      value={agentResultMode}
+                      onValueChange={(next) =>
+                        setAgentResultMode(next === 'alwaysAsk' ? 'alwaysAsk' : 'autoApprove')
+                      }
+                    >
+                      <label
+                        htmlFor="invoke-agent-on-result-auto-approve"
+                        className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
+                      >
+                        <Radio id="invoke-agent-on-result-auto-approve" value="autoApprove" />
                         <span>{t('workflows.form.invokeAgent.autoApprove')}</span>
                         <Input
                           type="number"
@@ -1829,24 +1834,21 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                           className="w-24"
                         />
                       </label>
-                      <label className="flex items-center gap-2 text-sm text-gray-700">
-                        <input
-                          type="radio"
-                          name="invoke-agent-on-result"
-                          checked={agentResultMode === 'alwaysAsk'}
-                          onChange={() => setAgentResultMode('alwaysAsk')}
-                          className="h-4 w-4"
-                        />
+                      <label
+                        htmlFor="invoke-agent-on-result-always-ask"
+                        className="flex cursor-pointer items-center gap-2 text-sm text-foreground"
+                      >
+                        <Radio id="invoke-agent-on-result-always-ask" value="alwaysAsk" />
                         <span>{t('workflows.form.invokeAgent.alwaysAsk')}</span>
                       </label>
-                    </div>
-                    <p className="text-xs text-gray-500 mt-1">
+                    </RadioGroup>
+                    <p className="text-xs text-muted-foreground mt-1">
                       {t('workflows.form.invokeAgent.threshold')}
                     </p>
                   </div>
 
                   {/* Output Mapping */}
-                  <div className="border-t border-gray-200 pt-4 mt-4">
+                  <div className="border-t border-border pt-4 mt-4">
                     <div className="flex items-center justify-between mb-3">
                       <div>
                         <h4 className="text-sm font-semibold text-foreground">
@@ -1854,7 +1856,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                             count: agentOutputMappings.length,
                           })}
                         </h4>
-                        <p className="text-xs text-gray-500 mt-0.5">
+                        <p className="text-xs text-muted-foreground mt-0.5">
                           {t('workflows.form.invokeAgent.outputMappingDescription')}
                         </p>
                       </div>
@@ -1872,7 +1874,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                     </div>
 
                     {agentOutputMappings.length === 0 ? (
-                      <p className="text-sm text-gray-500 italic">
+                      <p className="text-sm text-muted-foreground italic">
                         {t('workflows.form.invokeAgent.noOutputMappings')}
                       </p>
                     ) : (
@@ -1890,11 +1892,11 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 }}
                                 placeholder={t('workflows.form.invokeAgent.outputKeyPlaceholder')}
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">
+                              <p className="text-xs text-muted-foreground mt-0.5">
                                 {t('workflows.form.invokeAgent.outputKeyDescription')}
                               </p>
                             </div>
-                            <span className="text-gray-400 mt-2">←</span>
+                            <span className="text-muted-foreground mt-2">←</span>
                             <div className="flex-1">
                               <Input
                                 type="text"
@@ -1906,7 +1908,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
                                 }}
                                 placeholder={t('workflows.form.invokeAgent.outputPathPlaceholder')}
                               />
-                              <p className="text-xs text-gray-500 mt-0.5">
+                              <p className="text-xs text-muted-foreground mt-0.5">
                                 {t('workflows.form.invokeAgent.outputPathDescription')}
                               </p>
                             </div>

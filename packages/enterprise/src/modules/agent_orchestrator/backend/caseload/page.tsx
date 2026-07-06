@@ -355,8 +355,8 @@ export default function AgentCaseloadPage() {
     () => pageRows.filter((row) => matchesSearch(row, search) && matchesFilters(row, agentFilters, proposesFilters)),
     [pageRows, search, agentFilters, proposesFilters],
   )
-  const agentOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.agentLabel))).sort(), [pageRows])
-  const proposesOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.proposes).filter((value) => value !== '—'))).sort(), [pageRows])
+  const agentOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.agentLabel))).sort((a, b) => a.localeCompare(b)), [pageRows])
+  const proposesOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.proposes).filter((value) => value !== '—'))).sort((a, b) => a.localeCompare(b)), [pageRows])
   // Tab counts come from the org-level metrics endpoint (indexed disposition
   // counts), never from the loaded page.
   const counts = React.useMemo(() => {

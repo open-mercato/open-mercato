@@ -458,7 +458,7 @@ export default function VisualEditorPage() {
       const { targetNodeId, childPortKey, parentPath } = classification
       setNodes((nds) => applyInputMappingToNodes(nds, targetNodeId, childPortKey, parentPath))
       const dataEdge = buildDataMappingEdge(connection, childPortKey)
-      setEdges((eds) => addEdge(dataEdge, eds.filter((e) => e.id !== dataEdge.id)))
+      setEdges((eds) => appendWorkflowEdge(eds.filter((e) => e.id !== dataEdge.id), dataEdge))
       return
     }
 

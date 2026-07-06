@@ -7,5 +7,5 @@ export const metadata: ModuleInfo = {
   description:
     'Encrypted data seeding: encrypt confidential seed files for the repo and load them into a tenant on setup.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
 }
