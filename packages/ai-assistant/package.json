@@ -91,7 +91,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "ai": "^6.0.205",
     "cmdk": "^1.0.0",
-    "framer-motion": "^12.40.0",
+    "framer-motion": "^12.42.2",
     "isolated-vm": "^7.0.0",
     "react-json-view-lite": "^2.5.0",
     "react-markdown": "^10.1.0",
@@ -112,7 +112,7 @@
     "@types/react-dom": "^19.2.3",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "tsx": "^4.22.4",
+    "tsx": "^4.23.0",
     "zod": "^4.4.3"
   },
   "publishConfig": {
