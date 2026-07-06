@@ -2,8 +2,9 @@
 
 import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { SALES_CHANNELS_TOGGLE_ID } from '../lib/salesChannelsToggleId'
 
-export const SALES_CHANNELS_TOGGLE_ID = 'sales_channels_enabled'
+export { SALES_CHANNELS_TOGGLE_ID }
 
 const CACHE_TTL_MS = 60_000
 
