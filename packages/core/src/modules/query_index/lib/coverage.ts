@@ -351,11 +351,18 @@ export async function primeColumnCache(db: Kysely<any>, checks: ColumnCheck[]): 
   })()
 
   for (const entry of missing) {
-    COLUMN_CACHE_PENDING.set(entry.key, batchPromise.then((present) => {
+    const entryPromise = batchPromise.then((present) => {
       const value = present.has(entry.key)
       COLUMN_CACHE.set(entry.key, value)
       return value
-    }))
+    })
+    // Mark the stored promise as handled: when the batch query fails and no
+    // `tableHasColumn` caller has adopted this entry yet (the common case — the warmup
+    // awaits priming before dispatching any refresh), an orphaned rejection would
+    // otherwise crash a plain-Node event worker via unhandledRejection. Awaiting
+    // callers still observe the rejection through the stored reference.
+    entryPromise.catch(() => undefined)
+    COLUMN_CACHE_PENDING.set(entry.key, entryPromise)
   }
 
   try {

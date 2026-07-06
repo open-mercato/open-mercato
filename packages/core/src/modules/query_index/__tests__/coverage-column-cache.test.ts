@@ -91,4 +91,39 @@ describe('query_index lib/coverage column cache', () => {
     // Both calls raced on the exact same key before either resolved — only one query should fire.
     expect(queries).toHaveLength(1)
   })
+
+  it('does not leak unhandled rejections when the batched introspection query fails, and self-heals on retry', async () => {
+    const suffix = 'failure-4'
+    const table = `entity_fail_${suffix}`
+    const unhandled: unknown[] = []
+    const onUnhandled = (reason: unknown) => { unhandled.push(reason) }
+    process.on('unhandledRejection', onUnhandled)
+    try {
+      const failingChain: Record<string, unknown> = {
+        select: () => failingChain,
+        where: () => failingChain,
+        execute: async () => { throw new Error('db down') },
+      }
+      const failingDb = { selectFrom: () => failingChain }
+
+      await expect(primeColumnCache(failingDb as any, [
+        { table, column: 'organization_id' },
+        { table, column: 'tenant_id' },
+      ])).rejects.toThrow('db down')
+
+      await new Promise((resolve) => setImmediate(resolve))
+      await new Promise((resolve) => setImmediate(resolve))
+      expect(unhandled).toHaveLength(0)
+
+      // Failure must not poison the persistent cache: a retry re-queries all keys and succeeds.
+      const { db, queries } = makeInfoSchemaDb(new Set([`${table}.organization_id`]))
+      await primeColumnCache(db as any, [
+        { table, column: 'organization_id' },
+        { table, column: 'tenant_id' },
+      ])
+      expect(queries).toHaveLength(1)
+    } finally {
+      process.removeListener('unhandledRejection', onUnhandled)
+    }
+  })
 })
