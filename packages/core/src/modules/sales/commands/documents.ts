@@ -8460,12 +8460,21 @@ const createInvoiceCommand: CommandHandler<
         throw new CrudHttpError(400, { error: "Referenced order not found in current scope." });
       }
       orderRef = orderExists;
-      const existingInvoice = await em.findOne(SalesInvoice, {
-        order: parsed.orderId,
-        organizationId: parsed.organizationId,
-        tenantId: parsed.tenantId,
-        deletedAt: null,
-      });
+      const existingInvoice = await findOneWithDecryption(
+        em,
+        SalesInvoice,
+        {
+          order: parsed.orderId,
+          organizationId: parsed.organizationId,
+          tenantId: parsed.tenantId,
+          deletedAt: null,
+        },
+        {},
+        {
+          tenantId: parsed.tenantId,
+          organizationId: parsed.organizationId,
+        },
+      );
       if (existingInvoice) {
         throw new CrudHttpError(409, {
           error: "An invoice already exists for this order.",
