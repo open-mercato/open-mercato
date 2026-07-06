@@ -20,6 +20,7 @@ import {
   validateImageMagicBytes,
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
 import { StorageDriverFactory } from '../../../../lib/drivers'
+import { resolveAttachmentOrganizationId } from '@open-mercato/core/modules/attachments/lib/requestScope'
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -48,15 +49,18 @@ export async function GET(
   }
   const { width, height, cropType } = parsedQuery.data
 
-  const { resolve } = await createRequestContainer()
-  const em = resolve('em') as EntityManager
+  const container = await createRequestContainer()
+  const em = container.resolve('em') as EntityManager
   const storageDriverFactory =
-    (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
+    (container.resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
 
+  const scopedAuth = auth
+    ? { ...auth, orgId: await resolveAttachmentOrganizationId(container, auth, req) }
+    : auth
   const findFilter: Record<string, unknown> = { id }
-  if (auth && !isSuperAdminAuth(auth)) {
-    if (auth.tenantId) findFilter.tenantId = auth.tenantId
-    if (auth.orgId) findFilter.organizationId = auth.orgId
+  if (scopedAuth && !isSuperAdminAuth(scopedAuth)) {
+    if (scopedAuth.tenantId) findFilter.tenantId = scopedAuth.tenantId
+    if (scopedAuth.orgId) findFilter.organizationId = scopedAuth.orgId
   }
   const attachment = await em.findOne(Attachment, findFilter)
   if (!attachment) {
@@ -69,7 +73,7 @@ export async function GET(
   if (!partition) {
     return NextResponse.json({ error: 'Partition misconfigured' }, { status: 500 })
   }
-  const access = checkAttachmentAccess(auth, attachment, partition)
+  const access = checkAttachmentAccess(scopedAuth, attachment, partition)
   if (!access.ok) {
     const message = access.status === 401 ? 'Unauthorized' : 'Forbidden'
     return NextResponse.json({ error: message }, { status: access.status })
