@@ -7,6 +7,11 @@ import { parseScopedCommandInput, resolveCrudRecordId, withScopedPayload } from 
 import { splitCustomFieldPayload } from '@open-mercato/shared/lib/crud/custom-fields'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import {
+  attachOrderContext,
+  attachInvoiceLines,
+  normalizeFinancialDocumentItem,
+} from '../_documentListEnrichers'
 import { z } from 'zod'
 
 const rawBodySchema = z.object({}).passthrough()
@@ -75,6 +80,7 @@ const crud = makeCrudRoute({
       grandTotalGrossAmount: 'grand_total_gross_amount',
       createdAt: 'created_at',
     },
+    transformItem: (item: Record<string, unknown>) => normalizeFinancialDocumentItem(item, 'invoice'),
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
@@ -87,6 +93,12 @@ const crud = makeCrudRoute({
         ]
       }
       return filters
+    },
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      await attachOrderContext(payload as { items?: unknown }, ctx as never)
+      await attachInvoiceLines(payload as { items?: unknown }, ctx as never)
     },
   },
   actions: {

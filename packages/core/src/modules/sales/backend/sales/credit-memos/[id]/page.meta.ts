@@ -8,6 +8,6 @@ export const metadata = {
   navHidden: true,
   breadcrumb: [
     { label: 'Credit Memos', labelKey: 'sales.credit_memos.title', href: '/backend/sales/credit-memos' },
-    { label: 'Detail' },
+    { label: 'Detail', labelKey: 'sales.credit_memos.detail.breadcrumb' },
   ],
 } as const
