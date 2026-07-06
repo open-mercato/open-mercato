@@ -969,3 +969,27 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+## Backend `[id]` pages read the route param from the `params` prop, never `useParams()`
+
+**Context**: New eudr detail pages used `useParams()` from `next/navigation`; under the backend catch-all router it returns the catch-all's own params (the slug array), so the module-level `[id]` never resolved and every detail page short-circuited to the not-found state without a single API call (2026-07-06, caught only in the preview loop — list-page smokes and API tests stayed green).
+
+**Rule**: Module backend dynamic pages must accept `{ params }: { params?: { id?: string } }` as a component prop (the module page router injects it), like `customers/backend/customers/people/[id]/page.tsx`. Never call `useParams()` for module-declared segments.
+
+**Applies to**: every `packages/**/src/modules/**/backend/**/[param]/page.tsx`.
+
+## makeCrudRoute `sortField` must be `z.string()` + `sortFieldMap`, not a strict enum
+
+**Context**: eudr list routes validated `sortField` with `z.enum([...])` while their DataTables enabled table-wide `sortable`; every non-enum header click sent the camelCase accessorKey and the factory returned 400, flashing a load error (2026-07-06 review blocker).
+
+**Rule**: List schemas accept `sortField: z.string().optional()` and resolve through `sortFieldMap` (camelCase accessor → column) with the factory's default fallback, mirroring `customers/api/people/route.ts`. Map every accessorKey the page renders as sortable.
+
+**Applies to**: any `makeCrudRoute` list paired with a sortable DataTable.
+
+## Hand-written custom routes resolve org scope via `resolveOrganizationScopeForRequest`, not `auth.orgId`
+
+**Context**: The eudr export route filtered by `auth.orgId` while the dispatcher authorizes against the selected organization; for multi-org users the two disagree (false 404s / wrong-org reads) (2026-07-06 cross-model review blocker).
+
+**Rule**: Custom GET/action routes that query org-scoped entities must resolve `resolveOrganizationScopeForRequest({ container, auth, request })` (directory module) and filter `organizationId: { $in: scope.filterIds }` when `filterIds` is an array (null = unrestricted within tenant), like `customers/api/people/[id]/route.ts`.
+
+**Applies to**: every hand-written route outside `makeCrudRoute` that queries tenant/org-scoped tables.

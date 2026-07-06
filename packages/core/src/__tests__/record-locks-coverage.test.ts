@@ -105,6 +105,11 @@ const RECORD_LOCKS_DECISIONS: Record<string, RecordLockDecision> = {
   // --- directory ---
   'directory:Organization': { status: 'enabled', resourceKind: 'directory.organization', reason: 'enabled — Phase 5; presence + CRUD decorator (admin view).' },
   'directory:Tenant': { status: 'enabled', resourceKind: 'directory.tenant', reason: 'enabled — Phase 5; presence + CRUD decorator.' },
+
+  // --- eudr ---
+  'eudr:EudrProductMapping': { status: 'enabled', resourceKind: 'eudr.product_mapping', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrEvidenceSubmission': { status: 'enabled', resourceKind: 'eudr.evidence_submission', reason: 'enabled — presence + CRUD decorator.' },
+  'eudr:EudrDueDiligenceStatement': { status: 'enabled', resourceKind: 'eudr.due_diligence_statement', reason: 'enabled — presence + CRUD decorator.' },
 }
 
 /**
