@@ -28,8 +28,8 @@ const listSchema = z
     search: z.string().optional(),
     id: z.string().uuid().optional(),
     orderId: z.string().uuid().optional(),
-    dateFrom: z.string().optional(),
-    dateTo: z.string().optional(),
+    dateFrom: z.string().optional().refine((value) => !value || !Number.isNaN(new Date(value).getTime())),
+    dateTo: z.string().optional().refine((value) => !value || !Number.isNaN(new Date(value).getTime())),
     totalGrossMin: z.coerce.number().optional(),
     totalGrossMax: z.coerce.number().optional(),
     sortField: z.string().optional(),
@@ -91,9 +91,15 @@ const crud = makeCrudRoute({
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
-      const issueDateRange: Record<string, unknown> = {}
-      if (query.dateFrom) issueDateRange.$gte = query.dateFrom
-      if (query.dateTo) issueDateRange.$lte = query.dateTo
+      const issueDateRange: Record<string, Date> = {}
+      if (query.dateFrom) {
+        const from = new Date(query.dateFrom)
+        if (!Number.isNaN(from.getTime())) issueDateRange.$gte = from
+      }
+      if (query.dateTo) {
+        const to = new Date(query.dateTo)
+        if (!Number.isNaN(to.getTime())) issueDateRange.$lte = to
+      }
       if (Object.keys(issueDateRange).length) filters.issue_date = issueDateRange
       const grossRange: Record<string, unknown> = {}
       if (query.totalGrossMin != null) grossRange.$gte = query.totalGrossMin
@@ -184,14 +190,14 @@ const invoiceItemSchema = z.object({
   order: z.object({ id: z.string().uuid(), orderNumber: z.string().nullable() }).nullable().optional(),
   customerEntityId: z.string().uuid().nullable().optional(),
   customerSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
-  subtotalNetAmount: z.number().nullable().optional(),
-  subtotalGrossAmount: z.number().nullable().optional(),
-  discountTotalAmount: z.number().nullable().optional(),
-  taxTotalAmount: z.number().nullable().optional(),
-  grandTotalGrossAmount: z.number().nullable().optional(),
-  grandTotalNetAmount: z.number().nullable().optional(),
-  paidTotalAmount: z.number().nullable().optional(),
-  outstandingAmount: z.number().nullable().optional(),
+  subtotalNetAmount: z.string().nullable().optional(),
+  subtotalGrossAmount: z.string().nullable().optional(),
+  discountTotalAmount: z.string().nullable().optional(),
+  taxTotalAmount: z.string().nullable().optional(),
+  grandTotalGrossAmount: z.string().nullable().optional(),
+  grandTotalNetAmount: z.string().nullable().optional(),
+  paidTotalAmount: z.string().nullable().optional(),
+  outstandingAmount: z.string().nullable().optional(),
   metadata: z.record(z.string(), z.unknown()).nullable().optional(),
   lines: z.array(z.record(z.string(), z.unknown())).optional(),
   createdAt: z.string().nullable().optional(),

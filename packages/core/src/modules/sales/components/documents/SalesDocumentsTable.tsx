@@ -13,6 +13,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -160,7 +161,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: kind === 'invoice' || kind === 'credit-memo' ? 'issueDate' : 'createdAt', desc: true },
+  ])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setLoading] = React.useState(false)
@@ -625,6 +628,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           handleRefresh()
         }
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) return
         console.error('sales.documents.delete', err)
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
@@ -727,7 +731,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     }
 
     const dateColumn: ColumnDef<SalesDocumentRow> = {
-      id: 'createdAt',
+      id: kind === 'invoice' || kind === 'credit-memo' ? 'issueDate' : 'createdAt',
       accessorKey: 'date',
       header: kind === 'invoice' || kind === 'credit-memo'
         ? t('sales.documents.list.table.issueDate', 'Issue date')

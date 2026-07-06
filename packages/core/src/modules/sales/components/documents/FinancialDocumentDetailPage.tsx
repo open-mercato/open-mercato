@@ -4,9 +4,10 @@ import * as React from 'react'
 import Link from 'next/link'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
@@ -89,6 +90,18 @@ function resolveCustomerName(snapshot: CustomerSnapshot | null | undefined): str
   return null
 }
 
+function formatCurrency(amount: number | null | undefined, currency: string | null | undefined, fallback = '—') {
+  if (amount == null || Number.isNaN(amount)) return fallback
+  try {
+    if (currency && currency.trim().length) {
+      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount)
+    }
+    return new Intl.NumberFormat(undefined, { style: 'decimal', maximumFractionDigits: 2 }).format(amount)
+  } catch {
+    return String(amount)
+  }
+}
+
 function resolveContactRole(contact: CustomerSnapshot['contact']): string | null {
   if (!contact) return null
   const parts = [contact.jobTitle, contact.department]
@@ -127,39 +140,58 @@ export default function FinancialDocumentDetailPage({
   const [error, setError] = React.useState<string | null>(null)
 
   React.useEffect(() => {
+    let active = true
     async function load() {
       setLoading(true)
+      setError(null)
+      setNotFound(false)
       try {
         const result = await apiCall<{ items?: FinancialDocumentRecord[] }>(
           `${config.apiPath}?id=${encodeURIComponent(params.id)}&pageSize=1`,
         )
+        if (!active) return
         if (result.ok && result.result?.items?.[0]) {
           setRecord(result.result.items[0])
-        } else {
+        } else if (result.ok || result.status === 404) {
           setNotFound(true)
+        } else {
+          const message = t(`${config.i18nPrefix}.errors.loadFailed`, `Failed to load ${kind}`)
+          setError(message)
+          flash(message, 'error')
         }
       } catch {
+        if (!active) return
         const message = t(`${config.i18nPrefix}.errors.loadFailed`, `Failed to load ${kind}`)
         setError(message)
         flash(message, 'error')
       }
-      setLoading(false)
+      if (active) setLoading(false)
     }
     load()
+    return () => {
+      active = false
+    }
   }, [params.id, t, config.apiPath, config.i18nPrefix, kind])
 
-  if (loading) return <LoadingMessage label={t('common.loading', 'Loading...')} />
+  if (loading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('common.loading', 'Loading...')} />
+        </PageBody>
+      </Page>
+    )
+  }
 
   if (notFound) {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={t(`${config.i18nPrefix}.errors.notFound`, `${kind === 'invoice' ? 'Invoice' : 'Credit memo'} not found`)} />
-          <div className="mt-4">
-            <Link href={config.listPath} className="text-sm text-primary hover:underline">
-              {t(`${config.i18nPrefix}.backToList`, `← Back to ${kind === 'invoice' ? 'invoices' : 'credit memos'}`)}
-            </Link>
-          </div>
+          <RecordNotFoundState
+            label={t(`${config.i18nPrefix}.errors.notFound`, `${kind === 'invoice' ? 'Invoice' : 'Credit memo'} not found`)}
+            backHref={config.listPath}
+            backLabel={t(`${config.i18nPrefix}.backToList`, `← Back to ${kind === 'invoice' ? 'invoices' : 'credit memos'}`)}
+          />
         </PageBody>
       </Page>
     )
@@ -169,7 +201,7 @@ export default function FinancialDocumentDetailPage({
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={error ?? t('common.error', 'An error occurred')} />
+          <ErrorMessage label={error ?? t(`${config.i18nPrefix}.errors.loadFailed`, `Failed to load ${kind}`)} />
           <div className="mt-4">
             <Link href={config.listPath} className="text-sm text-primary hover:underline">
               {t(`${config.i18nPrefix}.backToList`, `← Back to ${kind === 'invoice' ? 'invoices' : 'credit memos'}`)}
@@ -195,22 +227,21 @@ export default function FinancialDocumentDetailPage({
   })()
   const contactRole = resolveContactRole(record.customerSnapshot?.contact ?? null)
   const hasCustomer = Boolean(customerName || customerEmail || customerPhone || customerId)
+  const money = (value: string | number | null | undefined) =>
+    formatCurrency(value == null ? null : Number(value), record.currencyCode ?? null)
 
   return (
     <Page>
       <FormHeader
         mode="detail"
         title={`${t(`${config.i18nPrefix}.heading`, kind === 'invoice' ? 'Invoice' : 'Credit Memo')} ${documentNumber}`}
+        statusBadge={record.status ? <StatusBadge variant="neutral" dot>{record.status}</StatusBadge> : undefined}
         backHref={config.listPath}
       />
       <PageBody>
         <div className="space-y-6">
           {/* Header info */}
           <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-            <div>
-              <div className="text-sm text-muted-foreground">{t(`${config.i18nPrefix}.columns.status`, 'Status')}</div>
-              <div className="font-medium">{record.status ?? '—'}</div>
-            </div>
             <div>
               <div className="text-sm text-muted-foreground">{t(`${config.i18nPrefix}.columns.issueDate`, 'Issue Date')}</div>
               <div className="font-medium">
@@ -228,9 +259,7 @@ export default function FinancialDocumentDetailPage({
             <div>
               <div className="text-sm text-muted-foreground">{t(`${config.i18nPrefix}.columns.total`, 'Total')}</div>
               <div className="font-medium">
-                {record.grandTotalGrossAmount
-                  ? `${Number(record.grandTotalGrossAmount).toFixed(2)} ${record.currencyCode ?? ''}`
-                  : '—'}
+                {record.grandTotalGrossAmount ? money(record.grandTotalGrossAmount) : '—'}
               </div>
             </div>
             {kind === 'credit-memo' && record.reason && (
@@ -309,31 +338,31 @@ export default function FinancialDocumentDetailPage({
             <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t(`${config.i18nPrefix}.subtotalNet`, 'Subtotal (net)')}</span>
-                <span>{Number(record.subtotalNetAmount ?? 0).toFixed(2)}</span>
+                <span>{money(record.subtotalNetAmount ?? 0)}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">{t(`${config.i18nPrefix}.tax`, 'Tax')}</span>
-                <span>{Number(record.taxTotalAmount ?? 0).toFixed(2)}</span>
+                <span>{money(record.taxTotalAmount ?? 0)}</span>
               </div>
               {kind === 'invoice' && (
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">{t('sales.invoices.discount', 'Discount')}</span>
-                  <span>{Number(record.discountTotalAmount ?? 0).toFixed(2)}</span>
+                  <span>{money(record.discountTotalAmount ?? 0)}</span>
                 </div>
               )}
               <div className="flex justify-between font-semibold">
                 <span>{t(`${config.i18nPrefix}.grandTotal`, 'Grand Total')}</span>
-                <span>{Number(record.grandTotalGrossAmount ?? 0).toFixed(2)} {record.currencyCode}</span>
+                <span>{money(record.grandTotalGrossAmount ?? 0)}</span>
               </div>
               {kind === 'invoice' && (
                 <>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('sales.invoices.paid', 'Paid')}</span>
-                    <span>{Number(record.paidTotalAmount ?? 0).toFixed(2)}</span>
+                    <span>{money(record.paidTotalAmount ?? 0)}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">{t('sales.invoices.outstanding', 'Outstanding')}</span>
-                    <span>{Number(record.outstandingAmount ?? 0).toFixed(2)}</span>
+                    <span>{money(record.outstandingAmount ?? 0)}</span>
                   </div>
                 </>
               )}
@@ -363,9 +392,9 @@ export default function FinancialDocumentDetailPage({
                       <td className="py-2">{line.name ?? line.description ?? '—'}</td>
                       <td className="py-2 text-muted-foreground">{line.sku ?? '—'}</td>
                       <td className="py-2 text-right">{Number(line.quantity).toFixed(2)} {line.quantityUnit ?? ''}</td>
-                      <td className="py-2 text-right">{Number(line.unitPriceGross).toFixed(2)}</td>
-                      <td className="py-2 text-right">{Number(line.taxAmount).toFixed(2)} ({Number(line.taxRate).toFixed(0)}%)</td>
-                      <td className="py-2 text-right font-medium">{Number(line.totalGrossAmount).toFixed(2)}</td>
+                      <td className="py-2 text-right">{money(line.unitPriceGross)}</td>
+                      <td className="py-2 text-right">{money(line.taxAmount)} ({Number(line.taxRate).toFixed(0)}%)</td>
+                      <td className="py-2 text-right font-medium">{money(line.totalGrossAmount)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -376,18 +405,18 @@ export default function FinancialDocumentDetailPage({
           {/* Related document links */}
           <div className="flex gap-2">
             {record.orderId && (
-              <Link href={`/backend/sales/orders/${record.orderId}`}>
-                <Button variant="outline">
+              <Button asChild variant="outline">
+                <Link href={`/backend/sales/orders/${record.orderId}`}>
                   {t(`${config.i18nPrefix}.viewOrder`, 'View Source Order')}
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
             {kind === 'credit-memo' && record.invoiceId && (
-              <Link href={`/backend/sales/invoices/${record.invoiceId}`}>
-                <Button variant="outline">
+              <Button asChild variant="outline">
+                <Link href={`/backend/sales/invoices/${record.invoiceId}`}>
                   {t('sales.credit_memos.viewInvoice', 'View Source Invoice')}
-                </Button>
-              </Link>
+                </Link>
+              </Button>
             )}
           </div>
         </div>

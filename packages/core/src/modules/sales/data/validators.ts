@@ -867,6 +867,7 @@ export const invoiceCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(
       z.object({
@@ -920,6 +921,7 @@ export const creditMemoCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(
       z.object({

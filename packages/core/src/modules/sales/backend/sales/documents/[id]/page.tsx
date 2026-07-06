@@ -2058,11 +2058,11 @@ export default function SalesDocumentDetailPage({
       }
     }
     loadNumberPermission().catch(() => {})
-    loadInvoicePermission().catch(() => {})
+    if (kind === 'order') loadInvoicePermission().catch(() => {})
     return () => {
       active = false
     }
-  }, [scopeVersion])
+  }, [kind, scopeVersion])
   const saveShortcutLabel = React.useMemo(
     () => t('sales.documents.detail.inline.save', 'Save ⌘⏎ / Ctrl+Enter'),
     [t]
@@ -3785,17 +3785,25 @@ export default function SalesDocumentDetailPage({
     setCreatingInvoice(true)
     try {
       await runMutationWithContext(async () => {
-        // Fetch order lines via API (not available on DocumentRecord)
-        const linesResult = await apiCall<{ items?: Array<Record<string, unknown>>; total?: number }>(
-          `/api/sales/order-lines?orderId=${record.id}&pageSize=100`
-        )
-        const orderLines = linesResult.ok && Array.isArray(linesResult.result?.items) ? linesResult.result.items : []
-        const totalLines = linesResult.result?.total ?? orderLines.length
-        if (totalLines > orderLines.length) {
-          flash(t('sales.invoices.createTruncatedWarning', 'Only {0} of {1} lines included. Create remaining lines manually.', { 0: orderLines.length, 1: totalLines }), 'warning')
+        const linesLoadErrorMessage = t('sales.invoices.createLinesLoadError', 'Failed to load all order lines. Invoice was not created.')
+        const linePageSize = 100
+        const orderLines: Array<Record<string, unknown>> = []
+        let linePage = 1
+        let expectedLineTotal = 0
+        for (;;) {
+          const linesResult = await apiCall<{ items?: Array<Record<string, unknown>>; total?: number }>(
+            `/api/sales/order-lines?orderId=${record.id}&page=${linePage}&pageSize=${linePageSize}&sortField=lineNumber&sortDir=asc`
+          )
+          if (!linesResult.ok) throw new Error(linesLoadErrorMessage)
+          const pageItems = Array.isArray(linesResult.result?.items) ? linesResult.result.items : []
+          orderLines.push(...pageItems)
+          expectedLineTotal = typeof linesResult.result?.total === 'number' ? linesResult.result.total : orderLines.length
+          if (orderLines.length >= expectedLineTotal || pageItems.length === 0) break
+          linePage += 1
         }
-        const str = (v: unknown) => typeof v === 'string' ? v : undefined
-        const num = (v: unknown) => typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '0'
+        if (orderLines.length < expectedLineTotal) throw new Error(linesLoadErrorMessage)
+        const toOptionalString = (value: unknown) => typeof value === 'string' ? value : undefined
+        const toAmountString = (value: unknown) => typeof value === 'string' ? value : typeof value === 'number' ? String(value) : '0'
         function snakeToCamel(obj: Record<string, unknown>): Record<string, unknown> {
           const result: Record<string, unknown> = {}
           for (const [key, value] of Object.entries(obj)) {
@@ -3809,20 +3817,20 @@ export default function SalesDocumentDetailPage({
             orderLineId: String(line.id ?? ''),
             lineNumber: index + 1,
             kind: String(line.kind ?? 'product'),
-            name: str(line.name) ?? str(line.productName) ?? str(line.description),
-            sku: str(line.sku),
-            description: str(line.description),
-            quantity: num(line.quantity),
-            quantityUnit: str(line.quantityUnit),
-            currencyCode: str(line.currencyCode) ?? record.currencyCode,
-            unitPriceNet: num(line.unitPriceNet),
-            unitPriceGross: num(line.unitPriceGross),
-            discountAmount: num(line.discountAmount),
-            discountPercent: num(line.discountPercent),
-            taxRate: num(line.taxRate),
-            taxAmount: num(line.taxAmount),
-            totalNetAmount: num(line.totalNetAmount),
-            totalGrossAmount: num(line.totalGrossAmount),
+            name: toOptionalString(line.name) ?? toOptionalString(line.productName) ?? toOptionalString(line.description),
+            sku: toOptionalString(line.sku),
+            description: toOptionalString(line.description),
+            quantity: toAmountString(line.quantity),
+            quantityUnit: toOptionalString(line.quantityUnit),
+            currencyCode: toOptionalString(line.currencyCode) ?? record.currencyCode,
+            unitPriceNet: toAmountString(line.unitPriceNet),
+            unitPriceGross: toAmountString(line.unitPriceGross),
+            discountAmount: toAmountString(line.discountAmount),
+            discountPercent: toAmountString(line.discountPercent),
+            taxRate: toAmountString(line.taxRate),
+            taxAmount: toAmountString(line.taxAmount),
+            totalNetAmount: toAmountString(line.totalNetAmount),
+            totalGrossAmount: toAmountString(line.totalGrossAmount),
           }
         })
         const call = await apiCallOrThrow<{ invoiceId?: string }>(

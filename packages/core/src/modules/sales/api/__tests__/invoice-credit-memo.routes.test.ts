@@ -83,3 +83,49 @@ describe('invoice and credit memo route modules', () => {
     expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.view')
   })
 })
+
+describe('normalizeFinancialDocumentItem', () => {
+  const { normalizeFinancialDocumentItem } = require('../../api/_documentListEnrichers')
+
+  it('keeps invoice money fields as numeric strings and passes metadata through', () => {
+    const item = normalizeFinancialDocumentItem(
+      {
+        id: 'inv-1',
+        subtotal_net_amount: '10.00',
+        subtotal_gross_amount: '12.30',
+        tax_total_amount: '2.30',
+        grand_total_net_amount: '10.00',
+        grand_total_gross_amount: 12.3,
+        discount_total_amount: null,
+        paid_total_amount: '',
+        outstanding_amount: '12.30',
+        metadata: { source: 'import' },
+      },
+      'invoice',
+    )
+    expect(item.subtotalNetAmount).toBe('10.00')
+    expect(item.subtotalGrossAmount).toBe('12.30')
+    expect(item.taxTotalAmount).toBe('2.30')
+    expect(item.grandTotalNetAmount).toBe('10.00')
+    expect(item.grandTotalGrossAmount).toBe('12.3')
+    expect(item.discountTotalAmount).toBeNull()
+    expect(item.paidTotalAmount).toBeNull()
+    expect(item.outstandingAmount).toBe('12.30')
+    expect(item.metadata).toEqual({ source: 'import' })
+  })
+
+  it('keeps credit memo money fields as numeric strings', () => {
+    const item = normalizeFinancialDocumentItem(
+      {
+        id: 'cm-1',
+        subtotal_net_amount: '5.00',
+        grand_total_gross_amount: '6.15',
+        metadata: null,
+      },
+      'credit-memo',
+    )
+    expect(item.subtotalNetAmount).toBe('5.00')
+    expect(item.grandTotalGrossAmount).toBe('6.15')
+    expect(item.metadata).toBeNull()
+  })
+})

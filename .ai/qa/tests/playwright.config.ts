@@ -58,9 +58,9 @@ export default defineConfig({
   testIgnore: [
     ...STATIC_TEST_IGNORES,
   ],
-  timeout: 30_000,
+  timeout: 20_000,
   expect: {
-    timeout: 30_000,
+    timeout: 20_000,
   },
   retries: 1,
   workers: 1,

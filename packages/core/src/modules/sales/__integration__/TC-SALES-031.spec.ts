@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
@@ -27,13 +28,7 @@ type JsonRecord = Record<string, unknown>
 const NONEXISTENT_UUID = '00000000-0000-4000-8000-000000000000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
-  const raw = await response.text()
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw) as JsonRecord
-  } catch {
-    return {}
-  }
+  return (await readJsonSafe<JsonRecord>(response)) ?? {}
 }
 
 function listItems(body: JsonRecord): JsonRecord[] {

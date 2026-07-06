@@ -4,6 +4,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { SalesCreditMemo, SalesCreditMemoLine, SalesOrder } from '../../../data/entities'
 
@@ -57,84 +60,107 @@ const detailSchema = z.object({
 const errorResponseSchema = z.object({ error: z.string() })
 
 export async function GET(req: Request, ctx: { params?: { id?: string } }) {
-  const auth = await getAuthFromRequest(req)
-  if (!auth) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const { id } = paramsSchema.parse(ctx.params ?? {})
+    const container = await createRequestContainer()
+    const auth = await getAuthFromRequest(req)
+    const { translate } = await resolveTranslations()
 
-  const parsed = paramsSchema.safeParse({ id: ctx.params?.id })
-  if (!parsed.success) return NextResponse.json({ error: 'Invalid credit memo id' }, { status: 400 })
+    if (!auth || !auth.tenantId) {
+      throw new CrudHttpError(401, { error: translate('sales.documents.errors.unauthorized', 'Unauthorized') })
+    }
 
-  const container = await createRequestContainer()
-  const em = (container.resolve('em') as EntityManager).fork()
-  const scope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+    const orgScope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
+    const organizationId = orgScope?.selectedId ?? auth.orgId ?? null
+    if (!organizationId) {
+      throw new CrudHttpError(400, {
+        error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
+      })
+    }
+    const scope = { tenantId: auth.tenantId, organizationId }
 
-  const creditMemo = await findOneWithDecryption(em, SalesCreditMemo, {
-    id: parsed.data.id,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  }, {}, scope)
-  if (!creditMemo) return NextResponse.json({ error: 'Credit memo not found' }, { status: 404 })
+    const em = (container.resolve('em') as EntityManager).fork()
+    const creditMemo = await findOneWithDecryption(em, SalesCreditMemo, {
+      id,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    }, {}, scope)
+    if (!creditMemo) {
+      throw new CrudHttpError(404, { error: translate('sales.credit_memos.errors.notFound', 'Credit memo not found') })
+    }
 
-  const lineRecords = await findWithDecryption(
-    em,
-    SalesCreditMemoLine,
-    { creditMemo, organizationId: scope.organizationId, tenantId: scope.tenantId },
-    { orderBy: { lineNumber: 'asc' } },
-    scope,
-  )
+    const lineRecords = await findWithDecryption(
+      em,
+      SalesCreditMemoLine,
+      { creditMemo, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      { orderBy: { lineNumber: 'asc' } },
+      scope,
+    )
 
-  const orderId = creditMemo.order?.id ?? null
-  const order = orderId
-    ? await findOneWithDecryption(em, SalesOrder, {
-        id: orderId,
-        organizationId: scope.organizationId,
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      }, {}, scope)
-    : null
+    const orderId = creditMemo.order?.id ?? null
+    const order = orderId
+      ? await findOneWithDecryption(em, SalesOrder, {
+          id: orderId,
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          deletedAt: null,
+        }, {}, scope)
+      : null
 
-  return NextResponse.json({
-    id: creditMemo.id,
-    creditMemoNumber: creditMemo.creditMemoNumber,
-    status: creditMemo.status ?? null,
-    statusEntryId: creditMemo.statusEntryId ?? null,
-    reason: creditMemo.reason ?? null,
-    issueDate: creditMemo.issueDate ? creditMemo.issueDate.toISOString() : null,
-    currencyCode: creditMemo.currencyCode,
-    subtotalNetAmount: creditMemo.subtotalNetAmount,
-    subtotalGrossAmount: creditMemo.subtotalGrossAmount,
-    taxTotalAmount: creditMemo.taxTotalAmount,
-    grandTotalNetAmount: creditMemo.grandTotalNetAmount,
-    grandTotalGrossAmount: creditMemo.grandTotalGrossAmount,
-    orderId,
-    order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
-    customerEntityId: order?.customerEntityId ?? null,
-    customerSnapshot: order?.customerSnapshot ?? null,
-    invoiceId: creditMemo.invoice?.id ?? null,
-    metadata: creditMemo.metadata ?? null,
-    customFieldSetId: creditMemo.customFieldSetId ?? null,
-    organizationId: creditMemo.organizationId,
-    tenantId: creditMemo.tenantId,
-    createdAt: creditMemo.createdAt.toISOString(),
-    updatedAt: creditMemo.updatedAt.toISOString(),
-    lines: lineRecords.map((line) => ({
-      id: line.id,
-      lineNumber: line.lineNumber,
-      name: line.name ?? null,
-      sku: line.sku ?? null,
-      description: line.description ?? null,
-      quantity: line.quantity,
-      quantityUnit: line.quantityUnit ?? null,
-      currencyCode: line.currencyCode,
-      unitPriceNet: line.unitPriceNet,
-      unitPriceGross: line.unitPriceGross,
-      taxRate: line.taxRate,
-      taxAmount: line.taxAmount,
-      totalNetAmount: line.totalNetAmount,
-      totalGrossAmount: line.totalGrossAmount,
-      orderLineId: line.orderLine?.id ?? null,
-    })),
-  })
+    return NextResponse.json({
+      id: creditMemo.id,
+      creditMemoNumber: creditMemo.creditMemoNumber,
+      status: creditMemo.status ?? null,
+      statusEntryId: creditMemo.statusEntryId ?? null,
+      reason: creditMemo.reason ?? null,
+      issueDate: creditMemo.issueDate ? creditMemo.issueDate.toISOString() : null,
+      currencyCode: creditMemo.currencyCode,
+      subtotalNetAmount: creditMemo.subtotalNetAmount,
+      subtotalGrossAmount: creditMemo.subtotalGrossAmount,
+      taxTotalAmount: creditMemo.taxTotalAmount,
+      grandTotalNetAmount: creditMemo.grandTotalNetAmount,
+      grandTotalGrossAmount: creditMemo.grandTotalGrossAmount,
+      orderId,
+      order: order ? { id: order.id, orderNumber: order.orderNumber ?? null } : null,
+      customerEntityId: order?.customerEntityId ?? null,
+      customerSnapshot: order?.customerSnapshot ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
+      metadata: creditMemo.metadata ?? null,
+      customFieldSetId: creditMemo.customFieldSetId ?? null,
+      organizationId: creditMemo.organizationId,
+      tenantId: creditMemo.tenantId,
+      createdAt: creditMemo.createdAt.toISOString(),
+      updatedAt: creditMemo.updatedAt.toISOString(),
+      lines: lineRecords.map((line) => ({
+        id: line.id,
+        lineNumber: line.lineNumber,
+        name: line.name ?? null,
+        sku: line.sku ?? null,
+        description: line.description ?? null,
+        quantity: line.quantity,
+        quantityUnit: line.quantityUnit ?? null,
+        currencyCode: line.currencyCode,
+        unitPriceNet: line.unitPriceNet,
+        unitPriceGross: line.unitPriceGross,
+        taxRate: line.taxRate,
+        taxAmount: line.taxAmount,
+        totalNetAmount: line.totalNetAmount,
+        totalGrossAmount: line.totalGrossAmount,
+        orderLineId: line.orderLine?.id ?? null,
+      })),
+    })
+  } catch (err) {
+    if (isCrudHttpError(err)) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    console.error('sales.credit_memos.get failed', err)
+    const { translate } = await resolveTranslations()
+    return NextResponse.json(
+      { error: translate('sales.credit_memos.errors.loadFailed', 'Failed to load credit memo') },
+      { status: 400 },
+    )
+  }
 }
 
 export const metadata = {

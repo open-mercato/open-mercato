@@ -8484,6 +8484,26 @@ const createInvoiceCommand: CommandHandler<
       }
     }
 
+    const orderLineIds = Array.from(
+      new Set(
+        (parsed.lines ?? [])
+          .map((line) => line.orderLineId)
+          .filter((value): value is string => typeof value === "string" && value.length > 0),
+      ),
+    );
+    if (orderLineIds.length) {
+      const matchedOrderLines = await em.find(SalesOrderLine, {
+        id: { $in: orderLineIds },
+        ...(parsed.orderId ? { order: parsed.orderId } : {}),
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (matchedOrderLines.length !== orderLineIds.length) {
+        throw new CrudHttpError(400, { error: "Referenced order line not found in current scope." });
+      }
+    }
+
     const invoiceId = randomUUID();
     const invoice = em.create(SalesInvoice, {
       id: invoiceId,
@@ -8526,7 +8546,7 @@ const createInvoiceCommand: CommandHandler<
                 em.create(SalesInvoiceLine, {
                   id: randomUUID(),
                   invoice,
-                  orderLineId: line.orderLineId ?? null,
+                  orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
                   organizationId: parsed.organizationId,
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
@@ -8556,15 +8576,13 @@ const createInvoiceCommand: CommandHandler<
             }
           }
 
-          if (parsed.customFieldSetId) {
+          if (parsed.customFields !== undefined) {
             await setRecordCustomFields(em, {
               entityId: E.sales.sales_invoice,
               recordId: invoiceId,
               organizationId: parsed.organizationId,
               tenantId: parsed.tenantId,
-              values: normalizeCustomFieldValues(
-                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
-              ),
+              values: normalizeCustomFieldValues(parsed.customFields),
             });
           }
         },
@@ -8688,6 +8706,16 @@ const updateInvoiceCommand: CommandHandler<
     Object.assign(invoice, changes);
     invoice.updatedAt = new Date();
     await em.flush();
+
+    if (parsed.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_invoice,
+        recordId: invoice.id,
+        organizationId: invoice.organizationId,
+        tenantId: invoice.tenantId,
+        values: normalizeCustomFieldValues(parsed.customFields),
+      });
+    }
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
@@ -9000,6 +9028,26 @@ const createCreditMemoCommand: CommandHandler<
       invoiceRef = invoiceExists;
     }
 
+    const orderLineIds = Array.from(
+      new Set(
+        (parsed.lines ?? [])
+          .map((line) => line.orderLineId)
+          .filter((value): value is string => typeof value === "string" && value.length > 0),
+      ),
+    );
+    if (orderLineIds.length) {
+      const matchedOrderLines = await em.find(SalesOrderLine, {
+        id: { $in: orderLineIds },
+        ...(parsed.orderId ? { order: parsed.orderId } : {}),
+        organizationId: parsed.organizationId,
+        tenantId: parsed.tenantId,
+        deletedAt: null,
+      });
+      if (matchedOrderLines.length !== orderLineIds.length) {
+        throw new CrudHttpError(400, { error: "Referenced order line not found in current scope." });
+      }
+    }
+
     const creditMemoId = randomUUID();
     const creditMemo = em.create(SalesCreditMemo, {
       id: creditMemoId,
@@ -9040,7 +9088,7 @@ const createCreditMemoCommand: CommandHandler<
                 em.create(SalesCreditMemoLine, {
                   id: randomUUID(),
                   creditMemo,
-                  orderLineId: line.orderLineId ?? null,
+                  orderLine: line.orderLineId ? em.getReference(SalesOrderLine, line.orderLineId) : null,
                   organizationId: parsed.organizationId,
                   tenantId: parsed.tenantId,
                   lineNumber: line.lineNumber ?? i + 1,
@@ -9067,15 +9115,13 @@ const createCreditMemoCommand: CommandHandler<
             }
           }
 
-          if (parsed.customFieldSetId) {
+          if (parsed.customFields !== undefined) {
             await setRecordCustomFields(em, {
               entityId: E.sales.sales_credit_memo,
               recordId: creditMemoId,
               organizationId: parsed.organizationId,
               tenantId: parsed.tenantId,
-              values: normalizeCustomFieldValues(
-                ((parsed as Record<string, unknown>).customFields as Record<string, unknown>) ?? {},
-              ),
+              values: normalizeCustomFieldValues(parsed.customFields),
             });
           }
         },
@@ -9196,6 +9242,16 @@ const updateCreditMemoCommand: CommandHandler<
     Object.assign(creditMemo, changes);
     creditMemo.updatedAt = new Date();
     await em.flush();
+
+    if (parsed.customFields !== undefined) {
+      await setRecordCustomFields(em, {
+        entityId: E.sales.sales_credit_memo,
+        recordId: creditMemo.id,
+        organizationId: creditMemo.organizationId,
+        tenantId: creditMemo.tenantId,
+        values: normalizeCustomFieldValues(parsed.customFields),
+      });
+    }
 
     const dataEngine = ctx.container.resolve("dataEngine") as DataEngine;
     await emitCrudSideEffects({
