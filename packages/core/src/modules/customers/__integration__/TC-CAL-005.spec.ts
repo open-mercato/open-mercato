@@ -7,8 +7,6 @@ import {
   escapeRegExp,
   findInteractionIdByTitle,
   INTERACTIONS_PATH,
-  localTimeAt,
-  mondayWeekRange,
   pressKeyUntil,
   seedShowWeekendsPreference,
   waitForCalendarLoaded,
@@ -26,11 +24,16 @@ import {
  *   default schedule, Save → success flash ("Event saved") and the new item
  *   appears without a page reload.
  *
- * The editor defaults the start to the next full hour, which can roll past
- * midnight (and, on Sunday nights, past the visible week). The agenda view
- * window (today..+7d) always contains the default start, so presence is
- * asserted there; the week-grid assertion runs only when the expected start
- * deterministically falls inside the current Monday-start week.
+ * Determinism: the editor defaults the start to the next full hour, which on a
+ * real late-evening run rolls past midnight — the 90-minute event then renders
+ * in TWO day columns (two buttons with the same aria-label) and, on Sunday
+ * nights, past the visible week. To remove that root cause the browser clock is
+ * frozen (via `page.clock.setFixedTime`, matching TC-CAL-007/010) to a weekday
+ * mid-day anchor BEFORE navigation, so the editor's default start is a fixed
+ * 11:00 that can never straddle midnight regardless of the real wall clock. All
+ * Node-side time math (default-start mirror, teardown window) is derived from
+ * that same anchor so the API teardown still resolves the record. The item
+ * locator additionally keeps `.first()` as defense in depth.
  *
  * Teardown resolves the created interaction id via the API (by exact title,
  * scoped to the fixture person) and deletes it along with the person.
@@ -46,6 +49,13 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
     let personId: string | null = null;
     let createdInteractionId: string | null = null;
 
+    // Wed, 2026-06-24 10:00 local — frozen before navigation so the browser
+    // computes "today" (and the editor's default start of 11:00) from it on first
+    // render. A fixed weekday mid-day start can never straddle midnight, so the
+    // created event stays in a single day column no matter when the suite runs.
+    const fixedNow = new Date(2026, 5, 24, 10, 0, 0);
+    await page.clock.setFixedTime(fixedNow);
+
     try {
       adminToken = await getAuthToken(request, 'admin');
       const scope = getTokenScope(adminToken);
@@ -55,8 +65,8 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
         displayName: personName,
       });
 
-      // The editor defaults new events to today's anchor — force "Show weekends" on
-      // so the created event is visible on the grid even on a weekend.
+      // Force "Show weekends" on so the created event is visible on the grid
+      // regardless of the anchor day.
       await seedShowWeekendsPreference(page, scope.userId);
 
       await login(page, 'admin');
@@ -87,10 +97,10 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await expect(dialog.getByText('Ends', { exact: true })).toBeVisible();
       await expect(dialog.getByRole('group', { name: 'Priority' })).toBeHidden();
 
-      // Capture the editor's default start (next full hour) right after the
-      // form state exists, mirroring createDefaultFormState.
-      const defaultStart = new Date();
-      defaultStart.setHours(defaultStart.getHours() + 1, 0, 0, 0);
+      // Mirror the editor's default start (next full hour) from the same frozen
+      // anchor the browser renders under — deterministically 11:00 on the anchor day.
+      const defaultStart = new Date(fixedNow);
+      defaultStart.setHours(fixedNow.getHours() + 1, 0, 0, 0);
 
       // -- Title + Related-to person picker --------------------------------------
       await dialog.getByRole('textbox', { name: 'Title', exact: true }).fill(eventTitle);
@@ -107,27 +117,35 @@ test.describe('TC-CAL-005: Create event via calendar editor', () => {
       await expect(page.getByText('Event saved').first()).toBeVisible();
       await expect(dialog).toBeHidden();
 
+      // Regression guard for #3721: the frozen anchor must keep the default 90-min
+      // event inside a single calendar day. If a future anchor change reintroduces a
+      // midnight-spanning slot, this fails fast here rather than as a strict-mode flake.
+      const defaultEnd = new Date(defaultStart.getTime() + 90 * 60 * 1000);
+      expect(
+        defaultStart.getDate(),
+        'Frozen anchor should keep the default event within one day (no midnight span)',
+      ).toBe(defaultEnd.getDate());
+
       // -- The new item renders without reload -----------------------------------
-      // `.first()`: an event whose default slot crosses midnight (e.g. 11:00 PM–12:30 AM, which the
-      // editor produces when the test runs late in the day) correctly renders in BOTH day cells it
-      // spans, so a bare locator matches 2 buttons and trips Playwright strict mode. The assertion's
-      // intent is only "the event rendered", so target the first instance.
+      // The frozen anchor makes the default start (Wed 11:00) deterministically fall in
+      // the visible week, so the grid assertion is unconditional. `.first()` stays as
+      // defense in depth: an event whose slot crossed midnight would render in BOTH day
+      // cells (two buttons with the same aria-label) and trip Playwright strict mode.
       const itemLocator = page.getByRole('button', { name: new RegExp(`^${escapeRegExp(eventTitle)}`) }).first();
-      const currentWeek = mondayWeekRange(new Date());
-      if (defaultStart.getTime() >= currentWeek.from.getTime() && defaultStart.getTime() <= currentWeek.to.getTime()) {
-        await expect(itemLocator).toBeVisible();
-      }
+      await expect(itemLocator).toBeVisible();
       await pressKeyUntil(page, 'a', async () => {
         await expect(page.getByRole('heading', { name: 'Upcoming' })).toBeVisible({ timeout: 1_000 });
       });
       await expect(itemLocator).toBeVisible();
 
       // -- Resolve the created id for teardown ------------------------------------
+      // Anchor the search window to the frozen clock: the event was persisted with the
+      // browser's (frozen) start, so a real-time window would miss it entirely.
       createdInteractionId = await findInteractionIdByTitle(request, adminToken, {
         entityId: personId,
         title: eventTitle,
-        from: localTimeAt(-1, 0, 0),
-        to: localTimeAt(8, 0, 0),
+        from: new Date(fixedNow.getFullYear(), fixedNow.getMonth(), fixedNow.getDate() - 1, 0, 0, 0, 0),
+        to: new Date(fixedNow.getFullYear(), fixedNow.getMonth(), fixedNow.getDate() + 8, 0, 0, 0, 0),
       });
       expect(createdInteractionId, 'Created calendar event should be resolvable through the API').toBeTruthy();
     } finally {
