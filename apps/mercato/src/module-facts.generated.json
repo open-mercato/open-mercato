@@ -1,4 +1,992 @@
 {
+  "ai_assistant": {
+    "title": "AI Assistant",
+    "description": "MCP server for AI assistant integration with multi-tenant support.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "ai_assistant:ai_agent_prompt_override",
+        "class": "AiAgentPromptOverride",
+        "table": "ai_agent_prompt_overrides",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_pending_action",
+        "class": "AiPendingAction",
+        "table": "ai_pending_actions",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_agent_runtime_override",
+        "class": "AiAgentRuntimeOverride",
+        "table": "ai_agent_runtime_overrides",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_token_usage_event",
+        "class": "AiTokenUsageEvent",
+        "table": "ai_token_usage_events",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_token_usage_daily",
+        "class": "AiTokenUsageDaily",
+        "table": "ai_token_usage_daily",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_tenant_model_allowlist",
+        "class": "AiTenantModelAllowlist",
+        "table": "ai_tenant_model_allowlists",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_agent_mutation_policy_override",
+        "class": "AiAgentMutationPolicyOverride",
+        "table": "ai_agent_mutation_policy_overrides",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_chat_conversation",
+        "class": "AiChatConversation",
+        "table": "ai_chat_conversations",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_chat_conversation_participant",
+        "class": "AiChatConversationParticipant",
+        "table": "ai_chat_conversation_participants",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "ai_assistant:ai_chat_message",
+        "class": "AiChatMessage",
+        "table": "ai_chat_messages",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "ai.action.confirmed",
+        "category": null,
+        "entity": "ai_pending_action"
+      },
+      {
+        "id": "ai.action.cancelled",
+        "category": null,
+        "entity": "ai_pending_action"
+      },
+      {
+        "id": "ai.action.expired",
+        "category": null,
+        "entity": "ai_pending_action"
+      },
+      {
+        "id": "ai.token_usage.recorded",
+        "category": null,
+        "entity": "token_usage"
+      },
+      {
+        "id": "ai_assistant.conversation.shared",
+        "category": null,
+        "entity": "ai_chat_conversation"
+      },
+      {
+        "id": "ai_assistant.conversation.unshared",
+        "category": null,
+        "entity": "ai_chat_conversation"
+      }
+    ],
+    "aclFeatures": [
+      "ai_assistant.view",
+      "ai_assistant.settings.manage",
+      "ai_assistant.conversations.manage",
+      "ai_assistant.conversations.share",
+      "ai_assistant.mcp.serve",
+      "ai_assistant.tools.list",
+      "ai_assistant.mcp_servers.view",
+      "ai_assistant.mcp_servers.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/ai_assistant/ai/agents",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/chat",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/conversations/import",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/conversations",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/run-object",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/chat",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/health",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/mcp-key",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "api_keys.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/route",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/session-key",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/settings/allowlist",
+        "methods": [
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/settings",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/tools/execute",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/tools",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/usage/daily",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/usage/sessions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/actions/[id]/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/actions/[id]/confirm",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/actions/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/agents/[agentId]/loop-override",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/agents/[agentId]/models",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/agents/[agentId]/mutation-policy",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/agents/[agentId]/prompt-override",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/ai_assistant/ai/conversations/[conversationId]/participants/[userId]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/conversations/[conversationId]/participants",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/ai/conversations/[conversationId]",
+        "methods": [
+          "GET",
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/ai_assistant/usage/sessions/[sessionId]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "ai_assistant.settings.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "ai_assistant.conversation_shared"
+    ],
+    "cli": [
+      "mcp:serve",
+      "mcp:serve-http",
+      "mcp:dev",
+      "mcp:list-tools",
+      "entity-graph",
+      "run-pending-action-cleanup",
+      "run-token-usage-prune",
+      "test-tools"
+    ]
+  },
+  "api_docs": {
+    "title": "API Documentation",
+    "description": "Auto-generated documentation for all HTTP endpoints.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [],
+    "apiRoutes": [
+      {
+        "path": "/version",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "api_keys": {
+    "title": "API Keys",
+    "description": "Manage access tokens for external API access.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "api_keys:api_key",
+        "class": "ApiKey",
+        "table": "api_keys",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "api_keys.view",
+      "api_keys.create",
+      "api_keys.delete"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/api_keys/keys",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "api_keys.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "api_keys.create"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "api_keys.delete"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "api_keys.list"
+      ]
+    },
+    "notifications": [],
+    "cli": [
+      "add"
+    ]
+  },
+  "attachments": {
+    "title": "Attachments",
+    "description": "File attachments and media management.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "attachments:attachment_partition",
+        "class": "AttachmentPartition",
+        "table": "attachment_partitions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "attachments:attachment",
+        "class": "Attachment",
+        "table": "attachments",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "attachments.attachment.created",
+        "category": "crud",
+        "entity": "attachment"
+      },
+      {
+        "id": "attachments.attachment.updated",
+        "category": "crud",
+        "entity": "attachment"
+      },
+      {
+        "id": "attachments.attachment.deleted",
+        "category": "crud",
+        "entity": "attachment"
+      }
+    ],
+    "aclFeatures": [
+      "attachments.view",
+      "attachments.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/attachments/library",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/attachments/partitions",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/attachments",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/attachments/transfer",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/attachments/file/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/attachments/image/[id]/[[...slug]]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/attachments/library/[id]",
+        "methods": [
+          "GET",
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.view"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "attachments.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "storageDriverFactory"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "delete"
+    ]
+  },
+  "audit_logs": {
+    "title": "Audit & Action Logs",
+    "description": "Tracks user actions and data accesses with undo support scaffolding.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "audit_logs:action_log",
+        "class": "ActionLog",
+        "table": "action_logs",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "audit_logs:access_log",
+        "class": "AccessLog",
+        "table": "access_logs",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "audit_logs.view_self",
+      "audit_logs.view_tenant",
+      "audit_logs.undo_self",
+      "audit_logs.undo_tenant",
+      "audit_logs.redo_self",
+      "audit_logs.redo_tenant"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/audit_logs/audit-logs/access",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "audit_logs.view_self"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/audit_logs/audit-logs/actions/export",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "audit_logs.view_self"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/audit_logs/audit-logs/actions/redo",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "audit_logs.redo_self"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/audit_logs/audit-logs/actions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "audit_logs.view_self"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/audit_logs/audit-logs/actions/undo",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "audit_logs.undo_self"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "actionLogService",
+      "accessLogService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "projections:backfill"
+    ]
+  },
   "auth": {
     "title": "Authentication & Accounts",
     "description": "User accounts, sessions, roles and password resets.",
@@ -508,6 +1496,251 @@
       "list-tenants",
       "list-users",
       "set-password"
+    ]
+  },
+  "business_rules": {
+    "title": "Business Rules",
+    "description": "Business Rules Engine for defining, managing, and executing business logic and automation rules.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "business_rules:business_rule",
+        "class": "BusinessRule",
+        "table": "business_rules",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "business_rules:rule_execution_log",
+        "class": "RuleExecutionLog",
+        "table": "rule_execution_logs",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "business_rules:rule_set",
+        "class": "RuleSet",
+        "table": "rule_sets",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "business_rules:rule_set_member",
+        "class": "RuleSetMember",
+        "table": "rule_set_members",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "business_rules.view",
+      "business_rules.manage",
+      "business_rules.execute",
+      "business_rules.view_logs",
+      "business_rules.manage_sets"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/business_rules/execute",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.execute"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/logs",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view_logs"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/rules",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/sets",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/execute/[ruleId]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.execute"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/logs/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view_logs"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/rules/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/sets/[id]/members",
+        "methods": [
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.manage_sets"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/business_rules/sets/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "business_rules.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "ruleEvaluator",
+      "actionExecutor",
+      "ruleEngine"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "business-rules.rules.list"
+      ]
+    },
+    "notifications": [
+      "business_rules.rule.execution_failed"
+    ],
+    "cli": [
+      "seed-guard-rules"
     ]
   },
   "catalog": {
@@ -1060,6 +2293,948 @@
       "seed-examples",
       "seed-examples-bundle"
     ]
+  },
+  "channel_gmail": {
+    "title": "Gmail Email Channel",
+    "description": "Connect per-user Gmail accounts via OAuth2. Outbound via gmail.users.messages.send; inbound via History API polling. Pairs with the Communications Hub.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [
+      "channel_gmail.view",
+      "channel_gmail.configure"
+    ],
+    "apiRoutes": [],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "channel_imap": {
+    "title": "IMAP + SMTP Email Channel",
+    "description": "Connect personal mailboxes via IMAP for inbound polling and SMTP for outbound delivery. Pairs with the Communications Hub (SPEC-045d).",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [
+      "channel_imap.view",
+      "channel_imap.configure"
+    ],
+    "apiRoutes": [],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "checkout": {
+    "title": "Checkout",
+    "description": "Pay links, checkout templates, public payment pages, and checkout transaction tracking.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "checkout:checkout_link_template",
+        "class": "CheckoutLinkTemplate",
+        "table": "checkout_link_templates",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "checkout:checkout_link",
+        "class": "CheckoutLink",
+        "table": "checkout_links",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "checkout:checkout_transaction",
+        "class": "CheckoutTransaction",
+        "table": "checkout_transactions",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "checkout.template.created",
+        "category": "crud",
+        "entity": "template"
+      },
+      {
+        "id": "checkout.template.updated",
+        "category": "crud",
+        "entity": "template"
+      },
+      {
+        "id": "checkout.template.deleted",
+        "category": "crud",
+        "entity": "template"
+      },
+      {
+        "id": "checkout.link.created",
+        "category": "crud",
+        "entity": "link"
+      },
+      {
+        "id": "checkout.link.updated",
+        "category": "crud",
+        "entity": "link"
+      },
+      {
+        "id": "checkout.link.deleted",
+        "category": "crud",
+        "entity": "link"
+      },
+      {
+        "id": "checkout.link.published",
+        "category": "lifecycle",
+        "entity": "link"
+      },
+      {
+        "id": "checkout.link.locked",
+        "category": "lifecycle",
+        "entity": "link"
+      },
+      {
+        "id": "checkout.transaction.created",
+        "category": "crud",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.customerDataCaptured",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.sessionStarted",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.completed",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.failed",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.cancelled",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.transaction.expired",
+        "category": "lifecycle",
+        "entity": "transaction"
+      },
+      {
+        "id": "checkout.link.usageLimitReached",
+        "category": "lifecycle",
+        "entity": "link"
+      }
+    ],
+    "aclFeatures": [
+      "checkout.view",
+      "checkout.create",
+      "checkout.edit",
+      "checkout.delete",
+      "checkout.viewPii",
+      "checkout.export"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/checkout/links",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/templates",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/transactions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/links/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.edit"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.delete"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/pay/[slug]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/checkout/pay/[slug]/status/[transactionId]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/checkout/pay/[slug]/submit",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/checkout/pay/[slug]/verify-password",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/checkout/templates/[id]/preview",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/templates/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.edit"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.delete"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/transactions/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/checkout/transactions/by-gateway/[gatewayTransactionId]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "checkout.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "checkout-links",
+        "checkout-templates",
+        "checkout-transactions"
+      ]
+    },
+    "notifications": [
+      "checkout.transaction.completed",
+      "checkout.transaction.failed",
+      "checkout.link.usageLimitReached"
+    ],
+    "cli": []
+  },
+  "communication_channels": {
+    "title": "Communication Channels",
+    "description": "Unified hub bridging external chat/email channels (Slack, WhatsApp, Email) to the Messages module. Adapter contract, channel-native payload storage, reactions, and per-channel threading.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "communication_channels:communication_channel",
+        "class": "CommunicationChannel",
+        "table": "communication_channels",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:external_conversation",
+        "class": "ExternalConversation",
+        "table": "external_conversations",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:external_message",
+        "class": "ExternalMessage",
+        "table": "external_messages",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:message_channel_link",
+        "class": "MessageChannelLink",
+        "table": "message_channel_links",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:channel_thread_mapping",
+        "class": "ChannelThreadMapping",
+        "table": "channel_thread_mappings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:message_reaction",
+        "class": "MessageReaction",
+        "table": "message_reactions",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:channel_thread_token",
+        "class": "ChannelThreadToken",
+        "table": "channel_thread_tokens",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "communication_channels:channel_ingest_dead_letter",
+        "class": "ChannelIngestDeadLetter",
+        "table": "channel_ingest_dead_letters",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "communication_channels.message.received",
+        "category": "custom",
+        "entity": "external_message"
+      },
+      {
+        "id": "communication_channels.message.sent",
+        "category": "custom",
+        "entity": "external_message"
+      },
+      {
+        "id": "communication_channels.message.delivery_failed",
+        "category": "custom",
+        "entity": "external_message"
+      },
+      {
+        "id": "communication_channels.conversation.created",
+        "category": "custom",
+        "entity": "external_conversation"
+      },
+      {
+        "id": "communication_channels.conversation.reassigned",
+        "category": "custom",
+        "entity": "external_conversation"
+      },
+      {
+        "id": "communication_channels.contact.resolved",
+        "category": "custom",
+        "entity": "external_conversation"
+      },
+      {
+        "id": "communication_channels.channel.requires_reauth",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.channel.disconnected",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.channel.deleted",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.channel.primary_changed",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.reaction.added",
+        "category": "custom",
+        "entity": "message_reaction"
+      },
+      {
+        "id": "communication_channels.reaction.removed",
+        "category": "custom",
+        "entity": "message_reaction"
+      },
+      {
+        "id": "communication_channels.push.registered",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.push.failed",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.push.renewed",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      },
+      {
+        "id": "communication_channels.push.deactivated",
+        "category": "lifecycle",
+        "entity": "communication_channel"
+      }
+    ],
+    "aclFeatures": [
+      "communication_channels.view",
+      "communication_channels.manage",
+      "communication_channels.react",
+      "communication_channels.assign",
+      "communication_channels.connect_user_channel",
+      "communication_channels.admin",
+      "communication_channels.channel.import_history",
+      "communication_channels.channel.push.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/communication_channels/channels",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/me/channels",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/connect/credentials",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/send-as-user",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/test-seed",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/webhooks/gmail",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/messages/[messageId]/reactions/[reactionId]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.react"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/health",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/oauth/[provider]/callback",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/import-history",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/poll-now",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/push/register",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/set-primary",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/channels/[id]/test-send",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/messages/[messageId]/reactions",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.react"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/oauth/[provider]/initiate",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.connect_user_channel"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/webhook/[provider]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/communication_channels/threads/[threadId]/assign",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "communication_channels.assign"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "communication_channels.message.received",
+      "communication_channels.channel.requires_reauth"
+    ],
+    "cli": []
+  },
+  "configs": {
+    "title": "Configuration",
+    "description": "Shared configuration storage and helpers for module settings.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "configs:module_config",
+        "class": "ModuleConfig",
+        "table": "module_configs",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "configs:upgrade_action_run",
+        "class": "UpgradeActionRun",
+        "table": "upgrade_action_runs",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "configs.system_status.view",
+      "configs.cache.view",
+      "configs.cache.manage",
+      "configs.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/configs/cache",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.cache.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.cache.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/configs/module-telemetry",
+        "methods": [
+          "GET",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.system_status.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/configs/system-status",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.system_status.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/configs/upgrade-actions",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "configs.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "restore-defaults",
+      "cache",
+      "help"
+    ]
+  },
+  "content": {
+    "title": "Content",
+    "description": "Static informational pages such as terms of service and privacy policy.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [],
+    "apiRoutes": [],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
   },
   "currencies": {
     "title": "Currencies",
@@ -2563,6 +4738,21 @@
         }
       },
       {
+        "path": "/customers/deals/map",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view",
+              "customers.activities.view"
+            ]
+          }
+        }
+      },
+      {
         "path": "/customers/deals",
         "methods": [
           "GET",
@@ -3427,6 +5617,177 @@
       "interactions:backfill"
     ]
   },
+  "dashboards": {
+    "title": "Admin Dashboards",
+    "description": "Configurable admin dashboard with module-provided widgets.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "dashboards:dashboard_layout",
+        "class": "DashboardLayout",
+        "table": "dashboard_layouts",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "dashboards:dashboard_role_widgets",
+        "class": "DashboardRoleWidgets",
+        "table": "dashboard_role_widgets",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "dashboards:dashboard_user_widgets",
+        "class": "DashboardUserWidgets",
+        "table": "dashboard_user_widgets",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "dashboards.view",
+      "dashboards.configure",
+      "dashboards.admin.assign-widgets",
+      "analytics.view"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/dashboards/layout",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/roles/widgets",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.admin.assign-widgets"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.admin.assign-widgets"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/users/widgets",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.admin.assign-widgets"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.admin.assign-widgets"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/widgets/data/batch",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "analytics.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/widgets/data",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "analytics.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/layout/[itemId]",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dashboards/widgets/catalog",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.admin.assign-widgets"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "analyticsRegistry"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "seed-defaults",
+      "enable-analytics-widgets",
+      "seed-analytics",
+      "debug-analytics"
+    ]
+  },
   "data_sync": {
     "title": "Data Sync",
     "description": "Streaming data sync hub for import/export integrations.",
@@ -3702,6 +6063,1242 @@
     "notifications": [],
     "cli": []
   },
+  "dictionaries": {
+    "title": "Shared Dictionaries",
+    "description": "Organization-scoped dictionaries for reusable enumerations and appearance presets.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "dictionaries:dictionary",
+        "class": "Dictionary",
+        "table": "dictionaries",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "dictionaries:dictionary_entry",
+        "class": "DictionaryEntry",
+        "table": "dictionary_entries",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "dictionaries.entry.created",
+        "category": "crud",
+        "entity": "entry"
+      },
+      {
+        "id": "dictionaries.entry.updated",
+        "category": "crud",
+        "entity": "entry"
+      },
+      {
+        "id": "dictionaries.entry.deleted",
+        "category": "crud",
+        "entity": "entry"
+      }
+    ],
+    "aclFeatures": [
+      "dictionaries.view",
+      "dictionaries.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/dictionaries",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dictionaries/[dictionaryId]/entries/[entryId]",
+        "methods": [
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dictionaries/[dictionaryId]/entries/reorder",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dictionaries/[dictionaryId]/entries",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dictionaries/[dictionaryId]/entries/set-default",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/dictionaries/[dictionaryId]",
+        "methods": [
+          "GET",
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.view"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dictionaries.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "directory": {
+    "title": "Directory (Tenants & Organizations)",
+    "description": "Multi-tenant directory with tenants and organizations.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "directory:tenant",
+        "class": "Tenant",
+        "table": "tenants",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "directory:organization",
+        "class": "Organization",
+        "table": "organizations",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "directory.tenant.created",
+        "category": "crud",
+        "entity": "tenant"
+      },
+      {
+        "id": "directory.tenant.updated",
+        "category": "crud",
+        "entity": "tenant"
+      },
+      {
+        "id": "directory.tenant.deleted",
+        "category": "crud",
+        "entity": "tenant"
+      },
+      {
+        "id": "directory.organization.created",
+        "category": "crud",
+        "entity": "organization"
+      },
+      {
+        "id": "directory.organization.updated",
+        "category": "crud",
+        "entity": "organization"
+      },
+      {
+        "id": "directory.organization.deleted",
+        "category": "crud",
+        "entity": "organization"
+      }
+    ],
+    "aclFeatures": [
+      "directory.tenants.view",
+      "directory.tenants.manage",
+      "directory.organizations.view",
+      "directory.organizations.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/directory/organization-branding",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/directory/organization-switcher",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/directory/organizations",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.organizations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/directory/tenants",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.tenants.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.tenants.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.tenants.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "directory.tenants.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/directory/organizations/lookup",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/directory/tenants/lookup",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "directory.organizations.list",
+        "directory.tenants.list"
+      ]
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "entities": {
+    "title": "Custom Entities & Fields",
+    "description": "User-defined entities, custom fields, and dynamic records storage.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "entities:custom_field_def",
+        "class": "CustomFieldDef",
+        "table": "custom_field_defs",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "entities:custom_field_entity_config",
+        "class": "CustomFieldEntityConfig",
+        "table": "custom_field_entity_configs",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "entities:custom_entity",
+        "class": "CustomEntity",
+        "table": "custom_entities",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "entities:custom_entity_storage",
+        "class": "CustomEntityStorage",
+        "table": "custom_entities_storage",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "entities:custom_field_value",
+        "class": "CustomFieldValue",
+        "table": "custom_field_values",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "entities:encryption_map",
+        "class": "EncryptionMap",
+        "table": "encryption_maps",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "entities.definitions.view",
+      "entities.definitions.manage",
+      "entities.records.view",
+      "entities.records.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/entities/definitions.batch",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/definitions.manage",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/definitions.restore",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/definitions",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/encryption",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/entities",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/records",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.records.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.records.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.records.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.records.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/relations/options",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "entities.definitions.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/entities/sidebar-entities",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [
+        "entities:custom_entity"
+      ],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "install",
+      "reinstall",
+      "add-field",
+      "seed-encryption",
+      "rotate-encryption-key",
+      "decrypt-database"
+    ]
+  },
+  "events": {
+    "title": "Events",
+    "description": "Event bus and subscriber dispatch",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [],
+    "apiRoutes": [
+      {
+        "path": "/events",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/events/stream",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "feature_toggles": {
+    "title": "Feature Toggles",
+    "description": "Global feature flags with tenant-level overrides.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "feature_toggles:feature_toggle",
+        "class": "FeatureToggle",
+        "table": "feature_toggles",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "feature_toggles:feature_toggle_override",
+        "class": "FeatureToggleOverride",
+        "table": "feature_toggle_overrides",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "feature_toggles.view",
+      "feature_toggles.manage",
+      "feature_toggles.global.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/feature_toggles/check/boolean",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/check/json",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/check/number",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/check/string",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/global",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.global.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.global.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.global.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/overrides",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/global/[id]/override",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/feature_toggles/global/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "feature_toggles.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "featureTogglesService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "toggle-create",
+      "toggle-update",
+      "toggle-delete",
+      "override-set-value",
+      "seed-defaults"
+    ]
+  },
+  "gateway_stripe": {
+    "title": "Stripe Payment Gateway",
+    "description": "Accept card payments, Apple Pay, Google Pay, and bank transfers via Stripe.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [
+      "gateway_stripe.view",
+      "gateway_stripe.configure"
+    ],
+    "apiRoutes": [],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "configure-from-env",
+      "help"
+    ]
+  },
+  "inbox_ops": {
+    "title": "InboxOps — Email-to-ERP Agent",
+    "description": "Receives forwarded emails via webhook, extracts structured action proposals using LLM, and presents them for human-in-the-loop approval.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "inbox_ops:inbox_settings",
+        "class": "InboxSettings",
+        "table": "inbox_settings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "inbox_ops:inbox_email",
+        "class": "InboxEmail",
+        "table": "inbox_emails",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "inbox_ops:inbox_proposal",
+        "class": "InboxProposal",
+        "table": "inbox_proposals",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "inbox_ops:inbox_proposal_action",
+        "class": "InboxProposalAction",
+        "table": "inbox_proposal_actions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "inbox_ops:inbox_discrepancy",
+        "class": "InboxDiscrepancy",
+        "table": "inbox_discrepancies",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "inbox_ops.email.received",
+        "category": "custom",
+        "entity": "email"
+      },
+      {
+        "id": "inbox_ops.email.processed",
+        "category": "lifecycle",
+        "entity": "email"
+      },
+      {
+        "id": "inbox_ops.email.failed",
+        "category": "lifecycle",
+        "entity": "email"
+      },
+      {
+        "id": "inbox_ops.email.reprocessed",
+        "category": "custom",
+        "entity": "email"
+      },
+      {
+        "id": "inbox_ops.email.deduplicated",
+        "category": "custom",
+        "entity": "email"
+      },
+      {
+        "id": "inbox_ops.proposal.created",
+        "category": "crud",
+        "entity": "proposal"
+      },
+      {
+        "id": "inbox_ops.proposal.accepted",
+        "category": "custom",
+        "entity": "proposal"
+      },
+      {
+        "id": "inbox_ops.proposal.rejected",
+        "category": "custom",
+        "entity": "proposal"
+      },
+      {
+        "id": "inbox_ops.action.rejected",
+        "category": "custom",
+        "entity": "action"
+      },
+      {
+        "id": "inbox_ops.action.edited",
+        "category": "custom",
+        "entity": "action"
+      },
+      {
+        "id": "inbox_ops.action.executed",
+        "category": "custom",
+        "entity": "action"
+      },
+      {
+        "id": "inbox_ops.action.failed",
+        "category": "custom",
+        "entity": "action"
+      },
+      {
+        "id": "inbox_ops.reply.sent",
+        "category": "custom",
+        "entity": "reply"
+      }
+    ],
+    "aclFeatures": [
+      "inbox_ops.proposals.view",
+      "inbox_ops.proposals.manage",
+      "inbox_ops.settings.manage",
+      "inbox_ops.log.view",
+      "inbox_ops.replies.send"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/inbox_ops/emails",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.log.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/extract",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/counts",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/settings",
+        "methods": [
+          "GET",
+          "PATCH"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.settings.manage"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/emails/[id]/reprocess",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/emails/[id]",
+        "methods": [
+          "GET",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.log.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/accept-all",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/actions/[actionId]/accept",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/actions/[actionId]/complete",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/actions/[actionId]/reject",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/actions/[actionId]",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/categorize",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/reject",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/replies/[replyId]/send",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.replies.send"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/proposals/[id]/translate",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "inbox_ops.proposals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/inbox_ops/webhook/inbound",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [
+      "inbox_ops:inbox_proposal"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "inbox_ops.proposal.created"
+    ],
+    "cli": []
+  },
   "integrations": {
     "title": "Integrations",
     "description": "Core integration framework — external ID mapping, status badges, and integration registry.",
@@ -3883,6 +7480,1694 @@
     },
     "notifications": [],
     "cli": []
+  },
+  "messages": {
+    "title": "Messages",
+    "description": "Internal messaging system with attachments, actions, and email forwarding.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "messages:message",
+        "class": "Message",
+        "table": "messages",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "messages:message_recipient",
+        "class": "MessageRecipient",
+        "table": "message_recipients",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "messages:message_object",
+        "class": "MessageObject",
+        "table": "message_objects",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "messages:message_access_token",
+        "class": "MessageAccessToken",
+        "table": "message_access_tokens",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "messages:message_confirmation",
+        "class": "MessageConfirmation",
+        "table": "message_confirmations",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "messages.message.sent",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.read",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.marked_unread",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.archived",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.unarchived",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.deleted",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.action_taken",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.email_sent",
+        "category": "custom",
+        "entity": "message"
+      },
+      {
+        "id": "messages.message.email_failed",
+        "category": "custom",
+        "entity": "message"
+      }
+    ],
+    "aclFeatures": [
+      "messages.view",
+      "messages.compose",
+      "messages.attach",
+      "messages.attach_files",
+      "messages.email",
+      "messages.actions",
+      "messages.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/messages/object-types",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/types",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/unread-count",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/actions/[actionId]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.actions"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/archive",
+        "methods": [
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/attachments",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.attach_files"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.attach_files"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/confirmation",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/conversation/archive",
+        "methods": [
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/conversation/read",
+        "methods": [
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/conversation",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/forward-preview",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/forward",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/read",
+        "methods": [
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]/reply",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/[id]",
+        "methods": [
+          "GET",
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.compose"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "messages.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/messages/token/[token]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [
+      "messages:message"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "messages.new"
+    ],
+    "cli": []
+  },
+  "notifications": {
+    "title": "Notifications",
+    "description": "In-app notifications with module-extensible types and actions.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "notifications:notification",
+        "class": "Notification",
+        "table": "notifications",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "notifications.view",
+      "notifications.create",
+      "notifications.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/notifications/batch",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/notifications/feature",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/notifications/mark-all-read",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/notifications/role",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/notifications",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/notifications/settings",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "notifications.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/notifications/unread-count",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/notifications/[id]/action",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/notifications/[id]/dismiss",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/notifications/[id]/read",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/notifications/[id]/restore",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "notificationService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "cleanup-expired"
+    ]
+  },
+  "onboarding": {
+    "title": "Onboarding",
+    "description": "Self-service tenant and organization onboarding flow.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "onboarding:onboarding_request",
+        "class": "OnboardingRequest",
+        "table": "onboarding_requests",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "onboarding.access",
+      "onboarding.submit",
+      "onboarding.verify"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/onboarding/demo-feedback",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/onboarding/onboarding/status",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/onboarding/onboarding/verify",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/onboarding/onboarding",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "payment_gateways": {
+    "title": "Payment Gateways",
+    "description": "Payment gateway adapter contract, registry, transaction tracking, and webhook routing.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "payment_gateways:gateway_transaction",
+        "class": "GatewayTransaction",
+        "table": "gateway_transactions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "payment_gateways:webhook_processed_event",
+        "class": "WebhookProcessedEvent",
+        "table": "gateway_webhook_events",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "payment_gateways.session.created",
+        "category": "lifecycle",
+        "entity": "session"
+      },
+      {
+        "id": "payment_gateways.session.expired",
+        "category": "lifecycle",
+        "entity": "session"
+      },
+      {
+        "id": "payment_gateways.payment.authorized",
+        "category": "lifecycle",
+        "entity": "payment"
+      },
+      {
+        "id": "payment_gateways.payment.captured",
+        "category": "lifecycle",
+        "entity": "payment"
+      },
+      {
+        "id": "payment_gateways.payment.failed",
+        "category": "lifecycle",
+        "entity": "payment"
+      },
+      {
+        "id": "payment_gateways.payment.refunded",
+        "category": "lifecycle",
+        "entity": "payment"
+      },
+      {
+        "id": "payment_gateways.payment.cancelled",
+        "category": "lifecycle",
+        "entity": "payment"
+      },
+      {
+        "id": "payment_gateways.webhook.received",
+        "category": "system",
+        "entity": "webhook"
+      },
+      {
+        "id": "payment_gateways.webhook.failed",
+        "category": "system",
+        "entity": "webhook"
+      }
+    ],
+    "aclFeatures": [
+      "payment_gateways.view",
+      "payment_gateways.manage",
+      "payment_gateways.capture",
+      "payment_gateways.refund"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/payment_gateways/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/capture",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.capture"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/providers",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/refund",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.refund"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/sessions",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/status",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/transactions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/providers/[providerKey]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/transactions/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "payment_gateways.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/payment_gateways/webhook/[provider]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "paymentGatewayService",
+      "paymentGatewayDescriptorService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "payment_gateways.transactions.list"
+      ]
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "perspectives": {
+    "title": "Table perspectives",
+    "description": "Shared persistence for DataTable perspectives (columns, filters, saved views).",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "perspectives:perspective",
+        "class": "Perspective",
+        "table": "perspectives",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "perspectives:role_perspective",
+        "class": "RolePerspective",
+        "table": "role_perspectives",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "perspectives.use",
+      "perspectives.role_defaults"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/perspectives/[tableId]/[perspectiveId]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "perspectives.use"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/perspectives/[tableId]/roles/[roleId]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "perspectives.role_defaults"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/perspectives/[tableId]",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "perspectives.use"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "perspectives.use"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "planner": {
+    "title": "Worktime / Availabilities",
+    "description": "Availability schedules, rulesets, and shared planning rules.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "planner:planner_availability_rule_set",
+        "class": "PlannerAvailabilityRuleSet",
+        "table": "planner_availability_rule_sets",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "planner:planner_availability_rule",
+        "class": "PlannerAvailabilityRule",
+        "table": "planner_availability_rules",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "planner.availability_rule.created",
+        "category": "crud",
+        "entity": "availability_rule"
+      },
+      {
+        "id": "planner.availability_rule.updated",
+        "category": "crud",
+        "entity": "availability_rule"
+      },
+      {
+        "id": "planner.availability_rule.deleted",
+        "category": "crud",
+        "entity": "availability_rule"
+      },
+      {
+        "id": "planner.availability_rule_set.created",
+        "category": "crud",
+        "entity": "availability_rule_set"
+      },
+      {
+        "id": "planner.availability_rule_set.updated",
+        "category": "crud",
+        "entity": "availability_rule_set"
+      },
+      {
+        "id": "planner.availability_rule_set.deleted",
+        "category": "crud",
+        "entity": "availability_rule_set"
+      }
+    ],
+    "aclFeatures": [
+      "planner.view",
+      "planner.manage_availability"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/planner/availability-date-specific",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/planner/availability-rule-sets",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "planner.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "planner.manage_availability"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "planner.manage_availability"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "planner.manage_availability"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/planner/availability-weekly",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/planner/availability",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "planner.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true
+          },
+          "DELETE": {
+            "requireAuth": true
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "plannerAvailabilityService"
+    ],
+    "searchEntities": [
+      "planner:planner_availability_rule_set"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "seed-availability-rulesets",
+      "seed-unavailability-reasons"
+    ]
+  },
+  "portal": {
+    "title": "Customer Portal",
+    "description": "Self-service customer portal framework with login, signup, dashboard, sidebar navigation, and extensible widget system.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [],
+    "apiRoutes": [],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "progress": {
+    "title": "Progress",
+    "description": "Generic server-side progress tracking for long-running operations",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "progress:progress_job",
+        "class": "ProgressJob",
+        "table": "progress_jobs",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "progress.job.created",
+        "category": "crud",
+        "entity": "job"
+      },
+      {
+        "id": "progress.job.started",
+        "category": "lifecycle",
+        "entity": "job"
+      },
+      {
+        "id": "progress.job.updated",
+        "category": "lifecycle",
+        "entity": "job"
+      },
+      {
+        "id": "progress.job.completed",
+        "category": "lifecycle",
+        "entity": "job"
+      },
+      {
+        "id": "progress.job.failed",
+        "category": "lifecycle",
+        "entity": "job"
+      },
+      {
+        "id": "progress.job.cancelled",
+        "category": "lifecycle",
+        "entity": "job"
+      }
+    ],
+    "aclFeatures": [
+      "progress.view",
+      "progress.create",
+      "progress.update",
+      "progress.cancel",
+      "progress.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/progress/active",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/progress/jobs",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "progress.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/progress/jobs/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "progress.update"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "progress.cancel"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "query_index": {
+    "title": "Query Indexes",
+    "description": "Hybrid query layer with full-text and vector search capabilities.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "query_index:entity_index_row",
+        "class": "EntityIndexRow",
+        "table": "entity_indexes",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "query_index:entity_index_job",
+        "class": "EntityIndexJob",
+        "table": "entity_index_jobs",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "query_index:entity_index_coverage",
+        "class": "EntityIndexCoverage",
+        "table": "entity_index_coverage",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "query_index:indexer_error_log",
+        "class": "IndexerErrorLog",
+        "table": "indexer_error_logs",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "query_index:indexer_status_log",
+        "class": "IndexerStatusLog",
+        "table": "indexer_status_logs",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "query_index:search_token",
+        "class": "SearchToken",
+        "table": "search_tokens",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "query_index.status.view",
+      "query_index.reindex",
+      "query_index.purge"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/query_index/purge",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "query_index.purge"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/query_index/reindex",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "query_index.reindex"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/query_index/status",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "query_index.status.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "rebuild",
+      "rebuild-all",
+      "reindex",
+      "purge"
+    ]
+  },
+  "resources": {
+    "title": "Resource planning",
+    "description": "Assets and resources with scheduling policies.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "resources:resources_resource_type",
+        "class": "ResourcesResourceType",
+        "table": "resources_resource_types",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "resources:resources_resource",
+        "class": "ResourcesResource",
+        "table": "resources_resources",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "resources:resources_resource_comment",
+        "class": "ResourcesResourceComment",
+        "table": "resources_resource_comments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "resources:resources_resource_activity",
+        "class": "ResourcesResourceActivity",
+        "table": "resources_resource_activities",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "resources:resources_resource_tag",
+        "class": "ResourcesResourceTag",
+        "table": "resources_resource_tags",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "resources:resources_resource_tag_assignment",
+        "class": "ResourcesResourceTagAssignment",
+        "table": "resources_resource_tag_assignments",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "resources.resource.created",
+        "category": "crud",
+        "entity": "resource"
+      },
+      {
+        "id": "resources.resource.updated",
+        "category": "crud",
+        "entity": "resource"
+      },
+      {
+        "id": "resources.resource.deleted",
+        "category": "crud",
+        "entity": "resource"
+      },
+      {
+        "id": "resources.resource_type.created",
+        "category": "crud",
+        "entity": "resource_type"
+      },
+      {
+        "id": "resources.resource_type.updated",
+        "category": "crud",
+        "entity": "resource_type"
+      },
+      {
+        "id": "resources.resource_type.deleted",
+        "category": "crud",
+        "entity": "resource_type"
+      },
+      {
+        "id": "resources.comment.created",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "resources.comment.updated",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "resources.comment.deleted",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "resources.activity.created",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "resources.activity.updated",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "resources.activity.deleted",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "resources.resource_tag_assignment.created",
+        "category": "crud",
+        "entity": "resource_tag_assignment"
+      },
+      {
+        "id": "resources.resource_tag_assignment.updated",
+        "category": "crud",
+        "entity": "resource_tag_assignment"
+      },
+      {
+        "id": "resources.resource_tag_assignment.deleted",
+        "category": "crud",
+        "entity": "resource_tag_assignment"
+      }
+    ],
+    "aclFeatures": [
+      "resources.view",
+      "resources.manage_resources"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/resources/resources/tags/assign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/resources/resources/tags/unassign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/resources/activities",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/resources/comments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/resources/resource-types",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/resources/resources",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/resources/tags",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "resources.manage_resources"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [
+      "resources:resources_resource",
+      "resources:resources_resource_type"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "resources.resource-types.list",
+        "resources.resources.list"
+      ]
+    },
+    "notifications": [],
+    "cli": [
+      "seed-capacity-units",
+      "seed-activity-types",
+      "seed-address-types",
+      "seed-examples"
+    ]
   },
   "sales": {
     "title": "Sales Management",
@@ -5130,6 +10415,1976 @@
       "seed-payment-methods",
       "seed-examples"
     ]
+  },
+  "scheduler": {
+    "title": "Scheduler",
+    "description": "Database-managed scheduled jobs with admin UI",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "scheduler:scheduled_job",
+        "class": "ScheduledJob",
+        "table": "scheduled_jobs",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "scheduler.job.started",
+        "category": "lifecycle",
+        "entity": "scheduled_job"
+      },
+      {
+        "id": "scheduler.job.completed",
+        "category": "lifecycle",
+        "entity": "scheduled_job"
+      },
+      {
+        "id": "scheduler.job.failed",
+        "category": "lifecycle",
+        "entity": "scheduled_job"
+      },
+      {
+        "id": "scheduler.job.skipped",
+        "category": "lifecycle",
+        "entity": "scheduled_job"
+      }
+    ],
+    "aclFeatures": [
+      "scheduler.jobs.view",
+      "scheduler.jobs.manage",
+      "scheduler.jobs.trigger"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/scheduler/jobs",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "scheduler.jobs.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "scheduler.jobs.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "scheduler.jobs.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "scheduler.jobs.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/scheduler/targets",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/scheduler/trigger",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/scheduler/jobs/[id]/executions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/scheduler/queue-jobs/[jobId]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [
+      "bullmqSchedulerService",
+      "localSchedulerService",
+      "schedulerService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "list",
+      "status",
+      "run",
+      "start"
+    ]
+  },
+  "search": {
+    "title": "Search",
+    "description": "Unified search module with pluggable strategies (Meilisearch, Vector, Tokens).",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [
+      "search.view",
+      "search.manage",
+      "search.reindex",
+      "search.embeddings.view",
+      "search.embeddings.manage",
+      "search.global"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/search/embeddings/reindex/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.embeddings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/embeddings/reindex",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.embeddings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/embeddings",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.embeddings.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.embeddings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/index",
+        "methods": [
+          "GET",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.embeddings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/reindex/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.reindex"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/reindex",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.reindex"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/search/global",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/search",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/settings/fulltext",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/settings/global-search",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/settings",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/search/settings/vector-store",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "search.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "query",
+      "status",
+      "index",
+      "reindex",
+      "reindex-help",
+      "test-meilisearch",
+      "worker",
+      "help"
+    ]
+  },
+  "shipping_carriers": {
+    "title": "Shipping Carriers",
+    "description": "Shipping carrier adapter hub with rates, shipment creation, tracking, and webhooks.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "shipping_carriers:carrier_shipment",
+        "class": "CarrierShipment",
+        "table": "carrier_shipments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "shipping_carriers:carrier_webhook_processed_event",
+        "class": "CarrierWebhookProcessedEvent",
+        "table": "carrier_webhook_events",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "shipping_carriers:carrier_shipment_idempotency_key",
+        "class": "CarrierShipmentIdempotencyKey",
+        "table": "carrier_shipment_idempotency_keys",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "shipping_carriers.shipment.created",
+        "category": "lifecycle",
+        "entity": "shipment"
+      },
+      {
+        "id": "shipping_carriers.shipment.status_changed",
+        "category": "lifecycle",
+        "entity": "shipment"
+      },
+      {
+        "id": "shipping_carriers.shipment.delivered",
+        "category": "lifecycle",
+        "entity": "shipment"
+      },
+      {
+        "id": "shipping_carriers.shipment.returned",
+        "category": "lifecycle",
+        "entity": "shipment"
+      },
+      {
+        "id": "shipping_carriers.shipment.cancelled",
+        "category": "lifecycle",
+        "entity": "shipment"
+      },
+      {
+        "id": "shipping_carriers.webhook.received",
+        "category": "system",
+        "entity": null
+      },
+      {
+        "id": "shipping_carriers.webhook.failed",
+        "category": "system",
+        "entity": null
+      }
+    ],
+    "aclFeatures": [
+      "shipping_carriers.view",
+      "shipping_carriers.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/shipping-carriers/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/points",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/providers",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/rates",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/shipments",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/tracking/refresh",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/tracking",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "shipping_carriers.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/shipping-carriers/webhook/[provider]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "shippingCarrierService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "staff": {
+    "title": "Employees",
+    "description": "Teams, roles, and employee rosters.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "staff:staff_team",
+        "class": "StaffTeam",
+        "table": "staff_teams",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_role",
+        "class": "StaffTeamRole",
+        "table": "staff_team_roles",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_member",
+        "class": "StaffTeamMember",
+        "table": "staff_team_members",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_leave_request",
+        "class": "StaffLeaveRequest",
+        "table": "staff_leave_requests",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_member_comment",
+        "class": "StaffTeamMemberComment",
+        "table": "staff_team_member_comments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_member_activity",
+        "class": "StaffTeamMemberActivity",
+        "table": "staff_team_member_activities",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_member_job_history",
+        "class": "StaffTeamMemberJobHistory",
+        "table": "staff_team_member_job_histories",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_team_member_address",
+        "class": "StaffTeamMemberAddress",
+        "table": "staff_team_member_addresses",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_time_entry",
+        "class": "StaffTimeEntry",
+        "table": "staff_time_entries",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_time_entry_segment",
+        "class": "StaffTimeEntrySegment",
+        "table": "staff_time_entry_segments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_time_project",
+        "class": "StaffTimeProject",
+        "table": "staff_time_projects",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "staff:staff_time_project_member",
+        "class": "StaffTimeProjectMember",
+        "table": "staff_time_project_members",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "staff.team.created",
+        "category": "crud",
+        "entity": "team"
+      },
+      {
+        "id": "staff.team.updated",
+        "category": "crud",
+        "entity": "team"
+      },
+      {
+        "id": "staff.team.deleted",
+        "category": "crud",
+        "entity": "team"
+      },
+      {
+        "id": "staff.team_role.created",
+        "category": "crud",
+        "entity": "team_role"
+      },
+      {
+        "id": "staff.team_role.updated",
+        "category": "crud",
+        "entity": "team_role"
+      },
+      {
+        "id": "staff.team_role.deleted",
+        "category": "crud",
+        "entity": "team_role"
+      },
+      {
+        "id": "staff.team_member.created",
+        "category": "crud",
+        "entity": "team_member"
+      },
+      {
+        "id": "staff.team_member.updated",
+        "category": "crud",
+        "entity": "team_member"
+      },
+      {
+        "id": "staff.team_member.deleted",
+        "category": "crud",
+        "entity": "team_member"
+      },
+      {
+        "id": "staff.leave_request.created",
+        "category": "crud",
+        "entity": "leave_request"
+      },
+      {
+        "id": "staff.leave_request.updated",
+        "category": "crud",
+        "entity": "leave_request"
+      },
+      {
+        "id": "staff.leave_request.deleted",
+        "category": "crud",
+        "entity": "leave_request"
+      },
+      {
+        "id": "staff.address.created",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "staff.address.updated",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "staff.address.deleted",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "staff.comment.created",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "staff.comment.updated",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "staff.comment.deleted",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "staff.activity.created",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "staff.activity.updated",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "staff.activity.deleted",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "staff.job_history.created",
+        "category": "crud",
+        "entity": "job_history"
+      },
+      {
+        "id": "staff.job_history.updated",
+        "category": "crud",
+        "entity": "job_history"
+      },
+      {
+        "id": "staff.job_history.deleted",
+        "category": "crud",
+        "entity": "job_history"
+      },
+      {
+        "id": "staff.timesheets.time_entry.created",
+        "category": "crud",
+        "entity": "time_entry"
+      },
+      {
+        "id": "staff.timesheets.time_entry.updated",
+        "category": "crud",
+        "entity": "time_entry"
+      },
+      {
+        "id": "staff.timesheets.time_entry.deleted",
+        "category": "crud",
+        "entity": "time_entry"
+      },
+      {
+        "id": "staff.timesheets.time_entry.timer_started",
+        "category": "lifecycle",
+        "entity": "time_entry"
+      },
+      {
+        "id": "staff.timesheets.time_entry.timer_stopped",
+        "category": "lifecycle",
+        "entity": "time_entry"
+      },
+      {
+        "id": "staff.timesheets.time_project.created",
+        "category": "crud",
+        "entity": "time_project"
+      },
+      {
+        "id": "staff.timesheets.time_project.updated",
+        "category": "crud",
+        "entity": "time_project"
+      },
+      {
+        "id": "staff.timesheets.time_project.deleted",
+        "category": "crud",
+        "entity": "time_project"
+      },
+      {
+        "id": "staff.timesheets.time_project_member.created",
+        "category": "crud",
+        "entity": "time_project_member"
+      },
+      {
+        "id": "staff.timesheets.time_project_member.updated",
+        "category": "crud",
+        "entity": "time_project_member"
+      },
+      {
+        "id": "staff.timesheets.time_project_member.deleted",
+        "category": "crud",
+        "entity": "time_project_member"
+      }
+    ],
+    "aclFeatures": [
+      "staff.view",
+      "staff.manage_team",
+      "staff.leave_requests.send",
+      "staff.leave_requests.manage",
+      "staff.my_availability.view",
+      "staff.my_availability.manage",
+      "staff.my_availability.unavailability",
+      "staff.my_leave_requests.view",
+      "staff.my_leave_requests.send",
+      "staff.timesheets.view",
+      "staff.timesheets.manage_own",
+      "staff.timesheets.manage_all",
+      "staff.timesheets.projects.view",
+      "staff.timesheets.projects.manage",
+      "staff.timesheets.approve",
+      "staff.timesheets.lock"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/staff/leave-requests/accept",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.leave_requests.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/leave-requests/reject",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.leave_requests.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/team-members/assignable",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/team-members/self",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.leave_requests.send"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.leave_requests.send"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/team-members/tags/assign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/team-members/tags/unassign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/my-projects",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/projects/kpis",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/bulk",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/start-timer",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-projects",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/my-projects/[projectId]",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/[id]/segments/[segmentId]",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/[id]/segments",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/[id]/timer-start",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-entries/[id]/timer-stop",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.manage_own"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/timesheets/time-projects/[id]/employees",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.timesheets.projects.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/activities",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/staff/addresses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/comments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/job-histories",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/leave-requests",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true
+          },
+          "DELETE": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/staff/team-members",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/team-roles",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/staff/teams",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "staff.manage_team"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [
+      "staff:staff_team",
+      "staff:staff_team_member",
+      "staff:staff_team_role",
+      "staff:staff_time_project"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "staff.leave_request.pending",
+      "staff.leave_request.approved",
+      "staff.leave_request.rejected"
+    ],
+    "cli": [
+      "seed-activity-types",
+      "seed-address-types",
+      "seed-examples",
+      "seed-timesheets-widgets"
+    ]
+  },
+  "sync_akeneo": {
+    "title": "Akeneo Product Sync",
+    "description": "Import Akeneo PIM categories, product attributes, and products into the Open Mercato catalog.",
+    "coreVersion": "0.6.5",
+    "entities": [],
+    "events": [],
+    "aclFeatures": [],
+    "apiRoutes": [
+      {
+        "path": "/sync_akeneo/custom-fields",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sync_akeneo/delete-products",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sync_akeneo/discovery",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sync_akeneo/first-import",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.run"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": [
+      "configure-from-env",
+      "help"
+    ]
+  },
+  "sync_excel": {
+    "title": "Excel / CSV Import",
+    "description": "File-upload-based CSV import foundation built on top of the data sync hub.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "sync_excel:sync_excel_upload",
+        "class": "SyncExcelUpload",
+        "table": "sync_excel_uploads",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [],
+    "aclFeatures": [
+      "sync_excel.view",
+      "sync_excel.run"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/sync_excel/import",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sync_excel.run"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sync_excel/preview",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sync_excel.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sync_excel/upload",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sync_excel.run"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "translations": {
+    "title": "Entity Translations",
+    "description": "System-wide entity translation storage and locale overlay for CRUD responses.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "translations:entity_translation",
+        "class": "EntityTranslation",
+        "table": "entity_translations",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "translations.translation.updated",
+        "category": "crud",
+        "entity": "translation"
+      },
+      {
+        "id": "translations.translation.deleted",
+        "category": "crud",
+        "entity": "translation"
+      }
+    ],
+    "aclFeatures": [
+      "translations.view",
+      "translations.manage",
+      "translations.manage_locales"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/translations/[entityType]/[entityId]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "translations.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "translations.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "translations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/translations/locales",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "description": "Standard Webhooks compliant outbound webhook delivery for platform events.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "webhooks:webhook_entity",
+        "class": "WebhookEntity",
+        "table": "webhooks",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "webhooks:webhook_delivery_entity",
+        "class": "WebhookDeliveryEntity",
+        "table": "webhook_deliveries",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "webhooks:webhook_inbound_receipt_entity",
+        "class": "WebhookInboundReceiptEntity",
+        "table": "webhook_inbound_receipts",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "webhooks.webhook.created",
+        "category": null,
+        "entity": "webhook"
+      },
+      {
+        "id": "webhooks.webhook.updated",
+        "category": null,
+        "entity": "webhook"
+      },
+      {
+        "id": "webhooks.webhook.deleted",
+        "category": null,
+        "entity": "webhook"
+      },
+      {
+        "id": "webhooks.delivery.enqueued",
+        "category": null,
+        "entity": "delivery"
+      },
+      {
+        "id": "webhooks.delivery.succeeded",
+        "category": null,
+        "entity": "delivery"
+      },
+      {
+        "id": "webhooks.delivery.failed",
+        "category": null,
+        "entity": "delivery"
+      },
+      {
+        "id": "webhooks.delivery.exhausted",
+        "category": null,
+        "entity": "delivery"
+      },
+      {
+        "id": "webhooks.webhook.disabled",
+        "category": null,
+        "entity": "webhook"
+      },
+      {
+        "id": "webhooks.inbound.received",
+        "category": null,
+        "entity": "inbound"
+      },
+      {
+        "id": "webhooks.secret.rotated",
+        "category": null,
+        "entity": "webhook"
+      }
+    ],
+    "aclFeatures": [
+      "webhooks.view",
+      "webhooks.manage",
+      "webhooks.secrets",
+      "webhooks.test"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/webhooks/deliveries",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/events",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhook-deliveries",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhooks",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/[id]/rotate-secret",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/[id]/test",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/deliveries/[id]/retry",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/deliveries/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/webhooks/inbound/[endpointId]",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhook-deliveries/[id]/retry",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhook-deliveries/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhooks/[id]/rotate-secret",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.secrets"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhooks/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/webhooks/webhooks/[id]/test",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "webhooks.test"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [
+        "webhooks:webhook_entity",
+        "webhooks:webhook_delivery_entity",
+        "webhooks:webhook_inbound_receipt_entity"
+      ],
+      "tableIds": [
+        "webhooks.deliveries",
+        "webhooks.list"
+      ]
+    },
+    "notifications": [
+      "webhooks.delivery.failed"
+    ],
+    "cli": []
   },
   "workflows": {
     "title": "Workflow Engine",
