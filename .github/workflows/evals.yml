@@ -1,0 +1,162 @@
+name: Evals (Harbor)
+
+# Triggers a single Harbor job that runs the pinned coding agents (claude-code,
+# codex) against the eval dataset on Daytona, then pushes the result records to
+# S3 via GitHub OIDC. Phase 4 of .ai/specs/2026-06-07-harbor-eval-framework.md.
+#
+# Single source of truth: the committed evals/job_config.yaml. CI consumes that
+# file verbatim and overrides ONLY the CI-specific bits via CLI flags:
+#   -e daytona            run on Daytona instead of the file's local `docker`
+#   -o <jobs_dir>         write the job tree under the runner temp dir
+#   --job-name evals-X.Y.Z   tag the run with the OM release under test
+# Secrets reach Harbor through the ${VAR} templates in that file, resolved from
+# the process environment (Harbor's resolve_env_vars). One `harbor run --config`
+# runs ALL agents in the file as concurrent trials — no GitHub Actions matrix.
+#
+# Required repo configuration:
+#   Secrets: ANTHROPIC_API_KEY, OPENAI_API_KEY, DAYTONA_API_KEY, EVALS_AWS_ROLE_ARN
+#   Vars:    EVALS_S3_BUCKET, EVALS_AWS_REGION
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      om_version:
+        description: "OM release under test (e.g. 0.6.4). Defaults to the latest release tag when empty."
+        required: false
+        type: string
+  # TEMPORARY (bring-up only — remove once the pipeline is green, per spec §CI).
+  # Scoped to eval changes so normal PRs don't burn Daytona / model credits.
+  pull_request:
+    paths:
+      - "evals/**"
+      - ".github/workflows/evals.yml"
+
+permissions:
+  id-token: write # OIDC -> AWS STS assume-role
+  contents: read
+
+concurrency:
+  group: evals-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    env:
+      # OM_VERSION: dispatch input > release tag (strip leading v) > canary sentinel.
+      INPUT_OM_VERSION: ${{ github.event.inputs.om_version }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      # Secrets consumed by the ${VAR} templates in evals/job_config.yaml.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+      # Pin the eval harness itself — its version is part of the controlled setup.
+      HARBOR_VERSION: ${{ vars.HARBOR_VERSION || '0.13.0' }}
+      # Where Harbor writes the job tree; shared by the run + S3 push steps.
+      JOBS_DIR: ${{ runner.temp }}/jobs
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve OM version
+        id: resolve
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_OM_VERSION:-}" ]; then
+            om_version="${INPUT_OM_VERSION}"
+          elif [ -n "${RELEASE_TAG:-}" ]; then
+            om_version="${RELEASE_TAG#v}"
+          else
+            om_version="canary-${GITHUB_SHA::7}"
+          fi
+          echo "om_version=${om_version}" >> "$GITHUB_OUTPUT"
+          echo "Resolved OM_VERSION=${om_version}"
+
+      - name: Verify required secrets/vars are present
+        env:
+          EVALS_S3_BUCKET: ${{ vars.EVALS_S3_BUCKET }}
+          EVALS_AWS_REGION: ${{ vars.EVALS_AWS_REGION }}
+          EVALS_AWS_ROLE_ARN: ${{ secrets.EVALS_AWS_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          require() {
+            if [ -z "${2}" ]; then
+              echo "::error::Missing required configuration: ${1}"
+              missing=1
+            fi
+          }
+          # The committed config runs both agents, so both model keys are required.
+          # The verifier's LLM judge also uses Anthropic (OM_JUDGE_MODEL in task.toml).
+          require "ANTHROPIC_API_KEY" "${ANTHROPIC_API_KEY:-}"
+          require "OPENAI_API_KEY" "${OPENAI_API_KEY:-}"
+          require "DAYTONA_API_KEY" "${DAYTONA_API_KEY:-}"
+          require "EVALS_AWS_ROLE_ARN" "${EVALS_AWS_ROLE_ARN}"
+          require "EVALS_S3_BUCKET" "${EVALS_S3_BUCKET}"
+          require "EVALS_AWS_REGION" "${EVALS_AWS_REGION}"
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error::Configure the missing secrets/vars in repo settings before running evals."
+            exit 1
+          fi
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v5
+      - name: Install harbor CLI
+        run: |
+          set -euo pipefail
+          uv tool install "harbor==${HARBOR_VERSION}"
+          harbor --version
+
+      - name: Configure AWS credentials (OIDC)
+        # Done before the run so a misconfigured role fails fast, not after a long eval.
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.EVALS_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.EVALS_AWS_REGION }}
+          role-session-name: gh-evals-${{ github.run_id }}
+
+      - name: Run Harbor eval job
+        env:
+          # Consumed by the ${OM_VERSION:-...} template in evals/job_config.yaml.
+          OM_VERSION: ${{ steps.resolve.outputs.om_version }}
+        run: |
+          set -euo pipefail
+          # Use the committed config as-is; override only the CI-specific fields.
+          harbor run \
+            --config evals/job_config.yaml \
+            --env daytona \
+            --jobs-dir "${JOBS_DIR}" \
+            --job-name "evals-${OM_VERSION}" \
+            --yes \
+            | tee "${RUNNER_TEMP}/harbor-run.log"
+
+      - name: Upload job results as workflow artifact (debug/fallback)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: evals-${{ steps.resolve.outputs.om_version }}
+          path: |
+            ${{ env.JOBS_DIR }}
+            ${{ runner.temp }}/harbor-run.log
+          if-no-files-found: warn
+
+      - name: Push results to S3
+        # Always push: harbor exits 0 on completed-but-failed trials, and on an
+        # infra-error exit we still want any partial records in S3 (no-ops if empty).
+        if: always()
+        env:
+          OM_VERSION: ${{ steps.resolve.outputs.om_version }}
+          EVALS_S3_BUCKET: ${{ vars.EVALS_S3_BUCKET }}
+        run: |
+          set -euo pipefail
+          if [ ! -d "${JOBS_DIR}" ] || [ -z "$(ls -A "${JOBS_DIR}" 2>/dev/null)" ]; then
+            echo "::warning::No Harbor job results found at ${JOBS_DIR}; nothing to push."
+            exit 0
+          fi
+          dest="s3://${EVALS_S3_BUCKET}/open-mercato-evals/${OM_VERSION}"
+          # Preserve Harbor's job tree (per-agent / per-task / per-trial dirs) under
+          # the version prefix. Records and downloaded artifacts both live here.
+          aws s3 cp "${JOBS_DIR}" "${dest}/" --recursive
+          echo "Pushed Harbor job tree to ${dest}/"

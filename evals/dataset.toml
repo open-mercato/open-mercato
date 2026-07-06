@@ -1,0 +1,21 @@
+# Dataset manifest for open-mercato/harness-evals
+# Add tasks using: harbor add <org>/<name>
+# Publish using: harbor publish
+
+[dataset]
+name = "open-mercato/harness-evals"
+description = "Open Mercato agent harness evals: per-release SWE-bench-style tasks measuring how well pinned coding agents build on Open Mercato."
+keywords = [ "open-mercato", "agent-eval", "swe-bench", "convention-rubric", "per-release", "claude-code", "codex",]
+[[dataset.authors]]
+name = "Mateusz Staniaszek"
+email = "mateusz.staniaszek1998@gmail.com"
+
+
+[[tasks]]
+name = "open-mercato/app-OME-FEAT-001"
+digest = "sha256:a8610589ba9810644fd3411c85abe3378e0a27dbd5088688f3730e5fe711bf81"
+
+[[tasks]]
+name = "open-mercato/app-OME-FEAT-001-agentic"
+digest = "sha256:e74c7dd0cda3c95418366b2dd9f798546f4d837b5e2147e5b69c3d77a1a4418a"
+

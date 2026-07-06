@@ -1,0 +1,43 @@
+schema_version = "1.3"
+artifacts = [ "/logs/artifacts",]
+
+[task]
+name = "open-mercato/app-OME-FEAT-001"
+description = "Add an app-level bookmarks CRUD module to a freshly scaffolded standalone Open Mercato app, following platform conventions. NOTE: the app is scaffolded with --skip-agentic-setup, so the agent does NOT have the Open Mercato repo skills (.claude/ + .ai/skills, e.g. om-module-scaffold) available — it must infer conventions from the in-repo reference modules and docs alone."
+keywords = [ "open-mercato", "crud", "module-creation",]
+[[task.authors]]
+name = "Mateusz Staniaszek"
+email = "mateusz.staniaszek1998@gmail.com"
+
+[metadata]
+instance_id = "open-mercato__app-OME-FEAT-001"
+difficulty = "easy"
+category = "feature-creation"
+flow = "standalone-app-external-extension"
+tier = 1
+keywords = [ "open-mercato", "crud", "module-creation", "typescript", "nextjs", "playwright", "convention-rubric",]
+
+[verifier]
+timeout_sec = 1800.0
+
+[verifier.env]
+# Judge model id. ANTHROPIC_API_KEY is injected at run time by CI via
+# `--verifier-env ANTHROPIC_API_KEY=...`; when absent the judge is skipped and the
+# programmatic C-SCOPE-1 pre-check stands.
+OM_JUDGE_MODEL = "claude-opus-4-8"
+
+[agent]
+timeout_sec = 1800.0
+
+[environment]
+network_mode = "public"
+build_timeout_sec = 3600.0
+os = "linux"
+mcp_servers = []
+
+[environment.env]
+OM_VERSION = "0.6.4"
+OM_EVAL_APP_DIR = "/app/eval-app"
+
+[solution.env]
+OM_EVAL_APP_DIR = "/app/eval-app"
