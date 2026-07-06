@@ -99,6 +99,7 @@ export const enabledModules: ModuleEntry[] = [
   // (Slack, WhatsApp, Email) to the unified Messages inbox. Provider packages
   // (channel-slack, channel-whatsapp, future email providers) register adapters here.
   { id: 'communication_channels', from: '@open-mercato/core' },
+  { id: 'phone_calls', from: '@open-mercato/core' },
   { id: 'ai_assistant', from: '@open-mercato/ai-assistant' },
   { id: 'translations', from: '@open-mercato/core' },
   { id: 'scheduler', from: '@open-mercato/scheduler' },
