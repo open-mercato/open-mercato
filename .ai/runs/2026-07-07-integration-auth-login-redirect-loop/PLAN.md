@@ -12,7 +12,7 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 0 | 0.1 | Land source specification | todo | — |
+| 0 | 0.1 | Land source specification | done | 21cad90d5 |
 | 1 | 1.1 | Add auth helper backend-cookie regression | todo | — |
 | 2 | 2.1 | Fix verified auth cookie/session boundary | todo | — |
 | 3 | 3.1 | Add cookie-backed ephemeral readiness probe | todo | — |
@@ -125,4 +125,3 @@ None.
 - Checkpoint validation is recorded in `checkpoint-1-checks.md`.
 - Final validation is recorded in `final-gate-checks.md`.
 - UI screenshot artifacts are N/A unless implementation touches product UI; this run is expected to be non-UI.
-
