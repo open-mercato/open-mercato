@@ -1,4 +1,4 @@
-import { type Page } from '@playwright/test';
+import { type Page, type Response } from '@playwright/test';
 import { readFileSync } from 'fs';
 import { resolve } from 'path';
 
@@ -136,102 +136,194 @@ async function recoverGenericErrorPageIfPresent(page: Page): Promise<void> {
   await dismissGlobalNoticesIfPresent(page);
 }
 
-export async function login(page: Page, role: Role = 'admin'): Promise<void> {
-  const creds = DEFAULT_CREDENTIALS[role];
-  const loginReadySelector = 'form[data-auth-ready="1"]';
-  const hasBackendUrl = (): boolean => /\/backend(?:\/.*)?$/.test(page.url());
-  const waitForBackend = async (timeout: number): Promise<boolean> => {
-    try {
-      await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout });
-      return true;
-    } catch {
-      return hasBackendUrl();
+type AuthNavigationTraceEntry = {
+  path: string;
+  status: number;
+  location: string | null;
+};
+
+function toPathOnly(rawUrl: string): string {
+  try {
+    const url = new URL(rawUrl);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return '[unparseable-url]';
+  }
+}
+
+function toRedactedLocation(rawLocation: string | undefined): string | null {
+  if (!rawLocation) return null;
+  try {
+    const url = new URL(rawLocation, 'http://integration.local');
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return '[unparseable-location]';
+  }
+}
+
+function createAuthNavigationTrace(page: Page): {
+  entries: AuthNavigationTraceEntry[];
+  stop: () => void;
+} {
+  const entries: AuthNavigationTraceEntry[] = [];
+  const onResponse = (response: Response) => {
+    const path = toPathOnly(response.url());
+    if (path === '/backend' || path.startsWith('/api/auth/session/refresh')) {
+      entries.push({
+        path,
+        status: response.status(),
+        location: toRedactedLocation(response.headers().location),
+      });
     }
   };
+  page.on('response', onResponse);
+  return {
+    entries,
+    stop: () => page.off('response', onResponse),
+  };
+}
 
-  await acknowledgeGlobalNotices(page);
-  const apiLoginForm = new URLSearchParams();
-  apiLoginForm.set('email', creds.email);
-  apiLoginForm.set('password', creds.password);
-  // Retry-on-429 against the auth rate limit (5/60s per email). Capped
-  // exponential backoff: 1s, 2s, 4s — worst-case ~7s.
-  let apiLoginResponse: Awaited<ReturnType<typeof page.request.post>> | null = null;
-  for (let retry = 0; retry < 4; retry += 1) {
-    apiLoginResponse = await page.request.post('/api/auth/login', {
-      headers: {
-        'content-type': 'application/x-www-form-urlencoded',
-      },
-      data: apiLoginForm.toString(),
-    }).catch(() => null);
-    if (!apiLoginResponse || apiLoginResponse.status() !== 429) break;
-    await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** retry));
-  }
-  if (apiLoginResponse?.ok()) {
-    const apiLoginBody = (await apiLoginResponse.json().catch(() => null)) as { token?: string } | null;
-    const claims = typeof apiLoginBody?.token === 'string' ? decodeJwtClaims(apiLoginBody.token) : null;
-    const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
-    const cookies = [];
-    if (claims?.tenantId) {
-      cookies.push({
-        name: 'om_selected_tenant',
-        value: claims.tenantId,
-        url: baseUrl,
-        sameSite: 'Lax' as const,
-      });
+async function formatLoginDiagnostics(
+  page: Page,
+  role: Role,
+  entries: AuthNavigationTraceEntry[],
+): Promise<string> {
+  const cookieNames = Array.from(
+    new Set((await page.context().cookies()).map((cookie) => cookie.name)),
+  ).sort();
+  const traceLines = entries.length
+    ? entries.map((entry) => {
+      const location = entry.location ? ` -> ${entry.location}` : '';
+      return `${entry.status} ${entry.path}${location}`;
+    })
+    : ['none'];
+
+  return [
+    `Login diagnostics for role "${role}":`,
+    `current URL: ${toPathOnly(page.url())}`,
+    `browser cookie names: ${cookieNames.length ? cookieNames.join(', ') : 'none'}`,
+    'backend/refresh trace:',
+    ...traceLines,
+  ].join('\n');
+}
+
+async function throwLoginErrorWithDiagnostics(
+  page: Page,
+  role: Role,
+  entries: AuthNavigationTraceEntry[],
+  error: unknown,
+): Promise<never> {
+  const message = error instanceof Error ? error.message : String(error);
+  throw new Error([
+    `Login did not reach backend for role: ${role}.`,
+    await formatLoginDiagnostics(page, role, entries),
+    `Original error: ${message}`,
+  ].join('\n'));
+}
+
+export async function login(page: Page, role: Role = 'admin'): Promise<void> {
+  const authTrace = createAuthNavigationTrace(page);
+  try {
+    const creds = DEFAULT_CREDENTIALS[role];
+    const loginReadySelector = 'form[data-auth-ready="1"]';
+    const hasBackendUrl = (): boolean => /\/backend(?:\/.*)?$/.test(page.url());
+    const waitForBackend = async (timeout: number): Promise<boolean> => {
+      try {
+        await page.waitForURL(/\/backend(?:\/.*)?$/, { timeout });
+        return true;
+      } catch {
+        return hasBackendUrl();
+      }
+    };
+
+    await acknowledgeGlobalNotices(page);
+    const apiLoginForm = new URLSearchParams();
+    apiLoginForm.set('email', creds.email);
+    apiLoginForm.set('password', creds.password);
+    // Retry-on-429 against the auth rate limit (5/60s per email). Capped
+    // exponential backoff: 1s, 2s, 4s — worst-case ~7s.
+    let apiLoginResponse: Awaited<ReturnType<typeof page.request.post>> | null = null;
+    for (let retry = 0; retry < 4; retry += 1) {
+      apiLoginResponse = await page.request.post('/api/auth/login', {
+        headers: {
+          'content-type': 'application/x-www-form-urlencoded',
+        },
+        data: apiLoginForm.toString(),
+      }).catch(() => null);
+      if (!apiLoginResponse || apiLoginResponse.status() !== 429) break;
+      await new Promise((resolve) => setTimeout(resolve, 1000 * 2 ** retry));
     }
-    if (claims?.orgId) {
-      cookies.push({
-        name: 'om_selected_org',
-        value: claims.orgId,
-        url: baseUrl,
-        sameSite: 'Lax' as const,
-      });
+    if (apiLoginResponse?.ok()) {
+      const apiLoginBody = (await apiLoginResponse.json().catch(() => null)) as { token?: string } | null;
+      const claims = typeof apiLoginBody?.token === 'string' ? decodeJwtClaims(apiLoginBody.token) : null;
+      const baseUrl = process.env.BASE_URL || 'http://localhost:3000';
+      const cookies = [];
+      if (claims?.tenantId) {
+        cookies.push({
+          name: 'om_selected_tenant',
+          value: claims.tenantId,
+          url: baseUrl,
+          sameSite: 'Lax' as const,
+        });
+      }
+      if (claims?.orgId) {
+        cookies.push({
+          name: 'om_selected_org',
+          value: claims.orgId,
+          url: baseUrl,
+          sameSite: 'Lax' as const,
+        });
+      }
+      if (cookies.length > 0) {
+        await page.context().addCookies(cookies);
+      }
+      await page.goto('/backend', { waitUntil: 'domcontentloaded' });
+      if (await waitForBackend(8_000)) return;
     }
-    if (cookies.length > 0) {
-      await page.context().addCookies(cookies);
+
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await page.goto('/login', { waitUntil: 'domcontentloaded' });
+      await dismissGlobalNoticesIfPresent(page);
+      await recoverClientSideErrorPageIfPresent(page);
+      await recoverGenericErrorPageIfPresent(page);
+      await page.waitForSelector(loginReadySelector, { state: 'visible', timeout: 3_000 }).catch(() => null);
+      if (await page.getByLabel('Email').isVisible().catch(() => false)) break;
+      if (attempt === 3) {
+        throw new Error(`Login form is unavailable for role: ${role}; current URL: ${page.url()}`);
+      }
     }
-    await page.goto('/backend', { waitUntil: 'domcontentloaded' });
+    await page.getByLabel('Email').fill(creds.email);
+
+    const passwordInput = page.getByLabel('Password', { exact: true }).first();
+    if (await passwordInput.isVisible().catch(() => false)) {
+      await passwordInput.fill(creds.password);
+      await passwordInput.press('Enter');
+    } else {
+      const submitButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
+      await submitButton.click();
+    }
+
+    if (await waitForBackend(7_000)) return;
+
+    const loginForm = page.locator('form').first();
+    if (await loginForm.isVisible().catch(() => false)) {
+      await loginForm.evaluate((element) => {
+        const form = element as HTMLFormElement
+        form.requestSubmit()
+      }).catch(() => {})
+    }
+    if (await waitForBackend(5_000)) return;
+
+    const loginButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
+    if (await loginButton.isVisible().catch(() => false)) {
+      await loginButton.click({ force: true });
+    }
     if (await waitForBackend(8_000)) return;
+
+    throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
+  } catch (error) {
+    await throwLoginErrorWithDiagnostics(page, role, authTrace.entries, error);
+  } finally {
+    authTrace.stop();
   }
-
-  for (let attempt = 0; attempt < 4; attempt += 1) {
-    await page.goto('/login', { waitUntil: 'domcontentloaded' });
-    await dismissGlobalNoticesIfPresent(page);
-    await recoverClientSideErrorPageIfPresent(page);
-    await recoverGenericErrorPageIfPresent(page);
-    await page.waitForSelector(loginReadySelector, { state: 'visible', timeout: 3_000 }).catch(() => null);
-    if (await page.getByLabel('Email').isVisible().catch(() => false)) break;
-    if (attempt === 3) {
-      throw new Error(`Login form is unavailable for role: ${role}; current URL: ${page.url()}`);
-    }
-  }
-  await page.getByLabel('Email').fill(creds.email);
-
-  const passwordInput = page.getByLabel('Password', { exact: true }).first();
-  if (await passwordInput.isVisible().catch(() => false)) {
-    await passwordInput.fill(creds.password);
-    await passwordInput.press('Enter');
-  } else {
-    const submitButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
-    await submitButton.click();
-  }
-
-  if (await waitForBackend(7_000)) return;
-
-  const loginForm = page.locator('form').first();
-  if (await loginForm.isVisible().catch(() => false)) {
-    await loginForm.evaluate((element) => {
-      const form = element as HTMLFormElement
-      form.requestSubmit()
-    }).catch(() => {})
-  }
-  if (await waitForBackend(5_000)) return;
-
-  const loginButton = page.getByRole('button', { name: /login|sign in|continue with sso/i }).first();
-  if (await loginButton.isVisible().catch(() => false)) {
-    await loginButton.click({ force: true });
-  }
-  if (await waitForBackend(8_000)) return;
-
-  throw new Error(`Login did not reach backend for role: ${role}; current URL: ${page.url()}`);
 }

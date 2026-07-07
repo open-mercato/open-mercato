@@ -13,8 +13,8 @@
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
 | 0 | 0.1 | Land source specification | done | 89cf420db |
-| 1 | 1.1 | Add auth helper backend-cookie regression | done | pending |
-| 2 | 2.1 | Fix verified auth cookie/session boundary | todo | — |
+| 1 | 1.1 | Add auth helper backend-cookie regression | done | 7408d7b22 |
+| 2 | 2.1 | Fix verified auth cookie/session boundary | done | pending |
 | 3 | 3.1 | Add cookie-backed ephemeral readiness probe | todo | — |
 | 3 | 3.2 | Add readiness probe unit coverage | todo | — |
 | 4 | 4.1 | Run checkpoint validation | todo | — |
@@ -83,11 +83,12 @@ None.
 
 #### Step 2.1 — Fix verified auth cookie/session boundary
 - Inspect current helper, login endpoint, refresh endpoint, and canonical auth resolution before editing.
+- If the regression already passes on current `develop`, do not edit auth runtime/session semantics without a failing boundary.
 - Fix only the verified boundary:
   - mirror login cookies into the browser context if request-context cookies do not propagate, or
   - make refresh fail closed to login when canonical auth cannot be satisfied.
 - Preserve fallback UI login, bounded 429 retries, endpoint contracts, `metadata`, and `openApi`.
-- Add focused unit coverage for any new cookie parsing, diagnostics, or redirect-loop utilities.
+- Add helper-level redacted diagnostics for future failures and focused unit coverage for any new cookie parsing, diagnostics, or redirect-loop utilities when they are factored outside the helper.
 
 ### Phase 3: CLI Readiness
 
