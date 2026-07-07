@@ -354,6 +354,18 @@ export default function WmsOperationalDashboardPage() {
     },
   })
 
+  const locationsCountQuery = useQuery({
+    queryKey: ['wms-dashboard', 'locations-count'],
+    queryFn: async () => {
+      const params = new URLSearchParams({ page: '1', pageSize: '1' })
+      const call = await apiCall<{ total?: number }>(`/api/wms/locations?${params.toString()}`)
+      if (!call.ok) {
+        await raiseCrudError(call.response, t('wms.backend.dashboard.errors.locations', 'Failed to load locations.'))
+      }
+      return call.result?.total ?? 0
+    },
+  })
+
   const dashboardQuery = useQuery({
     queryKey: ['wms-dashboard', 'operational', warehouseId],
     queryFn: async () => {
@@ -375,6 +387,22 @@ export default function WmsOperationalDashboardPage() {
     warehouseId === 'all'
       ? t('wms.backend.dashboard.filters.allWarehouses', 'All warehouses')
       : selectedWarehouse?.name || selectedWarehouse?.code || warehouseId
+
+  const hasWarehouses = (warehousesQuery.data ?? []).length > 0
+  const firstRunMode = React.useMemo<'no-warehouses' | 'no-locations' | null>(() => {
+    if (warehousesQuery.isLoading || warehousesQuery.isError) return null
+    if (!hasWarehouses) return 'no-warehouses'
+    if (locationsCountQuery.isLoading || locationsCountQuery.isError) return null
+    if ((locationsCountQuery.data ?? 0) === 0) return 'no-locations'
+    return null
+  }, [
+    warehousesQuery.isLoading,
+    warehousesQuery.isError,
+    hasWarehouses,
+    locationsCountQuery.isLoading,
+    locationsCountQuery.isError,
+    locationsCountQuery.data,
+  ])
 
   const kpiConfig = React.useMemo(() => {
     const buildLotsHref = (expiryWindow: 'expiringSoon' | 'pastDue') => {
@@ -624,7 +652,7 @@ export default function WmsOperationalDashboardPage() {
           />
         ) : null}
 
-        {!warehousesQuery.isLoading && !warehousesQuery.isError && (warehousesQuery.data ?? []).length === 0 ? (
+        {firstRunMode === 'no-warehouses' ? (
           <section className="rounded-lg border-2 border-dashed border-border bg-card p-8 text-center shadow-sm">
             <div className="mx-auto max-w-sm">
               <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-muted">
@@ -658,6 +686,33 @@ export default function WmsOperationalDashboardPage() {
                     {t('wms.backend.dashboard.firstRun.actions.receiveStock', 'Receive first stock')}
                   </Button>
                 ) : null}
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {firstRunMode === 'no-locations' ? (
+          <section className="rounded-lg border-2 border-dashed border-border bg-card p-8 text-center shadow-sm">
+            <div className="mx-auto max-w-sm">
+              <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-muted">
+                <MapPin className="size-7 text-muted-foreground" />
+              </div>
+              <h2 className="text-lg font-semibold">
+                {t('wms.backend.dashboard.firstRun.noLocations.title', 'Add storage locations')}
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                {t(
+                  'wms.backend.dashboard.firstRun.noLocations.description',
+                  'Your warehouse is set up — add at least one storage location before you can receive stock.',
+                )}
+              </p>
+              <div className="mt-6 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
+                <LinkButton asChild variant="primary" size="sm">
+                  <Link href="/backend/config/wms">
+                    <MapPin className="size-4" />
+                    {t('wms.backend.dashboard.firstRun.actions.addLocations', 'Add locations')}
+                  </Link>
+                </LinkButton>
               </div>
             </div>
           </section>
