@@ -54,5 +54,5 @@ None (no `--skill-url` provided).
 
 ### Phase 3: README + docs memory-optimization guidance
 
-- [ ] 3.1 Add memory-optimization note near `yarn dev` in `README.md`
-- [ ] 3.2 Add memory-optimization callout/cross-link in the installation docs
+- [x] 3.1 Add memory-optimization note near `yarn dev` in `README.md` — 98a032be5
+- [x] 3.2 Add memory-optimization callout/cross-link in the installation docs — 98a032be5
