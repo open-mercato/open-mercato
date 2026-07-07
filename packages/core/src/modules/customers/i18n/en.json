@@ -288,6 +288,7 @@
   "customers.calendar.editor.types.meeting": "Meeting",
   "customers.calendar.editor.types.note": "Note",
   "customers.calendar.editor.types.task": "Task",
+  "customers.calendar.editor.validation.assigneeRequired": "Assign this task to a team member",
   "customers.calendar.editor.validation.endsBeforeStarts": "End must be after start",
   "customers.calendar.editor.validation.relatedToRequired": "Select a person or company to link this event",
   "customers.calendar.editor.validation.titleRequired": "Title is required",

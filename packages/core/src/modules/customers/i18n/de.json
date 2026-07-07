@@ -288,6 +288,7 @@
   "customers.calendar.editor.types.meeting": "Meeting",
   "customers.calendar.editor.types.note": "Notiz",
   "customers.calendar.editor.types.task": "Aufgabe",
+  "customers.calendar.editor.validation.assigneeRequired": "Weise diese Aufgabe einem Teammitglied zu",
   "customers.calendar.editor.validation.endsBeforeStarts": "Das Ende muss nach dem Beginn liegen",
   "customers.calendar.editor.validation.relatedToRequired": "Wähle eine Person oder ein Unternehmen aus, um diesen Termin zu verknüpfen",
   "customers.calendar.editor.validation.titleRequired": "Titel ist erforderlich",

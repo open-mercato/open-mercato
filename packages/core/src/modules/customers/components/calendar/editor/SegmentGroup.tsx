@@ -35,13 +35,17 @@ export function SegmentGroup<T extends string>({
             aria-pressed={isActive}
             onClick={() => onChange(option.value)}
             title={option.label}
+            data-state={isActive ? 'active' : 'inactive'}
             className={cn(
               'h-auto min-w-0 flex-1 justify-center gap-1 rounded-none border-0 px-1.5 text-sm font-medium leading-5 shadow-none',
               size === 'md' ? 'py-2' : 'py-1.5',
               index > 0 && 'border-l border-border',
               isActive
-                ? 'bg-accent-indigo text-accent-indigo-foreground hover:bg-accent-indigo'
-                : 'bg-background text-muted-foreground',
+                // Keep the indigo fill on hover in BOTH themes — the ghost Button
+                // ships `dark:hover:bg-accent/50`, which would otherwise wash the
+                // active segment out on hover in dark mode.
+                ? 'bg-accent-indigo font-semibold text-accent-indigo-foreground hover:bg-accent-indigo hover:text-accent-indigo-foreground dark:hover:bg-accent-indigo'
+                : 'bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
             )}
           >
             {option.icon ? <span aria-hidden className={cn('shrink-0', isActive ? 'opacity-100' : 'opacity-70')}>{option.icon}</span> : null}

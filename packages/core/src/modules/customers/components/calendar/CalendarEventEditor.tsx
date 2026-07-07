@@ -274,7 +274,7 @@ function EditorBody({
         </Field>
       ) : null}
       {config.people === 'assignee' && staffEnabled ? (
-        <Field label={t('customers.calendar.editor.assignee', 'Assignee')}>
+        <Field label={t('customers.calendar.editor.assignee', 'Assignee')} error={errors.assignee}>
           <PeopleField
             mode="single"
             includeCustomers={false}
@@ -405,6 +405,11 @@ export function CalendarEventEditor({
       if (config.hasEnd && !form.allDay && computeDurationMinutes(form) === null) {
         fieldErrors.ends = t('customers.calendar.editor.validation.endsBeforeStarts', 'End must be after start')
       }
+      // A task must be assigned to a team member — surface the requirement inline
+      // instead of letting the save fail with no visible reason (#3747 feedback).
+      if (config.people === 'assignee' && staffEnabled !== false && !form.assigneeUserId) {
+        fieldErrors.assignee = t('customers.calendar.editor.validation.assigneeRequired', 'Assign this task to a team member')
+      }
       if (Object.keys(fieldErrors).length > 0) {
         throw createCrudFormError(Object.values(fieldErrors)[0], fieldErrors)
       }
@@ -487,6 +492,7 @@ export function CalendarEventEditor({
         onKeyDown={handleKeyDown}
         aria-describedby={undefined}
         dismissible={false}
+        elevated
         className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full sm:max-w-lg sm:rounded-2xl sm:border-0 lg:max-w-3xl"
       >
         <VisuallyHidden>

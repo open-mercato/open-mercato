@@ -288,6 +288,7 @@
   "customers.calendar.editor.types.meeting": "Reunión",
   "customers.calendar.editor.types.note": "Nota",
   "customers.calendar.editor.types.task": "Tarea",
+  "customers.calendar.editor.validation.assigneeRequired": "Asigna esta tarea a un miembro del equipo",
   "customers.calendar.editor.validation.endsBeforeStarts": "El fin debe ser posterior al inicio",
   "customers.calendar.editor.validation.relatedToRequired": "Selecciona una persona o empresa para vincular este evento",
   "customers.calendar.editor.validation.titleRequired": "El título es obligatorio",
