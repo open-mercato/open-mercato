@@ -1,12 +1,13 @@
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { CommandBus } from '@open-mercato/shared/lib/commands'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { ScheduledJob } from '../data/entities.js'
 import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { buildScheduledCommandContext } from '../lib/commandContext.js'
 
 export interface RbacServiceLike {
   tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
@@ -277,10 +278,9 @@ export class LocalSchedulerService {
       organizationId: schedule.organizationId,
     }
     
-    // Build command context with tenant/org scope but no user
-    // Commands run without user authentication for scheduled jobs
-    const commandCtx: CommandRuntimeContext = {
-      container: {
+    const commandCtx = buildScheduledCommandContext(
+      schedule,
+      {
         resolve: (name: string) => {
           // Simple resolver that forwards to our dependencies
           if (name === 'em') return this.em()
@@ -288,13 +288,8 @@ export class LocalSchedulerService {
           if (name === 'rbacService') return this.rbacService
           throw new Error(`Service not available in scheduler context: ${name}`)
         },
-      } as CommandRuntimeContext['container'],
-      auth: null, // Scheduled commands run without user authentication
-      organizationScope: null,
-      selectedOrganizationId: schedule.organizationId || null,
-      organizationIds: schedule.organizationId ? [schedule.organizationId] : null,
-      request: undefined,
-    }
+      } as AppContainer,
+    )
 
     const result = await commandBus.execute(schedule.targetCommand, {
       input: commandInput,
