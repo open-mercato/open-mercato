@@ -143,4 +143,32 @@ describe('DataEngine event contract validation (issue #1421)', () => {
       warnSpy.mockRestore()
     }
   })
+
+  it('passes actorUserId through queued CRUD event payload builders', async () => {
+    const { engine, emitted } = makeFixture()
+
+    engine.markOrmEntityChange({
+      action: 'created',
+      entity: { id: identifiers.id },
+      identifiers,
+      actorUserId: 'user-123',
+      events: {
+        module: 'issue1421_test',
+        entity: 'widget',
+        buildPayload: (ctx) => ({
+          id: ctx.identifiers.id,
+          userId: ctx.actorUserId,
+        }),
+      },
+    })
+
+    await engine.flushOrmEntityChanges()
+
+    expect(emitted).toEqual([
+      expect.objectContaining({
+        name: 'issue1421_test.widget.created',
+        payload: { id: identifiers.id, userId: 'user-123' },
+      }),
+    ])
+  })
 })

@@ -22,10 +22,12 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
+import { getWorkflowSafeCommand } from './workflow-safe-commands'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
 
@@ -85,6 +87,30 @@ export interface ActivityContext {
   branchInstanceId?: string | null
   transitionId?: string
   userId?: string
+}
+
+type RbacFeatureResolver = {
+  getGrantedFeatures: (
+    userId: string,
+    opts: { tenantId: string | null; organizationId: string | null }
+  ) => Promise<string[]>
+}
+
+async function resolveWorkflowUserFeatures(
+  container: AwilixContainer,
+  userId: string,
+  tenantId: string | null,
+  organizationId: string | null
+): Promise<string[]> {
+  try {
+    const rbac = container.resolve('rbacService') as RbacFeatureResolver | undefined
+    if (rbac?.getGrantedFeatures) {
+      return await rbac.getGrantedFeatures(userId, { tenantId, organizationId })
+    }
+  } catch {
+    // Fail closed below when the workflow executor cannot prove the actor's grants.
+  }
+  return []
 }
 
 export interface ActivityExecutionResult {
@@ -556,8 +582,28 @@ export async function executeUpdateEntity(
     throw new Error('UPDATE_ENTITY requires "commandId" field (e.g., "sales.documents.update")')
   }
 
+  const workflowSafeCommand = getWorkflowSafeCommand(commandId)
+  if (!workflowSafeCommand) {
+    throw new Error('UPDATE_ENTITY command is not allowed')
+  }
+
   if (!input || typeof input !== 'object') {
     throw new Error('UPDATE_ENTITY requires "input" object with entity data')
+  }
+
+  const actorUserId = typeof context.userId === 'string' ? context.userId.trim() : ''
+  if (!actorUserId) {
+    throw new Error('UPDATE_ENTITY requires an authenticated workflow user')
+  }
+
+  const userFeatures = await resolveWorkflowUserFeatures(
+    container,
+    actorUserId,
+    context.workflowInstance.tenantId,
+    context.workflowInstance.organizationId
+  )
+  if (!hasAllFeatures(userFeatures, workflowSafeCommand.requiredFeatures)) {
+    throw new Error('UPDATE_ENTITY command is not authorized')
   }
 
   // Resolve CommandBus from container
@@ -586,12 +632,10 @@ export async function executeUpdateEntity(
   }
 
   // Build synthetic CommandRuntimeContext for workflow execution
-  // Use nil UUID for system actions when no user context is available
-  const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000'
   const ctx = {
     container,
     auth: {
-      sub: context.userId || SYSTEM_USER_ID,
+      sub: actorUserId,
       tenantId: context.workflowInstance.tenantId,
       orgId: context.workflowInstance.organizationId,
       isSuperAdmin: false,

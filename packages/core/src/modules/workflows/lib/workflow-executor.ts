@@ -61,6 +61,24 @@ export interface WorkflowEventSummary {
   data?: any
 }
 
+function normalizeWorkflowUserId(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith('trigger:')) return null
+  return trimmed
+}
+
+function resolveWorkflowExecutionUserId(
+  context: ExecutionContext | undefined,
+  instance: WorkflowInstance,
+): string | undefined {
+  return (
+    normalizeWorkflowUserId(context?.userId) ??
+    normalizeWorkflowUserId(instance.metadata?.initiatedBy) ??
+    undefined
+  )
+}
+
 export class WorkflowExecutionError extends Error {
   constructor(
     message: string,
@@ -289,6 +307,7 @@ export async function executeWorkflow(
 
       const maxIterations = 100
       let iterations = 0
+      const executionUserId = resolveWorkflowExecutionUserId(context, instance)
 
       while (iterations < maxIterations) {
         iterations++
@@ -306,7 +325,7 @@ export async function executeWorkflow(
         if (currentInstance.status === 'FORKED') {
           const { advanceBranches } = await import('./parallel-handler')
           const branchResult = await advanceBranches(trx, container, currentInstance, definition, {
-            userId: context?.userId,
+            userId: executionUserId,
           })
 
           if (branchResult.outcome === 'joined') {
@@ -392,7 +411,7 @@ export async function executeWorkflow(
         const transitionHandler = await import('./transition-handler')
         const evalContext: any = {
           workflowContext: currentInstance.context,
-          userId: context?.userId,
+          userId: executionUserId,
         }
 
         const validTransitions = await transitionHandler.findValidTransitions(
@@ -866,7 +885,7 @@ export async function resumeWorkflowAfterActivities(
       pendingTransition.toStepId,
       {
         workflowContext: instance.context || {},
-        userId: undefined,
+        userId: resolveWorkflowExecutionUserId(undefined, instance),
       },
       container
     )

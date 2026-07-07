@@ -69,6 +69,13 @@ interface CachedTriggers {
 // Cache TTL: 5 minutes
 const TRIGGER_CACHE_TTL = 5 * 60 * 1000
 
+function readEventActorUserId(payload: Record<string, unknown>): string | null {
+  const candidate = payload.userId ?? payload.actorUserId
+  if (typeof candidate !== 'string') return null
+  const trimmed = candidate.trim()
+  return trimmed.length > 0 && !trimmed.startsWith('trigger:') ? trimmed : null
+}
+
 // ============================================================================
 // Pattern Matching
 // ============================================================================
@@ -613,6 +620,7 @@ export async function processEventTriggers(
       // Extract entity info from payload for metadata
       const payloadId = context.payload?.id as string | undefined
       const payloadEntityType = context.payload?.entityType as string | undefined
+      const actorUserId = readEventActorUserId(context.payload)
 
       // Include event metadata and payload in context
       const initialContext = {
@@ -636,7 +644,7 @@ export async function processEventTriggers(
         version: trigger.workflowVersion,
         initialContext,
         metadata: {
-          initiatedBy: `trigger:${trigger.id}`,
+          initiatedBy: actorUserId ?? `trigger:${trigger.id}`,
           // Include entityId and entityType for widget discovery
           entityId: payloadId,
           entityType: payloadEntityType || trigger.config?.entityType,
@@ -658,7 +666,12 @@ export async function processEventTriggers(
       })
 
       // Execute workflow asynchronously (don't wait)
-      executeWorkflow(em.fork(), container, instance.id).catch(err => {
+      executeWorkflow(
+        em.fork(),
+        container,
+        instance.id,
+        actorUserId ? { userId: actorUserId } : undefined
+      ).catch(err => {
         console.error(`[workflow-trigger] Error executing workflow ${instance.id}:`, err)
       })
 
