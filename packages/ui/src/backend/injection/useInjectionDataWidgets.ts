@@ -8,6 +8,8 @@ import {
   subscribeToInjectionRegistryChanges,
   type LoadedInjectionDataWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '../BackendChromeProvider'
 
 export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   widgets: LoadedInjectionDataWidget[]
@@ -17,6 +19,12 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   const [widgets, setWidgets] = React.useState<LoadedInjectionDataWidget[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const { payload, isReady: backendChromeReady } = useBackendChrome()
+  const grantedFeatureList = React.useMemo(
+    () => payload?.grantedFeatures ?? [],
+    [payload?.grantedFeatures],
+  )
+  const hasBackendChromePayload = payload !== null
   // Re-load when the injection registry is (re-)populated. With the async
   // ClientBootstrap, registration can land after this hook first runs; the
   // version bump triggers a reload so injected menus/columns/fields appear
@@ -30,6 +38,11 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   }, [])
 
   React.useEffect(() => {
+    if (!backendChromeReady) {
+      setIsLoading(true)
+      setError(null)
+      return
+    }
     let mounted = true
     const load = async () => {
       try {
@@ -37,7 +50,13 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
         setError(null)
         const loaded = await loadInjectionDataWidgetsForSpot(spotId)
         if (!mounted) return
-        setWidgets(loaded)
+        setWidgets(
+          loaded.filter((widget) => {
+            if (!hasBackendChromePayload) return true
+            const features = widget.metadata.features ?? []
+            return features.length === 0 || hasAllFeatures(grantedFeatureList, features)
+          })
+        )
       } catch (loadError) {
         if (!mounted) return
         console.error(`[useInjectionDataWidgets] Failed to load widgets for spot ${spotId}:`, loadError)
@@ -51,7 +70,7 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
     return () => {
       mounted = false
     }
-  }, [spotId, registryVersion])
+  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
 
   return { widgets, isLoading, error }
 }

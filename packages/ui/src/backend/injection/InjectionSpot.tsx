@@ -15,6 +15,8 @@ import {
   subscribeToInjectionRegistryChanges,
   type LoadedInjectionWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { hasAllFeatures } from '@open-mercato/shared/security/features'
+import { useBackendChrome } from '../BackendChromeProvider'
 import { getWidgetSharedState } from './WidgetSharedState'
 
 export type InjectionSpotProps<TContext = unknown, TData = unknown> = {
@@ -49,6 +51,55 @@ type LoadedWidget = {
 
 export type LoadedInjectionSpotWidget = LoadedWidget
 
+function toLoadedWidget(widget: LoadedInjectionWidget): LoadedWidget {
+  return {
+    widgetId: widget.metadata.id,
+    module: widget,
+    moduleId: widget.moduleId,
+    key: widget.key,
+    placement: widget.placement,
+  }
+}
+
+function hasGrantedWidgetFeatures(
+  widget: LoadedWidget,
+  grantedFeatures: string[],
+  hasBackendChromePayload: boolean,
+): boolean {
+  if (!hasBackendChromePayload) return true
+  const features = widget.module.metadata.features ?? []
+  return features.length === 0 || hasAllFeatures(grantedFeatures, features)
+}
+
+function filterWidgetsByGrantedFeatures(
+  widgets: LoadedWidget[],
+  grantedFeatures: string[],
+  hasBackendChromePayload: boolean,
+): LoadedWidget[] {
+  return widgets.filter((widget) => hasGrantedWidgetFeatures(widget, grantedFeatures, hasBackendChromePayload))
+}
+
+function areSameLoadedWidgets(current: LoadedWidget[], next: LoadedWidget[]): boolean {
+  if (current.length !== next.length) return false
+  return current.every((widget, index) => {
+    const nextWidget = next[index]
+    return (
+      nextWidget !== undefined &&
+      widget.widgetId === nextWidget.widgetId &&
+      widget.moduleId === nextWidget.moduleId &&
+      widget.key === nextWidget.key &&
+      widget.module === nextWidget.module
+    )
+  })
+}
+
+function setWidgetsIfChanged(
+  setWidgets: React.Dispatch<React.SetStateAction<LoadedWidget[]>>,
+  next: LoadedWidget[],
+) {
+  setWidgets((current) => (areSameLoadedWidgets(current, next) ? current : next))
+}
+
 function injectSharedStateIntoContext<TContext>(context: TContext, moduleId: string): TContext {
   const sharedState = getWidgetSharedState(moduleId)
   if (typeof context === 'object' && context !== null && !Array.isArray(context)) {
@@ -75,10 +126,16 @@ export function useInjectionWidgets<TContext = unknown>(
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
-  const loadedRef = React.useRef(false)
+  const loadedWidgetIdsRef = React.useRef(new Set<string>())
   const contextRef = React.useRef(options?.context)
   const triggerOnLoadRef = React.useRef(options?.triggerOnLoad)
   const onEventRef = React.useRef(options?.onEvent)
+  const { payload, isReady: backendChromeReady } = useBackendChrome()
+  const grantedFeatureList = React.useMemo(
+    () => payload?.grantedFeatures ?? [],
+    [payload?.grantedFeatures],
+  )
+  const hasBackendChromePayload = payload !== null
 
   React.useEffect(() => {
     contextRef.current = options?.context
@@ -99,6 +156,11 @@ export function useInjectionWidgets<TContext = unknown>(
       setError(null)
       return
     }
+    if (!backendChromeReady) {
+      setLoading(true)
+      setError(null)
+      return
+    }
     let mounted = true
     const load = async () => {
       try {
@@ -106,19 +168,18 @@ export function useInjectionWidgets<TContext = unknown>(
         setError(null)
         const loaded = await loadInjectionWidgetsForSpot(spotId)
         if (!mounted) return
-        const widgetList: LoadedWidget[] = loaded.map((w) => ({
-          widgetId: w.metadata.id,
-          module: w,
-          moduleId: w.moduleId,
-          key: w.key,
-          placement: w.placement,
-        }))
+        const widgetList = filterWidgetsByGrantedFeatures(
+          loaded.map(toLoadedWidget),
+          grantedFeatureList,
+          hasBackendChromePayload,
+        )
         setWidgets(widgetList)
 
         // Trigger onLoad for all widgets
-        if (!loadedRef.current && triggerOnLoadRef.current) {
-          loadedRef.current = true
+        if (triggerOnLoadRef.current) {
           for (const widget of widgetList) {
+            if (loadedWidgetIdsRef.current.has(widget.widgetId)) continue
+            loadedWidgetIdsRef.current.add(widget.widgetId)
             if (widget.module.eventHandlers?.onLoad) {
               try {
                 const widgetContext = injectSharedStateIntoContext(contextRef.current as TContext, widget.moduleId)
@@ -144,7 +205,7 @@ export function useInjectionWidgets<TContext = unknown>(
     }
     // context/triggerOnLoad/onEvent are read from refs so only a real registry-version bump reloads the spot
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [spotId, registryVersion])
+  }, [spotId, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
 
   return { widgets, loading, error }
 }
@@ -158,7 +219,8 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   onEvent,
   widgetsOverride,
 }: InjectionSpotProps<TContext, TData>) {
-  const useSpotId = widgetsOverride ? null : spotId
+  const hasWidgetsOverride = widgetsOverride !== undefined
+  const useSpotId = hasWidgetsOverride ? null : spotId
   const onEventRef = React.useRef(onEvent)
   React.useEffect(() => {
     onEventRef.current = onEvent
@@ -170,12 +232,31 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
   )
   const { widgets, loading, error } = useInjectionWidgets<TContext>(useSpotId, {
     context,
-    triggerOnLoad: !widgetsOverride,
+    triggerOnLoad: !hasWidgetsOverride,
     onEvent: stableOnEvent,
   })
-  const effectiveWidgets = widgetsOverride ?? widgets
-  const effectiveLoading = widgetsOverride ? false : loading
-  const effectiveError = widgetsOverride ? null : error
+  const { payload: overrideFeaturePayload, isReady: overrideBackendChromeReady } = useBackendChrome()
+  const overrideGrantedFeatureList = React.useMemo(
+    () => overrideFeaturePayload?.grantedFeatures ?? [],
+    [overrideFeaturePayload?.grantedFeatures],
+  )
+  const overrideHasBackendChromePayload = overrideFeaturePayload !== null
+  const filteredWidgetsOverride = React.useMemo(
+    () =>
+      widgetsOverride === undefined
+        ? undefined
+        : filterWidgetsByGrantedFeatures(
+            widgetsOverride,
+            overrideGrantedFeatureList,
+            overrideHasBackendChromePayload,
+          ),
+    [widgetsOverride, overrideGrantedFeatureList, overrideHasBackendChromePayload],
+  )
+  const effectiveWidgets = hasWidgetsOverride
+    ? (overrideBackendChromeReady ? filteredWidgetsOverride ?? [] : [])
+    : widgets
+  const effectiveLoading = hasWidgetsOverride ? !overrideBackendChromeReady : loading
+  const effectiveError = hasWidgetsOverride ? null : error
 
   if (effectiveLoading && effectiveWidgets.length === 0) {
     return null
@@ -214,6 +295,12 @@ export function InjectionSpot<TContext = unknown, TData = unknown>({
 export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spotId: InjectionSpotId, prefetchedWidgets?: LoadedWidget[]) {
   const [widgets, setWidgets] = React.useState<LoadedWidget[]>([])
   const [registryVersion, setRegistryVersion] = React.useState(() => getInjectionRegistryVersion())
+  const { payload, isReady: backendChromeReady } = useBackendChrome()
+  const grantedFeatureList = React.useMemo(
+    () => payload?.grantedFeatures ?? [],
+    [payload?.grantedFeatures],
+  )
+  const hasBackendChromePayload = payload !== null
 
   React.useEffect(() => {
     return subscribeToInjectionRegistryChanges(() => {
@@ -222,8 +309,15 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
   }, [])
 
   React.useEffect(() => {
-    if (prefetchedWidgets && prefetchedWidgets.length) {
-      setWidgets(prefetchedWidgets)
+    if (!backendChromeReady) {
+      setWidgetsIfChanged(setWidgets, [])
+      return
+    }
+    if (prefetchedWidgets !== undefined) {
+      setWidgetsIfChanged(
+        setWidgets,
+        filterWidgetsByGrantedFeatures(prefetchedWidgets, grantedFeatureList, hasBackendChromePayload),
+      )
       return
     }
     let mounted = true
@@ -231,14 +325,13 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
       try {
         const loaded = await loadInjectionWidgetsForSpot(spotId)
         if (!mounted) return
-        setWidgets(
-          loaded.map((w) => ({
-            widgetId: w.metadata.id,
-            module: w,
-            moduleId: w.moduleId,
-            key: w.key,
-            placement: w.placement,
-          }))
+        setWidgetsIfChanged(
+          setWidgets,
+          filterWidgetsByGrantedFeatures(
+            loaded.map(toLoadedWidget),
+            grantedFeatureList,
+            hasBackendChromePayload,
+          )
         )
       } catch (err) {
         console.error(`[useInjectionSpotEvents] Failed to load widgets for spot ${spotId}:`, err)
@@ -248,7 +341,7 @@ export function useInjectionSpotEvents<TContext = unknown, TData = unknown>(spot
     return () => {
       mounted = false
     }
-  }, [spotId, prefetchedWidgets, registryVersion])
+  }, [spotId, prefetchedWidgets, registryVersion, backendChromeReady, grantedFeatureList, hasBackendChromePayload])
 
   const triggerEvent = React.useCallback(
     async (
