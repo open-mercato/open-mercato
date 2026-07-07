@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test';
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api';
 import {
   buildMockInboundUrl,
+  mockInboundAuthHeaders,
+  mockInboundInvalidAuthHeaders,
   createWebhookFixture,
   deleteWebhookIfExists,
   listWebhookDeliveries,
@@ -34,7 +36,7 @@ test.describe('TC-WEBHOOK-008: Delivery list filtering by status and event type'
         name: `Webhook Filter ${Date.now()}`,
         url: buildMockInboundUrl(),
         subscribedEvents: [EVENT_CREATED, EVENT_UPDATED],
-        customHeaders: { 'x-mock-webhook-signature': 'valid' },
+        customHeaders: mockInboundAuthHeaders(),
       });
       webhookId = created.id;
 
@@ -46,7 +48,7 @@ test.describe('TC-WEBHOOK-008: Delivery list filtering by status and event type'
       // Flip the mock signature to invalid so the next attempt fails terminally (expired).
       const invalidate = await apiRequest(request, 'PUT', `/api/webhooks/${created.id}`, {
         token,
-        data: { customHeaders: { 'x-mock-webhook-signature': 'invalid' } },
+        data: { customHeaders: mockInboundInvalidAuthHeaders() },
       });
       expect(invalidate.status()).toBe(200);
 

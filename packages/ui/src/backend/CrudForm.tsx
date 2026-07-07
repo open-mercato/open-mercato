@@ -103,6 +103,7 @@ import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './cr
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
@@ -555,7 +556,7 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
 
   const normalized: Record<string, unknown> = {}
   const record = value as Record<string, unknown>
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const nextValue = normalizeDirtySnapshotValue(record[key])
     if (nextValue !== undefined) normalized[key] = nextValue
   }
@@ -1762,21 +1763,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
-    return injectedFieldDefinitions.map((definition) => ({
-      id: definition.id,
-      label: definition.label,
-      type: 'custom',
-      readOnly: definition.readOnly,
-      component: ({ value, setValue, values: formValues }) => (
-        <InjectedField
-          field={definition}
-          value={value}
-          onChange={(_, nextValue) => setValue(nextValue)}
-          context={injectedFieldContext}
-          formData={(formValues ?? values) as Record<string, unknown>}
-        />
-      ),
-    }))
+    return injectedFieldDefinitions.map((definition) => {
+      // InjectedField renders its own i18n-resolved <Label> for every field type
+      // except a custom component (type 'custom' + customComponent). Suppress the
+      // CrudForm row label in those cases so it is not rendered twice (#3047).
+      const injectedFieldRendersOwnLabel = !(definition.type === 'custom' && definition.customComponent)
+      return {
+        id: definition.id,
+        label: injectedFieldRendersOwnLabel ? '' : definition.label,
+        type: 'custom',
+        readOnly: definition.readOnly,
+        component: ({ value, setValue, values: formValues }) => (
+          <InjectedField
+            field={definition}
+            value={value}
+            onChange={(_, nextValue) => setValue(nextValue)}
+            context={injectedFieldContext}
+            formData={(formValues ?? values) as Record<string, unknown>}
+          />
+        ),
+      }
+    })
   }, [injectedFieldContext, injectedFieldDefinitions, values])
 
   const allFields = React.useMemo(() => {
@@ -1997,10 +2004,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
       if (index < 0) continue
       const fieldEntries = cloned[index].fields ?? []
-      if (!fieldEntries.some((entry) => typeof entry === 'string' && entry === definition.id)) {
-        fieldEntries.push(definition.id)
-      }
-      cloned[index].fields = fieldEntries
+      const alreadyPresent = fieldEntries.some((entry) => {
+        const entryId = typeof entry === 'string' ? entry : entry.id
+        return entryId === definition.id
+      })
+      cloned[index].fields = alreadyPresent
+        ? fieldEntries
+        : insertByInjectionPlacement(
+            fieldEntries,
+            definition.id,
+            definition.placement,
+            (entry) => (typeof entry === 'string' ? entry : entry.id),
+          )
     }
     return cloned
   }, [groups, injectedFieldDefinitions])

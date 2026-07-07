@@ -2,7 +2,7 @@ jest.mock('@open-mercato/ui/backend/CrudForm', () => ({
   CrudForm: () => null,
 }))
 
-import { buildEntityMetadataPayload, shouldRegisterEntityMetadata } from '../[entityId]/page'
+import { buildDefinitionsBatchPayload, buildEntityMetadataPayload, shouldRegisterEntityMetadata } from '../[entityId]/page'
 
 describe('shouldRegisterEntityMetadata', () => {
   it('registers metadata for custom (user-defined) entities', () => {
@@ -85,5 +85,68 @@ describe('buildEntityMetadataPayload', () => {
   it('returns null when label is empty', () => {
     const result = buildEntityMetadataPayload('custom', { label: '' })
     expect(result).toBeNull()
+  })
+})
+
+describe('buildDefinitionsBatchPayload', () => {
+  it('preserves inactive definitions so inherited fields can be hidden', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+
+    expect(result).toEqual({
+      entityId: 'customers:customer_deal',
+      definitions: [
+        {
+          key: 'hide_me',
+          kind: 'text',
+          configJson: { label: 'Hide me' },
+          isActive: false,
+        },
+        {
+          key: 'keep_me',
+          kind: 'text',
+          configJson: { label: 'Keep me' },
+          isActive: true,
+        },
+      ],
+      fieldsets: [{ code: 'main', label: 'Main' }],
+      singleFieldsetPerRecord: true,
+    })
+  })
+
+  it('omits incomplete definitions without keys', () => {
+    const result = buildDefinitionsBatchPayload({
+      entityId: 'customers:customer_deal',
+      defs: [
+        {
+          key: '',
+          kind: 'text',
+          configJson: {},
+          isActive: true,
+        },
+      ],
+      fieldsets: [],
+      singleFieldsetPerRecord: false,
+    })
+
+    expect(result.definitions).toEqual([])
+    expect(result.singleFieldsetPerRecord).toBe(false)
   })
 })

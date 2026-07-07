@@ -8,6 +8,7 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 
 export const metadata = {
   event: '*', // Subscribe to ALL events
@@ -23,6 +24,12 @@ const EXCLUDED_EVENT_PREFIXES = [
   'cache.', // Cache events
   'queue.', // Queue events
 ]
+
+const WORKFLOW_TRIGGER_DEBUG_ENV = 'OM_WORKFLOW_TRIGGER_DEBUG'
+
+function isWorkflowTriggerDebugEnabled(): boolean {
+  return parseBooleanWithDefault(process.env[WORKFLOW_TRIGGER_DEBUG_ENV], false)
+}
 
 /**
  * Check if an event should be excluded from trigger processing.
@@ -42,7 +49,7 @@ export default async function handle(
 ): Promise<void> {
   const eventName = ctx.eventName
   if (!eventName) {
-    // Skip if no event name (shouldn't happen, but be safe)
+    console.warn('[workflow-trigger] Skipping trigger evaluation because subscriber context is missing eventName')
     return
   }
 
@@ -97,6 +104,15 @@ export default async function handle(
       tenantId,
       organizationId,
     })
+
+    if (isWorkflowTriggerDebugEnabled()) {
+      const matched = result.triggered + result.skipped + result.errors.length
+      console.log(
+        `[workflow-trigger] Evaluated triggers for "${eventName}": ` +
+        `tenant=${tenantId} organization=${organizationId} matched=${matched} ` +
+        `triggered=${result.triggered} skipped=${result.skipped} errors=${result.errors.length}`
+      )
+    }
 
     if (result.triggered > 0) {
       console.log(

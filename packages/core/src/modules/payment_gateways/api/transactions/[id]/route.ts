@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import { GatewayTransaction } from '../../../data/entities'
+import { readGatewayMetadata, readWebhookLog } from '../../../lib/transaction-fields'
 import { paymentGatewaysTag } from '../../openapi'
 
 export const metadata = {
@@ -82,8 +83,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
       redirectUrl: transaction.redirectUrl ?? null,
       amount: transaction.amount,
       currencyCode: transaction.currencyCode,
-      gatewayMetadata: transaction.gatewayMetadata ?? null,
-      webhookLog: Array.isArray(transaction.webhookLog) ? transaction.webhookLog : [],
+      gatewayMetadata: transaction.gatewayMetadata == null ? null : readGatewayMetadata(transaction.gatewayMetadata),
+      webhookLog: readWebhookLog(transaction.webhookLog),
       lastWebhookAt: toIsoString(transaction.lastWebhookAt),
       lastPolledAt: toIsoString(transaction.lastPolledAt),
       expiresAt: toIsoString(transaction.expiresAt),

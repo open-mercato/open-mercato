@@ -463,6 +463,7 @@
   "sales.documents.adjustments.errorDelete": "Nie udało się usunąć korekty.",
   "sales.documents.adjustments.errorLoad": "Nie udało się wczytać korekt.",
   "sales.documents.adjustments.errorRate": "Wprowadź stawkę procentową.",
+  "sales.documents.adjustments.errorReturnZero": "Korekty zwrotu muszą mieć kwotę różną od zera. Utwórz zwrot na karcie Zwroty zamiast dodawać korektę zwrotu o wartości zero.",
   "sales.documents.adjustments.errorSave": "Nie udało się zapisać korekty.",
   "sales.documents.adjustments.errorScope": "Wymagane są identyfikatory organizacji i dzierżawcy.",
   "sales.documents.adjustments.kind": "Typ",

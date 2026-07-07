@@ -12,7 +12,7 @@
 // Output: <outDir>/<label>.json with { label, startedAt, finishedAt, samples, summary }.
 // Default outDir: .mercato/dev-rss
 //
-// Platform: linux + darwin only (ps -A -o pid=,ppid=,rss=,command=). win32 exits 2.
+// Platform: linux + darwin only (ps -A -o pid=,ppid=,rss=,args=). win32 exits 2.
 
 import { spawn } from 'node:child_process'
 import fs from 'node:fs'
