@@ -76,9 +76,9 @@ export interface ModuleFactSource {
 }
 
 /**
- * @deprecated Superseded by auto-discovery (`discoverEnabledModuleSources` /
- * `discoverPackageModuleSources` in `module-facts-discovery.ts`). Retained as a
- * stable export for one minor; no longer gates which modules receive fact-sheets.
+ * @deprecated Superseded by auto-discovery (`discoverPackageModuleSources` in
+ * `module-facts-discovery.ts`). Retained as a stable export for one minor; no
+ * longer gates which modules receive fact-sheets.
  */
 export const MODULE_FACTS_ALLOWLIST = [
   'auth',

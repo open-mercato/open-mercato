@@ -41,29 +41,6 @@ function dedupeById(sources: ModuleFactSource[]): ModuleFactSource[] {
 }
 
 /**
- * Registry-driven discovery for `yarn generate`: the app's enabled module set
- * (`resolver.loadEnabledModules()`), each resolved to its source directory via
- * `resolver.getModulePaths()` (app override preferred over the package copy).
- *
- * App-local (`from: '@app'`) modules are gated on `resolver.isMonorepo()`: in the
- * monorepo reference app they are demo/probe fixtures and excluded from the committed
- * artifact; in a standalone user app they are the user's own modules and included.
- */
-export function discoverEnabledModuleSources(resolver: PackageResolver): ModuleFactSource[] {
-  const isMonorepo = resolver.isMonorepo()
-  const sources: ModuleFactSource[] = []
-  for (const entry of resolver.loadEnabledModules()) {
-    const from = entry.from ?? '@open-mercato/core'
-    if (isMonorepo && from === '@app') continue
-    const { appBase, pkgBase } = resolver.getModulePaths(entry)
-    const moduleRoot = fs.existsSync(appBase) ? appBase : pkgBase
-    if (!hasReadableModuleSource(moduleRoot)) continue
-    sources.push({ moduleId: entry.id, moduleRoot, from })
-  }
-  return dedupeById(sources)
-}
-
-/**
  * Package-scan discovery for the create-app build: every package-provided module
  * across `@open-mercato/*` workspace packages (core plus others), never `apps/*`
  * demo modules. Routes through the resolver rather than hardcoded paths.

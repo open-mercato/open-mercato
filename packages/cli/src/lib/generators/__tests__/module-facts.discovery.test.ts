@@ -1,44 +1,28 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { ModuleEntry, PackageResolver } from '../../resolver'
-import { discoverEnabledModuleSources, hasReadableModuleSource } from '../module-facts-discovery'
+import type { PackageResolver } from '../../resolver'
+import { discoverPackageModuleSources, hasReadableModuleSource } from '../module-facts-discovery'
 
-type ModulePaths = Record<string, { appBase: string; pkgBase: string }>
+type FakePackage = { name: string; path: string; modulesPath: string }
 
-function makeResolver(options: {
-  isMonorepo: boolean
-  entries: ModuleEntry[]
-  paths: ModulePaths
-}): PackageResolver {
+function makeResolver(packages: FakePackage[]): PackageResolver {
   return {
-    isMonorepo: () => options.isMonorepo,
-    loadEnabledModules: () => options.entries,
-    getModulePaths: (entry: ModuleEntry) => options.paths[entry.id] ?? { appBase: '', pkgBase: '' },
+    discoverPackages: () => packages,
   } as unknown as PackageResolver
 }
 
-function writeModule(root: string, moduleId: string, file: string): string {
-  const moduleRoot = path.join(root, moduleId)
+function writeModule(modulesDir: string, moduleId: string, file: string): void {
+  const moduleRoot = path.join(modulesDir, moduleId)
   fs.mkdirSync(moduleRoot, { recursive: true })
   fs.writeFileSync(path.join(moduleRoot, file), '// fixture\n')
-  return moduleRoot
 }
 
 describe('module-facts discovery (T1)', () => {
   let tmp: string
-  let pkgRoot: string
-  let appRoot: string
 
   beforeAll(() => {
     tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'module-facts-discovery-'))
-    pkgRoot = path.join(tmp, 'pkg')
-    appRoot = path.join(tmp, 'app')
-    writeModule(pkgRoot, 'alpha', 'index.ts')
-    writeModule(pkgRoot, 'beta', 'acl.ts')
-    writeModule(pkgRoot, 'compiled', 'index.js') // .js-only → skipped (A3)
-    writeModule(appRoot, 'appmod', 'events.ts')
-    writeModule(appRoot, 'alpha', 'index.ts') // app override of the pkg `alpha` (A2)
   })
 
   afterAll(() => {
@@ -46,67 +30,59 @@ describe('module-facts discovery (T1)', () => {
   })
 
   it('hasReadableModuleSource is true for a .ts module and false for a .js-only module', () => {
-    expect(hasReadableModuleSource(path.join(pkgRoot, 'alpha'))).toBe(true)
-    expect(hasReadableModuleSource(path.join(pkgRoot, 'compiled'))).toBe(false)
-    expect(hasReadableModuleSource(path.join(pkgRoot, 'missing'))).toBe(false)
+    const srcModules = path.join(tmp, 'readable', 'src', 'modules')
+    writeModule(srcModules, 'alpha', 'index.ts')
+    const distModules = path.join(tmp, 'readable', 'dist', 'modules')
+    writeModule(distModules, 'compiled', 'index.js')
+
+    expect(hasReadableModuleSource(path.join(srcModules, 'alpha'))).toBe(true)
+    expect(hasReadableModuleSource(path.join(distModules, 'compiled'))).toBe(false)
+    expect(hasReadableModuleSource(path.join(srcModules, 'missing'))).toBe(false)
   })
 
-  it('returns the enabled set and skips .js-only roots (A1 + A3)', () => {
-    const resolver = makeResolver({
-      isMonorepo: true,
-      entries: [
-        { id: 'alpha', from: '@open-mercato/core' },
-        { id: 'beta', from: '@open-mercato/core' },
-        { id: 'compiled', from: '@open-mercato/core' },
-      ],
-      paths: {
-        alpha: { appBase: path.join(appRoot, 'missing'), pkgBase: path.join(pkgRoot, 'alpha') },
-        beta: { appBase: path.join(appRoot, 'missing'), pkgBase: path.join(pkgRoot, 'beta') },
-        compiled: { appBase: path.join(appRoot, 'missing'), pkgBase: path.join(pkgRoot, 'compiled') },
-      },
-    })
-    const ids = discoverEnabledModuleSources(resolver).map((source) => source.moduleId)
+  it('returns package-provided .ts modules and skips .js-only installs (A1 + A3)', () => {
+    const pkgSrc = path.join(tmp, 'pkg-a')
+    writeModule(path.join(pkgSrc, 'src', 'modules'), 'alpha', 'index.ts')
+    writeModule(path.join(pkgSrc, 'src', 'modules'), 'beta', 'acl.ts')
+
+    const pkgDist = path.join(tmp, 'pkg-compiled')
+    writeModule(path.join(pkgDist, 'dist', 'modules'), 'compiled', 'index.js')
+
+    const resolver = makeResolver([
+      { name: '@open-mercato/core', path: pkgSrc, modulesPath: path.join(pkgSrc, 'src', 'modules') },
+      { name: '@open-mercato/compiled', path: pkgDist, modulesPath: path.join(pkgDist, 'dist', 'modules') },
+    ])
+
+    const ids = discoverPackageModuleSources(resolver).map((source) => source.moduleId)
     expect(ids.sort()).toEqual(['alpha', 'beta'])
   })
 
-  it('prefers the app override directory over the package copy (A2)', () => {
-    const resolver = makeResolver({
-      isMonorepo: false,
-      entries: [{ id: 'alpha', from: '@open-mercato/core' }],
-      paths: { alpha: { appBase: path.join(appRoot, 'alpha'), pkgBase: path.join(pkgRoot, 'alpha') } },
-    })
-    const [source] = discoverEnabledModuleSources(resolver)
-    expect(source.moduleRoot).toBe(path.join(appRoot, 'alpha'))
-  })
+  it('tags each source with its providing package name', () => {
+    const pkgSrc = path.join(tmp, 'pkg-tagged')
+    writeModule(path.join(pkgSrc, 'src', 'modules'), 'gamma', 'events.ts')
 
-  it('excludes @app modules in monorepo mode but includes them standalone (A6)', () => {
-    const entries: ModuleEntry[] = [
-      { id: 'alpha', from: '@open-mercato/core' },
-      { id: 'appmod', from: '@app' },
-    ]
-    const paths: ModulePaths = {
-      alpha: { appBase: path.join(appRoot, 'missing'), pkgBase: path.join(pkgRoot, 'alpha') },
-      appmod: { appBase: path.join(appRoot, 'appmod'), pkgBase: path.join(pkgRoot, 'missing') },
-    }
+    const resolver = makeResolver([
+      { name: '@open-mercato/tagged', path: pkgSrc, modulesPath: path.join(pkgSrc, 'src', 'modules') },
+    ])
 
-    const monorepoIds = discoverEnabledModuleSources(makeResolver({ isMonorepo: true, entries, paths })).map((s) => s.moduleId)
-    expect(monorepoIds).toEqual(['alpha'])
-
-    const standaloneIds = discoverEnabledModuleSources(makeResolver({ isMonorepo: false, entries, paths })).map((s) => s.moduleId)
-    expect(standaloneIds.sort()).toEqual(['alpha', 'appmod'])
+    const [source] = discoverPackageModuleSources(resolver)
+    expect(source).toMatchObject({ moduleId: 'gamma', from: '@open-mercato/tagged' })
+    expect(source.moduleRoot).toBe(path.join(pkgSrc, 'src', 'modules', 'gamma'))
   })
 
   it('dedupes duplicate module ids first-wins', () => {
-    const resolver = makeResolver({
-      isMonorepo: false,
-      entries: [
-        { id: 'alpha', from: '@app' },
-        { id: 'alpha', from: '@open-mercato/core' },
-      ],
-      paths: { alpha: { appBase: path.join(appRoot, 'alpha'), pkgBase: path.join(pkgRoot, 'alpha') } },
-    })
-    const sources = discoverEnabledModuleSources(resolver)
+    const pkgA = path.join(tmp, 'dup-a')
+    writeModule(path.join(pkgA, 'src', 'modules'), 'shared', 'index.ts')
+    const pkgB = path.join(tmp, 'dup-b')
+    writeModule(path.join(pkgB, 'src', 'modules'), 'shared', 'index.ts')
+
+    const resolver = makeResolver([
+      { name: '@open-mercato/dup-a', path: pkgA, modulesPath: path.join(pkgA, 'src', 'modules') },
+      { name: '@open-mercato/dup-b', path: pkgB, modulesPath: path.join(pkgB, 'src', 'modules') },
+    ])
+
+    const sources = discoverPackageModuleSources(resolver)
     expect(sources).toHaveLength(1)
-    expect(sources[0].moduleRoot).toBe(path.join(appRoot, 'alpha'))
+    expect(sources[0].moduleRoot).toBe(path.join(pkgA, 'src', 'modules', 'shared'))
   })
 })
