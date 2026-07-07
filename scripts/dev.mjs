@@ -23,6 +23,7 @@ import {
   stripAnsi,
 } from './dev-splash-helpers.mjs'
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
+import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
@@ -34,6 +35,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
   createMemoryTraceSession,
@@ -196,6 +198,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -347,6 +353,32 @@ function printDevLogLocation() {
   if (process.env.OM_DEV_LOG_ANNOUNCED === '1') return
   console.log(`📝 Verbose logs ${formatDevLogAnnouncement(getDevLogSession())}`)
   process.env.OM_DEV_LOG_ANNOUNCED = '1'
+}
+
+function ensureDevFileWatchLimits() {
+  const result = ensureDevInotifyLimits()
+  if (result.fixed) {
+    console.log('🔧 Raised Linux inotify file-watch limits for Turbopack')
+    return true
+  }
+  if (result.ok) {
+    return true
+  }
+
+  updateSplashState({
+    phase: 'File-watch limits too low',
+    detail: 'Raise Linux inotify limits before starting Turbopack',
+    failed: true,
+    failureLines: result.message.split('\n').filter(Boolean).slice(0, 10),
+    failureCommand: 'yarn dev:fix-wsl-watchers',
+    ready: false,
+    readyUrl: null,
+    loginUrl: null,
+    activity: 'File-watch limit preflight failed',
+  })
+  console.error(result.message)
+  shutdown(1)
+  return false
 }
 
 function spawnCommand(command, commandArgs, options = {}) {
@@ -564,6 +596,12 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY.trim() === ''
   ) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
   }
   if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
@@ -1595,15 +1633,30 @@ function resolveWatchPackagesScript() {
   return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
 }
 
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
-  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript })
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
+  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript, scope: activeScope })
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1625,9 +1678,14 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  if (activeScope !== 'all') {
+    console.log(`   ↳ watch scope: ${activeScope} (set OM_WATCH_SCOPE=all or pass --watch=all to watch every package)`)
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: activeScope === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${activeScope})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1639,6 +1697,7 @@ function startPackageWatch() {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {
@@ -1823,6 +1882,7 @@ async function runClassicStandaloneDev() {
 async function main() {
   printDevLogLocation()
   await startSplashServer()
+  if (!ensureDevFileWatchLimits()) return
 
   if (!isMonorepo) {
     if (setupMode) {

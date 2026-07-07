@@ -5,6 +5,7 @@ import { Sparkles } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { SimpleTooltip } from '@open-mercato/ui/primitives/tooltip'
 import { formatTimeRange } from './EventBlock'
 import type { CalendarItem, CalendarPlatform } from './types'
 
@@ -20,6 +21,7 @@ export type EventPeekPopoverProps = {
   open: boolean
   joinUrl: string | null
   aiSummaries: boolean
+  canManage?: boolean
   onOpenChange(open: boolean): void
   onJoin(item: CalendarItem): void
   onEdit(item: CalendarItem): void
@@ -31,6 +33,7 @@ export function EventPeekPopover({
   open,
   joinUrl,
   aiSummaries,
+  canManage = true,
   onOpenChange,
   onJoin,
   onEdit,
@@ -81,17 +84,32 @@ export function EventPeekPopover({
                 {t('customers.calendar.peek.join', 'Join')}
               </Button>
             ) : null}
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              onClick={() => {
-                onOpenChange(false)
-                onEdit(item)
-              }}
-            >
-              {t('customers.calendar.peek.edit', 'Edit')}
-            </Button>
+            {canManage ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => {
+                  onOpenChange(false)
+                  onEdit(item)
+                }}
+              >
+                {t('customers.calendar.peek.edit', 'Edit')}
+              </Button>
+            ) : (
+              <SimpleTooltip
+                content={t(
+                  'customers.calendar.peek.editForbidden',
+                  "You don't have permission to edit events",
+                )}
+              >
+                <span className="inline-flex">
+                  <Button type="button" size="sm" variant="secondary" disabled className="pointer-events-none">
+                    {t('customers.calendar.peek.edit', 'Edit')}
+                  </Button>
+                </span>
+              </SimpleTooltip>
+            )}
           </div>
         </div>
       </PopoverContent>

@@ -1,5 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
+import type { ModuleSubscriber } from '@open-mercato/shared/modules/registry'
 import { createEventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
@@ -150,7 +151,12 @@ export async function bootstrap(container: AwilixContainer) {
       const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
       loadedModules = getModules()
     } catch {}
-    const subs = loadedModules.flatMap((m) => m.subscribers || [])
+    const subs = loadedModules.flatMap((m) =>
+      (m.subscribers || []).map((subscriber: ModuleSubscriber) => ({
+        ...subscriber,
+        moduleId: subscriber.moduleId ?? m.id,
+      })),
+    )
     if (subs.length) (container.resolve as any)('eventBus').registerModuleSubscribers(subs)
 
     // Extract sync subscribers and register in the sync-subscriber-store

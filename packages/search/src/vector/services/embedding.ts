@@ -68,6 +68,15 @@ export class EmbeddingService {
   }
 
   updateConfig(config: EmbeddingProviderConfig): void {
+    if (
+      config.providerId === this.config.providerId &&
+      config.model === this.config.model &&
+      config.dimension === this.config.dimension &&
+      config.outputDimensionality === this.config.outputDimensionality &&
+      config.baseUrl === this.config.baseUrl
+    ) {
+      return
+    }
     this.config = config
     this.clientCache.clear()
   }

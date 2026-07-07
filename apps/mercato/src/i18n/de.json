@@ -9,6 +9,7 @@
   "api.errors.invalidJson": "Ungültige JSON-Nutzlast.",
   "api.errors.invalidLocale": "Ungültige Sprache",
   "api.errors.invalidPayload": "Ungültige Nutzlast.",
+  "api.errors.localeForced": "Die Sprache ist durch die Konfiguration festgelegt",
   "api.errors.notFound": "Nicht gefunden",
   "api.errors.rateLimit": "Zu viele Anfragen. Bitte versuchen Sie es später erneut.",
   "api.errors.unauthorized": "Nicht autorisiert",

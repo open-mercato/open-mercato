@@ -102,6 +102,7 @@ export default function LoginPage() {
   const searchParams = useSearchParams()
   const requireRole = (searchParams.get('requireRole') || searchParams.get('role') || '').trim()
   const requireFeature = (searchParams.get('requireFeature') || '').trim()
+  const redirectParam = searchParams.get('redirect') || ''
   const requiredRoles = requireRole ? requireRole.split(',').map((value) => value.trim()).filter(Boolean) : []
   const requiredFeatures = requireFeature ? requireFeature.split(',').map((value) => value.trim()).filter(Boolean) : []
   const translatedRoles = requiredRoles.map((role) => translate(`auth.roles.${role}`, role))
@@ -148,7 +149,7 @@ export default function LoginPage() {
         // producing an infinite loop (see GH #2070). Stay on the login page so
         // the access-denied banner is visible.
         if (hasAclChallenge) return
-        const rawRedirect = searchParams.get('redirect') || ''
+        const rawRedirect = redirectParam
         let destination = '/backend'
         if (rawRedirect) {
           try {
@@ -170,7 +171,7 @@ export default function LoginPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [router, searchParams, requiredFeatures.length, requiredRoles.length])
+  }, [router, redirectParam, requiredFeatures.length, requiredRoles.length])
 
   useEffect(() => {
     const tenantParam = (searchParams.get('tenant') || '').trim()

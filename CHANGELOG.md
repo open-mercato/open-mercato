@@ -34,6 +34,10 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🐛 Gate calendar event peek Edit button by manage permission. (#3655) *(@adeptofvoltron)*
+- 🐛 Fall back to default Ollama URL when OLLAMA_BASE_URL is empty. (#3642) *(@adeptofvoltron)*
+- 🐛 Defer optimistic-lock floor to authorized record-lock keep-mine. (#3602) *(@pkarw)*
+- 🐛 Deep-link dictionary manage links (carry-forward of #3396). (#3599) *(@pmadajthey, via @pkarw)*
 - 🐛 Toggle conversation actions menu by archived/read state. (#3591) *(@adeptofvoltron)*
 - 🐛 Redirect to inbox after marking unread from detail. (#3590) *(@adeptofvoltron)*
 - 🐛 Actions dropdown clips long localized labels. (#3585) *(@adeptofvoltron)*
@@ -171,6 +175,8 @@
 - 🐛 Decrypt encrypted entities on read in sales commands. (#2884) *(@pkarw)*
 
 ## 🛠️ Improvements
+- 🛠️ Extract shared customers ai-tools helpers (companies/people packs). (#3644) *(@adeptofvoltron)*
+- 🛠️ Drop dead/misleading loop-counter reassignments in matchRoutePattern. (#3641) *(@adeptofvoltron)*
 - 🛠️ Audit encrypted-sort safety for sync-akeneo discovery and messages GET. (#3600) *(@rajanbor)*
 - 🛠️ Update mutation guard guidance. (#3519) *(@truongx)*
 - 🛠️ Bump http-proxy-middleware from 2.0.9 to 2.0.10. (#3490) *(@pkarw)*
@@ -214,6 +220,7 @@
 - 🛠️ Bound memory sweep, add eviction/sweep counters + env test. (#3091) *(@adeptofvoltron)*
 
 ## 🧪 Testing
+- 🧪 Make thread-token HMAC-tamper test deterministic. (#3646) *(@adeptofvoltron)*
 - 🧪 Add TC-CAL-010 calendar weekend today-column integration test. (#3592) *(@pkarw)*
 - 🧪 Cover list-page enabled-toggle optimistic lock. (#3572) *(@pkarw)*
 - 🧪 Integration test for auth.users.create tenant scope. (#3568) *(@pkarw)*
@@ -341,6 +348,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 - 🐛 Workflows: remove the duplicate info icon in Alert callouts (#2759). (#2763) *(@adeptofvoltron)*
 
 ## 🛠️ Improvements
+- 🛠️ AI assistant: support OpenRouter runtime configuration in Docker/OpenCode.
 - 🛠️ Directory: per-request memoize org-scope resolution and wire `org-scope:user` invalidation (#2259). (#2880) *(@pkarw)*
 - 🛠️ Query: drop the redundant `count(distinct)` on non-joined list COUNTs (#2227). (#2894) *(@pkarw)*
 - 🛠️ Shared: batch encrypted custom-field decryption with `Promise.all` (#2229). (#2896) *(@pkarw)*
@@ -381,6 +389,7 @@ On the product surface, the CRM **deals list is redesigned** (with a follow-up m
 
 ## 🚀 CI/CD & Infrastructure
 - 🚀 Test: stabilize the flaky markitdown install in the test job. (#3004) *(@pkarw)*
+- 🚀 Docker: improve full-app Dockerfile dependency caching by installing from workspace manifests before copying source files.
 
 ## 👥 Contributors
 

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -12,6 +12,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, RecordNotFoundState, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
@@ -91,6 +92,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
@@ -451,12 +453,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const handleTagsSave = React.useCallback(
     async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      for (const tag of added) {
-        await assignTag(tag.id)
-      }
-      for (const tag of removed) {
-        await unassignTag(tag.id)
-      }
+      await Promise.all([
+        ...added.map((tag) => assignTag(tag.id)),
+        ...removed.map((tag) => unassignTag(tag.id)),
+      ])
       setTags(next)
       flash(t('resources.resources.tags.success', 'Tags updated.'), 'success')
     },
@@ -601,6 +601,20 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
       ? initialValues.name.trim()
       : t('resources.resources.detail.untitled', 'Unnamed resource')
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `resources.resource` + id
+  // explicitly. The resourceKind mirrors the VersionHistoryAction config / ResourceCrudForm
+  // `versionHistory` so the held lock matches the save-time conflict surface for the resource.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'resources.resource',
+      resourceId: resourceId || null,
+      updatedAt: typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+      data: initialValues,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (
