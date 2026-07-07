@@ -286,7 +286,7 @@ Optional test-only diagnostics may be gated by an env var such as `OM_INTEGRATIO
 ### File Manifest
 | File | Action | Purpose |
 |------|--------|---------|
-| `packages/core/src/modules/auth/__integration__/TC-AUTH-052-login-helper-backend-cookie-flow.spec.ts` | Create | Regression for `login(page)` reaching `/backend` without redirect loop. |
+| `packages/core/src/modules/auth/__integration__/TC-AUTH-053-login-helper-backend-cookie-flow.spec.ts` | Create | Regression for `login(page)` reaching `/backend` without redirect loop. |
 | `packages/core/src/helpers/integration/auth.ts` | Modify if proven | Stabilize API-login-to-browser-cookie handoff and improve diagnostics. |
 | `packages/core/src/modules/auth/api/session/refresh.ts` | Modify if proven | Prevent refresh from redirecting to protected pages with invalid canonical auth. |
 | `packages/core/src/modules/auth/services/authService.ts` | Modify if proven | Align refresh session lookup with canonical staff auth requirements. |
@@ -297,7 +297,7 @@ Optional test-only diagnostics may be gated by an env var such as `OM_INTEGRATIO
 
 ### Testing Strategy
 - Targeted regression:
-  - `yarn test:integration:ephemeral --no-reuse-env --force-rebuild --filter packages/core/src/modules/auth/__integration__/TC-AUTH-052-login-helper-backend-cookie-flow.spec.ts`
+  - `yarn test:integration:ephemeral --no-reuse-env --force-rebuild --filter packages/core/src/modules/auth/__integration__/TC-AUTH-053-login-helper-backend-cookie-flow.spec.ts`
 - Representative existing browser spec:
   - `yarn test:integration:ephemeral --no-reuse-env --force-rebuild --filter packages/core/src/modules/core/__integration__/integration/TC-INT-001.spec.ts`
 - Package validation:
@@ -447,3 +447,4 @@ None.
 - Initial specification created from TraceCore baseline evidence showing `login(page, 'admin')` redirect loop on clean `origin/main`.
 - Reviewed with `om-spec-writing`: added metadata, related-spec boundaries, non-goals, root-cause gates, API/readiness contracts, expanded risks, and final compliance matrix.
 - Tightened strict checklist coverage with explicit MVP, undo N/A, security/input invariants, and performance/cache boundaries.
+- Implementation planning corrected the auth regression id to `TC-AUTH-053` because `TC-AUTH-052` already exists for user create tenant-scope coverage on `develop`.

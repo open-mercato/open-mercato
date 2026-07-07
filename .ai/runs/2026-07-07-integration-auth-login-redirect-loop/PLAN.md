@@ -12,8 +12,8 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 0 | 0.1 | Land source specification | done | 21cad90d5 |
-| 1 | 1.1 | Add auth helper backend-cookie regression | todo | — |
+| 0 | 0.1 | Land source specification | done | 89cf420db |
+| 1 | 1.1 | Add auth helper backend-cookie regression | done | pending |
 | 2 | 2.1 | Fix verified auth cookie/session boundary | todo | — |
 | 3 | 3.1 | Add cookie-backed ephemeral readiness probe | todo | — |
 | 3 | 3.2 | Add readiness probe unit coverage | todo | — |
@@ -73,7 +73,7 @@ None.
 ### Phase 1: Regression and Diagnostics
 
 #### Step 1.1 — Add auth helper backend-cookie regression
-- Add `packages/core/src/modules/auth/__integration__/TC-AUTH-052-login-helper-backend-cookie-flow.spec.ts`.
+- Add `packages/core/src/modules/auth/__integration__/TC-AUTH-053-login-helper-backend-cookie-flow.spec.ts`.
 - Import `login` from `@open-mercato/core/helpers/integration/auth`.
 - Assert `login(page, 'admin')` reaches `/backend` and does not loop through session refresh.
 - Add redacted redirect/cookie diagnostics in the test or helper utility as needed; no token values.
