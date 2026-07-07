@@ -11,3 +11,8 @@
 - Brief: auth helper regression/diagnostics and CLI backend-cookie readiness probe implemented.
 - Validation: core full suite passed; CLI full suite passed outside sandbox; focused `TC-AUTH-053` ephemeral integration passed.
 - Notes: sandbox-only CLI failures were `listen EPERM ::` and `EMFILE: too many open files, watch`; see `checkpoint-1-checks.md`.
+
+## 2026-07-07T13:34:21Z — final gate complete
+- Brief: final validation and self-review completed; ready to open PR.
+- Validation: `build:packages`, `generate`, second `build:packages`, i18n checks, typecheck, root test, app build, and focused ephemeral integration passed.
+- Notes: root test/app build/i18n usage required unsandboxed reruns because local listener/IPC operations are blocked in the sandbox.

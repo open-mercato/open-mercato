@@ -1,10 +1,10 @@
 # Handoff — 2026-07-07-integration-auth-login-redirect-loop
 
-**Last updated:** 2026-07-07T12:39:28Z
+**Last updated:** 2026-07-07T13:34:21Z
 **Branch:** `fix/integration-auth-login-redirect-loop`
 **PR:** not yet opened
-**Current phase/step:** Phase 5 Step 5.1
-**Last commit:** `5c88a0e5f` before checkpoint commit
+**Current phase/step:** ready to open PR
+**Last commit:** `7c3911651` before final-gate commit
 
 ## What Just Happened
 
@@ -15,12 +15,12 @@
 - Added a cookie-backed `/backend` readiness probe in the CLI with bounded same-origin redirect following.
 - Added CLI unit coverage for cookie propagation, redirect-loop diagnostics, unsafe redirect rejection, and cookie-value redaction.
 - Fixed validation fallout from the repo-wide explicit comparator guard.
-- Stabilized the existing CLI build-cache fingerprint test.
-- Ran checkpoint validation; see `checkpoint-1-checks.md`.
+- Stabilized existing CLI build-cache and DataTable test flakes encountered during gates.
+- Ran checkpoint and final gate validation; see `checkpoint-1-checks.md` and `final-gate-checks.md`.
 
 ## Next Concrete Action
 
-- Commit checkpoint 4.1, then run final gate/self-review and open the PR.
+- Commit final-gate run metadata, push, open the PR against `develop`, and apply labels.
 
 ## Blockers / Open Questions
 
@@ -28,9 +28,9 @@
 
 ## Environment Caveats
 
-- `yarn workspace @open-mercato/cli test` fails inside the sandbox on `listen EPERM ::` and `EMFILE: too many open files, watch`.
-- The same full CLI suite passes outside sandbox with the approved escalated command.
-- Ephemeral Playwright `TC-AUTH-053` passed on a fresh environment after readiness completed in 4s.
+- Full CLI/root tests and app build require unsandboxed local listener/process behavior in this environment.
+- The same gates passed outside sandbox with approved escalated commands.
+- `i18n:check-usage` exits 0 with an existing advisory unused-key report.
 
 ## Worktree
 

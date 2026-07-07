@@ -20,8 +20,8 @@
 | 3 | 3.3 | Fix explicit comparator validation fallout | done | 85c515b97 |
 | 3 | 3.4 | Stabilize CLI build cache test fingerprint change | done | 5c88a0e5f |
 | 4 | 4.1 | Run checkpoint validation | done | 831c25a70 |
-| 4 | 4.2 | Stabilize DataTable refresh test isolation | done | pending |
-| 5 | 5.1 | Final gate, self-review, PR handoff | todo | — |
+| 4 | 4.2 | Stabilize DataTable refresh test isolation | done | 7c3911651 |
+| 5 | 5.1 | Final gate, self-review, PR handoff | done | pending |
 
 ## Goal
 

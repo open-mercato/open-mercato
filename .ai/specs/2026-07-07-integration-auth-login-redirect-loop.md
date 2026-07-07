@@ -454,3 +454,4 @@ None.
 - Checkpoint validation fixed the repo-wide explicit sort comparator guard by adding comparators to auth and CLI diagnostic cookie-name ordering.
 - Checkpoint validation stabilized the CLI build-cache test so source-fingerprint invalidation changes file size as well as content, avoiding same-millisecond mtime flakes.
 - Final-gate validation stabilized an existing DataTable test by flushing a pending `requestAnimationFrame` router refresh before asserting the bulk-progress refresh path.
+- Final gate passed with package builds, generation, i18n checks, typecheck, root unit tests, app build, and focused ephemeral `TC-AUTH-053` integration; sandbox-only EPERM failures were rerun successfully outside sandbox.
