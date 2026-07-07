@@ -63,7 +63,7 @@ The maintainer (Piotr) explicitly decided to supersede D4's committed-artifact c
 
 ### Phase 2: Spec amendment
 
-- [ ] 2.1 Amend spec D4/§5/§7 and add changelog entry
+- [x] 2.1 Amend spec D4/§5/§7 and add changelog entry — ef6862512
 
 ### Phase 3: Validation
 
