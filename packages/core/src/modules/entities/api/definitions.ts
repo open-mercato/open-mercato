@@ -33,6 +33,7 @@ import {
   resolveDefinitionMutationScope,
   selectVisibleDefinitionWinner,
 } from '../lib/definition-scope'
+import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
 
 /**
  * Validate defaultValue against the field kind. Returns an error message string
@@ -620,7 +621,14 @@ export async function DELETE(req: Request) {
     entityIds: [entityId],
   })
   // Changing field definitions may impact forms but not sidebar items; no nav cache touch
-  return NextResponse.json({ ok: true })
+  // Return the post-delete aggregate version so the edit form keeps its optimistic-lock
+  // token in sync after removing a field out-of-band (issue #3152).
+  const version = await resolveEntityDefinitionsVersion(em, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  return NextResponse.json({ ok: true, version })
 }
 
 const definitionsQuerySchema = z
@@ -716,6 +724,7 @@ const deleteDefinitionRequestSchema = z.object({
 
 const deleteDefinitionResponseSchema = z.object({
   ok: z.literal(true),
+  version: z.string().nullable().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {

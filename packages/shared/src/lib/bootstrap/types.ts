@@ -44,6 +44,8 @@ export interface NotificationHandlerBootstrapEntry {
   handlers: import('../../modules/notifications/handler').NotificationHandler[]
 }
 
+export type CommandLoaderBootstrapEntry = import('../commands/registry').CommandLoader
+
 export interface BootstrapData {
   modules: Module[]
   entities: OrmEntity[]
@@ -60,6 +62,7 @@ export interface BootstrapData {
   componentOverrideEntries?: ComponentOverrideBootstrapEntry[]
   guardEntries?: GuardBootstrapEntry[]
   commandInterceptorEntries?: CommandInterceptorBootstrapEntry[]
+  commandLoaderEntries?: CommandLoaderBootstrapEntry[]
   notificationHandlerEntries?: NotificationHandlerBootstrapEntry[]
 }
 

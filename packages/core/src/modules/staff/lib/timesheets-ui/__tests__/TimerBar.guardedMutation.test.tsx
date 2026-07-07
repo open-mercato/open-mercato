@@ -72,6 +72,33 @@ describe('TimerBar guarded mutations', () => {
     )
   })
 
+  it('surfaces the Stop button for a timer started before midnight and looks it up by running state (issue #3717)', async () => {
+    const startedYesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: {
+        items: [{
+          id: 'entry-overnight',
+          time_project_id: 'project-1',
+          notes: 'Overnight task',
+          started_at: startedYesterday,
+          ended_at: null,
+        }],
+      },
+    } as any)
+
+    render(<TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />)
+
+    // The orphaned overnight timer must be controllable: the Stop affordance appears
+    // even though the entry's date is no longer "today".
+    expect(await screen.findByRole('button', { name: 'Stop timer' })).toBeTruthy()
+
+    const lookupUrl = String(mockApiCall.mock.calls[0]?.[0] ?? '')
+    expect(lookupUrl).toContain('running=true')
+    expect(lookupUrl).not.toContain('from=')
+    expect(lookupUrl).not.toContain('to=')
+  })
+
   it('routes timer stop through guarded mutation context', async () => {
     mockApiCall.mockResolvedValue({
       ok: true,

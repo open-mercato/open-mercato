@@ -7690,6 +7690,8 @@ __metadata:
     "@types/chance": "npm:^1.1.8"
     "@types/html-to-text": "npm:^9.0.4"
     "@types/jest": "npm:^30.0.0"
+    "@types/leaflet": "npm:^1.9.12"
+    "@types/leaflet.markercluster": "npm:^1.5.5"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
     "@types/sanitize-html": "npm:^2.13.0"
@@ -7702,6 +7704,8 @@ __metadata:
     html-to-text: "npm:^10.0.0"
     jest: "npm:^30.4.2"
     jest-environment-jsdom: "npm:^30.4.1"
+    leaflet: "npm:^1.9.4"
+    leaflet.markercluster: "npm:^1.5.3"
     mammoth: "npm:^1.9.0"
     pdfjs-dist: "npm:^6.0.227"
     react: "npm:19.2.7"
@@ -11940,6 +11944,24 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@types/leaflet.markercluster@npm:^1.5.5":
+  version: 1.5.6
+  resolution: "@types/leaflet.markercluster@npm:1.5.6"
+  dependencies:
+    "@types/leaflet": "npm:^1.9"
+  checksum: 10/6ddc628fa6d8a3735f154418115b8b0225fefc74d1d472d0aa987a945a92ed6e0dcc0bcaad5a65d104f38e7445cddbf91d75de97b970b6d173e43afa373d8761
+  languageName: node
+  linkType: hard
+
+"@types/leaflet@npm:^1.9, @types/leaflet@npm:^1.9.12":
+  version: 1.9.21
+  resolution: "@types/leaflet@npm:1.9.21"
+  dependencies:
+    "@types/geojson": "npm:*"
+  checksum: 10/a02eff00db3cbc374c67fa7c0df6c564918482fa00407146bfea19f92600a4009f39af7bb9e3face39845979c133bb67b5bd972472720beef1f285596f47a6d1
+  languageName: node
+  linkType: hard
+
 "@types/luxon@npm:~3.4.0":
   version: 3.4.2
   resolution: "@types/luxon@npm:3.4.2"
@@ -15155,10 +15177,13 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "create-mercato-app@workspace:packages/create-app"
   dependencies:
+    "@open-mercato/cli": "workspace:*"
+    "@open-mercato/shared": "workspace:*"
     "@types/node": "npm:^26.0.0"
     esbuild: "npm:^0.28.1"
     picocolors: "npm:^1.1.0"
     tar: "npm:^7.5.16"
+    ts-morph: "npm:^28.0.0"
     tsx: "npm:^4.22.4"
     typescript: "npm:^6.0.3"
   bin:
@@ -21432,6 +21457,22 @@ __metadata:
   version: 0.7.0
   resolution: "leac@npm:0.7.0"
   checksum: 10/33bcfae037d626c3bbb3fafd1f0571e525f795fc03ad9383c532fa95fe9c188e79189940e530ea7c73bba573834fc41688654721592edec5c193b93c28f386e6
+  languageName: node
+  linkType: hard
+
+"leaflet.markercluster@npm:^1.5.3":
+  version: 1.5.3
+  resolution: "leaflet.markercluster@npm:1.5.3"
+  peerDependencies:
+    leaflet: ^1.3.1
+  checksum: 10/28dc441de7012b19628144407bde89576f758dbea31ecb86e3412d1fb3a46723fb47d2ba45d9b858c2e65592479a127474fb1cbf7ff33b3023c4d14f851e5fe4
+  languageName: node
+  linkType: hard
+
+"leaflet@npm:^1.9.4":
+  version: 1.9.4
+  resolution: "leaflet@npm:1.9.4"
+  checksum: 10/7b6a74d503980961a85bdabebf9d1162c26db0e88195800ceea311682b653d621718f2ada3c9aab903a735af9862c9ae278ba550d4429acbd954d43449cd0d77
   languageName: node
   linkType: hard
 

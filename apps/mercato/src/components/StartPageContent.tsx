@@ -92,8 +92,15 @@ export function StartPageContent({ showStartPage: initialShowStartPage, showOnbo
 
   const handleCheckboxChange = (checked: boolean) => {
     setShowStartPage(checked)
-    // Set cookie to remember preference
-    document.cookie = `show_start_page=${checked}; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+    if (checked) {
+      // Re-enable: clear the dismissal so `/` routes back here.
+      document.cookie = 'start_page_dismissed=; path=/; max-age=0; SameSite=Lax'
+    } else {
+      // Dismiss and leave now — `/` routes to the backend (authenticated) or
+      // login from here on. The `/` router reads this cookie server-side.
+      document.cookie = `start_page_dismissed=1; path=/; max-age=${365 * 24 * 60 * 60}; SameSite=Lax`
+      window.location.assign('/')
+    }
   }
 
   return (
