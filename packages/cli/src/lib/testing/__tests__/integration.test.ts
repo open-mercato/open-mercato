@@ -30,6 +30,11 @@ const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJEC
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
 
+const makeSetCookieHeaders = (cookies: string[]): Headers => ({
+  get: (name: string) => (name.toLowerCase() === 'set-cookie' ? cookies.join(', ') : null),
+  getSetCookie: () => cookies,
+}) as unknown as Headers
+
 const mockHealthyReadinessFetch = (
   overrides: {
     loginPageResponse?: { status: number; text?: string }
@@ -42,6 +47,10 @@ const mockHealthyReadinessFetch = (
       return {
         status: 200,
         ok: true,
+        headers: makeSetCookieHeaders([
+          'auth_token=test-auth-token; Path=/; HttpOnly; SameSite=Lax',
+          'session_token=test-session-token; Path=/; HttpOnly; SameSite=Lax',
+        ]),
         text: async () => JSON.stringify({ token: 'test-admin-token' }),
       } as unknown as Response
     }
@@ -64,6 +73,9 @@ const mockHealthyReadinessFetch = (
       ok: true,
       text: async () => '<!doctype html><script src="/_next/static/chunks/app-healthcheck.js"></script>',
     } as unknown as Response
+  }
+  if (url.endsWith('/backend')) {
+    return { status: 200, ok: true, text: async () => '' } as unknown as Response
   }
   if (url.includes('/_next/static/chunks/app-healthcheck.js')) {
     return { status: 200, ok: true, text: async () => '' } as unknown as Response
@@ -587,6 +599,204 @@ describe('waitForApplicationReadiness', () => {
   const makeFakeProcess = (): ChildProcess => new EventEmitter() as unknown as ChildProcess
   const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))
 
+  it('verifies backend browser navigation with cookies returned by login', async () => {
+    let backendCookieHeader: string | null = null
+
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        backendCookieHeader = typeof init?.headers === 'object'
+          && init.headers !== null
+          && !Array.isArray(init.headers)
+          ? String((init.headers as Record<string, unknown>).Cookie ?? '')
+          : ''
+        return { status: backendCookieHeader ? 200 : 307, ok: Boolean(backendCookieHeader), text: async () => '' } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+        timeoutMs: 1_000,
+        intervalMs: 5,
+        stabilizationMs: 10,
+      })
+      expect(backendCookieHeader).toContain('auth_token=secret-auth-value')
+      expect(backendCookieHeader).toContain('session_token=secret-session-value')
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('reports backend auth redirect loops without leaking cookie values', async () => {
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '/api/auth/session/refresh' : null),
+            getSetCookie: () => [],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/session/refresh')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '/backend' : null),
+            getSetCookie: () => ['auth_token=rotated-secret-value; Path=/; HttpOnly; SameSite=Lax'],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      let error: Error | null = null
+      try {
+        await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+          timeoutMs: 50,
+          intervalMs: 5,
+          stabilizationMs: 10,
+        })
+      } catch (caught) {
+        error = caught instanceof Error ? caught : new Error(String(caught))
+      }
+
+      expect(error).not.toBeNull()
+      expect(error?.message).toMatch(/Backend browser auth probe detected redirect loop/)
+      expect(error?.message).not.toMatch(/secret-(auth|session)|rotated-secret/)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('rejects unsafe backend auth redirects without following them', async () => {
+    let externalRedirectFetches = 0
+    const fetchSpy = jest.spyOn(global, 'fetch').mockImplementation(async (input, init) => {
+      const url = typeof input === 'string' ? input : String(input)
+      const body = typeof init?.body === 'string' ? init.body : ''
+
+      if (url.includes('evil.example')) {
+        externalRedirectFetches += 1
+        return { status: 200, ok: true, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/api/auth/login')) {
+        if (body.includes('email=admin%40acme.com')) {
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=secret-auth-value; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=secret-session-value; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
+        }
+        return { status: 401, ok: false, text: async () => '' } as unknown as Response
+      }
+      if (url.endsWith('/login')) {
+        return {
+          status: 200,
+          ok: true,
+          text: async () => '<!doctype html><script src="/_next/static/chunks/app.js"></script>',
+        } as unknown as Response
+      }
+      if (url.includes('/api/customers/people')) {
+        return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+      }
+      if (url.endsWith('/backend')) {
+        return {
+          status: 307,
+          ok: false,
+          headers: {
+            get: (name: string) => (name.toLowerCase() === 'location' ? '//evil.example/session' : null),
+            getSetCookie: () => [],
+          },
+          text: async () => '',
+        } as unknown as Response
+      }
+      return { status: 200, ok: true, text: async () => '' } as unknown as Response
+    })
+
+    try {
+      let error: Error | null = null
+      try {
+        await waitForApplicationReadiness('http://127.0.0.1:5001', makeFakeProcess(), {
+          timeoutMs: 50,
+          intervalMs: 5,
+          stabilizationMs: 10,
+        })
+      } catch (caught) {
+        error = caught instanceof Error ? caught : new Error(String(caught))
+      }
+
+      expect(error).not.toBeNull()
+      expect(error?.message).toMatch(/unsafe redirect: protocol-relative redirect/)
+      expect(error?.message).not.toMatch(/secret-(auth|session)/)
+      expect(externalRedirectFetches).toBe(0)
+    } finally {
+      fetchSpy.mockRestore()
+    }
+  })
+
   it('serializes probe cycles so slow probes never pile up concurrent login attempts', async () => {
     let inFlight = 0
     let maxInFlight = 0
@@ -598,7 +808,7 @@ describe('waitForApplicationReadiness', () => {
       maxInFlight = Math.max(maxInFlight, inFlight)
       try {
         // Each probe fetch is slower than the retry interval; the old race-against-a-tick loop
-        // would launch overlapping cycles here and blow past 3 concurrent in-flight requests.
+        // would launch overlapping cycles here and blow past one cycle's concurrent requests.
         await sleep(40)
         const isLoginPage = url.endsWith('/login') && !url.endsWith('/api/auth/login')
         if (isLoginPage) {
@@ -613,10 +823,21 @@ describe('waitForApplicationReadiness', () => {
           } as unknown as Response
         }
         if (url.endsWith('/api/auth/login')) {
-          return { status: 200, ok: true, text: async () => JSON.stringify({ token: 'token' }) } as unknown as Response
+          return {
+            status: 200,
+            ok: true,
+            headers: makeSetCookieHeaders([
+              'auth_token=test-auth-token; Path=/; HttpOnly; SameSite=Lax',
+              'session_token=test-session-token; Path=/; HttpOnly; SameSite=Lax',
+            ]),
+            text: async () => JSON.stringify({ token: 'token' }),
+          } as unknown as Response
         }
         if (url.includes('/api/customers/people')) {
           return { status: 200, ok: true, text: async () => JSON.stringify({ items: [] }) } as unknown as Response
+        }
+        if (url.endsWith('/backend')) {
+          return { status: 200, ok: true, text: async () => '' } as unknown as Response
         }
         return { status: 200, ok: true, text: async () => '' } as unknown as Response
       } finally {
@@ -630,9 +851,10 @@ describe('waitForApplicationReadiness', () => {
         intervalMs: 5,
         stabilizationMs: 10,
       })
-      // One cycle issues exactly three parallel probe fetches (login page, backend login,
-      // authenticated login). Serialized cycles keep the peak at three; overlap would exceed it.
-      expect(maxInFlight).toBeLessThanOrEqual(3)
+      // One cycle issues exactly four parallel probe fetches (login page, backend login,
+      // authenticated API, and backend browser-cookie navigation). Serialized cycles keep the
+      // peak at four; overlap would exceed it.
+      expect(maxInFlight).toBeLessThanOrEqual(4)
       expect(loginPageCycles).toBeGreaterThanOrEqual(3)
     } finally {
       fetchSpy.mockRestore()
