@@ -60,8 +60,8 @@ The default `yarn install-skills` ships only the **core** tier. Every other tier
 
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
-| `core` | yes | 13 | Daily-driver skills installed by default. |
-| `automation` | opt-in | 11 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `core` | yes | 15 | Daily-driver skills installed by default. |
+| `automation` | opt-in | 17 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
@@ -81,7 +81,7 @@ yarn install-skills                              # core only (default)
 yarn install-skills --with automation            # core + automation
 yarn install-skills --with automation,security   # multiple tiers
 yarn install-skills --tiers core,security        # explicit set (replaces default)
-yarn install-skills --all                        # every tier (29 skills)
+yarn install-skills --all                        # every tier (36 skills)
 yarn install-skills --list                       # show tiers + memberships
 yarn install-skills --clean                      # remove all skill symlinks
 ```
@@ -163,6 +163,8 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-skill-creator` | Guide for creating effective skills. This skill should be used when users want to create a new skill (or update an existing skill) that extends Claude's capabilities with specialized knowledge, workflows, or tool integrations. |
 | `om-fix-specs` | Normalize spec filenames in .ai/specs and .ai/specs/enterprise to the date+slug convention. Use this when legacy `SPEC-*` / `SPEC-ENT-*` names need to be cleaned up, when filename collisions appear after dropping numeric prefixes, or when links must be updated after normalization. |
 | `om-migrate-mikro-orm` | Migrate custom module code from MikroORM v6 to v7. Fixes v7 type errors (FilterQuery, RequiredEntityData), replaces Knex raw queries with Kysely, migrates persistAndFlush/removeAndFlush, updates decorator imports. Triggers on "mikro-orm v7", "persistAndFlush deprecated", "knex to kysely". |
+| `om-create-ai-agent` | Scaffold AI agents (`ai-agents.ts`) and MCP tools (`ai-tools.ts`) for Open Mercato modules. Use when adding a new AI agent definition, configuring tool allowlists, mutation policies, or model selection. Triggers on "add ai agent", "create ai tool", "ai-agents.ts", "ai-tools.ts". |
+| `om-help` | Open Mercato workflow navigator. Use when asking "what should I do now?", "which skill?", "next steps?", "where do I start?", or "how do I add/build X in Open Mercato?". Covers navigation (recommends the next skill based on git/spec/PR state) and knowledge (answers how-to questions grounded in AGENTS.md). |
 
 ### automation
 
@@ -172,14 +174,18 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-auto-continue-pr` | Resume an in-progress PR started by `om-auto-create-pr`. Claims the PR, checks the branch into an isolated worktree, reads the linked plan's Progress checklist, continues from the first unchecked step. Usage - /auto-continue-pr <PR-number> |
 | `om-auto-create-pr-loop` | Advanced `om-auto-create-pr` workflow for long, multi-step spec implementations that need resumability and strict step tracking. Creates a run folder under `.ai/runs/<date>-<slug>/` with `PLAN.md`, `HANDOFF.md`, and `NOTIFY.md`, executes one lean commit per task-table step, batches verification into `checkpoint-<N>-checks.md` every 5 steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and opens a PR with the correct labels. Use the original `om-auto-create-pr` for small fixes. |
 | `om-auto-continue-pr-loop` | Advanced `om-auto-continue-pr` workflow for PRs started by `om-auto-create-pr-loop`. Claims the PR, re-enters an isolated worktree, resumes from the first non-done row in `.ai/runs/<date>-<slug>/PLAN.md`, executes lean per-step commits, batches verification into `checkpoint-<N>-checks.md` every 5 resumed steps (with focused integration tests + screenshots when UI was touched), runs the full validation gate plus full/standalone integration suites and ds-guardian at spec completion, and preserves the run-folder and label contract. Use the original `om-auto-continue-pr` for simple `om-auto-create-pr` runs. |
-| `om-auto-review-pr` | Review or re-review a GitHub PR by number in an isolated worktree. Runs the `om-code-review` skill, submits approve/request-changes, manages labels. Optional autofix iterates conflict resolution/fixes/tests/typecheck/re-review until merge-ready. Usage - /auto-review-pr <PR-number> |
+| `om-auto-review-pr` | Review or re-review a GitHub PR by number in an isolated worktree. Runs the `om-code-review` analysis, prefers GitHub PR checks and falls back to local validation only when check data is unavailable, submits approve/request-changes, and manages labels. Optional autofix iterates conflict resolution/fixes/CI-or-local analysis/re-review until merge-ready. Usage - /auto-review-pr <PR-number> |
 | `om-auto-fix-github` | Fix a GitHub issue by number. Checks whether it's already solved or has an open solution, then in an isolated worktree implements the minimal fix, adds tests, runs code-review/BC/typecheck/i18n, pushes a branch, opens a PR linked to the issue. |
+| `om-auto-verify-and-fix-github` | Browser-first GitHub issue fix workflow. Claims a GitHub issue, checks for existing solutions, creates an isolated worktree, reproduces the bug through the Browser against the ephemeral integration environment, records a failing Playwright integration test, fixes the bug, makes the test green, runs validation/review gates, pushes a branch, and opens a PR linked to the issue. |
 | `om-prepare-issue` | Capture a feature to build later without building it now. Researches and writes a spec via `om-spec-writing`, ships it as a docs-only spec PR against `develop` (`documentation`, `skip-qa`), then opens a tracking GitHub issue linking the spec path and spec PR for later pickup via `om-implement-spec` / `om-auto-fix-github`. |
 | `om-review-prs` | Review all currently unreviewed open pull requests, newest first, using the auto-review-pr skill and respecting in-progress locks. |
 | `om-merge-buddy` | Scan open GitHub pull requests, classify merge readiness from labels, reviews, CI, and mergeability, then report which PRs can merge now and which ones are close but blocked. |
+| `om-approve-merge-pr` | Approve (submit an approving review) and squash-merge a GitHub PR given only its number. Optionally file a follow-up issue at the same time. Use when the user says "approve and merge PR 123", "ship PR 123", "om-approve-merge 123", or gives a PR number with intent to merge. |
+| `om-followup-issue-from-pr` | Turn a review comment into a follow-up GitHub issue assigned to the PR author. Paste a link to a PR or a PR comment; the skill extracts the actionable ask, gathers PR context, and opens a tracking issue. Assignee is the comment's @-mention if present, otherwise the PR author. Use during code review when the user says "make a follow-up issue", "create an issue for this", or pastes a PR/comment link with that intent. |
 | `om-sync-merged-pr-issues` | Reconcile recently merged (and recently closed-but-not-merged) PRs with the GitHub issue tracker — auto-close issues they authoritatively fix via `fixes`/`closes`/`resolves` keywords or `closingIssuesReferences`, and post informational comments on issues whose PRs were closed without merging. Use for post-merge housekeeping and release prep. Respects claim locks. |
 | `om-auto-update-changelog` | Draft a CHANGELOG.md release entry in the house emoji-driven format for every PR merged since the last release, then delegate to `om-auto-create-pr` so it lands as a docs PR against `develop`. Honors the Supersede Credit Rule for carried-forward fork PRs. Use at release time. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-auto-verify-pr-ui` | Manually QA a GitHub PR's UI by number without merging it. Checks the PR out in an isolated worktree, boots it locally against the ephemeral integration environment, derives a UI QA scenario from the diff, drives it with Playwright while capturing screenshots, and posts the screenshots plus a pass/fail verification report as a PR comment to help QA reviewers. When the PR diff defines no integration test, also posts a follow-up comment with a ready-to-implement integration-test scenario (recommending /om-integration-tests). Use when the user says "verify PR <n> in the UI", "QA PR <n>", "run the UI for PR <n>", "screenshot PR <n>", or "self-QA PR <n>". |
 
 ### security
 

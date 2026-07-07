@@ -1,6 +1,7 @@
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandHandler, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/core'
@@ -82,12 +83,13 @@ function toDate(value: Date | string | null | undefined): Date | null {
 }
 
 /**
- * Re-create a ScheduledJob entity from a snapshot, preserving its original id.
- * Used by delete-undo when the row was hard-removed rather than soft-deleted.
+ * Build a full create seed (including the original id and Date-coerced timestamps)
+ * from a snapshot. Shared by `materializeScheduleFromSnapshot` (delete-undo) and the
+ * create command's id-preserving `redo`.
  */
-function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSnapshot): ScheduledJob {
+function scheduleSeedFromSnapshot(snapshot: ScheduleSnapshot): Record<string, unknown> {
   const now = new Date()
-  return em.create(ScheduledJob, {
+  return {
     id: snapshot.id,
     name: snapshot.name,
     description: snapshot.description,
@@ -110,7 +112,15 @@ function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSn
     deletedAt: null,
     createdAt: now,
     updatedAt: now,
-  })
+  }
+}
+
+/**
+ * Re-create a ScheduledJob entity from a snapshot, preserving its original id.
+ * Used by delete-undo when the row was hard-removed rather than soft-deleted.
+ */
+function materializeScheduleFromSnapshot(em: EntityManager, snapshot: ScheduleSnapshot): ScheduledJob {
+  return em.create(ScheduledJob, scheduleSeedFromSnapshot(snapshot) as never)
 }
 
 /**
@@ -251,6 +261,16 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       await syncBullMQAfterUndo(ctx, schedule)
     }
   },
+
+  redo: makeCreateRedo<ScheduledJob, ScheduleSnapshot, ScheduleCreateInput, { id: string }>({
+    entityClass: ScheduledJob,
+    getSnapshotId: (snapshot) => snapshot.id,
+    seedFromSnapshot: scheduleSeedFromSnapshot,
+    buildResult: (entity) => ({ id: entity.id }),
+    afterRestore: async ({ ctx, entity }) => {
+      await syncBullMQAfterUndo(ctx, entity)
+    },
+  }),
 }
 
 /**

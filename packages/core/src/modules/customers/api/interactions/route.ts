@@ -9,6 +9,9 @@ import { normalizeCustomFieldResponse } from '@open-mercato/shared/lib/custom-fi
 import { applyResponseEnrichers } from '@open-mercato/shared/lib/crud/enricher-runner'
 import type { EnricherContext } from '@open-mercato/shared/lib/crud/response-enricher'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
+import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows } from '@open-mercato/shared/lib/query/encrypted-sort'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -23,6 +26,7 @@ import {
 } from '../openapi'
 import { CUSTOMER_INTERACTION_ENTITY_ID } from '../../lib/interactionCompatibility'
 import { applyEmailVisibilityFilter } from '../../lib/visibilityFilter'
+import { resolveEncryptedSortPage } from './encryptedSortPage'
 import { resolveCanonicalActivityTargetId } from '../../lib/legacyActivityBridge'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 
@@ -39,7 +43,7 @@ const interactionSortFieldSchema = z.enum([
   'title',
 ])
 
-const listSchema = z
+export const listSchema = z
   .object({
     limit: z.coerce.number().min(1).max(100).default(25),
     cursor: z.string().optional(),
@@ -50,8 +54,8 @@ const listSchema = z
     type: z.string().optional(),
     excludeInteractionType: z.string().optional(),
     search: z.string().trim().min(1).optional(),
-    from: z.string().optional(),
-    to: z.string().optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
     pinned: z.enum(['true', 'false']).optional(),
     sortField: interactionSortFieldSchema.optional(),
     sortDir: z.enum(['asc', 'desc']).optional(),
@@ -283,6 +287,85 @@ function buildSortSql(
   return `coalesce(${config.column}, ${sentinel})`
 }
 
+const INTERACTION_LIST_COLUMNS = [
+  'id',
+  'entity_id',
+  'deal_id',
+  'interaction_type',
+  'title',
+  'body',
+  'status',
+  'scheduled_at',
+  'occurred_at',
+  'priority',
+  'author_user_id',
+  'owner_user_id',
+  'appearance_icon',
+  'appearance_color',
+  'source',
+  'duration_minutes',
+  'location',
+  'all_day',
+  'recurrence_rule',
+  'recurrence_end',
+  'participants',
+  'reminder_minutes',
+  'visibility',
+  'linked_entities',
+  'guest_permissions',
+  'pinned',
+  'organization_id',
+  'tenant_id',
+  'created_at',
+  'updated_at',
+] as const
+
+// Shared by both the SQL keyset path and the encrypted-sort candidate scan
+// so the two paths never drift on which rows are in scope.
+function applyInteractionListFilters(
+  baseQuery: any,
+  params: {
+    tenantId: string
+    organizationIds: string[]
+    query: z.infer<typeof listSchema>
+  },
+): any {
+  let q = baseQuery.where('deleted_at', 'is', null).where('tenant_id', '=', params.tenantId)
+  if (params.organizationIds.length > 0) q = q.where('organization_id', 'in', params.organizationIds)
+  const { query } = params
+  if (query.entityId) q = q.where('entity_id', '=', query.entityId)
+  if (query.dealId) q = q.where('deal_id', '=', query.dealId)
+  if (query.status) q = q.where('status', '=', query.status)
+  if (query.interactionType) q = q.where('interaction_type', '=', query.interactionType)
+  if (query.type) {
+    const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
+    if (types.length > 0) q = q.where('interaction_type', 'in', types)
+  }
+  if (query.pinned === 'true') {
+    q = q.where('pinned', '=', true)
+  } else if (query.pinned === 'false') {
+    q = q.where('pinned', '=', false)
+  }
+  if (query.excludeInteractionType) q = q.where('interaction_type', '!=', query.excludeInteractionType)
+  if (query.search) {
+    // NOTE: for tenants with data encryption enabled, `title`/`body` are
+    // ciphertext at rest (see encryption.ts), so this ILIKE matches encrypted
+    // bytes and returns no rows — substring search over encrypted free-text
+    // columns is unsupported, the same documented limitation as
+    // customer_activity / customer_comment. The returned page's title/body are
+    // still decrypted for display further below.
+    const searchTerm = `%${escapeLikePattern(query.search)}%`
+    q = q.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
+  }
+  if (query.from) {
+    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${query.from}`)
+  }
+  if (query.to) {
+    q = q.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${query.to}`)
+  }
+  return q
+}
+
 async function resolveUserFeatures(
   container: { resolve: (name: string) => unknown },
   userId: string,
@@ -365,94 +448,6 @@ export async function GET(req: Request) {
       })
     }
 
-    let rowsQuery = db
-      .selectFrom('customer_interactions')
-      .select([
-        'id',
-        'entity_id',
-        'deal_id',
-        'interaction_type',
-        'title',
-        'body',
-        'status',
-        'scheduled_at',
-        'occurred_at',
-        'priority',
-        'author_user_id',
-        'owner_user_id',
-        'appearance_icon',
-        'appearance_color',
-        'source',
-        'duration_minutes',
-        'location',
-        'all_day',
-        'recurrence_rule',
-        'recurrence_end',
-        'participants',
-        'reminder_minutes',
-        'visibility',
-        'linked_entities',
-        'guest_permissions',
-        'pinned',
-        'organization_id',
-        'tenant_id',
-        'created_at',
-        'updated_at',
-        sql`${sql.raw(sortSql)}`.as('__sort_value'),
-      ])
-      .where('deleted_at', 'is', null)
-      .where('tenant_id', '=', auth.tenantId)
-      .limit(query.limit + 1)
-
-    if (organizationIds.length > 0) {
-      rowsQuery = rowsQuery.where('organization_id', 'in', organizationIds)
-    }
-    if (query.entityId) rowsQuery = rowsQuery.where('entity_id', '=', query.entityId)
-    if (query.dealId) rowsQuery = rowsQuery.where('deal_id', '=', query.dealId)
-    if (query.status) rowsQuery = rowsQuery.where('status', '=', query.status)
-    if (query.interactionType) rowsQuery = rowsQuery.where('interaction_type', '=', query.interactionType)
-    if (query.type) {
-      const types = query.type.split(',').map((t) => t.trim()).filter(Boolean)
-      if (types.length > 0) {
-        rowsQuery = rowsQuery.where('interaction_type', 'in', types)
-      }
-    }
-    if (query.pinned === 'true') {
-      rowsQuery = rowsQuery.where('pinned', '=', true)
-    } else if (query.pinned === 'false') {
-      rowsQuery = rowsQuery.where('pinned', '=', false)
-    }
-    if (query.excludeInteractionType) rowsQuery = rowsQuery.where('interaction_type', '!=', query.excludeInteractionType)
-    if (query.search) {
-      // NOTE: for tenants with data encryption enabled, `title`/`body` are
-      // ciphertext at rest (see encryption.ts), so this ILIKE matches encrypted
-      // bytes and returns no rows — substring search over encrypted free-text
-      // columns is unsupported, the same documented limitation as
-      // customer_activity / customer_comment. The returned page's title/body are
-      // still decrypted for display further below.
-      const searchTerm = `%${query.search}%`
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(title, '') ilike ${searchTerm} or coalesce(body, '') ilike ${searchTerm}`)
-    }
-    if (query.from) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) >= ${new Date(query.from)}`)
-    }
-    if (query.to) {
-      rowsQuery = rowsQuery.where(sql<boolean>`coalesce(occurred_at, scheduled_at, created_at) <= ${new Date(query.to)}`)
-    }
-
-    if (cursor) {
-      const op = sortDir === 'asc' ? '>' : '<'
-      const opRaw = sql.raw(op)
-      const sortRaw = sql.raw(sortSql)
-      rowsQuery = rowsQuery.where((eb: any) => eb.or([
-        sql<boolean>`${sortRaw} ${opRaw} ${cursor.sortValue}`,
-        eb.and([
-          sql<boolean>`${sortRaw} = ${cursor.sortValue}`,
-          eb('id', op, cursor.id),
-        ]),
-      ]))
-    }
-
     // ── Email visibility filter (2026-05-27) ──────────────────────────────
     // Non-email interactions pass through; email rows with visibility='private'
     // are filtered out unless the caller is the author or has admin bypass.
@@ -460,19 +455,121 @@ export async function GET(req: Request) {
     // viewer to null so they never gain the author bypass and only see shared
     // emails (fail-closed). Mirrors counts/people/activities routes.
     const viewerUserId = auth.isApiKey ? null : (auth.sub ?? null)
-    const callerUserFeatures = viewerUserId
-      ? await resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
-      : undefined
-    rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
-      currentUserId: viewerUserId,
-      userFeatures: callerUserFeatures,
-    })
+    const encryptionService = resolveTenantEncryptionService(em)
+    // Encrypted sort columns can't use SQL keyset ordering on ciphertext, so an
+    // encrypted sort field takes a bounded candidate-scan + in-memory-sort path
+    // instead of the SQL path below. Resolved alongside the independent
+    // visibility-feature lookup rather than after it.
+    const [callerUserFeatures, encryptedSortFields] = await Promise.all([
+      viewerUserId
+        ? resolveUserFeatures(container, viewerUserId, auth.tenantId ?? null, selectedOrganizationId)
+        : Promise.resolve(undefined),
+      resolveEncryptedSortFields(
+        encryptionService,
+        CUSTOMER_INTERACTION_ENTITY_ID,
+        [sortConfig.column],
+        auth.tenantId,
+        selectedOrganizationId,
+      ),
+    ])
+    const sortFieldIsEncrypted = encryptedSortFields.has(sortConfig.column)
 
-    rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
+    let pageRows: InteractionListRow[]
+    let hasMore: boolean
 
-    const rows = await rowsQuery.execute() as InteractionListRow[]
-    const pageRows = rows.slice(0, query.limit)
-    const hasMore = rows.length > query.limit
+    if (sortFieldIsEncrypted) {
+      let candidateQuery = applyInteractionListFilters(
+        db.selectFrom('customer_interactions').select(['id', sortConfig.column]),
+        { tenantId: auth.tenantId, organizationIds, query },
+      )
+      candidateQuery = applyEmailVisibilityFilter(candidateQuery as any, {
+        currentUserId: viewerUserId,
+        userFeatures: callerUserFeatures,
+      })
+      const cap = resolveEncryptedSortMaxRows()
+      if (cap !== null) {
+        candidateQuery = candidateQuery.limit(cap).orderBy('id', 'asc')
+      }
+      const candidateRows = await candidateQuery.execute() as Array<{ id: string } & Record<string, unknown>>
+      if (cap !== null && candidateRows.length >= cap) {
+        console.warn('[customers/interactions.GET] encrypted sort candidate scan hit OM_ENCRYPTED_SORT_MAX_ROWS cap; results may be incomplete', {
+          cap,
+          sortField: sortConfig.column,
+          tenantId: auth.tenantId,
+        })
+      }
+
+      const decryptPayload = encryptionService?.decryptEntityPayload?.bind(encryptionService)
+      const { pageIds, hasMore: encryptedHasMore } = await resolveEncryptedSortPage({
+        candidates: candidateRows,
+        decryptRow: async (row) => {
+          if (!decryptPayload) return row
+          try {
+            const decrypted = await decryptPayload(CUSTOMER_INTERACTION_ENTITY_ID, row, auth.tenantId, selectedOrganizationId)
+            return { ...row, ...decrypted }
+          } catch (err) {
+            console.error('[customers/interactions.GET] error decrypting sort candidate', err)
+            return row
+          }
+        },
+        sortField: sortConfig.column,
+        sortDir,
+        cursorId: cursor?.id ?? null,
+        limit: query.limit,
+      })
+      hasMore = encryptedHasMore
+
+      if (pageIds.length === 0) {
+        pageRows = []
+      } else {
+        let pageQuery = applyInteractionListFilters(
+          db.selectFrom('customer_interactions').select([...INTERACTION_LIST_COLUMNS, sql`${sql.raw(sortSql)}`.as('__sort_value')]),
+          { tenantId: auth.tenantId, organizationIds, query },
+        )
+        pageQuery = applyEmailVisibilityFilter(pageQuery as any, {
+          currentUserId: viewerUserId,
+          userFeatures: callerUserFeatures,
+        })
+        pageQuery = pageQuery.where('id', 'in', pageIds)
+        const rawPageRows = await pageQuery.execute() as InteractionListRow[]
+        const byId = new Map(rawPageRows.map((row) => [row.id, row]))
+        pageRows = pageIds
+          .map((id) => byId.get(id))
+          .filter((row): row is InteractionListRow => row != null)
+      }
+    } else {
+      let rowsQuery = applyInteractionListFilters(
+        db
+          .selectFrom('customer_interactions')
+          .select([...INTERACTION_LIST_COLUMNS, sql`${sql.raw(sortSql)}`.as('__sort_value')])
+          .limit(query.limit + 1),
+        { tenantId: auth.tenantId, organizationIds, query },
+      )
+
+      if (cursor) {
+        const op = sortDir === 'asc' ? '>' : '<'
+        const opRaw = sql.raw(op)
+        const sortRaw = sql.raw(sortSql)
+        rowsQuery = rowsQuery.where((eb: any) => eb.or([
+          sql<boolean>`${sortRaw} ${opRaw} ${cursor.sortValue}`,
+          eb.and([
+            sql<boolean>`${sortRaw} = ${cursor.sortValue}`,
+            eb('id', op, cursor.id),
+          ]),
+        ]))
+      }
+
+      rowsQuery = applyEmailVisibilityFilter(rowsQuery as any, {
+        currentUserId: viewerUserId,
+        userFeatures: callerUserFeatures,
+      })
+
+      rowsQuery = rowsQuery.orderBy(sql`${sql.raw(sortSql)} ${sql.raw(sortDir)}`).orderBy('id', sortDir)
+
+      const rows = await rowsQuery.execute() as InteractionListRow[]
+      pageRows = rows.slice(0, query.limit)
+      hasMore = rows.length > query.limit
+    }
 
     const authorIds = Array.from(
       new Set(

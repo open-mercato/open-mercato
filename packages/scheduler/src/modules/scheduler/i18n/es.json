@@ -132,6 +132,7 @@
   "scheduler.loading": "Cargando programación...",
   "scheduler.module.description": "Administre tareas programadas automáticas con expresiones cron o intervalos simples.",
   "scheduler.module.title": "Tareas programadas",
+  "scheduler.nav.backToList": "Volver a tareas programadas",
   "scheduler.scope.organization": "Organización",
   "scheduler.scope.system": "Sistema",
   "scheduler.scope.tenant": "Inquilino",

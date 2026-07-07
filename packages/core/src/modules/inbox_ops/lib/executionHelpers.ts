@@ -65,14 +65,15 @@ interface FeatureCheckingRbacService {
   ) => Promise<boolean>
 }
 
+// Super-admin status is the immutable `isSuperAdmin` flag derived from the ACL
+// `is_super_admin` column at session resolution. Never fall back to comparing the
+// auth context's `roles` against a literal like 'superadmin' — role names are
+// tenant-mutable and trivially spoofable, so a role-name fallback would let a tenant
+// admin mint a `superadmin`-named role to bypass every inbox-ops feature gate
+// (#2699). Mirrors the scheduler module's hardened gate.
 function hasSuperAdminAccess(auth: ExecutionHelperContext['auth']): boolean {
   if (!auth || typeof auth !== 'object') return false
-  if ((auth as Record<string, unknown>).isSuperAdmin === true) return true
-  const roles = (auth as Record<string, unknown>).roles
-  if (!Array.isArray(roles)) return false
-  return roles.some(
-    (role) => typeof role === 'string' && role.trim().toLowerCase() === 'superadmin',
-  )
+  return (auth as Record<string, unknown>).isSuperAdmin === true
 }
 
 // ---------------------------------------------------------------------------
@@ -136,7 +137,7 @@ export async function userHasFeature(
   ctx: ExecutionHelperContext,
   feature: string,
 ): Promise<boolean> {
-  if (!feature) return true
+  if (!feature || feature.trim().length === 0) return false
   if (hasSuperAdminAccess(ctx.auth)) return true
 
   try {

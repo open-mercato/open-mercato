@@ -158,7 +158,7 @@ function scopeEntityIndexes<QB extends { where: (...args: any[]) => QB }>(
 
 export async function upsertIndexRow(
   em: EntityManager,
-  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null }
+  args: { entityType: string; recordId: string; organizationId?: string | null; tenantId?: string | null; searchTokenDoc?: Record<string, unknown> | null; deferSearchTokens?: boolean }
 ): Promise<UpsertIndexResult> {
   const db = (em as any).getKysely()
 
@@ -172,14 +172,19 @@ export async function upsertIndexRow(
 
   const doc = await buildIndexDoc(em, args)
   if (!doc) {
-    try {
-      await deleteSearchTokensForRecord(db, {
-        entityType: args.entityType,
-        recordId: args.recordId,
-        organizationId: args.organizationId ?? null,
-        tenantId: args.tenantId ?? null,
-      })
-    } catch {}
+    // When the caller defers token work it owns the matching token cleanup; the
+    // projection-row removal below stays synchronous so list reads converge immediately.
+    if (!args.deferSearchTokens) {
+      try {
+        await reindexSearchTokensForRecord(em, {
+          entityType: args.entityType,
+          recordId: args.recordId,
+          organizationId: args.organizationId ?? null,
+          tenantId: args.tenantId ?? null,
+          doc: null,
+        })
+      } catch {}
+    }
     if (existed) {
       await scopeEntityIndexes(
         db.deleteFrom('entity_indexes' as any) as any,
@@ -233,27 +238,69 @@ export async function upsertIndexRow(
 
   const created = !existed
   const revived = existed && wasDeleted
-  try {
-    const tokenDoc = args.searchTokenDoc ?? (() => {
-      const encryption = resolveTenantEncryptionService(em as any)
-      const dekKeyCache = new Map<string | null, string | null>()
-      return decryptIndexDocForSearch(
-        args.entityType,
+  // The search-token rebuild (DELETE + chunked INSERT) is the heavy tail of indexing.
+  // Callers that defer it (the upsert subscriber) run `reindexSearchTokensForRecord`
+  // asynchronously after this projection update so write latency stays bounded.
+  if (!args.deferSearchTokens) {
+    try {
+      await reindexSearchTokensForRecord(em, {
+        entityType: args.entityType,
+        recordId: args.recordId,
+        organizationId: args.organizationId ?? null,
+        tenantId: args.tenantId ?? null,
         doc,
-        { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
-        encryption,
-        dekKeyCache,
-      )
-    })()
-    await replaceSearchTokensForRecord(db, {
+        searchTokenDoc: args.searchTokenDoc ?? null,
+      })
+    } catch {}
+  }
+  return { doc, existed, wasDeleted, created, revived }
+}
+
+/**
+ * Rebuilds (or clears, when `doc` is null) the search-token rows for a single record.
+ * This is the asynchronous-friendly tail of `upsertIndexRow`: it does not touch the
+ * `entity_indexes` projection that list endpoints read, so it can run out-of-band
+ * without making query-index reads inconsistent.
+ */
+export async function reindexSearchTokensForRecord(
+  em: EntityManager,
+  args: {
+    entityType: string
+    recordId: string
+    organizationId?: string | null
+    tenantId?: string | null
+    doc: Record<string, any> | null
+    searchTokenDoc?: Record<string, unknown> | null
+  },
+): Promise<void> {
+  const db = (em as any).getKysely()
+  if (!args.doc) {
+    await deleteSearchTokensForRecord(db, {
       entityType: args.entityType,
       recordId: args.recordId,
       organizationId: args.organizationId ?? null,
       tenantId: args.tenantId ?? null,
-      doc: await tokenDoc,
     })
-  } catch {}
-  return { doc, existed, wasDeleted, created, revived }
+    return
+  }
+  const tokenDoc = args.searchTokenDoc ?? (() => {
+    const encryption = resolveTenantEncryptionService(em as any)
+    const dekKeyCache = new Map<string | null, string | null>()
+    return decryptIndexDocForSearch(
+      args.entityType,
+      args.doc,
+      { tenantId: args.tenantId ?? null, organizationId: args.organizationId ?? null },
+      encryption,
+      dekKeyCache,
+    )
+  })()
+  await replaceSearchTokensForRecord(db, {
+    entityType: args.entityType,
+    recordId: args.recordId,
+    organizationId: args.organizationId ?? null,
+    tenantId: args.tenantId ?? null,
+    doc: await tokenDoc,
+  })
 }
 
 export async function markDeleted(

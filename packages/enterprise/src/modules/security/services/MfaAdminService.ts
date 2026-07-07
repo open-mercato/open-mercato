@@ -1,9 +1,15 @@
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { MfaRecoveryCode, UserMfaMethod } from '../data/entities'
 import { emitSecurityEvent } from '../events'
 import type { MfaEnforcementService } from './MfaEnforcementService'
+
+export type MfaAdminAuthScope = {
+  tenantId: string | null
+  organizationId?: string | null
+  isSuperAdmin?: boolean
+}
 
 type MfaMethodStatus = {
   type: string
@@ -27,6 +33,11 @@ type BulkComplianceStatus = {
   lastLoginAt?: Date
 }
 
+type ActorContext = {
+  tenantId: string | null
+  isSuperAdmin: boolean
+}
+
 export class MfaAdminServiceError extends Error {
   constructor(
     message: string,
@@ -43,7 +54,25 @@ export class MfaAdminService {
     private readonly mfaEnforcementService: MfaEnforcementService,
   ) {}
 
-  async resetUserMfa(adminId: string, userId: string, reason: string): Promise<void> {
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaAdminAuthScope} so the target user is
+   *   loaded with tenant/organization scoping. The no-scope overload now treats the
+   *   caller as a non-superadmin with unknown tenant and rejects every load with 404;
+   *   it will be removed in a future release.
+   */
+  async resetUserMfa(adminId: string, userId: string, reason: string): Promise<void>
+  async resetUserMfa(
+    adminId: string,
+    userId: string,
+    reason: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<void>
+  async resetUserMfa(
+    adminId: string,
+    userId: string,
+    reason: string,
+    scope?: MfaAdminAuthScope,
+  ): Promise<void> {
     if (!adminId.trim()) {
       throw new MfaAdminServiceError('Admin ID is required', 400)
     }
@@ -56,8 +85,10 @@ export class MfaAdminService {
       throw new MfaAdminServiceError('Reset reason is required', 400)
     }
 
-    const user = await this.findUserById(userId)
+    const effectiveScope: MfaAdminAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+    const user = await this.loadUserForScope(userId, effectiveScope)
     if (!user) {
+      // Unified 404 for both "missing" and "out of scope" — prevents existence enumeration.
       throw new MfaAdminServiceError('User not found', 404)
     }
 
@@ -95,7 +126,7 @@ export class MfaAdminService {
     })
   }
 
-  async getUserMfaStatus(userId: string): Promise<UserMfaStatus> {
+  async getUserMfaStatus(userId: string, actor?: ActorContext): Promise<UserMfaStatus> {
     if (!userId.trim()) {
       throw new MfaAdminServiceError('User ID is required', 400)
     }
@@ -104,6 +135,7 @@ export class MfaAdminService {
     if (!user) {
       throw new MfaAdminServiceError('User not found', 404)
     }
+    this.assertActorOwnsUser(user, actor)
 
     const methods = await this.em.find(
       UserMfaMethod,
@@ -136,22 +168,45 @@ export class MfaAdminService {
     }
   }
 
-  async bulkComplianceCheck(tenantId: string): Promise<BulkComplianceStatus[]> {
+  /**
+   * @deprecated Since 0.6 — pass an {@link MfaAdminAuthScope} so the tenant list is
+   *   enforced against the caller's actual scope rather than the caller-supplied
+   *   tenantId. The no-scope overload now treats the caller as a non-superadmin
+   *   with unknown tenant and rejects every request with 404; it will be removed
+   *   in a future release.
+   */
+  async bulkComplianceCheck(tenantId: string): Promise<BulkComplianceStatus[]>
+  async bulkComplianceCheck(
+    tenantId: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<BulkComplianceStatus[]>
+  async bulkComplianceCheck(
+    tenantId: string,
+    scope?: MfaAdminAuthScope,
+  ): Promise<BulkComplianceStatus[]> {
     if (!tenantId.trim()) {
       throw new MfaAdminServiceError('Tenant ID is required', 400)
+    }
+
+    const effectiveScope: MfaAdminAuthScope = scope ?? { tenantId: null, isSuperAdmin: false }
+    const effectiveTenantId = this.resolveTenantForScope(tenantId, effectiveScope)
+    if (!effectiveTenantId) {
+      // Unified 404 for missing-scope, cross-tenant mismatch, and unknown tenant —
+      // prevents existence enumeration and matches the resetUserMfa contract.
+      throw new MfaAdminServiceError('Tenant not found', 404)
     }
 
     const users = await findWithDecryption(
       this.em,
       User,
       {
-        tenantId,
+        tenantId: effectiveTenantId,
         deletedAt: null,
       },
       {
         orderBy: { createdAt: 'asc' },
       },
-      { tenantId, organizationId: null },
+      { tenantId: effectiveTenantId, organizationId: null },
     )
 
     const userIds = users.map((user) => user.id)
@@ -186,8 +241,69 @@ export class MfaAdminService {
     })
   }
 
+  private assertActorOwnsUser(user: User, actor?: ActorContext): void {
+    if (!actor || actor.isSuperAdmin) return
+    if (!user.tenantId || user.tenantId !== actor.tenantId) {
+      throw new MfaAdminServiceError('User not found', 404)
+    }
+  }
+
   private async findUserById(userId: string): Promise<User | null> {
-    return this.em.findOne(User, { id: userId, deletedAt: null })
+    return findOneWithDecryption(
+      this.em,
+      User,
+      { id: userId, deletedAt: null } as FilterQuery<User>,
+      {},
+      { tenantId: null, organizationId: null },
+    )
+  }
+
+  private resolveTenantForScope(
+    requestedTenantId: string,
+    scope: MfaAdminAuthScope,
+  ): string | null {
+    if (scope.isSuperAdmin) {
+      return requestedTenantId
+    }
+    if (!scope.tenantId) return null
+    if (scope.tenantId !== requestedTenantId) return null
+    return scope.tenantId
+  }
+
+  private async loadUserForScope(
+    userId: string,
+    scope: MfaAdminAuthScope,
+  ): Promise<User | null> {
+    if (scope.isSuperAdmin) {
+      return findOneWithDecryption(
+        this.em,
+        User,
+        { id: userId, deletedAt: null },
+        undefined,
+        { tenantId: null, organizationId: null },
+      )
+    }
+
+    if (!scope.tenantId) return null
+
+    const user = await findOneWithDecryption(
+      this.em,
+      User,
+      { id: userId, tenantId: scope.tenantId, deletedAt: null },
+      undefined,
+      { tenantId: scope.tenantId, organizationId: scope.organizationId ?? null },
+    )
+    if (!user) return null
+
+    if (
+      scope.organizationId !== undefined
+      && scope.organizationId !== null
+      && user.organizationId !== null
+      && user.organizationId !== scope.organizationId
+    ) {
+      return null
+    }
+    return user
   }
 }
 

@@ -160,7 +160,7 @@ export interface SearchStrategy {
   bulkIndex?(records: IndexableRecord[]): Promise<void>
 
   /** Purge all records for an entity type (optional) */
-  purge?(entityId: EntityId, tenantId: string): Promise<void>
+  purge?(entityId: EntityId, tenantId: string, organizationId?: string | null): Promise<void>
 }
 
 // =============================================================================
@@ -279,6 +279,15 @@ export type SearchEntityConfig = {
   resolveLinks?: (ctx: SearchBuildContext) => Promise<SearchResultLink[] | null> | SearchResultLink[] | null
   /** Define which fields are searchable vs hash-only */
   fieldPolicy?: SearchFieldPolicy
+  /**
+   * Per-entity view feature(s) required to read this entity's records through
+   * data-returning surfaces (e.g. the `search_get` / `search_aggregate` AI tools).
+   * These tools must NOT rely on the search-administration `search.view` feature
+   * to gate record reads — callers must additionally hold the owning module's
+   * `<entity>.view` feature(s) declared here. When omitted, those tools fail
+   * closed (deny) so an entity is never exposed without an explicit grant.
+   */
+  aclFeatures?: string[]
 }
 
 /**

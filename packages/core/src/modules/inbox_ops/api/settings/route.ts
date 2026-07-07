@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { InboxSettings } from '../../data/entities'
 import { updateSettingsSchema } from '../../data/validators'
@@ -51,6 +51,8 @@ export async function GET(req: Request) {
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
         workingLanguage: settings.workingLanguage,
+        // Surface only whether a per-tenant secret exists — never the value.
+        webhookSecretSet: Boolean(settings.webhookSecret),
         updatedAt: settings.updatedAt instanceof Date ? settings.updatedAt.toISOString() : (settings.updatedAt ?? null),
       } : null,
     }
@@ -102,7 +104,7 @@ export async function PATCH(req: Request) {
     // Optimistic lock: refuse a stale overwrite when two tabs edit the same inbox
     // settings record. Strictly additive — a no-op without the expected-version header.
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'inbox_ops.settings',
         resourceId: settings.id,
         current: settings.updatedAt ?? null,
@@ -119,6 +121,10 @@ export async function PATCH(req: Request) {
     if (parsed.data.isActive !== undefined) {
       settings.isActive = parsed.data.isActive
     }
+    if (parsed.data.webhookSecret !== undefined) {
+      // Empty/null clears the per-tenant secret (reverts to the global key).
+      settings.webhookSecret = parsed.data.webhookSecret ? parsed.data.webhookSecret : null
+    }
 
     await ctx.em.flush()
 
@@ -132,6 +138,7 @@ export async function PATCH(req: Request) {
         inboxAddress: settings.inboxAddress,
         isActive: settings.isActive,
         workingLanguage: settings.workingLanguage,
+        webhookSecretSet: Boolean(settings.webhookSecret),
         updatedAt: settings.updatedAt instanceof Date ? settings.updatedAt.toISOString() : (settings.updatedAt ?? null),
       },
     })

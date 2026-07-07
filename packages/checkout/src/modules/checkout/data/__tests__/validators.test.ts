@@ -52,30 +52,37 @@ describe('checkout validators', () => {
     expect(result.password).toBeNull()
   })
 
-  test('updateTemplateSchema accepts a null gatewayProviderKey (issue #2505)', () => {
-    const result = updateTemplateSchema.parse({
-      id: TEMPLATE_ID,
-      name: 'Consulting Fee',
-      pricingMode: 'fixed',
-      fixedPriceAmount: 49.99,
-      fixedPriceCurrencyCode: 'USD',
-      gatewayProviderKey: null,
-    })
+  test('updateTemplateSchema rejects a cleared gatewayProviderKey', () => {
+    expect(() =>
+      updateTemplateSchema.parse({
+        id: TEMPLATE_ID,
+        name: 'Consulting Fee',
+        pricingMode: 'fixed',
+        fixedPriceAmount: 49.99,
+        fixedPriceCurrencyCode: 'USD',
+        gatewayProviderKey: null,
+      }),
+    ).toThrow()
 
-    expect(result.gatewayProviderKey).toBeNull()
+    expect(() =>
+      updateTemplateSchema.parse({
+        id: TEMPLATE_ID,
+        name: 'Consulting Fee',
+        pricingMode: 'fixed',
+        fixedPriceAmount: 49.99,
+        fixedPriceCurrencyCode: 'USD',
+        gatewayProviderKey: '   ',
+      }),
+    ).toThrow()
   })
 
-  test('updateTemplateSchema normalizes a blank gatewayProviderKey to null (issue #2505)', () => {
+  test('updateTemplateSchema accepts edits that omit gatewayProviderKey', () => {
     const result = updateTemplateSchema.parse({
       id: TEMPLATE_ID,
-      name: 'Consulting Fee',
-      pricingMode: 'fixed',
-      fixedPriceAmount: 49.99,
-      fixedPriceCurrencyCode: 'USD',
-      gatewayProviderKey: '   ',
+      name: 'Consulting Fee renamed',
     })
 
-    expect(result.gatewayProviderKey).toBeNull()
+    expect(Object.prototype.hasOwnProperty.call(result, 'gatewayProviderKey')).toBe(false)
   })
 
   test('updateLinkSchema accepts a null gatewayProviderKey (issue #2505)', () => {

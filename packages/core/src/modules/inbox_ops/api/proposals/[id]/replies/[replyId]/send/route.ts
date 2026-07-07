@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { raw } from '@mikro-orm/core'
 import { Resend } from 'resend'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { resolveDefaultEmailFromAddress } from '@open-mercato/shared/lib/email/config'
@@ -58,6 +59,15 @@ export async function POST(req: Request) {
       )
     }
 
+    const existingMetadata =
+      action.metadata && typeof action.metadata === 'object' ? action.metadata : {}
+    if ((existingMetadata as Record<string, unknown>).replySentAt) {
+      return NextResponse.json(
+        { error: 'Reply has already been sent for this action' },
+        { status: 409 },
+      )
+    }
+
     const email = await findOneWithDecryption(
       ctx.em,
       InboxEmail,
@@ -102,6 +112,57 @@ export async function POST(req: Request) {
       headers['References'] = references.join(' ')
     }
 
+    // Atomically claim the send right before calling the external email provider so
+    // two concurrent requests cannot both deliver the same reply. The claim only
+    // succeeds when neither replySentAt nor replySendClaimedAt is already set in the
+    // metadata; a losing request gets 0 rows back and is rejected with 409.
+    const sendClaimedAt = new Date().toISOString()
+    const claimed = await ctx.em.nativeUpdate(
+      InboxProposalAction,
+      {
+        id: action.id,
+        proposalId: proposal.id,
+        actionType: 'draft_reply',
+        organizationId: ctx.organizationId,
+        tenantId: ctx.tenantId,
+        deletedAt: null,
+        status: 'executed',
+        [raw(`coalesce("metadata"->>'replySentAt', '')`)]: '',
+        [raw(`coalesce("metadata"->>'replySendClaimedAt', '')`)]: '',
+      },
+      {
+        metadata: raw(
+          `coalesce("metadata", '{}'::jsonb) || jsonb_build_object('replySendClaimedAt', ?::text)`,
+          [sendClaimedAt],
+        ),
+      },
+    )
+
+    if (claimed === 0) {
+      return NextResponse.json(
+        { error: 'Reply send is already in progress or has been sent for this action' },
+        { status: 409 },
+      )
+    }
+
+    const releaseSendClaim = async () => {
+      try {
+        await ctx.em.nativeUpdate(
+          InboxProposalAction,
+          {
+            id: action.id,
+            organizationId: ctx.organizationId,
+            tenantId: ctx.tenantId,
+            [raw(`coalesce("metadata"->>'replySentAt', '')`)]: '',
+            [raw(`("metadata"->>'replySendClaimedAt')`)]: sendClaimedAt,
+          },
+          { metadata: raw(`"metadata" - 'replySendClaimedAt'`) },
+        )
+      } catch (releaseError) {
+        console.error('[inbox_ops:reply:send] Failed to release send claim:', releaseError)
+      }
+    }
+
     const resend = new Resend(apiKey)
     const { data: sendData, error: sendError } = await resend.emails.send({
       to: toAddress,
@@ -112,6 +173,7 @@ export async function POST(req: Request) {
     })
 
     if (sendError) {
+      await releaseSendClaim()
       const errorMessage = sendError.message || 'Unknown error'
       return NextResponse.json({ error: `Failed to send email: ${errorMessage}` }, { status: 502 })
     }
@@ -131,7 +193,7 @@ export async function POST(req: Request) {
     )
 
     action.metadata = {
-      ...(action.metadata && typeof action.metadata === 'object' ? action.metadata : {}),
+      ...existingMetadata,
       replySentAt: new Date().toISOString(),
       sentMessageId,
       ...(messagesResult ? { messageRecordId: messagesResult.messageId } : {}),
@@ -173,7 +235,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Reply sent successfully' },
         { status: 400, description: 'Missing required payload fields' },
         { status: 404, description: 'Reply action not found' },
-        { status: 409, description: 'Action in invalid state for sending' },
+        { status: 409, description: 'Action in invalid state for sending, or a send is already in progress / completed for this reply' },
         { status: 502, description: 'Email delivery failed' },
         { status: 503, description: 'Email service not configured or disabled' },
       ],

@@ -25,9 +25,10 @@ import {
   diffCustomFieldChanges,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { normalizeTenantId } from '@open-mercato/core/modules/auth/lib/tenantAccess'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildNotificationFromType } from '@open-mercato/core/modules/notifications/lib/notificationBuilder'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
@@ -73,6 +74,23 @@ type UserUndoSnapshot = {
 type UserSnapshots = {
   view: SerializedUser
   undo: UserUndoSnapshot
+}
+
+function resolveActorTenantScope(ctx: CommandRuntimeContext): string | null {
+  if (ctx.systemActor === true) return null
+  const auth = ctx.auth
+  if (!auth) return null
+  if ((auth as { isSuperAdmin?: boolean }).isSuperAdmin === true) return null
+  const actorTenantId = normalizeTenantId(auth.tenantId ?? null) ?? null
+  return actorTenantId
+}
+
+function assertTargetTenantInScope(actorTenantScope: string | null, targetTenantId: unknown, notFoundError: string): void {
+  if (!actorTenantScope) return
+  const targetTenant = normalizeTenantId(targetTenantId) ?? null
+  if (!targetTenant || targetTenant !== actorTenantScope) {
+    throw new CrudHttpError(404, { error: notFoundError })
+  }
 }
 
 const passwordSchema = buildPasswordSchema()
@@ -186,9 +204,15 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       { tenantId: null, organizationId: parsed.organizationId },
     )
     if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+    const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+    assertTargetTenantInScope(resolveActorTenantScope(ctx), tenantId, 'Organization not found')
 
     const emailHash = computeEmailHash(parsed.email)
-    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash }], deletedAt: null } as any, {}, { tenantId: null, organizationId: null })
+    // Email is unique per-tenant, not globally (see Migration20260610120000:
+    // users_tenant_email_hash_uniq). Scope the duplicate check to the target tenant so the same
+    // email may legitimately exist in other tenants without blocking creation or leaking
+    // cross-tenant account existence (#2934).
+    const duplicate = await findOneWithDecryption(em, User, { $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }], deletedAt: null, tenantId } as any, {}, { tenantId: null, organizationId: null })
     if (duplicate) await throwDuplicateEmailError()
 
     let passwordHash: string | null = null
@@ -196,7 +220,6 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
       const { hash } = await import('bcryptjs')
       passwordHash = await hash(parsed.password, 10)
     }
-    const tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User
@@ -348,6 +371,87 @@ const createUserCommand: CommandHandler<Record<string, unknown>, CreateUserResul
 
     await invalidateUserCache(ctx, userId)
   },
+  // The create-undo hard-deletes the user, but the after-snapshot persists the
+  // original passwordHash (see captureUserSnapshots), so redo restores the row
+  // with the SAME id and the SAME hash — never fabricating credentials (#2506).
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<UserUndoSnapshot>(logEntry)
+    if (!after) throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for user create' })
+    const em = (ctx.container.resolve('em') as EntityManager)
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const emailHash = computeEmailHash(after.email)
+
+    let user = await findOneWithDecryption(em, User, { id: after.id }, {}, { tenantId: null, organizationId: null })
+    await withAtomicFlush(em, [
+      async () => {
+        if (user) {
+          user.deletedAt = null
+          user.email = after.email
+          user.emailHash = emailHash
+          user.organizationId = after.organizationId ?? null
+          user.tenantId = after.tenantId ?? null
+          user.passwordHash = after.passwordHash ?? null
+          user.name = after.name ?? null
+          user.isConfirmed = after.isConfirmed
+          await em.flush()
+        } else {
+          user = await de.createOrmEntity({
+            entity: User,
+            data: {
+              id: after.id,
+              email: after.email,
+              emailHash,
+              organizationId: after.organizationId ?? null,
+              tenantId: after.tenantId ?? null,
+              passwordHash: after.passwordHash ?? null,
+              name: after.name ?? null,
+              isConfirmed: after.isConfirmed,
+            },
+          })
+        }
+
+        if (!user) return
+
+        await em.nativeDelete(UserRole, { user: after.id })
+        await syncUserRoles(em, user, after.roles, after.tenantId)
+        await restoreUserAcls(em, user, after.acls)
+
+        if (after.custom && Object.keys(after.custom).length) {
+          const reset = buildCustomFieldResetMap(after.custom, undefined)
+          if (Object.keys(reset).length) {
+            await setCustomFieldsIfAny({
+              dataEngine: de,
+              entityId: E.auth.user,
+              recordId: after.id,
+              organizationId: after.organizationId ?? null,
+              tenantId: after.tenantId ?? null,
+              values: reset,
+              notify: false,
+            })
+          }
+        }
+      },
+    ], { transaction: true })
+
+    if (!user) throw new CrudHttpError(400, { error: '[internal] redo failed to restore user row' })
+
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: user,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId ?? null,
+        tenantId: after.tenantId ?? null,
+      },
+      events: userCrudEvents,
+      indexer: userCrudIndexer,
+    })
+
+    await invalidateUserCache(ctx, after.id)
+
+    return { user }
+  },
 }
 
 async function sendInviteToUser(
@@ -401,6 +505,7 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
     const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await findOneWithDecryption(em, User, { id: parsed.id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) throw new CrudHttpError(404, { error: 'User not found' })
+    assertTargetTenantInScope(resolveActorTenantScope(ctx), existing.tenantId, 'User not found')
     const roles = await loadUserRoleNames(em, parsed.id)
     const acls = await loadUserAclSnapshots(em, parsed.id)
     const custom = await loadUserCustomSnapshot(
@@ -418,14 +523,34 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       ? await loadUserRoleNames(em, parsed.id)
       : null
 
+    // Resolve the tenant the user will belong to after this update first, so the email
+    // duplicate check below can be scoped to it. Email is unique per-tenant, not globally
+    // (see Migration20260610120000: users_tenant_email_hash_uniq) — a matching email in another
+    // tenant must not block the update or leak cross-tenant account existence (#2934).
+    let tenantId: string | null | undefined
+    if (parsed.organizationId !== undefined) {
+      const organization = await findOneWithDecryption(
+        em,
+        Organization,
+        { id: parsed.organizationId },
+        { populate: ['tenant'] },
+        { tenantId: null, organizationId: parsed.organizationId ?? null },
+      )
+      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
+      tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
+    }
+
     if (parsed.email !== undefined) {
-      const emailHash = computeEmailHash(parsed.email)
+      const targetTenantId = tenantId !== undefined
+        ? tenantId
+        : await resolveUserTenantId(em, parsed.id)
       const duplicate = await findOneWithDecryption(
         em,
         User,
         {
-          $or: [{ email: parsed.email }, { emailHash }],
+          $or: [{ email: parsed.email }, { emailHash: { $in: emailHashLookupValues(parsed.email) } }],
           deletedAt: null,
+          tenantId: targetTenantId,
           id: { $ne: parsed.id } as any,
         } as FilterQuery<User>,
         {},
@@ -444,25 +569,16 @@ const updateUserCommand: CommandHandler<Record<string, unknown>, User> = {
       emailHash = computeEmailHash(parsed.email)
     }
 
-    let tenantId: string | null | undefined
-    if (parsed.organizationId !== undefined) {
-      const organization = await findOneWithDecryption(
-        em,
-        Organization,
-        { id: parsed.organizationId },
-        { populate: ['tenant'] },
-        { tenantId: null, organizationId: parsed.organizationId ?? null },
-      )
-      if (!organization) throw new CrudHttpError(400, { error: 'Organization not found' })
-      tenantId = organization.tenant?.id ? String(organization.tenant.id) : null
-    }
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    const updateWhere: Record<string, unknown> = { id: parsed.id, deletedAt: null }
+    if (actorTenantScope) updateWhere.tenantId = actorTenantScope
 
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
     let user: User | null
     try {
       user = await de.updateOrmEntity({
         entity: User,
-        where: { id: parsed.id, deletedAt: null } as FilterQuery<User>,
+        where: updateWhere as FilterQuery<User>,
         apply: (entity) => {
           if (parsed.email !== undefined) {
             entity.email = parsed.email
@@ -642,6 +758,11 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const em = (ctx.container.resolve('em') as EntityManager)
     const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
     if (!existing) return {}
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    if (actorTenantScope) {
+      const targetTenant = normalizeTenantId(existing.tenantId) ?? null
+      if (!targetTenant || targetTenant !== actorTenantScope) return {}
+    }
     const roles = await loadUserRoleNames(em, id)
     const acls = await loadUserAclSnapshots(em, id)
     const custom = await loadUserCustomSnapshot(
@@ -656,6 +777,9 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
     const id = requireId(input, 'User id required')
     const em = (ctx.container.resolve('em') as EntityManager)
     const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    const actorTenantScope = resolveActorTenantScope(ctx)
+    const deleteWhere: Record<string, unknown> = { id, deletedAt: null }
+    if (actorTenantScope) deleteWhere.tenantId = actorTenantScope
 
     let user!: User
     await withAtomicFlush(em, [
@@ -666,7 +790,7 @@ const deleteUserCommand: CommandHandler<{ body?: Record<string, unknown>; query?
         await em.nativeDelete(PasswordReset, { user: id })
         const removed = await de.deleteOrmEntity({
           entity: User,
-          where: { id, deletedAt: null } as FilterQuery<User>,
+          where: deleteWhere as FilterQuery<User>,
           soft: false,
         })
         if (!removed) throw new CrudHttpError(404, { error: 'User not found' })
@@ -956,6 +1080,11 @@ function arrayEquals(left: string[] | undefined, right: string[]): boolean {
   if (!left) return false
   if (left.length !== right.length) return false
   return left.every((value, idx) => value === right[idx])
+}
+
+async function resolveUserTenantId(em: EntityManager, id: string): Promise<string | null> {
+  const existing = await findOneWithDecryption(em, User, { id, deletedAt: null }, {}, { tenantId: null, organizationId: null })
+  return existing?.tenantId ? String(existing.tenantId) : null
 }
 
 async function throwDuplicateEmailError(): Promise<never> {

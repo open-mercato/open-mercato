@@ -10,7 +10,10 @@ import {
   expectConflictBanner,
   expectNoConflictBanner,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
-import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
+import {
+  fillControlledInput,
+  waitForApiMutation,
+} from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
  * TC-LOCK-OSS-014 (browser UI) — manual cases CRM-01 / CRM-02 / CRM-03.
@@ -49,11 +52,18 @@ const COMPANIES_API_BASE = '/api/customers/companies'
  */
 async function revealDisplayNameInput(page: Page): Promise<Locator> {
   const nameInput = page.locator('[data-crud-field-id="displayName"] input').first()
-  if (await nameInput.isVisible().catch(() => false)) return nameInput
-  const identitySection = page.getByRole('button', { name: /^identity$/i }).first()
-  await expect(identitySection).toBeVisible({ timeout: 15_000 })
-  await identitySection.click()
+  if (!(await nameInput.isVisible().catch(() => false))) {
+    const identitySection = page.getByRole('button', { name: /^identity$/i }).first()
+    await expect(identitySection).toBeVisible({ timeout: 15_000 })
+    await identitySection.click()
+  }
   await expect(nameInput).toBeVisible({ timeout: 15_000 })
+  // Wait until the embedded CrudForm has hydrated its loaded value before any edit.
+  // Editing while the field is still empty (form mounted but initialValues not yet
+  // applied) would make the typed value the dirty baseline, so the form never
+  // registers dirty and the header Save stays disabled — the load-race behind this
+  // test's CI flakiness. A created company always has a non-empty display name.
+  await expect(nameInput).not.toHaveValue('', { timeout: 15_000 })
   return nameInput
 }
 
@@ -99,14 +109,23 @@ test.describe('TC-LOCK-OSS-014: CRM v2 company edit + delete optimistic-lock con
 
       const nameInput = await revealDisplayNameInput(page)
 
-      const putPromise = page.waitForResponse(
-        (response) =>
-          response.request().method() === 'PUT' && response.url().includes(COMPANIES_API_BASE),
-        { timeout: 15_000 },
-      )
       await fillControlledInput(nameInput, `QA Lock 014b saved ${stamp}`)
-      await page.getByRole('button', { name: /save/i }).first().click()
-      const settled = await putPromise
+      const form = nameInput.locator('xpath=ancestor::form[1]')
+      await expect(form).toHaveCount(1)
+
+      const settled = await waitForApiMutation(
+        page,
+        COMPANIES_API_BASE,
+        () =>
+          form.evaluate((node) => {
+            if (!(node instanceof HTMLFormElement)) {
+              throw new Error('displayName input is not inside a form')
+            }
+            node.requestSubmit()
+          }),
+        'PUT',
+        15_000,
+      )
       expect(settled.status(), 'clean save should not 409').toBeLessThan(400)
       await expectNoConflictBanner(page)
     } finally {

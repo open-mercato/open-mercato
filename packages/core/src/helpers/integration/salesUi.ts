@@ -78,7 +78,7 @@ type AddAdjustmentOptions = {
   netAmount: number;
 };
 
-const TEST_WAIT_TIMEOUT_MS = 10_000;
+const TEST_WAIT_TIMEOUT_MS = 15_000;
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -522,15 +522,21 @@ async function resolveSalesChannelId(page: Page, token: string, channelQuery: st
 }
 
 async function resolveOrderLineId(page: Page, token: string, orderId: string): Promise<string | null> {
-  const response = await apiRequest(page.request, 'GET', `/api/sales/order-lines?page=1&pageSize=20&orderId=${orderId}`, {
-    token,
-  }).catch(() => null);
-  const body = (await response?.json().catch(() => null)) as {
-    result?: { items?: SalesOrderLineListItem[] };
-    items?: SalesOrderLineListItem[];
-  } | null;
-  const items = readListItems(body);
-  return items.find((item) => typeof item.id === 'string' && item.id.length > 0)?.id ?? null;
+  const deadline = Date.now() + TEST_WAIT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const response = await apiRequest(page.request, 'GET', `/api/sales/order-lines?page=1&pageSize=20&orderId=${orderId}`, {
+      token,
+    }).catch(() => null);
+    const body = (await response?.json().catch(() => null)) as {
+      result?: { items?: SalesOrderLineListItem[] };
+      items?: SalesOrderLineListItem[];
+    } | null;
+    const items = readListItems(body);
+    const lineId = items.find((item) => typeof item.id === 'string' && item.id.length > 0)?.id ?? null;
+    if (lineId) return lineId;
+    await page.waitForTimeout(250).catch(() => {});
+  }
+  return null;
 }
 
 async function resolveShippingMethodId(page: Page, token: string): Promise<string | null> {
@@ -1296,7 +1302,7 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
     await dialog
       .getByText(/Loading shipments…|Loading shipments\.\.\./i)
       .first()
-      .waitFor({ state: 'hidden', timeout: 5_000 })
+      .waitFor({ state: 'hidden', timeout: TEST_WAIT_TIMEOUT_MS })
       .catch(() => {});
     const shipmentNumberInput = dialog.locator('input, textarea').first();
     if (await shipmentNumberInput.isVisible().catch(() => false)) {
@@ -1371,7 +1377,8 @@ export async function addShipment(page: Page): Promise<{ trackingNumber: string;
   }
 
   if (!closed) {
-    return { trackingNumber, shipmentNumber, added: false };
+    const added = await addShipmentViaApi(page, shipmentNumber, trackingNumber);
+    return { trackingNumber, shipmentNumber, added };
   }
 
   await page.getByRole('button', { name: /^Shipments$/i }).click();

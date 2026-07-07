@@ -121,6 +121,9 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       });
       expect(seedRes.ok(), `seed update failed: ${seedRes.status()}`).toBeTruthy();
 
+      // customValues come from the query index, which the data engine now updates
+      // synchronously (awaited `query_index.upsert_one`), so an immediate read after
+      // the write is consistent — no polling needed.
       const afterSeed = await fetchProductCustomValues(request, token, productId as string);
       expect(asStringArray(afterSeed[fieldKey])).toEqual(['stylist', 'therapist']);
 
@@ -134,6 +137,10 @@ test.describe('TC-CAT-CF-MULTI-EDIT-001: product multichoice custom field persis
       });
       expect(updateRes.ok(), `update failed: ${updateRes.status()}`).toBeTruthy();
 
+      // The product list endpoint serves customValues from the query index. The index
+      // is updated synchronously in the write path (the data engine awaits
+      // `query_index.upsert_one` before the PUT returns), so the new values are visible
+      // on an immediate read and the old ones are gone — deterministically.
       const afterUpdate = await fetchProductCustomValues(request, token, productId as string);
       expect(asStringArray(afterUpdate[fieldKey])).toEqual(['treatment_room', 'wash_station']);
       expect(asStringArray(afterUpdate[fieldKey])).not.toContain('stylist');

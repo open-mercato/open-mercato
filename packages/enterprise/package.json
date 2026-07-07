@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/enterprise",
-  "version": "0.6.4",
+  "version": "0.6.5",
+  "license": "SEE LICENSE IN LICENSE.md",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -82,12 +83,13 @@
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
-    "@types/react": "^19.2.16",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "jest": "^30.4.2",
     "react": "19.2.7",
     "react-dom": "19.2.7",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "restricted"

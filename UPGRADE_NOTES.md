@@ -22,7 +22,91 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.4 → 0.6.5 (unreleased)
+## 0.6.5 → 0.6.6 (unreleased)
+
+### Tenant-scoped search settings + verified provider availability (#3092)
+
+Vector/fulltext search settings (Cmd+K strategies, embedding provider/model, auto-index flag) were stored in a single global `module_configs` row, so any tenant admin's save overwrote every tenant's configuration. Settings are now scoped per tenant: a tenant reads/writes only its own row and inherits the instance default (legacy global row) → env-derived default when unset. Four downstream-visible changes:
+
+1. **Search settings are now tenant-scoped.** Settings `GET` responses gain a `source: 'tenant' | 'instance' | 'env'` field indicating where the effective value came from. *Action for downstream:* none for typical callers; clients must not assume one tenant's settings apply to another.
+
+2. **`ModuleConfigService` gained an optional `scope` argument** on `getRecord`/`getValue`/`setValue`/`invalidate`. This is **additive** — every caller that omits `scope` keeps the exact prior behavior (the global row). `ModuleConfigRecord` gained additive `tenantId`/`organizationId`/`source` fields. *Action for downstream:* none; opt into per-tenant config by passing `scope` where you want it.
+
+3. **`module_configs` schema change (additive).** Added nullable `tenant_id`/`organization_id` columns; replaced the single `(module_id, name)` unique constraint with two partial unique indexes (global `WHERE tenant_id IS NULL`, scoped `WHERE tenant_id IS NOT NULL`). Existing rows keep `tenant_id = NULL` and become the instance default; no backfill required. *Action for downstream:* apply the `configs` module migration (`Migration20260617150000`) before relying on tenant-scoped settings.
+
+4. **Provider availability is now verified (behavior fix).** `isProviderConfigured('ollama')` previously returned `true` unconditionally. A new cached, fail-closed `embeddingProviderProbe` (additive DI key) actively checks Ollama via `GET {OLLAMA_BASE_URL}/api/tags` (key-presence for the other providers). The embeddings settings `GET` returns per-provider `available`/`reason`, and the embeddings `POST` rejects selecting an unreachable provider with `409 { error, reason }`. *Action for downstream:* environments that relied on Ollama always reporting "available" must ensure Ollama is actually reachable at `OLLAMA_BASE_URL` (which was already required for embedding to function).
+
+All changes are additive at the contract surface. No event IDs, widget spot IDs, ACL feature IDs, import paths, or CLI commands changed. The vector index (shared pgvector table) remains instance-level; per-tenant scoping covers settings selection, not stored vectors. See [`.ai/specs/2026-06-15-tenant-scoped-search-settings.md`](.ai/specs/2026-06-15-tenant-scoped-search-settings.md) (tracking issue #3092).
+
+### Versioned browser-storage envelopes for shared UI preference slots (#3457)
+
+Several shared UI surfaces that persist client state to `localStorage` — DataTable perspective snapshots, the AppShell sidebar collapsed-groups set, the AI model picker selection, and the AI chat sessions cache — now write through a shared **versioned-envelope** helper (`packages/shared/src/lib/browser/versionedPreference.ts`) instead of bare JSON. On disk each of these slots now carries a `{ v, data }` shape with an explicit version discriminator, rather than the raw value it stored before.
+
+**No manual action is required for end users.** The `localStorage` **keys are unchanged**, and `readVersionedPreference(...)` migrates a pre-envelope (legacy bare) value forward automatically on the next write when a `legacyIsValid` guard is supplied (as it is for every slot migrated in #3457). Stored data that is version-mismatched or malformed is safely discarded back to the documented fallback instead of crashing or silently corrupting UI state, so a downgrade/upgrade across this boundary simply re-derives defaults at worst.
+
+**Action for module authors who read/write these persisted slots directly.** If your module reads or writes one of these shared `localStorage` keys (or adds its own structured preference slot), go through the helper rather than `safeLocalStorage`/raw `localStorage`:
+
+```ts
+import {
+  readVersionedPreference,
+  writeVersionedPreference,
+  // readVersionedIdSet / writeVersionedIdSet for the common "set of ids" shape
+} from '@open-mercato/shared/lib/browser/versionedPreference'
+
+// read: validate the envelope, discard stale/mismatched data, migrate a legacy bare value forward
+const value = readVersionedPreference(key, version, isValid, fallback, { legacyIsValid })
+// write: wraps as { v: version, data: value }
+writeVersionedPreference(key, version, value)
+```
+
+Follow the **versioning threshold** documented in [`packages/shared/AGENTS.md`](packages/shared/AGENTS.md) when deciding whether a slot needs an envelope: trivial scalar flags (a single boolean/number/string with no schema to evolve, e.g. `om:sidebarCollapsed`) MAY stay raw via `safeLocalStorage`; **structured values** (objects, records, arrays of objects whose shape can change incompatibly) MUST use a versioned envelope so a future shape change can migrate or discard old data. A slot that already carries its own inline `{ v, ... }` discriminator is already migratable and MUST NOT be re-wrapped — re-wrapping changes the on-disk format and discards existing user data.
+
+This is a refactor with no API, event-ID, DI, or DB-schema contract change. Related: #3457 (this change), and the sibling persisted-storage audit tracked in #3174 / #3393.
+
+### Selectable dev-mode watch scope (opt-in, default unchanged)
+
+In the monorepo, `yarn dev` can now watch a **subset** of workspace packages instead of always watching every one. The default remains `all` (watch everything), so **no action is required** — existing `yarn dev` / `yarn dev:greenfield` runs behave exactly as before.
+
+To opt in, pick a scope with the new `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag (CLI flag wins over the env var):
+
+- `all` (default) — watch every package.
+- `auto-optimized` — watch only packages your git working tree / current-branch diff touched, re-checking every 2 minutes and expanding to newly-touched packages.
+- `popular` — watch only the most frequently changed packages from recent `git log` history (`OM_WATCH_POPULAR_LIMIT`, default 6; falls back to `core`, `ui`, `shared`).
+- `env` — watch exactly the packages in `OM_WATCH_PACKAGES`, or the selection saved by the interactive picker (`yarn dev:watch-select`, persisted to the gitignored `.mercato/watch-packages.local.json`).
+
+```bash
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+yarn dev:greenfield --watch=popular
+```
+
+Additional knobs: `OM_WATCH_GIT_STATUS`, `OM_WATCH_GIT_BRANCH`, `OM_WATCH_BASE_REF`, `OM_WATCH_POPULAR_LIMIT`. This is purely a local dev-DX feature: no API, event-ID, DI, ACL, or DB-schema contract changed, and the app source is still fully watched by Next.js/Turbopack regardless of scope. Standalone create-app projects do not run the workspace-package watcher in normal use. See [the troubleshooting guide](apps/docs/docs/appendix/troubleshooting.mdx) for the full reference.
+
+---
+
+## 0.6.3 → 0.6.4 (2026-06-08)
+
+### Tenant-ownership & per-module ACL authorization hardening (#2612)
+
+Closes a class of Broken Access Control (OWASP A01 / BOLA+BFLA) defects where the platform checked *capability* (route `requireFeatures`) but not *object/target-module ownership* before reading or mutating. Three downstream-visible changes:
+
+1. **Generic entity-records API now enforces the target module's ACL.** `GET/POST/PUT/DELETE /api/entities/records` (and CSV/export) previously authorized with only `entities.records.view` / `entities.records.manage`. They now also require the **owning module's** feature for the requested `entityId` (e.g. `directory.tenants.view` for `directory:tenant`, `customers.people.view` for `customers:customer_person_profile`), resolved from an explicit registry in `packages/core/src/modules/entities/lib/entityAcl.ts`. **Custom/EAV entities are unaffected** — they keep the existing `entities.records.*` + tenant-scope path. **Unmapped ORM-backed entities are fail-closed (super-admin only).** *Action for downstream:* if you exposed a custom **ORM-backed** entity through this generic API, add an entry to the `entityAcl` map (module + view/manage features) or callers without the owning feature will receive `403`.
+
+2. **Public org-slug lookup no longer returns `tenantId`.** `GET /api/directory/organizations/lookup?slug=…` now returns `{ ok, organization: { id, name, slug } }` — the internal `tenantId` field was removed (it was an unauthenticated information leak). The platform-domain customer-portal login/signup flow now resolves the tenant **server-side from `organizationId`** via `resolveTenantContext`. *Action for downstream:* portal clients that read `tenantId` from this response must instead send the org's `id` as `organizationId` to `POST /api/customer_accounts/{login,signup}`. The legacy body `tenantId` is still accepted (with a fail-closed cross-check) for one release, so existing clients keep working during migration. `GET /api/directory/tenants/lookup` is unchanged.
+
+3. **Auth user & role mutations enforce target-tenant ownership.** `PUT`/`DELETE /api/auth/users`, the user ACL/consents/resend-invite routes, and role create/update/delete now verify the **target** user/role belongs to the actor's tenant (and org scope where applicable). A non-super-admin acting on a foreign-tenant or platform (`tenantId = null`) id now receives `404` (cross-tenant/unknown) or `403` (in-tenant, out-of-allowed-org) instead of silently mutating it. Super-admin (incl. selected-tenant) behavior is unchanged. *Action for downstream:* none unless you relied on the cross-tenant bypass; integrators that assumed a tenant admin could edit arbitrary `userId`s will now be denied (this was unintended).
+
+No DB schema change. No ACL feature IDs were renamed or removed (only enforced). See [`.ai/specs/implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md`](.ai/specs/implemented/2026-06-05-tenant-ownership-and-module-acl-authorization.md). Enterprise `security` (MFA admin/enforcement) variants are tracked separately in [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md).
+
+### Enterprise `security` — MFA admin & enforcement views are now tenant-scoped (#2612)
+
+Same root cause as above, in the enterprise `security` module. Because `security/setup.ts` grants default admins `security.*`, every tenant admin held `security.admin.manage` — which previously let them read/act across **all** tenants. Now enforced (super-admin/platform required for cross-tenant or platform-wide views):
+
+1. **Per-user MFA admin (IDOR closed).** `GET /api/security/users/[id]/mfa/status` and `POST /api/security/users/[id]/mfa/reset` now verify the target user belongs to the actor's tenant — a foreign-tenant target returns `404` even with a valid sudo token (sudo validates the actor, not the target).
+2. **MFA compliance.** `GET /api/security/users/mfa/compliance?tenantId=…` no longer prefers a caller-supplied `tenantId`; a non-super-admin requesting a foreign tenant gets `403`.
+3. **Enforcement compliance & policies.** `GET /api/security/enforcement/compliance` now requires platform-admin for `scope=platform` (previously it counted users across all tenants) and validates `scope=tenant|organisation` ownership; enforcement policy list/create/update/delete reject foreign-tenant/org scopes for non-super-admins (`403`). The unfiltered `em.find(User, { deletedAt: null })` is unreachable for non-super-admins.
+
+*Action for downstream:* none unless internal tooling relied on a tenant admin viewing other tenants' MFA posture or using `scope=platform` — those calls now require a platform/super-admin. No DB schema change; no ACL feature IDs renamed. Service methods (`MfaAdminService`, `MfaEnforcementService`) gained an **optional** actor-context backstop param — additive, existing callers unaffected. Reuses the core `enforceTenantSelection`/`resolveIsSuperAdmin` helpers, so the enterprise build must be paired with a core that has them (true since ≤ 0.6.4). See [`.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md`](.ai/specs/enterprise/implemented/2026-06-05-security-mfa-cross-tenant-authorization.md).
 
 ### New `om-prepare-issue` skill (deferred-work capture)
 
@@ -56,10 +140,6 @@ yarn install-skills --all
 The installer is idempotent and tier-driven (`.ai/skills/tiers.json`) — it adds the new symlink and sweeps stale ones; it never edits skill content. Standalone apps generated by `create-mercato-app` receive `om-prepare-issue` automatically the next time agentic setup runs (`yarn mercato agentic:init`).
 
 This is tooling/docs only; no application runtime, API, DB, or module-contract surface changes.
-
----
-
-## 0.6.3 → 0.6.4 (2026-06-02)
 
 ### OSS optimistic locking default-ON (2026-05-27)
 
@@ -149,7 +229,7 @@ const data = await readApiResultOrThrow('/api/staff/team-members/assignable?page
 
 The legacy URL will stay around for at least one minor version and be removed no earlier than the next major release. Update in-tree consumers now; external HTTP clients that follow `308` redirects do not need changes.
 
-See [`.ai/specs/2026-05-08-staff-decouple-from-core.md`](.ai/specs/2026-05-08-staff-decouple-from-core.md) for the full migration plan.
+See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md) for the full migration plan.
 
 ### AI coding skills renamed with the `om-` prefix
 

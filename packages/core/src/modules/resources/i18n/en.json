@@ -191,6 +191,7 @@
   "resources.errors.unauthorized": "Unauthorized",
   "resources.nav.group": "Resource planning",
   "resources.resourceTypes.actions.add": "Add resource type",
+  "resources.resourceTypes.actions.backToList": "Back to resource types",
   "resources.resourceTypes.actions.delete": "Delete",
   "resources.resourceTypes.actions.deleteConfirm": "Delete resource type \"{{name}}\"?",
   "resources.resourceTypes.actions.edit": "Edit",

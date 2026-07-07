@@ -7,7 +7,7 @@ import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable, withDataTableNamespaces } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { MarkdownPreview } from '@open-mercato/ui/backend/markdown/MarkdownContent'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
 import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -16,14 +16,13 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Users } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 
 const PAGE_SIZE = 50
-const MARKDOWN_CLASSNAME =
-  'text-sm text-foreground break-words [&>*]:mb-2 [&>*:last-child]:mb-0 [&_ul]:ml-4 [&_ul]:list-disc [&_ol]:ml-4 [&_ol]:list-decimal [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-3 [&_pre]:text-xs'
 
 type TeamRow = {
   id: string
@@ -93,11 +92,9 @@ export default function StaffTeamsPage() {
         <div className="flex flex-col">
           <span className="font-medium">{row.original.name}</span>
           {row.original.description ? (
-            <MarkdownPreview
-              className={`${MARKDOWN_CLASSNAME} text-xs text-muted-foreground line-clamp-2`}
-            >
-              {row.original.description}
-            </MarkdownPreview>
+            <span className="text-xs text-muted-foreground line-clamp-2">
+              {markdownToPlainText(row.original.description)}
+            </span>
           ) : null}
         </div>
       ),
@@ -108,9 +105,9 @@ export default function StaffTeamsPage() {
       meta: { priority: 4 },
       cell: ({ row }) => row.original.description
         ? (
-          <MarkdownPreview className={MARKDOWN_CLASSNAME}>
-            {row.original.description}
-          </MarkdownPreview>
+          <span className="text-xs text-muted-foreground line-clamp-2">
+            {markdownToPlainText(row.original.description)}
+          </span>
         )
         : <span className="text-xs text-muted-foreground">-</span>,
     },
@@ -233,7 +230,13 @@ export default function StaffTeamsPage() {
           searchValue={search}
           onSearchChange={handleSearchChange}
           searchPlaceholder={labels.table.search}
-          emptyState={<p className="py-8 text-center text-sm text-muted-foreground">{labels.table.empty}</p>}
+          emptyState={(
+            <ListEmptyState
+              entityName={labels.title}
+              createHref="/backend/staff/teams/create"
+              createLabel={labels.actions.add}
+            />
+          )}
           actions={(
             <Button asChild size="sm">
               <Link href="/backend/staff/teams/create">

@@ -1,9 +1,8 @@
-import { NextResponse } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { verifyJwt } from '@open-mercato/shared/lib/auth/jwt'
-import { buildRequestOriginUrl } from '@open-mercato/core/modules/auth/lib/requestRedirect'
+import { buildSafeRedirectResponse } from '@open-mercato/core/modules/auth/lib/requestRedirect'
 
 function parseCookie(req: Request, name: string): string | null {
   const cookie = req.headers.get('cookie') || ''
@@ -39,18 +38,13 @@ export async function POST(req: Request) {
       }
     } catch {}
   }
-  const res = NextResponse.redirect(buildRequestOriginUrl(req, '/login'))
+  const res = buildSafeRedirectResponse(req, '/login')
   res.cookies.set('auth_token', '', { path: '/', maxAge: 0 })
   res.cookies.set('session_token', '', { path: '/', maxAge: 0 })
   return res
 }
 
-export async function GET(req: Request) {
-  return POST(req)
-}
-
 export const metadata = {
-  GET: { requireAuth: true },
   POST: { requireAuth: true },
 }
 
@@ -61,13 +55,6 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Invalidate session and redirect',
       description: 'Clears authentication cookies and redirects the browser to the login page.',
-      responses: [
-        { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
-      ],
-    },
-    GET: {
-      summary: 'Log out (legacy GET)',
-      description: 'For convenience, the GET variant performs the same logout logic as POST and issues a redirect.',
       responses: [
         { status: 302, description: 'Redirect to login after successful logout', mediaType: 'text/html' },
       ],

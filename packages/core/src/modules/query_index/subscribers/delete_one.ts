@@ -7,8 +7,30 @@ import { loadQueryIndexRowScope, resolveQueryIndexRecordScope } from '../lib/sub
 
 export const metadata = { event: 'query_index.delete_one', persistent: false }
 
+// Mirrors `shouldTriggerCoverageRefresh()` in `@open-mercato/shared/lib/data/engine.ts`
+// as a small local throttle so per-record deletes stop firing an unconditional, immediate
+// full recount. Note: this Map and the shared engine's own throttle Map are independent,
+// so a rare race right after a 5-minute window resets on both could double-fire once —
+// harmless (the recompute is idempotent) and far cheaper than today's per-delete cost.
+const DELETE_COVERAGE_THROTTLE_MS = 5 * 60 * 1000
+const lastDeleteCoverageRefreshAt = new Map<string, number>()
+
+function shouldAllowDeleteCoverageRefresh(entityType: string, tenantId: string | null): boolean {
+  if (!entityType) return false
+  const key = `${entityType}|${tenantId ?? '__null__'}`
+  const now = Date.now()
+  const last = lastDeleteCoverageRefreshAt.get(key) ?? 0
+  if (now - last < DELETE_COVERAGE_THROTTLE_MS) return false
+  lastDeleteCoverageRefreshAt.set(key, now)
+  return true
+}
+
 export default async function handle(payload: any, ctx: { resolve: <T=any>(name: string) => T }) {
-  const em = ctx.resolve<any>('em')
+  // Forked EntityManager — this awaited subscriber runs synchronously on the request
+  // `em`; isolating it prevents our queries/writes from resetting the originating CRUD
+  // write's UnitOfWork and dropping its pending changes. See upsert_one.ts for detail.
+  const baseEm = ctx.resolve<any>('em')
+  const em = typeof baseEm?.fork === 'function' ? baseEm.fork() : baseEm
   const entityType = String(payload?.entityType || '')
   const recordId = String(payload?.recordId || '')
   if (!entityType || !recordId) return
@@ -73,24 +95,45 @@ export default async function handle(payload: any, ctx: { resolve: <T=any>(name:
       }
     }
 
-    const shouldRefreshCoverage = coverageDelayMs === undefined || coverageDelayMs >= 0
-    if (shouldRefreshCoverage) {
-      const delay = coverageDelayMs ?? 0
+    // The projection row + token removal above are synchronous (the data engine
+    // awaits this subscriber) so list reads are consistent immediately. The coverage
+    // recompute (a COUNT, run inline when delayMs is 0) and the fulltext delete are
+    // secondary, so defer them fire-and-forget to keep write/bulk-delete latency bounded.
+    const suppressCoverage = payload?.suppressCoverage === true
+    const explicitDelayRequested = typeof payload?.coverageDelayMs === 'number'
+    const shouldRefreshCoverage =
+      !suppressCoverage &&
+      (coverageDelayMs === undefined || coverageDelayMs >= 0) &&
+      (explicitDelayRequested || shouldAllowDeleteCoverageRefresh(entityType, tenantId))
+    const coverageRefreshDelay = coverageDelayMs ?? 0
+    void (async () => {
       try {
         const bus = ctx.resolve<any>('eventBus')
-        await bus.emitEvent('query_index.coverage.refresh', {
-          entityType,
-          tenantId: tenantId ?? null,
-          organizationId: organizationId ?? null,
-          delayMs: delay,
-        })
-      } catch {}
-    }
-    // Emit search delete event
-    try {
-      const bus = ctx.resolve<any>('eventBus')
-      await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
-    } catch {}
+        if (shouldRefreshCoverage) {
+          await bus.emitEvent('query_index.coverage.refresh', {
+            entityType,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            delayMs: coverageRefreshDelay,
+          })
+        }
+        await bus.emitEvent('search.delete_record', { entityId: entityType, recordId, organizationId, tenantId })
+      } catch (error) {
+        await recordIndexerError(
+          { em },
+          {
+            source: 'query_index',
+            handler: 'event:query_index.delete_one:coverage_search',
+            error,
+            entityType,
+            recordId,
+            tenantId: tenantId ?? null,
+            organizationId: organizationId ?? null,
+            payload,
+          },
+        ).catch(() => {})
+      }
+    })()
   } catch (error) {
     await recordIndexerError(
       { em },

@@ -22,9 +22,12 @@ export type VariantPriceDraft = {
 }
 
 export type VariantFormValues = {
+  id?: string
   name: string
   sku: string
   barcode: string
+  gtinType: string | null
+  hsCode: string
   isDefault: boolean
   isActive: boolean
   optionValues: Record<string, string>
@@ -43,6 +46,8 @@ export const VARIANT_BASE_VALUES: VariantFormValues = {
   name: '',
   sku: '',
   barcode: '',
+  gtinType: null,
+  hsCode: '',
   isDefault: false,
   isActive: true,
   optionValues: {},

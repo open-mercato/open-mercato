@@ -4,6 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -15,6 +16,7 @@ import { applyCustomFieldVisibility } from '@open-mercato/ui/backend/utils/custo
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import type { FilterOption } from '@open-mercato/ui/backend/FilterOverlay'
 import { BooleanIcon } from '@open-mercato/ui/backend/ValueIcons'
+import { markdownToPlainText } from '@open-mercato/ui/backend/markdown/markdownToPlainText'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -415,7 +417,7 @@ export default function ProductsDataTable({
               <span className="text-xs text-muted-foreground">/{row.original.handle}</span>
             ) : null}
             {row.original.description ? (
-              <span className="text-xs text-muted-foreground">{row.original.description}</span>
+              <span className="text-xs text-muted-foreground">{markdownToPlainText(row.original.description)}</span>
             ) : null}
           </div>
         ),
@@ -678,6 +680,13 @@ export default function ProductsDataTable({
         )}
         columns={columns}
         data={rows}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('catalog.products.page.title', 'Products & services')}
+            createHref="/backend/catalog/products/create"
+            createLabel={t('catalog.products.actions.create', 'Create')}
+          />
+        )}
         searchValue={search}
         onSearchChange={handleSearchChange}
         filters={filters}

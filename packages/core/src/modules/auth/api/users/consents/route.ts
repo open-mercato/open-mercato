@@ -5,6 +5,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { UserConsent } from '@open-mercato/core/modules/auth/data/entities'
 import { verifyConsentIntegrityHash } from '@open-mercato/core/modules/auth/lib/consentIntegrity'
+import { assertActorCanAccessUserTarget } from '@open-mercato/core/modules/auth/lib/grantChecks'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { ConsentItem } from '@open-mercato/core/modules/auth/lib/consentTypes'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -37,6 +40,23 @@ export async function GET(req: Request) {
   const em = container.resolve('em') as EntityManager
   const tenantId = auth.tenantId ?? null
   const organizationId = auth.orgId ?? null
+
+  if (auth.sub) {
+    try {
+      await assertActorCanAccessUserTarget({
+        em,
+        rbacService: container.resolve('rbacService') as RbacService,
+        actorUserId: auth.sub,
+        tenantId,
+        organizationId,
+        targetUserId: parsed.data.userId,
+      })
+    } catch (err) {
+      if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
+      throw err
+    }
+  }
+
   const consents = await findWithDecryption(
     em,
     UserConsent,

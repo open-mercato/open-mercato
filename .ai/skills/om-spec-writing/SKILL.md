@@ -16,13 +16,14 @@ Design and review specifications (SPECs) against Open Mercato's architecture, na
     - Use `YYYY-MM-DD` for `date` and kebab-case for `title`
 3.  **Start Minimal**: Write a **Skeleton Spec** first (TLDR + 2-3 key sections). Do NOT write the full spec in one pass.
     - Before writing the skeleton, scan the brief for **critical unknowns** — decisions that block architecture, data model, or scope. These are questions where a wrong assumption would require rewriting large parts of the spec.
+    - One unknown is always checked: if the brief bundles more than one independently deployable capability (test: would each function without the other?), splitting into separate specs MUST be raised as an Open Question.
     - If critical unknowns exist, add a numbered **Open Questions** block (`Q1`, `Q2`, …) directly in the skeleton, immediately after the TLDR. One question per line. Keep each question short and answerable (binary or multiple-choice where possible).
     - **STOP after presenting the skeleton.** Do not proceed to Step 5 (Research) or beyond until the user has answered all questions. This is a hard gate.
 4.  **Iterate**: Apply answers from the Open Questions gate to fill in the skeleton. Remove the Open Questions block once all are resolved. If new unknowns surface during research or design, repeat the gate for those questions only.
 5.  **Research**: Challenge requirements against open-source market leaders in the domain.
 6.  **Design**: Create the spec design and architecture.
 7.  **Implementation Breakdown**: Create implementation details broken down into **Phases** (stories) and **Steps** (testable tasks). Each step should result in a working application.
-8.  **Review**: Apply the [Spec Checklist](references/spec-checklist.md).
+8.  **Review**: Apply the [Spec Checklist](references/spec-checklist.md). Delegate its §1 scope-cohesion item to a fresh-context subagent that receives only the spec file path — the author cannot adversarially re-read its own spec.
 9.  **Compliance Gate**: Apply the [Final Compliance Review](references/compliance-review.md).
 10. **Output**: Finalize the specification file.
 
@@ -73,7 +74,7 @@ Refer to [Spec Review Checklist](references/spec-checklist.md).
 2.  **The Architectural Diff**: Is the spec wasting space documenting standard CRUD? Cut the noise, focus on the unique.
 3.  **Singularity Law**: Does the spec use `pos.carts` (FAIL) or `pos.cart` (PASS)?
 4.  **Undo Contract**: How is the state reversed? Is the "Undo" logic as detailed as the "Execute"?
-5.  **Module Isolation**: Are we using Event Bus for side effects or cheating with direct imports?
+5.  **Module Isolation**: Are we using Event Bus for side effects or cheating with direct imports? And for OPTIONAL peers — which module owns the glue, and does it degrade gracefully when the peer is absent (soft-optional resolve in `try/catch`, never a hard `requires`)?
 6.  **Canonical Mechanisms**: Does the spec reach for the framework primitives (`makeCrudRoute`, `CrudForm`, `DataTable`, `apiCall` / `useGuardedMutation`, DI-resolved cache, `createModuleEvents`) or invent its own substitute? See `packages/core/AGENTS.md` → API Routes / Module Setup, `packages/ui/AGENTS.md` → CrudForm / DataTable, `packages/cache/AGENTS.md`, `packages/events/AGENTS.md`.
 7.  **Sensitive Data**: For every PII / GDPR / address / contact / free-text-about-people / integration-credential column the spec proposes, does it declare an `encryption.ts` `defaultEncryptionMaps` entry and route reads through `findWithDecryption`? See `packages/core/AGENTS.md` → Encryption and `apps/docs/docs/user-guide/encryption.mdx`. No hand-rolled AES, no `crypto.subtle`, no "TODO encrypt later".
 8.  **Design System**: Does every UI mock / className snippet in the spec match the DS canon — semantic status tokens (no `text-red-*` / `bg-green-*`), Tailwind text scale (no `text-[11px]` / `text-[13px]`), shared primitives (`StatusBadge`, `Alert`, `FormField`, `SectionHeader`, `CollapsibleSection`, `LoadingMessage` / `Spinner` / `DataLoader`, `EmptyState`), lucide-react icons in page body (never inline `<svg>`), dialog `Cmd/Ctrl+Enter` submit and `Escape` cancel, `aria-label` on every icon-only button? See `.ai/ds-rules.md` (foundations), `.ai/ui-components.md` (component reference), `packages/ui/AGENTS.md` (workflow), and the root `AGENTS.md` → Design System Rules. Specs that touch existing pages MUST honour the Boy Scout rule (migrate touched lines to semantic tokens).

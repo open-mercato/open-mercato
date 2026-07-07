@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isValidPhoneNumber } from '@open-mercato/shared/lib/phone'
+import { COORDINATE_RANGES } from '@open-mercato/shared/lib/location/coordinates'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
 const uuid = () => z.string().uuid()
@@ -10,20 +11,22 @@ export const ACTIVITY_TIME_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.t
 export const ACTIVITY_PHONE_REQUIRED_MESSAGE_KEY = 'customers.activities.errors.phoneRequired'
 export const ACTIVITY_PHONE_INVALID_MESSAGE_KEY = 'customers.activities.errors.phoneInvalid'
 
-const phoneSchema = z.string().trim().max(50).refine((val) => {
-  return isValidPhoneNumber(val)
-}, { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY }).optional()
-
-// Optional URL/email fields map to nullable DB columns. Treat both '' and null as an
-// explicit "clear this value" signal (both coerce to null) so a previously-set value can
-// be removed via update; without this `''` fails `.url()/.email()` and `null` fails the
-// string type, leaving the columns effectively write-once-non-empty. The command layer
-// already persists null. See #2526.
 const emptyStringToNull = (value: unknown): unknown => {
   if (typeof value !== 'string') return value
   const trimmed = value.trim()
   return trimmed.length ? trimmed : null
 }
+
+const phoneSchema = z.preprocess(
+  emptyStringToNull,
+  z
+    .string()
+    .trim()
+    .max(50)
+    .refine((val) => isValidPhoneNumber(val), { message: CUSTOMER_PHONE_INVALID_MESSAGE_KEY })
+    .nullable()
+    .optional(),
+)
 
 const clearableEmailSchema = z.preprocess(
   emptyStringToNull,
@@ -33,6 +36,28 @@ const clearableEmailSchema = z.preprocess(
 const clearableUrlSchema = z.preprocess(
   emptyStringToNull,
   z.string().url().max(300).nullable().optional(),
+)
+
+// Domain is a plain (non-URL) string that maps to a nullable column, so blanking
+// a previously-set value on edit must transmit null to clear it. See #2529.
+const clearableDomainSchema = z.preprocess(
+  emptyStringToNull,
+  z.string().trim().max(200).nullable().optional(),
+)
+
+// Plain optional string fields that map to nullable columns: blanking a previously-set
+// value on edit must transmit null to clear it, not be silently dropped. See #3050.
+const clearableStringSchema = (max: number) =>
+  z.preprocess(emptyStringToNull, z.string().trim().max(max).nullable().optional())
+
+// Annual revenue maps to a nullable numeric column. `''`/whitespace/null all clear it;
+// `.nullable()` short-circuits before coercion so null does not coerce to 0. See #3050.
+const clearableRevenueSchema = z.preprocess(
+  (value) => {
+    if (typeof value === 'string' && value.trim().length === 0) return null
+    return value
+  },
+  z.coerce.number().min(0).nullable().optional(),
 )
 
 const interactionPhoneNumberSchema = z.string().trim().max(50).optional().nullable()
@@ -61,7 +86,8 @@ const displayNameSchema = z.string().trim().min(1).max(200)
 
 const baseEntitySchema = {
   displayName: displayNameSchema,
-  description: z.string().trim().max(4000).optional(),
+  // Nullable so a blanked description on edit clears the column instead of being dropped. See #3050.
+  description: clearableStringSchema(4000),
   ownerUserId: uuid().optional(),
   primaryEmail: clearableEmailSchema,
   primaryPhone: phoneSchema,
@@ -90,13 +116,14 @@ const personFirstNameSchema = z.string().trim().min(1).max(120)
 const personLastNameSchema = z.string().trim().min(1).max(120)
 
 const companyDetailsSchema = {
-  legalName: z.string().trim().max(200).optional(),
-  brandName: z.string().trim().max(200).optional(),
-  domain: z.string().trim().max(200).optional(),
+  // Nullable so blanked values on edit clear the columns instead of being dropped. See #3050.
+  legalName: clearableStringSchema(200),
+  brandName: clearableStringSchema(200),
+  domain: clearableDomainSchema,
   websiteUrl: clearableUrlSchema,
   industry: z.string().trim().max(150).optional(),
-  sizeBucket: z.string().trim().max(100).optional(),
-  annualRevenue: z.coerce.number().min(0).optional(),
+  sizeBucket: clearableStringSchema(100),
+  annualRevenue: clearableRevenueSchema,
 }
 
 export const personCreateSchema = scopedSchema.extend({
@@ -238,8 +265,18 @@ export const addressCreateSchema = scopedSchema.extend({
   region: z.string().max(150).optional(),
   postalCode: z.string().max(30).optional(),
   country: z.string().max(150).optional(),
-  latitude: z.coerce.number().optional(),
-  longitude: z.coerce.number().optional(),
+  latitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.latitude.min)
+    .max(COORDINATE_RANGES.latitude.max)
+    .nullable()
+    .optional(),
+  longitude: z.coerce
+    .number()
+    .min(COORDINATE_RANGES.longitude.min)
+    .max(COORDINATE_RANGES.longitude.max)
+    .nullable()
+    .optional(),
   isPrimary: z.boolean().optional(),
 })
 

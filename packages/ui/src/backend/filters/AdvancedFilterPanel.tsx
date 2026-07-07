@@ -295,6 +295,33 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
     props.onOpenChange(false)
   }
 
+  const { onFlush, onOpenChange, open } = props
+
+  React.useEffect(() => {
+    if (!open || pickerOpen || saveDialogOpen) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      // Do NOT gate on `event.defaultPrevented`. Radix keeps a just-closed
+      // dropdown's dismissable layer mounted while its exit animation plays, and
+      // that layer still calls preventDefault() on Escape. Picking a value in the
+      // operator/value Select therefore leaves a layer that swallows the next
+      // Escape, so the panel never closes and the active-filter chips never render
+      // (regression seen on loaded standalone CI runners where the exit-animation
+      // unmount is delayed). Instead, only defer Escape to an inner dropdown that
+      // is *actually* open — a Radix Select trigger flips aria-expanded to "false"
+      // synchronously on selection, so a closing-but-animating dropdown is no
+      // longer treated as open here.
+      if (typeof document !== 'undefined'
+        && document.querySelector('[role="combobox"][aria-expanded="true"]')) {
+        return
+      }
+      onOpenChange(false)
+      onFlush?.()
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [onFlush, onOpenChange, open, pickerOpen, saveDialogOpen])
+
   React.useEffect(() => {
     if (!savedFilterStorageKey) {
       setSavedFilters([])
@@ -383,7 +410,7 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
         align="end"
         sideOffset={8}
         data-testid="advanced-filter-panel"
-        onPointerDownOutside={ignoreAdvancedFilterPortalInteractions}
+ded        onPointerDownOutside={ignoreAdvancedFilterPortalInteractions}
         onFocusOutside={ignoreAdvancedFilterPortalInteractions}
         onInteractOutside={ignoreAdvancedFilterPortalInteractions}
       >

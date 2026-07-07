@@ -3,6 +3,7 @@ import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__inte
 import {
   createCurrencyFixture,
   deleteCurrenciesEntityIfExists,
+  generateUniqueCurrencyCode,
 } from '@open-mercato/core/modules/core/__integration__/helpers/currenciesFixtures'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
@@ -45,12 +46,7 @@ import {
 
 const CURRENCY_API_BASE = '/api/currencies/currencies'
 
-function randomCode(): string {
-  const letters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  let out = ''
-  for (let i = 0; i < 3; i += 1) out += letters[Math.floor(Math.random() * letters.length)]
-  return out
-}
+const randomCode = generateUniqueCurrencyCode
 
 test.describe('TC-LOCK-OSS-046: optimistic-lock negative / additive contract', () => {
   test('NEG-01: a header-less PUT and DELETE always succeed (no 409)', async ({ page }) => {

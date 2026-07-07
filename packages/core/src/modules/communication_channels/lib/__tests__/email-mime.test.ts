@@ -119,6 +119,24 @@ describe('htmlToText', () => {
     expect(htmlToText('hello<script')).toBe('hello')
     expect(htmlToText('a<style>.x{color:red}')).toBe('a')
   })
+
+  it('strips entity-encoded tags so decoding cannot reintroduce a live <script', () => {
+    expect(htmlToText('a&lt;script&gt;alert(1)&lt;/script&gt;b')).toBe('a b')
+    expect(htmlToText('hello&lt;script')).toBe('hello')
+  })
+
+  it('strips HTML comments, including a comment wrapping a tag fragment', () => {
+    expect(htmlToText('a<!-- hidden -->b')).toBe('a b')
+    expect(htmlToText('a<!--<script-->b')).toBe('a b')
+    expect(htmlToText('a<!-- unterminated comment')).toBe('a')
+  })
+
+  it('decodes entities in a single pass so a produced entity is never re-decoded', () => {
+    // &amp;amp; -> &amp; (literal), not & — the produced "&amp;" must not decode again.
+    expect(htmlToText('<p>&amp;amp;</p>')).toBe('&amp;')
+    // &amp;nbsp; -> &nbsp; (literal), the produced "&nbsp;" must not become a space.
+    expect(htmlToText('<p>x&amp;nbsp;y</p>')).toBe('x&nbsp;y')
+  })
 })
 
 describe('escapeQuotes', () => {

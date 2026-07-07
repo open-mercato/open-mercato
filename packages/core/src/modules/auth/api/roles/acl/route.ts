@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { logCrudAccess } from '@open-mercato/shared/lib/crud/factory'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { RoleAcl, Role } from '@open-mercato/core/modules/auth/data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -183,7 +183,7 @@ export async function PUT(req: Request) {
   // no prior version to conflict with).
   if (acl) {
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: 'auth.role_acl',
         resourceId: acl.id,
         current: acl.updatedAt ?? null,

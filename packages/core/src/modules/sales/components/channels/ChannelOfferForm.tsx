@@ -11,6 +11,7 @@ import { readApiResultOrThrow, apiCall, withScopedApiRequestHeaders } from '@ope
 import { buildOptimisticLockHeader, extractOptimisticLockConflict } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import {
@@ -136,6 +137,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     : null)
   const [loading, setLoading] = React.useState(mode === 'edit')
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
   const [priceKinds, setPriceKinds] = React.useState<PriceKindSummary[]>([])
   const [mediaOptions, setMediaOptions] = React.useState<MediaOption[]>([])
   const attachmentCache = React.useRef<Map<string, MediaOption[]>>(new Map())
@@ -291,6 +293,7 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     async function loadOffer() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const payload = await readApiResultOrThrow<OfferResponse>(
           `/api/catalog/offers?id=${encodeURIComponent(offerKey)}&pageSize=1`,
@@ -298,7 +301,10 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
           { errorMessage: t('sales.channels.offers.errors.loadOffer', 'Failed to load offer.') },
         )
         const offer = Array.isArray(payload.items) ? payload.items[0] : null
-        if (!offer) throw new Error(t('sales.channels.offers.errors.notFound', 'Offer not found.'))
+        if (!offer) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const values = mapOfferToFormValues(offer, lockedChannelId)
         const pricePayload = await readApiResultOrThrow<PriceResponse>(
           `/api/catalog/prices?offerId=${encodeURIComponent(offer.id as string)}&pageSize=${MAX_LIST_PAGE_SIZE}`,
@@ -674,13 +680,19 @@ export function ChannelOfferForm({ channelId: lockedChannelId, offerId, mode }: 
     router.push(buildChannelOffersHref(targetChannel))
   }, [initialValues?.channelId, lockedChannelId, offerId, router, t])
 
+  if (isNotFound) {
+    return (
+      <RecordNotFoundState
+        label={t('sales.channels.offers.errors.notFound', 'Offer not found.')}
+        backHref={channelOffersHref}
+        backLabel={t('sales.channels.offers.actions.backToList', 'Back to offers')}
+      />
+    )
+  }
+
   return (
     <div>
-      {error ? (
-        <div className="mb-4 rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
-        </div>
-      ) : null}
+      {error ? <ErrorMessage label={error} className="mb-4" /> : null}
       <CrudForm<OfferFormValues>
         title={mode === 'create'
           ? t('sales.channels.offers.form.createTitle', 'Create offer')

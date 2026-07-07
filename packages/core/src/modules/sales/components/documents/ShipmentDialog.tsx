@@ -15,7 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -46,6 +46,7 @@ type ShipmentDialogProps = {
   currencyCode?: string | null
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   computeAvailable: (lineId: string, excludeShipmentId?: string | null) => number
   shippingAddressSnapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null
   onClose: () => void
@@ -65,6 +66,34 @@ type StatusOption = {
   value: string
   label: string
   color: string | null
+}
+
+function mergeShippingMethodOptions(
+  options: ShippingMethodOption[],
+  selected: ShippingMethodOption | null,
+): ShippingMethodOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
+function mergeStatusOptions(options: StatusOption[], selected: StatusOption | null): StatusOption[] {
+  if (!selected) return options
+  if (options.some((option) => option.id === selected.id)) return options
+  return [selected, ...options]
+}
+
+function mapStatusOption(entry: Record<string, unknown>): StatusOption | null {
+  const id = typeof entry.id === 'string' ? entry.id : null
+  const value = typeof entry.value === 'string' ? entry.value : null
+  if (!id || !value) return null
+  const label =
+    typeof entry.label === 'string' && entry.label.trim().length
+      ? entry.label
+      : value
+  const color =
+    typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
+  return { id, value, label, color }
 }
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
@@ -227,6 +256,20 @@ const extractShipmentAddressSnapshot = (
   return normalizeAddressSnapshot(raw as Record<string, unknown>)
 }
 
+const addressOptionsSignature = (options: ShipmentAddressOption[]): string =>
+  options.map((option) => `${snapshotKey(option.snapshot) ?? ''}::${option.id}`).join('||')
+
+function useStableAddressOptions(options: ShipmentAddressOption[]): ShipmentAddressOption[] {
+  const signature = addressOptionsSignature(options)
+  const stableRef = React.useRef(options)
+  const signatureRef = React.useRef(signature)
+  if (signatureRef.current !== signature) {
+    signatureRef.current = signature
+    stableRef.current = options
+  }
+  return stableRef.current
+}
+
 export function ShipmentDialog({
   open,
   mode,
@@ -236,6 +279,7 @@ export function ShipmentDialog({
   currencyCode,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   computeAvailable,
   shippingAddressSnapshot,
   onClose,
@@ -295,7 +339,7 @@ export function ShipmentDialog({
     [shipmentAddressSnapshot, t],
   )
 
-  const baseAddressOptions = React.useMemo(
+  const computedBaseAddressOptions = React.useMemo(
     () =>
       dedupeAddressOptions(
         [shippingAddressOption, shipmentAddressOption].filter(
@@ -304,6 +348,7 @@ export function ShipmentDialog({
       ),
     [shipmentAddressOption, shippingAddressOption],
   )
+  const baseAddressOptions = useStableAddressOptions(computedBaseAddressOptions)
 
   const preferredAddressId = React.useMemo(() => {
     const shipmentKey = snapshotKey(shipmentAddressSnapshot)
@@ -424,7 +469,10 @@ export function ShipmentDialog({
 
   const mergeAddressOptions = React.useCallback(
     (options: ShipmentAddressOption[]) =>
-      setAddressOptions((prev) => dedupeAddressOptions([...prev, ...options])),
+      setAddressOptions((prev) => {
+        const next = dedupeAddressOptions([...prev, ...options])
+        return next.length === prev.length ? prev : next
+      }),
     [],
   )
 
@@ -526,7 +574,12 @@ export function ShipmentDialog({
           .map((item) => mapShippingMethod(item))
           .filter((entry): entry is ShippingMethodOption => !!entry)
         if (!query) {
-          setShippingMethods(options)
+          setShippingMethods((current) =>
+            current.reduce(
+              (next, selected) => mergeShippingMethodOptions(next, selected),
+              options,
+            ),
+          )
         }
         return options
       } catch (err) {
@@ -588,6 +641,21 @@ export function ShipmentDialog({
       />
     ),
     [],
+  )
+
+  const shippingMethodLookupOptions = React.useMemo<LookupSelectItem[]>(
+    () =>
+      shippingMethods.map((option) => ({
+        id: option.id,
+        title: option.name,
+        subtitle: [option.code, buildPriceSubtitle(option)].filter(Boolean).join(' • ') || undefined,
+        icon: (
+          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <Truck className="h-4 w-4" />
+          </div>
+        ),
+      })),
+    [buildPriceSubtitle, shippingMethods],
   )
 
   const loadDocumentStatuses = React.useCallback(async (): Promise<StatusOption[]> => {
@@ -671,20 +739,14 @@ export function ShipmentDialog({
       )
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       const mapped = items
-        .map((entry) => {
-          const id = typeof entry.id === 'string' ? entry.id : null
-          const value = typeof entry.value === 'string' ? entry.value : null
-          if (!id || !value) return null
-          const label =
-            typeof entry.label === 'string' && entry.label.trim().length
-              ? entry.label
-              : value
-          const color =
-            typeof entry.color === 'string' && entry.color.trim().length ? entry.color : null
-          return { id, value, label, color }
-        })
+        .map((entry) => mapStatusOption(entry))
         .filter((entry): entry is StatusOption => Boolean(entry))
-      setShipmentStatuses(mapped)
+      setShipmentStatuses((current) =>
+        current.reduce(
+          (next, selected) => mergeStatusOptions(next, selected),
+          mapped,
+        ),
+      )
       return mapped
     } catch (err) {
       console.error('sales.shipments.statuses.load', err)
@@ -693,6 +755,20 @@ export function ShipmentDialog({
     } finally {
       setShipmentStatusLoading(false)
     }
+  }, [])
+
+  const loadShipmentStatusById = React.useCallback(async (statusEntryId: string): Promise<StatusOption | null> => {
+    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/sales/shipment-statuses?id=${encodeURIComponent(statusEntryId)}&pageSize=1`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    const items = Array.isArray(response.result?.items) ? response.result.items : []
+    return (
+      items
+        .map((entry) => mapStatusOption(entry))
+        .find((entry): entry is StatusOption => entry?.id === statusEntryId) ?? null
+    )
   }, [])
 
   const fetchDocumentStatusItems = React.useCallback(
@@ -760,6 +836,17 @@ export function ShipmentDialog({
     [loadShipmentStatuses, renderStatusIcon, shipmentStatuses],
   )
 
+  const shipmentStatusLookupOptions = React.useMemo<LookupSelectItem[]>(
+    () =>
+      shipmentStatuses.map((option) => ({
+        id: option.id,
+        title: option.label,
+        subtitle: option.value,
+        icon: renderStatusIcon(option.color),
+      })),
+    [renderStatusIcon, shipmentStatuses],
+  )
+
   React.useEffect(() => {
     if (!open) return
     setFormResetKey((prev) => prev + 1)
@@ -814,6 +901,32 @@ export function ShipmentDialog({
     shipment?.shippingMethodCode,
     shipment?.shippingMethodId,
     shipment?.shippingMethodName,
+  ])
+
+  React.useEffect(() => {
+    const statusEntryId = shipment?.statusEntryId
+    if (!statusEntryId || shipmentStatuses.some((status) => status.id === statusEntryId)) return
+    const fallback =
+      shipment.status || shipment.statusLabel
+        ? {
+            id: statusEntryId,
+            value: shipment.status ?? statusEntryId,
+            label: shipment.statusLabel ?? shipment.status ?? statusEntryId,
+            color: null,
+          }
+        : null
+    setShipmentStatuses((current) => mergeStatusOptions(current, fallback))
+    loadShipmentStatusById(statusEntryId)
+      .then((selected) => {
+        setShipmentStatuses((current) => mergeStatusOptions(current, selected))
+      })
+      .catch(() => {})
+  }, [
+    loadShipmentStatusById,
+    shipment?.status,
+    shipment?.statusEntryId,
+    shipment?.statusLabel,
+    shipmentStatuses,
   ])
 
   React.useEffect(() => {
@@ -978,7 +1091,9 @@ export function ShipmentDialog({
       let result
       try {
         result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap B) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/shipments',
@@ -1108,6 +1223,7 @@ export function ShipmentDialog({
     },
     [
       currencyCode,
+      documentUpdatedAt,
       lines,
       mode,
       onAddComment,
@@ -1115,7 +1231,6 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
-      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,
@@ -1308,6 +1423,7 @@ export function ShipmentDialog({
               value={currentValue}
               onChange={(next) => setValue(next ?? '')}
               fetchItems={fetchShippingMethodItems}
+              options={shippingMethodLookupOptions}
               placeholder={t('sales.documents.shipments.shippingMethodPlaceholder', 'Select method')}
               loading={shippingMethodLoading}
               minQuery={0}
@@ -1326,6 +1442,7 @@ export function ShipmentDialog({
               value={currentValue}
               onChange={(next) => setValue(next ?? '')}
               fetchItems={fetchShipmentStatusItems}
+              options={shipmentStatusLookupOptions}
               placeholder={t('sales.documents.shipments.statusPlaceholder', 'Select shipment status')}
               loading={shipmentStatusLoading}
               minQuery={0}

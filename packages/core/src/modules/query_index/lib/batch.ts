@@ -1,4 +1,5 @@
 import { type Kysely, sql } from 'kysely'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
 
@@ -245,7 +246,13 @@ export async function upsertIndexBatch(
       .execute()
     try {
       await replaceSearchTokensForBatch(db, tokenPayloads)
-    } catch {}
+    } catch (searchTokenError) {
+      // Record instead of swallowing: a failed token write leaves fulltext search stale.
+      await recordIndexerError(
+        { db },
+        { source: 'fulltext', handler: 'query_index:reindex-batch', error: searchTokenError, entityType, tenantId: scope.tenantId ?? null, organizationId: scope.orgId ?? null },
+      ).catch(() => undefined)
+    }
     if (debugEnabled) {
       console.info('[reindex:batch:tokens]', {
         entityType,
@@ -298,5 +305,11 @@ export async function upsertIndexBatch(
   }
   try {
     await replaceSearchTokensForBatch(db, tokenPayloads)
-  } catch {}
+  } catch (searchTokenError) {
+    // Record instead of swallowing: a failed token write leaves fulltext search stale.
+    await recordIndexerError(
+      { db },
+      { source: 'fulltext', handler: 'query_index:reindex-batch', error: searchTokenError, entityType, tenantId: scope.tenantId ?? null, organizationId: scope.orgId ?? null },
+    ).catch(() => undefined)
+  }
 }

@@ -1,5 +1,6 @@
 import type { EntityId } from './entities'
 import type { QueryEngine } from '../lib/query/types'
+import type { SearchFieldPolicy } from './search'
 
 export type VectorDriverId = 'pgvector' | 'qdrant' | 'chromadb'
 
@@ -71,6 +72,12 @@ export type VectorEntityConfig = {
    * Provide extra deep links rendered next to the search result.
    */
   resolveLinks?: (ctx: VectorBuildContext) => Promise<VectorLinkDescriptor[] | null> | VectorLinkDescriptor[] | null
+  /**
+   * Controls which record/custom fields are eligible for the default embedding source builder.
+   * Applied only when `buildSource` is not provided. `excluded`/`hashOnly` fields are never embedded;
+   * when `searchable` is defined it acts as an allowlist for both record and custom fields.
+   */
+  fieldPolicy?: SearchFieldPolicy
 }
 
 export type VectorModuleConfig = {

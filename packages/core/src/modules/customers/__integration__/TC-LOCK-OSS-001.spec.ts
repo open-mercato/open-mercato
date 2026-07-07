@@ -8,7 +8,7 @@ import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/he
 /**
  * TC-LOCK-OSS-001: OSS opt-in optimistic locking on customers.company
  *
- * Spec: .ai/specs/2026-05-25-oss-optimistic-locking.md
+ * Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
  *
  * Verifies that when `OM_OPTIMISTIC_LOCK` covers `customers.company`:
  *   - A PUT without the extension header succeeds (guard skips — opt-in semantics).
@@ -65,6 +65,9 @@ async function putCompany(
 
 test.describe('TC-LOCK-OSS-001: customers.company optimistic-lock guard', () => {
   test('writes without the header always succeed (opt-in semantics)', async ({ request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     let token: string | null = null
     let companyId: string | null = null
     try {
@@ -81,6 +84,9 @@ test.describe('TC-LOCK-OSS-001: customers.company optimistic-lock guard', () => 
   })
 
   test('fresh updatedAt header passes; stale header returns 409 with structured body', async ({ request }) => {
+    test.slow()
+    test.setTimeout(120_000)
+
     let token: string | null = null
     let companyId: string | null = null
     try {

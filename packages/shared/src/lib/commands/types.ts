@@ -104,6 +104,17 @@ export interface CommandHandler<TInput = unknown, TResult = unknown> {
   buildLog?(args: CommandLogBuilderArgs<TInput, TResult>): Promise<CommandLogMetadata | null | undefined> | CommandLogMetadata | null | undefined
   captureAfter?(input: TInput, result: TResult, ctx: CommandRuntimeContext): Promise<unknown> | unknown
   undo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<void> | void
+  /**
+   * Optional redo handler. When defined, the command bus calls this instead of
+   * `execute()` while replaying a previously undone action (the redo route passes
+   * `redoLogEntry` in the execution options). It receives the source action log so
+   * it can re-materialize the original record **reusing its id** — for a create
+   * command this restores the soft-deleted row (or re-creates it from the
+   * `snapshotAfter`) instead of minting a new id, keeping undo/redo snapshots and
+   * references stable (issue #2506, invariant I6). Handlers without `redo` keep the
+   * legacy behavior of replaying `execute(__redoInput)`.
+   */
+  redo?(params: { input: TInput; ctx: CommandRuntimeContext; logEntry: CommandUndoLogEntry }): Promise<TResult> | TResult
 }
 
 export type CommandExecutionOptions<TInput> = {
@@ -111,6 +122,16 @@ export type CommandExecutionOptions<TInput> = {
   ctx: CommandRuntimeContext
   metadata?: CommandLogMetadata | null
   skipCacheInvalidation?: boolean
+  /**
+   * When set, marks this execution as a redo of a previously undone action. If the
+   * resolved handler defines a `redo` method, the command bus calls
+   * `handler.redo({ input, ctx, logEntry })` instead of `handler.execute(...)`. The
+   * rest of the pipeline (snapshots, buildLog, undo-token minting, persistence,
+   * cache invalidation, side effects) is identical, so the fresh log entry — and
+   * the `x-om-operation` header derived from it — automatically carry the restored
+   * resourceId. Ignored when the handler has no `redo` method (legacy replay path).
+   */
+  redoLogEntry?: CommandUndoLogEntry | null
 }
 
 export function defaultUndoToken(): string {

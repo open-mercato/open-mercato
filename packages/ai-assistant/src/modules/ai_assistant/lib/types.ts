@@ -217,6 +217,13 @@ export interface McpServerOptions {
   }
   /** API key secret for authentication (alternative to manual context) */
   apiKeySecret?: string
+  /**
+   * Explicit, loud opt-in for running without authentication as a superadmin
+   * (development/testing only). When false/unset and no `apiKeySecret` or
+   * `context.userId` is supplied, the server fails closed and refuses to start
+   * instead of silently escalating to superadmin. NEVER enable in production.
+   */
+  allowUnauthenticatedSuperadmin?: boolean
 }
 
 /**

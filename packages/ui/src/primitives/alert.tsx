@@ -133,7 +133,7 @@ const defaultStatusIcons: Record<AlertStatus, React.ComponentType<{ className?: 
   feature: Rocket,
 }
 
-export type AlertProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'role'> &
+export type AlertProps = Omit<React.HTMLAttributes<HTMLDivElement>, 'role' | 'style'> &
   Omit<VariantProps<typeof alertVariants>, 'status' | 'style' | 'size'> & {
     status?: AlertStatus
     style?: AlertStyle

@@ -6,6 +6,7 @@ import {
   expectConflictBanner,
   expectNoConflictBanner,
 } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 import { fillControlledInput } from '@open-mercato/core/modules/core/__integration__/helpers/ui'
 
 /**
@@ -70,6 +71,8 @@ async function deleteIfExists(
 
 test.describe('TC-LOCK-OSS-037: resources edit/delete optimistic-lock conflict bar', () => {
   test('stale resource edit shows the conflict bar; clean edit does not', async ({ page }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only resource conflict choreography.')
+
     const token = await getAuthToken(page.request, 'admin')
     const stamp = Date.now()
     let resourceId: string | null = null
@@ -79,9 +82,10 @@ test.describe('TC-LOCK-OSS-037: resources edit/delete optimistic-lock conflict b
       await login(page, 'admin')
       await page.goto(`/backend/resources/resources/${resourceId}`)
 
-      // Form is loaded (its optimistic-lock token is now captured at load time).
+      // Wait until the form is FULLY loaded (input populated with the record value),
+      // not merely visible, so the optimistic-lock token captured is the pre-bump one.
       const nameInput = page.locator('[data-crud-field-id="name"] input').first()
-      await expect(nameInput).toBeVisible({ timeout: 15_000 })
+      await expect(nameInput).toHaveValue(`QA Lock 037 R ${stamp}`, { timeout: 15_000 })
 
       // Advance updated_at out-of-band → the browser form now holds a stale token.
       await bumpRecordViaApi(page.request, token, RESOURCES_API, {

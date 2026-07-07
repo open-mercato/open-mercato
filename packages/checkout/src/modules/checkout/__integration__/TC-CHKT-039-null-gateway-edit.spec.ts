@@ -12,8 +12,8 @@ import {
   updateTemplate,
 } from './helpers/fixtures'
 
-test.describe('TC-CHKT-039: Draft template/pay-link edits tolerate a null gateway provider (issue #2505)', () => {
-  test('template: clearing the gateway provider on a draft saves and round-trips as null', async ({ request }) => {
+test.describe('TC-CHKT-039: Draft template/pay-link gateway provider edit validation', () => {
+  test('template: clearing the required gateway provider is rejected and preserves the previous value', async ({ request }) => {
     let token: string | null = null
     let templateId: string | null = null
 
@@ -29,38 +29,35 @@ test.describe('TC-CHKT-039: Draft template/pay-link edits tolerate a null gatewa
         status: 'draft',
         gatewayProviderKey: null,
       })
-      expect(
-        clearResponse.ok(),
-        `Clearing the gateway on a draft template should succeed: ${clearResponse.status()} ${JSON.stringify(await readJsonSafe(clearResponse))}`,
-      ).toBeTruthy()
+      expect(clearResponse.status()).toBe(400)
+      const clearBody = await readJsonSafe<{ fieldErrors?: { gatewayProviderKey?: string }; error?: string }>(clearResponse)
+      expect(clearBody?.fieldErrors?.gatewayProviderKey ?? clearBody?.error ?? '').toContain('checkout.validation.gatewayProviderKey.required')
 
       const cleared = await readTemplate(request, token, templateId)
-      expect(cleared.gatewayProviderKey ?? null).toBeNull()
-      expect(cleared.name).toBe('Consulting Fee (no gateway)')
+      expect(cleared.gatewayProviderKey).toBe('mock')
+      expect(cleared.name).not.toBe('Consulting Fee (no gateway)')
 
       const renameResponse = await updateTemplate(request, token, templateId, {
         name: 'Consulting Fee renamed',
-        gatewayProviderKey: null,
       })
       expect(
         renameResponse.ok(),
-        `Editing a field on a gateway-less draft template should succeed: ${renameResponse.status()} ${JSON.stringify(await readJsonSafe(renameResponse))}`,
+        `Editing a field while retaining the existing gateway should succeed: ${renameResponse.status()} ${JSON.stringify(await readJsonSafe(renameResponse))}`,
       ).toBeTruthy()
 
       const renamed = await readTemplate(request, token, templateId)
-      expect(renamed.gatewayProviderKey ?? null).toBeNull()
+      expect(renamed.gatewayProviderKey).toBe('mock')
       expect(renamed.name).toBe('Consulting Fee renamed')
 
       const blankResponse = await updateTemplate(request, token, templateId, {
         gatewayProviderKey: '   ',
       })
-      expect(
-        blankResponse.ok(),
-        `A blank gateway should normalize to null on a draft template: ${blankResponse.status()} ${JSON.stringify(await readJsonSafe(blankResponse))}`,
-      ).toBeTruthy()
+      expect(blankResponse.status()).toBe(400)
+      const blankBody = await readJsonSafe<{ fieldErrors?: { gatewayProviderKey?: string }; error?: string }>(blankResponse)
+      expect(blankBody?.fieldErrors?.gatewayProviderKey ?? blankBody?.error ?? '').toContain('checkout.validation.gatewayProviderKey.required')
 
       const blanked = await readTemplate(request, token, templateId)
-      expect(blanked.gatewayProviderKey ?? null).toBeNull()
+      expect(blanked.gatewayProviderKey).toBe('mock')
     } finally {
       await deleteCheckoutEntityIfExists(request, token, 'templates', templateId)
     }

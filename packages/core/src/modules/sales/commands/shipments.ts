@@ -29,8 +29,11 @@ import {
   ensureSameScope,
   ensureTenantScope,
   extractUndoPayload,
+  enforceSalesDocumentOptimisticLock,
+  SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -218,7 +221,7 @@ export async function loadShipmentSnapshot(em: EntityManager, id: string): Promi
 }
 
 export async function restoreShipmentSnapshot(em: EntityManager, snapshot: ShipmentSnapshot): Promise<void> {
-  const order = await em.findOne(SalesOrder, { id: snapshot.orderId })
+  const order = await findOneWithDecryption(em, SalesOrder, { id: snapshot.orderId }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
   if (!order) return
   const existing = await em.findOne(SalesShipment, { id: snapshot.id })
   const entity =
@@ -329,8 +332,12 @@ async function recomputeFulfilledQuantities(em: EntityManager, order: SalesOrder
   })
 }
 
-async function loadOrder(em: EntityManager, id: string): Promise<SalesOrder> {
-  const order = await em.findOne(SalesOrder, { id, deletedAt: null })
+async function loadOrder(
+  em: EntityManager,
+  id: string,
+  scope?: { tenantId: string; organizationId: string }
+): Promise<SalesOrder> {
+  const order = await findOneWithDecryption(em, SalesOrder, { id, deletedAt: null }, {}, scope)
   if (!order) throw new CrudHttpError(404, { error: 'sales.shipments.not_found' })
   return order
 }
@@ -435,15 +442,19 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { translate } = await resolveTranslations()
     const shipment = await em.transactional(async (tx) => {
-      const order = await loadOrder(tx, input.orderId)
+      const order = await loadOrder(tx, input.orderId, { tenantId: input.tenantId, organizationId: input.organizationId })
       ensureSameScope(order, input.organizationId, input.tenantId)
+      // Guard the parent order's aggregate version (Gap B): a shipment mutation
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const { items: normalizedItems, lineMap } = await validateShipmentItems({
         em: tx,
         order,
         items: input.items,
         lockOrderLines: true,
       })
-      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const statusValue = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const trackingNumbers = parseTrackingNumbers(input.trackingNumbers) ?? null
       const metadata =
         mergeAddressSnapshot(
@@ -501,7 +512,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -510,7 +521,7 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -591,6 +602,46 @@ const createShipmentCommand: CommandHandler<ShipmentCreateInput, { shipmentId: s
       }
     })
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<ShipmentSnapshot>(logEntry)
+    const shipmentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !shipmentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.shipments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await em.transactional(async (tx) => {
+      await restoreShipmentSnapshot(tx, after)
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: after.orderId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+      await tx.flush()
+      if (order) {
+        await recomputeFulfilledQuantities(tx, order)
+        await tx.flush()
+      }
+    })
+
+    const shipment = await findOneWithDecryption(
+      em,
+      SalesShipment,
+      { id: after.id },
+      {},
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: shipment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_shipment },
+      events: shipmentCrudEvents,
+    })
+
+    return { shipmentId: after.id }
+  },
 }
 
 const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: string }> = {
@@ -629,6 +680,10 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       if (input.orderId && input.orderId !== order.id) {
         throw new CrudHttpError(400, { error: 'sales.shipments.invalid_order' })
       }
+      // Guard the parent order's aggregate version (Gap B): updating a shipment
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       // Check if order is financially closed - prevent modifications to shipments
       const paidAmount = parseFloat(order.paidTotalAmount || '0')
@@ -661,7 +716,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
       // dictionary read does not interleave with (and drop) the pending
       // shipment changeset under MikroORM v7 (SPEC-018 / #2453 class).
       const resolvedShipmentStatus = input.statusEntryId !== undefined
-        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        ? await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         : undefined
       if (input.shipmentNumber !== undefined) shipmentEntity.shipmentNumber = input.shipmentNumber ?? null
       if (input.shippingMethodId !== undefined) shipmentEntity.shippingMethodId = input.shippingMethodId ?? null
@@ -729,7 +784,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         })
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -738,7 +793,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
         order.updatedAt = new Date()
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: shipmentEntity.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.') })
         }
@@ -831,7 +886,7 @@ const updateShipmentCommand: CommandHandler<ShipmentUpdateInput, { shipmentId: s
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
       await restoreShipmentSnapshot(tx, before)
-      const order = await tx.findOne(SalesOrder, { id: before.orderId })
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: before.orderId }, {}, { tenantId: before.tenantId, organizationId: before.organizationId })
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)
@@ -931,6 +986,10 @@ const deleteShipmentCommand: CommandHandler<
       if (order.id !== payload.orderId) {
         throw new CrudHttpError(400, { error: translate('sales.shipments.invalid_order', 'Shipment does not belong to this order') })
       }
+      // Guard the parent order's aggregate version (Gap B): deleting a shipment
+      // recalculates the order's fulfilled quantities, so a stale parent must 409
+      // before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       const scope = { tenantId: shipmentEntity.tenantId, organizationId: shipmentEntity.organizationId }
       const items = await findWithDecryption(tx, SalesShipmentItem, { shipment: shipmentEntity }, {}, scope)
       items.forEach((item) => tx.remove(item))
@@ -980,7 +1039,7 @@ const deleteShipmentCommand: CommandHandler<
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     await em.transactional(async (tx) => {
       await restoreShipmentSnapshot(tx, snapshot)
-      const order = await tx.findOne(SalesOrder, { id: snapshot.orderId })
+      const order = await findOneWithDecryption(tx, SalesOrder, { id: snapshot.orderId }, {}, { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId })
       await tx.flush()
       if (order) {
         await recomputeFulfilledQuantities(tx, order)

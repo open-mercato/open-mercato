@@ -19,6 +19,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 
 type UserRow = {
@@ -190,20 +191,19 @@ function CreateUserDialog({
                 {roleOptions.map((role) => {
                   const isSelected = selectedRoleIds.includes(role.id)
                   return (
-                    <button
+                    <Button
                       key={role.id}
                       type="button"
+                      size="2xs"
+                      variant={isSelected ? 'secondary' : 'outline'}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedRoleIds((prev) =>
                         prev.includes(role.id) ? prev.filter((rid) => rid !== role.id) : [...prev, role.id],
                       )}
-                      className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
-                        isSelected
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border bg-background text-muted-foreground hover:bg-muted'
-                      }`}
+                      className="rounded-full"
                     >
                       {role.label}
-                    </button>
+                    </Button>
                   )
                 })}
               </div>
@@ -499,7 +499,7 @@ export default function CustomerAccountsPage() {
                 })}
               </p>
               <p className="mt-0.5 text-xs text-status-info-text">
-                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / password123')}
+                {t('customer_accounts.admin.portalInfo.credentials', 'Demo credentials: alice.johnson@example.com / Password123!')}
               </p>
             </div>
             <div className="flex shrink-0 flex-col gap-2">
@@ -546,6 +546,13 @@ export default function CustomerAccountsPage() {
           onFiltersApply={handleFiltersApply}
           onFiltersClear={handleFiltersClear}
           perspective={{ tableId: 'customer_accounts.admin.users' }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('customer_accounts.admin.title', 'Users')}
+              onCreate={() => setCreateDialogOpen(true)}
+              createLabel={t('customer_accounts.admin.actions.createUser', 'Create User')}
+            />
+          )}
           onRowClick={(row) => router.push(`/backend/customer_accounts/users/${row.id}`)}
           rowActions={(row) => (
             <RowActions

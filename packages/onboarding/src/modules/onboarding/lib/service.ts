@@ -43,6 +43,7 @@ export class OnboardingService {
       existing.organizationId = null
       existing.userId = null
       existing.lastEmailSentAt = now
+      existing.preparationStartedAt = null
       existing.preparationCompletedAt = null
       existing.readyEmailSentAt = null
       await this.em.flush()
@@ -97,16 +98,28 @@ export class OnboardingService {
     )
   }
 
-  async startProcessing(request: OnboardingRequest, startedAt: Date) {
+  async startProcessing(request: OnboardingRequest, startedAt: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'pending' },
+      { status: 'processing', processingStartedAt: startedAt, updatedAt: new Date() },
+    )
+    if (claimedRows === 0) return false
     request.status = 'processing'
     request.processingStartedAt = startedAt
-    await this.em.flush()
+    return true
   }
 
-  async resetProcessing(request: OnboardingRequest) {
+  async resetProcessing(request: OnboardingRequest): Promise<boolean> {
+    const revertedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      { id: request.id, status: 'processing' },
+      { status: 'pending', processingStartedAt: null, updatedAt: new Date() },
+    )
+    if (revertedRows === 0) return false
     request.status = 'pending'
     request.processingStartedAt = null
-    await this.em.flush()
+    return true
   }
 
   async updateProvisioningIds(request: OnboardingRequest, data: { tenantId: string; organizationId: string; userId: string }) {
@@ -132,8 +145,40 @@ export class OnboardingService {
     await this.em.flush()
   }
 
+  async claimPreparation(requestId: string, claimedAt: Date, staleBefore: Date): Promise<boolean> {
+    const claimedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: requestId,
+        status: 'completed',
+        preparationCompletedAt: null,
+        $or: [
+          { preparationStartedAt: null },
+          { preparationStartedAt: { $lt: staleBefore } },
+        ],
+      },
+      { preparationStartedAt: claimedAt, updatedAt: new Date() },
+    )
+    return claimedRows > 0
+  }
+
+  async renewPreparation(requestId: string, renewedAt: Date): Promise<boolean> {
+    const renewedRows = await this.em.nativeUpdate(
+      OnboardingRequest,
+      {
+        id: requestId,
+        status: 'completed',
+        preparationCompletedAt: null,
+        preparationStartedAt: { $ne: null },
+      },
+      { preparationStartedAt: renewedAt, updatedAt: new Date() },
+    )
+    return renewedRows > 0
+  }
+
   async markPreparationCompleted(request: OnboardingRequest, completedAt: Date) {
     request.preparationCompletedAt = completedAt
+    request.preparationStartedAt = null
     await this.em.flush()
   }
 }

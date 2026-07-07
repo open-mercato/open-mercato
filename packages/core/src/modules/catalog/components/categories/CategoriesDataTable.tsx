@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ColumnDef } from '@tanstack/react-table'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import type { FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -198,6 +199,13 @@ export default function CategoriesDataTable() {
         ) : undefined}
         columns={columns}
         data={rows}
+        emptyState={(
+          <ListEmptyState
+            entityName={t('catalog.categories.list.title', 'Categories')}
+            createHref={canManage ? '/backend/catalog/categories/create' : undefined}
+            createLabel={canManage ? t('catalog.categories.list.actions.create', 'Create') : undefined}
+          />
+        )}
         searchValue={search}
         searchPlaceholder={t('catalog.categories.list.searchPlaceholder', 'Search categories')}
         onSearchChange={(value) => { setSearch(value); setPage(1) }}

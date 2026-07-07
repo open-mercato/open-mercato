@@ -12,12 +12,12 @@ import {
  * TC-API-MSG-020: Public Token-Based Access to Message Detail
  * Surface: packages/core/src/modules/messages/api/token/[token]/route.ts (GET, requireAuth:false)
  *
- * Tokens are minted internally and stored hashed, so we seed rows directly and
- * rely on the route's raw-token fallback to match a plaintext sentinel. This
- * exercises the DB-state-dependent lifecycle the route unit tests cannot:
- * invalid (404), valid consume (200 + use_count increment), expired (410), and
- * exhausted (409). The auth-preflight/recipient branches are covered by the
- * route unit tests.
+ * Tokens are minted internally and stored hashed, so we seed rows directly with
+ * the same HMAC hash the route derives from the URL token (the seed helper hashes
+ * the raw sentinel; the run and app server share JWT_SECRET). This exercises the
+ * DB-state-dependent lifecycle the route unit tests cannot: invalid (404), valid
+ * consume (200 + use_count increment), expired (410), and exhausted (409). The
+ * auth-preflight/recipient branches are covered by the route unit tests.
  */
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000';
 const MAX_TOKEN_USE_COUNT = 25;

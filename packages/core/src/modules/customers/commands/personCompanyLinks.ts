@@ -31,6 +31,7 @@ import {
   extractUndoPayload,
 } from './shared'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 type PersonCompanyLinkSnapshot = {
   id: string
@@ -340,6 +341,65 @@ const createPersonCompanyLinkCommand: CommandHandler<PersonCompanyLinkCreateInpu
       events: personCompanyLinkCrudEvents,
       indexer: { entityType: 'customers:customer_person_company_link' },
     })
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<PersonCompanyLinkSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person-company link create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const person = await requirePersonEntity(em, after.personEntityId, after.tenantId, after.organizationId)
+    const company = await requireCompanyEntity(em, after.companyEntityId, after.tenantId, after.organizationId)
+    const profile = await requirePersonProfile(em, person)
+
+    let link = await findOneWithDecryption(
+      em,
+      CustomerPersonCompanyLink,
+      { id: after.id },
+      undefined,
+      { tenantId: after.tenantId, organizationId: after.organizationId },
+    )
+
+    await withAtomicFlush(em, [
+      async () => {
+        if (after.isPrimary) {
+          await clearPrimaryFlagsForPerson(em, person)
+        }
+        if (!link) {
+          link = em.create(CustomerPersonCompanyLink, {
+            id: after.id,
+            organizationId: after.organizationId,
+            tenantId: after.tenantId,
+            person,
+            company,
+            isPrimary: after.isPrimary,
+          })
+          em.persist(link)
+        } else {
+          link.deletedAt = null
+          link.isPrimary = after.isPrimary
+          em.persist(link)
+        }
+      },
+      () => {
+        if (after.isPrimary) {
+          profile.company = company
+        }
+      },
+    ], { transaction: true })
+
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: link!,
+      identifiers: getLinkIdentifiers(link!),
+      syncOrigin: ctx.syncOrigin,
+      events: personCompanyLinkCrudEvents,
+      indexer: { entityType: 'customers:customer_person_company_link' },
+    })
+
+    return { linkId: link!.id, created: true, undeleted: false }
   },
 }
 

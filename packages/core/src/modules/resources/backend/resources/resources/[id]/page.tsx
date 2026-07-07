@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -12,6 +12,8 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ActivitiesSection, NotesSection, RecordNotFoundState, type SectionAction, type TagOption } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { VersionHistoryAction } from '@open-mercato/ui/backend/version-history'
 import { SendObjectMessageDialog } from '@open-mercato/ui/backend/messages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -62,6 +64,14 @@ type ResourceResponse = {
   items: ResourceRecord[]
 }
 
+type ResourceDetailMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId?: string
+  data: Record<string, unknown> | null
+  retryLastMutation: () => Promise<boolean>
+}
+
 function normalizeResourceRecord(record: ResourceRecord): ResourceRecord {
   return {
     ...record,
@@ -82,21 +92,69 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<Record<string, unknown> | null>(null)
   const [isNotFound, setIsNotFound] = React.useState(false)
+  // Capture the record (incl. its optimistic-lock `updatedAt`) exactly ONCE per
+  // resource. The load effect's deps include identity-unstable values (`t`,
+  // `resolveFieldsetCode`), so without this guard a re-render would re-fetch and
+  // overwrite `initialValues.updatedAt` with a newer server value mid-edit —
+  // silently defeating optimistic locking (a concurrent change would no longer be
+  // detected) and making the conflict flaky.
+  const loadedResourceIdRef = React.useRef<string | null>(null)
   const [tags, setTags] = React.useState<TagOption[]>([])
   const [activeTab, setActiveTab] = React.useState<'details' | 'availability'>('details')
   const [activeDetailTab, setActiveDetailTab] = React.useState<'notes' | 'activities'>('notes')
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
   const [availabilityRuleSetId, setAvailabilityRuleSetId] = React.useState<string | null>(null)
+  const [selectedCapacityUnit, setSelectedCapacityUnit] = React.useState<{
+    value: string
+    label: string
+    color?: string | null
+    icon?: string | null
+  } | null>(null)
   const [activityDictionaryId, setActivityDictionaryId] = React.useState<string | null>(null)
   const [activityTypeEntries, setActivityTypeEntries] = React.useState<DictionaryEntryOption[]>([])
   const flashShownRef = React.useRef(false)
 
   const availabilityMode = 'availability'
-  const notesAdapter = React.useMemo(() => createResourceNotesAdapter(detailTranslator), [detailTranslator])
-  const activitiesAdapter = React.useMemo(() => createResourceActivitiesAdapter(detailTranslator), [detailTranslator])
+  const mutationContextId = React.useMemo(
+    () => (resourceId ? `resources.resource:${resourceId}` : 'resources.resource:pending'),
+    [resourceId],
+  )
+  const { runMutation, retryLastMutation } = useGuardedMutation<ResourceDetailMutationContext>({
+    contextId: mutationContextId,
+    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const mutationContext = React.useMemo<ResourceDetailMutationContext>(
+    () => ({
+      formId: mutationContextId,
+      resourceKind: 'resources.resource',
+      resourceId,
+      data: initialValues,
+      retryLastMutation,
+    }),
+    [initialValues, mutationContextId, resourceId, retryLastMutation],
+  )
+  const runMutationWithContext = React.useCallback(
+    async <T,>(operation: () => Promise<T>, mutationPayload?: Record<string, unknown>): Promise<T> => (
+      runMutation({
+        operation,
+        mutationPayload,
+        context: mutationContext,
+      })
+    ),
+    [mutationContext, runMutation],
+  )
+  const notesAdapter = React.useMemo(
+    () => createResourceNotesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
+  )
+  const activitiesAdapter = React.useMemo(
+    () => createResourceActivitiesAdapter(detailTranslator, { runMutation: runMutationWithContext }),
+    [detailTranslator, runMutationWithContext],
+  )
 
   const activityTypeLabels = React.useMemo<DictionarySelectLabels>(() => ({
     placeholder: t('resources.resources.detail.activities.dictionary.placeholder', 'Select an activity type'),
@@ -329,14 +387,18 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
       if (!trimmed.length) {
         throw new Error(t('resources.resources.tags.labelRequired', 'Tag name is required.'))
       }
-      const response = await apiCallOrThrow<Record<string, unknown>>(
-        '/api/resources/tags',
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ label: trimmed }),
-        },
-        { errorMessage: t('resources.resources.tags.createError', 'Failed to create tag.') },
+      const requestBody = { label: trimmed }
+      const response = await runMutationWithContext(
+        () => apiCallOrThrow<Record<string, unknown>>(
+          '/api/resources/tags',
+          {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify(requestBody),
+          },
+          { errorMessage: t('resources.resources.tags.createError', 'Failed to create tag.') },
+        ),
+        { operation: 'createTag', label: trimmed },
       )
       const payload = response.result ?? {}
       const id =
@@ -351,44 +413,50 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
         : null
       return { id, label: trimmed, color }
     },
-    [t],
+    [runMutationWithContext, t],
   )
 
   const assignTag = React.useCallback(async (tagId: string) => {
     if (!resourceId) return
-    await apiCallOrThrow(
-      '/api/resources/resources/tags/assign',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, resourceId }),
-      },
-      { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+    const requestBody = { tagId, resourceId }
+    await runMutationWithContext(
+      () => apiCallOrThrow(
+        '/api/resources/resources/tags/assign',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+      ),
+      { operation: 'assignTag', resourceId, tagId },
     )
-  }, [resourceId, t])
+  }, [resourceId, runMutationWithContext, t])
 
   const unassignTag = React.useCallback(async (tagId: string) => {
     if (!resourceId) return
-    await apiCallOrThrow(
-      '/api/resources/resources/tags/unassign',
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ tagId, resourceId }),
-      },
-      { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+    const requestBody = { tagId, resourceId }
+    await runMutationWithContext(
+      () => apiCallOrThrow(
+        '/api/resources/resources/tags/unassign',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(requestBody),
+        },
+        { errorMessage: t('resources.resources.tags.updateError', 'Failed to update tags.') },
+      ),
+      { operation: 'unassignTag', resourceId, tagId },
     )
-  }, [resourceId, t])
+  }, [resourceId, runMutationWithContext, t])
 
   const handleTagsSave = React.useCallback(
     async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      for (const tag of added) {
-        await assignTag(tag.id)
-      }
-      for (const tag of removed) {
-        await unassignTag(tag.id)
-      }
+      await Promise.all([
+        ...added.map((tag) => assignTag(tag.id)),
+        ...removed.map((tag) => unassignTag(tag.id)),
+      ])
       setTags(next)
       flash(t('resources.resources.tags.success', 'Tags updated.'), 'success')
     },
@@ -408,11 +476,22 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     [createTag, handleTagsSave, loadTagOptions, t, tagLabels, tags],
   )
 
-  const formConfig = useResourcesResourceFormConfig({ tagsSection })
+  const formConfig = useResourcesResourceFormConfig({
+    tagsSection,
+    selectedResourceTypeId:
+      typeof initialValues?.resourceTypeId === 'string' ? initialValues.resourceTypeId : null,
+    selectedCapacityUnit:
+      typeof initialValues?.capacityUnitValue === 'string' && initialValues.capacityUnitValue.length > 0
+        ? selectedCapacityUnit
+        : null,
+  })
   const { resourceTypesLoaded, resolveFieldsetCode } = formConfig
 
   React.useEffect(() => {
     if (!resourceId || !resourceTypesLoaded) return
+    // Load once per resource — never re-fetch (and thereby refresh the captured
+    // optimistic-lock token) on subsequent re-renders. See loadedResourceIdRef.
+    if (loadedResourceIdRef.current === resourceId) return
     setIsNotFound(false)
     let cancelled = false
     async function loadResource() {
@@ -429,6 +508,7 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
           return
         }
         if (!cancelled) {
+          loadedResourceIdRef.current = resourceId ?? null
           const customValues = extractCustomFieldEntries(resource)
           setTags(Array.isArray(resource.tags) ? resource.tags : [])
           setAvailabilityRuleSetId(
@@ -437,6 +517,19 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
               : typeof resource.availability_rule_set_id === 'string'
                 ? resource.availability_rule_set_id
                 : null,
+          )
+          setSelectedCapacityUnit(
+            typeof resource.capacityUnitValue === 'string' && resource.capacityUnitValue.length > 0
+              ? {
+                  value: resource.capacityUnitValue,
+                  label:
+                    typeof resource.capacityUnitName === 'string' && resource.capacityUnitName.length > 0
+                      ? resource.capacityUnitName
+                      : resource.capacityUnitValue,
+                  color: typeof resource.capacityUnitColor === 'string' ? resource.capacityUnitColor : null,
+                  icon: typeof resource.capacityUnitIcon === 'string' ? resource.capacityUnitIcon : null,
+                }
+              : null,
           )
           setInitialValues({
             id: resource.id,
@@ -470,12 +563,21 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
 
   const handleDelete = React.useCallback(async () => {
     if (!resourceId) return
-    await deleteCrud('resources/resources', resourceId, {
+    const resourceOptimisticLockHeader = buildOptimisticLockHeader(
+      typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+    )
+    const deleteResource = () => deleteCrud('resources/resources', resourceId, {
       errorMessage: t('resources.resources.form.errors.delete', 'Failed to delete resource.'),
     })
+    await runMutationWithContext(
+      () => Object.keys(resourceOptimisticLockHeader).length > 0
+        ? withScopedApiRequestHeaders(resourceOptimisticLockHeader, deleteResource)
+        : deleteResource(),
+      { operation: 'deleteResource', id: resourceId, updatedAt: initialValues?.updatedAt ?? null },
+    )
     flash(t('resources.resources.form.flash.deleted', 'Resource deleted.'), 'success')
     router.push('/backend/resources/resources')
-  }, [resourceId, router, t])
+  }, [initialValues?.updatedAt, resourceId, router, runMutationWithContext, t])
 
   const handleRulesetChange = React.useCallback(async (nextId: string | null) => {
     if (!resourceId) return
@@ -485,19 +587,34 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
     const resourceOptimisticLockHeader = buildOptimisticLockHeader(
       typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
     )
-    if (Object.keys(resourceOptimisticLockHeader).length > 0) {
-      await withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
-    } else {
-      await updateSchedule()
-    }
+    await runMutationWithContext(
+      () => Object.keys(resourceOptimisticLockHeader).length > 0
+        ? withScopedApiRequestHeaders(resourceOptimisticLockHeader, updateSchedule)
+        : updateSchedule(),
+      { operation: 'updateAvailabilityRuleSet', id: resourceId, availabilityRuleSetId: nextId },
+    )
     setAvailabilityRuleSetId(nextId)
     flash(t('resources.resources.availability.ruleset.updateSuccess', 'Schedule updated.'), 'success')
-  }, [initialValues?.updatedAt, resourceId, t])
+  }, [initialValues?.updatedAt, resourceId, runMutationWithContext, t])
 
   const resourceTitle =
     typeof initialValues?.name === 'string' && initialValues.name.trim().length > 0
       ? initialValues.name.trim()
       : t('resources.resources.detail.untitled', 'Unnamed resource')
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `resources.resource` + id
+  // explicitly. The resourceKind mirrors the VersionHistoryAction config / ResourceCrudForm
+  // `versionHistory` so the held lock matches the save-time conflict surface for the resource.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'resources.resource',
+      resourceId: resourceId || null,
+      updatedAt: typeof initialValues?.updatedAt === 'string' ? initialValues.updatedAt : null,
+      data: initialValues,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (

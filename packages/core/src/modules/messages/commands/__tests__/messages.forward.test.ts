@@ -339,7 +339,6 @@ describe('messages.messages.forward command', () => {
       trx,
       [rootMessageId, sourceMessageId],
       forwardedMessageId,
-      organizationId,
       tenantId,
     )
   })

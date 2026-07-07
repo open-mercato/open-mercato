@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { flushSync } from 'react-dom'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -17,6 +18,7 @@ import { MetadataEditor } from './MetadataEditor'
 import type { PriceKindSummary, TaxRateSummary } from './productForm'
 import { formatTaxRateLabel } from './productForm'
 import type { OptionDefinition, VariantFormValues, VariantPriceDraft } from './variantForm'
+import { CATALOG_GTIN_TYPES } from '../../data/types'
 import { E } from '#generated/entities.ids.generated'
 
 type VariantBuilderProps = {
@@ -121,6 +123,48 @@ export function VariantBasicsSection({ values, setValue, errors }: VariantSectio
             onChange={(event) => setValue('barcode', event.target.value)}
             placeholder={t('catalog.variants.form.barcodePlaceholder', 'EAN, UPC, etc.')}
           />
+          {errors.barcode ? <p className="text-xs text-destructive">{errors.barcode}</p> : null}
+        </div>
+      </div>
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-gtin-type">
+            {t('catalog.variants.form.gtinTypeLabel', 'Identifier type (GTIN)')}
+          </Label>
+          <Select
+            value={values.gtinType ?? 'none'}
+            onValueChange={(value) => setValue('gtinType', value === 'none' ? null : value)}
+          >
+            <SelectTrigger id="catalog-variant-gtin-type">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">{t('catalog.variants.form.gtinTypeNone', 'Untyped')}</SelectItem>
+              {CATALOG_GTIN_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {t(`catalog.variants.form.gtinTypes.${type}`, type.toUpperCase())}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p className="text-xs text-muted-foreground">
+            {t(
+              'catalog.variants.form.gtinTypeHint',
+              'Typed barcodes are validated and kept unique per organization.',
+            )}
+          </p>
+          {errors.gtinType ? <p className="text-xs text-destructive">{errors.gtinType}</p> : null}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="catalog-variant-hs-code">
+            {t('catalog.variants.form.hsCodeLabel', 'HS code (customs tariff)')}
+          </Label>
+          <Input
+            id="catalog-variant-hs-code"
+            value={values.hsCode}
+            onChange={(event) => setValue('hsCode', event.target.value)}
+          />
+          {errors.hsCode ? <p className="text-xs text-destructive">{errors.hsCode}</p> : null}
         </div>
       </div>
       <div className="grid gap-4 md:grid-cols-2">
@@ -282,16 +326,43 @@ export function VariantPricesSection({
   embedded = false,
 }: VariantPricesSectionProps) {
   const t = useT()
+  const pricesRef = React.useRef(values.prices)
+
+  React.useEffect(() => {
+    pricesRef.current = values.prices
+  }, [values.prices])
 
   const updatePrice = React.useCallback(
     (priceKindId: string, patch: Partial<VariantPriceDraft>) => {
-      const prev = values.prices?.[priceKindId] ?? { priceKindId, amount: '', displayMode: 'excluding-tax' }
-      setValue('prices', { ...values.prices, [priceKindId]: { ...prev, ...patch, priceKindId } })
+      const currentPrices = pricesRef.current ?? {}
+      const prev = currentPrices[priceKindId] ?? { priceKindId, amount: '', displayMode: 'excluding-tax' }
+      const nextPrices = { ...currentPrices, [priceKindId]: { ...prev, ...patch, priceKindId } }
+      pricesRef.current = nextPrices
+      flushSync(() => setValue('prices', nextPrices))
     },
-    [setValue, values.prices],
+    [setValue],
   )
 
   const containerClass = embedded ? 'space-y-4' : 'space-y-4 rounded-lg border p-4'
+  const selectedTaxRate = values.taxRateId
+    ? taxRates.find((rate) => rate.id === values.taxRateId) ?? null
+    : null
+  const fallbackSelectedTaxRate =
+    values.taxRateId && !selectedTaxRate
+      ? {
+          id: values.taxRateId,
+          name: values.taxRateId,
+          code: null,
+          rate: null,
+          isDefault: false,
+        }
+      : null
+  const displayedSelectedTaxRate = selectedTaxRate ?? fallbackSelectedTaxRate
+  const displayedTaxRates = fallbackSelectedTaxRate
+    ? [fallbackSelectedTaxRate, ...taxRates]
+    : taxRates
+  const taxRateOptionsKey = displayedTaxRates.map((rate) => `${rate.id}:${formatTaxRateLabel(rate)}`).join('\0')
+  const taxRateSelectKey = `variant-tax-rate:${values.taxRateId ?? ''}:${taxRateOptionsKey}`
 
   return (
     <div className={containerClass}>
@@ -305,14 +376,19 @@ export function VariantPricesSection({
           </div>
           <div className="flex items-center gap-2">
             <Select
+              key={taxRateSelectKey}
               value={values.taxRateId || undefined}
-              onValueChange={(value) => setValue('taxRateId', value || null)}
+              onValueChange={(value) => {
+                if (value) setValue('taxRateId', value)
+              }}
             >
               <SelectTrigger>
-                <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+                <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
+                  {displayedSelectedTaxRate ? formatTaxRateLabel(displayedSelectedTaxRate) : undefined}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
-                {taxRates.map((rate) => (
+                {displayedTaxRates.map((rate) => (
                   <SelectItem key={rate.id} value={rate.id}>
                     {formatTaxRateLabel(rate)}
                   </SelectItem>
@@ -324,14 +400,19 @@ export function VariantPricesSection({
       ) : (
         <div className="flex justify-end">
           <Select
+            key={taxRateSelectKey}
             value={values.taxRateId || undefined}
-            onValueChange={(value) => setValue('taxRateId', value || null)}
+            onValueChange={(value) => {
+              if (value) setValue('taxRateId', value)
+            }}
           >
             <SelectTrigger>
-              <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')} />
+              <SelectValue placeholder={t('catalog.variants.form.pricesTaxNone', 'No tax override')}>
+                {displayedSelectedTaxRate ? formatTaxRateLabel(displayedSelectedTaxRate) : undefined}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {taxRates.map((rate) => (
+              {displayedTaxRates.map((rate) => (
                 <SelectItem key={rate.id} value={rate.id}>
                   {formatTaxRateLabel(rate)}
                 </SelectItem>
@@ -359,6 +440,7 @@ export function VariantPricesSection({
                 <Input
                   className="mt-3"
                   value={draft?.amount ?? ''}
+                  onInput={(event) => updatePrice(kind.id, { amount: event.currentTarget.value })}
                   onChange={(event) => updatePrice(kind.id, { amount: event.target.value })}
                   placeholder="0.00"
                 />

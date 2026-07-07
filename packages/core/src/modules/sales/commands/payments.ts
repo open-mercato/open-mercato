@@ -30,8 +30,11 @@ import {
   ensureTenantScope,
   extractUndoPayload,
   toNumericString,
+  enforceSalesDocumentOptimisticLock,
+  SALES_RESOURCE_KIND_ORDER,
 } from './shared'
 import { resolveDictionaryEntryValue } from '../lib/dictionaries'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -252,7 +255,7 @@ async function recomputeOrderPaymentTotals(
   const scope = { organizationId: order.organizationId, tenantId: order.tenantId }
 
   if (options?.lock) {
-    await em.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+    await findOneWithDecryption(em, SalesOrder, { id: orderId, ...scope }, { lockMode: LockMode.PESSIMISTIC_WRITE }, scope)
   }
 
   const allocations = await findWithDecryption(
@@ -342,6 +345,9 @@ const createPaymentCommand: CommandHandler<
       if (order.deletedAt) {
         throw new CrudHttpError(404, { error: 'sales.payments.order_not_found' })
       }
+      // Guard the parent order's aggregate version (Gap A): a payment mutation
+      // recalculates the order totals, so a stale parent must 409 before we touch it.
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
       if (
         order.currencyCode &&
         input.currencyCode &&
@@ -369,7 +375,7 @@ const createPaymentCommand: CommandHandler<
         tx.persist(order)
       }
       if (input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -381,7 +387,7 @@ const createPaymentCommand: CommandHandler<
         tx.persist(order)
       }
       if (input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: input.tenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -395,7 +401,7 @@ const createPaymentCommand: CommandHandler<
         })
         orderLines.forEach((line) => tx.persist(line))
       }
-      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+      const status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: input.tenantId })
       const payment = tx.create(SalesPayment, {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
@@ -611,6 +617,81 @@ const createPaymentCommand: CommandHandler<
       }
     }
   },
+  redo: async ({ ctx, logEntry }) => {
+    const after = resolveRedoSnapshot<PaymentSnapshot>(logEntry)
+    const paymentId = after?.id ?? logEntry.resourceId ?? null
+    if (!after || !paymentId) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for sales.payments.create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    await restorePaymentSnapshot(em, after)
+    await em.flush()
+
+    const orderIds = Array.from(
+      new Set(
+        [
+          after.orderId,
+          ...after.allocations.map((allocation) => allocation.orderId),
+        ].filter((value): value is string => typeof value === 'string' && value.length > 0)
+      )
+    )
+    let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
+    for (const orderId of orderIds) {
+      const recomputed = await em.transactional(async (tx) => {
+        const order = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: orderId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: after.tenantId, organizationId: after.organizationId },
+        )
+        if (!order) return undefined
+        if (orderId === after.orderId && after.paymentMethodId && !order.paymentMethodId) {
+          const method = await findOneWithDecryption(
+            tx,
+            SalesPaymentMethod,
+            { id: after.paymentMethodId },
+            {},
+            { tenantId: after.tenantId, organizationId: after.organizationId },
+          )
+          order.paymentMethodId = method?.id ?? after.paymentMethodId
+          order.paymentMethodCode = method?.code ?? null
+          order.updatedAt = new Date()
+          await tx.flush()
+        }
+        const result = await recomputeOrderPaymentTotals(tx, order)
+        await tx.flush()
+        return result
+      })
+      if (recomputed && (!totals || orderId === after.orderId)) {
+        totals = recomputed
+      }
+      // Scope filter (#2111): never cache-invalidate a foreign tenant's order even
+      // if a snapshot's orderId was somehow tampered with.
+      const target = await findOneWithDecryption(em, SalesOrder, { id: orderId, organizationId: after.organizationId, tenantId: after.tenantId }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+      if (target) {
+        ensureSameScope(target, after.organizationId, after.tenantId)
+        await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      }
+    }
+
+    const payment = await findOneWithDecryption(em, SalesPayment, { id: after.id }, {}, { tenantId: after.tenantId, organizationId: after.organizationId })
+    const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: payment,
+      identifiers: {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+      },
+      indexer: { entityType: E.sales.sales_payment },
+      events: paymentCrudEvents,
+    })
+
+    return { paymentId: after.id, orderTotals: totals }
+  },
 }
 
 const updatePaymentCommand: CommandHandler<
@@ -654,6 +735,9 @@ const updatePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, resolvedOrganizationId, resolvedTenantId)
     const previousOrder = payment.order as SalesOrder | null
+    // Guard the parent order's aggregate version (Gap A): updating a payment
+    // recalculates the order totals, so a stale parent must 409 before mutating.
+    await enforceSalesDocumentOptimisticLock(ctx, previousOrder, SALES_RESOURCE_KIND_ORDER)
     // Apply payment scalar fields, order/line status changes and the
     // allocations rebuild in one transaction so a mid-write failure cannot
     // leave the payment and its allocations partially committed (#2336).
@@ -696,7 +780,7 @@ const updatePaymentCommand: CommandHandler<
         throw new CrudHttpError(400, { error: translate('sales.payments.order_required', 'Order is required for payments.') })
       }
       if (currentOrder && input.documentStatusEntryId !== undefined) {
-        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null)
+        const orderStatus = await resolveDictionaryEntryValue(tx, input.documentStatusEntryId ?? null, { tenantId: resolvedTenantId })
         if (input.documentStatusEntryId && !orderStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -708,7 +792,7 @@ const updatePaymentCommand: CommandHandler<
         tx.persist(currentOrder)
       }
       if (currentOrder && input.lineStatusEntryId !== undefined) {
-        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null)
+        const lineStatus = await resolveDictionaryEntryValue(tx, input.lineStatusEntryId ?? null, { tenantId: resolvedTenantId })
         if (input.lineStatusEntryId && !lineStatus) {
           throw new CrudHttpError(400, {
             error: translate('sales.documents.detail.statusInvalid', 'Selected status could not be found.'),
@@ -725,7 +809,7 @@ const updatePaymentCommand: CommandHandler<
       if (input.paymentReference !== undefined) payment.paymentReference = input.paymentReference ?? null
       if (input.statusEntryId !== undefined) {
         payment.statusEntryId = input.statusEntryId ?? null
-        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null)
+        payment.status = await resolveDictionaryEntryValue(tx, input.statusEntryId ?? null, { tenantId: resolvedTenantId })
       }
       if (input.amount !== undefined) payment.amount = toNumericString(input.amount) ?? '0'
       if (input.currencyCode !== undefined) payment.currencyCode = input.currencyCode
@@ -854,21 +938,44 @@ const updatePaymentCommand: CommandHandler<
     let totals: { paidTotalAmount: number; refundedTotalAmount: number; outstandingAmount: number } | undefined
     if (nextOrderId) {
       totals = await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: nextOrderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): never lock or recompute totals on a foreign
+        // tenant's order, even if payment.order somehow points there.
+        const lockedOrder = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
+        )
         if (!lockedOrder) return undefined
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         const result = await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
         return result
       })
       if (totals) {
-        const nextOrder = await em.findOne(SalesOrder, { id: nextOrderId })
-        if (nextOrder) await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
+        // Scope filter (#2111): same rationale as the lock above.
+        const nextOrder = await findOneWithDecryption(em, SalesOrder, { id: nextOrderId, organizationId: payment.organizationId, tenantId: payment.tenantId }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
+        if (nextOrder) {
+          ensureSameScope(nextOrder, payment.organizationId, payment.tenantId)
+          await invalidateOrderCache(ctx.container, nextOrder, ctx.auth?.tenantId ?? null)
+        }
       }
     }
     if (previousOrder && (!nextOrderId || previousOrder.id !== nextOrderId)) {
       await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: previousOrder.id }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): previousOrder was already loaded via the
+        // payment's scope, so its tenant/org match the payment's. Filter
+        // the lock query the same way as defence-in-depth.
+        const lockedOrder = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: previousOrder.id, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
+        )
         if (!lockedOrder) return
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
       })
@@ -965,6 +1072,9 @@ const deletePaymentCommand: CommandHandler<
     )
     ensureSameScope(payment, input.organizationId, input.tenantId)
     const order = payment.order as SalesOrder | null
+    // Guard the parent order's aggregate version (Gap A): deleting a payment
+    // recalculates the order totals, so a stale parent must 409 before mutating.
+    await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
     const allocations = await findWithDecryption(em, SalesPaymentAllocation, { payment }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
     const allocationOrders = allocations
       .map((allocation) =>
@@ -992,8 +1102,17 @@ const deletePaymentCommand: CommandHandler<
     const primaryOrderId = order && typeof order === 'object' ? order.id : null
     for (const orderId of orderIds) {
       const recomputed = await em.transactional(async (tx) => {
-        const lockedOrder = await tx.findOne(SalesOrder, { id: orderId }, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        // Scope filter (#2111): never lock or recompute totals on a foreign
+        // tenant's order, even if a payment allocation somehow points there.
+        const lockedOrder = await findOneWithDecryption(
+          tx,
+          SalesOrder,
+          { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId },
+          { lockMode: LockMode.PESSIMISTIC_WRITE },
+          { tenantId: payment.tenantId, organizationId: payment.organizationId },
+        )
         if (!lockedOrder) return undefined
+        ensureSameScope(lockedOrder, payment.organizationId, payment.tenantId)
         const result = await recomputeOrderPaymentTotals(tx, lockedOrder)
         await tx.flush()
         return result
@@ -1001,8 +1120,12 @@ const deletePaymentCommand: CommandHandler<
       if (recomputed && (!totals || (primaryOrderId && orderId === primaryOrderId))) {
         totals = recomputed
       }
-      const target = await em.findOne(SalesOrder, { id: orderId })
-      if (target) await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      // Scope filter (#2111): same rationale as the lock above.
+      const target = await findOneWithDecryption(em, SalesOrder, { id: orderId, organizationId: payment.organizationId, tenantId: payment.tenantId }, {}, { tenantId: payment.tenantId, organizationId: payment.organizationId })
+      if (target) {
+        ensureSameScope(target, payment.organizationId, payment.tenantId)
+        await invalidateOrderCache(ctx.container, target, ctx.auth?.tenantId ?? null)
+      }
     }
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({

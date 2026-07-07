@@ -77,7 +77,10 @@
   "onboarding.preparing.descriptionWithTenant": "Wir schließen die Vorbereitung der Demo-Umgebung für {tenant} ab. Sobald alles bereit ist, senden wir Ihnen eine E-Mail mit dem korrekten Tenant-Login-Link.",
   "onboarding.preparing.emailNotice": "Sie müssen diese Seite nicht geöffnet lassen. Wir senden Ihnen eine E-Mail, sobald alles bereit ist.",
   "onboarding.preparing.homeCta": "Zur Startseite",
+  "onboarding.preparing.loginCta": "Tenant-Login öffnen",
   "onboarding.preparing.redirecting": "Ihr Arbeitsbereich ist bereit. Wir leiten Sie jetzt zur Tenant-Anmeldung weiter.",
+  "onboarding.preparing.statusErrorBody": "Der Arbeitsbereichstatus konnte nicht geprüft werden. Der Arbeitsbereich wird möglicherweise noch vorbereitet; diese Seite versucht es weiter.",
+  "onboarding.preparing.statusErrorTitle": "Statusprüfung fehlgeschlagen",
   "onboarding.preparing.title": "Wir bereiten Ihren Arbeitsbereich vor",
   "onboarding.readyEmail.body": "Ihr Open Mercato-Arbeitsbereich für {organizationName} ist fertig vorbereitet. Verwenden Sie den sicheren Link unten, um sich anzumelden.",
   "onboarding.readyEmail.cta": "Login öffnen",
@@ -87,5 +90,11 @@
   "onboarding.readyEmail.preview": "Ihr Arbeitsbereich ist bereit. Verwenden Sie Ihren sicheren Login-Link zur Anmeldung.",
   "onboarding.readyEmail.subject": "Ihr Open Mercato-Arbeitsbereich ist bereit",
   "onboarding.subtitle": "Erzählen Sie uns ein wenig über sich und wir richten alles für Sie ein.",
-  "onboarding.title": "Erstellen Sie Ihren Open Mercato-Arbeitsbereich"
+  "onboarding.title": "Erstellen Sie Ihren Open Mercato-Arbeitsbereich",
+  "onboarding.verifyStatus.alreadyExists": "Es existiert bereits ein Konto mit dieser E-Mail-Adresse. Versuchen Sie, sich anzumelden oder Ihr Passwort zurückzusetzen.",
+  "onboarding.verifyStatus.error": "Die Verifizierung konnte nicht abgeschlossen werden. Bitte versuchen Sie es erneut oder kontaktieren Sie den Support.",
+  "onboarding.verifyStatus.invalid": "Der Verifizierungslink ist ungültig oder abgelaufen. Senden Sie das Onboarding-Formular erneut, um einen neuen Link zu erhalten.",
+  "onboarding.verifyStatus.originNotAllowed": "Der Verifizierungslink wurde von einem nicht erlaubten Origin geöffnet. Prüfen Sie APP_URL und APP_ALLOWED_ORIGINS und öffnen Sie den Link erneut.",
+  "onboarding.verifyStatus.redirectMisconfigured": "Der Verifizierungslink kann nicht sicher weiterleiten, weil APP_URL nicht zur URL passt, die die Anfrage verarbeitet hat. Prüfen Sie APP_URL und APP_ALLOWED_ORIGINS und öffnen Sie den Link erneut.",
+  "onboarding.verifyStatus.urlNotConfigured": "Die Onboarding-Verifizierung ist nicht konfiguriert. APP_URL muss gesetzt sein, bevor Verifizierungslinks verwendet werden können."
 }

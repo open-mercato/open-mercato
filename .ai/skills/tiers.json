@@ -18,7 +18,8 @@
         "om-skill-creator",
         "om-fix-specs",
         "om-migrate-mikro-orm",
-        "om-create-ai-agent"
+        "om-create-ai-agent",
+        "om-help"
       ]
     },
     "automation": {
@@ -30,6 +31,7 @@
         "om-auto-continue-pr-loop",
         "om-auto-review-pr",
         "om-auto-fix-github",
+        "om-auto-verify-and-fix-github",
         "om-prepare-issue",
         "om-verify-in-repo",
         "om-root-cause",
@@ -37,9 +39,13 @@
         "om-open-pr",
         "om-review-prs",
         "om-merge-buddy",
+        "om-approve-merge-pr",
+        "om-followup-issue-from-pr",
         "om-sync-merged-pr-issues",
         "om-auto-update-changelog",
-        "om-auto-qa-scenarios"
+        "om-auto-publish-pr",
+        "om-auto-qa-scenarios",
+        "om-auto-verify-pr-ui"
       ]
     },
     "security": {

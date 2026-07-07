@@ -23,6 +23,7 @@ import { slugify } from '@open-mercato/shared/lib/slugify'
 import { CrudForm, type CrudField, type CrudFormGroup, type CrudFormGroupComponentProps } from '@open-mercato/ui/backend/CrudForm'
 import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { SwitchableMarkdownInput } from '@open-mercato/ui/backend/inputs'
 import { apiCall, apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -40,6 +41,7 @@ import { getLocalizedDefaultCheckoutCustomerFields } from '../lib/defaults'
 import type { CustomerFieldDefinitionInput, PriceListItemInput } from '../data/validators'
 import { getGatewayProviderConfigurationMessageKey } from '../lib/gatewayProviderAvailability'
 import { readCustomerFieldsSectionError } from '../lib/customerFieldErrors'
+import { isRecordNotFoundError } from '../lib/recordNotFound'
 import { CheckoutCurrencySelect } from './CheckoutCurrencySelect'
 import { CustomerFieldsEditor } from './CustomerFieldsEditor'
 import { GatewaySettingsFields } from './GatewaySettingsFields'
@@ -1332,6 +1334,7 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   const [initialValues, setInitialValues] = React.useState<FormValues | null>(
     recordId ? null : normalizeFormValues(createDefaultValues(t), t),
   )
+  const [notFound, setNotFound] = React.useState(false)
 
   const replaceInitialValues = React.useCallback((nextValues: FormValues) => {
     setInitialValues(nextValues)
@@ -1425,13 +1428,19 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
   React.useEffect(() => {
     if (!recordId) return
     let active = true
+    setNotFound(false)
     void readApiResultOrThrow<FormValues>(`/api/checkout/${mode === 'link' ? 'links' : 'templates'}/${encodeURIComponent(recordId)}`)
       .then((result) => {
         if (!active) return
         replaceInitialValues(normalizeFormValues(result, t))
       })
-      .catch(() => {
-        if (active) replaceInitialValues(normalizeFormValues({}, t))
+      .catch((error) => {
+        if (!active) return
+        if (isRecordNotFoundError(error)) {
+          setNotFound(true)
+          return
+        }
+        replaceInitialValues(normalizeFormValues({}, t))
       })
     return () => {
       active = false
@@ -1567,6 +1576,26 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
     </div>
   ) : undefined
 
+  const listHref = mode === 'link' ? '/backend/checkout/pay-links' : '/backend/checkout/templates'
+
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t(mode === 'link'
+              ? 'checkout.linkTemplateForm.notFound.link.title'
+              : 'checkout.linkTemplateForm.notFound.template.title')}
+            description={t(mode === 'link'
+              ? 'checkout.linkTemplateForm.notFound.link.description'
+              : 'checkout.linkTemplateForm.notFound.template.description')}
+            backHref={listHref}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   return (
     <Page>
       <PageBody>
@@ -1653,6 +1682,10 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 )
               } catch (error) {
                 if (surfaceRecordConflict(error, t)) return
+                if (recordId && isRecordNotFoundError(error)) {
+                  setNotFound(true)
+                  return
+                }
                 throw error
               }
               const targetId = recordId ?? (typeof response?.id === 'string' ? response.id : null)
@@ -1706,6 +1739,10 @@ export function LinkTemplateForm({ mode, recordId }: Props) {
                 )
               } catch (error) {
                 if (surfaceRecordConflict(error, t)) return
+                if (isRecordNotFoundError(error)) {
+                  setNotFound(true)
+                  return
+                }
                 throw error
               }
               window.location.href = mode === 'link'

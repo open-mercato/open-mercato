@@ -45,6 +45,7 @@ import {
   type QueryIndexEventEntry,
 } from './shared'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
@@ -524,6 +525,86 @@ async function setCustomFieldsForPerson(
   }
 }
 
+type PersonGraphValues = {
+  entityId?: string
+  profileId?: string
+  organizationId: string
+  tenantId: string
+  displayName: string
+  description: string | null
+  ownerUserId: string | null
+  primaryEmail: string | null
+  primaryPhone: string | null
+  status: string | null
+  lifecycleStage: string | null
+  source: string | null
+  nextInteractionAt: Date | null
+  nextInteractionName: string | null
+  nextInteractionRefId: string | null
+  nextInteractionIcon: string | null
+  nextInteractionColor: string | null
+  isActive: boolean
+  firstName: string | null
+  lastName: string | null
+  preferredName: string | null
+  jobTitle: string | null
+  department: string | null
+  seniority: string | null
+  timezone: string | null
+  linkedInUrl: string | null
+  twitterUrl: string | null
+}
+
+// Single source of truth for the person entity+profile row mapping, shared by
+// `execute` (values from validated input) and `redo` (values from the after-
+// snapshot, carrying the original ids). Keeps create and id-preserving redo from
+// drifting field-by-field. Caller owns the surrounding flush, dictionary upserts,
+// tag/company-link sync, and custom-field restore.
+function buildPersonGraph(
+  em: EntityManager,
+  values: PersonGraphValues,
+): { entity: CustomerEntity; profile: CustomerPersonProfile } {
+  const entity = em.create(CustomerEntity, {
+    ...(values.entityId ? { id: values.entityId } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    kind: 'person',
+    displayName: values.displayName,
+    description: values.description,
+    ownerUserId: values.ownerUserId,
+    primaryEmail: values.primaryEmail,
+    primaryPhone: values.primaryPhone,
+    status: values.status,
+    lifecycleStage: values.lifecycleStage,
+    source: values.source,
+    nextInteractionAt: values.nextInteractionAt,
+    nextInteractionName: values.nextInteractionName,
+    nextInteractionRefId: values.nextInteractionRefId,
+    nextInteractionIcon: values.nextInteractionIcon,
+    nextInteractionColor: values.nextInteractionColor,
+    isActive: values.isActive,
+  })
+  const profile = em.create(CustomerPersonProfile, {
+    ...(values.profileId ? { id: values.profileId } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    entity,
+    firstName: values.firstName,
+    lastName: values.lastName,
+    preferredName: values.preferredName,
+    jobTitle: values.jobTitle,
+    department: values.department,
+    seniority: values.seniority,
+    timezone: values.timezone,
+    linkedInUrl: values.linkedInUrl,
+    twitterUrl: values.twitterUrl,
+    company: null,
+  })
+  em.persist(entity)
+  em.persist(profile)
+  return { entity, profile }
+}
+
 const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string; personId: string }> = {
   id: 'customers.people.create',
   async execute(rawInput, ctx) {
@@ -566,10 +647,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
     let profile!: CustomerPersonProfile
     await withAtomicFlush(em, [
       () => {
-        entity = em.create(CustomerEntity, {
+        const graph = buildPersonGraph(em, {
           organizationId: parsed.organizationId,
           tenantId: parsed.tenantId,
-          kind: 'person',
           displayName,
           description,
           ownerUserId: parsed.ownerUserId ?? null,
@@ -584,12 +664,6 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           nextInteractionIcon,
           nextInteractionColor,
           isActive: parsed.isActive ?? true,
-        })
-
-        profile = em.create(CustomerPersonProfile, {
-          organizationId: parsed.organizationId,
-          tenantId: parsed.tenantId,
-          entity,
           firstName,
           lastName,
           preferredName,
@@ -599,11 +673,9 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
           timezone,
           linkedInUrl,
           twitterUrl,
-          company: null,
         })
-
-        em.persist(entity)
-        em.persist(profile)
+        entity = graph.entity
+        profile = graph.profile
       },
       async () => {
         if (status) {
@@ -714,6 +786,128 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
       events: personCrudEvents,
     })
     await emitQueryIndexDeleteEvents(ctx, [personEntityIndexEntry(entity)])
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<PersonSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for person create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entity.id },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
+    let profile!: CustomerPersonProfile
+    if (!entity) {
+      let newEntity!: CustomerEntity
+      let newProfile!: CustomerPersonProfile
+      await withAtomicFlush(em, [
+        () => {
+          const graph = buildPersonGraph(em, {
+            entityId: after.entity.id,
+            profileId: after.profile.id,
+            organizationId: after.entity.organizationId,
+            tenantId: after.entity.tenantId,
+            displayName: after.entity.displayName,
+            description: after.entity.description,
+            ownerUserId: after.entity.ownerUserId,
+            primaryEmail: after.entity.primaryEmail,
+            primaryPhone: after.entity.primaryPhone,
+            status: after.entity.status,
+            lifecycleStage: after.entity.lifecycleStage,
+            source: after.entity.source,
+            nextInteractionAt: after.entity.nextInteractionAt,
+            nextInteractionName: after.entity.nextInteractionName,
+            nextInteractionRefId: after.entity.nextInteractionRefId,
+            nextInteractionIcon: after.entity.nextInteractionIcon,
+            nextInteractionColor: after.entity.nextInteractionColor,
+            isActive: after.entity.isActive,
+            firstName: after.profile.firstName,
+            lastName: after.profile.lastName,
+            preferredName: after.profile.preferredName,
+            jobTitle: after.profile.jobTitle,
+            department: after.profile.department,
+            seniority: after.profile.seniority,
+            timezone: after.profile.timezone,
+            linkedInUrl: after.profile.linkedInUrl,
+            twitterUrl: after.profile.twitterUrl,
+          })
+          newEntity = graph.entity
+          newProfile = graph.profile
+        },
+        () => syncLegacyPrimaryCompanyLink(em, newEntity, newProfile, after.profile.companyEntityId),
+        () => syncEntityTags(em, newEntity, after.tagIds),
+      ], { transaction: true })
+      entity = newEntity
+      profile = newProfile
+    } else {
+      const existingProfile = await findOneWithDecryption(
+        em,
+        CustomerPersonProfile,
+        { entity },
+        undefined,
+        { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+      )
+      if (!existingProfile) throw new CrudHttpError(404, { error: 'Person profile not found' })
+      profile = existingProfile
+      const survivingEntity = entity
+      await withAtomicFlush(em, [
+        () => {
+          survivingEntity.deletedAt = null
+          survivingEntity.displayName = after.entity.displayName
+          survivingEntity.description = after.entity.description
+          survivingEntity.ownerUserId = after.entity.ownerUserId
+          survivingEntity.primaryEmail = after.entity.primaryEmail
+          survivingEntity.primaryPhone = after.entity.primaryPhone
+          survivingEntity.status = after.entity.status
+          survivingEntity.lifecycleStage = after.entity.lifecycleStage
+          survivingEntity.source = after.entity.source
+          survivingEntity.nextInteractionAt = after.entity.nextInteractionAt
+          survivingEntity.nextInteractionName = after.entity.nextInteractionName
+          survivingEntity.nextInteractionRefId = after.entity.nextInteractionRefId
+          survivingEntity.nextInteractionIcon = after.entity.nextInteractionIcon
+          survivingEntity.nextInteractionColor = after.entity.nextInteractionColor
+          survivingEntity.isActive = after.entity.isActive
+          profile.firstName = after.profile.firstName
+          profile.lastName = after.profile.lastName
+          profile.preferredName = after.profile.preferredName
+          profile.jobTitle = after.profile.jobTitle
+          profile.department = after.profile.department
+          profile.seniority = after.profile.seniority
+          profile.timezone = after.profile.timezone
+          profile.linkedInUrl = after.profile.linkedInUrl
+          profile.twitterUrl = after.profile.twitterUrl
+        },
+        () => syncLegacyPrimaryCompanyLink(em, survivingEntity, profile, after.profile.companyEntityId),
+        () => syncEntityTags(em, survivingEntity, after.tagIds),
+      ], { transaction: true })
+    }
+
+    const restoredEntity = entity
+    const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(restoreValues).length) {
+      await setCustomFieldsForPerson(ctx, restoredEntity.id, profile.id, restoredEntity.organizationId, restoredEntity.tenantId, restoreValues)
+    }
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredEntity,
+      identifiers: {
+        id: profile.id ?? restoredEntity.id,
+        tenantId: restoredEntity.tenantId,
+        organizationId: restoredEntity.organizationId,
+      },
+      indexer: personCrudIndexer,
+      events: personCrudEvents,
+    })
+    await emitQueryIndexUpsertEvents(ctx, [personEntityIndexEntry(restoredEntity)])
+
+    return { entityId: restoredEntity.id, personId: profile.id }
   },
 }
 

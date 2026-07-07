@@ -18,9 +18,10 @@ import {
   requireTeamMember,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
-  enforceCommandOptimisticLock,
+  enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -143,6 +144,55 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
       await em.flush()
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<JobHistorySnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for job history create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const member = await requireTeamMember(em, after.memberId, 'Team member not found')
+    let record = await em.findOne(StaffTeamMemberJobHistory, { id: after.id })
+    if (!record) {
+      record = em.create(StaffTeamMemberJobHistory, {
+        id: after.id,
+        organizationId: after.organizationId,
+        tenantId: after.tenantId,
+        member,
+        name: after.name,
+        companyName: after.companyName,
+        description: after.description,
+        startDate: new Date(after.startDate),
+        endDate: after.endDate ? new Date(after.endDate) : null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      em.persist(record)
+    } else {
+      record.member = member
+      record.name = after.name
+      record.companyName = after.companyName
+      record.description = after.description
+      record.startDate = new Date(after.startDate)
+      record.endDate = after.endDate ? new Date(after.endDate) : null
+    }
+    await em.flush()
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: record,
+      identifiers: {
+        id: record.id,
+        organizationId: record.organizationId,
+        tenantId: record.tenantId,
+      },
+      events: staffTeamMemberJobHistoryCrudEvents,
+      indexer: jobHistoryCrudIndexer,
+    })
+
+    return { jobHistoryId: record.id }
+  },
 }
 
 const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInput, { jobHistoryId: string }> = {
@@ -168,7 +218,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
       resourceId: record.id,
       current: record.updatedAt ?? null,
@@ -316,7 +366,7 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       }
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
         resourceId: record.id,
         current: record.updatedAt ?? null,

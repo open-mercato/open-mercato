@@ -66,6 +66,11 @@ const sidebars: SidebarsConfig = {
     },
     {
       type: "category",
+      label: "Deployment",
+      items: ["deployment/railway"],
+    },
+    {
+      type: "category",
       label: "User Guide",
       items: [
         "user-guide/overview",
@@ -83,6 +88,7 @@ const sidebars: SidebarsConfig = {
         "user-guide/user-entities",
         "user-guide/system-status",
         "user-guide/products-and-sales-channels",
+        "user-guide/price-kinds",
         "user-guide/attachments",
         "user-guide/cache-management",
         "user-guide/taxes",
@@ -406,6 +412,7 @@ const sidebars: SidebarsConfig = {
           items: [
             "framework/ai-assistant/overview",
             "framework/ai-assistant/architecture",
+            "framework/ai-assistant/mcp",
             "framework/ai-assistant/developer-guide",
             "framework/ai-assistant/agents",
             "framework/ai-assistant/ui-parts",

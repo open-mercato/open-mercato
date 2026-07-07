@@ -6,6 +6,7 @@ import {
   undoOk,
   redoOk,
   expectTokenConsumed,
+  skipIfUndoTestsDisabled,
 } from '@open-mercato/core/helpers/integration/undoHarness'
 
 /**
@@ -14,8 +15,6 @@ import {
  * Drives the real command bus through the public API + undo/redo endpoints.
  * Active tests assert invariants that currently hold; known defects are quarantined with
  * test.fixme() and linked to filed bugs so the suite stays green while documenting the gap.
- *   - people.update → undo is a silent no-op → BUG #2498 (encryption deep-decrypt resets
- *     change-tracking before flush). Quarantined below; flip to active once #2498 is fixed.
  *   - people.create → undo → redo mints a NEW id instead of restoring the soft-deleted
  *     original → finding under review (see #2468 tracking PR). Quarantined below.
  */
@@ -28,6 +27,10 @@ async function getPerson(request: APIRequestContext, token: string, id: string) 
 }
 
 test.describe('TC-UNDO-001 customers.people undo/redo', () => {
+  test.beforeAll(() => {
+    skipIfUndoTestsDisabled()
+  })
+
   test('create → undo soft-deletes (I2) + token consumed (I5)', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
@@ -89,8 +92,7 @@ test.describe('TC-UNDO-001 customers.people undo/redo', () => {
     }
   })
 
-  // BUG #2498 — people.update undo returns {ok:true} but restores nothing (updated_at not bumped).
-  test.fixme('update → undo restores prior scalars (I1) — BUG #2498', async ({ request }) => {
+  test('update → undo restores prior scalars (I1) — regression #2498', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = Date.now()
     let personId: string | null = null

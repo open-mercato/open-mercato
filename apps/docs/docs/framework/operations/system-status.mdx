@@ -11,7 +11,62 @@ description: Summary of the environment toggles surfaced in the admin System sta
 - **Persistent change:** edit `.env` (or `.env.local`) and restart the application.
 - **Secrets:** prefer `.env.local` or deployment-specific secret managers so changes stay out of version control.
 
-The sections below list every toggle shown in the System status panel along with the default value bundled with the platform. Follow the related links for deeper feature documentation where available.
+The sections below cover the System status panel and local operational telemetry controls, along with the default values bundled with the platform. Follow the related links for deeper feature documentation where available.
+
+## Module telemetry {#module-telemetry}
+
+The **Module telemetry** admin page lives at `/backend/config/module-telemetry`. It reports module-level resource usage collected in the current process and any fresh local process telemetry files. Data is stored in 5-minute buckets; each bucket includes its own interval so older persisted buckets remain readable if the interval changes later.
+
+Telemetry stages:
+
+- `startup`: a bucket that overlaps the first 5 minutes after telemetry starts.
+- `running`: buckets after startup.
+
+Metric semantics:
+
+- **Calls** and **CPU** are summed across selected buckets.
+- **Heap / hour** and **RSS / hour** are positive growth pressure normalized by the selected time window.
+- Heap and RSS growth are not live memory gauges. They track positive deltas observed after module operations, so they can grow even when current process memory later drops.
+
+### OM_MODULE_RESOURCE_USAGE {#om_module_resource_usage}
+**Default:** `true`
+
+Enables local module resource attribution for API routes, event subscribers, queue workers, and custom tracked operations. Disable only when debugging the tracker itself or when no local telemetry should be collected.
+
+### OM_MODULE_RESOURCE_USAGE_SNAPSHOT {#om_module_resource_usage_snapshot}
+**Default:** `true` outside tests
+
+Writes best-effort local process telemetry files under `.mercato/module-resource-usage` so the admin page can include fresh data from sibling processes after restarts or worker activity.
+
+### OM_MODULE_RESOURCE_USAGE_DIR {#om_module_resource_usage_dir}
+**Default:** `./.mercato/module-resource-usage`
+
+Overrides the directory used for local process telemetry files.
+
+### OM_MODULE_RESOURCE_HEAVY_P95_MS {#om_module_resource_heavy_p95_ms}
+**Default:** `5000`
+
+Threshold for flagging modules with slow p95 operation duration.
+
+### OM_MODULE_RESOURCE_HEAVY_CPU_MS {#om_module_resource_heavy_cpu_ms}
+**Default:** `25000`
+
+Threshold for flagging modules with high accumulated CPU time.
+
+### OM_MODULE_RESOURCE_HEAVY_HEAP_BYTES {#om_module_resource_heavy_heap_bytes}
+**Default:** `262144000`
+
+Threshold for flagging modules with high positive heap growth.
+
+### OM_MODULE_RESOURCE_HEAVY_RSS_BYTES {#om_module_resource_heavy_rss_bytes}
+**Default:** `262144000`
+
+Threshold for flagging modules with high positive RSS growth.
+
+### OM_MODULE_RESOURCE_HEAVY_ERRORS {#om_module_resource_heavy_errors}
+**Default:** `10`
+
+Threshold for flagging modules with repeated tracked operation errors.
 
 ## Profiling filters {#profiling}
 
@@ -94,6 +149,22 @@ Caches coverage statistics instead of recalculating them on every read. Suitable
 ### FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES {#force_query_index_on_partial_indexes}
 **Default:** `true`  
 Allows the hybrid engine to serve results even when coverage is partial. Responses include an `x-om-partial-index` header so admins can schedule a rebuild. Related docs: [Query index](https://docs.openmercato.com/docs/framework/database/query-index).
+
+### QUERY_INDEX_WARMUP_ENABLED {#query_index_warmup_enabled}
+**Default:** `true`  
+Kill switch for the `query_index.coverage.warmup` sweep fired after login. Set to `false` to disable the proactive warmup entirely and rely solely on the query engine's lazy, on-demand coverage refresh. Related docs: [Query index](https://docs.openmercato.com/docs/framework/database/query-index).
+
+### QUERY_INDEX_WARMUP_THROTTLE_MS {#query_index_warmup_throttle_ms}
+**Default:** `300000` (5 minutes)  
+Minimum time between warmup sweeps for the same entity type and tenant, checked both against an in-process cache and the persisted coverage snapshot so a process restart doesn't repeat the full sweep.
+
+### QUERY_INDEX_WARMUP_CONCURRENCY {#query_index_warmup_concurrency}
+**Default:** `10`  
+Number of `coverage.refresh` events dispatched per chunk during the warmup sweep. Lower this alongside `QUERY_INDEX_WARMUP_STAGGER_MS` to reduce peak concurrent database connections on memory-constrained deployments.
+
+### QUERY_INDEX_WARMUP_STAGGER_MS {#query_index_warmup_stagger_ms}
+**Default:** `0` (unchanged burst behaviour)  
+Delay in milliseconds added between successive warmup chunks. A non-zero value (e.g. `2000`) spreads the post-login coverage burst over time instead of firing every stale entity type at once, lowering peak RSS/connection usage without changing the total number of refreshes.
 
 ## Entity compatibility {#entities}
 

@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
 import { getAuthToken, apiRequest } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { expectConflictBanner } from '@open-mercato/core/modules/core/__integration__/helpers/optimisticLockUi'
+import { isStandaloneIntegration } from '@open-mercato/core/helpers/integration/standaloneEnv'
 
 /**
  * TC-LOCK-OSS-047: Saved table Views (perspectives) — a stale save surfaces the
@@ -52,6 +53,7 @@ test.describe('TC-LOCK-OSS-047: saved Views conflict bar does not leak record_mo
   // real component locators (popover Button items, aria-labelled IconButtons), so it is
   // stable against leftover views and re-renders.
   test('stale rename surfaces the unified conflict bar and never renders the raw token', async ({ page, request }) => {
+    test.skip(isStandaloneIntegration(), 'Standalone smoke runs omit this monorepo-only saved-view conflict choreography.')
     test.slow()
 
     const stamp = Date.now()

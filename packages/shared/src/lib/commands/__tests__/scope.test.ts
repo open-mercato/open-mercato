@@ -83,4 +83,52 @@ describe('ensureOrganizationScope', () => {
       expect(() => ensureOrganizationScope(ctx, 'org-b')).toThrow(CrudHttpError)
     })
   })
+
+  describe('fail-open-by-omission hardening (#2441)', () => {
+    const originalNodeEnv = process.env.NODE_ENV
+    const originalStrict = process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+    let warnSpy: jest.SpyInstance
+
+    beforeEach(() => {
+      // The scope loggers suppress output under NODE_ENV==='test'; flip it so the
+      // observability signal becomes assertable, then restore in afterEach.
+      process.env.NODE_ENV = 'development'
+      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    })
+
+    afterEach(() => {
+      warnSpy.mockRestore()
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV
+      else process.env.NODE_ENV = originalNodeEnv
+      if (originalStrict === undefined) delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+      else process.env.OM_ENFORCE_ORG_SCOPE_STRICT = originalStrict
+    })
+
+    it('emits an observability warning when scope and currentOrg are both null', () => {
+      delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+      const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
+      expect(() => ensureOrganizationScope(ctx, 'org-b')).not.toThrow()
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[scope] Unscoped organization command executed without organization context',
+        expect.objectContaining({ targetOrganizationId: 'org-b', strictEnforcement: false })
+      )
+    })
+
+    it('throws when OM_ENFORCE_ORG_SCOPE_STRICT is enabled', () => {
+      process.env.OM_ENFORCE_ORG_SCOPE_STRICT = 'true'
+      const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
+      expect(() => ensureOrganizationScope(ctx, 'org-b')).toThrow(CrudHttpError)
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[scope] Unscoped organization command executed without organization context',
+        expect.objectContaining({ targetOrganizationId: 'org-b', strictEnforcement: true })
+      )
+    })
+
+    it('does not warn or throw when there is no target organization to validate', () => {
+      delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
+      const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
+      expect(() => ensureOrganizationScope(ctx, '')).not.toThrow()
+      expect(warnSpy).not.toHaveBeenCalled()
+    })
+  })
 })

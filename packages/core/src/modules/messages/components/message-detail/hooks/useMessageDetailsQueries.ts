@@ -26,10 +26,19 @@ export function useMessageDetailsQueries({
     [id, scopeVersion],
   )
 
+  const suppressAutoMarkReadRef = React.useRef(false)
+
+  React.useEffect(() => {
+    suppressAutoMarkReadRef.current = false
+  }, [id])
+
   const detailQuery = useQuery<MessageDetail | null>({
     queryKey: detailQueryKey,
     queryFn: async () => {
-      const call = await apiCall<MessageDetail>(`/api/messages/${encodeURIComponent(id)}`)
+      const detailUrl = suppressAutoMarkReadRef.current
+        ? `/api/messages/${encodeURIComponent(id)}?skipMarkRead=1`
+        : `/api/messages/${encodeURIComponent(id)}`
+      const call = await apiCall<MessageDetail>(detailUrl)
       if (call.status === 404) {
         return null
       }
@@ -97,6 +106,10 @@ export function useMessageDetailsQueries({
     return call.result
   }, [detailQueryKey, id, queryClient, t])
 
+  const suppressAutoMarkRead = React.useCallback(() => {
+    suppressAutoMarkReadRef.current = true
+  }, [])
+
   const listItemComponentKey = detail?.typeDefinition.ui?.listItemComponent ?? null
   const contentComponentKey = detail?.typeDefinition.ui?.contentComponent ?? null
   const actionsComponentKey = detail?.typeDefinition.ui?.actionsComponent ?? null
@@ -111,6 +124,7 @@ export function useMessageDetailsQueries({
     attachmentsQuery,
     attachments,
     refreshDetailWithoutAutoMarkRead,
+    suppressAutoMarkRead,
     listItemComponentKey,
     contentComponentKey,
     actionsComponentKey,

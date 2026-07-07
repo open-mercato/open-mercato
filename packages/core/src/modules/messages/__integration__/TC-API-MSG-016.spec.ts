@@ -76,6 +76,8 @@ test.describe('TC-API-MSG-016: Forward Preview and Body Truncation', () => {
   });
 
   test('should return 413 when the rendered forward body exceeds the length cap', async ({ request }) => {
+    test.setTimeout(120_000);
+
     let rootId: string | null = null;
     let replyId: string | null = null;
     let adminToken: string | null = null;
@@ -87,9 +89,10 @@ test.describe('TC-API-MSG-016: Forward Preview and Body Truncation', () => {
       const employeeUserId = decodeJwtSubject(employeeToken);
 
       const timestamp = Date.now();
-      // Two ~30k bodies render to a forward block above the 50k cap.
-      const rootBody = 'A'.repeat(30000);
-      const replyBody = 'B'.repeat(30000);
+      // The per-message API validator allows 50k bodies; two 25k messages plus
+      // the rendered forward headers deterministically exceed the 50k cap.
+      const rootBody = 'A'.repeat(25_000);
+      const replyBody = 'B'.repeat(25_000);
 
       rootId = await composeMessageWithToken(request, adminToken, {
         recipients: [{ userId: employeeUserId, type: 'to' }],

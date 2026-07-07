@@ -3,12 +3,19 @@ import { z } from 'zod'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getIntegration } from '@open-mercato/shared/modules/integrations/types'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { emitIntegrationsEvent } from '../../../events'
 import { saveCredentialsSchema } from '../../../data/validators'
 import {
   isCredentialsEncryptionUnavailableError,
   type CredentialsService,
 } from '../../../lib/credentials-service'
+import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
+import {
+  maskSecretCredentials,
+  mergeMaskedSecretCredentials,
+} from '../../../lib/credentials-masking'
 import {
   resolveUserFeatures,
   runIntegrationMutationGuardAfterSuccess,
@@ -57,8 +64,10 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
 
   let values: Record<string, unknown> | null
+  let updatedAt: Date | null
   try {
     values = await credentialsService.resolve(integration.id, scope)
+    updatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
@@ -66,10 +75,15 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     throw error
   }
 
+  const schema = credentialsService.getSchema(integration.id)
+  const { credentials, secretFieldsConfigured } = maskSecretCredentials(schema, values ?? {})
+
   return NextResponse.json({
     integrationId: integration.id,
-    schema: credentialsService.getSchema(integration.id),
-    credentials: values ?? {},
+    schema,
+    credentials,
+    secretFieldsConfigured,
+    updatedAt: updatedAt?.toISOString() ?? null,
   })
 }
 
@@ -128,9 +142,44 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const schema = credentialsService.getSchema(integration.id)
 
   try {
-    await credentialsService.save(integration.id, payloadData.credentials, scope)
+    const currentUpdatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
+    enforceCommandOptimisticLock({
+      resourceKind: 'integrations.integration',
+      resourceId: integration.id,
+      current: currentUpdatedAt,
+      request: req,
+    })
+  } catch (error) {
+    if (isCrudHttpError(error)) {
+      return NextResponse.json(error.body, { status: error.status })
+    }
+    if (isCredentialsEncryptionUnavailableError(error)) {
+      return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })
+    }
+    throw error
+  }
+
+  const credentialFieldErrors = collectCredentialUrlValidationErrors(
+    schema,
+    payloadData.credentials,
+  )
+  if (Object.keys(credentialFieldErrors).length > 0) {
+    return NextResponse.json(
+      { error: 'Invalid credentials payload', details: { fieldErrors: credentialFieldErrors } },
+      { status: 422 },
+    )
+  }
+
+  try {
+    // Secret fields are returned masked on GET; when the client round-trips the
+    // mask sentinel it means "unchanged", so restore the existing stored secret
+    // instead of overwriting it with the placeholder.
+    const existing = await credentialsService.resolve(integration.id, scope)
+    const credentialsToSave = mergeMaskedSecretCredentials(schema, payloadData.credentials, existing ?? {})
+    await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })

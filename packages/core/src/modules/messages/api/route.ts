@@ -4,7 +4,7 @@ import { type Kysely, sql } from 'kysely'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { hashForLookup } from '@open-mercato/shared/lib/encryption/aes'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
 import { User } from '../../auth/data/entities'
 import { Message, MessageObject } from '../data/entities'
 import { composeMessageSchema, listMessagesSchema } from '../data/validators'
@@ -13,6 +13,7 @@ import { getMessageType } from '../lib/message-types-registry'
 import { validateMessageObjectsForType } from '../lib/object-validation'
 import { attachOperationMetadataHeader } from '../lib/operationMetadata'
 import { canUseMessageEmailFeature, resolveMessageContext } from '../lib/routeHelpers'
+import { resolveUserFeatures, runMessageMutationGuardAfterSuccess, runMessageMutationGuards } from './guards'
 import { findMessageIdsBySearchTokens } from '../lib/searchLookup'
 import { MessageCommandExecuteResult } from '../commands/shared'
 import {
@@ -136,7 +137,7 @@ export async function GET(req: Request) {
     if (input.visibility) q = q.where('m.visibility', '=', input.visibility)
     if (input.sourceEntityType) q = q.where('m.source_entity_type', '=', input.sourceEntityType)
     if (input.sourceEntityId) q = q.where('m.source_entity_id', '=', input.sourceEntityId)
-    if (input.externalEmail) q = q.where('m.external_email_hash', '=', hashForLookup(input.externalEmail))
+    if (input.externalEmail) q = q.where('m.external_email_hash', 'in', lookupHashCandidates(input.externalEmail))
     if (input.senderId) q = q.where('m.sender_user_id', '=', input.senderId)
 
     if (input.search) {
@@ -188,6 +189,14 @@ export async function GET(req: Request) {
     return q
   }
 
+  // Audited for #3386 rollout (P3): sort is on m.sent_at (a plain timestamp —
+  // not in the messages:message encryption map whose encrypted fields are:
+  // subject, body, external_email, external_name, action_data, action_result).
+  // The handler already uses the correct two-phase shape: Kysely SQL
+  // ORDER BY + LIMIT/OFFSET produces a bounded page of IDs, then
+  // findWithDecryption is called only for those IDs — never for the full
+  // result set. The #3278 unbounded-decrypt hazard does not apply here.
+  // Covered by __tests__/list.test.ts.
   const countResult = await buildBaseQuery()
     .select(sql<number>`count(*)`.as('count'))
     .executeTakeFirst() as { count: string | number } | undefined
@@ -351,6 +360,28 @@ export async function POST(req: Request) {
     }
   }
 
+  const guardResult = await runMessageMutationGuards(
+    ctx.container,
+    {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      userId: scope.userId,
+      resourceKind: 'messages.message',
+      resourceId: null,
+      operation: 'create',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: input as Record<string, unknown>,
+    },
+    resolveUserFeatures(ctx.auth),
+  )
+  if (!guardResult.ok) {
+    return Response.json(
+      guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+      { status: guardResult.errorStatus ?? 422 },
+    )
+  }
+
   const { result, logEntry } = await commandBus.execute('messages.messages.compose', {
     input: {
       ...input,
@@ -374,6 +405,16 @@ export async function POST(req: Request) {
   attachOperationMetadataHeader(response, logEntry, {
     resourceKind: 'messages.message',
     resourceId: messageId,
+  })
+  await runMessageMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    userId: scope.userId,
+    resourceKind: 'messages.message',
+    resourceId: messageId,
+    operation: 'create',
+    requestMethod: req.method,
+    requestHeaders: req.headers,
   })
   return response
 }

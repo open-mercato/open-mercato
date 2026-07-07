@@ -12,7 +12,7 @@ import {
 import { DefaultDataEngine, type DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
-import { CustomerInteraction } from '../data/entities'
+import { CustomerInteraction, CustomerEntity } from '../data/entities'
 import {
   interactionCreateSchema,
   interactionUpdateSchema,
@@ -33,12 +33,13 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceRecordGoneIsConflict, enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
@@ -296,6 +297,75 @@ async function emitNextInteractionUpdatedEvent(
 
 // ─── Create ─────────────────────────────────────────────────────────
 
+type InteractionGraphValues = {
+  id?: string
+  organizationId: string
+  tenantId: string
+  entity: CustomerEntity
+  interactionType: string
+  title: string | null
+  body: string | null
+  status: string
+  scheduledAt: Date | null
+  occurredAt: Date | null
+  priority: number | null
+  authorUserId: string | null
+  ownerUserId: string | null
+  dealId: string | null
+  source: string | null
+  appearanceIcon: string | null
+  appearanceColor: string | null
+  durationMinutes: number | null
+  location: string | null
+  allDay: boolean | null
+  recurrenceRule: string | null
+  recurrenceEnd: Date | null
+  participants: InteractionSnapshot['interaction']['participants']
+  reminderMinutes: number | null
+  visibility: string | null
+  linkedEntities: InteractionSnapshot['interaction']['linkedEntities']
+  guestPermissions: InteractionSnapshot['interaction']['guestPermissions']
+}
+
+// Single source of truth for the interaction row mapping, shared by `execute`
+// (values from validated input) and `redo` (values from the after-snapshot,
+// carrying the original id). Keeps create and id-preserving redo from drifting
+// field-by-field. Caller owns the surrounding transaction, persist, projection
+// recompute, and custom-field handling.
+function buildInteractionGraph(em: EntityManager, values: InteractionGraphValues): CustomerInteraction {
+  return em.create(CustomerInteraction, {
+    ...(values.id ? { id: values.id } : {}),
+    organizationId: values.organizationId,
+    tenantId: values.tenantId,
+    entity: values.entity,
+    interactionType: values.interactionType,
+    title: values.title,
+    body: values.body,
+    status: values.status,
+    scheduledAt: values.scheduledAt,
+    occurredAt: values.occurredAt,
+    priority: values.priority,
+    authorUserId: values.authorUserId,
+    ownerUserId: values.ownerUserId,
+    dealId: values.dealId,
+    source: values.source,
+    appearanceIcon: values.appearanceIcon,
+    appearanceColor: values.appearanceColor,
+    durationMinutes: values.durationMinutes,
+    location: values.location,
+    allDay: values.allDay,
+    recurrenceRule: values.recurrenceRule,
+    recurrenceEnd: values.recurrenceEnd,
+    participants: values.participants,
+    reminderMinutes: values.reminderMinutes,
+    visibility: values.visibility,
+    linkedEntities: values.linkedEntities,
+    guestPermissions: values.guestPermissions,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  })
+}
+
 const createInteractionCommand: CommandHandler<InteractionCreateInput, { interactionId: string; entityId: string }> = {
   id: 'customers.interactions.create',
   async execute(rawInput, ctx) {
@@ -304,7 +374,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const normalizedAuthor = normalizeAuthorUserId(parsed.authorUserId ?? null, ctx.auth)
     const { interaction, entityId, nextInteractionId } = await runInTransaction(em, async (trx) => {
-      const entity = await requireTimelineParentEntity(trx, parsed.entityId)
+      const entity = await requireTimelineParentEntity(trx, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId })
       ensureTenantScope(ctx, entity.tenantId)
       ensureOrganizationScope(ctx, entity.organizationId)
 
@@ -312,7 +382,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         await requireDealInScope(trx, parsed.dealId, entity.tenantId, entity.organizationId)
       }
 
-      const interaction = trx.create(CustomerInteraction, {
+      const interaction = buildInteractionGraph(trx, {
         ...(parsed.id ? { id: parsed.id } : {}),
         organizationId: entity.organizationId,
         tenantId: entity.tenantId,
@@ -340,8 +410,6 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         visibility: parsed.visibility ?? null,
         linkedEntities: parsed.linkedEntities ?? null,
         guestPermissions: parsed.guestPermissions ?? null,
-        createdAt: new Date(),
-        updatedAt: new Date(),
       })
       trx.persist(interaction)
       await trx.flush()
@@ -435,6 +503,118 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
       nextInteractionId: result.nextInteractionId,
     }, result.identifiers)
   },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<InteractionSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for interaction create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
+      const entity = await requireTimelineParentEntity(trx, after.interaction.entityId, { tenantId: after.interaction.tenantId, organizationId: after.interaction.organizationId })
+      let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: after.interaction.id })
+      if (!interaction) {
+        interaction = buildInteractionGraph(trx, {
+          id: after.interaction.id,
+          organizationId: after.interaction.organizationId,
+          tenantId: after.interaction.tenantId,
+          entity,
+          interactionType: after.interaction.interactionType,
+          title: after.interaction.title,
+          body: after.interaction.body,
+          status: after.interaction.status,
+          scheduledAt: after.interaction.scheduledAt,
+          occurredAt: after.interaction.occurredAt,
+          priority: after.interaction.priority,
+          authorUserId: after.interaction.authorUserId,
+          ownerUserId: after.interaction.ownerUserId,
+          dealId: after.interaction.dealId,
+          source: after.interaction.source,
+          appearanceIcon: after.interaction.appearanceIcon,
+          appearanceColor: after.interaction.appearanceColor,
+          durationMinutes: after.interaction.durationMinutes,
+          location: after.interaction.location,
+          allDay: after.interaction.allDay,
+          recurrenceRule: after.interaction.recurrenceRule,
+          recurrenceEnd: after.interaction.recurrenceEnd,
+          participants: after.interaction.participants,
+          reminderMinutes: after.interaction.reminderMinutes,
+          visibility: after.interaction.visibility,
+          linkedEntities: after.interaction.linkedEntities,
+          guestPermissions: after.interaction.guestPermissions,
+        })
+        trx.persist(interaction)
+      } else {
+        interaction.deletedAt = null
+        interaction.entity = entity
+        interaction.interactionType = after.interaction.interactionType
+        interaction.title = after.interaction.title
+        interaction.body = after.interaction.body
+        interaction.status = after.interaction.status
+        interaction.scheduledAt = after.interaction.scheduledAt
+        interaction.occurredAt = after.interaction.occurredAt
+        interaction.priority = after.interaction.priority
+        interaction.authorUserId = after.interaction.authorUserId
+        interaction.ownerUserId = after.interaction.ownerUserId
+        interaction.dealId = after.interaction.dealId
+        interaction.source = after.interaction.source
+        interaction.appearanceIcon = after.interaction.appearanceIcon
+        interaction.appearanceColor = after.interaction.appearanceColor
+        interaction.durationMinutes = after.interaction.durationMinutes
+        interaction.location = after.interaction.location
+        interaction.allDay = after.interaction.allDay
+        interaction.recurrenceRule = after.interaction.recurrenceRule
+        interaction.recurrenceEnd = after.interaction.recurrenceEnd
+        interaction.participants = after.interaction.participants
+        interaction.reminderMinutes = after.interaction.reminderMinutes
+        interaction.visibility = after.interaction.visibility
+        interaction.linkedEntities = after.interaction.linkedEntities
+        interaction.guestPermissions = after.interaction.guestPermissions
+      }
+      await trx.flush()
+
+      const projection = await recomputeNextInteraction(trx, after.interaction.entityId)
+
+      const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+      if (Object.keys(restoreValues).length) {
+        await setCustomFieldsIfAny({
+          dataEngine: createTransactionalDataEngine(ctx, trx),
+          entityId: INTERACTION_ENTITY_ID,
+          recordId: interaction.id,
+          organizationId: interaction.organizationId,
+          tenantId: interaction.tenantId,
+          values: restoreValues,
+          notify: false,
+        })
+      }
+
+      return { interaction, nextInteractionId: projection.nextInteractionId }
+    })
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: interaction,
+      identifiers: {
+        id: interaction.id,
+        organizationId: interaction.organizationId,
+        tenantId: interaction.tenantId,
+      },
+      syncOrigin: ctx.syncOrigin,
+      indexer: interactionCrudIndexer,
+      events: interactionCrudEvents,
+    })
+    await emitNextInteractionUpdatedEvent(ctx, {
+      entityId: after.interaction.entityId,
+      nextInteractionId,
+    }, {
+      id: interaction.id,
+      organizationId: interaction.organizationId,
+      tenantId: interaction.tenantId,
+    })
+
+    return { interactionId: interaction.id, entityId: after.interaction.entityId }
+  },
 }
 
 // ─── Update ─────────────────────────────────────────────────────────
@@ -464,7 +644,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       // when the client opted into optimistic locking, a stale edit fails with the
       // unified 409 instead of silently overwriting (#2055). Strictly additive —
       // no-op when no expected-version header is present.
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -601,7 +781,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
       let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
-      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+      const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
 
       if (!interaction) {
         interaction = trx.create(CustomerInteraction, {
@@ -732,7 +912,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -872,7 +1052,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -1010,7 +1190,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
 
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.interaction',
           resourceId: interaction.id,
           current: interaction.updatedAt,
@@ -1072,7 +1252,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const { interaction, nextInteractionId } = await runInTransaction(em, async (trx) => {
-        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId)
+        const entity = await requireTimelineParentEntity(trx, before.interaction.entityId, { tenantId: before.interaction.tenantId, organizationId: before.interaction.organizationId })
         let interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: before.interaction.id })
         if (!interaction) {
           interaction = trx.create(CustomerInteraction, {
@@ -1192,7 +1372,10 @@ const recomputeNextCommand: CommandHandler<{ entityId: string }, { entityId: str
     const parsed = recomputeNextSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const projection = await recomputeNextInteraction(em, parsed.entityId)
-    const entity = await requireTimelineParentEntity(em, parsed.entityId)
+    const entity = await requireTimelineParentEntity(em, parsed.entityId, {
+      tenantId: ctx.auth?.tenantId ?? '',
+      organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? '',
+    })
     await emitNextInteractionUpdatedEvent(ctx, {
       entityId: parsed.entityId,
       nextInteractionId: projection.nextInteractionId,

@@ -2,7 +2,7 @@
  * Coverage for the AI override pipeline. The pipeline is the only public
  * way for downstream modules (or app-level code) to replace or disable
  * an AI agent / AI tool registered by another module — see spec
- * `.ai/specs/2026-04-30-ai-overrides-and-module-disable.md`.
+ * `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md`.
  *
  * The pipeline has three tiers (highest precedence first):
  *   1. programmatic — `applyAiAgentOverrides` / `applyAiToolOverrides`

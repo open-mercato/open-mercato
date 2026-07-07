@@ -1,0 +1,47 @@
+name: Deploy to Dokploy Dev
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dev-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout develop
+        uses: actions/checkout@v7
+        with:
+          ref: develop
+
+      - name: Trigger Dokploy compose deploy
+        env:
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_API_KEY_DEV_DEPLOY }}
+          DOKPLOY_DEV_COMPOSE_ID: ${{ secrets.DOKPLOY_DEV_COMPOSE_ID }}
+          DOKPLOY_BASE_URL: ${{ secrets.DOKPLOY_URL }}
+        run: |
+          if [ -z "$DOKPLOY_API_KEY" ] || [ -z "$DOKPLOY_DEV_COMPOSE_ID" ] || [ -z "$DOKPLOY_BASE_URL" ]; then
+            echo "::error::Missing DOKPLOY_API_KEY, DOKPLOY_DEV_COMPOSE_ID, or DOKPLOY_BASE_URL secret"
+            exit 1
+          fi
+
+          http_status=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "${DOKPLOY_BASE_URL%/}/api/compose.deploy" \
+            -H "accept: application/json" \
+            -H "x-api-key: ${DOKPLOY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"composeId\":\"${DOKPLOY_DEV_COMPOSE_ID}\"}")
+
+          echo "Dokploy responded with HTTP ${http_status}"
+          cat response.json
+
+          if [ "$http_status" -lt 200 ] || [ "$http_status" -ge 300 ]; then
+            echo "::error::Dokploy deploy request failed (HTTP ${http_status})"
+            exit 1
+          fi

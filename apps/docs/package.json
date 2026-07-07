@@ -1,6 +1,6 @@
 {
   "name": "open-mercato-docs",
-  "version": "0.6.4",
+  "version": "0.6.5",
   "private": true,
   "scripts": {
     "dev": "docusaurus start",
@@ -27,8 +27,8 @@
   },
   "devDependencies": {
     "@tsconfig/docusaurus": "^2.0.9",
-    "@types/node": "^25.9.1",
-    "@types/react": "^19.2.16",
+    "@types/node": "^26.0.0",
+    "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "rimraf": "^6.1.3",
     "typescript": "^6.0.3"

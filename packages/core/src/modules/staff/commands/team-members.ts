@@ -6,6 +6,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -87,6 +88,34 @@ async function loadTeamMemberCustomSnapshot(
     organizationId: snapshot.organizationId,
   })
 }
+
+function teamMemberSeedFromSnapshot(snapshot: TeamMemberSnapshot): Record<string, unknown> {
+  return {
+    id: snapshot.id,
+    tenantId: snapshot.tenantId,
+    organizationId: snapshot.organizationId,
+    teamId: snapshot.teamId ?? null,
+    displayName: snapshot.displayName,
+    description: snapshot.description ?? null,
+    userId: snapshot.userId ?? null,
+    roleIds: Array.isArray(snapshot.roleIds) ? snapshot.roleIds : [],
+    tags: Array.isArray(snapshot.tags) ? snapshot.tags : [],
+    availabilityRuleSetId: null,
+    isActive: snapshot.isActive,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    deletedAt: null,
+  }
+}
+
+const redoTeamMemberCreate = makeCreateRedo<StaffTeamMember, TeamMemberSnapshot, StaffTeamMemberCreateInput, { memberId: string }>({
+  entityClass: StaffTeamMember,
+  getSnapshotId: (snapshot) => snapshot.id,
+  seedFromSnapshot: teamMemberSeedFromSnapshot,
+  buildResult: (entity) => ({ memberId: entity.id }),
+  events: staffTeamMemberCrudEvents,
+  indexer: teamMemberCrudIndexer,
+})
 
 async function ensureRolesExist(em: EntityManager, roleIds: string[], tenantId: string, organizationId: string): Promise<void> {
   if (!roleIds.length) return
@@ -245,9 +274,25 @@ const createTeamMemberCommand: CommandHandler<StaffTeamMemberCreateInput, { memb
       })
     }
   },
+  redo: async ({ logEntry, ctx }) => {
+    const result = await redoTeamMemberCreate({ input: undefined as unknown as StaffTeamMemberCreateInput, ctx, logEntry })
+    const payload = extractUndoPayload<TeamMemberUndoPayload>(logEntry)
+    const customAfter = payload?.customAfter
+    if (customAfter && Object.keys(customAfter).length) {
+      await setCustomFieldsIfAny({
+        dataEngine: ctx.container.resolve('dataEngine') as DataEngine,
+        entityId: E.staff.staff_team_member,
+        recordId: result.memberId,
+        tenantId: payload?.after?.tenantId ?? '',
+        organizationId: payload?.after?.organizationId ?? '',
+        values: customAfter,
+      })
+    }
+    return result
+  },
 }
 
-const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string }> = {
+const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memberId: string; updatedAt: string | null }> = {
   id: 'staff.team-members.update',
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(staffTeamMemberUpdateSchema, rawInput)
@@ -323,7 +368,10 @@ const updateTeamMemberCommand: CommandHandler<StaffTeamMemberUpdateInput, { memb
       indexer: teamMemberCrudIndexer,
     })
 
-    return { memberId: member.id }
+    // Return the freshly-bumped updatedAt so non-CrudForm callers (e.g. the
+    // availability schedule switcher) can refresh their optimistic-lock token
+    // and not falsely 409 on the next sequential edit (#2848).
+    return { memberId: member.id, updatedAt: member.updatedAt ? member.updatedAt.toISOString() : null }
   },
   buildLog: async ({ snapshots, ctx }) => {
     const before = snapshots.before as TeamMemberSnapshot | undefined

@@ -26,6 +26,7 @@ import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { emitCustomersEvent } from '../events'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 
 const tagCrudEvents: CrudEventsConfig = {
   module: 'customers',
@@ -152,6 +153,11 @@ const createTagCommand: CommandHandler<TagCreateInput, { tagId: string }> = {
       await em.flush()
     }
   },
+  redo: makeCreateRedo<CustomerTag, TagSnapshot, TagCreateInput, { tagId: string }>({
+    entityClass: CustomerTag,
+    buildResult: (entity) => ({ tagId: entity.id }),
+    events: tagCrudEvents,
+  }),
 }
 
 const updateTagCommand: CommandHandler<TagUpdateInput, { tagId: string }> = {
@@ -381,7 +387,7 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
     const em = (ctx.container.resolve('em') as EntityManager).fork()
   const tag = await em.findOne(CustomerTag, { id: parsed.tagId, tenantId: parsed.tenantId, organizationId: parsed.organizationId })
   if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
-  const entity = await requireCustomerEntity(em, parsed.entityId, undefined, 'Customer not found')
+  const entity = await requireCustomerEntity(em, parsed.entityId, { tenantId: parsed.tenantId, organizationId: parsed.organizationId }, undefined, 'Customer not found')
   ensureSameScope(entity, parsed.organizationId, parsed.tenantId)
   const tagIds = await loadEntityTagIds(em, entity)
     if (tagIds.includes(parsed.tagId)) {
@@ -462,6 +468,59 @@ const assignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: strin
       organizationId: before.organizationId,
     })
   },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<TagAssignmentUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for tag assign' })
+    }
+    const assignmentId = logEntry?.resourceId ?? null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const tag = await em.findOne(CustomerTag, { id: before.tagId })
+    if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
+    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
+    ensureSameScope(entity, before.organizationId, before.tenantId)
+
+    let assignment = await em.findOne(CustomerTagAssignment, {
+      tag,
+      entity,
+      tenantId: before.tenantId,
+      organizationId: before.organizationId,
+    })
+    if (!assignment) {
+      assignment = em.create(CustomerTagAssignment, {
+        ...(assignmentId ? { id: assignmentId } : {}),
+        tag,
+        entity,
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+      })
+      em.persist(assignment)
+      await em.flush()
+    }
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'updated',
+      entity: assignment,
+      identifiers: {
+        id: String(assignment.id),
+        organizationId: before.organizationId,
+        tenantId: before.tenantId,
+      },
+    })
+
+    await emitCustomersEvent('customers.tag.assigned', {
+      id: String(assignment.id),
+      tagId: before.tagId,
+      entityId: before.entityId,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+    }, { persistent: true })
+
+    return { assignmentId: assignment.id }
+  },
 }
 
 const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: string | null }> = {
@@ -530,7 +589,7 @@ const unassignTagCommand: CommandHandler<TagAssignmentInput, { assignmentId: str
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const tag = await em.findOne(CustomerTag, { id: before.tagId })
-    const entity = await requireCustomerEntity(em, before.entityId, undefined, 'Customer not found')
+    const entity = await requireCustomerEntity(em, before.entityId, { tenantId: before.tenantId, organizationId: before.organizationId }, undefined, 'Customer not found')
     ensureSameScope(entity, before.organizationId, before.tenantId)
     if (!tag) throw new CrudHttpError(404, { error: 'Tag not found' })
     const existing = await em.findOne(CustomerTagAssignment, {

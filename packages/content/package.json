@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/content",
-  "version": "0.6.4",
+  "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -67,7 +68,8 @@
     "@open-mercato/shared": "workspace:*",
     "@types/jest": "^30.0.0",
     "jest": "^30.4.2",
-    "ts-jest": "^29.4.11"
+    "ts-jest": "^29.4.11",
+    "typescript": "^6.0.3"
   },
   "publishConfig": {
     "access": "public"

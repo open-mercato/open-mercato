@@ -929,3 +929,43 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: When an integration test "times out," read the trace to find which await actually blocked before reaching for a bigger number. Make UI interactions deterministic: after a keyboard-driven menu open, assert the target item is visible with a *bounded* budget and fall back to a pointer click, so a missed keypress fails fast instead of hanging until the suite timeout. Make `finally` teardown best-effort (`.catch(() => {})`) so it cannot mask the real failure with a "context closed" error. Only after removing the hang should you align the per-test budget with the established login+nav convention. Prefer fixing the interaction over inflating the clock.
 
 **Applies to**: every Playwright spec under `**/__integration__/*.spec.ts` that drives `RowActions`/dropdown menus via keyboard, and any spec whose `finally` block issues API calls after the body may have failed.
+
+## Async edit selects must be hydrated as value-plus-options
+
+**Context**: Several edit forms saved relation/dictionary/select values correctly but reopened with the select trigger showing the placeholder. The saved value arrived before or after the option list depending on the page: staff team roles, resources, dictionary-backed capacity units, checkout gateway settings, and example TODO custom fields exposed variants of the same failure.
+
+**Problem**: A controlled Radix Select can stay visually unresolved when the selected value and its matching `SelectItem` are registered in separate async renders. Page-level loaders also often fetch by `ids=...`; if the API only supports singular `id`, the edit form may hydrate from the wrong first-page record while still appearing to load successfully.
+
+**Rule**: Edit forms must hydrate selects with both the saved scalar value and a matching option label. If the saved option may be outside the first page, fetch it by id and seed/prepend it. Generic select controls should remount or otherwise re-resolve when either the selected value or option set changes. For list APIs used by edit loaders, support the shared `ids` filter contract and cover it with browser integration tests that create their own fixture records.
+
+**Applies to**: `CrudForm` select fields, relation/dictionary selects, edit-page option loaders, `makeCrudRoute` list APIs, and every browser test that verifies edit forms open with saved select values populated.
+
+## Async select controls must not treat synthetic empty changes as user clears
+
+**Context**: Resource type, dictionary-backed capacity unit, and catalog variant tax selects sometimes opened with placeholders even after the saved option was fetched and seeded. The controls had no empty item in the menu, but Radix could still surface an empty `onValueChange` during the first async render where the value existed before the matching `SelectItem` was registered.
+
+**Problem**: Forwarding `next || ''` / `next || undefined` from a select that has no explicit clear option silently erased the saved form value during hydration. Subsequent by-id option fetches could prepend the correct label, but the controlled value had already been cleared, so the edit page still looked blank while saving after manual reselection worked.
+
+**Rule**: For required or non-clearable selects, ignore empty `onValueChange` events. If a select supports clearing, render an explicit clear command/button/item and test that behavior separately. Browser regression tests for async edit selects must assert the visible combobox trigger text, not only hidden option text elsewhere in the DOM.
+
+**Applies to**: Radix-backed `Select` wrappers, custom `CrudForm` select components, dictionary selects, relation selects, and any async edit form whose option list may be loaded after the initial value.
+
+## Out-of-band bumps in browser optimistic-lock tests must not change the row's visible name
+
+**Context**: `TC-LOCK-OSS-043` browser test for WHK-01 bumped the webhook's `name` field out-of-band to advance `updated_at` and make the in-page lock token stale.
+
+**Problem**: If Next.js or the client re-fetches the list after the out-of-band PUT, the row's accessible name changes (`"QA Lock 043 bumped ${stamp}"`), so the Playwright row locator `/QA Lock 043 ${stamp}\b/` no longer matches. The test failed intermittently with `element(s) not found` on `getByRole('button', { name: /open actions/i })` scoped inside the now-gone row.
+
+**Rule**: In browser-driven optimistic-lock tests, the out-of-band bump must touch only fields that are not part of the row's visible text or accessible name (e.g. `description`, a hidden metadata field, an unrendered flag). This ensures the row locator remains stable regardless of whether the page re-fetches data after the bump.
+
+**Applies to**: All `TC-LOCK-*` browser tests that locate a row by its name and then trigger an out-of-band write before interacting with the row's actions.
+
+## Use cryptographic randomness in auth-adjacent test helpers
+
+**Context**: CodeQL reported insecure randomness in integration helpers where generated fixture values flowed through authenticated API requests and auth rate-limit tests.
+
+**Problem**: Even when randomness is only used for fixture uniqueness, `Math.random()` can be flagged when the generated value is used in security-sensitive paths such as login attempts, tokens, credentials, rate-limit identifiers, or authenticated request setup.
+
+**Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
+
+**Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.

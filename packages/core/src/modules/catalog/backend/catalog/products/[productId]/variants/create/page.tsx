@@ -9,7 +9,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
 import {
@@ -70,6 +70,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
   const [productTaxRate, setProductTaxRate] = React.useState<number | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [isNotFound, setIsNotFound] = React.useState(false)
 
   React.useEffect(() => {
     const loadPriceKinds = async () => {
@@ -133,13 +134,17 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
     async function load() {
       setLoading(true)
       setError(null)
+      setIsNotFound(false)
       try {
         const res = await apiCall<ProductResponse>(
           `/api/catalog/products?id=${encodeURIComponent(productId!)}&page=1&pageSize=1`,
         )
         if (!res.ok) throw new Error(t('catalog.variants.form.errors.load', 'Failed to load product context.'))
         const record = Array.isArray(res.result?.items) ? res.result?.items?.[0] : undefined
-        if (!record) throw new Error(t('catalog.products.edit.errors.notFound', 'Product not found.'))
+        if (!record) {
+          if (!cancelled) setIsNotFound(true)
+          return
+        }
         const metadata = (record.metadata ?? {}) as Record<string, unknown>
         const taxRateId =
           typeof (record as any).tax_rate_id === 'string'
@@ -283,9 +288,21 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
     return (
       <Page>
         <PageBody>
-          <div className="rounded border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            {t('catalog.variants.form.errors.productMissing', 'Product identifier is missing.')}
-          </div>
+          <ErrorMessage label={t('catalog.variants.form.errors.productMissing', 'Product identifier is missing.')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (isNotFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('catalog.products.edit.errors.notFound', 'Product not found.')}
+            backHref="/backend/catalog/products"
+            backLabel={t('catalog.products.edit.actions.backToList', 'Back to products')}
+          />
         </PageBody>
       </Page>
     )
@@ -350,6 +367,8 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               name,
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
+              gtinType: values.gtinType ?? null,
+              hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,
               optionValues: Object.keys(values.optionValues ?? {}).length ? values.optionValues : undefined,

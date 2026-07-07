@@ -100,6 +100,42 @@ type TaxRateOption = {
   isDefault: boolean;
 };
 
+function mapTaxRateOption(item: Record<string, unknown>): TaxRateOption | null {
+  const id = typeof item.id === "string" ? item.id : null;
+  const name =
+    typeof item.name === "string" && item.name.trim().length
+      ? item.name.trim()
+      : typeof item.code === "string"
+        ? item.code
+        : null;
+  if (!id || !name) return null;
+  const rate = normalizeNumber((item as ApiTaxRateItem).rate);
+  const code =
+    typeof (item as ApiTaxRateItem).code === "string" &&
+    (item as ApiTaxRateItem).code?.trim().length
+      ? (item as ApiTaxRateItem).code?.trim() ?? null
+      : null;
+  const isDefault = Boolean(
+    (item as ApiTaxRateItem).isDefault ?? (item as ApiTaxRateItem).is_default,
+  );
+  return {
+    id,
+    name,
+    code,
+    rate: Number.isFinite(rate) ? rate : null,
+    isDefault,
+  };
+}
+
+function mergeTaxRateOptions(
+  options: TaxRateOption[],
+  selected: TaxRateOption | null,
+): TaxRateOption[] {
+  if (!selected) return options;
+  if (options.some((option) => option.id === selected.id)) return options;
+  return [selected, ...options];
+}
+
 type StatusOption = {
   id: string;
   value: string;
@@ -577,32 +613,7 @@ export function LineItemDialog({
         ? response.result.items
         : [];
       const parsed = items
-        .map<TaxRateOption | null>((item) => {
-          const id = typeof item.id === "string" ? item.id : null;
-          const name =
-            typeof item.name === "string" && item.name.trim().length
-              ? item.name.trim()
-              : typeof item.code === "string"
-                ? item.code
-                : null;
-          if (!id || !name) return null;
-          const rate = normalizeNumber((item as ApiTaxRateItem).rate);
-          const code =
-            typeof (item as ApiTaxRateItem).code === "string" &&
-            (item as ApiTaxRateItem).code?.trim().length
-              ? (item as ApiTaxRateItem).code?.trim() ?? null
-              : null;
-          const isDefault = Boolean(
-            (item as ApiTaxRateItem).isDefault ?? (item as ApiTaxRateItem).is_default,
-          );
-          return {
-            id,
-            name,
-            code,
-            rate: Number.isFinite(rate) ? rate : null,
-            isDefault,
-          };
-        })
+        .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
         .filter((entry): entry is TaxRateOption => Boolean(entry));
       taxRatesRef.current = parsed;
       defaultTaxRateRef.current = parsed.find((rate) => rate.isDefault) ?? null;
@@ -616,6 +627,42 @@ export function LineItemDialog({
       return [];
     }
   }, []);
+
+  const loadTaxRateById = React.useCallback(
+    async (taxRateId: string): Promise<TaxRateOption | null> => {
+      const response = await apiCall<{
+        items?: Array<Record<string, unknown>>;
+      }>(
+        `/api/sales/tax-rates?id=${encodeURIComponent(taxRateId)}&pageSize=1`,
+        undefined,
+        { fallback: { items: [] } },
+      );
+      const items = Array.isArray(response.result?.items)
+        ? response.result.items
+        : [];
+      return (
+        items
+          .map<TaxRateOption | null>((item) => mapTaxRateOption(item))
+          .find((entry): entry is TaxRateOption => entry?.id === taxRateId) ??
+        null
+      );
+    },
+    [],
+  );
+
+  React.useEffect(() => {
+    const selectedId =
+      typeof initialValues.taxRateId === "string" && initialValues.taxRateId.trim().length
+        ? initialValues.taxRateId.trim()
+        : null;
+    if (!selectedId || taxRates.some((rate) => rate.id === selectedId)) return;
+    loadTaxRateById(selectedId)
+      .then((selected) => {
+        taxRatesRef.current = mergeTaxRateOptions(taxRatesRef.current, selected);
+        setTaxRates((current) => mergeTaxRateOptions(current, selected));
+      })
+      .catch(() => {});
+  }, [initialValues.taxRateId, loadTaxRateById, taxRates]);
 
   const loadProductOptionById = React.useCallback(
     async (productId: string): Promise<ProductOption | null> => {
@@ -2137,6 +2184,9 @@ export function LineItemDialog({
             typeof value === "string" && value.trim().length
               ? value
               : findTaxRateIdByValue((values as Record<string, unknown>)?.taxRate as number | null | undefined);
+          const selectedTaxRate = resolvedValue
+            ? taxRateMap.get(resolvedValue) ?? null
+            : null;
           const handleChange = (
             event: React.ChangeEvent<HTMLSelectElement>,
           ) => {
@@ -2166,7 +2216,11 @@ export function LineItemDialog({
                             "No tax classes available",
                           )
                     }
-                  />
+                  >
+                    {selectedTaxRate
+                      ? `${selectedTaxRate.name}${selectedTaxRate.code ? ` • ${selectedTaxRate.code.toUpperCase()}` : ""}${Number.isFinite(selectedTaxRate.rate) ? ` • ${selectedTaxRate.rate}%` : ""}`
+                      : undefined}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {taxRates.map((rate) => (

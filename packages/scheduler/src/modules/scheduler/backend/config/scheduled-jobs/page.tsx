@@ -14,6 +14,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type ScheduleRow = {
   id: string
@@ -196,7 +197,7 @@ export default function SchedulerPage() {
             : row.original.targetCommand
           return (
             <div className="flex flex-col">
-              <span className="text-xs text-gray-500 capitalize">{row.original.targetType}</span>
+              <span className="text-xs text-muted-foreground capitalize">{row.original.targetType}</span>
               <span className="text-sm">{target || '-'}</span>
             </div>
           )
@@ -274,6 +275,13 @@ export default function SchedulerPage() {
           data={rows}
           onRowClick={(row) => router.push(`/backend/config/scheduled-jobs/${row.id}`)}
           rowActions={(row) => <RowActions items={rowActions(row)} />}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('scheduler.title', 'Scheduled Jobs')}
+              createHref="/backend/config/scheduled-jobs/new"
+              createLabel={t('scheduler.action.create', 'New Schedule')}
+            />
+          )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
           isLoading={isLoading}
           searchValue={search}

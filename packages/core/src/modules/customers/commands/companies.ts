@@ -54,6 +54,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { CUSTOMER_ENTITY_ID, resolveCompanyCustomFieldRouting } from '../lib/customFieldRouting'
 import { CustomFieldValue } from '@open-mercato/core/modules/entities/data/entities'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 
 const COMPANY_ENTITY_ID = 'customers:customer_company_profile'
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
@@ -517,7 +518,10 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       websiteUrl: parsed.websiteUrl ?? null,
       industry: parsed.industry ?? null,
       sizeBucket: parsed.sizeBucket ?? null,
-      annualRevenue: parsed.annualRevenue !== undefined ? String(parsed.annualRevenue) : null,
+      annualRevenue:
+        parsed.annualRevenue !== undefined && parsed.annualRevenue !== null
+          ? String(parsed.annualRevenue)
+          : null,
     })
 
     await withAtomicFlush(em, [
@@ -598,6 +602,123 @@ const createCompanyCommand: CommandHandler<CompanyCreateInput, { entityId: strin
       events: companyCrudEvents,
     })
     await emitQueryIndexDeleteEvents(ctx, [companyEntityIndexEntry(entity)])
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const after = resolveRedoSnapshot<CompanySnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for company create' })
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let entity = await findOneWithDecryption(
+      em,
+      CustomerEntity,
+      { id: after.entity.id },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
+    if (!entity) {
+      entity = em.create(CustomerEntity, {
+        id: after.entity.id,
+        organizationId: after.entity.organizationId,
+        tenantId: after.entity.tenantId,
+        kind: 'company',
+        displayName: after.entity.displayName,
+        description: after.entity.description,
+        ownerUserId: after.entity.ownerUserId,
+        primaryEmail: after.entity.primaryEmail,
+        primaryPhone: after.entity.primaryPhone,
+        status: after.entity.status,
+        lifecycleStage: after.entity.lifecycleStage,
+        source: after.entity.source,
+        temperature: after.entity.temperature,
+        renewalQuarter: after.entity.renewalQuarter,
+        nextInteractionAt: after.entity.nextInteractionAt,
+        nextInteractionName: after.entity.nextInteractionName,
+        nextInteractionRefId: after.entity.nextInteractionRefId,
+        nextInteractionIcon: after.entity.nextInteractionIcon,
+        nextInteractionColor: after.entity.nextInteractionColor,
+        isActive: after.entity.isActive,
+      })
+      em.persist(entity)
+    }
+
+    entity.deletedAt = null
+    entity.displayName = after.entity.displayName
+    entity.description = after.entity.description
+    entity.ownerUserId = after.entity.ownerUserId
+    entity.primaryEmail = after.entity.primaryEmail
+    entity.primaryPhone = after.entity.primaryPhone
+    entity.status = after.entity.status
+    entity.lifecycleStage = after.entity.lifecycleStage
+    entity.source = after.entity.source
+    entity.temperature = after.entity.temperature
+    entity.renewalQuarter = after.entity.renewalQuarter
+    entity.nextInteractionAt = after.entity.nextInteractionAt
+    entity.nextInteractionName = after.entity.nextInteractionName
+    entity.nextInteractionRefId = after.entity.nextInteractionRefId
+    entity.nextInteractionIcon = after.entity.nextInteractionIcon
+    entity.nextInteractionColor = after.entity.nextInteractionColor
+    entity.isActive = after.entity.isActive
+
+    const restoredEntity = entity
+    let profile = await findOneWithDecryption(
+      em,
+      CustomerCompanyProfile,
+      { entity: restoredEntity },
+      undefined,
+      { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
+    )
+    if (!profile) {
+      profile = em.create(CustomerCompanyProfile, {
+        id: after.profile.id,
+        organizationId: after.entity.organizationId,
+        tenantId: after.entity.tenantId,
+        entity: restoredEntity,
+        legalName: after.profile.legalName,
+        brandName: after.profile.brandName,
+        domain: after.profile.domain,
+        websiteUrl: after.profile.websiteUrl,
+        industry: after.profile.industry,
+        sizeBucket: after.profile.sizeBucket,
+        annualRevenue: after.profile.annualRevenue,
+      })
+      em.persist(profile)
+    } else {
+      profile.legalName = after.profile.legalName
+      profile.brandName = after.profile.brandName
+      profile.domain = after.profile.domain
+      profile.websiteUrl = after.profile.websiteUrl
+      profile.industry = after.profile.industry
+      profile.sizeBucket = after.profile.sizeBucket
+      profile.annualRevenue = after.profile.annualRevenue
+    }
+    const restoredProfile = profile
+
+    await withAtomicFlush(em, [
+      () => syncEntityTags(em, restoredEntity, after.tagIds),
+    ], { transaction: true })
+
+    const restoreValues = buildCustomFieldResetMap(after.custom, undefined)
+    if (Object.keys(restoreValues).length) {
+      await setCompanyCustomFields(ctx, restoredEntity.id, restoredProfile.id, restoredEntity.organizationId, restoredEntity.tenantId, restoreValues)
+    }
+
+    const de = (ctx.container.resolve('dataEngine') as DataEngine)
+    await emitCrudSideEffects({
+      dataEngine: de,
+      action: 'created',
+      entity: restoredEntity,
+      identifiers: {
+        id: restoredProfile.id ?? restoredEntity.id,
+        organizationId: restoredEntity.organizationId,
+        tenantId: restoredEntity.tenantId,
+      },
+      indexer: companyCrudIndexer,
+      events: companyCrudEvents,
+    })
+    await emitQueryIndexUpsertEvents(ctx, [companyEntityIndexEntry(restoredEntity)])
+
+    return { entityId: restoredEntity.id, companyId: restoredProfile.id }
   },
 }
 

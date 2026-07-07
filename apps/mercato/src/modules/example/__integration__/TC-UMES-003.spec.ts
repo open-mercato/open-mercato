@@ -715,10 +715,14 @@ test.describe('TC-UMES-003: Events & DOM Bridge', () => {
     await page.getByTestId('phase-c-load-transform-save-example').click()
     await expect(page.locator('[data-crud-field-id="title"] input').first()).toHaveValue('[confirm][transform] transform demo')
 
-    page.once('dialog', (dialog) => {
-      void dialog.accept()
+    const form = page.locator('form').first()
+    const dialogAccepted = page.waitForEvent('dialog').then(async (dialog) => {
+      await dialog.accept()
     })
-    await page.locator('form button[type="submit"]').first().click()
+    await Promise.all([
+      dialogAccepted,
+      form.locator('button[type="submit"]').first().click(),
+    ])
 
     await expect(page.getByTestId('widget-save-guard')).toContainText('"ok":true')
     await expect(page.getByTestId('widget-save-guard')).toContainText('dialog:accepted')

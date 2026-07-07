@@ -6,6 +6,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { buildChanges, emitCrudSideEffects, emitCrudUndoSideEffects, parseWithCustomFields, setCustomFieldsIfAny } from '@open-mercato/shared/lib/commands/helpers'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { buildCustomFieldResetMap, diffCustomFieldChanges, loadCustomFieldSnapshot, type CustomFieldSnapshot } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
+import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -328,6 +329,94 @@ const createResourceCommand: CommandHandler<ResourcesResourceCreateInput, { reso
       indexer: resourceCrudIndexer,
       })
     }
+  },
+  redo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ResourceUndoPayload>(logEntry)
+    const after = resolveRedoSnapshot<ResourceSnapshot>(logEntry)
+    if (!after) {
+      throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for resource create' })
+    }
+    const fallbackCustomAfter = (after as ResourceSnapshot).customFields ?? null
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let record = await em.findOne(ResourcesResource, { id: after.id })
+    await withAtomicFlush(em, [
+      async () => {
+        if (!record) {
+          record = em.create(ResourcesResource, {
+            id: after.id,
+            tenantId: after.tenantId,
+            organizationId: after.organizationId,
+            name: after.name,
+            description: after.description ?? null,
+            resourceTypeId: after.resourceTypeId ?? null,
+            capacity: after.capacity ?? null,
+            capacityUnitValue: after.capacityUnitValue ?? null,
+            capacityUnitName: after.capacityUnitName ?? null,
+            capacityUnitColor: after.capacityUnitColor ?? null,
+            capacityUnitIcon: after.capacityUnitIcon ?? null,
+            appearanceIcon: after.appearanceIcon ?? null,
+            appearanceColor: after.appearanceColor ?? null,
+            isActive: after.isActive,
+            availabilityRuleSetId: after.availabilityRuleSetId ?? null,
+            deletedAt: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          })
+          em.persist(record)
+        } else {
+          record.name = after.name
+          record.description = after.description ?? null
+          record.resourceTypeId = after.resourceTypeId ?? null
+          record.capacity = after.capacity ?? null
+          record.capacityUnitValue = after.capacityUnitValue ?? null
+          record.capacityUnitName = after.capacityUnitName ?? null
+          record.capacityUnitColor = after.capacityUnitColor ?? null
+          record.capacityUnitIcon = after.capacityUnitIcon ?? null
+          record.appearanceIcon = after.appearanceIcon ?? null
+          record.appearanceColor = after.appearanceColor ?? null
+          record.isActive = after.isActive
+          record.availabilityRuleSetId = after.availabilityRuleSetId ?? null
+          record.deletedAt = null
+          record.updatedAt = new Date()
+        }
+        await em.flush()
+      },
+      () => syncResourcesResourceTags(em, {
+        resourceId: (record as ResourcesResource).id,
+        organizationId: (record as ResourcesResource).organizationId,
+        tenantId: (record as ResourcesResource).tenantId,
+        tagIds: after.tags,
+      }),
+    ], { transaction: true })
+    const resolvedRecord = record as ResourcesResource
+
+    const dataEngine = (ctx.container.resolve('dataEngine') as DataEngine)
+    const customAfter = payload?.customAfter ?? fallbackCustomAfter ?? undefined
+    if (customAfter) {
+      const reset = buildCustomFieldResetMap(customAfter, undefined)
+      await setCustomFieldsIfAny({
+        dataEngine,
+        entityId: E.resources.resources_resource,
+        recordId: resolvedRecord.id,
+        tenantId: resolvedRecord.tenantId,
+        organizationId: resolvedRecord.organizationId,
+        values: reset,
+      })
+    }
+
+    await emitCrudSideEffects({
+      dataEngine,
+      action: 'created',
+      entity: resolvedRecord,
+      identifiers: {
+        id: resolvedRecord.id,
+        organizationId: resolvedRecord.organizationId,
+        tenantId: resolvedRecord.tenantId,
+      },
+      events: resourcesResourceCrudEvents,
+      indexer: resourceCrudIndexer,
+    })
+    return { resourceId: resolvedRecord.id }
   },
 }
 

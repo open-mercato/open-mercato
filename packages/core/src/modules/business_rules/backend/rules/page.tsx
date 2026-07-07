@@ -15,6 +15,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 
 type Rule = {
   id: string
@@ -223,7 +224,7 @@ export default function RulesListPage() {
           VALIDATION: 'bg-status-warning-bg text-status-warning-text',
           CALCULATION: 'bg-status-info-bg text-status-info-text',
           ACTION: 'bg-status-success-bg text-status-success-text',
-          ASSIGNMENT: 'bg-purple-100 text-purple-800',
+          ASSIGNMENT: 'bg-brand-violet/10 text-brand-violet',
         }
         const color = typeColors[row.original.ruleType] || 'bg-muted text-foreground'
         return (
@@ -343,6 +344,13 @@ export default function RulesListPage() {
           perspective={{
             tableId: 'business-rules.rules.list',
           }}
+          emptyState={(
+            <ListEmptyState
+              entityName={t('business_rules.list.title')}
+              createHref="/backend/rules/create"
+              createLabel={t('business_rules.actions.create')}
+            />
+          )}
           pagination={{ page, pageSize, total, totalPages, onPageChange: setPage }}
         />
       </PageBody>

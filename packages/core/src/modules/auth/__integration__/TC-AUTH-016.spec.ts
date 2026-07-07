@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { randomInt } from 'node:crypto';
 import { postForm } from '@open-mercato/core/modules/core/__integration__/helpers/api';
 import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integration__/helpers/auth';
 
@@ -12,7 +13,7 @@ import { DEFAULT_CREDENTIALS } from '@open-mercato/core/modules/core/__integrati
  * Each test uses a unique email to avoid cross-test compound key pollution.
  */
 test.describe('TC-AUTH-016: Rate Limiting on Authentication Endpoints', () => {
-  let forwardedIpSequence = Math.floor(Math.random() * 10_000);
+  let forwardedIpSequence = randomInt(10_000);
   let authRateLimitingEnabled = true;
 
   function createRateLimitHeaders(): Record<string, string> {
