@@ -410,7 +410,7 @@ export function AdvancedFilterPanel(props: AdvancedFilterPanelProps) {
         align="end"
         sideOffset={8}
         data-testid="advanced-filter-panel"
-        onPointerDownOutside={ignoreAdvancedFilterPortalInteractions}
+ded        onPointerDownOutside={ignoreAdvancedFilterPortalInteractions}
         onFocusOutside={ignoreAdvancedFilterPortalInteractions}
         onInteractOutside={ignoreAdvancedFilterPortalInteractions}
       >
