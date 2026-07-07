@@ -14,7 +14,16 @@ import {
   type StaffTeamMemberCommentUpdateInput,
 } from '../data/validators'
 import { staffTeamMemberCommentCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import {
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  requireTeamMember,
+  scopedStaffSnapshotWhere,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
+} from './shared'
 import { makeCreateRedo } from '@open-mercato/shared/lib/commands/redo'
 import { E } from '#generated/entities.ids.generated'
 
@@ -38,8 +47,8 @@ type CommentUndoPayload = {
   after?: CommentSnapshot | null
 }
 
-async function loadCommentSnapshot(em: EntityManager, id: string): Promise<CommentSnapshot | null> {
-  const comment = await em.findOne(StaffTeamMemberComment, { id })
+async function loadCommentSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<CommentSnapshot | null> {
+  const comment = await em.findOne(StaffTeamMemberComment, scopedStaffSnapshotWhere(id, scope))
   if (!comment) return null
   return {
     id: comment.id,
@@ -101,7 +110,7 @@ const createCommentCommand: CommandHandler<
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCommentSnapshot(em, result.commentId)
+    return await loadCommentSnapshot(em, result.commentId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ result, snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -123,10 +132,12 @@ const createCommentCommand: CommandHandler<
     }
   },
   undo: async ({ logEntry, ctx }) => {
-    const commentId = logEntry?.resourceId ?? null
+    const payload = extractUndoPayload<CommentUndoPayload>(logEntry)
+    const after = payload?.after
+    const commentId = after?.id ?? logEntry?.resourceId ?? null
     if (!commentId) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(StaffTeamMemberComment, { id: commentId })
+    const existing = await em.findOne(StaffTeamMemberComment, scopedStaffSnapshotWhere(commentId, staffSnapshotScopeFromSnapshot(after)))
     if (existing) {
       em.remove(existing)
       await em.flush()
@@ -151,7 +162,12 @@ const createCommentCommand: CommandHandler<
       appearanceColor: snapshot.appearanceColor,
     }),
     beforeRestore: async ({ em, snapshot }) => {
-      const member = await requireTeamMember(em, snapshot.memberId, 'Team member not found')
+      const member = await requireTeamMember(
+        em,
+        snapshot.memberId,
+        'Team member not found',
+        staffSnapshotScopeFromSnapshot(snapshot),
+      )
       return { member }
     },
     buildResult: (entity) => ({ commentId: entity.id, authorUserId: entity.authorUserId ?? null }),
@@ -163,7 +179,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
   async prepare(rawInput, ctx) {
     const parsed = staffTeamMemberCommentUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadCommentSnapshot(em, parsed.id)
+    const snapshot = await loadCommentSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
@@ -205,7 +221,7 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadCommentSnapshot(em, result.commentId)
+    return await loadCommentSnapshot(em, result.commentId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ snapshots }) => {
     const { translate } = await resolveTranslations()
@@ -244,8 +260,9 @@ const updateCommentCommand: CommandHandler<StaffTeamMemberCommentUpdateInput, { 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let comment = await em.findOne(StaffTeamMemberComment, { id: before.id })
-    const member = await requireTeamMember(em, before.memberId, 'Team member not found')
+    const snapshotScope = staffSnapshotScopeFromSnapshot(before)
+    let comment = await em.findOne(StaffTeamMemberComment, scopedStaffSnapshotWhere(before.id, snapshotScope))
+    const member = await requireTeamMember(em, before.memberId, 'Team member not found', snapshotScope)
 
     if (!comment) {
       comment = em.create(StaffTeamMemberComment, {
@@ -292,7 +309,7 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async prepare(input, ctx) {
       const id = requireId(input, 'Comment id required')
       const em = (ctx.container.resolve('em') as EntityManager)
-      const snapshot = await loadCommentSnapshot(em, id)
+      const snapshot = await loadCommentSnapshot(em, id, staffSnapshotScopeFromContext(ctx))
       return snapshot ? { before: snapshot } : {}
     },
     async execute(input, ctx) {
@@ -345,8 +362,9 @@ const deleteCommentCommand: CommandHandler<{ body?: Record<string, unknown>; que
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const member = await requireTeamMember(em, before.memberId, 'Team member not found')
-      let comment = await em.findOne(StaffTeamMemberComment, { id: before.id })
+      const snapshotScope = staffSnapshotScopeFromSnapshot(before)
+      const member = await requireTeamMember(em, before.memberId, 'Team member not found', snapshotScope)
+      let comment = await em.findOne(StaffTeamMemberComment, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!comment) {
         comment = em.create(StaffTeamMemberComment, {
           id: before.id,

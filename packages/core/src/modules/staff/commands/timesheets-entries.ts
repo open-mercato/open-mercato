@@ -22,7 +22,16 @@ import {
   type StaffTimeEntryUpdateInput,
 } from '../data/validators'
 import { staffTimeEntryCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopedStaffSnapshotWhere,
+  staffSnapshotDecryptionScope,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
+} from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 
 type RbacServiceLike = {
@@ -124,8 +133,14 @@ type TimeEntryUndoPayload = {
   after?: TimeEntrySnapshot | null
 }
 
-async function loadTimeEntrySnapshot(em: EntityManager, id: string): Promise<TimeEntrySnapshot | null> {
-  const entry = await findOneWithDecryption(em, StaffTimeEntry, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadTimeEntrySnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<TimeEntrySnapshot | null> {
+  const entry = await findOneWithDecryption(
+    em,
+    StaffTimeEntry,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!entry) return null
   return {
     id: entry.id,
@@ -232,13 +247,13 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -260,7 +275,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, { id: after.id })
+    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
       entry.deletedAt = new Date()
       await em.flush()
@@ -401,13 +416,13 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     return { snapshot }
   },
   buildLog: async ({ result, ctx }) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId)
+    const snapshot = await loadTimeEntrySnapshot(em, result.timeEntryId, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return null
     const { translate } = await resolveTranslations()
     return {
@@ -429,7 +444,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, { id: after.id })
+    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (entry) {
       entry.deletedAt = new Date()
       await em.flush()
@@ -450,7 +465,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
   async prepare(rawInput, ctx) {
     const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeEntrySnapshot(em, parsed.id)
+    const snapshot = await loadTimeEntrySnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -510,7 +525,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const before = snapshots.before as TimeEntrySnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadTimeEntrySnapshot(em, before.id)
+    const after = await loadTimeEntrySnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
     if (!after) return null
     const changes = buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
       'date',
@@ -545,7 +560,7 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const entry = await em.findOne(StaffTimeEntry, { id: before.id })
+    const entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) return
     entry.date = before.date as unknown as Date
     entry.durationMinutes = before.durationMinutes
@@ -575,7 +590,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time entry id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadTimeEntrySnapshot(em, id)
+    const snapshot = await loadTimeEntrySnapshot(em, id, staffSnapshotScopeFromContext(ctx))
     if (!snapshot) return {}
     return { before: snapshot }
   },
@@ -644,7 +659,7 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    let entry = await em.findOne(StaffTimeEntry, { id: before.id })
+    let entry = await em.findOne(StaffTimeEntry, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!entry) {
       entry = em.create(StaffTimeEntry, {
         id: before.id,
