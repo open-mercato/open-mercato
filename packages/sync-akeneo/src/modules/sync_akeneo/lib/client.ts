@@ -254,6 +254,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -293,6 +294,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const response = await fetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -342,6 +344,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const response = await fetchWithTimeout(url, {
       ...init,
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
       headers: {
         accept: 'application/json',
         authorization: `Bearer ${token}`,
@@ -391,6 +394,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const response = await fetchWithTimeout(url, {
       ...init,
       timeoutMs: resolveAkeneoRequestTimeoutMs(),
+      redirect: 'manual',
       headers: {
         authorization: `Bearer ${token}`,
         ...init.headers,
