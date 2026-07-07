@@ -34,12 +34,14 @@ import { buildInventoryMutationReferenceId, parseInventoryQuantity } from '../..
 import {
   BalanceLookupError,
   fetchBalanceAvailable,
+  fetchLocationCapacitySnapshot,
   loadCatalogVariantOptions,
   loadLocationOptions,
   loadWarehouseOptions,
   resolveCatalogVariantLabel,
   resolveLocationLabel,
   resolveWarehouseLabel,
+  type LocationCapacitySnapshot,
 } from './inventoryMutationLoaders'
 import type { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
@@ -152,6 +154,8 @@ export function MoveInventoryDialog({
   const [loadingPreview, setLoadingPreview] = React.useState(false)
   const [destAvailable, setDestAvailable] = React.useState<number | null>(null)
   const [loadingDestPreview, setLoadingDestPreview] = React.useState(false)
+  const [destCapacity, setDestCapacity] = React.useState<LocationCapacitySnapshot | null>(null)
+  const [loadingDestCapacity, setLoadingDestCapacity] = React.useState(false)
   const [optionLabelByValue, setOptionLabelByValue] = React.useState<Record<string, string>>({})
 
   const registerOptionLabels = React.useCallback(
@@ -405,6 +409,40 @@ export function MoveInventoryDialog({
     form.warehouseId,
     open,
   ])
+
+  React.useEffect(() => {
+    if (!open || !form.warehouseId.trim() || !form.toLocationId.trim()) {
+      setDestCapacity(null)
+      setLoadingDestCapacity(false)
+      return
+    }
+    let cancelled = false
+    setLoadingDestCapacity(true)
+    void fetchLocationCapacitySnapshot({
+      warehouseId: form.warehouseId.trim(),
+      locationId: form.toLocationId.trim(),
+    })
+      .then((snapshot) => {
+        if (cancelled) return
+        setDestCapacity(snapshot)
+      })
+      .catch(() => {
+        if (cancelled) return
+        setDestCapacity(null)
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingDestCapacity(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [form.toLocationId, form.warehouseId, open])
+
+  const destCapacityExcess = React.useMemo(() => {
+    if (destCapacity?.capacityUnits == null) return 0
+    const quantity = parseQuantityInputForSubmit(quantityInput) ?? 0
+    return Math.max(0, destCapacity.totalOnHand + quantity - destCapacity.capacityUnits)
+  }, [destCapacity, quantityInput])
 
   const handleSubmit = React.useCallback(
     async (event?: React.FormEvent) => {
@@ -794,6 +832,46 @@ export function MoveInventoryDialog({
                         {t('wms.backend.inventory.move.preview.destEmpty', '0 units (empty bin)')}
                       </p>
                     )}
+                    {loadingDestCapacity && destCapacity == null ? (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t(
+                          'wms.backend.inventory.move.preview.capacityLoading',
+                          'Loading destination capacity…',
+                        )}
+                      </p>
+                    ) : destCapacity?.capacityUnits != null ? (
+                      <p
+                        className={`mt-1 text-sm tabular-nums ${
+                          destCapacityExcess > 0 ? 'text-status-warning-fg' : 'text-muted-foreground'
+                        }`}
+                      >
+                        {t(
+                          'wms.backend.inventory.move.preview.capacity',
+                          '{used} / {capacity} units used · {remaining} remaining',
+                          {
+                            used: destCapacity.totalOnHand,
+                            capacity: destCapacity.capacityUnits,
+                            remaining: destCapacity.capacityUnits - destCapacity.totalOnHand,
+                          },
+                        )}
+                      </p>
+                    ) : destCapacity ? (
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {t(
+                          'wms.backend.inventory.move.preview.capacityUnset',
+                          'No capacity limit set for this location.',
+                        )}
+                      </p>
+                    ) : null}
+                    {destCapacityExcess > 0 ? (
+                      <p className="mt-1 text-sm text-status-warning-fg">
+                        {t(
+                          'wms.backend.inventory.move.preview.capacityExceeded',
+                          'This move would exceed the destination capacity by {quantity} unit(s).',
+                          { quantity: destCapacityExcess },
+                        )}
+                      </p>
+                    ) : null}
                   </div>
                 ) : null}
               </div>

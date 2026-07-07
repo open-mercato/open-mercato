@@ -791,6 +791,58 @@ export async function fetchVariantReorderPoint(catalogVariantId: string): Promis
   return Number.isFinite(reorderPoint) ? reorderPoint : 0
 }
 
+export type LocationCapacitySnapshot = {
+  capacityUnits: number | null
+  totalOnHand: number
+}
+
+async function fetchLocationCapacityUnits(locationId: string): Promise<number | null> {
+  const id = locationId.trim()
+  if (!id) return null
+  const params = buildQuery({ page: 1, pageSize: 1, ids: id })
+  const call = await apiCall<PagedResponse<{ id?: string | null; capacity_units?: string | number | null }>>(
+    `/api/wms/locations?${params}`,
+  )
+  if (!call.ok) return null
+  const raw = call.result?.items?.[0]?.capacity_units
+  if (raw == null) return null
+  const value = Number(raw)
+  return Number.isFinite(value) ? value : null
+}
+
+async function fetchLocationTotalOnHand(input: {
+  warehouseId: string
+  locationId: string
+}): Promise<number> {
+  const locationId = input.locationId.trim()
+  if (!locationId) return 0
+  const params = buildQuery({
+    page: 1,
+    pageSize: 100,
+    warehouseId: input.warehouseId,
+    locationId,
+  })
+  const call = await apiCall<PagedResponse<{ quantity_on_hand?: string | number | null }>>(
+    `/api/wms/inventory/balances?${params}`,
+  )
+  if (!call.ok) return 0
+  return (call.result?.items ?? []).reduce((sum, row) => {
+    const value = Number(row.quantity_on_hand ?? 0)
+    return sum + (Number.isFinite(value) ? value : 0)
+  }, 0)
+}
+
+export async function fetchLocationCapacitySnapshot(input: {
+  warehouseId: string
+  locationId: string
+}): Promise<LocationCapacitySnapshot> {
+  const [capacityUnits, totalOnHand] = await Promise.all([
+    fetchLocationCapacityUnits(input.locationId),
+    fetchLocationTotalOnHand(input),
+  ])
+  return { capacityUnits, totalOnHand }
+}
+
 export async function fetchBalanceOnHand(input: {
   warehouseId: string
   locationId: string
