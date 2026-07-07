@@ -519,6 +519,71 @@ describe('sync_excel customers adapter', () => {
     )
   })
 
+  it('builds the email dedupe index once for the remaining import rows', async () => {
+    setUploadCsv([
+      'Email,Lead Name',
+      'ada@example.com,Ada Lovelace',
+      'ADA@example.com,Augusta Ada',
+      'alan@example.com,Alan Turing',
+    ])
+    const personScanCriteria: Array<Record<string, unknown>> = []
+    mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
+      if (criteria?.entityId) return []
+      if (criteria?.kind === 'person') {
+        personScanCriteria.push(criteria)
+        return []
+      }
+      return []
+    })
+
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 1,
+      credentials: {},
+      mapping: {
+        entityType: 'customers.person',
+        matchStrategy: 'email',
+        matchField: 'person.primaryEmail',
+        fields: [
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+        ],
+      },
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+    })) {
+      batches.push(batch)
+    }
+
+    expect(batches).toHaveLength(3)
+    expect(batches.map((batch) => batch.items[0]?.action)).toEqual(['create', 'update', 'create'])
+    const personCommands = mockCommandBus.execute.mock.calls.filter(([command]) => String(command).startsWith('customers.people.'))
+    expect(personCommands.map(([command]) => command)).toEqual([
+      'customers.people.create',
+      'customers.people.update',
+      'customers.people.create',
+    ])
+    expect(personCommands[1]?.[1]).toEqual(expect.objectContaining({
+      input: expect.objectContaining({
+        id: '33333333-3333-4333-8333-333333333333',
+        primaryEmail: 'ada@example.com',
+        displayName: 'Augusta Ada',
+      }),
+    }))
+    expect(personScanCriteria).toHaveLength(1)
+    expect(personScanCriteria[0]).toMatchObject({
+      kind: 'person',
+      organizationId: 'org-1',
+      tenantId: 'tenant-1',
+      deletedAt: null,
+      isActive: true,
+    })
+  })
+
   it('prefers external-id mappings over decrypted email fallback matches', async () => {
     setUploadCsv([
       'Record Id,Email,Lead Name',

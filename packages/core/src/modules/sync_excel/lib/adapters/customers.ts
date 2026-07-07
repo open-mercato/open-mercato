@@ -785,20 +785,16 @@ async function resolveExistingPersonId(params: {
   return params.emailDedupeIndex.get(params.email) ?? null
 }
 
+function mappingHasEmailField(mapping: DataMapping): boolean {
+  return mapping.fields.some((field) => field.localField === 'person.primaryEmail')
+}
+
 async function buildEmailDedupeIndex(params: {
   em: EntityManager
-  rows: CsvPreviewRow[]
   mapping: DataMapping
   scope: TenantScope
 }): Promise<EmailDedupeIndex> {
-  const emails = new Set<string>()
-  for (const row of params.rows) {
-    const rowValues = mapRowValues(row, params.mapping.fields)
-    const email = rowValues.values.primaryEmail
-    if (email) emails.add(email)
-  }
-
-  if (emails.size === 0) return new Map()
+  if (!mappingHasEmailField(params.mapping)) return new Map()
 
   const candidates = await findWithDecryption(
     params.em,
@@ -821,7 +817,7 @@ async function buildEmailDedupeIndex(params: {
   const index: EmailDedupeIndex = new Map()
   for (const candidate of candidates) {
     const email = normalizeEmail(candidate.primaryEmail)
-    if (!email || !emails.has(email) || index.has(email)) continue
+    if (!email || index.has(email)) continue
     index.set(email, candidate.id)
   }
   return index
@@ -1047,6 +1043,11 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
       const startOffset = cursor?.uploadId === upload.id ? cursor.offset : 0
       const commandContext = buildCommandContext(container, input.scope)
       const customFieldDefinitions = await loadImportCustomFieldDefinitions(em, input.scope)
+      const emailDedupeIndex = await buildEmailDedupeIndex({
+        em,
+        mapping: input.mapping,
+        scope: input.scope,
+      })
       let batchIndex = 0
 
       for await (const batch of parseCsvDocumentBatches(await createSyncExcelUploadReadStream(attachment), {
@@ -1054,12 +1055,6 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         startOffset,
       })) {
         const batchRows = batch.rows
-        const emailDedupeIndex = await buildEmailDedupeIndex({
-          em,
-          rows: batchRows,
-          mapping: input.mapping,
-          scope: input.scope,
-        })
         const items: ImportItem[] = []
 
         for (let index = 0; index < batchRows.length; index += 1) {

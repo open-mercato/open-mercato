@@ -5,8 +5,10 @@ import type { UseQueryResult } from '@tanstack/react-query'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import type { MessageActionsProps, MessageContentProps } from '@open-mercato/shared/modules/messages/types'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type {
   ActionResult,
   MessageAction,
@@ -128,20 +130,33 @@ export function useMessageDetailsActions({
     setUpdatingState(true)
     try {
       await runMutation({
-        operation: async () => {
-          const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
-            method: 'DELETE',
-          })
-          if (!call.ok) {
-            throw new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.'))
-          }
-        },
+        // Carry the OSS optimistic-lock header so a stale tab cannot delete a
+        // concurrently-changed message; throw a status-carrying error on failure
+        // so the 409 conflict surfaces on the shared RecordConflictBanner.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.updatedAt),
+          async () => {
+            const call = await apiCall<{ ok?: boolean }>(`/api/messages/${encodeURIComponent(id)}`, {
+              method: 'DELETE',
+            })
+            if (!call.ok) {
+              throw Object.assign(
+                new Error(toErrorMessage(call.result) ?? t('messages.errors.deleteFailed', 'Failed to delete message.')),
+                {
+                  status: call.status,
+                  ...(call.result && typeof call.result === 'object' ? call.result : {}),
+                },
+              )
+            }
+          },
+        ),
         context: { resourceKind: 'message', messageId: id, action: 'delete', retryLastMutation },
         mutationPayload: { messageId: id, action: 'delete' },
       })
       flash(t('messages.flash.deleted', 'Message deleted.'), 'success')
       onDeleted()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
       flash(
         err instanceof Error
           ? err.message
@@ -151,7 +166,7 @@ export function useMessageDetailsActions({
     } finally {
       setUpdatingState(false)
     }
-  }, [id, onDeleted, retryLastMutation, runMutation, t])
+  }, [detail?.updatedAt, id, onDeleted, retryLastMutation, runMutation, t])
 
   const runConversationAction = React.useCallback(async (
     action: ConversationActionKind,
@@ -268,25 +283,34 @@ export function useMessageDetailsActions({
     setExecutingActionId(action.id)
     try {
       const call = await runMutation({
-        operation: async () => {
-          const result = await apiCall<ActionResult>(
-            `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload ?? {}),
-            },
-          )
-
-          if (!result.ok) {
-            throw new Error(
-              toErrorMessage(result.result)
-              ?? t('messages.errors.actionFailed', 'Failed to execute action.'),
+        // Carry the OSS optimistic-lock header so a stale tab cannot execute an
+        // action against a concurrently-changed message; throw a status-carrying
+        // error on failure so the 409 conflict surfaces on the shared banner.
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(detail?.updatedAt),
+          async () => {
+            const result = await apiCall<ActionResult>(
+              `/api/messages/${encodeURIComponent(id)}/actions/${encodeURIComponent(action.id)}`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload ?? {}),
+              },
             )
-          }
 
-          return result
-        },
+            if (!result.ok) {
+              throw Object.assign(
+                new Error(toErrorMessage(result.result) ?? t('messages.errors.actionFailed', 'Failed to execute action.')),
+                {
+                  status: result.status,
+                  ...(result.result && typeof result.result === 'object' ? result.result : {}),
+                },
+              )
+            }
+
+            return result
+          },
+        ),
         context: { resourceKind: 'message', messageId: id, action: 'execute-action', retryLastMutation },
         mutationPayload: { messageId: id, action: 'execute-action', actionId: action.id },
       })
@@ -305,6 +329,7 @@ export function useMessageDetailsActions({
 
       await detailQuery.refetch()
     } catch (err) {
+      if (surfaceRecordConflict(err, t)) return
       flash(
         err instanceof Error
           ? err.message
@@ -314,7 +339,7 @@ export function useMessageDetailsActions({
     } finally {
       setExecutingActionId(null)
     }
-  }, [detailQuery, id, retryLastMutation, runMutation, t])
+  }, [detail?.updatedAt, detailQuery, id, retryLastMutation, runMutation, t])
 
   const handleExecuteAction = React.useCallback(async (action: MessageAction, payload?: Record<string, unknown>) => {
     if (executingActionId || detail?.actionTaken) return
