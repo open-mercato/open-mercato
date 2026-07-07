@@ -125,7 +125,7 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
-import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import { resolveDictionaryEntryValue, resolveCachedDictionaryEntryValue } from "../lib/dictionaries";
 import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
@@ -5429,9 +5429,9 @@ const createOrderCommand: CommandHandler<
       | CacheStrategy
       | undefined;
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveCachedDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,

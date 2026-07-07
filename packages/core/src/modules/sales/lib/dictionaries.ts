@@ -113,34 +113,44 @@ export async function ensureSalesDictionary(params: {
   return dictionary
 }
 
-// Resolved dictionary-entry values (order status / fulfillment / payment labels, …) are effectively
-// static config within a run, yet the `sales.orders.*` handlers fork a fresh EM per invocation and
-// re-`findOne` the same few entry ids on EVERY order — a measured N+1 (~2 reads + pooled-connection
-// checkouts per order on a bulk import, dominant once the aggregate itself is cheap). When a `cache`
-// is supplied, memoize the resolved value through the shared cache service — tenant-scoped via
-// `runWithCacheTenant`, short TTL. The value is non-PII config; a dictionary-value edit takes effect
-// after at most one TTL window. Callers without a cache (the default) read straight through.
-const DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS = 60_000
-
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined,
-  scope: { tenantId: string },
-  cache?: CacheStrategy,
+  scope: { tenantId: string }
 ): Promise<string | null> {
   if (!entryId) return null
-  const load = async (): Promise<string | null> => {
-    const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
-    return entry?.value?.trim() || null
-  }
-  if (!cache) return load()
-  const cacheKey = `sales:dictionary-entry-value:${entryId}`
+  const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
+  return entry?.value?.trim() || null
+}
+
+// Read-through cache in front of `resolveDictionaryEntryValue`, for the hot order-write path: the same
+// few status / fulfillment / payment entry ids are re-resolved for EVERY order, so a bulk import
+// re-reads them per order — a measured N+1 that dominates once the aggregate write itself is cheap.
+// The value is non-PII config; the entry is tenant-scoped via `runWithCacheTenant` and short-TTL'd, so
+// a dictionary-value edit takes effect after at most one TTL window. Callers pass the (soft-resolved)
+// cache; `undefined` reads straight through.
+const DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS = 60_000
+const dictionaryEntryValueCacheKey = (entryId: string): string => `sales:dictionary-entry-value:${entryId}`
+const dictionaryEntryValueCacheTags = (entryId: string): string[] => [`dictionary-entry:${entryId}`]
+
+export async function resolveCachedDictionaryEntryValue(
+  em: EntityManager,
+  entryId: string | null | undefined,
+  scope: { tenantId: string },
+  cache: CacheStrategy | undefined
+): Promise<string | null> {
+  if (!entryId) return null
+  if (!cache) return resolveDictionaryEntryValue(em, entryId, scope)
   return runWithCacheTenant(scope.tenantId, async () => {
+    const cacheKey = dictionaryEntryValueCacheKey(entryId)
     const cached = await cache.get(cacheKey)
     if (typeof cached === 'string') return cached
-    const value = await load()
+    const value = await resolveDictionaryEntryValue(em, entryId, scope)
     if (value != null) {
-      await cache.set(cacheKey, value, { ttl: DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS, tags: [`dictionary-entry:${entryId}`] })
+      await cache.set(cacheKey, value, {
+        ttl: DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS,
+        tags: dictionaryEntryValueCacheTags(entryId),
+      })
     }
     return value
   })
