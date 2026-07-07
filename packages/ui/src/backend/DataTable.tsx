@@ -1368,7 +1368,7 @@ export function DataTable<T>({
   }, [columns, injectedColumnDefs])
   // Render a native <tfoot> only when at least one column defines a footer.
   const hasColumnFooter = React.useMemo(
-    () => mergedColumns.some((col) => (col as { footer?: unknown }).footer != null),
+    () => mergedColumns.some((col) => col.footer != null),
     [mergedColumns],
   )
   const resolvedRowActions = React.useCallback((row: T) => {
@@ -3001,12 +3001,12 @@ export function DataTable<T>({
             <TableFooter>
               {table.getFooterGroups().map((fg) => (
                 <TableRow key={fg.id}>
-                  {hasInjectedBulkActions ? <TableCell className="w-8" aria-hidden /> : null}
+                  {hasInjectedBulkActions ? <TableCell className="w-8" /> : null}
                   {fg.headers.map((footer, footerIndex) => {
                     const columnMeta = (footer.column.columnDef as any)?.meta
                     const priority = resolvePriority(footer.column)
                     const isFirstDataColumn = footerIndex === 0
-                    const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-muted ${STICKY_LEFT_SHADOW_CLASS}` : ''
+                    const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` md:sticky md:left-0 md:z-10 md:bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
                     return (
                       <TableCell key={footer.id} className={responsiveClass(priority, columnMeta?.hidden) + stickyClass}>
                         {footer.isPlaceholder ? null : flexRender(footer.column.columnDef.footer, footer.getContext())}
@@ -3015,10 +3015,9 @@ export function DataTable<T>({
                   })}
                   {rowActions || injectedRowActions.length > 0 ? (
                     <TableCell
-                      aria-hidden
                       className={cn(
                         actionsColumnAlign === 'center' ? 'text-center' : 'text-right',
-                        stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-muted ${STICKY_RIGHT_SHADOW_CLASS}`,
+                        stickyActionsColumn && `md:sticky md:right-0 md:z-10 md:bg-background ${STICKY_RIGHT_SHADOW_CLASS}`,
                       )}
                     />
                   ) : null}
