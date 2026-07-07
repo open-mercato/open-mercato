@@ -180,7 +180,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Usunąć rolę \"{{name}}\"?",
   "customer_accounts.admin.roles.default": "Domyślna",
   "customer_accounts.admin.roles.error.delete": "Nie udało się usunąć roli",
-  "customer_accounts.admin.roles.error.deleteSystem": "Ról systemowych nie można usunąć",
+  "customer_accounts.admin.roles.error.deleteDefault": "Roli domyślnej nie można usunąć. Najpierw ustaw inną rolę jako domyślną.",
   "customer_accounts.admin.roles.error.load": "Nie udało się załadować ról",
   "customer_accounts.admin.roles.flash.deleted": "Rola usunięta",
   "customer_accounts.admin.roles.notAssignable": "Nie",

@@ -180,7 +180,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Rolle \"{{name}}\" löschen?",
   "customer_accounts.admin.roles.default": "Standard",
   "customer_accounts.admin.roles.error.delete": "Rolle konnte nicht gelöscht werden",
-  "customer_accounts.admin.roles.error.deleteSystem": "Systemrollen können nicht gelöscht werden",
+  "customer_accounts.admin.roles.error.deleteDefault": "Die Standardrolle kann nicht gelöscht werden. Legen Sie zuerst eine andere Rolle als Standard fest.",
   "customer_accounts.admin.roles.error.load": "Rollen konnten nicht geladen werden",
   "customer_accounts.admin.roles.flash.deleted": "Rolle gelöscht",
   "customer_accounts.admin.roles.notAssignable": "Nein",
