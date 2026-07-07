@@ -1,7 +1,7 @@
 # Execution plan: `screenshots` meta-label for om-auto-verify-pr-ui
 
 Tracking plan: .ai/runs/2026-07-07-screenshots-label-verify-pr-ui.md
-Status: in-progress
+Status: complete
 
 ## Goal
 
@@ -50,11 +50,11 @@ Docs + automation-config only. No app code, no tests, no build impact.
 
 ### Phase 1: Skill update
 
-- [ ] 1.1 Add the `screenshots` label rule to SKILL.md step 9 (Labels)
-- [ ] 1.2 Clarify `--evidence-only` in Arguments + the "Default behavior changes no labels" Rules bullet
-- [ ] 1.3 Include `+screenshots` in the step 10 Report-back `Labels:` line
+- [x] 1.1 Add the `screenshots` label rule to SKILL.md step 9 (Labels) — b658688a6
+- [x] 1.2 Clarify `--evidence-only` in Arguments + the "Default behavior changes no labels" Rules bullet — b658688a6
+- [x] 1.3 Include `+screenshots` in the step 10 Report-back `Labels:` line — b658688a6
 
 ### Phase 2: AGENTS.md documentation
 
-- [ ] 2.1 Append `screenshots` to the "Meta labels are additive" enumeration
-- [ ] 2.2 Add the `screenshots` definition bullet next to `qa-approved`
+- [x] 2.1 Append `screenshots` to the "Meta labels are additive" enumeration — 198837588
+- [x] 2.2 Add the `screenshots` definition bullet next to `qa-approved` — 198837588
