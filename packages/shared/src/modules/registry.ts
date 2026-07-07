@@ -232,6 +232,11 @@ export type Module = {
   apis?: ModuleApi[]
   cli?: ModuleCli[]
   translations?: Record<string, Record<string, string>>
+  // Optional: per-locale lazy translation loaders. Generated registries emit
+  // these instead of eager locale-JSON imports so only the active locale's
+  // dictionary enters the server module graph; loadDictionary() hydrates the
+  // resolved dictionary back into `translations[locale]` on first use.
+  translationsLoaders?: Record<string, () => Promise<Record<string, string>>>
   // Optional: per-module feature declarations discovered from acl.ts (module root)
   features?: Array<{ id: string; title: string; module: string }>
   // Auto-discovered event subscribers
