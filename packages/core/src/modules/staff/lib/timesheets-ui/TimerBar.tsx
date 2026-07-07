@@ -102,10 +102,9 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
   useEffect(() => {
     if (!staffMemberId) return
 
-    const today = getToday()
     const checkActiveTimer = async () => {
       const response = await apiCall(
-        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&from=${today}&to=${today}&pageSize=50`,
+        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&running=true&pageSize=50`,
       )
       if (!response.ok) return
 

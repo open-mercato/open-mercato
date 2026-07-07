@@ -39,11 +39,6 @@ function formatElapsed(seconds: number): string {
   return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-function getToday(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
-
 function TimerSidebarIndicator() {
   const t = useT()
   // Initialise from sessionStorage so the indicator doesn't flash away on navigation
@@ -63,9 +58,8 @@ function TimerSidebarIndicator() {
       const memberId = selfRes.result?.member?.id
       if (!memberId) { updateTimer(null); return }
 
-      const today = getToday()
       const res = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=50`,
+        `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&running=true&pageSize=50`,
       )
       const items = (res.result?.items ?? []) as Array<Record<string, unknown>>
       const active = items.find((e) => e.started_at && !e.ended_at)
