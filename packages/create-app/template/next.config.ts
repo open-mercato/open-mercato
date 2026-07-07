@@ -19,6 +19,11 @@ const nextConfig: NextConfig = {
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,
+          // Cap Turbopack's in-memory cache so long dev sessions trigger
+          // eviction instead of unbounded RSS growth. The template pins
+          // Next 16.2.x where the byte-count knob is the supported API;
+          // on Next >=16.3 replace with `turbopackMemoryEviction: 'full'`.
+          turbopackMemoryLimit: 4 * 1024 * 1024 * 1024,
         }
       : {}),
   },
