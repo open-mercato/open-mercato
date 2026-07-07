@@ -311,73 +311,28 @@ function resolveRoleNamesFromIdpGroups(
 
   for (const group of normalizedGroups) {
     const mapped = mergedMappings.get(group)
-    if (mapped?.length) {
-      for (const role of mapped) roleNames.add(role)
-      continue
-    }
+    if (!mapped?.length) continue
 
-    roleNames.add(group)
-    const segmented = group.split(/[\\/:]/).map((part) => normalizeToken(part)).filter((part): part is string => part !== null)
-    for (const candidate of segmented) {
-      roleNames.add(candidate)
-    }
+    for (const role of mapped) roleNames.add(role)
   }
 
   return Array.from(roleNames)
 }
 
 function loadMergedMappings(configMappings?: Record<string, string>): Map<string, string[]> {
-  const envMappings = loadGroupRoleMappingsFromEnv()
+  const mappings = new Map<string, string[]>()
 
-  // Per-config mappings take precedence over env var
   if (configMappings && Object.keys(configMappings).length > 0) {
     for (const [group, roleName] of Object.entries(configMappings)) {
       const normalizedGroup = normalizeToken(group)
       if (!normalizedGroup) continue
       const normalizedRole = normalizeToken(roleName)
       if (!normalizedRole) continue
-      envMappings.set(normalizedGroup, [normalizedRole])
+      mappings.set(normalizedGroup, [normalizedRole])
     }
   }
 
-  return envMappings
-}
-
-function loadGroupRoleMappingsFromEnv(): Map<string, string[]> {
-  const raw = process.env.SSO_GROUP_ROLE_MAP
-  if (!raw) return new Map()
-
-  try {
-    const parsed = JSON.parse(raw) as Record<string, unknown>
-    const out = new Map<string, string[]>()
-    for (const [group, roleValue] of Object.entries(parsed)) {
-      const normalizedGroup = normalizeToken(group)
-      if (!normalizedGroup) continue
-      const roles = normalizeRoleList(roleValue)
-      if (roles.length > 0) out.set(normalizedGroup, roles)
-    }
-    return out
-  } catch {
-    return new Map()
-  }
-}
-
-function normalizeRoleList(value: unknown): string[] {
-  if (typeof value === 'string') {
-    const token = normalizeToken(value)
-    return token ? [token] : []
-  }
-
-  if (Array.isArray(value)) {
-    const out = new Set<string>()
-    for (const entry of value) {
-      const token = normalizeToken(entry)
-      if (token) out.add(token)
-    }
-    return Array.from(out)
-  }
-
-  return []
+  return mappings
 }
 
 function normalizeToken(value: unknown): string | null {
