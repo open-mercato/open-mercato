@@ -8,6 +8,7 @@ import { commandRegistry, CommandBus } from '@open-mercato/shared/lib/commands'
 import { applyDiOverridesToContainer } from '@open-mercato/shared/modules/overrides'
 import { createOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { getAllOptimisticLockReaders } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
+import { createCommandOptimisticLockGuardService } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 
 type DynamicCradle = Record<string, any>
 
@@ -170,6 +171,16 @@ export async function createRequestContainer(): Promise<AppContainer> {
         getEm: () => scopedEm,
         readers: getAllOptimisticLockReaders(),
       }),
+    ).scoped(),
+    // Default OSS command-level optimistic-lock guard, awaited by
+    // `enforceCommandOptimisticLockWithGuards` for Command-pattern writes.
+    // Header/explicit-token compare only (no `resolveExpected`), so it is
+    // behaviourally identical to calling `enforceCommandOptimisticLock`
+    // directly. The enterprise `record_locks` module overrides this DI key
+    // with a lock-backed `resolveExpected` via Awilix replace semantics.
+    // Spec: .ai/specs/enterprise/2026-06-09-record-locks-unified-coverage.md (Phase 0)
+    commandOptimisticLockGuardService: asFunction(() =>
+      createCommandOptimisticLockGuardService(),
     ).scoped(),
   })
   // Allow modules to override/extend

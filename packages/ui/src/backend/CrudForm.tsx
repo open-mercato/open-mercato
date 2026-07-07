@@ -73,6 +73,7 @@ import {
 } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
+import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
@@ -403,6 +404,12 @@ export type CrudFormGroupComponentProps = {
   values: Record<string, unknown>
   setValue: (id: string, v: unknown) => void
   errors: Record<string, string>
+  /**
+   * Field ids that active injection widgets declare as required (e.g. the SEO
+   * helper). Custom group components that render their own labels can use this
+   * to show a required marker that appears/disappears with the widget.
+   */
+  requiredFieldIds?: ReadonlySet<string>
 }
 
 // Special group kind for automatic Custom Fields section
@@ -548,7 +555,7 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
 
   const normalized: Record<string, unknown> = {}
   const record = value as Record<string, unknown>
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const nextValue = normalizeDirtySnapshotValue(record[key])
     if (nextValue !== undefined) normalized[key] = nextValue
   }
@@ -1069,6 +1076,19 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   const { triggerEvent: triggerInjectionEvent } = useInjectionSpotEvents(resolvedInjectionSpotId ?? '', injectionWidgets)
   const extendedInjectionEventsEnabled = CRUDFORM_EXTENDED_EVENTS_ENABLED && Boolean(resolvedInjectionSpotId)
 
+  // Fields that active injection widgets declare as required (e.g. the SEO helper
+  // enforcing a description). The host renders a visual required marker for these;
+  // enforcement stays in the widget's own onBeforeSave validation.
+  const widgetRequiredFieldIds = React.useMemo(() => {
+    const ids = new Set<string>()
+    for (const widget of injectionWidgets ?? []) {
+      const metadata = widget.module?.metadata
+      if (!metadata || metadata.enabled === false) continue
+      for (const fieldId of metadata.requiredFields ?? []) ids.add(fieldId)
+    }
+    return ids
+  }, [injectionWidgets])
+
   const transformValidationErrors = React.useCallback(
     async (fieldErrors: Record<string, string>): Promise<Record<string, string>> => {
       if (!extendedInjectionEventsEnabled || !Object.keys(fieldErrors).length) return fieldErrors
@@ -1534,7 +1554,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           fieldsetGroupMap.set(group.code, { code: group.code, title: group.title, hint: group.hint })
         })
       }
-      const sortedDefs = [...defList].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      const sortedDefs = [...defList]
+        .filter((definition) => isDefVisible(definition, 'form'))
+        .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
       const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
         const key = code ?? '__default__'
         let bucket = groupsMap.get(key)
@@ -2214,6 +2236,33 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     }
   }, [errors, formId])
 
+  // When an injection widget blocks save (e.g. the SEO helper), the blocking
+  // reason is easy to miss if the relevant field or the widget panel is off-screen.
+  // Deliberately scroll to the first field-mapped error, falling back to the
+  // injection widget region when the widget only returns a message.
+  const scrollToInjectionBlockedTarget = React.useCallback(
+    (fieldErrors?: Record<string, string>) => {
+      if (typeof document === 'undefined') return
+      const form = document.getElementById(formId)
+      if (!form) return
+      let target: HTMLElement | null = null
+      for (const fieldId of fieldErrors ? Object.keys(fieldErrors) : []) {
+        const fieldContainer = form.querySelector<HTMLElement>(`[data-crud-field-id="${fieldId}"]`)
+        if (fieldContainer) {
+          target = fieldContainer
+          break
+        }
+      }
+      if (!target) {
+        target = form.querySelector<HTMLElement>('[data-crud-injection-region]')
+      }
+      if (target && typeof target.scrollIntoView === 'function') {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      }
+    },
+    [formId],
+  )
+
   const updateEditedFieldMarker = React.useCallback((
     id: string,
     nextValue: unknown,
@@ -2643,6 +2692,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     for (const injectedId of injectedFieldIdSet) {
       delete coreValues[injectedId]
     }
+    if (customEntity) {
+      const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+      for (const key of Object.keys(coreValues)) {
+        if (!allowedKeys.has(key)) delete coreValues[key]
+      }
+    }
 
     let parsedValues: TValues
     if (schema) {
@@ -2675,6 +2730,12 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           const projectedCoreValues = { ...(result.data as Record<string, unknown>) }
           for (const injectedId of injectedFieldIdSet) {
             delete projectedCoreValues[injectedId]
+          }
+          if (customEntity) {
+            const allowedKeys = new Set(cfDefinitions.map((definition) => definition.key).filter(Boolean))
+            for (const key of Object.keys(projectedCoreValues)) {
+              if (!allowedKeys.has(key)) delete projectedCoreValues[key]
+            }
           }
           coreSubmitValues = schema
             ? schema.parse(collapseDotPathFields(projectedCoreValues, dotPathBaseFieldIds))
@@ -2717,6 +2778,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           }
           const message = result.message || t('ui.forms.flash.saveBlocked', 'Save blocked by validation')
           flash(message, 'error')
+          scrollToInjectionBlockedTarget(result.fieldErrors)
           setPending(false)
           return
         }
@@ -3007,6 +3069,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               wrapperClassName={wrapperClassName}
               entityIdForField={primaryEntityId ?? undefined}
               recordId={recordId}
+              markRequired={widgetRequiredFieldIds.has(f.id)}
             />
           )
         })}
@@ -3299,7 +3362,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           if (g.component) {
             customFieldsInnerNodes.push(
               <div key={`${g.id}-component`} className="rounded-lg border bg-card px-4 py-3">
-                {g.component({ values, setValue, errors })}
+                {g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds })}
               </div>,
             )
           }
@@ -3346,7 +3409,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           continue
         }
 
-        const componentNode = g.component ? g.component({ values, setValue, errors }) : null
+        const componentNode = g.component ? g.component({ values, setValue, errors, requiredFieldIds: widgetRequiredFieldIds }) : null
         if (g.bare) {
           if (componentNode) {
             nodes.push(<React.Fragment key={g.id}>{componentNode}</React.Fragment>)
@@ -3475,7 +3538,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
               ) : (
                 <div className="space-y-3">{col1Content}</div>
               )}
-              {hasSecondaryColumn ? <div className="space-y-3">{col2Content}</div> : null}
+              {hasSecondaryColumn ? <div className="space-y-3" data-crud-injection-region>{col2Content}</div> : null}
             </div>
             {formError && !Object.keys(errors).length ? <div className="text-sm text-status-error-text">{formError}</div> : null}
             {hideFooterActions || formReadOnly ? null : (
@@ -3569,6 +3632,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
                     wrapperClassName={wrapperClassName}
                     entityIdForField={primaryEntityId ?? undefined}
                     recordId={recordId}
+                    markRequired={widgetRequiredFieldIds.has(f.id)}
                   />
                 )
               })}
@@ -4005,6 +4069,7 @@ type FieldControlProps = {
   wrapperClassName?: string
   entityIdForField?: string
   recordId?: string
+  markRequired?: boolean
 }
 
 function supportsWrapperBlurValidation(field: CrudField): boolean {
@@ -4118,6 +4183,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   wrapperClassName,
   entityIdForField,
   recordId,
+  markRequired,
 }: FieldControlProps) {
   const t = useT()
   const fieldSetValue = React.useCallback(
@@ -4170,7 +4236,7 @@ const FieldControl = React.memo(function FieldControlImpl({
       {field.type !== 'checkbox' && field.label.trim().length > 0 ? (
         <label className="block text-sm font-medium">
           {field.label}
-          {field.required ? <span className="text-status-error-text"> *</span> : null}
+          {field.required || markRequired ? <span className="text-status-error-text"> *</span> : null}
         </label>
       ) : null}
       {field.type === 'text' && (
@@ -4477,6 +4543,7 @@ const FieldControl = React.memo(function FieldControlImpl({
   prev.field.label === next.field.label &&
   prev.field.description === next.field.description &&
   prev.field.required === next.field.required &&
+  prev.markRequired === next.markRequired &&
   prev.value === next.value &&
   prev.error === next.error &&
   prev.options === next.options &&

@@ -93,6 +93,7 @@ export async function GET(req: Request) {
     lastHealthCheckedAt: string | null
     lastHealthLatencyMs: number | null
     enabledAt: string | null
+    stateUpdatedAt: string | null
     sortEnabledAtMs: number
     sortTitle: string
     sortCategory: string
@@ -140,6 +141,7 @@ export async function GET(req: Request) {
         lastHealthCheckedAt: state.lastHealthCheckedAt?.toISOString() ?? null,
         lastHealthLatencyMs: state.lastHealthLatencyMs,
         enabledAt: state.enabledAt?.toISOString() ?? null,
+        stateUpdatedAt: state.updatedAt?.toISOString() ?? null,
         sortEnabledAtMs: enabledAtMs,
         sortTitle: integration.title.toLowerCase(),
         sortCategory: (integration.category ?? '').toLowerCase(),
@@ -220,6 +222,7 @@ export async function GET(req: Request) {
       lastHealthCheckedAt: row.lastHealthCheckedAt,
       lastHealthLatencyMs: row.lastHealthLatencyMs,
       enabledAt: row.enabledAt,
+      stateUpdatedAt: row.stateUpdatedAt,
       analytics: analytics ?? {
         lastActivityAt: null,
         totalCount: 0,

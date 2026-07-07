@@ -5,6 +5,7 @@ import {
   cleanupWebhooksUser,
   createWebhookFixture,
   deleteWebhookIfExists,
+  mockInboundAuthHeaders,
   provisionWebhooksUser,
   type ProvisionedWebhooksUser,
 } from './helpers/fixtures';
@@ -50,7 +51,7 @@ test.describe('TC-WEBHOOK-005: RBAC permission gates by feature flag', () => {
         name: `Webhook RBAC ${Date.now()}`,
         url: 'https://example.com/webhook-rbac',
         subscribedEvents: ['catalog.product.created'],
-        customHeaders: { 'x-mock-webhook-signature': 'valid' },
+        customHeaders: mockInboundAuthHeaders(),
       });
       webhookId = created.id;
 

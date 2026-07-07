@@ -10,13 +10,23 @@
  *   node scripts/docker-exec.mjs dev --skip-rebuilt
  *
  * Environment overrides:
- *   DOCKER_COMPOSE_FILE  – path to a specific compose file to use
+ *   DOCKER_COMPOSE_FILE  – path to a specific compose file to use; bypasses
+ *                          auto-discovery entirely
+ *
+ * Auto-discovery order (when DOCKER_COMPOSE_FILE is not set):
+ *   1. Any docker-compose.*dev*.local.yml file found in the repo root (sorted,
+ *      gitignored personal overrides — place your custom stack here)
+ *   2. docker-compose.fullapp.dev.yml  (standard dev stack)
+ *   3. docker-compose.fullapp.yml       (production-like stack)
  */
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
+import { basename } from 'node:path';
 
-const COMPOSE_FILES = [
+// Ordered fallback list used when no *.local.yml override is discovered and
+// DOCKER_COMPOSE_FILE is not set.
+const COMPOSE_FILES_FALLBACK = [
   'docker-compose.fullapp.dev.yml',
   'docker-compose.fullapp.yml',
 ];
@@ -46,13 +56,41 @@ if (args.length === 0) {
   process.exit(1);
 }
 
+// Returns a prioritised list of compose file candidates to probe.
+// Local override files (docker-compose.*dev*.local.yml) are discovered
+// dynamically so contributors do not need to export DOCKER_COMPOSE_FILE manually.
+function discoverComposeFiles() {
+  let localOverrides = [];
+  try {
+    localOverrides = readdirSync('.')
+      .filter((f) => /^docker-compose.*dev.*\.local\.yml$/.test(f))
+      .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  } catch {
+    // Ignore — readdirSync can fail in restricted environments.
+  }
+  return [...localOverrides, ...COMPOSE_FILES_FALLBACK];
+}
+
 function isContainerRunning(composeFile) {
   const result = spawnSync(
     'docker',
     ['compose', '-f', composeFile, 'ps', '--status', 'running', '-q', 'app'],
     { encoding: 'utf-8' },
   );
-  return result.status === 0 && result.stdout.trim().length > 0;
+  if (result.status !== 0) {
+    const stderr = (result.stderr ?? '').trim();
+    if (stderr.length > 0) {
+      // Non-zero exit with stderr typically means a compose-file parse or
+      // configuration error rather than simply "no container running".
+      // Warn explicitly instead of silently falling through to the next candidate
+      // (which could be the production profile, blocking dev tooling).
+      console.warn(`[docker-exec] Warning: skipping "${composeFile}" — compose probe failed.`);
+      console.warn(`[docker-exec]   ${stderr.split('\n')[0]}`);
+      console.warn(`[docker-exec]   Fix the compose file or force it with: DOCKER_COMPOSE_FILE=${composeFile}`);
+    }
+    return false;
+  }
+  return result.stdout.trim().length > 0;
 }
 
 function findActiveComposeFile() {
@@ -65,7 +103,7 @@ function findActiveComposeFile() {
     return override;
   }
 
-  for (const file of COMPOSE_FILES) {
+  for (const file of discoverComposeFiles()) {
     if (existsSync(file) && isContainerRunning(file)) {
       return file;
     }
@@ -86,8 +124,10 @@ if (!composeFile) {
   console.error('  Full-app mode:');
   console.error('    docker compose -f docker-compose.fullapp.yml up --build');
   console.error('');
-  console.error('To target a specific compose file regardless of running state:');
-  console.error('  DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate');
+  console.error('Using a custom compose file? Either:');
+  console.error('  (a) Name it docker-compose.*dev*.local.yml for auto-discovery, or');
+  console.error('  (b) Set DOCKER_COMPOSE_FILE before running:');
+  console.error('        DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck');
   process.exit(1);
 }
 
@@ -100,8 +140,12 @@ function runDockerCommand(commandArgs) {
   return spawnSync('docker', commandArgs, { stdio: 'inherit' });
 }
 
-const isDevCompose = composeFile.endsWith('docker-compose.fullapp.dev.yml');
-const isFullappCompose = composeFile.endsWith('docker-compose.fullapp.yml');
+// A compose file is production-only (fullapp) when its basename contains
+// 'fullapp' but not 'dev' — e.g. docker-compose.fullapp.yml.
+// Everything else, including *.local.yml dev overrides, is dev-capable.
+const composeBasename = basename(composeFile);
+const isFullappCompose = composeBasename.includes('fullapp') && !composeBasename.includes('dev');
+const isDevCompose = !isFullappCompose;
 
 function printUnsupportedFullappCommand(scriptName) {
   console.error(`[docker-exec] "${scriptName}" is unsupported in the production-like Docker profile.`);

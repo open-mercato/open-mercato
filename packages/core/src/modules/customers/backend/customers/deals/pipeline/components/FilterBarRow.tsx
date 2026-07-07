@@ -33,9 +33,9 @@ export function FilterBarRow({
   // That picker is not wired up in this slice (it would need AdvancedFilterPanel integration),
   // so the affordance is intentionally omitted instead of shipping a "coming next" toast.
   return (
-    <div className="flex flex-wrap items-center justify-between gap-y-2 rounded-lg bg-muted/40 px-3.5 py-3">
+    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 px-3.5 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-y-2">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-overline font-bold uppercase leading-normal text-muted-foreground">
+        <span className="text-overline w-full font-bold uppercase leading-normal text-muted-foreground sm:w-auto">
           {translateWithFallback(t, 'customers.deals.kanban.filter.label', 'Filter')}:
         </span>
         {leadingChips}
@@ -54,7 +54,7 @@ export function FilterBarRow({
           />
         ))}
       </div>
-      <div className="ml-auto">{sortNode}</div>
+      <div className="sm:ml-auto">{sortNode}</div>
     </div>
   )
 }

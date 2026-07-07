@@ -2,7 +2,17 @@ import { OptionalProps } from '@mikro-orm/core'
 import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 
 @Entity({ tableName: 'module_configs' })
-@Unique({ name: 'module_configs_module_name_unique', properties: ['moduleId', 'name'] })
+@Index({
+  name: 'module_configs_global_unique',
+  expression:
+    'create unique index "module_configs_global_unique" on "module_configs" ("module_id", "name") where "tenant_id" is null',
+})
+@Index({
+  name: 'module_configs_scoped_unique',
+  expression:
+    'create unique index "module_configs_scoped_unique" on "module_configs" ("module_id", "name", "tenant_id") where "tenant_id" is not null',
+})
+@Index({ name: 'module_configs_module_name_tenant_idx', properties: ['moduleId', 'name', 'tenantId'] })
 export class ModuleConfig {
   [OptionalProps]?: 'createdAt' | 'updatedAt'
 
@@ -17,6 +27,12 @@ export class ModuleConfig {
 
   @Property({ name: 'value_json', type: 'json', nullable: true })
   valueJson!: unknown
+
+  @Property({ name: 'organization_id', type: 'uuid', nullable: true })
+  organizationId?: string | null
+
+  @Property({ name: 'tenant_id', type: 'uuid', nullable: true })
+  tenantId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

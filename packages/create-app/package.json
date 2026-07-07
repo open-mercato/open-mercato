@@ -18,10 +18,13 @@
   },
   "dependencies": {
     "picocolors": "^1.1.0",
-    "tar": "^7.5.16"
+    "tar": "^7.5.16",
+    "ts-morph": "^28.0.0"
   },
   "devDependencies": {
-    "@types/node": "^25.9.3",
+    "@open-mercato/cli": "workspace:*",
+    "@open-mercato/shared": "workspace:*",
+    "@types/node": "^26.0.0",
     "esbuild": "^0.28.1",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"

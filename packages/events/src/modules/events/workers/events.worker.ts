@@ -24,6 +24,7 @@ type EventJobPayload = {
 
 type HandlerContext = {
   resolve: <T = unknown>(name: string) => T
+  eventName?: string
   tenantId?: string | null
   organizationId?: string | null
 }
@@ -118,6 +119,7 @@ export default async function handle(
 
   const handlerCtx = {
     resolve: ctx.resolve,
+    eventName: event,
     tenantId: options?.tenantId ?? null,
     organizationId: options?.organizationId ?? null,
   }

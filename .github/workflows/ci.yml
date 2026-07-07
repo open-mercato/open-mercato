@@ -63,7 +63,7 @@ jobs:
       shard_matrix: ${{ steps.integration-scope.outputs.shard_matrix }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Fetch base branch for change detection
         # Needed so the scope step can diff against the PR base.
@@ -218,13 +218,62 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
-  # ── Security audit ──────────────────────────────────────────────────────────
-  # Runs in parallel with 'prepare' — only needs yarn install, not the full build.
-  audit:
+  # ── Audit scope ─────────────────────────────────────────────────────────────
+  # Determines whether dependency audit needs to run. Package manifests and
+  # lockfiles are the only inputs that can change the dependency graph.
+  audit-scope:
     runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.dependency-files.outputs.should_run }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
+
+      - name: Fetch comparison ref
+        if: github.event_name == 'pull_request'
+        run: git fetch origin ${{ github.base_ref }} --depth=1
+
+      - name: Detect dependency file changes
+        id: dependency-files
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            CHANGED=$(git diff origin/${{ github.base_ref }} --name-only)
+          else
+            BEFORE="${{ github.event.before }}"
+
+            if [ -z "$BEFORE" ] || [[ "$BEFORE" =~ ^0+$ ]]; then
+              CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+            else
+              git fetch --no-tags --depth=1 origin "$BEFORE" || true
+
+              if git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                CHANGED=$(git diff --name-only "$BEFORE" HEAD)
+              else
+                CHANGED=$(git diff-tree --no-commit-id --name-only -r HEAD)
+              fi
+            fi
+          fi
+
+          DEPENDENCY_FILE_PATTERN='(^|/)package\.json$|(^|/)(yarn\.lock|package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml|bun\.lock|bun\.lockb)$'
+
+          if printf '%s\n' "$CHANGED" | grep -Eq "$DEPENDENCY_FILE_PATTERN"; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  # ── Security audit ──────────────────────────────────────────────────────────
+  # Runs only when package manifests or lockfiles changed.
+  audit:
+    runs-on: ubuntu-latest
+    needs: audit-scope
+    if: needs.audit-scope.outputs.should_run == 'true'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -242,13 +291,13 @@ jobs:
           restore-keys: yarn-${{ runner.os }}-
 
       - name: Cache audit result
-        # Keyed on yarn.lock — if the lockfile is unchanged the dependency
-        # graph is identical and a prior passing audit is still valid.
+        # Keyed on package manifests and lockfiles — if none of these changed,
+        # a prior passing audit is still valid.
         id: audit-cache
         uses: actions/cache@v5
         with:
           path: .audit-passed
-          key: audit-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: audit-${{ runner.os }}-${{ hashFiles('**/package.json', '**/yarn.lock', '**/package-lock.json', '**/npm-shrinkwrap.json', '**/pnpm-lock.yaml', '**/bun.lock', '**/bun.lockb') }}
 
       - name: Cache node_modules
         # Only needed when audit-cache misses (i.e. yarn.lock changed).
@@ -282,7 +331,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -322,10 +371,16 @@ jobs:
   # merge-coverage and docker-build both wait for this job to complete.
   test:
     runs-on: ubuntu-latest
-    needs: [prepare, audit, lint]
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Fetch base branch for change detection
         if: github.event_name == 'pull_request'
@@ -434,6 +489,17 @@ jobs:
         # Turbo never picks up root-level scripts — run explicitly.
         run: yarn test:scripts
 
+      - name: Check create-app template parity (always, unfiltered)
+        # The create-app package guards byte-parity between the monorepo app shell
+        # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
+        # Those guards read files across BOTH trees, but the turbo-scoped "Test" step
+        # above uses --filter=[base]... which selects packages by the dependency graph
+        # and never pulls in create-mercato-app when only apps/mercato changes — so on
+        # PRs the parity tests can silently skip while the post-merge push build (full,
+        # unfiltered `yarn test`) turns develop red (see #3779). Run the create-app unit
+        # suite unconditionally here so template drift fails the PR, not develop.
+        run: yarn workspace create-mercato-app test
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -447,8 +513,14 @@ jobs:
   #         combines per-shard coverage reports.
   ephemeral-integration:
     runs-on: ubuntu-latest
-    needs: [prepare, audit, lint]
-    if: needs.prepare.outputs.skip_integration != 'true'
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success' &&
+      needs.prepare.outputs.skip_integration != 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -460,6 +532,15 @@ jobs:
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
+      # The mock inbound webhook adapter now requires a real HMAC-SHA256
+      # signature (#2707). The ephemeral harness spawns the app under
+      # NODE_ENV=production, which disables the adapter's dev-secret
+      # fallback, so the secret must be supplied explicitly here. Setting
+      # it at the job level reaches BOTH the spawned app process (which
+      # verifies the signature) and the Playwright runner (which signs the
+      # request) so TC-WEBHOOK-003 sees matching secrets. Mirrors the value
+      # used by snapshot.yml and the ephemeral harness default.
+      MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret'
       # Enables the OSS opt-in optimistic-locking guard from PR #1981.
       # `OM_OPTIMISTIC_LOCK=all` (workflow-level env) auto-registers a
       # generic reader for every CRUD entity (Phase 13). Required by
@@ -486,7 +567,7 @@ jobs:
           fi
 
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -639,7 +720,7 @@ jobs:
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
@@ -722,7 +803,7 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

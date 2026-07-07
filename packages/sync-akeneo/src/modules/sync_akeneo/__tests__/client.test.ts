@@ -127,6 +127,50 @@ describe('akeneo client security', () => {
     }))
   })
 
+  it('falls back to the attributes reachability probe and reports an unknown version (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(jsonResponse({
+        _embedded: { items: [{ code: 'sku' }] },
+        _links: {},
+        items_count: 1,
+      }))
+
+    const client = createAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).resolves.toEqual({ version: null })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/api/rest/v1/attributes')
+  })
+
+  it('reports an unknown version even when the attributes probe returns no items (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(jsonResponse({
+        _embedded: { items: [] },
+        _links: {},
+        items_count: 0,
+      }))
+
+    const client = createAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).resolves.toEqual({ version: null })
+  })
+
+  it('propagates when the attributes reachability probe also fails (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(new Response('unreachable', { status: 500 }))
+
+    const client = createAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).rejects.toThrow('Akeneo request failed (500)')
+  })
+
   it('rejects cross-origin next urls before any authenticated request is sent', async () => {
     const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
     const client = createAkeneoClient(validCredentials)
