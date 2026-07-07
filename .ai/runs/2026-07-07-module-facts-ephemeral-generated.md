@@ -67,5 +67,6 @@ The maintainer (Piotr) explicitly decided to supersede D4's committed-artifact c
 
 ### Phase 3: Validation
 
-- [ ] 3.1 yarn generate writes to .mercato/generated and git status is clean
-- [ ] 3.2 Test suites, typecheck, and full gate pass
+- [x] 3.1 yarn generate writes to .mercato/generated and git status is clean — verified after 1b041eed1
+- [x] 3.2 Test suites, typecheck, and full gate pass — 5c9fa1a59
+- [x] Post-gate fix: removed stray `ded` keystrokes in `packages/ui/src/backend/filters/AdvancedFilterPanel.tsx` that broke `yarn typecheck` on origin/develop (pre-existing, unrelated to this change, blocking the validation gate) — 5c9fa1a59
