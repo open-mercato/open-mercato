@@ -88,6 +88,24 @@ describe('useActiveTimesheetTimer', () => {
     expect(apiCallMock.mock.calls.filter(([url]) => String(url).startsWith('/api/staff/timesheets/time-projects?'))).toHaveLength(1)
   })
 
+  it('looks up the active timer by running state rather than today (issue #3717)', async () => {
+    setupRunningTimerResponses()
+    const { wrapper } = createWrapper()
+
+    const { result } = renderHook(() => useActiveTimesheetTimer(), { wrapper })
+
+    await waitFor(() => expect(result.current.entryId).toBe('entry-1'))
+
+    const entriesCall = apiCallMock.mock.calls.find(([url]) =>
+      String(url).startsWith('/api/staff/timesheets/time-entries?'),
+    )
+    const entriesUrl = String(entriesCall?.[0] ?? '')
+    expect(entriesUrl).toContain('running=true')
+    // A date-scoped lookup hides a timer started before midnight after the date rolls over.
+    expect(entriesUrl).not.toContain('from=')
+    expect(entriesUrl).not.toContain('to=')
+  })
+
   it('shares the revalidation window but allows forced refresh after mutations', async () => {
     setupRunningTimerResponses()
     const { queryClient, wrapper } = createWrapper()

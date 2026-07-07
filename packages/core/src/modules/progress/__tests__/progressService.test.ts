@@ -664,6 +664,109 @@ describe('progress service — worker lifecycle organization scoping (#3284)', (
   })
 })
 
+describe('progress service — broadcast coalescing (#2972)', () => {
+  const originalInterval = process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+
+  afterEach(() => {
+    if (originalInterval === undefined) {
+      delete process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS
+    } else {
+      process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = originalInterval
+    }
+  })
+
+  const buildRunningJob = (overrides: Partial<ProgressJob> = {}) =>
+    ({
+      id: 'job-1',
+      jobType: 'import',
+      status: 'running',
+      processedCount: 0,
+      totalCount: 1000,
+      progressPercent: 0,
+      startedAt: new Date(Date.now() - 10_000),
+      meta: null,
+      ...overrides,
+    }) as unknown as ProgressJob
+
+  it('coalesces rapid successive updates within the interval into a single flush + broadcast', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob()
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 2 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 3 }, baseCtx)
+
+    // Leading edge broadcasts once; the sub-percent follow-ups stay buffered.
+    expect(eventBus.emit).toHaveBeenCalledTimes(1)
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    // The job is cached after the first load, so no repeat SELECT per record.
+    expect(em.findOneOrFail).toHaveBeenCalledTimes(1)
+    // In-memory state still reflects the latest buffered update for the return contract.
+    expect(job.processedCount).toBe(3)
+  })
+
+  it('re-broadcasts within the interval when progressPercent advances by >= 1', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob({ totalCount: 100 })
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 0 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(eventBus.emit).toHaveBeenLastCalledWith(
+      PROGRESS_EVENTS.JOB_UPDATED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 })
+    )
+  })
+
+  it('restores per-update emission when OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS=0', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '0'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob()
+    em.findOneOrFail.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 1 }, baseCtx)
+    await service.updateProgress('job-1', { processedCount: 2 }, baseCtx)
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(2)
+    expect(em.flush).toHaveBeenCalledTimes(2)
+  })
+
+  it('flushes buffered progress into the terminal completeJob event', async () => {
+    process.env.OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS = '1000'
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const job = buildRunningJob({ tenantId: baseCtx.tenantId })
+    em.findOneOrFail.mockResolvedValue(job)
+    em.findOne.mockResolvedValue(job)
+
+    const service = createProgressService(em as never, eventBus)
+    await service.updateProgress('job-1', { processedCount: 5 }, baseCtx) // leading edge broadcast
+    await service.updateProgress('job-1', { processedCount: 7 }, baseCtx) // buffered, not broadcast
+
+    expect(eventBus.emit).toHaveBeenCalledTimes(1)
+
+    await service.completeJob('job-1', { resultSummary: { imported: 7 } }, baseCtx)
+
+    expect(job.processedCount).toBe(7)
+    expect(job.status).toBe('completed')
+    expect(eventBus.emit).toHaveBeenLastCalledWith(
+      PROGRESS_EVENTS.JOB_COMPLETED,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 })
+    )
+  })
+})
+
 describe('calculateProgressPercent', () => {
   it('returns correct percentage', () => {
     expect(calculateProgressPercent(50, 100)).toBe(50)

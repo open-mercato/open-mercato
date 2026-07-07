@@ -42,14 +42,6 @@ const EMPTY_ACTIVE_TIMER: ActiveTimesheetTimer = {
 
 export const activeTimesheetTimerQueryKey = () => BASE_ACTIVE_TIMER_KEY
 
-function getToday(): string {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = String(now.getMonth() + 1).padStart(2, '0')
-  const day = String(now.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
-
 function getString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -91,9 +83,11 @@ async function fetchActiveTimesheetTimer(staffMemberId?: string | null): Promise
     return EMPTY_ACTIVE_TIMER
   }
 
-  const today = getToday()
+  // Look up the active timer by running state rather than by today's date (issue #3717):
+  // a timer started before midnight is still running the next day, and a from=today&to=today
+  // lookup would hide it once the date rolls over, leaving an orphaned timer unstoppable.
   const entriesRes = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-    `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(memberId)}&from=${today}&to=${today}&pageSize=50`,
+    `/api/staff/timesheets/time-entries?staffMemberId=${encodeURIComponent(memberId)}&running=true&pageSize=50`,
   )
   if (!entriesRes.ok) {
     throw new Error(getErrorMessage(entriesRes.result, 'Failed to load active timer.'))
