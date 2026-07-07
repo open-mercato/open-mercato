@@ -810,26 +810,37 @@ async function fetchLocationCapacityUnits(locationId: string): Promise<number | 
   return Number.isFinite(value) ? value : null
 }
 
+const LOCATION_TOTAL_ON_HAND_PAGE_SIZE = 100
+const LOCATION_TOTAL_ON_HAND_MAX_PAGES = 50
+
 async function fetchLocationTotalOnHand(input: {
   warehouseId: string
   locationId: string
 }): Promise<number> {
   const locationId = input.locationId.trim()
   if (!locationId) return 0
-  const params = buildQuery({
-    page: 1,
-    pageSize: 100,
-    warehouseId: input.warehouseId,
-    locationId,
-  })
-  const call = await apiCall<PagedResponse<{ quantity_on_hand?: string | number | null }>>(
-    `/api/wms/inventory/balances?${params}`,
-  )
-  if (!call.ok) return 0
-  return (call.result?.items ?? []).reduce((sum, row) => {
-    const value = Number(row.quantity_on_hand ?? 0)
-    return sum + (Number.isFinite(value) ? value : 0)
-  }, 0)
+  let sum = 0
+  let page = 1
+  let totalPages = 1
+  do {
+    const params = buildQuery({
+      page,
+      pageSize: LOCATION_TOTAL_ON_HAND_PAGE_SIZE,
+      warehouseId: input.warehouseId,
+      locationId,
+    })
+    const call = await apiCall<PagedResponse<{ quantity_on_hand?: string | number | null }>>(
+      `/api/wms/inventory/balances?${params}`,
+    )
+    if (!call.ok) break
+    for (const row of call.result?.items ?? []) {
+      const value = Number(row.quantity_on_hand ?? 0)
+      if (Number.isFinite(value)) sum += value
+    }
+    totalPages = call.result?.totalPages ?? 1
+    page += 1
+  } while (page <= totalPages && page <= LOCATION_TOTAL_ON_HAND_MAX_PAGES)
+  return sum
 }
 
 export async function fetchLocationCapacitySnapshot(input: {

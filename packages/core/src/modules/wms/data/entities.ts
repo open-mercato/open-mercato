@@ -283,9 +283,15 @@ export class InventoryBalance extends WmsScopedEntity {
   @Property({ name: 'quantity_allocated', type: 'numeric', precision: 16, scale: 4, default: '0' })
   quantityAllocated: string = '0'
 
-  get quantityAvailable(): number {
-    return Number(this.quantityOnHand) - Number(this.quantityReserved) - Number(this.quantityAllocated)
-  }
+  @Property({
+    name: 'quantity_available',
+    type: 'numeric',
+    precision: 16,
+    scale: 4,
+    generated: (cols) => `(${cols.quantityOnHand} - ${cols.quantityReserved} - ${cols.quantityAllocated}) stored`,
+    hidden: true,
+  })
+  quantityAvailable!: string
 }
 
 @Entity({ tableName: 'wms_inventory_reservations' })

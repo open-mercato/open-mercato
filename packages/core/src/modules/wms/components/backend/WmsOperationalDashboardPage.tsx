@@ -140,6 +140,21 @@ function createDateTimeFormatter(locale: string, options: Intl.DateTimeFormatOpt
   return new Intl.DateTimeFormat(locale, options)
 }
 
+export function resolveDashboardFirstRunMode(input: {
+  warehousesLoading: boolean
+  warehousesError: boolean
+  hasWarehouses: boolean
+  locationsLoading: boolean
+  locationsError: boolean
+  locationsCount: number
+}): 'no-warehouses' | 'no-locations' | null {
+  if (input.warehousesLoading || input.warehousesError) return null
+  if (!input.hasWarehouses) return 'no-warehouses'
+  if (input.locationsLoading || input.locationsError) return null
+  if (input.locationsCount === 0) return 'no-locations'
+  return null
+}
+
 type DashboardKpiCardProps = {
   kpi: OperationalDashboardKpi
   title: string
@@ -354,6 +369,8 @@ export default function WmsOperationalDashboardPage() {
     },
   })
 
+  const hasWarehouses = (warehousesQuery.data ?? []).length > 0
+
   const locationsCountQuery = useQuery({
     queryKey: ['wms-dashboard', 'locations-count'],
     queryFn: async () => {
@@ -364,6 +381,7 @@ export default function WmsOperationalDashboardPage() {
       }
       return call.result?.total ?? 0
     },
+    enabled: hasWarehouses,
   })
 
   const dashboardQuery = useQuery({
@@ -388,21 +406,25 @@ export default function WmsOperationalDashboardPage() {
       ? t('wms.backend.dashboard.filters.allWarehouses', 'All warehouses')
       : selectedWarehouse?.name || selectedWarehouse?.code || warehouseId
 
-  const hasWarehouses = (warehousesQuery.data ?? []).length > 0
-  const firstRunMode = React.useMemo<'no-warehouses' | 'no-locations' | null>(() => {
-    if (warehousesQuery.isLoading || warehousesQuery.isError) return null
-    if (!hasWarehouses) return 'no-warehouses'
-    if (locationsCountQuery.isLoading || locationsCountQuery.isError) return null
-    if ((locationsCountQuery.data ?? 0) === 0) return 'no-locations'
-    return null
-  }, [
-    warehousesQuery.isLoading,
-    warehousesQuery.isError,
-    hasWarehouses,
-    locationsCountQuery.isLoading,
-    locationsCountQuery.isError,
-    locationsCountQuery.data,
-  ])
+  const firstRunMode = React.useMemo<'no-warehouses' | 'no-locations' | null>(
+    () =>
+      resolveDashboardFirstRunMode({
+        warehousesLoading: warehousesQuery.isLoading,
+        warehousesError: warehousesQuery.isError,
+        hasWarehouses,
+        locationsLoading: locationsCountQuery.isLoading,
+        locationsError: locationsCountQuery.isError,
+        locationsCount: locationsCountQuery.data ?? 0,
+      }),
+    [
+      warehousesQuery.isLoading,
+      warehousesQuery.isError,
+      hasWarehouses,
+      locationsCountQuery.isLoading,
+      locationsCountQuery.isError,
+      locationsCountQuery.data,
+    ],
+  )
 
   const kpiConfig = React.useMemo(() => {
     const buildLotsHref = (expiryWindow: 'expiringSoon' | 'pastDue') => {

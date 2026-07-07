@@ -2274,6 +2274,23 @@
           "comment": null,
           "enumItems": [],
           "mappedType": "decimal"
+        },
+        "quantity_available": {
+          "name": "quantity_available",
+          "type": "numeric(16,4)",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": 16,
+          "scale": 4,
+          "default": null,
+          "comment": null,
+          "enumItems": [],
+          "mappedType": "decimal",
+          "generated": "(quantity_on_hand - quantity_reserved - quantity_allocated) stored"
         }
       },
       "indexes": [

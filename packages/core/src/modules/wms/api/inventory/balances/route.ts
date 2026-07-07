@@ -21,6 +21,19 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
 }
 
+export function transformInventoryBalanceListItem(
+  item: Record<string, unknown>,
+): Record<string, unknown> {
+  const onHand = Number(item.quantity_on_hand ?? 0)
+  const reserved = Number(item.quantity_reserved ?? 0)
+  const allocated = Number(item.quantity_allocated ?? 0)
+  const rawAvailable = item.quantity_available
+  return {
+    ...item,
+    quantity_available: rawAvailable != null ? Number(rawAvailable) : onHand - reserved - allocated,
+  }
+}
+
 const crud = makeCrudRoute({
   metadata,
   orm: {
@@ -62,16 +75,7 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    transformItem: (item) => {
-      const onHand = Number(item.quantity_on_hand ?? 0)
-      const reserved = Number(item.quantity_reserved ?? 0)
-      const allocated = Number(item.quantity_allocated ?? 0)
-      const rawAvailable = item.quantity_available
-      return {
-        ...item,
-        quantity_available: rawAvailable != null ? Number(rawAvailable) : onHand - reserved - allocated,
-      }
-    },
+    transformItem: transformInventoryBalanceListItem,
     buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
