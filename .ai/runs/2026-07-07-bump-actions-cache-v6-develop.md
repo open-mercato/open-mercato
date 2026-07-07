@@ -33,4 +33,4 @@ change on top of `develop`, whose ci.yml has 15 cache steps (one more than main'
 
 ### Phase 2: Ship
 
-- [ ] 2.1 Open PR against `develop`, label, and close original #3695
+- [x] 2.1 Open PR against `develop`, label, and close original #3695 — PR #3968; #3695 closed
