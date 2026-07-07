@@ -4,6 +4,16 @@
 
 Recurring patterns and mistakes to avoid. Review at session start.
 
+## CRUD-owned custom-field writes should not emit a second entity event
+
+**Context**: Generic CRUD routes save scalar entity data and custom fields, then emit the canonical CRUD side effect with events and query-index configuration. Letting the intermediate `setCustomFields()` call also emit `<module>.<entity>.updated` creates a second event path through the query-index DI bridge.
+
+**Problem**: The duplicate path can run inside the write transaction, swallow query-index failures as best-effort event work, and obscure the single request-owned side-effect path that is supposed to surface always-consistent index failures.
+
+**Rule**: When a CRUD route owns both the custom-field write and the subsequent `markOrmEntityChange()` / `flushOrmEntityChanges()` call, pass `notify: false` to `setCustomFields()`. The canonical created/updated/deleted side effect should be emitted exactly once after the entity/custom-field write succeeds.
+
+**Applies to**: `packages/shared/src/lib/crud/factory.ts`, command helpers that compose custom fields with CRUD side effects, and module routes that manually combine `setCustomFields()` with query-index side effects.
+
 ## We've got centralized helpers for extracting `UndoPayload`
 
 Centralize shared command utilities like undo extraction in `packages/shared/src/lib/commands/undo.ts` and reuse `extractUndoPayload`/`UndoPayload` instead of duplicating helpers or cross-importing module code.

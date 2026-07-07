@@ -543,6 +543,7 @@ describe('CRUD Factory', () => {
     const data = await res.json()
     expect(data.id).toBeDefined()
     // CF saved
+    expect(mockDataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({ notify: false }))
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ entityId: 'example.todo', values: { priority: 3 } }))
     // Event + indexer delegated to data engine
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
@@ -569,6 +570,7 @@ describe('CRUD Factory', () => {
     await em.persist(created).flush()
     const res = await route.PUT(new Request('http://x/api/example/todos', { method: 'PUT', body: JSON.stringify({ id: created.id, title: 'X2', cf_priority: 5 }), headers: { 'content-type': 'application/json' } }))
     expect(res.status).toBe(200)
+    expect(mockDataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({ notify: false }))
     expect(setRecordCustomFields).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ values: { priority: 5 } }))
     expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
     const updatedCall = mockDataEngine.emitOrmEntityEvent.mock.calls.at(0)
@@ -588,6 +590,22 @@ describe('CRUD Factory', () => {
     expect(Object.values(db)).toHaveLength(0)
     // No created event/index is emitted for a rolled-back create
     expect(mockDataEngine.emitOrmEntityEvent).not.toHaveBeenCalled()
+  })
+
+  it('POST surfaces CRUD side-effect failures after custom field writes', async () => {
+    mockDataEngine.emitOrmEntityEvent.mockImplementationOnce(async () => {
+      throw new Error('index write failed')
+    })
+
+    const res = await route.POST(new Request('http://x/api/example/todos', {
+      method: 'POST',
+      body: JSON.stringify({ title: 'Indexed', is_done: true, cf_priority: 3 }),
+      headers: { 'content-type': 'application/json' },
+    }))
+
+    expect(res.status).toBe(500)
+    expect(mockDataEngine.setCustomFields).toHaveBeenCalledWith(expect.objectContaining({ notify: false }))
+    expect(mockDataEngine.emitOrmEntityEvent).toHaveBeenCalledTimes(1)
   })
 
   it('PUT rolls back the entity update when the custom field write fails', async () => {
