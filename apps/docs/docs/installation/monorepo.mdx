@@ -306,6 +306,21 @@ yarn dev
 
 <TabItem value="windows" label="🪟 Windows">
 
+## One-command setup (recommended) {#windows-one-command}
+
+The fastest path on Windows — including a **completely clean machine with no Git, no Docker, and no Node.js** — is the bundled launcher:
+
+1. Get the repo (clone it, or download the [ZIP](https://github.com/open-mercato/open-mercato/archive/refs/heads/main.zip) and extract it). On a bare machine you can even download just [`start-windows.bat`](https://raw.githubusercontent.com/open-mercato/open-mercato/main/start-windows.bat) — it installs Git and clones the repo for you.
+2. Double-click **`start-windows.bat`**.
+
+The launcher installs missing prerequisites via winget (Git, WSL2, Docker Desktop — **no Node.js or Build Tools needed**, everything runs in containers), reboots-and-resumes automatically when Windows requires it, generates `.env` secrets, optionally prompts for an LLM provider API key, then starts the fully containerized dev stack from `docker-compose.fullapp.dev.yml`: the app (`:3000`, hot reload), the MCP server (`:3001`), the OpenCode agent (`:4096`), plus PostgreSQL, Redis, and Meilisearch. It waits for everything to become healthy and prints URLs and superadmin credentials.
+
+- First boot takes 10–20 minutes (the container installs, builds, and seeds); progress is streamed from the build splash on `http://localhost:4000`. Subsequent starts take seconds.
+- `stop-windows.bat` stops the stack (data survives in Docker volumes).
+- Re-running `start-windows.bat` is always safe — every step is idempotent. Useful flags on the underlying script (`scripts\windows\start-dev.ps1`): `-Status`, `-Logs`, `-Restart`, `-Reset` (deletes all data), `-DryRun`, `-NonInteractive`, `-SkipLlmPrompt`, `-IncludeNativeToolchain`.
+
+The sections below cover the **native (non-Docker) toolchain** as an alternative for contributors who prefer running the app directly on Windows.
+
 :::tip WSL2 recommended for full monorepo development
 For the best developer experience on Windows — native Linux tooling, faster file I/O, full Docker support — use **WSL2 with Ubuntu** instead of running everything natively. See the dedicated [Windows with WSL2](./wsl2) guide which covers Ubuntu setup, memory configuration, Docker, GitHub CLI, and network bridging to a Windows-hosted database.
 

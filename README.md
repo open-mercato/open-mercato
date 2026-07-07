@@ -109,6 +109,22 @@ Read more on the [Open Mercato Architecture](https://docs.openmercato.com/archit
 **You need:** [Node.js 24](https://nodejs.org/en/download) · [Git](https://git-scm.com/) · PostgreSQL + Redis (easiest via [Docker Desktop](https://www.docker.com/products/docker-desktop/))
 
 <details>
+<summary><strong>🪟 Windows — one command</strong> — full agentic dev environment (app + MCP + OpenCode) in Docker</summary>
+
+Double-click **`start-windows.bat`** in the repo root (clone or [download the ZIP](https://github.com/open-mercato/open-mercato/archive/refs/heads/main.zip) first — or download just the `.bat` on a totally bare machine and it clones for you). It installs anything missing (Git, WSL2, Docker Desktop via winget — no Node.js needed on the host), handles the reboot if Windows needs one (setup resumes automatically after login), generates `.env` secrets, optionally asks for an OpenAI/Anthropic/Google API key, and starts the fully containerized stack:
+
+| Service | URL |
+|---------|-----|
+| App | http://localhost:3000/backend |
+| Build splash (first-boot progress) | http://localhost:4000 |
+| MCP server | http://localhost:3001/health |
+| OpenCode agent | http://localhost:4096/global/health |
+
+First boot takes 10–20 minutes (installs + builds + seeds inside the container); every later start takes seconds. Stop with `stop-windows.bat` (data preserved). Credentials are printed in the final summary. Re-running the `.bat` is always safe — every step is idempotent.
+
+</details>
+
+<details>
 <summary><strong>🔧 Monorepo</strong> — core development / full demo</summary>
 
 ```bash

@@ -22,6 +22,44 @@ MODEL="${OM_AI_MODEL:-${OPENCODE_MODEL:-}}"
 MCP_URL="${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}"
 MCP_API_KEY="${MCP_SERVER_API_KEY:-}"
 
+# File-based key delivery for the fully containerized stack: when no key is
+# set via env and MCP_SERVER_API_KEY_FILE points at the shared volume, wait
+# for the MCP server's /health endpoint first — the MCP entrypoint only
+# starts listening after mcp:ensure-api-key finished, so a healthy endpoint
+# guarantees the file content is final for this boot. On timeout or read
+# failure OpenCode still starts (headerless MCP config, matching the old
+# no-key behavior) so /global/health stays available for diagnostics.
+if [ -z "$MCP_API_KEY" ] && [ -n "${MCP_SERVER_API_KEY_FILE:-}" ]; then
+  # Normalize before deriving the health URL: strip trailing slashes, then
+  # the /mcp suffix, so http://mcp:3001/mcp and http://mcp:3001/mcp/ both
+  # yield http://mcp:3001/health.
+  MCP_BASE_URL="${MCP_URL%/}"
+  MCP_HEALTH_URL="${MCP_BASE_URL%/mcp}/health"
+  WAIT="${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}"
+  echo "[OpenCode] Waiting for MCP at ${MCP_HEALTH_URL} and key file ${MCP_SERVER_API_KEY_FILE} (timeout ${WAIT}s)..."
+  elapsed=0
+  until curl -fsS --max-time 5 "$MCP_HEALTH_URL" >/dev/null 2>&1 && [ -r "$MCP_SERVER_API_KEY_FILE" ] && [ -s "$MCP_SERVER_API_KEY_FILE" ]; do
+    elapsed=$((elapsed + 5))
+    if [ "$elapsed" -ge "$WAIT" ]; then
+      echo "[OpenCode] WARNING: timed out waiting for the MCP API key; starting WITHOUT MCP auth." >&2
+      echo "[OpenCode] Check 'docker compose logs mcp', then 'docker compose restart opencode'." >&2
+      break
+    fi
+    if [ $((elapsed % 60)) -eq 0 ]; then
+      echo "[OpenCode] Still waiting for MCP (${elapsed}s elapsed)..."
+    fi
+    sleep 5
+  done
+  if [ -r "$MCP_SERVER_API_KEY_FILE" ]; then
+    MCP_API_KEY="$(tr -d '[:space:]' < "$MCP_SERVER_API_KEY_FILE" || true)"
+  fi
+  if [ -n "$MCP_API_KEY" ]; then
+    echo "[OpenCode] MCP API key loaded from file."
+  else
+    echo "[OpenCode] WARNING: MCP API key file is missing, empty, or unreadable — MCP requests will be unauthenticated (401s)." >&2
+  fi
+fi
+
 # Determine model based on provider if not explicitly set
 if [ -z "$MODEL" ]; then
   case "$PROVIDER" in

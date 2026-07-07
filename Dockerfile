@@ -111,8 +111,10 @@ RUN yarn build:packages
 
 COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
+RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
 EXPOSE 3000
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
@@ -187,8 +189,10 @@ COPY --from=builder /app/newrelic.js ./
 # Copy Railway entrypoint script
 COPY docker/scripts/railway-entrypoint.sh /app/docker/scripts/railway-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
+COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh
 RUN chmod +x /app/docker/scripts/railway-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
+RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
 # Prepare storage directory for Railway volume mount
 RUN mkdir -p /app/apps/mercato/storage
