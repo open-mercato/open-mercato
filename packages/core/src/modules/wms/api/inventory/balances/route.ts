@@ -47,6 +47,7 @@ const crud = makeCrudRoute({
       'quantity_on_hand',
       'quantity_reserved',
       'quantity_allocated',
+      'quantity_available',
       'created_at',
       'updated_at',
     ],
@@ -57,7 +58,7 @@ const crud = makeCrudRoute({
       quantityOnHand: 'quantity_on_hand',
       quantityReserved: 'quantity_reserved',
       quantityAllocated: 'quantity_allocated',
-      quantityAvailable: 'quantity_on_hand',
+      quantityAvailable: 'quantity_available',
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
@@ -65,9 +66,10 @@ const crud = makeCrudRoute({
       const onHand = Number(item.quantity_on_hand ?? 0)
       const reserved = Number(item.quantity_reserved ?? 0)
       const allocated = Number(item.quantity_allocated ?? 0)
+      const rawAvailable = item.quantity_available
       return {
         ...item,
-        quantity_available: onHand - reserved - allocated,
+        quantity_available: rawAvailable != null ? Number(rawAvailable) : onHand - reserved - allocated,
       }
     },
     buildFilters: async (query, ctx) => {
