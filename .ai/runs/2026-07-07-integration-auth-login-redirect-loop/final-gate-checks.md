@@ -24,3 +24,19 @@
 - CLI readiness follows redirects manually, rejects protocol-relative/cross-origin locations, and has a fixed redirect limit.
 - Public helper import path and auth API/cookie contracts are unchanged.
 - No generated files are staged.
+
+## Post-PR CI Merge-Ref Unblock
+
+**Timestamp:** 2026-07-07T15:09:18Z
+
+After PR #3963 opened, GitHub `prepare` failed in TypeScript on a merge-ref-only base typo:
+
+- `packages/ui/src/backend/filters/AdvancedFilterPanel.tsx`
+- `ded        onPointerDownOutside={ignoreAdvancedFilterPortalInteractions}`
+
+The PR branch was rebased onto current `origin/develop`, then commit `3ddb0583e` removed the stray `ded` token.
+
+| Command | Status | Notes |
+|---------|--------|-------|
+| `yarn workspace @open-mercato/ui build` | PASS | Rebuilt the UI package after the one-line `AdvancedFilterPanel` fix. |
+| `yarn build:app` | PASS | Re-ran the app build stage that failed in GitHub `prepare`; TypeScript finished successfully. |

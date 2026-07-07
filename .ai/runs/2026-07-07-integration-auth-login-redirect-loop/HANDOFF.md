@@ -1,10 +1,10 @@
 # Handoff — 2026-07-07-integration-auth-login-redirect-loop
 
-**Last updated:** 2026-07-07T13:45:30Z
+**Last updated:** 2026-07-07T15:09:18Z
 **Branch:** `fix/integration-auth-login-redirect-loop`
 **PR:** https://github.com/open-mercato/open-mercato/pull/3963
-**Current phase/step:** PR opened
-**Last commit:** `a09df4d61` before PR-handoff metadata commit
+**Current phase/step:** PR opened; CI rerun pending after merge-ref unblock
+**Last code commit:** `3ddb0583e` before this metadata update
 
 ## What Just Happened
 
@@ -17,14 +17,17 @@
 - Fixed validation fallout from the repo-wide explicit comparator guard.
 - Stabilized existing CLI build-cache and DataTable test flakes encountered during gates.
 - Ran checkpoint and final gate validation; see `checkpoint-1-checks.md` and `final-gate-checks.md`.
+- After PR #3963 opened, GitHub `prepare` failed on a TypeScript error inherited from current `develop`: a stray `ded` token before `onPointerDownOutside` in `packages/ui/src/backend/filters/AdvancedFilterPanel.tsx`.
+- Rebasing onto current `origin/develop` reproduced that merge-ref failure locally; commit `3ddb0583e` removes the stray token.
+- Verified the unblock with `yarn workspace @open-mercato/ui build` and `yarn build:app`, both exit 0.
 
 ## Next Concrete Action
 
-- Wait for GitHub checks/review on PR #3963.
+- Push the rebased branch, then wait for GitHub checks/review on PR #3963.
 
 ## Blockers / Open Questions
 
-- none
+- GitHub checks are pending rerun after the rebased branch is pushed.
 
 ## Environment Caveats
 

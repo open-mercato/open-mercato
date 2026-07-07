@@ -12,16 +12,17 @@
 
 | Phase | Step | Title | Status | Commit |
 |-------|------|-------|--------|--------|
-| 0 | 0.1 | Land source specification | done | 89cf420db |
-| 1 | 1.1 | Add auth helper backend-cookie regression | done | 7408d7b22 |
-| 2 | 2.1 | Fix verified auth cookie/session boundary | done | 28d430530 |
-| 3 | 3.1 | Add cookie-backed ephemeral readiness probe | done | 07727c69c |
-| 3 | 3.2 | Add readiness probe unit coverage | done | 9b711ecb2 |
-| 3 | 3.3 | Fix explicit comparator validation fallout | done | 85c515b97 |
-| 3 | 3.4 | Stabilize CLI build cache test fingerprint change | done | 5c88a0e5f |
-| 4 | 4.1 | Run checkpoint validation | done | 831c25a70 |
-| 4 | 4.2 | Stabilize DataTable refresh test isolation | done | 7c3911651 |
-| 5 | 5.1 | Final gate, self-review, PR handoff | done | a09df4d61 |
+| 0 | 0.1 | Land source specification | done | 96c72f5e4 |
+| 1 | 1.1 | Add auth helper backend-cookie regression | done | 969ecddbc |
+| 2 | 2.1 | Fix verified auth cookie/session boundary | done | cce5c53b8 |
+| 3 | 3.1 | Add cookie-backed ephemeral readiness probe | done | 746ef92cb |
+| 3 | 3.2 | Add readiness probe unit coverage | done | c90a118f2 |
+| 3 | 3.3 | Fix explicit comparator validation fallout | done | 59d9487cf |
+| 3 | 3.4 | Stabilize CLI build cache test fingerprint change | done | d0d09e0ed |
+| 4 | 4.1 | Run checkpoint validation | done | e29a13915 |
+| 4 | 4.2 | Stabilize DataTable refresh test isolation | done | dc12100f9 |
+| 5 | 5.1 | Final gate, self-review, PR handoff | done | 2d073637b |
+| 5 | 5.2 | Unblock PR merge-ref TypeScript failure | done | 3ddb0583e |
 
 ## Goal
 
@@ -122,6 +123,11 @@ None.
 - Run code-review and BC self-review.
 - Update source spec changelog/status with implementation evidence.
 - Open PR against `develop`, apply labels, run auto-review handoff if possible, and post the final summary comment.
+
+#### Step 5.2 — Unblock PR merge-ref TypeScript failure
+- Rebase the PR branch onto current `origin/develop` after GitHub `prepare` failed in the merge ref.
+- Remove the stray `ded` token introduced in `packages/ui/src/backend/filters/AdvancedFilterPanel.tsx`.
+- Re-run `yarn workspace @open-mercato/ui build` and `yarn build:app` to confirm the TypeScript failure is gone.
 
 ## Verification Policy
 

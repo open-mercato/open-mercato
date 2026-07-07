@@ -21,3 +21,8 @@
 - Brief: opened PR #3963.
 - URL: https://github.com/open-mercato/open-mercato/pull/3963
 - Labels: intended `review`, `bug`, `skip-qa`, `priority-high`, `risk-high`; label mutation failed due upstream permission, so the intent was posted as a PR comment.
+
+## 2026-07-07T15:09:18Z — PR CI merge-ref unblock
+- Brief: rebased the PR branch onto current `origin/develop` after GitHub `prepare` failed on a TypeScript error inherited from the merge ref.
+- Fix: removed the stray `ded` token before `onPointerDownOutside` in `packages/ui/src/backend/filters/AdvancedFilterPanel.tsx`.
+- Validation: `yarn workspace @open-mercato/ui build` and `yarn build:app` both exited 0 after the fix.
