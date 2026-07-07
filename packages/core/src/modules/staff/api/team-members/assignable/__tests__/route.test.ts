@@ -42,6 +42,7 @@ describe('staff assignable team-members route', () => {
         tenantId: 'tenant-1',
         orgId: 'org-1',
       },
+      scope: { selectedId: 'org-1', filterIds: ['org-1'], allowedIds: null, tenantId: 'tenant-1' },
       selectedOrganizationId: 'org-1',
     })
   })
@@ -88,6 +89,13 @@ describe('staff assignable team-members route', () => {
       ['customers.roles.manage'],
       { tenantId: 'tenant-1', organizationId: 'org-1' },
     )
+    const [, , memberWhere] = mockFindWithDecryption.mock.calls[0]
+    expect(memberWhere).toEqual({
+      tenantId: 'tenant-1',
+      organizationId: { $in: ['org-1'] },
+      deletedAt: null,
+      isActive: true,
+    })
     expect(body.items).toEqual([
       {
         id: '11111111-1111-1111-1111-111111111111',
@@ -145,19 +153,42 @@ describe('staff assignable team-members route', () => {
     })
   })
 
-  it('returns 400 when no organization is selected', async () => {
+  it('aggregates tenant-wide staff under the "All organizations" scope (no organizationId filter)', async () => {
     mockResolveCustomersRequestContext.mockResolvedValueOnce({
-      container: { resolve: () => undefined },
+      container: {
+        resolve: (token: string) => {
+          if (token === 'rbacService') return { userHasAllFeatures: mockUserHasAllFeatures }
+          return null
+        },
+      },
       em: {},
       auth: { sub: 'user-actor', tenantId: 'tenant-1', orgId: null },
+      scope: { selectedId: null, filterIds: null, allowedIds: null, tenantId: 'tenant-1' },
       selectedOrganizationId: null,
     })
+    mockUserHasAllFeatures.mockResolvedValueOnce(true)
+    mockFindWithDecryption
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
 
     const { GET } = await import('../route')
-    const response = await GET(new Request('http://localhost/api/staff/team-members/assignable'))
-    const body = (await response.json()) as Record<string, unknown>
+    const response = await GET(new Request('http://localhost/api/staff/team-members/assignable?page=1&pageSize=100'))
 
-    expect(response.status).toBe(400)
-    expect(body).toMatchObject({ error: 'Organization context is required' })
+    expect(response.status).toBe(200)
+    // Tenant-wide feature check: no concrete organization is required.
+    expect(mockUserHasAllFeatures).toHaveBeenCalledWith(
+      'user-actor',
+      ['customers.roles.manage'],
+      { tenantId: 'tenant-1', organizationId: null },
+    )
+    // Query must stay tenant-scoped but must NOT pin a single organization.
+    const [, , memberWhere] = mockFindWithDecryption.mock.calls[0]
+    expect(memberWhere).toEqual({
+      tenantId: 'tenant-1',
+      deletedAt: null,
+      isActive: true,
+    })
+    expect(memberWhere).not.toHaveProperty('organizationId')
   })
 })

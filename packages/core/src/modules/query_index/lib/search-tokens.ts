@@ -212,8 +212,6 @@ export async function replaceSearchTokensForBatch(
 
   const scopeKey = (org: string | null, tenant: string | null) => `${org ?? '__null__'}|${tenant ?? '__null__'}`
   const scopeBuckets = new Map<string, { organizationId: string | null; tenantId: string | null; ids: Set<string> }>()
-  const fieldPairsByScope = new Map<string, EntityFieldPair[]>()
-  const seenPairsByScope = new Map<string, Set<string>>()
 
   for (const payload of payloads) {
     const org = payload.organizationId ?? null
@@ -224,41 +222,16 @@ export async function replaceSearchTokensForBatch(
     scopeBuckets.set(key, bucket)
   }
 
-  for (const payload of payloads) {
-    const org = payload.organizationId ?? null
-    const tenant = payload.tenantId ?? null
-    const key = scopeKey(org, tenant)
-    const pairs = fieldPairsByScope.get(key) ?? []
-    const seen = seenPairsByScope.get(key) ?? new Set<string>()
-    const fieldPairs = buildFieldPairs(String(payload.recordId), payload.doc)
-    for (const pair of fieldPairs) {
-      const dedupeKey = `${pair[0]}|${pair[1]}`
-      if (seen.has(dedupeKey)) continue
-      seen.add(dedupeKey)
-      pairs.push(pair)
-    }
-    fieldPairsByScope.set(key, pairs)
-    seenPairsByScope.set(key, seen)
-  }
-
   await db.transaction().execute(async (trx) => {
-    for (const [key, bucket] of scopeBuckets.entries()) {
-      const pairs = fieldPairsByScope.get(key) ?? []
-      let deleteQuery = trx
+    for (const [, bucket] of scopeBuckets.entries()) {
+      // Delete by entity_id: a batch replaces all of a record's tokens, and a per-field OR over the
+      // whole batch overflows the query compiler's call stack on large batches.
+      const deleteQuery = trx
         .deleteFrom('search_tokens' as any)
         .where('entity_type' as any, '=', payloads[0].entityType)
         .where(sql<boolean>`organization_id is not distinct from ${bucket.organizationId}`)
         .where(sql<boolean>`tenant_id is not distinct from ${bucket.tenantId}`)
-      if (pairs.length) {
-        deleteQuery = deleteQuery.where((eb: any) => eb.or(
-          pairs.map(([rid, field]) => eb.and([
-            eb('entity_id' as any, '=', rid),
-            eb('field' as any, '=', field),
-          ])),
-        ))
-      } else {
-        deleteQuery = deleteQuery.where('entity_id' as any, 'in', Array.from(bucket.ids))
-      }
+        .where('entity_id' as any, 'in', Array.from(bucket.ids))
       await deleteQuery.execute()
     }
     const payloadWithTimestamps = rows.map((row) => ({ ...row, created_at: sql`now()` }))

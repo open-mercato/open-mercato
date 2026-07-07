@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext, CommandBus } from '@open-mercato/shared/lib/commands'
 import { CustomerPipelineStage, CustomerDictionaryEntry } from '../../data/entities'
@@ -56,15 +57,16 @@ async function buildContext(
 
 export async function GET(req: Request) {
   try {
-    const { ctx, organizationId, tenantId, translate } = await buildContext(req)
-    if (!organizationId || !tenantId) {
+    const { ctx, tenantId, translate } = await buildContext(req)
+    if (!tenantId) {
       return NextResponse.json({ error: translate('customers.errors.context_required', 'Organization and tenant context required') }, { status: 400 })
     }
+    const orgFilter = resolveOrganizationScopeFilter(ctx.organizationScope, ctx.auth)
     const url = new URL(req.url)
     const pipelineId = url.searchParams.get('pipelineId')
 
     const em = (ctx.container.resolve('em') as EntityManager)
-    const where: Record<string, unknown> = { organizationId, tenantId }
+    const where: Record<string, unknown> = { tenantId, ...orgFilter.where }
     if (pipelineId) where.pipelineId = pipelineId
 
     const stages = await em.find(CustomerPipelineStage, where, { orderBy: { order: 'ASC' } })
@@ -72,8 +74,8 @@ export async function GET(req: Request) {
     const stageLabels = stages.map((s) => s.label.trim().toLowerCase())
     const dictEntries = stageLabels.length
       ? await em.find(CustomerDictionaryEntry, {
-          organizationId,
           tenantId,
+          ...orgFilter.where,
           kind: 'pipeline_stage',
           normalizedValue: { $in: stageLabels },
         })
