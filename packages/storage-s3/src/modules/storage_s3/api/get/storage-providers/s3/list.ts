@@ -28,6 +28,8 @@ const responseSchema = z.object({
   nextContinuationToken: z.string().optional(),
 })
 
+const DEFAULT_LIST_NAMESPACE = 'uploads'
+
 async function resolveDriver(tenantId: string, orgId: string): Promise<S3StorageDriver | null> {
   const { resolve } = await createRequestContainer()
   const credentialsService = resolve('integrationCredentialsService') as {
@@ -36,6 +38,36 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
   return new S3StorageDriver(creds)
+}
+
+function buildTenantPrefix(namespace: string, tenantId: string, orgId: string): string {
+  return `${namespace}/org_${orgId}/tenant_${tenantId}/`
+}
+
+function resolveTenantScopedPrefix(prefix: string, tenantId: string, orgId: string): string | null {
+  const normalized = prefix.replace(/^\/+/, '')
+  const parts = normalized.split('/')
+  const namespace = parts[0] || DEFAULT_LIST_NAMESPACE
+  const tenantPrefix = buildTenantPrefix(namespace, tenantId, orgId)
+
+  if (!normalized || normalized === tenantPrefix.slice(0, -1)) {
+    return tenantPrefix
+  }
+
+  if (normalized.startsWith(tenantPrefix)) {
+    return normalized
+  }
+
+  if (
+    parts[1]?.startsWith('org_') ||
+    parts[2]?.startsWith('tenant_') ||
+    normalized.includes(`org_${orgId}/tenant_${tenantId}`)
+  ) {
+    return null
+  }
+
+  const namespaceRelativePrefix = normalized.slice(namespace.length).replace(/^\/+/, '')
+  return tenantPrefix + namespaceRelativePrefix
 }
 
 export async function GET(req: Request) {
@@ -51,11 +83,13 @@ export async function GET(req: Request) {
   }
 
   // Always scope list operations to the tenant namespace to prevent cross-tenant enumeration.
-  const tenantPrefix = `org_${auth.orgId}/tenant_${auth.tenantId}/`
-  const userPrefix = parsed.data.prefix
-  const effectivePrefix = userPrefix.includes(`org_${auth.orgId}/tenant_${auth.tenantId}`)
-    ? userPrefix
-    : tenantPrefix + userPrefix.replace(/^\//, '')
+  const effectivePrefix = resolveTenantScopedPrefix(parsed.data.prefix, auth.tenantId, auth.orgId)
+  if (effectivePrefix === null) {
+    return NextResponse.json(
+      { error: 'Access denied: prefix is not scoped to this tenant.' },
+      { status: 403 },
+    )
+  }
 
   const driver = await resolveDriver(auth.tenantId, auth.orgId)
   if (!driver) {
@@ -93,6 +127,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid params or S3 not configured', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Prefix not scoped to this tenant', schema: z.object({ error: z.string() }) },
       ],
     },
   },
