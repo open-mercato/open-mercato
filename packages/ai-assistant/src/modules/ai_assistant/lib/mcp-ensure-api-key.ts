@@ -8,9 +8,10 @@ import {
   deleteApiKey,
   findApiKeyBySecret,
 } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
-import { User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
-import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { getUserRoleIds } from './user-role-ids'
 
 export const DEFAULT_MCP_KEY_NAME = '__mcp_server__'
 export const DEFAULT_MCP_KEY_OWNER_EMAIL = 'superadmin@acme.com'
@@ -50,25 +51,6 @@ async function writeSecretFile(filePath: string, secret: string): Promise<void> 
   await fs.writeFile(tmpPath, `${secret}\n`, { mode: 0o644 })
   await fs.rename(tmpPath, filePath)
   await fs.chmod(filePath, 0o644)
-}
-
-async function resolveOwnerRoleIds(
-  em: EntityManager,
-  userId: string,
-  tenantId: string | null,
-): Promise<string[]> {
-  if (!tenantId) return []
-  const links = await findWithDecryption(
-    em,
-    UserRole,
-    { user: userId as any, role: { tenantId } } as any,
-    { populate: ['role'] },
-    { tenantId, organizationId: null },
-  )
-  const linkList = Array.isArray(links) ? links : []
-  return linkList
-    .map((link) => (link.role as any)?.id)
-    .filter((id): id is string => typeof id === 'string' && id.length > 0)
 }
 
 /**
@@ -118,7 +100,7 @@ export async function ensureMcpApiKey(options: EnsureMcpApiKeyOptions): Promise<
     )
   }
 
-  const roleIds = await resolveOwnerRoleIds(options.em, owner.id, owner.tenantId ?? null)
+  const roleIds = await getUserRoleIds(options.em, owner.id, owner.tenantId ?? null)
 
   // Scope the cleanup to the owner's tenant: keys with the same name in other
   // tenants belong to other stacks/tenants and must never be revoked here.
