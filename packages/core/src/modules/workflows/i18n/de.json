@@ -776,6 +776,8 @@
   "workflows.instances.actions.retry": "Wiederholen",
   "workflows.instances.actions.viewDetails": "Details anzeigen",
   "workflows.instances.backToList": "Zurück zu Instanzen",
+  "workflows.instances.callApiIdentity.description": "CALL_API wird mit den Rollen des Benutzers ausgeführt, der den Workflow gestartet hat. Ereignisgesteuerte Workflows verwenden den Autor oder letzten Bearbeiter der Workflow-Definition. Öffnen Sie die Workflow-Definition, speichern Sie sie als Benutzer mit den erforderlichen API-Berechtigungen und wiederholen Sie dann die Instanz.",
+  "workflows.instances.callApiIdentity.title": "CALL_API benötigt einen nachvollziehbaren Ausführungsbenutzer",
   "workflows.instances.cancelFailed": "Workflow-Instanz konnte nicht abgebrochen werden.",
   "workflows.instances.compensation.activities": "Kompensationsaktivitäten",
   "workflows.instances.compensation.completed": "Kompensation abgeschlossen",

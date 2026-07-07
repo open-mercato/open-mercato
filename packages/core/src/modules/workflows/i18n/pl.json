@@ -776,6 +776,8 @@
   "workflows.instances.actions.retry": "Ponów",
   "workflows.instances.actions.viewDetails": "Zobacz Szczegóły",
   "workflows.instances.backToList": "Powrót do instancji",
+  "workflows.instances.callApiIdentity.description": "CALL_API działa z rolami użytkownika, który uruchomił przepływ. Przepływy uruchamiane zdarzeniem używają autora definicji albo ostatniego edytora. Otwórz definicję przepływu, zapisz ją jako użytkownik z wymaganymi uprawnieniami API, a potem ponów instancję.",
+  "workflows.instances.callApiIdentity.title": "CALL_API potrzebuje rozpoznawalnego użytkownika wykonania",
   "workflows.instances.cancelFailed": "Nie udało się anulować instancji przepływu pracy.",
   "workflows.instances.compensation.activities": "Czynności kompensacyjne",
   "workflows.instances.compensation.completed": "Kompensacja zakończona",

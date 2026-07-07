@@ -38,6 +38,7 @@ const ORG_ID = 'org-1'
 const DEFINITION_ID = 'def-1'
 const AUTHOR_ID = 'author-admin'
 const INITIATOR_ID = 'initiator-low-priv'
+const UPDATER_ID = '33333333-3333-4333-8333-333333333333'
 
 type FindOneCall = { entity: string; filter: Record<string, unknown> }
 
@@ -52,13 +53,21 @@ function entityName(arg: unknown): string {
 function setupCommonStubs({
   authorExists = true,
   initiatorExists = true,
+  updaterExists = true,
   authorRoleIds = ['role-admin'],
   initiatorRoleIds = ['role-low-priv'],
+  updaterRoleIds = ['role-editor'],
+  definitionCreatedBy = AUTHOR_ID,
+  definitionUpdatedBy = null,
 }: {
   authorExists?: boolean
   initiatorExists?: boolean
+  updaterExists?: boolean
   authorRoleIds?: string[]
   initiatorRoleIds?: string[]
+  updaterRoleIds?: string[]
+  definitionCreatedBy?: string | null
+  definitionUpdatedBy?: string | null
 } = {}) {
   mockFindOne.mockReset()
   mockFindMany.mockReset()
@@ -68,13 +77,15 @@ function setupCommonStubs({
     if (name === 'WorkflowDefinition') {
       return {
         id: filter.id,
-        createdBy: AUTHOR_ID,
+        createdBy: definitionCreatedBy,
+        updatedBy: definitionUpdatedBy,
         tenantId: filter.tenantId,
       }
     }
     if (name === 'User') {
       if (filter.id === AUTHOR_ID && authorExists) return { id: AUTHOR_ID }
       if (filter.id === INITIATOR_ID && initiatorExists) return { id: INITIATOR_ID }
+      if (filter.id === UPDATER_ID && updaterExists) return { id: UPDATER_ID }
       return null
     }
     return null
@@ -84,7 +95,11 @@ function setupCommonStubs({
     const name = entityName(Entity)
     if (name === 'UserRole') {
       const userFilter = filter.user as string | undefined
-      const ids = userFilter === INITIATOR_ID ? initiatorRoleIds : authorRoleIds
+      const ids = userFilter === INITIATOR_ID
+        ? initiatorRoleIds
+        : userFilter === UPDATER_ID
+          ? updaterRoleIds
+          : authorRoleIds
       return ids.map((id) => ({ role: { id } }))
     }
     if (name === 'Role') {
@@ -183,6 +198,63 @@ describe('resolveCallApiRoleIds', () => {
     const calls = findOneCalls()
     expect(calls.some((c) => c.entity === 'WorkflowDefinition')).toBe(true)
     expect(calls.some((c) => c.entity === 'User' && c.filter.id === AUTHOR_ID)).toBe(true)
+  })
+
+  test('falls back to the last editor when the author has no active scoped roles', async () => {
+    setupCommonStubs({
+      authorRoleIds: [],
+      updaterRoleIds: ['role-editor'],
+      definitionUpdatedBy: UPDATER_ID,
+    })
+
+    const result = await resolveCallApiRoleIds({}, {
+      id: 'inst-last-editor',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: null,
+    })
+
+    expect(result).toEqual(['role-editor'])
+
+    const userCalls = findOneCalls().filter((c) => c.entity === 'User')
+    expect(userCalls.map((c) => c.filter.id)).toEqual([AUTHOR_ID, UPDATER_ID])
+  })
+
+  test('falls back to the last editor when the author user is missing', async () => {
+    setupCommonStubs({
+      authorExists: false,
+      updaterRoleIds: ['role-editor'],
+      definitionUpdatedBy: UPDATER_ID,
+    })
+
+    const result = await resolveCallApiRoleIds({}, {
+      id: 'inst-missing-author',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: { initiatedBy: 'trigger:definition-id:deal_created_trigger' },
+    })
+
+    expect(result).toEqual(['role-editor'])
+  })
+
+  test('returns empty when neither author nor last editor has active scoped roles', async () => {
+    setupCommonStubs({
+      authorRoleIds: [],
+      updaterRoleIds: [],
+      definitionUpdatedBy: UPDATER_ID,
+    })
+
+    const result = await resolveCallApiRoleIds({}, {
+      id: 'inst-no-editor-roles',
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      definitionId: DEFINITION_ID,
+      metadata: null,
+    })
+
+    expect(result).toEqual([])
   })
 
   test('falls back to the author when metadata exists but initiatedBy is empty', async () => {

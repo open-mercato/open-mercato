@@ -7,6 +7,7 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
+import { Alert, AlertDescription, AlertTitle } from '@open-mercato/ui/primitives/alert'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { apiFetch } from '@open-mercato/ui/backend/utils/api'
@@ -18,6 +19,7 @@ import { WorkflowLegend } from '../../../components/WorkflowLegend'
 import { MobileInstanceOverview } from '../../../components/mobile/MobileInstanceOverview'
 import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import { definitionToGraph } from '../../../lib/graph-utils'
+import { isCallApiIdentityResolutionError } from '../../../lib/call-api-identity-error'
 import type { Node } from '@xyflow/react'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 
@@ -413,6 +415,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
   const canCancel = ['RUNNING', 'PAUSED'].includes(instance.status)
   const canRetry = instance.status === 'FAILED'
   const actionLoading = cancelMutation.isPending || retryMutation.isPending
+  const showCallApiIdentityGuidance = isCallApiIdentityResolutionError(instance.errorMessage)
 
   if (isMobile) {
     return (
@@ -681,6 +684,16 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
               <pre className="text-sm text-destructive whitespace-pre-wrap font-mono">
                 {instance.errorMessage}
               </pre>
+              {showCallApiIdentityGuidance && (
+                <Alert status="warning" style="lighter" className="mt-4">
+                  <AlertTitle>
+                    {t('workflows.instances.callApiIdentity.title')}
+                  </AlertTitle>
+                  <AlertDescription>
+                    {t('workflows.instances.callApiIdentity.description')}
+                  </AlertDescription>
+                </Alert>
+              )}
               {instance.errorDetails && (
                 <div className="mt-4">
                   <JsonDisplay

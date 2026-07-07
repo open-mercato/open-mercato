@@ -776,6 +776,8 @@
   "workflows.instances.actions.retry": "Reintentar",
   "workflows.instances.actions.viewDetails": "Ver detalles",
   "workflows.instances.backToList": "Volver a instancias",
+  "workflows.instances.callApiIdentity.description": "CALL_API se ejecuta con los roles del usuario que inició el flujo de trabajo. Los flujos activados por eventos usan el autor o el último editor de la definición. Abre la definición del flujo, guárdala como un usuario con los permisos de API necesarios y luego reintenta la instancia.",
+  "workflows.instances.callApiIdentity.title": "CALL_API necesita un usuario de ejecución identificable",
   "workflows.instances.cancelFailed": "Error al cancelar la instancia de flujo de trabajo.",
   "workflows.instances.compensation.activities": "Actividades de compensación",
   "workflows.instances.compensation.completed": "Compensación completada",

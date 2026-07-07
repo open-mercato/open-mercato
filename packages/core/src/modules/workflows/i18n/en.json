@@ -776,6 +776,8 @@
   "workflows.instances.actions.retry": "Retry",
   "workflows.instances.actions.viewDetails": "View Details",
   "workflows.instances.backToList": "Back to instances",
+  "workflows.instances.callApiIdentity.description": "CALL_API runs with the roles of the user who started the workflow. Event-triggered workflows use the workflow definition author or last editor. Open the workflow definition, save it as a user with the required API permissions, then retry the instance.",
+  "workflows.instances.callApiIdentity.title": "CALL_API needs a traceable execution user",
   "workflows.instances.cancelFailed": "Failed to cancel workflow instance.",
   "workflows.instances.compensation.activities": "Compensation Activities",
   "workflows.instances.compensation.completed": "Compensation Completed",
