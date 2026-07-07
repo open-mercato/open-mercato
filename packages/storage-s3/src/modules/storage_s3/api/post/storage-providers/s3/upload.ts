@@ -47,7 +47,7 @@ async function resolveDriver(
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver(creds)
+  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
 }
 
 async function readTenantStorageUsageBytes(

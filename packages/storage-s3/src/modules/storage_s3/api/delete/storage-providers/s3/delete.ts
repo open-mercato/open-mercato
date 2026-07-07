@@ -21,7 +21,7 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   }
   const creds = await credentialsService.resolve('storage_s3', { tenantId, organizationId: orgId })
   if (!creds) return null
-  return new S3StorageDriver(creds)
+  return new S3StorageDriver({ ...creds, organizationId: orgId, tenantId })
 }
 
 function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {

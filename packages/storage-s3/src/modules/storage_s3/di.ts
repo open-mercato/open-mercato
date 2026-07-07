@@ -30,16 +30,23 @@ export function register(container: AppContainer) {
   // Register the credential enhancer via DI so it can access the request-scoped
   // integrationCredentialsService to inject marketplace credentials at upload time.
   registerExternalCredentialEnhancer('s3', async (config, scope) => {
-    if (config.credentialsEnvPrefix || config.accessKeyId || config.authMode) return config
+    const scopedConfig = {
+      ...config,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+    }
+    if (config.credentialsEnvPrefix || config.accessKeyId || config.authMode) return scopedConfig
     try {
       const credsSvc = container.resolve('integrationCredentialsService') as IntegrationCredentialsService
       const creds = await credsSvc.resolve('storage_s3', scope)
       if (!creds) {
         console.log('[storage-s3] No marketplace credentials found for scope', scope)
-        return config
+        return scopedConfig
       }
       console.log('[storage-s3] Injecting marketplace credentials into S3 driver config')
       return {
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
         authMode: creds.authMode,
         bucket: config.bucket ?? (creds.bucket ? String(creds.bucket) : undefined),
         region: config.region ?? (creds.region ? String(creds.region) : undefined),
@@ -50,8 +57,8 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
-      console.warn('[storage-s3] Credential enhancer failed, using partition config as-is:', err)
-      return config
+      console.warn('[storage-s3] Credential enhancer failed, using scoped partition config:', err)
+      return scopedConfig
     }
   })
 
@@ -76,6 +83,8 @@ export function register(container: AppContainer) {
               accessKeyId: creds.accessKeyId ? String(creds.accessKeyId) : undefined,
               secretAccessKey: creds.secretAccessKey ? String(creds.secretAccessKey) : undefined,
               sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
               // Credentials are resolved from the Integration Marketplace (encrypted at rest)
               // and injected directly rather than via env prefix for the standalone service.
             } as Parameters<typeof createStorageService>[0])
