@@ -29,7 +29,7 @@ change on top of `develop`, whose ci.yml has 15 cache steps (one more than main'
 
 ### Phase 1: Port the bump
 
-- [ ] 1.1 Bump all `actions/cache@v5` → `@v6` in `.github/workflows/ci.yml`
+- [x] 1.1 Bump all `actions/cache@v5` → `@v6` in `.github/workflows/ci.yml` — 8a0564d63
 
 ### Phase 2: Ship
 
