@@ -452,3 +452,4 @@ None.
 - CLI readiness implementation added a bounded cookie-backed `/backend` probe with same-origin redirect validation and cookie-name-only diagnostics; unit coverage follows in Step 3.2.
 - CLI readiness unit coverage now verifies cookie propagation to `/backend`, redirect-loop diagnostics, unsafe protocol-relative redirect rejection, and absence of raw cookie values in failure messages.
 - Checkpoint validation fixed the repo-wide explicit sort comparator guard by adding comparators to auth and CLI diagnostic cookie-name ordering.
+- Checkpoint validation stabilized the CLI build-cache test so source-fingerprint invalidation changes file size as well as content, avoiding same-millisecond mtime flakes.

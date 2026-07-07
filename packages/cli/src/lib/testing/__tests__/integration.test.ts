@@ -486,7 +486,7 @@ describe('integration cache and options', () => {
       ).resolves.toBe(false)
 
       await writeFile(sourceFile, 'const value = 1')
-      await writeFile(sourceFile, 'const value = 2')
+      await writeFile(sourceFile, 'const value = 22')
       await expect(
         shouldReuseBuildArtifacts(120, 'integration', {
           inputPaths: [sourceFile],
