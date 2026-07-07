@@ -50,7 +50,7 @@ None (no `--skill-url` provided).
 
 ### Phase 2: env.example documentation
 
-- [ ] 2.1 Add documented `OM_WATCH_SCOPE` block to `apps/mercato/.env.example` and template `.env.example`
+- [x] 2.1 Add documented `OM_WATCH_SCOPE` block to `apps/mercato/.env.example` and template `.env.example` — 8080bad6d
 
 ### Phase 3: README + docs memory-optimization guidance
 
