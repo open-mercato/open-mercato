@@ -623,3 +623,4 @@ No other new dependencies. All other features built on existing TanStack React T
 | 2026-04-04 | Added F9 (auto-discovery) and F10 (full-text search). Post-implementation requirements documented. |
 | 2026-04-04 | Phase 5: useAutoDiscoveredFields hook, auto mode props, $or query engine support, customer pages migrated to auto mode |
 | 2026-04-04 | Phase 6: UX bug fixes — sticky column, bulk action visibility, column chooser dedup, filter UX, page size dropdown, DnD persistence, hydration fix |
+| 2026-07-07 | F11 — native column footers: render a real `<tfoot>` when at least one column defines a TanStack `footer` (`ReactNode` or `(ctx) => ReactNode`). Footer cells mirror the header layout (bulk-selection spacer, per-column responsive + sticky-first-column, actions-column spacer). Opt-in and backward compatible — no `<tfoot>` unless a column declares a footer. Server-side totals supported by passing the pre-computed value as the footer node. |
