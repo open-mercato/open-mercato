@@ -128,4 +128,46 @@ describe('DataTable SSR render', () => {
       queryClient.clear()
     }
   })
+
+  it('renders a native tfoot with column footers when a column defines footer', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name', footer: () => 'Razem' },
+      { accessorKey: 'id', header: 'Total', footer: () => '123,45 zł' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[{ id: '1', name: 'Ada' }]} />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      const tfoot = container.querySelector('tfoot')
+      expect(tfoot).not.toBeNull()
+      expect(tfoot?.textContent).toContain('Razem')
+      expect(tfoot?.textContent).toContain('123,45 zł')
+    } finally {
+      queryClient.clear()
+    }
+  })
+
+  it('does not render a tfoot when no column defines a footer', () => {
+    const columns: ColumnDef<Row>[] = [
+      { accessorKey: 'name', header: 'Name' },
+    ]
+    const queryClient = new QueryClient({ defaultOptions: { queries: { gcTime: 0 } } })
+    try {
+      const { container } = render(
+        <QueryClientProvider client={queryClient}>
+          <I18nProvider locale="en" dict={{}}>
+            <DataTable columns={columns} data={[{ id: '1', name: 'Ada' }]} />
+          </I18nProvider>
+        </QueryClientProvider>,
+      )
+      expect(container.querySelector('tfoot')).toBeNull()
+    } finally {
+      queryClient.clear()
+    }
+  })
 })
