@@ -2,6 +2,8 @@
 
 **Spec:** [`.ai/specs/2026-07-06-module-facts-auto-discovery.md`](../2026-07-06-module-facts-auto-discovery.md) · **Issue:** #3752 · **Date:** 2026-07-06
 
+> **Superseded in part (2026-07-07):** the committed monorepo artifact `apps/mercato/src/module-facts.generated.json` was dropped (no runtime/test consumer) — see the spec's **Reframe** section. This moots the two governance gaps below (G2 / M1 — whether the committed OSS artifact should carry enterprise or example/probe module facts): there is no committed OSS artifact anymore. Auto-discovery now lives only in the standalone bundle (`discoverPackageModuleSources`, package modules only), so enterprise/`@app` inclusion is no longer a committed-repo concern. The R1 BC-guard finding still stands and is still honored by the (unchanged) discovery-derived guard.
+
 ## Executive Summary
 
 The spec is architecturally sound and close to implementation-ready — it reuses existing resolver infra (`loadEnabledModules`, `getModulePaths`, `discoverPackages`) rather than inventing discovery, and the create-app side needs almost no change. **One hard blocker** surfaced by the R1 audit: the BC-guard rewrite (T2), as worded, asserts `id.startsWith(`${moduleId}.`)` for events/ACL, and **three real enabled modules violate that** — it will fail CI on first run. Two governance gaps also need a decision before coding: whether the committed OSS artifact should include **enterprise** and **example/probe** module facts (the enabled set is ~55 modules, not the spec's estimated ~40). All fixes are spec edits; no code blockers. **Recommendation: minor spec updates first, then implement.**

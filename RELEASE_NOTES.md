@@ -6,12 +6,12 @@ Deprecations and migration instructions, per the Backward Compatibility contract
 
 ### Deprecated — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery)
 
-The module fact-sheet generator no longer gates on a hard-coded 9-module allowlist. It now **auto-discovers** every enabled, source-available module: the monorepo `yarn generate` enumerates the app's enabled set (`resolver.loadEnabledModules()`), and the `create-app` build bundles a fact-sheet for every package-provided module. As a result, `apps/mercato/src/module-facts.generated.json` widened from 9 to the full enabled set (core + other packages; enterprise modules appear when the enterprise package is enabled; app-local demo modules are excluded in the monorepo).
+The module fact-sheet generator no longer gates on a hard-coded 9-module allowlist. It now **auto-discovers** every source-available package module: the `create-app` build (and `mercato agentic:init`) bundle a fact-sheet for every package-provided module (`discoverPackageModuleSources`), shipped to scaffolded apps as `.ai/guides/module-facts.json` + per-module sheets. The monorepo no longer emits a committed `apps/mercato/src/module-facts.generated.json` — that artifact had no runtime or test consumer and has been removed along with its generator (`generateModuleFacts`) and the unused registry-driven `discoverEnabledModuleSources` path.
 
 - **Deprecated:** `MODULE_FACTS_ALLOWLIST` and `ModuleFactsModuleId` (exported from `@open-mercato/cli/lib/generators/module-facts`). They are retained (`@deprecated`, values unchanged) for **at least one minor version** and still drive the legacy `core.<module>.md` redirect-stub bridge, but no longer gate which modules receive fact-sheets. They will be removed in a future release.
 - **Additive, non-breaking API:** `extractModuleFacts` gained an optional `moduleRoot`, and `extractAllModuleFacts` gained an optional `sources`. The legacy `{ coreSrcRoot, moduleIds? }` call shape still works and still defaults to the allowlist.
 
-**Migration:** callers that iterate `MODULE_FACTS_ALLOWLIST` to enumerate documented modules should instead read the keys of `module-facts.generated.json` (or call `discoverEnabledModuleSources` / `discoverPackageModuleSources` from `@open-mercato/cli/lib/generators/module-facts-discovery`). No action is required to keep existing calls working during the deprecation window.
+**Migration:** callers that iterate `MODULE_FACTS_ALLOWLIST` to enumerate documented modules should instead read the keys of the bundled `.ai/guides/module-facts.json` (or call `discoverPackageModuleSources` from `@open-mercato/cli/lib/generators/module-facts-discovery`). No action is required to keep existing calls working during the deprecation window.
 
 Spec: [`.ai/specs/2026-07-06-module-facts-auto-discovery.md`](.ai/specs/2026-07-06-module-facts-auto-discovery.md).
 
