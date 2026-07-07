@@ -26,7 +26,7 @@ function readCoreVersion(coreSrcRoot: string): string | null {
 }
 
 /**
- * Emits the versioned `apps/mercato/src/module-facts.generated.json` artifact from
+ * Emits the ephemeral `.mercato/generated/module-facts.generated.json` artifact from
  * monorepo core module sources. Must run AFTER `generateModuleRegistry` because
  * per-route API auth is read from the generated `modules.runtime.generated.ts`
  * registry (`apis[].metadata`). Registry-derived warnings are non-fatal.
@@ -53,7 +53,7 @@ export async function generateModuleFacts(options: ModuleFactsOptions): Promise<
   }
 
   const content = renderModuleFactsJson(factsByModule)
-  const outFile = path.join(resolver.getAppDir(), 'src', 'module-facts.generated.json')
+  const outFile = path.join(resolver.getOutputDir(), 'module-facts.generated.json')
   const existing = fs.existsSync(outFile) ? fs.readFileSync(outFile, 'utf8') : null
   if (existing === content) {
     result.filesUnchanged.push(outFile)
