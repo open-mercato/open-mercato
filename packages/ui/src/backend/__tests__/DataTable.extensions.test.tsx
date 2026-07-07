@@ -298,6 +298,7 @@ describe('DataTable extensions', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Delete all filtered' }))
 
       await waitFor(() => expect(onExecute).toHaveBeenCalledTimes(1))
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()))
       refreshButtonMock.mockClear()
       mockRouterRefresh.mockClear()
 

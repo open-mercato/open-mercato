@@ -19,7 +19,8 @@
 | 3 | 3.2 | Add readiness probe unit coverage | done | 9b711ecb2 |
 | 3 | 3.3 | Fix explicit comparator validation fallout | done | 85c515b97 |
 | 3 | 3.4 | Stabilize CLI build cache test fingerprint change | done | 5c88a0e5f |
-| 4 | 4.1 | Run checkpoint validation | done | pending |
+| 4 | 4.1 | Run checkpoint validation | done | 831c25a70 |
+| 4 | 4.2 | Stabilize DataTable refresh test isolation | done | pending |
 | 5 | 5.1 | Final gate, self-review, PR handoff | todo | — |
 
 ## Goal

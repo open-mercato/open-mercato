@@ -453,3 +453,4 @@ None.
 - CLI readiness unit coverage now verifies cookie propagation to `/backend`, redirect-loop diagnostics, unsafe protocol-relative redirect rejection, and absence of raw cookie values in failure messages.
 - Checkpoint validation fixed the repo-wide explicit sort comparator guard by adding comparators to auth and CLI diagnostic cookie-name ordering.
 - Checkpoint validation stabilized the CLI build-cache test so source-fingerprint invalidation changes file size as well as content, avoiding same-millisecond mtime flakes.
+- Final-gate validation stabilized an existing DataTable test by flushing a pending `requestAnimationFrame` router refresh before asserting the bulk-progress refresh path.
