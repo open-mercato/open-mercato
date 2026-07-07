@@ -73,9 +73,9 @@ describe('nextRunCalculator', () => {
 
       it('should handle seconds', () => {
         const fromDate = new Date('2025-01-27T12:00:00Z')
-        const result = calculateNextRun('interval', '30s', 'UTC', fromDate)
+        const result = calculateNextRun('interval', '60s', 'UTC', fromDate)
         
-        expect(result).toEqual(new Date('2025-01-27T12:00:30Z'))
+        expect(result).toEqual(new Date('2025-01-27T12:01:00Z'))
       })
 
       it('should handle minutes', () => {
@@ -223,10 +223,10 @@ describe('nextRunCalculator', () => {
       it('should handle various intervals', () => {
         const before = Date.now()
         
-        const result30s = recalculateNextRun('interval', '30s')
-        const diff30s = result30s!.getTime() - before
-        expect(diff30s).toBeGreaterThanOrEqual(30 * 1000 - 500)
-        expect(diff30s).toBeLessThanOrEqual(30 * 1000 + 500)
+        const result60s = recalculateNextRun('interval', '60s')
+        const diff60s = result60s!.getTime() - before
+        expect(diff60s).toBeGreaterThanOrEqual(60 * 1000 - 500)
+        expect(diff60s).toBeLessThanOrEqual(60 * 1000 + 500)
         
         const result15m = recalculateNextRun('interval', '15m')
         const diff15m = result15m!.getTime() - before
@@ -310,6 +310,12 @@ describe('nextRunCalculator', () => {
         
         expect(result).toBeNull()
       })
+
+      it('should reject interval values below one minute', () => {
+        expect(recalculateNextRun('interval', '0s')).toBeNull()
+        expect(recalculateNextRun('interval', '1s')).toBeNull()
+        expect(recalculateNextRun('interval', '59s')).toBeNull()
+      })
     })
   })
 
@@ -341,7 +347,7 @@ describe('nextRunCalculator', () => {
         { type: 'cron' as const, value: '0 0 * * *' }, // Daily at midnight
         { type: 'cron' as const, value: '*/5 * * * *' }, // Every 5 minutes
         { type: 'cron' as const, value: '0 9-17 * * 1-5' }, // Weekdays 9am-5pm
-        { type: 'interval' as const, value: '30s' },
+        { type: 'interval' as const, value: '60s' },
         { type: 'interval' as const, value: '15m' },
         { type: 'interval' as const, value: '2h' },
         { type: 'interval' as const, value: '1d' },

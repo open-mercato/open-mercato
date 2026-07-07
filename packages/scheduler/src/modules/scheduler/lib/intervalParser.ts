@@ -1,6 +1,9 @@
 /**
  * Parse simple interval strings like '15m', '2h', '1d' into milliseconds
  */
+export const MIN_SCHEDULE_INTERVAL_MS = 60 * 1000
+const MIN_SCHEDULE_INTERVAL_SECONDS = MIN_SCHEDULE_INTERVAL_MS / 1000
+
 export function parseInterval(interval: string): number {
   const regex = /^(\d+)(s|m|h|d)$/
   const match = interval.match(regex)
@@ -19,7 +22,12 @@ export function parseInterval(interval: string): number {
     d: 24 * 60 * 60 * 1000, // days
   }
   
-  return value * multipliers[unit]
+  const milliseconds = value * multipliers[unit]
+  if (milliseconds < MIN_SCHEDULE_INTERVAL_MS) {
+    throw new Error(`Interval must be at least ${MIN_SCHEDULE_INTERVAL_SECONDS} seconds`)
+  }
+
+  return milliseconds
 }
 
 /**
