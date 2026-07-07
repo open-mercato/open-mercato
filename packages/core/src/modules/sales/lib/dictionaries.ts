@@ -126,7 +126,7 @@ export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined,
   scope: { tenantId: string },
-  cache?: CacheStrategy | null,
+  cache?: CacheStrategy,
 ): Promise<string | null> {
   if (!entryId) return null
   const load = async (): Promise<string | null> => {

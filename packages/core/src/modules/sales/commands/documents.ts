@@ -5423,13 +5423,14 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
-    // Share the cache service so the per-order status/fulfillment/payment dictionary lookups are
-    // memoized across a bulk import instead of re-reading the same few entries on every order.
-    let dictionaryCache: CacheStrategy | null = null;
+    // Share the cache so the per-order status/fulfillment/payment dictionary lookups are memoized
+    // across a bulk import instead of re-reading the same few entries on every order.
+    let dictionaryCache: CacheStrategy | undefined;
     try {
-      dictionaryCache = ctx.container.resolve("cacheService") as CacheStrategy;
-    } catch {
-      dictionaryCache = null;
+      dictionaryCache = ctx.container.resolve("cache") as CacheStrategy;
+    } catch (err) {
+      console.warn("[sales.orders.create] cache resolve failed; reading dictionaries straight through", err);
+      dictionaryCache = undefined;
     }
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
       resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
