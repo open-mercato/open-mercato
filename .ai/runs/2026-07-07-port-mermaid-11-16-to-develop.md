@@ -51,4 +51,4 @@ onto `develop`, then close the original PR. `develop` currently pins `mermaid ^1
 ### Phase 2: Validate and ship
 
 - [x] 2.1 Verify lockfile resolves mermaid@11.16.x (re-resolve stable, clean tree) — 0e384aa89
-- [ ] 2.2 Open PR against develop, label, close original #3708
+- [x] 2.2 Open PR against develop, label, close original #3708 — PR #3967 (original #3708 closed)
