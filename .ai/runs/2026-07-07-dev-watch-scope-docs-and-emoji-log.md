@@ -44,9 +44,9 @@ None (no `--skill-url` provided).
 
 ### Phase 1: Emoji watch-mode log + tests
 
-- [ ] 1.1 Add `describeWatchMode()` + emoji map to `scripts/watch-scope.mjs`, mirror into create-app template
-- [ ] 1.2 Use emoji mode in `scripts/dev.mjs` + template `dev.mjs` (always show) and `scripts/watch-packages.mjs`
-- [ ] 1.3 Add unit tests for `describeWatchMode()` in `scripts/__tests__/watch-scope.test.mjs`
+- [x] 1.1 Add `describeWatchMode()` + emoji map to `scripts/watch-scope.mjs`, mirror into create-app template — aaca79853
+- [x] 1.2 Use emoji mode in `scripts/dev.mjs` + template `dev.mjs` (always show) and `scripts/watch-packages.mjs` — aaca79853
+- [x] 1.3 Add unit tests for `describeWatchMode()` in `scripts/__tests__/watch-scope.test.mjs` — aaca79853
 
 ### Phase 2: env.example documentation
 
