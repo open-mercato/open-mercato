@@ -17,8 +17,8 @@ import { CustomerAddress, CustomerEntity } from '../../../customers/data/entitie
 import { Attachment } from '../../../attachments/data/entities'
 import { CustomFieldDef } from '../../../entities/data/entities'
 import { SyncExcelUpload } from '../../data/entities'
-import { parseCsvDocument, type CsvPreviewRow } from '../parser'
-import { readSyncExcelUploadBuffer } from '../upload-storage'
+import { parseCsvDocumentBatches, parseCsvStreamMetadata, type CsvPreviewRow } from '../parser'
+import { createSyncExcelUploadReadStream } from '../upload-storage'
 import { E } from '#generated/entities.ids.generated'
 
 type SyncExcelCursor = {
@@ -1043,14 +1043,17 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         throw new Error('CSV upload attachment could not be found.')
       }
 
-      const fileBuffer = await readSyncExcelUploadBuffer(attachment)
-      const document = parseCsvDocument(fileBuffer)
+      const document = await parseCsvStreamMetadata(await createSyncExcelUploadReadStream(attachment))
       const startOffset = cursor?.uploadId === upload.id ? cursor.offset : 0
       const commandContext = buildCommandContext(container, input.scope)
       const customFieldDefinitions = await loadImportCustomFieldDefinitions(em, input.scope)
+      let batchIndex = 0
 
-      for (let offset = startOffset, batchIndex = 0; offset < document.rows.length; offset += input.batchSize, batchIndex += 1) {
-        const batchRows = document.rows.slice(offset, offset + input.batchSize)
+      for await (const batch of parseCsvDocumentBatches(await createSyncExcelUploadReadStream(attachment), {
+        batchSize: input.batchSize,
+        startOffset,
+      })) {
+        const batchRows = batch.rows
         const emailDedupeIndex = await buildEmailDedupeIndex({
           em,
           rows: batchRows,
@@ -1062,7 +1065,7 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
         for (let index = 0; index < batchRows.length; index += 1) {
           items.push(await processRow({
             row: batchRows[index],
-            rowNumber: offset + index + 1,
+            rowNumber: batch.rowStart + index + 1,
             mapping: input.mapping,
             scope: input.scope,
             commandBus,
@@ -1074,17 +1077,17 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
           }))
         }
 
-        const nextOffset = offset + batchRows.length
         yield {
           items,
-          cursor: createCursor(upload.id, nextOffset),
-          hasMore: nextOffset < document.rows.length,
+          cursor: createCursor(upload.id, batch.nextOffset),
+          hasMore: batch.nextOffset < document.totalRows,
           totalEstimate: document.totalRows,
           processedCount: batchRows.length,
           refreshCoverageEntityTypes: CUSTOMER_IMPORT_COVERAGE_ENTITY_TYPES,
           batchIndex,
-          message: `Processed ${nextOffset} of ${document.totalRows} CSV rows`,
+          message: `Processed ${batch.nextOffset} of ${document.totalRows} CSV rows`,
         }
+        batchIndex += 1
       }
 
       upload.status = 'completed'

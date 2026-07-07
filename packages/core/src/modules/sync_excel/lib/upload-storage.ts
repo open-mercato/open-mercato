@@ -1,4 +1,5 @@
-import { promises as fs } from 'fs'
+import { createReadStream, promises as fs } from 'fs'
+import { Readable } from 'stream'
 import { randomUUID } from 'crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Attachment, AttachmentPartition } from '../../attachments/data/entities'
@@ -76,4 +77,25 @@ export async function readSyncExcelUploadBuffer(
     attachment.storageDriver,
   )
   return fs.readFile(absolutePath)
+}
+
+export async function createSyncExcelUploadReadStream(
+  attachment: Pick<Attachment, 'partitionCode' | 'storagePath' | 'storageDriver' | 'storageMetadata'>,
+): Promise<Readable> {
+  const inlineCsvBase64 = attachment.storageMetadata?.inlineCsvBase64
+
+  try {
+    const absolutePath = resolveAttachmentAbsolutePath(
+      attachment.partitionCode,
+      attachment.storagePath,
+      attachment.storageDriver,
+    )
+    await fs.access(absolutePath)
+    return createReadStream(absolutePath)
+  } catch (error) {
+    if (typeof inlineCsvBase64 === 'string' && inlineCsvBase64.length > 0) {
+      return Readable.from([Buffer.from(inlineCsvBase64, 'base64')])
+    }
+    throw error
+  }
 }

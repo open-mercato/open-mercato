@@ -1,5 +1,13 @@
 import { promises as fs } from 'fs'
-import { readSyncExcelUploadBuffer } from '../upload-storage'
+import { createSyncExcelUploadReadStream, readSyncExcelUploadBuffer } from '../upload-storage'
+
+async function readStreamText(stream: NodeJS.ReadableStream): Promise<string> {
+  let text = ''
+  for await (const chunk of stream as AsyncIterable<Buffer | string>) {
+    text += chunk.toString()
+  }
+  return text
+}
 
 describe('sync_excel upload storage', () => {
   const mockReadFile = jest.spyOn(fs, 'readFile')
@@ -36,6 +44,19 @@ describe('sync_excel upload storage', () => {
 
     expect(buffer.toString('utf8')).toBe('legacy csv')
     expect(mockReadFile).toHaveBeenCalledTimes(1)
+  })
+
+  it('streams CSV payload from attachment metadata when storage path resolution fails', async () => {
+    const stream = await createSyncExcelUploadReadStream({
+      partitionCode: 'privateAttachments',
+      storagePath: '../outside/import.csv',
+      storageDriver: 'local',
+      storageMetadata: {
+        inlineCsvBase64: Buffer.from('Record Id,Email\next-1,ada@example.com\n', 'utf8').toString('base64'),
+      },
+    })
+
+    await expect(readStreamText(stream)).resolves.toBe('Record Id,Email\next-1,ada@example.com\n')
   })
 
 })

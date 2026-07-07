@@ -1,3 +1,4 @@
+import { Readable } from 'stream'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   buildPersonPayload,
@@ -6,8 +7,15 @@ import {
 } from '../adapters/customers'
 
 const mockReadSyncExcelUploadBuffer = jest.fn()
+const mockCreateSyncExcelUploadReadStream = jest.fn()
 const mockFindOneWithDecryption = findOneWithDecryption as jest.MockedFunction<typeof findOneWithDecryption>
 const mockFindWithDecryption = findWithDecryption as jest.MockedFunction<typeof findWithDecryption>
+
+function setUploadCsv(lines: string[]): void {
+  const buffer = Buffer.from(lines.join('\n'))
+  mockReadSyncExcelUploadBuffer.mockResolvedValue(buffer)
+  mockCreateSyncExcelUploadReadStream.mockImplementation(async () => Readable.from([buffer]))
+}
 
 const mockCommandBus = {
   execute: jest.fn(),
@@ -64,6 +72,7 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
 }))
 
 jest.mock('../upload-storage', () => ({
+  createSyncExcelUploadReadStream: (...args: unknown[]) => mockCreateSyncExcelUploadReadStream(...args),
   readSyncExcelUploadBuffer: (...args: unknown[]) => mockReadSyncExcelUploadBuffer(...args),
 }))
 
@@ -92,10 +101,10 @@ describe('sync_excel customers adapter', () => {
       return null
     })
     mockEm.find.mockResolvedValue([])
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Record Id,First Name,Last Name,Lead Name,Email,Address Line 1,City,Postal Code,Favorite Color',
       'ext-1,Ada,Lovelace,Ada Lovelace,ada@example.com,123 Main St,Austin,78701,Blue',
-    ].join('\n')))
+    ])
     mockExternalIdMappingService.lookupLocalId.mockResolvedValue(null)
     mockExternalIdMappingService.storeExternalIdMapping.mockResolvedValue(undefined)
     mockCommandBus.execute.mockResolvedValue({
@@ -330,7 +339,8 @@ describe('sync_excel customers adapter', () => {
     }
 
     expect(batches).toHaveLength(1)
-    expect(mockReadSyncExcelUploadBuffer).toHaveBeenCalledWith(expect.objectContaining({
+    expect(mockReadSyncExcelUploadBuffer).not.toHaveBeenCalled()
+    expect(mockCreateSyncExcelUploadReadStream).toHaveBeenCalledWith(expect.objectContaining({
       id: uploadRecord.attachmentId,
     }))
     expect(JSON.parse(String(batches[0].cursor))).toEqual({
@@ -339,12 +349,72 @@ describe('sync_excel customers adapter', () => {
     })
   })
 
+  it('streams persisted CSV rows by batch without reading the whole upload buffer', async () => {
+    mockReadSyncExcelUploadBuffer.mockRejectedValue(new Error('whole-buffer import read should not be used'))
+    mockCreateSyncExcelUploadReadStream.mockImplementation(async () => Readable.from([
+      Buffer.from([
+        'Record Id,Lead Name,Email',
+        'ext-1,Ada Lovelace,ada@example.com',
+        'ext-2,Grace Hopper,grace@example.com',
+      ].join('\n')),
+    ]))
+
+    const batches = []
+    for await (const batch of syncExcelCustomersAdapter.streamImport!({
+      entityType: 'customers.person',
+      batchSize: 1,
+      credentials: {},
+      mapping: {
+        entityType: 'customers.person',
+        matchStrategy: 'externalId',
+        matchField: 'person.externalId',
+        fields: [
+          { externalField: 'Record Id', localField: 'person.externalId', mappingKind: 'external_id', dedupeRole: 'primary' },
+          { externalField: 'Lead Name', localField: 'person.displayName', mappingKind: 'core' },
+          { externalField: 'Email', localField: 'person.primaryEmail', mappingKind: 'core', dedupeRole: 'secondary' },
+        ],
+      },
+      scope: {
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+      },
+      runId: 'run-1',
+    })) {
+      batches.push(batch)
+    }
+
+    expect(mockReadSyncExcelUploadBuffer).not.toHaveBeenCalled()
+    expect(mockCreateSyncExcelUploadReadStream).toHaveBeenCalledWith(expect.objectContaining({
+      id: uploadRecord.attachmentId,
+    }))
+    expect(batches).toHaveLength(2)
+    expect(batches.map((batch) => ({
+      cursor: JSON.parse(String(batch.cursor)),
+      hasMore: batch.hasMore,
+      processedCount: batch.processedCount,
+      totalEstimate: batch.totalEstimate,
+    }))).toEqual([
+      {
+        cursor: { uploadId: uploadRecord.id, offset: 1 },
+        hasMore: true,
+        processedCount: 1,
+        totalEstimate: 2,
+      },
+      {
+        cursor: { uploadId: uploadRecord.id, offset: 2 },
+        hasMore: false,
+        processedCount: 1,
+        totalEstimate: 2,
+      },
+    ])
+  })
+
 
   it('falls back to email dedupe and updates existing people', async () => {
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Email,Lead Name,Address Line 1,City,Favorite Color',
       'ada@example.com,Ada Lovelace,500 Updated Ave,Dallas,Purple',
-    ].join('\n')))
+    ])
     mockFindOneWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.syncRunId === 'run-1') return uploadRecord as any
       if (criteria?.id === uploadRecord.attachmentId) {
@@ -450,10 +520,10 @@ describe('sync_excel customers adapter', () => {
   })
 
   it('prefers external-id mappings over decrypted email fallback matches', async () => {
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Record Id,Email,Lead Name',
       'ext-existing,ada@example.com,Ada Lovelace',
-    ].join('\n')))
+    ])
     mockExternalIdMappingService.lookupLocalId.mockResolvedValueOnce('external-existing-id')
     mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.entityId) return []
@@ -508,10 +578,10 @@ describe('sync_excel customers adapter', () => {
   })
 
   it('coerces typed custom fields before creating people', async () => {
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Email,Lead Name,Newsletter,Score,Ratio,Start Date',
       'ada@example.com,Ada Lovelace,tak,42,3.14,2026-05-13',
-    ].join('\n')))
+    ])
     mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.entityId) {
         return [
@@ -566,10 +636,10 @@ describe('sync_excel customers adapter', () => {
   })
 
   it('fails only the row when a typed custom field value cannot be coerced', async () => {
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Email,Lead Name,Newsletter',
       'ada@example.com,Ada Lovelace,perhaps',
-    ].join('\n')))
+    ])
     mockFindWithDecryption.mockImplementation(async (_entityManager: unknown, _entity: unknown, criteria: Record<string, unknown>) => {
       if (criteria?.entityId) {
         return [
@@ -614,10 +684,10 @@ describe('sync_excel customers adapter', () => {
   })
 
   it('skips address upsert when mapped address values are missing address line 1', async () => {
-    mockReadSyncExcelUploadBuffer.mockResolvedValue(Buffer.from([
+    setUploadCsv([
       'Record Id,First Name,Last Name,Email,City',
       'ext-2,Grace,Hopper,grace@example.com,Arlington',
-    ].join('\n')))
+    ])
 
     const batches = []
     for await (const batch of syncExcelCustomersAdapter.streamImport!({
