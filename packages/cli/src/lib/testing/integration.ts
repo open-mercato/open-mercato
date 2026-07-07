@@ -1509,7 +1509,7 @@ function serializeCookieJar(jar: Map<string, string>): string {
 }
 
 function formatCookieNames(jar: Map<string, string>): string {
-  const names = [...jar.keys()].sort()
+  const names = [...jar.keys()].sort((left, right) => left.localeCompare(right))
   return names.length > 0 ? names.join(', ') : 'none'
 }
 

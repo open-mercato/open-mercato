@@ -16,7 +16,8 @@
 | 1 | 1.1 | Add auth helper backend-cookie regression | done | 7408d7b22 |
 | 2 | 2.1 | Fix verified auth cookie/session boundary | done | 28d430530 |
 | 3 | 3.1 | Add cookie-backed ephemeral readiness probe | done | 07727c69c |
-| 3 | 3.2 | Add readiness probe unit coverage | done | pending |
+| 3 | 3.2 | Add readiness probe unit coverage | done | 9b711ecb2 |
+| 3 | 3.3 | Fix explicit comparator validation fallout | done | pending |
 | 4 | 4.1 | Run checkpoint validation | todo | — |
 | 5 | 5.1 | Final gate, self-review, PR handoff | todo | — |
 

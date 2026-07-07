@@ -190,7 +190,7 @@ async function formatLoginDiagnostics(
 ): Promise<string> {
   const cookieNames = Array.from(
     new Set((await page.context().cookies()).map((cookie) => cookie.name)),
-  ).sort();
+  ).sort((left, right) => left.localeCompare(right));
   const traceLines = entries.length
     ? entries.map((entry) => {
       const location = entry.location ? ` -> ${entry.location}` : '';
