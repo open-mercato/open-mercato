@@ -6,6 +6,9 @@ const allowedDevOrigins = isDevelopment ? resolveAllowedDevOrigins() : []
 
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
+  // Next >=16.3 writes AGENTS.md/CLAUDE.md into the app dir on dev boot;
+  // scaffolded apps ship their own agent guidelines, so keep that off.
+  agentRules: false,
   experimental: {
     serverMinification: false,
     turbopackMinify: false,
@@ -19,11 +22,11 @@ const nextConfig: NextConfig = {
     ...(isDevelopment
       ? {
           preloadEntriesOnStart: false,
-          // Cap Turbopack's in-memory cache so long dev sessions trigger
-          // eviction instead of unbounded RSS growth. The template pins
-          // Next 16.2.x where the byte-count knob is the supported API;
-          // on Next >=16.3 replace with `turbopackMemoryEviction: 'full'`.
-          turbopackMemoryLimit: 4 * 1024 * 1024 * 1024,
+          // Evict Turbopack's in-memory task cache after each compilation
+          // snapshot. Replaces the byte-count `turbopackMemoryLimit` knob that
+          // existed up to Next 16.2.x. 'full' is the 16.3 default; pinned
+          // explicitly so a future default flip cannot silently regress dev RSS.
+          turbopackMemoryEviction: 'full' as const,
         }
       : {}),
   },
