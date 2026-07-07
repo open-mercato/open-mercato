@@ -7,6 +7,7 @@ import { CommandBus } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { emitSchedulerEvent } from '../events.js'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
 
 // Worker metadata for auto-discovery
 export const metadata: WorkerMeta = {
@@ -29,6 +30,11 @@ type RbacServiceLike = {
     tenantId: string | null | undefined,
     feature: string,
     opts?: { organizationId?: string | null },
+  ): Promise<boolean>
+  userHasAllFeatures(
+    userId: string,
+    required: readonly string[],
+    scope: { tenantId: string | null; organizationId: string | null },
   ): Promise<boolean>
 }
 
@@ -204,6 +210,14 @@ export default async function executeScheduleWorker(
 
   } else if (schedule.targetType === 'command' && schedule.targetCommand) {
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -211,11 +225,16 @@ export default async function executeScheduleWorker(
       organizationId: schedule.organizationId,
     }
     
-    // Build command runtime context
-    // Scheduled commands run without user auth but with proper tenant/org scope
+    // Build command runtime context for the schedule creator after the allowlist/RBAC gate.
     const commandCtx: CommandRuntimeContext = {
       container: ctx as unknown as AppContainer,
-      auth: null, // Scheduled commands run without user authentication
+      auth: {
+        sub: actorUserId,
+        userId: actorUserId,
+        tenantId: schedule.tenantId ?? null,
+        orgId: schedule.organizationId ?? null,
+        isSuperAdmin: false,
+      },
       organizationScope: null, // No organization scope filtering for scheduled commands
       selectedOrganizationId: schedule.organizationId || null,
       organizationIds: schedule.organizationId ? [schedule.organizationId] : null,

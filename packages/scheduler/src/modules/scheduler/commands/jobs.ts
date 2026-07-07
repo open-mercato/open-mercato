@@ -82,6 +82,14 @@ function toDate(value: Date | string | null | undefined): Date | null {
   return value instanceof Date ? value : new Date(value)
 }
 
+function resolveCommandActorUserId(ctx: CommandRuntimeContext): string | null {
+  const auth = ctx.auth
+  if (!auth) return null
+  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId.trim()
+  if (auth.isApiKey) return null
+  return typeof auth.sub === 'string' && auth.sub.trim().length > 0 ? auth.sub.trim() : null
+}
+
 /**
  * Build a full create seed (including the original id and Date-coerced timestamps)
  * from a snapshot. Shared by `materializeScheduleFromSnapshot` (delete-undo) and the
@@ -218,7 +226,7 @@ const createScheduleCommand: CommandHandler<ScheduleCreateInput, { id: string }>
       sourceType: input.sourceType ?? 'user',
       sourceModule: input.sourceModule ?? null,
       nextRunAt,
-      createdByUserId: (ctx.auth?.userId as string | undefined) ?? null,
+      createdByUserId: resolveCommandActorUserId(ctx),
       createdAt: new Date(),
       updatedAt: new Date(),
     })
@@ -339,7 +347,7 @@ const updateScheduleCommand: CommandHandler<ScheduleUpdateInput, { ok: boolean }
     }
 
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 
@@ -430,7 +438,7 @@ const deleteScheduleCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
     // Soft delete
     schedule.deletedAt = new Date()
     schedule.updatedAt = new Date()
-    schedule.updatedByUserId = (ctx.auth?.userId as string | undefined) ?? null
+    schedule.updatedByUserId = resolveCommandActorUserId(ctx)
 
     await em.flush()
 

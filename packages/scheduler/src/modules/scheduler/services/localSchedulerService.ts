@@ -7,9 +7,11 @@ import { LocalLockStrategy } from '../lib/localLockStrategy'
 import { recalculateNextRun } from '../lib/nextRunCalculator'
 import { emitSchedulerEvent } from '../events.js'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
+import { assertSchedulerSafeCommandAuthorized } from '../lib/scheduler-safe-commands.js'
 
 export interface RbacServiceLike {
   tenantHasFeature(tenantId: string | null | undefined, feature: string, opts?: { organizationId?: string | null }): Promise<boolean>
+  userHasAllFeatures(userId: string, required: readonly string[], scope: { tenantId: string | null; organizationId: string | null }): Promise<boolean>
 }
 
 export interface LocalSchedulerConfig {
@@ -270,6 +272,14 @@ export class LocalSchedulerService {
     }
 
     const commandBus = new CommandBus()
+    const actorUserId = typeof schedule.createdByUserId === 'string' ? schedule.createdByUserId.trim() : ''
+    await assertSchedulerSafeCommandAuthorized({
+      commandId: schedule.targetCommand,
+      actorUserId,
+      tenantId: schedule.tenantId,
+      organizationId: schedule.organizationId,
+      rbacService: this.rbacService,
+    })
     
     const commandInput = {
       ...((schedule.targetPayload as Record<string, unknown>) || {}),
@@ -277,8 +287,7 @@ export class LocalSchedulerService {
       organizationId: schedule.organizationId,
     }
     
-    // Build command context with tenant/org scope but no user
-    // Commands run without user authentication for scheduled jobs
+    // Build command context for the schedule creator after the allowlist/RBAC gate.
     const commandCtx: CommandRuntimeContext = {
       container: {
         resolve: (name: string) => {
@@ -289,7 +298,13 @@ export class LocalSchedulerService {
           throw new Error(`Service not available in scheduler context: ${name}`)
         },
       } as CommandRuntimeContext['container'],
-      auth: null, // Scheduled commands run without user authentication
+      auth: {
+        sub: actorUserId,
+        userId: actorUserId,
+        tenantId: schedule.tenantId ?? null,
+        orgId: schedule.organizationId ?? null,
+        isSuperAdmin: false,
+      },
       organizationScope: null,
       selectedOrganizationId: schedule.organizationId || null,
       organizationIds: schedule.organizationId ? [schedule.organizationId] : null,
