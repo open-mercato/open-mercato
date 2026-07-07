@@ -21,7 +21,7 @@
 | 3 | 3.4 | Stabilize CLI build cache test fingerprint change | done | 5c88a0e5f |
 | 4 | 4.1 | Run checkpoint validation | done | 831c25a70 |
 | 4 | 4.2 | Stabilize DataTable refresh test isolation | done | 7c3911651 |
-| 5 | 5.1 | Final gate, self-review, PR handoff | done | pending |
+| 5 | 5.1 | Final gate, self-review, PR handoff | done | a09df4d61 |
 
 ## Goal
 

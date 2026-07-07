@@ -16,3 +16,8 @@
 - Brief: final validation and self-review completed; ready to open PR.
 - Validation: `build:packages`, `generate`, second `build:packages`, i18n checks, typecheck, root test, app build, and focused ephemeral integration passed.
 - Notes: root test/app build/i18n usage required unsandboxed reruns because local listener/IPC operations are blocked in the sandbox.
+
+## 2026-07-07T13:45:30Z — PR opened
+- Brief: opened PR #3963.
+- URL: https://github.com/open-mercato/open-mercato/pull/3963
+- Labels: intended `review`, `bug`, `skip-qa`, `priority-high`, `risk-high`; label mutation failed due upstream permission, so the intent was posted as a PR comment.

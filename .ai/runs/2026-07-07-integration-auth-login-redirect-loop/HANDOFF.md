@@ -1,10 +1,10 @@
 # Handoff — 2026-07-07-integration-auth-login-redirect-loop
 
-**Last updated:** 2026-07-07T13:34:21Z
+**Last updated:** 2026-07-07T13:45:30Z
 **Branch:** `fix/integration-auth-login-redirect-loop`
-**PR:** not yet opened
-**Current phase/step:** ready to open PR
-**Last commit:** `7c3911651` before final-gate commit
+**PR:** https://github.com/open-mercato/open-mercato/pull/3963
+**Current phase/step:** PR opened
+**Last commit:** `a09df4d61` before PR-handoff metadata commit
 
 ## What Just Happened
 
@@ -20,7 +20,7 @@
 
 ## Next Concrete Action
 
-- Commit final-gate run metadata, push, open the PR against `develop`, and apply labels.
+- Wait for GitHub checks/review on PR #3963.
 
 ## Blockers / Open Questions
 
@@ -31,6 +31,7 @@
 - Full CLI/root tests and app build require unsandboxed local listener/process behavior in this environment.
 - The same gates passed outside sandbox with approved escalated commands.
 - `i18n:check-usage` exits 0 with an existing advisory unused-key report.
+- Label mutation failed because `vloneskorpion` lacks upstream `AddLabelsToLabelable` permission; intended labels were posted in PR comment https://github.com/open-mercato/open-mercato/pull/3963#issuecomment-4904484239.
 
 ## Worktree
 
