@@ -1,9 +1,16 @@
 /** @jest-environment node */
-import { resolveDictionaryEntryValue, resetDictionaryEntryValueCache } from '../dictionaries'
+import { resolveDictionaryEntryValue } from '../dictionaries'
+import { runWithCacheTenant } from '@open-mercato/cache'
 
 jest.mock('@open-mercato/core/modules/dictionaries/data/entities', () => ({
   Dictionary: 'Dictionary',
   DictionaryEntry: 'DictionaryEntry',
+}))
+
+// The tenant scoping of the cache key is the cache service's job (runWithCacheTenant); here we only
+// need it to run the callback, and we assert it is invoked with the caller's tenant id.
+jest.mock('@open-mercato/cache', () => ({
+  runWithCacheTenant: jest.fn((_tenantId: string | null, fn: () => unknown) => fn()),
 }))
 
 const TENANT_A = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
@@ -36,9 +43,18 @@ function createEntityManager(rows: EntryRow[]) {
   return { em: { findOne } as unknown as any, findOne }
 }
 
-// The resolved-value memo is process-global, so reset it between tests for determinism.
+// A minimal in-memory stand-in for the shared cache service (only get/set are used here).
+function createCache() {
+  const store = new Map<string, unknown>()
+  const get = jest.fn(async (key: string) => (store.has(key) ? store.get(key) : null))
+  const set = jest.fn(async (key: string, value: unknown) => {
+    store.set(key, value)
+  })
+  return { get, set }
+}
+
 beforeEach(() => {
-  resetDictionaryEntryValueCache()
+  jest.clearAllMocks()
 })
 
 describe('resolveDictionaryEntryValue tenant scoping (issue #2740)', () => {
@@ -76,45 +92,44 @@ describe('resolveDictionaryEntryValue tenant scoping (issue #2740)', () => {
   })
 })
 
-describe('resolveDictionaryEntryValue memoization', () => {
-  // Same entry id under two tenants — the memo must not leak across the tenant boundary.
+describe('resolveDictionaryEntryValue caching', () => {
   const rows: EntryRow[] = [
     { id: 'entry-a', tenantId: TENANT_A, organizationId: 'org-a', value: 'Approved (A)' },
-    { id: 'entry-a', tenantId: TENANT_B, organizationId: 'org-b', value: 'Approved (B)' },
   ]
 
-  it('reads the entry once and serves repeat lookups from the memo', async () => {
+  it('reads the entry once and serves repeat lookups from the shared cache', async () => {
     const { em, findOne } = createEntityManager(rows)
-    const first = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
-    const second = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
+    const cache = createCache()
+    const first = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A }, cache as any)
+    const second = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A }, cache as any)
     expect(first).toBe('Approved (A)')
     expect(second).toBe('Approved (A)')
     expect(findOne).toHaveBeenCalledTimes(1)
+    expect(cache.set).toHaveBeenCalledTimes(1)
   })
 
-  it('keys the memo by tenant so the same entry id does not leak across tenants', async () => {
+  it('reads straight through the EM when no cache is provided', async () => {
     const { em, findOne } = createEntityManager(rows)
-    const a = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
-    const b = await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_B })
-    expect(a).toBe('Approved (A)')
-    expect(b).toBe('Approved (B)')
+    await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
+    await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
     expect(findOne).toHaveBeenCalledTimes(2)
   })
 
-  it('memoizes a missing entry (negative result) too', async () => {
+  it('scopes the cache read/write to the caller tenant via runWithCacheTenant', async () => {
+    const { em } = createEntityManager(rows)
+    const cache = createCache()
+    await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A }, cache as any)
+    expect(runWithCacheTenant).toHaveBeenCalledWith(TENANT_A, expect.any(Function))
+  })
+
+  it('does not cache a missing entry (re-reads on the next lookup)', async () => {
     const { em, findOne } = createEntityManager(rows)
-    const first = await resolveDictionaryEntryValue(em, 'missing', { tenantId: TENANT_A })
-    const second = await resolveDictionaryEntryValue(em, 'missing', { tenantId: TENANT_A })
+    const cache = createCache()
+    const first = await resolveDictionaryEntryValue(em, 'missing', { tenantId: TENANT_A }, cache as any)
+    const second = await resolveDictionaryEntryValue(em, 'missing', { tenantId: TENANT_A }, cache as any)
     expect(first).toBeNull()
     expect(second).toBeNull()
-    expect(findOne).toHaveBeenCalledTimes(1)
-  })
-
-  it('re-reads after resetDictionaryEntryValueCache()', async () => {
-    const { em, findOne } = createEntityManager(rows)
-    await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
-    resetDictionaryEntryValueCache()
-    await resolveDictionaryEntryValue(em, 'entry-a', { tenantId: TENANT_A })
     expect(findOne).toHaveBeenCalledTimes(2)
+    expect(cache.set).not.toHaveBeenCalled()
   })
 })

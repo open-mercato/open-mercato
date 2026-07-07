@@ -5,6 +5,8 @@ import {
   sanitizeDictionaryColor,
   sanitizeDictionaryIcon,
 } from '@open-mercato/core/modules/dictionaries/lib/utils'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import type { CacheStrategy } from '@open-mercato/cache'
 
 export type SalesDictionaryKind =
   | 'order-status'
@@ -111,35 +113,37 @@ export async function ensureSalesDictionary(params: {
   return dictionary
 }
 
-// Per-process short-TTL memo for resolved dictionary-entry values. These rows are effectively static
-// config within a run/request (order status / fulfillment / payment labels, etc.), yet the
-// `sales.orders.*` command handlers fork a fresh EM per invocation and re-`findOne` the same few
-// entry ids on EVERY order — a measured N+1 (~2 reads + pooled-connection checkouts per order on a
-// bulk import, dominant once the aggregate itself is cheap). The value is non-PII config; the key is
-// tenant-scoped and staleness is bounded by the TTL, mirroring the process-global cache pattern in
-// `TenantDataEncryptionService`. A dictionary-value edit takes effect after at most one TTL window.
-const DICTIONARY_ENTRY_VALUE_TTL_MS = 60_000
-const dictionaryEntryValueCache = new Map<string, { value: string | null; expiresAt: number }>()
-
-/** Test-only: drop the memoized dictionary-entry values (jest). */
-export function resetDictionaryEntryValueCache(): void {
-  dictionaryEntryValueCache.clear()
-}
+// Resolved dictionary-entry values (order status / fulfillment / payment labels, …) are effectively
+// static config within a run, yet the `sales.orders.*` handlers fork a fresh EM per invocation and
+// re-`findOne` the same few entry ids on EVERY order — a measured N+1 (~2 reads + pooled-connection
+// checkouts per order on a bulk import, dominant once the aggregate itself is cheap). When a `cache`
+// is supplied, memoize the resolved value through the shared cache service — tenant-scoped via
+// `runWithCacheTenant`, short TTL. The value is non-PII config; a dictionary-value edit takes effect
+// after at most one TTL window. Callers without a cache (the default) read straight through.
+const DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS = 60_000
 
 export async function resolveDictionaryEntryValue(
   em: EntityManager,
   entryId: string | null | undefined,
-  scope: { tenantId: string }
+  scope: { tenantId: string },
+  cache?: CacheStrategy | null,
 ): Promise<string | null> {
   if (!entryId) return null
-  const key = `${scope.tenantId}:${entryId}`
-  const now = Date.now()
-  const cached = dictionaryEntryValueCache.get(key)
-  if (cached && cached.expiresAt > now) return cached.value
-  const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
-  const value = entry?.value?.trim() || null
-  dictionaryEntryValueCache.set(key, { value, expiresAt: now + DICTIONARY_ENTRY_VALUE_TTL_MS })
-  return value
+  const load = async (): Promise<string | null> => {
+    const entry = await em.findOne(DictionaryEntry, { id: entryId, tenantId: scope.tenantId })
+    return entry?.value?.trim() || null
+  }
+  if (!cache) return load()
+  const cacheKey = `sales:dictionary-entry-value:${entryId}`
+  return runWithCacheTenant(scope.tenantId, async () => {
+    const cached = await cache.get(cacheKey)
+    if (typeof cached === 'string') return cached
+    const value = await load()
+    if (value != null) {
+      await cache.set(cacheKey, value, { ttl: DICTIONARY_ENTRY_VALUE_CACHE_TTL_MS, tags: [`dictionary-entry:${entryId}`] })
+    }
+    return value
+  })
 }
 
 export { normalizeDictionaryValue, sanitizeDictionaryColor, sanitizeDictionaryIcon }

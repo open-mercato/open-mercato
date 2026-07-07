@@ -126,6 +126,7 @@ import {
   type SalesDocumentCalculationResult,
 } from "../lib/types";
 import { resolveDictionaryEntryValue } from "../lib/dictionaries";
+import type { CacheStrategy } from "@open-mercato/cache";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
 import { loadSalesSettings } from "./settings";
@@ -5422,10 +5423,18 @@ const createOrderCommand: CommandHandler<
     }
     ensureOrderScope(ctx, parsed.organizationId, parsed.tenantId);
     const em = (ctx.container.resolve("em") as EntityManager).fork();
+    // Share the cache service so the per-order status/fulfillment/payment dictionary lookups are
+    // memoized across a bulk import instead of re-reading the same few entries on every order.
+    let dictionaryCache: CacheStrategy | null = null;
+    try {
+      dictionaryCache = ctx.container.resolve("cacheService") as CacheStrategy;
+    } catch {
+      dictionaryCache = null;
+    }
     const [status, fulfillmentStatus, paymentStatus] = await Promise.all([
-      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
-      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }),
+      resolveDictionaryEntryValue(em, parsed.statusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveDictionaryEntryValue(em, parsed.fulfillmentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
+      resolveDictionaryEntryValue(em, parsed.paymentStatusEntryId ?? null, { tenantId: parsed.tenantId }, dictionaryCache),
     ]);
     const {
       customerSnapshot: resolvedCustomerSnapshot,
