@@ -180,7 +180,7 @@
   "customer_accounts.admin.roles.confirm.delete": "Delete role \"{{name}}\"?",
   "customer_accounts.admin.roles.default": "Default",
   "customer_accounts.admin.roles.error.delete": "Failed to delete role",
-  "customer_accounts.admin.roles.error.deleteSystem": "System roles cannot be deleted",
+  "customer_accounts.admin.roles.error.deleteDefault": "No se puede eliminar el rol predeterminado. Establezca primero otro rol como predeterminado.",
   "customer_accounts.admin.roles.error.load": "Failed to load roles",
   "customer_accounts.admin.roles.flash.deleted": "Role deleted",
   "customer_accounts.admin.roles.notAssignable": "No",
