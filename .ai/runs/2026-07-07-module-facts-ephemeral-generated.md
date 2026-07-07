@@ -58,8 +58,8 @@ The maintainer (Piotr) explicitly decided to supersede D4's committed-artifact c
 
 ### Phase 1: Code + repo state
 
-- [ ] 1.1 Point generateModuleFacts output at resolver.getOutputDir() and update JSDoc
-- [ ] 1.2 git rm the committed JSON and drop the .gitignore line
+- [x] 1.1 Point generateModuleFacts output at resolver.getOutputDir() and update JSDoc — 1b041eed1
+- [x] 1.2 git rm the committed JSON and drop the .gitignore line — 1b041eed1
 
 ### Phase 2: Spec amendment
 
