@@ -56,3 +56,4 @@ None (no `--skill-url` provided).
 
 - [x] 3.1 Add memory-optimization note near `yarn dev` in `README.md` — 98a032be5
 - [x] 3.2 Add memory-optimization callout/cross-link in the installation docs — 98a032be5
+- [x] Post-review fix: remove stray `ded` token breaking `AdvancedFilterPanel` typecheck in the CI `test` job (pre-existing on develop) — 0c528c139
