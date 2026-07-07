@@ -30,6 +30,7 @@ import {
   inventoryReservationStatusLabel,
 } from '../../lib/inventoryDisplayUi'
 import { parseInventoryQuantity } from '../../lib/inventoryMutationUi'
+import { ImportInventoryDialog } from './ImportInventoryDialog'
 import { InventoryOperationsSection } from './InventoryOperationsSection'
 import { MoveInventoryDialog } from './MoveInventoryDialog'
 import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
@@ -497,6 +498,7 @@ export function InventoryBalancesSection({
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [movePreset, setMovePreset] = React.useState<InventoryBalanceRow | null>(null)
   const [receiveOpen, setReceiveOpen] = React.useState(false)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   const openMoveDialog = React.useCallback((row: InventoryBalanceRow) => {
     setMovePreset(row)
@@ -666,10 +668,19 @@ export function InventoryBalancesSection({
         lotId={lotId}
         lowStock={lowStock}
         emptyStateAction={
-          access.canReceive ? (
-            <Button type="button" variant="outline" size="sm" onClick={() => setReceiveOpen(true)}>
-              {t('wms.backend.inventory.balances.empty.receive', 'Receive stock')}
-            </Button>
+          access.canReceive || access.canImport ? (
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              {access.canReceive ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setReceiveOpen(true)}>
+                  {t('wms.backend.inventory.balances.empty.receive', 'Receive stock')}
+                </Button>
+              ) : null}
+              {access.canImport ? (
+                <Button type="button" variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                  {t('wms.backend.inventory.balances.empty.importCsv', 'Import CSV')}
+                </Button>
+              ) : null}
+            </div>
           ) : null
         }
       />
@@ -679,6 +690,9 @@ export function InventoryBalancesSection({
           onOpenChange={setReceiveOpen}
           access={access}
         />
+      ) : null}
+      {access.canImport ? (
+        <ImportInventoryDialog open={importOpen} onOpenChange={setImportOpen} access={access} />
       ) : null}
       {access.canMove ? (
         <MoveInventoryDialog

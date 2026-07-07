@@ -19,6 +19,7 @@ import { E } from '#generated/entities.ids.generated'
 import type { ExpiryWindow } from '../../lib/expiry'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { ChangeLotStatusDialog } from './ChangeLotStatusDialog'
+import { ImportInventoryDialog } from './ImportInventoryDialog'
 import { MoveInventoryDialog } from './MoveInventoryDialog'
 import { ReceiveInventoryDialog } from './ReceiveInventoryDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
@@ -73,6 +74,7 @@ export default function WmsLotsListPage() {
   const [moveOpen, setMoveOpen] = React.useState(false)
   const [activeLot, setActiveLot] = React.useState<InventoryLotRow | null>(null)
   const [receiveOpen, setReceiveOpen] = React.useState(false)
+  const [importOpen, setImportOpen] = React.useState(false)
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
     setSorting(nextSorting)
@@ -287,15 +289,29 @@ export default function WmsLotsListPage() {
                     'Adjust filters or create lots through inventory operations.',
                   )}
                   actions={
-                    access.canReceive ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setReceiveOpen(true)}
-                      >
-                        {t('wms.backend.lots.empty.receive', 'Receive stock')}
-                      </Button>
+                    access.canReceive || access.canImport ? (
+                      <div className="flex flex-wrap items-center justify-center gap-2">
+                        {access.canReceive ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setReceiveOpen(true)}
+                          >
+                            {t('wms.backend.lots.empty.receive', 'Receive stock')}
+                          </Button>
+                        ) : null}
+                        {access.canImport ? (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setImportOpen(true)}
+                          >
+                            {t('wms.backend.lots.empty.importCsv', 'Import CSV')}
+                          </Button>
+                        ) : null}
+                      </div>
                     ) : null
                   }
                 />
@@ -311,6 +327,9 @@ export default function WmsLotsListPage() {
           onOpenChange={setReceiveOpen}
           access={access}
         />
+      ) : null}
+      {access.canImport ? (
+        <ImportInventoryDialog open={importOpen} onOpenChange={setImportOpen} access={access} />
       ) : null}
       {access.canAdjust && activeLot ? (
         <>
