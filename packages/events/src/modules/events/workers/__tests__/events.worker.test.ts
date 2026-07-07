@@ -453,9 +453,17 @@ describe('Events Worker', () => {
       else process.env.OM_EVENTS_SINGLE_DELIVERY = origFlag
     })
 
-    const createMockJob = (event: string, payload: unknown): QueuedJob<{ event: string; payload: unknown }> => ({
+    const createMockJob = (
+      event: string,
+      payload: unknown,
+      options?: { tenantId?: string | null; organizationId?: string | null },
+    ): QueuedJob<{
+      event: string
+      payload: unknown
+      options?: { tenantId?: string | null; organizationId?: string | null }
+    }> => ({
       id: 'test-job-id',
-      payload: { event, payload },
+      payload: { event, payload, options },
       createdAt: new Date().toISOString(),
     })
 
@@ -516,6 +524,48 @@ describe('Events Worker', () => {
       // Default-on: pattern dispatch reaches both the exact-match and the wildcard
       // persistent subscriber.
       expect(calls.sort()).toEqual(['p', 'w'])
+    })
+
+    it('default (unset): forwards eventName and trusted scope to persistent wildcard subscribers', async () => {
+      delete process.env.OM_EVENTS_SINGLE_DELIVERY
+      clearListenerCache()
+      const contexts: Array<{
+        eventName?: string
+        tenantId?: string | null
+        organizationId?: string | null
+      }> = []
+      registerCliModules([{
+        id: 'm',
+        subscribers: [
+          {
+            id: 'workflow:event-trigger',
+            event: '*',
+            persistent: true,
+            handler: (_payload, ctx) => {
+              contexts.push({
+                eventName: ctx.eventName,
+                tenantId: ctx.tenantId,
+                organizationId: ctx.organizationId,
+              })
+            },
+          },
+        ],
+      }])
+
+      await handle(
+        createMockJob(
+          'customers.deal.created',
+          { id: 'deal-1', tenantId: 'payload-tenant', organizationId: 'payload-org' },
+          { tenantId: 'trusted-tenant', organizationId: 'trusted-org' },
+        ),
+        createMockContext(),
+      )
+
+      expect(contexts).toEqual([{
+        eventName: 'customers.deal.created',
+        tenantId: 'trusted-tenant',
+        organizationId: 'trusted-org',
+      }])
     })
 
     it('flag explicitly OFF (legacy opt-out): preserves exact-match dispatch and never reaches wildcards', async () => {

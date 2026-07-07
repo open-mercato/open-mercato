@@ -82,6 +82,12 @@ Use stable, grep-friendly ids:
 | DataTable progress result handling | `packages/ui/src/backend/DataTable.tsx` |
 | Progress UI merge/polling | `packages/ui/src/backend/progress/useProgressPoll.ts` and `useProgressSse.ts` |
 
+## Environment
+
+| Variable | Effect | Default |
+|----------|--------|---------|
+| `OM_PROGRESS_BROADCAST_MIN_INTERVAL_MS` | Coalesces intermediate `progress.job.updated` flush+broadcasts per job: the service flushes and emits only when this many ms elapsed since the last broadcast **or** `progressPercent` advanced by ≥1; sub-threshold updates buffer in memory. Keeps bulk workers from firing one serialized `pg_notify` roundtrip + tenant-wide SSE fan-out per record. Terminal events (`created`/`started`/`completed`/`failed`/`cancelled`) are never throttled, so `ProgressTopBar` still converges and the 60s `STALE_JOB_TIMEOUT_SECONDS` heartbeat window is never exceeded. Set to `0` to restore per-record emission (tests/debugging). | `250` |
+
 ## Cross-References
 
 - **Queue worker rules**: `packages/queue/AGENTS.md`

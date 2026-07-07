@@ -153,6 +153,23 @@ makeCrudRoute({
 })
 ```
 
+#### Trimming the list projection (`list.fields` function form)
+
+`list.fields` accepts a static array **or** a function `(query, ctx) => string[]` resolved per request on the Query Engine path. Use the function form to drop large detail-only columns (encrypted JSONB snapshots, payload blobs) from grid listings while still selecting them for single-record fetches — those columns are otherwise fetched and decrypted **per row** on every list page even when no grid column renders them.
+
+```typescript
+list: {
+  entityId: E.sales.sales_order,
+  // Detail page reuses this list route with `?id=`, so it needs the full projection;
+  // grid listings (no id) get the trimmed one.
+  fields: (query) => (typeof query.id === 'string' && query.id.length ? allFields : gridFields),
+}
+```
+
+- The array form is unchanged and fully backward compatible — use it whenever the projection is static.
+- Keep response keys stable: dropped columns must still serialize (e.g. `null` via `transformItem`) so the OpenAPI schema (already `nullable().optional()`) is preserved.
+- Only narrow columns the grid never renders; keep any column a list column derives a value from (e.g. `customer_snapshot` for the customer name/email column). Reference: `src/modules/sales/api/documents/factory.ts` (#2233). Full docs: [`apps/docs/docs/framework/api/crud-factory.mdx`](../../apps/docs/docs/framework/api/crud-factory.mdx) → "Per-request projection".
+
 ### Custom Entities CRUD
 
 Follow the customers module API patterns (CRUD factory + query engine):
@@ -703,3 +720,11 @@ When the opt-in CRUD list cache (`ENABLE_CRUD_API_CACHE`) is enabled, the factor
 ## Upgrade Actions
 
 Declare once per version in `src/modules/configs/lib/upgrade-actions.ts`. Keep them idempotent, reuse module helpers. Access guarded by `configs.manage`.
+
+## Module Config (tenant scope)
+
+`ModuleConfigService` (`src/modules/configs/lib/module-config-service.ts`) stores per-module key/value config in `module_configs`. Every method accepts an **optional** `scope: { tenantId?; organizationId? }`:
+
+- **Reads** with a `tenantId` resolve scoped row → global row (`tenant_id IS NULL`) → not found; the returned record carries `source: 'tenant' | 'instance'`. Reads without a scope read the global row (unchanged legacy behavior).
+- **Writes** with a `tenantId` create/update only that tenant's row and never touch the global row; writes without a scope update the global/instance row.
+- Always derive `tenantId` from the authenticated context, never from request input. Omit `scope` for genuinely instance-global config so existing callers are unaffected (the no-scope path is byte-for-byte the prior behavior). `module_configs` uses partial unique indexes (global `WHERE tenant_id IS NULL`, scoped `WHERE tenant_id IS NOT NULL`) — never reintroduce a single `(module_id, name)` unique constraint.

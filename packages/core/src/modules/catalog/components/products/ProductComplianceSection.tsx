@@ -29,9 +29,26 @@ type ProductComplianceSectionProps = {
   embedded?: boolean;
 };
 
-function FieldError({ message }: { message?: string }) {
+function fieldErrorId(inputId: string) {
+  return `${inputId}-error`;
+}
+
+function describedByError(
+  inputId: string,
+  message?: string,
+): { "aria-invalid"?: true; "aria-describedby"?: string } {
+  return message
+    ? { "aria-invalid": true, "aria-describedby": fieldErrorId(inputId) }
+    : {};
+}
+
+function FieldError({ id, message }: { id: string; message?: string }) {
   if (!message) return null;
-  return <p className="text-xs text-destructive">{message}</p>;
+  return (
+    <p id={id} className="text-xs text-destructive">
+      {message}
+    </p>
+  );
 }
 
 export function ProductComplianceSection({
@@ -47,7 +64,7 @@ export function ProductComplianceSection({
     (code: string, checked: boolean) => {
       const current = Array.isArray(values.gtuCodes) ? values.gtuCodes : [];
       const next = checked
-        ? Array.from(new Set([...current, code])).sort()
+        ? Array.from(new Set([...current, code])).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
         : current.filter((entry) => entry !== code);
       setValue("gtuCodes", next);
     },
@@ -85,8 +102,12 @@ export function ProductComplianceSection({
               onChange={(event) =>
                 setValue("countryOfOriginCode", event.target.value.toUpperCase())
               }
+              {...describedByError("catalog-product-compliance-country", errors.countryOfOriginCode)}
             />
-            <FieldError message={errors.countryOfOriginCode} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-country")}
+              message={errors.countryOfOriginCode}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-tax-classification">
@@ -96,8 +117,12 @@ export function ProductComplianceSection({
               id="catalog-product-compliance-tax-classification"
               value={values.taxClassificationCode ?? ""}
               onChange={(event) => setValue("taxClassificationCode", event.target.value)}
+              {...describedByError("catalog-product-compliance-tax-classification", errors.taxClassificationCode)}
             />
-            <FieldError message={errors.taxClassificationCode} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-tax-classification")}
+              message={errors.taxClassificationCode}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-pkwiu">
@@ -107,8 +132,12 @@ export function ProductComplianceSection({
               id="catalog-product-compliance-pkwiu"
               value={values.pkwiuCode ?? ""}
               onChange={(event) => setValue("pkwiuCode", event.target.value)}
+              {...describedByError("catalog-product-compliance-pkwiu", errors.pkwiuCode)}
             />
-            <FieldError message={errors.pkwiuCode} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-pkwiu")}
+              message={errors.pkwiuCode}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-cn">
@@ -118,8 +147,12 @@ export function ProductComplianceSection({
               id="catalog-product-compliance-cn"
               value={values.cnCode ?? ""}
               onChange={(event) => setValue("cnCode", event.target.value)}
+              {...describedByError("catalog-product-compliance-cn", errors.cnCode)}
             />
-            <FieldError message={errors.cnCode} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-cn")}
+              message={errors.cnCode}
+            />
           </div>
           <div className="space-y-2 md:col-span-2">
             <Label htmlFor="catalog-product-compliance-hs">
@@ -129,13 +162,24 @@ export function ProductComplianceSection({
               id="catalog-product-compliance-hs"
               value={values.hsCode ?? ""}
               onChange={(event) => setValue("hsCode", event.target.value)}
+              {...describedByError("catalog-product-compliance-hs", errors.hsCode)}
             />
-            <FieldError message={errors.hsCode} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-hs")}
+              message={errors.hsCode}
+            />
           </div>
         </div>
         <div className="space-y-2">
-          <Label>{t("catalog.products.compliance.fields.gtuCodes", "GTU codes (JPK_V7)")}</Label>
-          <div className="grid gap-2 sm:grid-cols-3 md:grid-cols-4">
+          <Label id="catalog-product-compliance-gtu-label">
+            {t("catalog.products.compliance.fields.gtuCodes", "GTU codes (JPK_V7)")}
+          </Label>
+          <div
+            role="group"
+            aria-labelledby="catalog-product-compliance-gtu-label"
+            className="grid gap-2 sm:grid-cols-3 md:grid-cols-4"
+            {...describedByError("catalog-product-compliance-gtu", errors.gtuCodes)}
+          >
             {CATALOG_GTU_CODES.map((code) => (
               <label
                 key={code}
@@ -151,7 +195,10 @@ export function ProductComplianceSection({
               </label>
             ))}
           </div>
-          <FieldError message={errors.gtuCodes} />
+          <FieldError
+            id={fieldErrorId("catalog-product-compliance-gtu")}
+            message={errors.gtuCodes}
+          />
         </div>
       </div>
 
@@ -179,8 +226,12 @@ export function ProductComplianceSection({
               max={120}
               value={values.ageMin ?? ""}
               onChange={(event) => setValue("ageMin", event.target.value)}
+              {...describedByError("catalog-product-compliance-age-min", errors.ageMin)}
             />
-            <FieldError message={errors.ageMin} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-age-min")}
+              message={errors.ageMin}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-excise-category">
@@ -192,7 +243,10 @@ export function ProductComplianceSection({
                 setValue("exciseCategory", value === NONE_OPTION ? null : value)
               }
             >
-              <SelectTrigger id="catalog-product-compliance-excise-category">
+              <SelectTrigger
+                id="catalog-product-compliance-excise-category"
+                {...describedByError("catalog-product-compliance-excise-category", errors.exciseCategory)}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -206,7 +260,10 @@ export function ProductComplianceSection({
                 ))}
               </SelectContent>
             </Select>
-            <FieldError message={errors.exciseCategory} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-excise-category")}
+              message={errors.exciseCategory}
+            />
           </div>
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
@@ -253,8 +310,12 @@ export function ProductComplianceSection({
               id="catalog-product-compliance-hazmat-class"
               value={values.hazmatClass ?? ""}
               onChange={(event) => setValue("hazmatClass", event.target.value)}
+              {...describedByError("catalog-product-compliance-hazmat-class", errors.hazmatClass)}
             />
-            <FieldError message={errors.hazmatClass} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-hazmat-class")}
+              message={errors.hazmatClass}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-un-number">
@@ -265,8 +326,12 @@ export function ProductComplianceSection({
               placeholder={t("catalog.products.compliance.placeholders.unNumber", "UN1234")}
               value={values.unNumber ?? ""}
               onChange={(event) => setValue("unNumber", event.target.value)}
+              {...describedByError("catalog-product-compliance-un-number", errors.unNumber)}
             />
-            <FieldError message={errors.unNumber} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-un-number")}
+              message={errors.unNumber}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-packing-group">
@@ -278,7 +343,10 @@ export function ProductComplianceSection({
                 setValue("hazmatPackingGroup", value === NONE_OPTION ? null : value)
               }
             >
-              <SelectTrigger id="catalog-product-compliance-packing-group">
+              <SelectTrigger
+                id="catalog-product-compliance-packing-group"
+                {...describedByError("catalog-product-compliance-packing-group", errors.hazmatPackingGroup)}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -292,7 +360,10 @@ export function ProductComplianceSection({
                 ))}
               </SelectContent>
             </Select>
-            <FieldError message={errors.hazmatPackingGroup} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-packing-group")}
+              message={errors.hazmatPackingGroup}
+            />
           </div>
         </div>
       </div>
@@ -319,8 +390,12 @@ export function ProductComplianceSection({
               type="date"
               value={values.launchAt ?? ""}
               onChange={(event) => setValue("launchAt", event.target.value)}
+              {...describedByError("catalog-product-compliance-launch-at", errors.launchAt)}
             />
-            <FieldError message={errors.launchAt} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-launch-at")}
+              message={errors.launchAt}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-eol-at">
@@ -331,8 +406,12 @@ export function ProductComplianceSection({
               type="date"
               value={values.endOfLifeAt ?? ""}
               onChange={(event) => setValue("endOfLifeAt", event.target.value)}
+              {...describedByError("catalog-product-compliance-eol-at", errors.endOfLifeAt)}
             />
-            <FieldError message={errors.endOfLifeAt} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-eol-at")}
+              message={errors.endOfLifeAt}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-available-from">
@@ -343,8 +422,12 @@ export function ProductComplianceSection({
               type="date"
               value={values.availableFrom ?? ""}
               onChange={(event) => setValue("availableFrom", event.target.value)}
+              {...describedByError("catalog-product-compliance-available-from", errors.availableFrom)}
             />
-            <FieldError message={errors.availableFrom} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-available-from")}
+              message={errors.availableFrom}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-available-until">
@@ -355,8 +438,12 @@ export function ProductComplianceSection({
               type="date"
               value={values.availableUntil ?? ""}
               onChange={(event) => setValue("availableUntil", event.target.value)}
+              {...describedByError("catalog-product-compliance-available-until", errors.availableUntil)}
             />
-            <FieldError message={errors.availableUntil} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-available-until")}
+              message={errors.availableUntil}
+            />
           </div>
         </div>
         <label
@@ -395,8 +482,12 @@ export function ProductComplianceSection({
               min={1}
               value={values.minOrderQty ?? ""}
               onChange={(event) => setValue("minOrderQty", event.target.value)}
+              {...describedByError("catalog-product-compliance-min-qty", errors.minOrderQty)}
             />
-            <FieldError message={errors.minOrderQty} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-min-qty")}
+              message={errors.minOrderQty}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-max-qty">
@@ -408,8 +499,12 @@ export function ProductComplianceSection({
               min={1}
               value={values.maxOrderQty ?? ""}
               onChange={(event) => setValue("maxOrderQty", event.target.value)}
+              {...describedByError("catalog-product-compliance-max-qty", errors.maxOrderQty)}
             />
-            <FieldError message={errors.maxOrderQty} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-max-qty")}
+              message={errors.maxOrderQty}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-qty-increment">
@@ -421,8 +516,12 @@ export function ProductComplianceSection({
               min={1}
               value={values.orderQtyIncrement ?? ""}
               onChange={(event) => setValue("orderQtyIncrement", event.target.value)}
+              {...describedByError("catalog-product-compliance-qty-increment", errors.orderQtyIncrement)}
             />
-            <FieldError message={errors.orderQtyIncrement} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-qty-increment")}
+              message={errors.orderQtyIncrement}
+            />
           </div>
         </div>
         <label
@@ -460,8 +559,12 @@ export function ProductComplianceSection({
               maxLength={255}
               value={values.seoTitle ?? ""}
               onChange={(event) => setValue("seoTitle", event.target.value)}
+              {...describedByError("catalog-product-compliance-seo-title", errors.seoTitle)}
             />
-            <FieldError message={errors.seoTitle} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-seo-title")}
+              message={errors.seoTitle}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-seo-description">
@@ -473,8 +576,12 @@ export function ProductComplianceSection({
               maxLength={1000}
               value={values.seoDescription ?? ""}
               onChange={(event) => setValue("seoDescription", event.target.value)}
+              {...describedByError("catalog-product-compliance-seo-description", errors.seoDescription)}
             />
-            <FieldError message={errors.seoDescription} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-seo-description")}
+              message={errors.seoDescription}
+            />
           </div>
           <div className="space-y-2">
             <Label htmlFor="catalog-product-compliance-canonical-url">
@@ -487,8 +594,12 @@ export function ProductComplianceSection({
               placeholder="https://"
               value={values.canonicalUrl ?? ""}
               onChange={(event) => setValue("canonicalUrl", event.target.value)}
+              {...describedByError("catalog-product-compliance-canonical-url", errors.canonicalUrl)}
             />
-            <FieldError message={errors.canonicalUrl} />
+            <FieldError
+              id={fieldErrorId("catalog-product-compliance-canonical-url")}
+              message={errors.canonicalUrl}
+            />
           </div>
         </div>
       </div>

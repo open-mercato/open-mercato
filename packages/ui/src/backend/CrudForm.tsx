@@ -73,6 +73,7 @@ import {
 } from 'lucide-react'
 import { loadGeneratedFieldRegistrations } from './fields/registry'
 import type { CustomFieldDefDto, CustomFieldDefinitionsPayload, CustomFieldsetDto } from './utils/customFieldDefs'
+import { isDefVisible } from './utils/customFieldDefs'
 import { buildFormFieldsFromCustomFields, buildFormFieldFromCustomFieldDef } from './utils/customFieldForms'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TagsInput } from './inputs/TagsInput'
@@ -102,6 +103,7 @@ import { SortableGroupHandleProvider, type SortableGroupHandleProps } from './cr
 import { useGroupOrder } from './crud/useGroupOrder'
 import { InjectedField } from './injection/InjectedField'
 import type { InjectionFieldDefinition, FieldContext } from '@open-mercato/shared/modules/widgets/injection'
+import { insertByInjectionPlacement } from '@open-mercato/shared/modules/widgets/injection-position'
 import { evaluateInjectedVisibility } from './injection/visibility-utils'
 import { ComponentReplacementHandles } from '@open-mercato/shared/modules/widgets/component-registry'
 import { RichEditor, type RichEditorLabels } from '../primitives/rich-editor'
@@ -554,7 +556,7 @@ function normalizeDirtySnapshotValue(value: unknown): unknown {
 
   const normalized: Record<string, unknown> = {}
   const record = value as Record<string, unknown>
-  for (const key of Object.keys(record).sort()) {
+  for (const key of Object.keys(record).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) {
     const nextValue = normalizeDirtySnapshotValue(record[key])
     if (nextValue !== undefined) normalized[key] = nextValue
   }
@@ -1553,7 +1555,9 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           fieldsetGroupMap.set(group.code, { code: group.code, title: group.title, hint: group.hint })
         })
       }
-      const sortedDefs = [...defList].sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
+      const sortedDefs = [...defList]
+        .filter((definition) => isDefVisible(definition, 'form'))
+        .sort((a, b) => (a.priority ?? 0) - (b.priority ?? 0))
       const ensureBucket = (code: string | null, def: CustomFieldDefDto): CustomFieldGroupLayout => {
         const key = code ?? '__default__'
         let bucket = groupsMap.get(key)
@@ -1759,21 +1763,27 @@ export function CrudForm<TValues extends Record<string, unknown>>({
   )
 
   const injectedCrudFields = React.useMemo<CrudField[]>(() => {
-    return injectedFieldDefinitions.map((definition) => ({
-      id: definition.id,
-      label: definition.label,
-      type: 'custom',
-      readOnly: definition.readOnly,
-      component: ({ value, setValue, values: formValues }) => (
-        <InjectedField
-          field={definition}
-          value={value}
-          onChange={(_, nextValue) => setValue(nextValue)}
-          context={injectedFieldContext}
-          formData={(formValues ?? values) as Record<string, unknown>}
-        />
-      ),
-    }))
+    return injectedFieldDefinitions.map((definition) => {
+      // InjectedField renders its own i18n-resolved <Label> for every field type
+      // except a custom component (type 'custom' + customComponent). Suppress the
+      // CrudForm row label in those cases so it is not rendered twice (#3047).
+      const injectedFieldRendersOwnLabel = !(definition.type === 'custom' && definition.customComponent)
+      return {
+        id: definition.id,
+        label: injectedFieldRendersOwnLabel ? '' : definition.label,
+        type: 'custom',
+        readOnly: definition.readOnly,
+        component: ({ value, setValue, values: formValues }) => (
+          <InjectedField
+            field={definition}
+            value={value}
+            onChange={(_, nextValue) => setValue(nextValue)}
+            context={injectedFieldContext}
+            formData={(formValues ?? values) as Record<string, unknown>}
+          />
+        ),
+      }
+    })
   }, [injectedFieldContext, injectedFieldDefinitions, values])
 
   const allFields = React.useMemo(() => {
@@ -1994,10 +2004,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       }
       if (index < 0) continue
       const fieldEntries = cloned[index].fields ?? []
-      if (!fieldEntries.some((entry) => typeof entry === 'string' && entry === definition.id)) {
-        fieldEntries.push(definition.id)
-      }
-      cloned[index].fields = fieldEntries
+      const alreadyPresent = fieldEntries.some((entry) => {
+        const entryId = typeof entry === 'string' ? entry : entry.id
+        return entryId === definition.id
+      })
+      cloned[index].fields = alreadyPresent
+        ? fieldEntries
+        : insertByInjectionPlacement(
+            fieldEntries,
+            definition.id,
+            definition.placement,
+            (entry) => (typeof entry === 'string' ? entry : entry.id),
+          )
     }
     return cloned
   }, [groups, injectedFieldDefinitions])
@@ -3727,6 +3745,7 @@ function TextInput({
   autoFocus,
   onSubmit,
   disabled,
+  readOnly,
   suggestions,
   inputType = 'text',
 }: {
@@ -3736,6 +3755,7 @@ function TextInput({
   autoFocus?: boolean
   onSubmit?: () => void
   disabled?: boolean
+  readOnly?: boolean
   suggestions?: string[]
   inputType?: 'text' | 'password'
 }) {
@@ -3756,12 +3776,12 @@ function TextInput({
   }, [value])
 
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    if (disabled) return
+    if (disabled || readOnly) return
     const next = e.target.value
     userTypingRef.current = true
     setLocal(next)
     onChange(next)
-  }, [disabled, onChange])
+  }, [disabled, readOnly, onChange])
 
   const handleKeyDown = React.useCallback((e: React.KeyboardEvent<HTMLInputElement>) => {
     if (disabled) return
@@ -3795,6 +3815,7 @@ function TextInput({
         autoFocus={autoFocus}
         data-crud-focus-target=""
         disabled={disabled}
+        readOnly={readOnly}
       />
     )
   }
@@ -3812,6 +3833,7 @@ function TextInput({
         autoFocus={autoFocus}
         data-crud-focus-target=""
         disabled={disabled}
+        readOnly={readOnly}
         list={suggestions && suggestions.length > 0 ? datalistId : undefined}
       />
       {suggestions && suggestions.length > 0 && (
@@ -3904,6 +3926,7 @@ function TextAreaInput({
   showCount,
   rows,
   disabled,
+  readOnly,
 }: {
   value: string
   onChange: (v: string) => void
@@ -3913,6 +3936,7 @@ function TextAreaInput({
   showCount?: boolean
   rows?: number
   disabled?: boolean
+  readOnly?: boolean
 }) {
   const [local, setLocal] = React.useState<string>(value)
   const isFocusedRef = React.useRef(false)
@@ -3926,10 +3950,11 @@ function TextAreaInput({
   }, [value])
 
   const handleChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    if (disabled || readOnly) return
     const next = e.target.value
     setLocal(next)
     onChange(next)
-  }, [onChange])
+  }, [disabled, readOnly, onChange])
 
   const handleFocus = React.useCallback(() => { isFocusedRef.current = true }, [])
   const handleBlur = React.useCallback(() => {
@@ -3949,6 +3974,7 @@ function TextAreaInput({
       showCount={showCount}
       rows={rows}
       disabled={disabled}
+      readOnly={readOnly}
       data-crud-focus-target=""
     />
   )
@@ -4244,6 +4270,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
           disabled={disabled}
+          readOnly={readOnly}
           suggestions={field.type === 'text' ? field.suggestions : undefined}
         />
       )}
@@ -4255,6 +4282,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           onSubmit={onSubmitRequest}
           disabled={disabled}
+          readOnly={readOnly}
           inputType="password"
         />
       )}
@@ -4343,6 +4371,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           showCount={builtin?.showCount}
           rows={builtin?.rows}
           disabled={disabled}
+          readOnly={readOnly}
         />
       )}
       {field.type === 'richtext' && builtin?.editor === 'simple' && (
@@ -4433,7 +4462,7 @@ const FieldControl = React.memo(function FieldControlImpl({
             }
             setValue(field.id, next)
           }}
-          disabled={disabled}
+          disabled={disabled || readOnly}
         >
           <SelectTrigger data-crud-focus-target="">
             <SelectValue placeholder={t('ui.forms.select.emptyOption', '—')}>

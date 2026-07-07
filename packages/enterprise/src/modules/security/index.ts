@@ -1,14 +1,3 @@
-import './commands/changePassword'
-import './commands/createEnforcementPolicy'
-import './commands/updateEnforcementPolicy'
-import './commands/deleteEnforcementPolicy'
-import './commands/removeMfaMethod'
-import './commands/regenerateRecoveryCodes'
-import './commands/resetUserMfa'
-import './commands/createSudoConfig'
-import './commands/updateSudoConfig'
-import './commands/deleteSudoConfig'
-
 export const metadata = {
   id: 'security',
   version: '0.1.0',

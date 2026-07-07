@@ -189,6 +189,14 @@ export async function GET(req: Request) {
     return q
   }
 
+  // Audited for #3386 rollout (P3): sort is on m.sent_at (a plain timestamp —
+  // not in the messages:message encryption map whose encrypted fields are:
+  // subject, body, external_email, external_name, action_data, action_result).
+  // The handler already uses the correct two-phase shape: Kysely SQL
+  // ORDER BY + LIMIT/OFFSET produces a bounded page of IDs, then
+  // findWithDecryption is called only for those IDs — never for the full
+  // result set. The #3278 unbounded-decrypt hazard does not apply here.
+  // Covered by __tests__/list.test.ts.
   const countResult = await buildBaseQuery()
     .select(sql<number>`count(*)`.as('count'))
     .executeTakeFirst() as { count: string | number } | undefined

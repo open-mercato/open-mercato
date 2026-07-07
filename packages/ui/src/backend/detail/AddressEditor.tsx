@@ -52,6 +52,8 @@ export type AddressEditorDraft = {
   region: string
   postalCode: string
   country: string
+  latitude?: string
+  longitude?: string
   isPrimary: boolean
 }
 
@@ -67,6 +69,8 @@ export type AddressEditorField =
   | 'region'
   | 'postalCode'
   | 'country'
+  | 'latitude'
+  | 'longitude'
   | 'isPrimary'
 
 type AddressEditorProps<C = unknown> = {
@@ -79,6 +83,7 @@ type AddressEditorProps<C = unknown> = {
   errors?: Partial<Record<AddressEditorField, string>>
   hidePrimaryToggle?: boolean
   showFormatHint?: boolean
+  showCoordinateFields?: boolean
   addressTypesAdapter?: AddressTypesAdapter<C>
   addressTypesContext?: C
 }
@@ -93,6 +98,7 @@ export function AddressEditor<C = unknown>({
   errors = {},
   hidePrimaryToggle = false,
   showFormatHint = true,
+  showCoordinateFields = false,
   addressTypesAdapter,
   addressTypesContext,
 }: AddressEditorProps<C>) {
@@ -164,6 +170,9 @@ export function AddressEditor<C = unknown>({
     region: value.region ?? '',
     postalCode: value.postalCode ?? '',
     country: value.country ?? '',
+    ...(showCoordinateFields
+      ? { latitude: value.latitude ?? '', longitude: value.longitude ?? '' }
+      : {}),
     isPrimary: value.isPrimary ?? false,
   }
 
@@ -468,6 +477,35 @@ export function AddressEditor<C = unknown>({
           </DialogContent>
         </Dialog>
       </div>
+
+      {showCoordinateFields ? (
+        <>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Input
+              className={inputClass('latitude')}
+              placeholder={label('fields.latitude', 'Latitude')}
+              aria-label={label('fields.latitude', 'Latitude')}
+              inputMode="decimal"
+              value={current.latitude ?? ''}
+              onChange={(evt) => update('latitude', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.latitude ? 'true' : undefined}
+            />
+            <Input
+              className={inputClass('longitude')}
+              placeholder={label('fields.longitude', 'Longitude')}
+              aria-label={label('fields.longitude', 'Longitude')}
+              inputMode="decimal"
+              value={current.longitude ?? ''}
+              onChange={(evt) => update('longitude', evt.target.value)}
+              disabled={disabled}
+              aria-invalid={errors.longitude ? 'true' : undefined}
+            />
+          </div>
+          {errors.latitude ? <p className="text-xs text-destructive">{errors.latitude}</p> : null}
+          {errors.longitude ? <p className="text-xs text-destructive">{errors.longitude}</p> : null}
+        </>
+      ) : null}
 
       {showFormatHint ? (
         <p className="text-xs text-muted-foreground">

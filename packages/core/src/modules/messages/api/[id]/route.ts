@@ -1,11 +1,14 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands/command-bus'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi/types'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../../auth/data/entities'
 import { Message, MessageObject, MessageRecipient } from '../../data/entities'
 import { updateDraftSchema } from '../../data/validators'
 import { buildResolvedMessageActions } from '../../lib/actions'
+import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../../lib/constants'
 import { getMessageObjectType } from '../../lib/message-objects-registry'
 import { getMessageTypeOrDefault } from '../../lib/message-types-registry'
 import { attachOperationMetadataHeader } from '../../lib/operationMetadata'
@@ -122,6 +125,19 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     threadMessage.senderUserId === scope.userId || visibleRecipientMessageIds.has(threadMessage.id)
   ))
 
+  const actorRecipientStatusByMessageId = new Map<string, string>()
+  for (const row of visibleRecipientRows) {
+    actorRecipientStatusByMessageId.set(row.messageId, row.status)
+  }
+  if (recipient) {
+    actorRecipientStatusByMessageId.set(params.id, autoMarkRead ? 'read' : recipient.status)
+  }
+  const actorRecipientStatuses = Array.from(actorRecipientStatusByMessageId.values())
+  const conversationArchived = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'archived')
+  const conversationAllUnread = actorRecipientStatuses.length > 0
+    && actorRecipientStatuses.every((status) => status === 'unread')
+
   const threadSenderIds = actorVisibleThreadMessages
     .map((threadMessage) => threadMessage.senderUserId)
     .filter((value): value is string => typeof value === 'string' && value.length > 0)
@@ -176,9 +192,12 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 
   return Response.json({
     id: message.id,
+    updatedAt: message.updatedAt ?? null,
     type: message.type,
     isDraft: message.isDraft,
     canEditDraft: message.isDraft && message.senderUserId === scope.userId,
+    canArchive: Boolean(recipient),
+    isArchived: recipient?.status === 'archived',
     visibility: message.visibility,
     sourceEntityType: message.sourceEntityType,
     sourceEntityId: message.sourceEntityId,
@@ -244,6 +263,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       }
     }),
     isRead: recipient ? (autoMarkRead || recipient.status !== 'unread') : true,
+    conversationArchived,
+    conversationAllUnread,
   })
 }
 
@@ -299,6 +320,15 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   }
 
   try {
+    // Reject stale draft edits/sends before mutating: compare the client's
+    // expected version (extension header) against the loaded draft.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: req,
+    })
+
     const { logEntry } = await commandBus.execute('messages.messages.update_draft', {
       input: {
         ...input,
@@ -334,6 +364,9 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     })
     return response
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return Response.json(error.body, { status: error.status })
+    }
     if (error instanceof Error) {
       if (error.message === 'Message type cannot be created by users') {
         return Response.json({ error: error.message }, { status: 400 })
@@ -392,6 +425,15 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
   }
 
   try {
+    // Reject a stale delete before mutating: a tab that loaded an older version
+    // of the message must refresh rather than silently delete a changed record.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: req,
+    })
+
     const { logEntry } = await commandBus.execute('messages.messages.delete_for_actor', {
       input: {
         messageId: params.id,
@@ -426,6 +468,9 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     })
     return response
   } catch (error) {
+    if (isCrudHttpError(error)) {
+      return Response.json(error.body, { status: error.status })
+    }
     if (error instanceof Error && error.message === 'Access denied') {
       return Response.json({ error: 'Access denied' }, { status: 403 })
     }
@@ -460,7 +505,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
-        { status: 409, description: 'Only drafts can be edited', schema: errorResponseSchema },
+        { status: 409, description: 'Only drafts can be edited, or the draft was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
       ],
     },
     DELETE: {
@@ -471,6 +516,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 403, description: 'Access denied', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
+        { status: 409, description: 'Message was modified concurrently (optimistic lock conflict)', schema: errorResponseSchema },
       ],
     },
   },

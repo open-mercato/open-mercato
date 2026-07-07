@@ -223,7 +223,7 @@ export function CalendarScreen() {
     const values = new Set<string>(Object.keys(typeLabels))
     for (const item of items) values.add(item.interactionType)
     return [...values]
-      .sort()
+      .sort((a, b) => a.localeCompare(b))
       .map((value) => ({ value, label: typeLabels[value] ?? value }))
   }, [items, typeLabels])
 
@@ -499,6 +499,7 @@ export function CalendarScreen() {
         showWeekends={preferences.showWeekends}
         showConflicts={preferences.conflictWarnings}
         aiSummaries={preferences.aiSummaries}
+        canManage={canManage}
         highlightItemId={highlightItemId}
         onItemClick={openEditEditor}
         onJoin={handleJoin}

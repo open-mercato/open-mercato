@@ -5,7 +5,7 @@ import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { serializeOperationMetadata } from '@open-mercato/shared/lib/commands/operationMetadata'
 import { getOverrides } from '../../lib/queries'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -100,7 +100,7 @@ export async function PUT(req: Request) {
       toggle: { id: parsed.data.toggleId },
     })
     if (existingOverride) {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'feature_toggles.feature_toggle_override',
         resourceId: existingOverride.id,
         current: existingOverride.updatedAt ?? null,

@@ -76,11 +76,11 @@ export function scanAvailable(absSubmoduleDir) {
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .filter((name) => fs.existsSync(path.join(packagesDir, name, 'package.json')))
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
 }
 
 export function renderGenerated(activated) {
-  const sorted = [...new Set(activated)].sort()
+  const sorted = [...new Set(activated)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
   const lines = sorted.map((suffix) => `  { id: '${moduleId(suffix)}', from: '${packageName(suffix)}' },`)
   const body = lines.length ? `\n${lines.join('\n')}\n` : '\n'
   return (
@@ -118,7 +118,7 @@ export function writeConfig({ available, activated } = {}) {
     repo: typeof current.repo === 'string' && current.repo ? current.repo : DEFAULT_CONFIG.repo,
     path: typeof current.path === 'string' && current.path ? current.path : DEFAULT_CONFIG.path,
     branch: typeof current.branch === 'string' && current.branch ? current.branch : DEFAULT_CONFIG.branch,
-    available: available !== undefined ? [...new Set(asStringArray(available))].sort() : asStringArray(current.available),
+    available: available !== undefined ? [...new Set(asStringArray(available))].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)) : asStringArray(current.available),
     activated: activated !== undefined ? [...new Set(asStringArray(activated))] : asStringArray(current.activated),
   }
   const serialized = `${JSON.stringify(next, null, 2)}\n`
