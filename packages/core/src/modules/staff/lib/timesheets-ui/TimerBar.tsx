@@ -86,13 +86,12 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
   const startElapsedCounter = useCallback((startedAt: string) => {
     const startTime = new Date(startedAt).getTime()
-    const now = Date.now()
-    const initialElapsed = Math.max(0, Math.floor((now - startTime) / 1000))
-    setElapsedSeconds(initialElapsed)
+    const calcElapsed = () => Math.max(0, Math.floor((Date.now() - startTime) / 1000))
+    setElapsedSeconds(calcElapsed())
 
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1)
+      setElapsedSeconds(calcElapsed())
     }, 1000)
   }, [])
 

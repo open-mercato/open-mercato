@@ -236,7 +236,7 @@ const productBaseSchema = scoped.extend({
   gtuCodes: z
     .array(z.enum(CATALOG_GTU_CODES))
     .max(13)
-    .transform((codes) => Array.from(new Set(codes)).sort())
+    .transform((codes) => Array.from(new Set(codes)).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)))
     .nullable()
     .optional(),
   ageMin: z.coerce.number().int().min(0).max(120).nullable().optional(),

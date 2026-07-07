@@ -12,9 +12,11 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine } from '../data/entities'
+import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine, SalesShipment, SalesShipmentItem } from '../data/entities'
+import { coerceShipmentQuantity } from '../lib/shipments/snapshots'
+import { computeAvailableReturnQuantity } from '../lib/returnQuantity'
 import {
   returnCreateSchema,
   returnUpdateSchema,
@@ -541,6 +543,36 @@ async function restoreReturnEffects(
   return createdLines
 }
 
+async function loadShippedQuantityByLine(
+  em: EntityManager,
+  orderId: string,
+  scope: { tenantId: string; organizationId: string },
+): Promise<Map<string, number>> {
+  const shipments = await findWithDecryption(
+    em,
+    SalesShipment,
+    { order: orderId, deletedAt: null },
+    {},
+    scope,
+  )
+  const shippedByLine = new Map<string, number>()
+  if (!shipments.length) return shippedByLine
+  const items = await findWithDecryption(
+    em,
+    SalesShipmentItem,
+    { shipment: { $in: shipments.map((shipment) => shipment.id) } },
+    {},
+    scope,
+  )
+  items.forEach((item) => {
+    const orderLineId = typeof item.orderLine === 'string' ? item.orderLine : item.orderLine?.id ?? null
+    if (!orderLineId) return
+    const next = (shippedByLine.get(orderLineId) ?? 0) + coerceShipmentQuantity(item.quantity)
+    shippedByLine.set(orderLineId, next)
+  })
+  return shippedByLine
+}
+
 function normalizeLinesInput(lines: ReturnCreateInput['lines']): ReturnLineInput[] {
   const seen = new Set<string>()
   const result: ReturnLineInput[] = []
@@ -583,7 +615,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         throw new CrudHttpError(404, { error: translate('sales.returns.orderMissing', 'Order not found.') })
       }
       ensureSameScope(order, input.organizationId, input.tenantId)
-      enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
+      await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER)
 
       const orderLines = await findWithDecryption(
         tx,
@@ -594,14 +626,23 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
       )
       const lineMap = new Map(orderLines.map((line) => [line.id, line]))
 
+      const shippedByLine = await loadShippedQuantityByLine(tx, order.id, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+
       requested.forEach(({ orderLineId, quantity }) => {
         const line = lineMap.get(orderLineId)
         if (!line) {
           throw new CrudHttpError(404, { error: translate('sales.returns.lineMissing', 'Order line not found.') })
         }
-        const available = toNumeric(line.quantity) - toNumeric(line.returnedQuantity)
+        const available = computeAvailableReturnQuantity({
+          quantity: toNumeric(line.quantity),
+          returnedQuantity: toNumeric(line.returnedQuantity),
+          shippedQuantity: shippedByLine.get(orderLineId) ?? 0,
+        })
         if (quantity - 1e-6 > available) {
-          throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceeded', 'Cannot return more than the remaining quantity.') })
+          throw new CrudHttpError(400, { error: translate('sales.returns.quantityExceedsShipped', 'Cannot return more than the shipped quantity. Ship the items before recording a return.') })
         }
       })
 
@@ -642,7 +683,15 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         if (!line) return
         const quantity = lineInput.quantity
         const lineQuantity = Math.max(toNumeric(line.quantity), 0)
-        const unitNet = lineQuantity > 0 ? toNumeric(line.totalNetAmount) / lineQuantity : toNumeric(line.unitPriceNet)
+        // `total_net_amount = 0` while `total_gross_amount > 0` is not a representable
+        // priced state (gross = net * (1 + taxRate) ⇒ net = 0 ⇒ gross = 0). When a line
+        // carries a positive gross but a zeroed/missing net, reconstruct the net from the
+        // line's gross and tax rate so the return credits both sides and the order's net
+        // grand total moves in lockstep with gross (#3036). A genuinely free line
+        // (gross = 0, e.g. a 100% discount / comp) keeps net 0, so the return is not
+        // over-credited at the discount-ignoring unit price (#3521).
+        const lineTotalNet = deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate)
+        const unitNet = lineQuantity > 0 ? lineTotalNet / lineQuantity : toNumeric(line.unitPriceNet)
         const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
         const totalNet = -round(Math.max(unitNet, 0) * quantity)
         const totalGross = -round(Math.max(unitGross, 0) * quantity)
@@ -849,7 +898,7 @@ const updateReturnCommand: CommandHandler<ReturnUpdateInput, { returnId: string 
       }
       // Lock on the return's own version — editing header fields (reason / notes /
       // returnedAt) only touches the return, not the order totals.
-      enforceSalesDocumentOptimisticLock(ctx, entity, SALES_RESOURCE_KIND_RETURN)
+      await enforceSalesDocumentOptimisticLock(ctx, entity, SALES_RESOURCE_KIND_RETURN)
 
       if (input.reason !== undefined) entity.reason = input.reason.length ? input.reason : null
       if (input.notes !== undefined) entity.notes = input.notes.length ? input.notes : null
@@ -979,7 +1028,7 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     }
     ensureSameScope(header, input.organizationId, input.tenantId)
     // Lock on the return's own version, captured before any mutation.
-    enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
+    await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
 
     await reverseReturnEffects(em, salesCalculationService, snapshot)
 

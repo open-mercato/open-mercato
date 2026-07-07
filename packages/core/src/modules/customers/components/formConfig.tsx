@@ -51,7 +51,11 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  getCustomerDictionaryManageHref,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
@@ -115,6 +119,8 @@ type DictionarySelectFieldProps = {
   showLabelInput?: boolean
   showActiveAppearance?: boolean
 }
+
+export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -233,7 +239,7 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
-      manageHref={manageHref}
+      manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
       allowAppearance={allowAppearance}
@@ -949,6 +955,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -967,6 +974,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -995,6 +1004,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1310,6 +1321,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.companies.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -1328,6 +1340,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -1356,6 +1370,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })

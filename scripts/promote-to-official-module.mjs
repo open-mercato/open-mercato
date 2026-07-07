@@ -186,7 +186,7 @@ for (const pattern of refPatterns) {
 }
 if (refs.size > 0) {
   out(`References to review (grep: ${refPatterns.join(', ')}):`)
-  for (const file of [...refs].sort()) out(`  ${file}`)
+  for (const file of [...refs].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))) out(`  ${file}`)
 } else {
   out(`References to review: none found for ${refPatterns.join(', ')}`)
 }

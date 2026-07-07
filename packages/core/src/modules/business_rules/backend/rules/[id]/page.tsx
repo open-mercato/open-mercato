@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, useParams, usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
@@ -10,6 +10,7 @@ import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiFetch, withScopedApiHeaders } from '@open-mercato/ui/backend/utils/api'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { readJsonSafe } from '@open-mercato/ui/backend/utils/serverErrors'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -27,6 +28,7 @@ import { buildRulePayload, parseRuleToFormValues } from '../../../components/uti
 export default function EditBusinessRulePage() {
   const router = useRouter()
   const params = useParams()
+  const pathname = usePathname()
 
   // Handle catch-all route: params.slug = ['rules', 'uuid']
   let ruleId: string | undefined
@@ -101,6 +103,20 @@ export default function EditBusinessRulePage() {
   const formGroups = React.useMemo(
     () => createFormGroups(t, ConditionBuilder, ActionBuilder),
     [t]
+  )
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `business_rules.rule` + id
+  // explicitly. The resourceKind mirrors the route's `enforceCommandOptimisticLock`
+  // call so the held lock matches the save-time conflict surface for the same rule.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'business_rules.rule',
+      resourceId: ruleId ?? null,
+      updatedAt: rule?.updatedAt ?? rule?.updated_at ?? null,
+      data: (rule ?? null) as Record<string, unknown> | null,
+      path: pathname,
+    }),
   )
 
   if (isLoading) {

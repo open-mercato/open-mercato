@@ -9,8 +9,10 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { LogList, type LogListEntry } from '@open-mercato/ui/backend/LogList'
 import { Progress } from '@open-mercato/ui/primitives/progress'
+import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -89,11 +91,16 @@ function resolvePathnameId(pathname: string): string | undefined {
   return decodeURIComponent(runId)
 }
 
+const LOG_PAGE_SIZE = 50
+
 export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const pathname = usePathname()
   const router = useRouter()
   const runId = resolveRouteId(params?.id) ?? resolvePathnameId(pathname)
   const t = useT()
+  const { runMutation } = useGuardedMutation<Record<string, unknown>>({
+    contextId: 'data_sync.runDetail',
+  })
 
   const [run, setRun] = React.useState<SyncRunDetail | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
@@ -101,6 +108,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const [isNotFound, setIsNotFound] = React.useState(false)
   const [logs, setLogs] = React.useState<LogEntry[]>([])
   const [isLoadingLogs, setIsLoadingLogs] = React.useState(false)
+  const [logsTotal, setLogsTotal] = React.useState(0)
+  const [logsPage, setLogsPage] = React.useState(1)
+  const logsPageRef = React.useRef(1)
 
   const resolveCurrentRunId = React.useCallback(() => {
     return runId ?? (
@@ -136,18 +146,22 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
     setIsLoading(false)
   }, [resolveCurrentRunId, t])
 
-  const loadLogs = React.useCallback(async () => {
+  const loadLogs = React.useCallback(async (page?: number) => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
+    const targetPage = page ?? logsPageRef.current
     setIsLoadingLogs(true)
-    const params = new URLSearchParams({ runId: currentRunId, pageSize: '50' })
-    const call = await apiCall<{ items: LogEntry[] }>(
+    const params = new URLSearchParams({ runId: currentRunId, pageSize: String(LOG_PAGE_SIZE), page: String(targetPage) })
+    const call = await apiCall<{ items: LogEntry[]; total?: number }>(
       `/api/integrations/logs?${params.toString()}`,
       undefined,
-      { fallback: { items: [] } },
+      { fallback: { items: [], total: 0 } },
     )
     if (call.ok && call.result) {
       setLogs(call.result.items)
+      if (typeof call.result.total === 'number') setLogsTotal(call.result.total)
+      logsPageRef.current = targetPage
+      setLogsPage(targetPage)
     }
     setIsLoadingLogs(false)
   }, [resolveCurrentRunId])
@@ -213,32 +227,50 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
   const handleCancel = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
-      method: 'POST',
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: run lifecycle action endpoint (cancel), not a concurrent record edit
+      operation: () => apiCall(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/cancel`, {
+        method: 'POST',
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId },
+      context: {
+        operation: 'update',
+        actionId: 'cancel-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok) {
       flash(t('data_sync.runs.detail.cancelSuccess'), 'success')
       void loadRun()
     } else {
       flash(t('data_sync.runs.detail.cancelError'), 'error')
     }
-  }, [resolveCurrentRunId, t, loadRun])
+  }, [resolveCurrentRunId, runMutation, t, loadRun])
 
   const handleRetry = React.useCallback(async () => {
     const currentRunId = resolveCurrentRunId()
     if (!currentRunId) return
-    const call = await apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromBeginning: false }),
-    }, { fallback: null })
+    const call = await runMutation({
+      // optimistic-lock-exempt: starts a new retry run (create), not a concurrent record edit
+      operation: () => apiCall<{ id: string }>(`/api/data_sync/runs/${encodeURIComponent(currentRunId)}/retry`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromBeginning: false }),
+      }, { fallback: null }),
+      mutationPayload: { runId: currentRunId, fromBeginning: false },
+      context: {
+        operation: 'create',
+        actionId: 'retry-sync-run',
+        runId: currentRunId,
+      },
+    })
     if (call.ok && call.result) {
       flash(t('data_sync.runs.detail.retrySuccess'), 'success')
       router.push(`/backend/data-sync/runs/${encodeURIComponent(call.result.id)}`)
     } else {
       flash(t('data_sync.runs.detail.retryError'), 'error')
     }
-  }, [resolveCurrentRunId, router, t])
+  }, [resolveCurrentRunId, router, runMutation, t])
 
   if (isLoading) return <Page><PageBody><LoadingMessage label={t('data_sync.runs.detail.title')} /></PageBody></Page>
   if (isNotFound) {
@@ -408,6 +440,15 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   ),
                 }))}
                 emptyMessage={t('data_sync.runs.detail.noLogs')}
+              />
+            )}
+            {logsTotal > LOG_PAGE_SIZE && (
+              <Pagination
+                className="mt-4"
+                page={logsPage}
+                pageSize={LOG_PAGE_SIZE}
+                total={logsTotal}
+                onPageChange={(next) => { void loadLogs(next) }}
               />
             )}
           </CardContent>

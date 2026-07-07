@@ -43,6 +43,24 @@
           "nullable": true,
           "mappedType": "json"
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -68,15 +86,34 @@
       "schema": "public",
       "indexes": [
         {
-          "keyName": "module_configs_module_name_unique",
+          "keyName": "module_configs_global_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"module_configs_global_unique\" on \"module_configs\" (\"module_id\", \"name\") where \"tenant_id\" is null"
+        },
+        {
+          "keyName": "module_configs_scoped_unique",
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false,
+          "expression": "create unique index \"module_configs_scoped_unique\" on \"module_configs\" (\"module_id\", \"name\", \"tenant_id\") where \"tenant_id\" is not null"
+        },
+        {
+          "keyName": "module_configs_module_name_tenant_idx",
           "columnNames": [
             "module_id",
-            "name"
+            "name",
+            "tenant_id"
           ],
           "composite": true,
-          "constraint": true,
+          "constraint": false,
           "primary": false,
-          "unique": true
+          "unique": false
         },
         {
           "keyName": "module_configs_pkey",

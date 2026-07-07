@@ -1,7 +1,6 @@
 import { notFound, redirect } from 'next/navigation'
 import Link from 'next/link'
 import { findRouteManifestMatch, getFrontendRouteManifests, registerFrontendRouteManifests } from '@open-mercato/shared/modules/registry'
-import { bootstrap } from '@/bootstrap'
 import { frontendRoutes } from '@/.mercato/generated/frontend-routes.generated'
 import { getAuthFromCookies } from '@open-mercato/shared/lib/auth/server'
 import { AccessDeniedMessage } from '@open-mercato/ui/backend/detail'
@@ -15,10 +14,14 @@ import { resolveLocalizedTitleMetadata } from '@/lib/metadata'
 import { resolvePageMiddlewareRedirect } from '@open-mercato/shared/lib/middleware/page-executor'
 import { frontendMiddlewareEntries } from '@/.mercato/generated/frontend-middleware.generated'
 
-bootstrap()
 registerFrontendRouteManifests(frontendRoutes)
 
 type FrontendParams = { params: Promise<{ slug: string[] }> }
+
+async function ensureServerBootstrap() {
+  const { bootstrap } = await import('@/bootstrap')
+  bootstrap()
+}
 
 async function renderAccessDenied() {
   const { translate } = await resolveTranslations()
@@ -67,6 +70,7 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     }
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {
+      await ensureServerBootstrap()
       const portalContainer = await createRequestContainer()
       const customerRbac = portalContainer.resolve('customerRbacService') as CustomerRbacService
       const ok = await customerRbac.userHasAllFeatures(
@@ -85,6 +89,7 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
   let container: Awaited<ReturnType<typeof createRequestContainer>> | null = null
   const ensureContainer = async () => {
     if (!container) {
+      await ensureServerBootstrap()
       container = await createRequestContainer()
     }
     return container

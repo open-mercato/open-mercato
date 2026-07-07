@@ -107,8 +107,8 @@ function valuesEqual(left: unknown, right: unknown): boolean {
     !Array.isArray(left) &&
     !Array.isArray(right)
   ) {
-    const leftKeys = Object.keys(left as Record<string, unknown>).sort()
-    const rightKeys = Object.keys(right as Record<string, unknown>).sort()
+    const leftKeys = Object.keys(left as Record<string, unknown>).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
+    const rightKeys = Object.keys(right as Record<string, unknown>).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     if (!valuesEqual(leftKeys, rightKeys)) return false
     return leftKeys.every((key) => valuesEqual(
       (left as Record<string, unknown>)[key],

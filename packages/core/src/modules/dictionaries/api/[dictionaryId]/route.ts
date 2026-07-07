@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { Dictionary } from '@open-mercato/core/modules/dictionaries/data/entities'
 import { resolveDictionariesRouteContext, resolveDictionaryActorId } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -115,7 +115,7 @@ export async function PATCH(req: Request, ctx: { params?: { dictionaryId?: strin
     const payload = updateSchema.parse(await req.json().catch(() => ({})))
     const dictionary = await loadDictionary(context, dictionaryId)
 
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(context.container, {
       resourceKind: 'dictionaries.dictionary',
       resourceId: dictionary.id,
       current: dictionary.updatedAt ?? null,
@@ -235,6 +235,13 @@ export async function DELETE(req: Request, ctx: { params?: { dictionaryId?: stri
     const context = await resolveDictionariesRouteContext(req)
     const { dictionaryId } = paramsSchema.parse({ dictionaryId: ctx.params?.dictionaryId })
     const dictionary = await loadDictionary(context, dictionaryId)
+
+    await enforceCommandOptimisticLockWithGuards(context.container, {
+      resourceKind: 'dictionaries.dictionary',
+      resourceId: dictionary.id,
+      current: dictionary.updatedAt ?? null,
+      request: req,
+    })
 
     const guardUserId = resolveDictionaryActorId(context.auth)
     const guardResult = await validateCrudMutationGuard(context.container, {

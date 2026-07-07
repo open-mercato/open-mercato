@@ -1,4 +1,3 @@
-import './commands/todos'
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
 
 export const metadata: ModuleInfo = {

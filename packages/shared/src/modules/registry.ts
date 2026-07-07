@@ -56,6 +56,8 @@ export type PageMetadata = {
   // Ordering and visuals
   order?: number
   pageOrder?: number
+  priority?: number
+  pagePriority?: number
   icon?: ReactNode
   navHidden?: boolean
   // Dynamic flags
@@ -123,6 +125,8 @@ export type ModuleRoute = {
   Component: (props: any) => ReactNode | Promise<ReactNode>
 }
 
+export type ModuleRouteMetadata = Omit<ModuleRoute, 'Component'>
+
 export type ModuleApiLegacy = {
   method: HttpMethod
   path: string
@@ -174,6 +178,7 @@ export type ModuleCli = {
 
 export type ModuleSubscriber = {
   id: string
+  moduleId?: string
   event: string
   persistent?: boolean
   sync?: boolean
@@ -183,6 +188,7 @@ export type ModuleSubscriber = {
 
 export type ModuleWorker = {
   id: string
+  moduleId?: string
   queue: string
   concurrency: number
   handler: ModuleWorkerHandler
@@ -313,12 +319,10 @@ export function matchRoutePattern(pattern: string, pathname: string): RouteMatch
       const key = mCatchAll[1]
       if (i >= uSegs.length) return undefined
       params[key] = uSegs.slice(i)
-      i = uSegs.length
-      return i === uSegs.length ? params : undefined
+      return params
     } else if (mOptCatch) {
       const key = mOptCatch[1]
       params[key] = i < uSegs.length ? uSegs.slice(i) : []
-      i = uSegs.length
       return params
     } else if (mDyn) {
       if (i >= uSegs.length) return undefined
@@ -398,6 +402,31 @@ export function findApiRouteManifestMatch<T extends { path: string; methods: Htt
     if (params) {
       return { route, params }
     }
+  }
+}
+
+export function resolvePageRouteMetadata(pattern: string, metadata: PageMetadata | null | undefined): ModuleRouteMetadata {
+  return {
+    pattern: pattern || '/',
+    requireAuth: metadata?.requireAuth,
+    requireRoles: metadata?.requireRoles ? [...metadata.requireRoles] : undefined,
+    requireFeatures: metadata?.requireFeatures ? [...metadata.requireFeatures] : undefined,
+    requireCustomerAuth: metadata?.requireCustomerAuth,
+    requireCustomerFeatures: metadata?.requireCustomerFeatures ? [...metadata.requireCustomerFeatures] : undefined,
+    nav: metadata?.nav,
+    title: metadata?.pageTitle ?? metadata?.title,
+    titleKey: metadata?.pageTitleKey ?? metadata?.titleKey,
+    group: metadata?.pageGroup ?? metadata?.group,
+    groupKey: metadata?.pageGroupKey ?? metadata?.groupKey,
+    icon: metadata?.icon,
+    order: metadata?.pageOrder ?? metadata?.order,
+    priority: metadata?.pagePriority ?? metadata?.priority,
+    navHidden: metadata?.navHidden,
+    visible: metadata?.visible,
+    enabled: metadata?.enabled,
+    breadcrumb: metadata?.breadcrumb,
+    pageContext: metadata?.pageContext,
+    placement: metadata?.placement,
   }
 }
 

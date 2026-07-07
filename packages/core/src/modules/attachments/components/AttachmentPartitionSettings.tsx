@@ -24,6 +24,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -257,6 +258,7 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
       await loadItems()
     } catch (err) {
       console.error('[attachments.partitions] save failed', err)
+      if (surfaceRecordConflict(err, t)) return
       const message =
         err instanceof Error ? err.message : t('attachments.partitions.errors.save', 'Failed to save partition.')
       setError(message)
@@ -294,6 +296,7 @@ export function AttachmentPartitionSettings({ s3Enabled }: AttachmentPartitionSe
         await loadItems()
       } catch (err) {
         console.error('[attachments.partitions] delete failed', err)
+        if (surfaceRecordConflict(err, t)) return
         flash(t('attachments.partitions.errors.delete', 'Failed to delete partition.'), 'error')
       }
     },
