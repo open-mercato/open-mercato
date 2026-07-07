@@ -65,6 +65,13 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 - [x] 4.1 `RELEASE_NOTES.md` deprecation + widened-artifact note; spec reconciled — db2f8dd3f
 - [x] 4.2 Full validation gate green (build:packages ✓✓, generate ✓ deterministic, i18n ✓✓, typecheck ✓, build:app ✓; test ✓ except 2 pre-existing locale failures untouched by this diff: ui `format.test.ts`, core `DealsKpiStrip.test.tsx`)
 
+### Phase 5: reframe — drop the committed monorepo artifact (auto-continue-pr, 2026-07-07)
+
+- [x] 5.1 Remove committed `apps/mercato/src/module-facts.generated.json` + `generateModuleFacts` wrapper (`module-facts-generate.ts`), its `mercato.ts` `yarn generate` call site, and the `generators/index.ts` re-export — 512f98ceb
+- [x] 5.2 Remove dead registry-driven `discoverEnabledModuleSources` (keep `discoverPackageModuleSources` / `hasReadableModuleSource` / `dedupeById` / `ModuleFactSource`); fix the `MODULE_FACTS_ALLOWLIST` `@deprecated` JSDoc reference — 512f98ceb
+- [x] 5.3 Rewrite `module-facts.discovery.test.ts` onto `discoverPackageModuleSources`; trim `generateModuleFacts` mocks from `mercato.test.ts` — 512f98ceb
+- [x] 5.4 Docs: spec Reframe section + changelog, RELEASE_NOTES rewrite, analysis note; validation gate (cli typecheck ✓, cli suite 1172 ✓, create-app 72 ✓, build:packages 21/21 ✓ incl. 53 bundled sheets, generate ✓ file not recreated + zero drift, i18n:check-sync ✓, full typecheck 21/21 ✓) — 0d963c938
+
 ## Result
 
 All phases complete. Gate green modulo 2 pre-existing locale-dependent test failures outside the diff. Ready for review.
