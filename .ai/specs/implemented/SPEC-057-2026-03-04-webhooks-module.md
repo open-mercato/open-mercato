@@ -1104,6 +1104,8 @@ Phase 1 implements `HttpDeliveryStrategy`. Phase 2 adds `SqsDeliveryStrategy` an
 
 This endpoint receives webhooks from external systems. The `endpointId` resolves to a configured inbound endpoint (registered via `WebhookEndpointAdapter`).
 
+Inbound adapters remain responsible for provider-specific signature verification, including any provider-specific timestamp/staleness rules. The shared route also rejects stale Standard Webhooks/Svix timestamp headers (`webhook-timestamp` / `svix-timestamp`) before persisting an inbound receipt, using the shared Standard Webhooks tolerance by default and `OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS` when a deployment needs a wider replay window.
+
 ```typescript
 // api/inbound/[endpointId]/route.ts
 

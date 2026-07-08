@@ -4,8 +4,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { isWebhookTimestampWithinTolerance, WEBHOOK_SIGNATURE_TOLERANCE_SECONDS } from '@open-mercato/shared/lib/webhooks'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
 import { isWebhookIntegrationEnabled } from '../../../lib/integration-state'
@@ -26,6 +28,8 @@ const inboundResponseSchema = z.object({
 })
 
 const errorSchema = z.object({ error: z.string() })
+const INBOUND_TIMESTAMP_TOLERANCE_ENV = 'OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS'
+const STALE_TIMESTAMP_ERROR = 'Webhook timestamp is outside the allowed replay window'
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const params = await context.params
@@ -53,6 +57,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 
   const body = await request.text()
   const headers = Object.fromEntries(request.headers.entries())
+  if (!isInboundWebhookTimestampFresh(headers)) {
+    return json({ error: STALE_TIMESTAMP_ERROR }, { status: 400 })
+  }
+
   let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
   try {
     verified = await adapter.verifyWebhook({
@@ -122,7 +130,7 @@ export const openApi: OpenApiRouteDoc = {
       pathParams: z.object({ endpointId: z.string().min(1) }),
       responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
       errors: [
-        { status: 400, description: 'Verification failed', schema: errorSchema },
+        { status: 400, description: 'Verification failed or stale webhook timestamp', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },
         { status: 429, description: 'Rate limit exceeded', schema: errorSchema },
         { status: 503, description: 'Webhook integration disabled', schema: errorSchema },
@@ -145,6 +153,24 @@ function isUniqueViolation(error: unknown): boolean {
   if (maybeError.code === '23505') return true
   if (!maybeError.cause || typeof maybeError.cause !== 'object') return false
   return (maybeError.cause as { code?: string }).code === '23505'
+}
+
+function isInboundWebhookTimestampFresh(headers: Record<string, string>): boolean {
+  const timestamps = [
+    headers['webhook-timestamp'],
+    headers['svix-timestamp'],
+  ].filter((timestamp): timestamp is string => typeof timestamp === 'string' && timestamp.trim().length > 0)
+
+  if (timestamps.length === 0) {
+    return true
+  }
+
+  const toleranceSeconds = parseNumberWithDefault(
+    process.env[INBOUND_TIMESTAMP_TOLERANCE_ENV],
+    WEBHOOK_SIGNATURE_TOLERANCE_SECONDS,
+    { integer: true, min: 0 },
+  )
+  return timestamps.every((timestamp) => isWebhookTimestampWithinTolerance(timestamp.trim(), toleranceSeconds))
 }
 
 type ResolveInboundReceiptMessageIdInput = {

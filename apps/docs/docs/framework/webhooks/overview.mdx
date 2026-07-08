@@ -111,6 +111,12 @@ Webhooks support pattern-based event subscriptions:
 | `POST` | `/api/webhooks/deliveries/:id/retry` | Retry failed delivery |
 | `GET` | `/api/webhooks/events` | List available event types |
 
+## Inbound Replay Protection
+
+Inbound webhook adapters must verify provider-specific signatures and any provider-specific timestamp rules before returning a verified event. The shared inbound route adds a provider-neutral backstop for Standard Webhooks and Svix-style timestamp headers: when `webhook-timestamp` or `svix-timestamp` is present, requests outside the replay window are rejected before the inbound receipt is persisted or emitted.
+
+The default replay window is 5 minutes. Set `OM_WEBHOOKS_INBOUND_TIMESTAMP_TOLERANCE_SECONDS` when a deployment needs to accept a wider delay.
+
 ## Verifying Webhooks (Consumer Guide)
 
 If you're building a service that receives webhooks from Open Mercato, verify the signature to ensure authenticity:
