@@ -51,12 +51,12 @@
 
 ### Phase 1: Server-resolve the API base URL
 
-- [ ] 1.1 apps/mercato: pass server-resolved apiBaseUrl into StartPageContent
-- [ ] 1.2 create-app template: mirror the same fix
+- [x] 1.1 apps/mercato: pass server-resolved apiBaseUrl into StartPageContent — 280a7e6de
+- [x] 1.2 create-app template: mirror the same fix — 280a7e6de
 
 ### Phase 2: Tests
 
-- [ ] 2.1 Unit test: StartPageContent renders the apiBaseUrl prop
+- [x] 2.1 Unit test: StartPageContent renders the apiBaseUrl prop — cb27ff8ce
 
 ### Phase 3: Validation and PR
 
