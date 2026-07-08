@@ -82,7 +82,11 @@ with_csv=""
 tiers_csv=""
 list_only=0
 clean_only=0
-no_external="${OM_SKIP_EXTERNAL_SKILLS:-0}"
+# Any non-empty value other than "0" skips the external npx step.
+case "${OM_SKIP_EXTERNAL_SKILLS:-0}" in
+  ""|0) no_external=0 ;;
+  *) no_external=1 ;;
+esac
 
 set_mode() {
   new_mode="$1"

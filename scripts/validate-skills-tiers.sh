@@ -7,8 +7,11 @@ set -eu
 #   1. tiers.json is valid JSON.
 #   2. `default` is non-empty and every entry names a defined tier.
 #   3. Every folder under .ai/skills/ that contains a SKILL.md file is
-#      assigned to exactly one tier.
+#      assigned to exactly one tier — unless its name is listed in
+#      `external.skills`, in which case it is a repo-local override of an
+#      externally installed skill and must NOT be tiered.
 #   4. No skill is assigned to more than one tier.
+#   5. No name appears both in a tier and in `external.skills`.
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "validate-skills-tiers: jq is required but not installed." >&2
