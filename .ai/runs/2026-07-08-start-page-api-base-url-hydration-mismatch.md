@@ -60,4 +60,4 @@
 
 ### Phase 3: Validation and PR
 
-- [ ] 3.1 Full validation gate, self-review, PR opened
+- [x] 3.1 Full validation gate, self-review, PR opened — PR #3995
