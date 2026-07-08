@@ -570,3 +570,31 @@ export function createLazyModuleWorker(
     return handler(job, ctx)
   }
 }
+
+function unwrapTranslationModule(loaded: unknown): Record<string, string> {
+  const candidate = loaded as { default?: Record<string, string> } | null
+  return (candidate?.default ?? candidate ?? {}) as Record<string, string>
+}
+
+export function createTranslationsLoader(
+  ...loadBundles: Array<() => Promise<unknown>>
+): () => Promise<Record<string, string>> {
+  return async () => {
+    const results = await Promise.allSettled(loadBundles.map((load) => load()))
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<unknown> => result.status === 'fulfilled'
+    )
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    )
+    if (!fulfilled.length && rejected.length) throw rejected[0].reason
+    for (const failure of rejected) {
+      console.warn('[i18n] failed to load a module translations bundle', failure.reason)
+    }
+    const merged: Record<string, string> = {}
+    for (const result of fulfilled) {
+      Object.assign(merged, unwrapTranslationModule(result.value))
+    }
+    return merged
+  }
+}

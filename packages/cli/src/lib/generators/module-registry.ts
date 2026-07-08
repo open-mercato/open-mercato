@@ -38,6 +38,7 @@ import {
   optionalPropertyAccess,
   parenthesized,
   propertyAccess,
+  renderExpressionText,
   spreadExpression,
   type GeneratedObjectEntry,
   variableStatement,
@@ -1903,15 +1904,6 @@ async function processWorkers(options: {
   return workers
 }
 
-function buildTranslationLoaderExpression(importPaths: string[]): string {
-  const unwrap = (name: string) => `((${name}.default ?? ${name}) as unknown as Record<string, string>)`
-  if (importPaths.length === 1) {
-    return `() => ${buildDynamicImportExpression(importPaths[0])}.then((dict) => ${unwrap('dict')})`
-  }
-  const imports = importPaths.map((importPath) => buildDynamicImportExpression(importPath)).join(', ')
-  return `() => Promise.all([${imports}]).then(([coreDict, appDict]) => ({ ...${unwrap('coreDict')}, ...${unwrap('appDict')} }))`
-}
-
 function processTranslations(options: {
   roots: ModuleRoots
   modId: string
@@ -1937,7 +1929,7 @@ function processTranslations(options: {
     if (coreHas) importPaths.push(`${pkgImportBase}/i18n/${locale}.json`)
     if (appHas) importPaths.push(`${appImportBase}/i18n/${locale}.json`)
     if (!importPaths.length) continue
-    translations.push(`'${locale}': ${buildTranslationLoaderExpression(importPaths)}`)
+    translations.push(`'${locale}': ${renderExpressionText(buildTranslationLoaderAst(importPaths))}`)
   }
   return translations
 }
@@ -2151,6 +2143,7 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
+      { name: 'createTranslationsLoader' },
       { name: 'Module', isTypeOnly: true },
     ],
   })
@@ -2266,7 +2259,7 @@ function renderAstLegacyModuleRegistryOutput(options: {
 }): string {
   const importSection = [
     ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
+    "import { createLazyModuleSubscriber, createLazyModuleWorker, createTranslationsLoader, type Module } from '@open-mercato/shared/modules/registry'",
     ...options.imports.map((entry) => serializeGeneratedImport(entry)),
   ].join('\n')
 
@@ -2624,44 +2617,13 @@ async function processWorkersAst(options: {
   return workers
 }
 
-function unwrapTranslationModuleAst(paramName: string): WriterFunction {
-  return parenthesized(
-    asExpression(
-      parenthesized(
-        nullishCoalesce([propertyAccess(identifier(paramName), 'default'), identifier(paramName)]),
-      ),
-      'unknown as Record<string, string>',
+function buildTranslationLoaderAst(importPaths: string[]): WriterFunction {
+  return callExpression(
+    identifier('createTranslationsLoader'),
+    importPaths.map((importPath) =>
+      arrowFunction({ body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)) }),
     ),
   )
-}
-
-function buildTranslationLoaderAst(importPaths: string[]): WriterFunction {
-  if (importPaths.length === 1) {
-    return arrowFunction({
-      body: methodCall(importExpression(importPaths[0]), 'then', [
-        arrowFunction({ parameters: ['dict'], body: unwrapTranslationModuleAst('dict') }),
-      ]),
-    })
-  }
-  return arrowFunction({
-    body: methodCall(
-      callExpression(propertyAccess(identifier('Promise'), 'all'), [
-        arrayLiteral(importPaths, (writer, importPath) => importExpression(importPath)(writer)),
-      ]),
-      'then',
-      [
-        arrowFunction({
-          parameters: ['[coreDict, appDict]'],
-          body: parenthesized(
-            objectLiteral([
-              { kind: 'spread', value: unwrapTranslationModuleAst('coreDict') },
-              { kind: 'spread', value: unwrapTranslationModuleAst('appDict') },
-            ]),
-          ),
-        }),
-      ],
-    ),
-  })
 }
 
 function processTranslationsAst(options: {
