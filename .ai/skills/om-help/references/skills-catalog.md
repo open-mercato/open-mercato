@@ -1,6 +1,8 @@
 # Skills Catalog
 
 > All `om-*` skills organized by tier. Load this file when answering "what skill should I use?" or "what comes next?".
+>
+> Note: many pipeline skills (code review, auto-create/review PR, merge buddy, spec writing, changelog, …) are installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection into `.agents/skills/` by `yarn install-skills` — see the `external` block in `.ai/skills/tiers.json`. Skill names below stay valid regardless of source; the external collection also adds `om-auto-fix-issue`, `om-setup-agent-pipeline`, and `om-stabilize-ci`.
 
 ## Table of Contents
 

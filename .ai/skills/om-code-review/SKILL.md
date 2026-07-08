@@ -31,7 +31,7 @@ Classify each changed file by Open Mercato layer: API route, entity, validator, 
 
 ## Frontend performance gate
 
-The shared skill's UI Performance Gate applies with these Open Mercato specifics: watch for backend pages that turn server components into client components, route entry points that import heavy editors/calendars/graphs eagerly instead of dynamic islands, and global providers importing route-specific SDKs. `om-ds-guardian` and `om-backend-ui-design` (local skills) define the DS/UI conventions the diff must follow.
+The shared skill's UI Performance Gate applies with these Open Mercato specifics: run `yarn check:client-boundaries` when the diff touches web routes, providers, or the app shell (the "use client" boundary ledger — see the Frontend Architecture Contract at `.ai/skills/om-spec-writing/references/frontend-architecture-contract.md`); watch for backend pages that turn server components into client components, route entry points that import heavy editors/calendars/graphs eagerly instead of dynamic islands, and global providers importing route-specific SDKs. `om-ds-guardian` and `om-backend-ui-design` (local skills) define the DS/UI conventions the diff must follow.
 
 ## Severity taxonomy
 
