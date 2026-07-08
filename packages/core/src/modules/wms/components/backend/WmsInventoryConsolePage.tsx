@@ -46,6 +46,7 @@ import {
   resolveCatalogVariantLabel,
   resolveWarehouseLabel,
 } from './inventoryMutationLoaders'
+import { mergeLabelCacheEntries } from './wmsLookupLoaders'
 import {
   useWmsInventoryScopeFromSearchParams,
   type WmsLowStockFilter,
@@ -410,6 +411,24 @@ function InventoryScopeBar({
     return () => { cancelled = true }
   }, [variantId])
 
+  // `mergeLabelCacheEntries` bails out with the same object reference when the
+  // fetched options are already cached. Without that guard, every suggestion
+  // fetch would produce a fresh object identity and re-render this component,
+  // which recreates `loadSuggestions` and retriggers ComboboxInput's own
+  // suggestion-fetch effect — looping indefinitely and starving the other
+  // field's suggestions from ever loading.
+  const loadWarehouseSuggestions = React.useCallback(async (query?: string) => {
+    const options = await loadWarehouseOptions(query)
+    setWarehouseLabelCache((c) => mergeLabelCacheEntries(c, options))
+    return options.map((o) => ({ value: o.value, label: o.label }))
+  }, [])
+
+  const loadVariantSuggestions = React.useCallback(async (query?: string) => {
+    const options = await loadCatalogVariantOptions(query)
+    setVariantLabelCache((c) => mergeLabelCacheEntries(c, options))
+    return options.map((o) => ({ value: o.value, label: o.label }))
+  }, [])
+
   const hasScope = warehouseId.trim() || variantId.trim()
 
   return (
@@ -424,15 +443,7 @@ function InventoryScopeBar({
         <ComboboxInput
           value={warehouseId}
           onChange={(next) => onWarehouseChange(next.trim())}
-          loadSuggestions={async (query) => {
-            const options = await loadWarehouseOptions(query)
-            setWarehouseLabelCache((c) => {
-              const updated = { ...c }
-              for (const o of options) updated[o.value] = o.label
-              return updated
-            })
-            return options.map((o) => ({ value: o.value, label: o.label }))
-          }}
+          loadSuggestions={loadWarehouseSuggestions}
           resolveLabel={(value) => warehouseLabelCache[value] ?? value}
           placeholder={t('wms.backend.inventory.console.scopeBar.allWarehouses', 'All warehouses')}
           allowCustomValues={false}
@@ -446,15 +457,7 @@ function InventoryScopeBar({
         <ComboboxInput
           value={variantId}
           onChange={(next) => onVariantChange(next.trim())}
-          loadSuggestions={async (query) => {
-            const options = await loadCatalogVariantOptions(query)
-            setVariantLabelCache((c) => {
-              const updated = { ...c }
-              for (const o of options) updated[o.value] = o.label
-              return updated
-            })
-            return options.map((o) => ({ value: o.value, label: o.label }))
-          }}
+          loadSuggestions={loadVariantSuggestions}
           resolveLabel={(value) => variantLabelCache[value] ?? value}
           placeholder={t('wms.backend.inventory.console.scopeBar.allVariants', 'All SKUs')}
           allowCustomValues={false}

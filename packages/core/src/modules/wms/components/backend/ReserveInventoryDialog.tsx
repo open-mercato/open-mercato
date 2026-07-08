@@ -81,11 +81,18 @@ export function ReserveInventoryDialog({
   const mutationContext = React.useMemo(() => ({ retryLastMutation }), [retryLastMutation])
 
   const [warehouseId, setWarehouseId] = React.useState(initialWarehouseId)
-  const [warehouseLabelCache, setWarehouseLabelCache] = React.useState<Record<string, string>>({})
   const [catalogVariantId, setCatalogVariantId] = React.useState(initialCatalogVariantId)
-  const [variantLabelCache, setVariantLabelCache] = React.useState<Record<string, string>>({})
   const [lotId, setLotId] = React.useState('')
-  const [lotLabelCache, setLotLabelCache] = React.useState<Record<string, string>>({})
+  // Plain refs (not state): these caches only memoize already-resolved labels
+  // for the async `resolveLabel`/`loadSuggestions` callbacks below. Mutating
+  // them in place — instead of `setState` with a freshly spread object every
+  // fetch — keeps those callbacks referentially stable across renders, which
+  // in turn keeps ComboboxInput's internal suggestion-fetch effect from
+  // retriggering itself forever (a new object identity on every keystroke's
+  // suggestion fetch previously caused an infinite refetch loop).
+  const warehouseLabelCacheRef = React.useRef<Record<string, string>>({})
+  const variantLabelCacheRef = React.useRef<Record<string, string>>({})
+  const lotLabelCacheRef = React.useRef<Record<string, string>>({})
   const [serialNumber, setSerialNumber] = React.useState('')
   const [quantity, setQuantity] = React.useState<string>('1')
   const [sourceType, setSourceType] = React.useState<ReserveSourceType>('manual')
@@ -138,6 +145,51 @@ export function ReserveInventoryDialog({
       cancelled = true
     }
   }, [catalogVariantId, open])
+
+  const loadWarehouseSuggestions = React.useCallback(async (query?: string) => {
+    const options = await loadWarehouseOptions(query)
+    for (const option of options) warehouseLabelCacheRef.current[option.value] = option.label
+    return options
+  }, [])
+
+  const resolveWarehouseComboboxLabel = React.useCallback(async (value: string) => {
+    const cached = warehouseLabelCacheRef.current[value]
+    if (cached) return cached
+    const label = await resolveWarehouseLabel(value)
+    if (label) warehouseLabelCacheRef.current[value] = label
+    return label ?? value
+  }, [])
+
+  const loadVariantSuggestions = React.useCallback(async (query?: string) => {
+    const options = await loadCatalogVariantOptions(query)
+    for (const option of options) variantLabelCacheRef.current[option.value] = option.label
+    return options
+  }, [])
+
+  const resolveVariantComboboxLabel = React.useCallback(async (value: string) => {
+    const cached = variantLabelCacheRef.current[value]
+    if (cached) return cached
+    const label = await resolveCatalogVariantLabel(value)
+    if (label) variantLabelCacheRef.current[value] = label
+    return label ?? value
+  }, [])
+
+  const loadLotSuggestions = React.useCallback(
+    async (query?: string) => {
+      const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
+      for (const option of options) lotLabelCacheRef.current[option.value] = option.label
+      return options
+    },
+    [catalogVariantId],
+  )
+
+  const resolveLotComboboxLabel = React.useCallback(async (value: string) => {
+    const cached = lotLabelCacheRef.current[value]
+    if (cached) return cached
+    const label = await resolveLotNumberFromId(value)
+    if (label) lotLabelCacheRef.current[value] = label
+    return label ?? value
+  }, [])
 
   const handleSubmit = React.useCallback(
     async (event?: React.FormEvent) => {
@@ -295,21 +347,8 @@ export function ReserveInventoryDialog({
                   setWarehouseId(next.trim())
                   setFieldErrors((e) => ({ ...e, warehouseId: '' }))
                 }}
-                loadSuggestions={async (query) => {
-                  const options = await loadWarehouseOptions(query)
-                  setWarehouseLabelCache((c) => {
-                    const updated = { ...c }
-                    for (const o of options) updated[o.value] = o.label
-                    return updated
-                  })
-                  return options
-                }}
-                resolveLabel={async (value) => {
-                  if (warehouseLabelCache[value]) return warehouseLabelCache[value]
-                  const label = await resolveWarehouseLabel(value)
-                  if (label) setWarehouseLabelCache((c) => ({ ...c, [value]: label }))
-                  return label ?? value
-                }}
+                loadSuggestions={loadWarehouseSuggestions}
+                resolveLabel={resolveWarehouseComboboxLabel}
                 placeholder={t(
                   'wms.backend.inventory.reserve.fields.warehousePlaceholder',
                   'Select warehouse…',
@@ -332,21 +371,8 @@ export function ReserveInventoryDialog({
                   setSerialNumber('')
                   setFieldErrors((e) => ({ ...e, catalogVariantId: '' }))
                 }}
-                loadSuggestions={async (query) => {
-                  const options = await loadCatalogVariantOptions(query)
-                  setVariantLabelCache((c) => {
-                    const updated = { ...c }
-                    for (const o of options) updated[o.value] = o.label
-                    return updated
-                  })
-                  return options
-                }}
-                resolveLabel={async (value) => {
-                  if (variantLabelCache[value]) return variantLabelCache[value]
-                  const label = await resolveCatalogVariantLabel(value)
-                  if (label) setVariantLabelCache((c) => ({ ...c, [value]: label }))
-                  return label ?? value
-                }}
+                loadSuggestions={loadVariantSuggestions}
+                resolveLabel={resolveVariantComboboxLabel}
                 placeholder={t(
                   'wms.backend.inventory.reserve.fields.variantPlaceholder',
                   'Search SKU or name…',
@@ -415,21 +441,8 @@ export function ReserveInventoryDialog({
                     setLotId(next.trim())
                     setFieldErrors((e) => ({ ...e, lotId: '' }))
                   }}
-                  loadSuggestions={async (query) => {
-                    const options = await loadLotNumberOptions(catalogVariantId.trim(), query)
-                    setLotLabelCache((c) => {
-                      const updated = { ...c }
-                      for (const o of options) updated[o.value] = o.label
-                      return updated
-                    })
-                    return options
-                  }}
-                  resolveLabel={async (value) => {
-                    if (lotLabelCache[value]) return lotLabelCache[value]
-                    const label = await resolveLotNumberFromId(value)
-                    if (label) setLotLabelCache((c) => ({ ...c, [value]: label }))
-                    return label ?? value
-                  }}
+                  loadSuggestions={loadLotSuggestions}
+                  resolveLabel={resolveLotComboboxLabel}
                   placeholder={t(
                     trackingProfile?.trackLot
                       ? 'wms.backend.inventory.reserve.fields.lotRequiredPlaceholder'
