@@ -122,6 +122,12 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
     return
   }
 
+  if (!scope.tenantId && organizationId && ctx.auth && !isSuperAdmin) {
+    const currentOrg = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+    logScopeViolation(ctx, organizationId, currentOrg)
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+
   if (
     isOrganizationAccessAllowed({
       isSuperAdmin,
@@ -138,8 +144,16 @@ export function ensureOrganizationScope(ctx: CommandRuntimeContext, organization
 }
 
 export function ensureTenantScope(ctx: CommandRuntimeContext, tenantId: string): void {
+  const isSuperAdmin = ctx.auth?.isSuperAdmin === true
   const currentTenant = ctx.auth?.tenantId ?? null
-  if (currentTenant && currentTenant !== tenantId) {
+  if (!currentTenant) {
+    if (tenantId && ctx.auth && !isSuperAdmin) {
+      logTenantScopeViolation(ctx, tenantId, currentTenant)
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    return
+  }
+  if (currentTenant !== tenantId) {
     logTenantScopeViolation(ctx, tenantId, currentTenant)
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }

@@ -17,7 +17,15 @@ import {
   type StaffTeamRoleUpdateInput,
 } from '../data/validators'
 import { staffTeamRoleCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopeForDecryption,
+} from './shared'
 import { E } from '#generated/entities.ids.generated'
 
 const teamRoleCrudIndexer: CrudIndexerConfig<StaffTeamRole> = {
@@ -100,6 +108,7 @@ const createTeamRoleCommand: CommandHandler<StaffTeamRoleCreateInput, { roleId: 
     const { parsed, custom } = parseWithCustomFields(staffTeamRoleCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     if (parsed.teamId) {
@@ -230,12 +239,13 @@ const updateTeamRoleCommand: CommandHandler<StaffTeamRoleUpdateInput, { roleId: 
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamRoleUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const role = await findOneWithDecryption(
       em,
       StaffTeamRole,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTeamRole>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!role) throw new CrudHttpError(404, { error: 'Team role not found.' })
     ensureTenantScope(ctx, role.tenantId)
@@ -378,12 +388,13 @@ const deleteTeamRoleCommand: CommandHandler<{ id?: string }, { roleId: string }>
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Role id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const role = await findOneWithDecryption(
       em,
       StaffTeamRole,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTeamRole>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!role) throw new CrudHttpError(404, { error: 'Team role not found.' })
     ensureTenantScope(ctx, role.tenantId)

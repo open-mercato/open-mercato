@@ -27,7 +27,15 @@ import {
   type StaffTimeProjectMemberUpdateInput,
 } from '../data/validators'
 import { staffTimeProjectCrudEvents, staffTimeProjectMemberCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopeForDecryption,
+} from './shared'
 
 function isUniqueViolation(error: unknown): boolean {
   if (error instanceof UniqueConstraintViolationException) return true
@@ -163,6 +171,7 @@ const createTimeProjectCommand: CommandHandler<StaffTimeProjectCreateInput, { ti
     const parsed = staffTimeProjectCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
@@ -282,12 +291,13 @@ const updateTimeProjectCommand: CommandHandler<StaffTimeProjectUpdateInput, { ti
   async execute(rawInput, ctx) {
     const parsed = staffTimeProjectUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const project = await findOneWithDecryption(
       em,
       StaffTimeProject,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!project) throw new CrudHttpError(404, { error: 'Time project not found.' })
     ensureTenantScope(ctx, project.tenantId)
@@ -419,12 +429,13 @@ const deleteTimeProjectCommand: CommandHandler<{ id?: string }, { timeProjectId:
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const project = await findOneWithDecryption(
       em,
       StaffTimeProject,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!project) throw new CrudHttpError(404, { error: 'Time project not found.' })
     ensureTenantScope(ctx, project.tenantId)
@@ -527,6 +538,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     const parsed = staffTimeProjectMemberAssignSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -534,7 +546,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     // Without this check a foreign or stale UUID would produce a dangling reference.
     const projectExists = await em.findOne(
       StaffTimeProject,
-      { id: parsed.timeProjectId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      applyScopeToWhere<StaffTimeProject>({ id: parsed.timeProjectId, deletedAt: null }, scope),
       { fields: ['id'] },
     )
     if (!projectExists) {
@@ -548,7 +560,7 @@ const assignTimeProjectMemberCommand: CommandHandler<StaffTimeProjectMemberAssig
     }
     const memberExists = await em.findOne(
       StaffTeamMember,
-      { id: parsed.staffMemberId, tenantId: parsed.tenantId, organizationId: parsed.organizationId, deletedAt: null },
+      applyScopeToWhere<StaffTeamMember>({ id: parsed.staffMemberId, deletedAt: null }, scope),
       { fields: ['id'] },
     )
     if (!memberExists) {
@@ -658,12 +670,13 @@ const unassignTimeProjectMemberCommand: CommandHandler<{ id?: string }, { timePr
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time project member id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const member = await findOneWithDecryption(
       em,
       StaffTimeProjectMember,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTimeProjectMember>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!member) throw new CrudHttpError(404, { error: 'Time project member not found.' })
     ensureTenantScope(ctx, member.tenantId)

@@ -8,6 +8,7 @@ import {
   canRenderInlineAttachment,
   sanitizeUploadedFileName,
 } from '@open-mercato/core/modules/attachments/lib/security'
+import { isS3KeyAddressableByScope } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -25,11 +26,6 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   return new S3StorageDriver(creds)
 }
 
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
-}
-
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -41,7 +37,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'key query param is required' }, { status: 400 })
   }
 
-  if (!isKeyScoped(key, auth.orgId, auth.tenantId)) {
+  if (!isS3KeyAddressableByScope(key, auth.orgId, auth.tenantId)) {
     return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
   }
 
