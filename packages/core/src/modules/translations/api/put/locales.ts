@@ -44,7 +44,7 @@ async function PUT(req: Request) {
     }
 
     const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
-    await configService.setValue('translations', 'supported_locales', uniqueLocales)
+    await configService.setValue('translations', 'supported_locales', uniqueLocales, { tenantId: context.tenantId })
 
     if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
       await runCrudMutationGuardAfterSuccess(context.container, {
