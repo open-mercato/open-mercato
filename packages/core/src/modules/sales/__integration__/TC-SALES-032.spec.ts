@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
@@ -11,11 +12,13 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Invoices are a standalone sales document (`/api/sales/invoices`, gated by
  * `sales.invoices.manage`). The create command returns `{ invoiceId }`, so fields are read
  * back via GET. This spec snapshots the order grand total, creates an invoice with the same
- * totals, and verifies the invoice persists them (the totals-verification intent).
+ * totals, and verifies the invoice persists them (the totals-verification intent). The
+ * list/detail response is normalized to a camelCase document shape (`currencyCode`,
+ * `invoiceNumber`, `orderId`, `grandTotalGrossAmount`, …) by `normalizeFinancialDocumentItem`.
  *
- * Scope notes (pre-existing defects tracked separately so this coverage stays green):
- *  - `orderId` is validated on create (unknown order → 400, covered below) but the order
- *    relation is not persisted (`order_id` reads back null), so linkage is not asserted.
+ * Scope notes:
+ *  - `orderId` is validated on create (unknown order → 400, covered below) and the order
+ *    relation is now persisted, so `orderId` reads back the created order id (asserted below).
  *  - `PUT /api/sales/invoices` (update) currently returns 500, so the update leg is not
  *    exercised; this spec covers create → read → delete, which all work.
  */
@@ -25,13 +28,7 @@ type JsonRecord = Record<string, unknown>
 const NONEXISTENT_UUID = '00000000-0000-4000-8000-000000000000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
-  const raw = await response.text()
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw) as JsonRecord
-  } catch {
-    return {}
-  }
+  return (await readJsonSafe<JsonRecord>(response)) ?? {}
 }
 
 function listItems(body: JsonRecord): JsonRecord[] {
@@ -84,16 +81,14 @@ test.describe('TC-SALES-032 invoice create/read/delete + totals', () => {
         await readJson(await apiRequest(request, 'GET', `/api/sales/invoices?id=${encodeURIComponent(invoiceId)}`, { token })),
       ).find((row) => row.id === invoiceId) ?? {}
       expect(created.id).toBe(invoiceId)
-      expect(created.currency_code).toBe('USD')
-      expect(typeof created.invoice_number).toBe('string')
-      expect((created.invoice_number as string).length).toBeGreaterThan(0)
+      expect(created.currencyCode).toBe('USD')
+      expect(typeof created.invoiceNumber).toBe('string')
+      expect((created.invoiceNumber as string).length).toBeGreaterThan(0)
       // The invoice preserves the totals it was created with (matching the order).
-      expect(num(created.grand_total_gross_amount)).toBe(orderGross)
-      // Characterization of a known gap (tracked separately): `orderId` is validated on
-      // create (see the unknown-order case below) but the order relation is not persisted,
-      // so `order_id` reads back null. This pins current behavior and will fail — by design —
-      // once the link is persisted, prompting a flip to `expect(created.order_id).toBe(orderId)`.
-      expect(created.order_id).toBeNull()
+      expect(num(created.grandTotalGrossAmount)).toBe(orderGross)
+      // The order relation is persisted on create, so the normalized document echoes the
+      // originating order id back through `orderId`.
+      expect(created.orderId).toBe(orderId)
 
       const deleteResponse = await apiRequest(
         request,

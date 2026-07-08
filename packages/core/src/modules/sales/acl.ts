@@ -89,16 +89,28 @@ export const features = [
     dependsOn: ['sales.returns.create'],
   },
   {
+    id: 'sales.invoices.view',
+    title: 'View sales invoices',
+    module: 'sales',
+    dependsOn: ['sales.orders.view'],
+  },
+  {
     id: 'sales.invoices.manage',
     title: 'Manage sales invoices',
     module: 'sales',
-    dependsOn: ['sales.orders.view'],
+    dependsOn: ['sales.invoices.view'],
+  },
+  {
+    id: 'sales.credit_memos.view',
+    title: 'View credit memos',
+    module: 'sales',
+    dependsOn: ['sales.invoices.view'],
   },
   {
     id: 'sales.credit_memos.manage',
     title: 'Manage credit memos',
     module: 'sales',
-    dependsOn: ['sales.invoices.manage'],
+    dependsOn: ['sales.credit_memos.view'],
   },
   { id: 'sales.channels.view', title: 'View sales channels', module: 'sales' },
   {

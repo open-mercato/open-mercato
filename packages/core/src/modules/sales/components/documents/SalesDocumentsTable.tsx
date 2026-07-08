@@ -13,6 +13,7 @@ import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/u
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -25,7 +26,7 @@ import {
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
 
-type SalesDocumentKind = 'order' | 'quote'
+type SalesDocumentKind = 'order' | 'quote' | 'invoice' | 'credit-memo'
 
 type FilterOption = { value: string; label: string; description?: string | null }
 
@@ -45,6 +46,8 @@ type ApiDocument = {
   id: string
   orderNumber?: string | null
   quoteNumber?: string | null
+  invoiceNumber?: string | null
+  creditMemoNumber?: string | null
   status?: string | null
   customerEntityId?: string | null
   customerSnapshot?: Record<string, unknown> | null
@@ -56,6 +59,11 @@ type ApiDocument = {
   placedAt?: string | null
   validUntil?: string | null
   validFrom?: string | null
+  issueDate?: string | null
+  dueDate?: string | null
+  paidTotalAmount?: number | null
+  outstandingAmount?: number | null
+  reason?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }
@@ -79,6 +87,9 @@ type SalesDocumentRow = {
   currency?: string | null
   date?: string | null
   updatedAt?: string | null
+  dueDate?: string | null
+  outstandingAmount?: number | null
+  reason?: string | null
 }
 
 const PAGE_SIZE = 20
@@ -150,7 +161,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
-  const [sorting, setSorting] = React.useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [sorting, setSorting] = React.useState<SortingState>([
+    { id: kind === 'invoice' || kind === 'credit-memo' ? 'issueDate' : 'createdAt', desc: true },
+  ])
   const [search, setSearch] = React.useState('')
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [isLoading, setLoading] = React.useState(false)
@@ -161,11 +174,31 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
   const [customerOptions, setCustomerOptions] = React.useState<FilterOption[]>([])
   const [statusMap, setStatusMap] = React.useState<DictionaryMap>({})
 
-  const resource = kind === 'order' ? 'orders' : 'quotes'
-  const entityId = kind === 'order' ? E.sales.sales_order : E.sales.sales_quote
-  const title = kind === 'order'
-    ? t('sales.documents.list.ordersTitle', 'Sales orders')
-    : t('sales.documents.list.quotesTitle', 'Sales quotes')
+  const kindConfig = React.useMemo(() => {
+    switch (kind) {
+      case 'order':
+        return { resource: 'orders', entityId: E.sales.sales_order, numberField: 'orderNumber' as const }
+      case 'quote':
+        return { resource: 'quotes', entityId: E.sales.sales_quote, numberField: 'quoteNumber' as const }
+      case 'invoice':
+        return { resource: 'invoices', entityId: E.sales.sales_invoice, numberField: 'invoiceNumber' as const }
+      case 'credit-memo':
+        return { resource: 'credit-memos', entityId: E.sales.sales_credit_memo, numberField: 'creditMemoNumber' as const }
+    }
+  }, [kind])
+
+  const resource = kindConfig.resource
+  const entityId = kindConfig.entityId
+
+  const title = (() => {
+    switch (kind) {
+      case 'order': return t('sales.documents.list.ordersTitle', 'Sales orders')
+      case 'quote': return t('sales.documents.list.quotesTitle', 'Sales quotes')
+      case 'invoice': return t('sales.documents.list.invoicesTitle', 'Sales invoices')
+      case 'credit-memo': return t('sales.documents.list.creditMemosTitle', 'Credit memos')
+    }
+  })()
+
   const subtitle = t(
     'sales.documents.list.subtitle',
     'Review documents with customer context, totals, and channels.'
@@ -289,78 +322,91 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     [fetchCustomerOptions]
   )
 
-  React.useEffect(() => {
-    loadChannelOptions().catch(() => {})
-    loadTagOptions().catch(() => {})
-    loadCustomerOptions().catch(() => {})
-    loadStatusMap().catch(() => setStatusMap({}))
-  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion])
+  const supportsChannelsAndTags = kind === 'order' || kind === 'quote'
 
-  const filters = React.useMemo<FilterDef[]>(() => [
-    {
-      id: 'channelId',
-      label: t('sales.documents.list.filters.channel', 'Channel'),
-      type: 'select',
-      options: channelOptions,
-      loadOptions: loadChannelOptions,
-    },
-    {
-      id: 'date',
-      label: t('sales.documents.list.filters.date', 'Date'),
-      type: 'dateRange',
-    },
-    {
-      id: 'lineItemCountMin',
-      label: t('sales.documents.list.filters.itemsMin', 'Min items'),
-      type: 'text',
-    },
-    {
-      id: 'lineItemCountMax',
-      label: t('sales.documents.list.filters.itemsMax', 'Max items'),
-      type: 'text',
-    },
-    {
-      id: 'totalNetMin',
-      label: t('sales.documents.list.filters.totalNetMin', 'Min total (net)'),
-      type: 'text',
-    },
-    {
-      id: 'totalNetMax',
-      label: t('sales.documents.list.filters.totalNetMax', 'Max total (net)'),
-      type: 'text',
-    },
-    {
-      id: 'totalGrossMin',
-      label: t('sales.documents.list.filters.totalGrossMin', 'Min total (gross)'),
-      type: 'text',
-    },
-    {
-      id: 'totalGrossMax',
-      label: t('sales.documents.list.filters.totalGrossMax', 'Max total (gross)'),
-      type: 'text',
-    },
-    {
-      id: 'customerId',
-      label: t('sales.documents.list.filters.customer', 'Customer'),
-      type: 'tags',
-      options: customerOptions,
-      loadOptions: loadCustomerOptions,
-      placeholder: t('sales.documents.list.filters.customerPlaceholder', 'Search customers'),
-      formatValue: (val: string) => {
-        const match = customerOptions.find((opt) => opt.value === val)
-        return match?.label ?? val
+  React.useEffect(() => {
+    if (supportsChannelsAndTags) {
+      loadChannelOptions().catch(() => {})
+      loadTagOptions().catch(() => {})
+      loadCustomerOptions().catch(() => {})
+      loadStatusMap().catch(() => setStatusMap({}))
+    }
+  }, [loadChannelOptions, loadCustomerOptions, loadStatusMap, loadTagOptions, scopeVersion, supportsChannelsAndTags])
+
+  const filters = React.useMemo<FilterDef[]>(() => {
+    const base: FilterDef[] = [
+      {
+        id: 'date',
+        label: t('sales.documents.list.filters.date', 'Date'),
+        type: 'dateRange',
       },
-    },
-    {
-      id: 'tagIds',
-      label: t('sales.documents.list.filters.tags', 'Tags'),
-      type: 'tags',
-      options: tagOptions,
-      loadOptions: loadTagOptions,
-      formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
-      formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
-    },
-  ], [channelOptions, loadChannelOptions, customerOptions, loadCustomerOptions, loadTagOptions, tagOptions, t])
+      {
+        id: 'totalGrossMin',
+        label: t('sales.documents.list.filters.totalGrossMin', 'Min total (gross)'),
+        type: 'text',
+      },
+      {
+        id: 'totalGrossMax',
+        label: t('sales.documents.list.filters.totalGrossMax', 'Max total (gross)'),
+        type: 'text',
+      },
+    ]
+
+    if (supportsChannelsAndTags) {
+      base.push({
+        id: 'customerId',
+        label: t('sales.documents.list.filters.customer', 'Customer'),
+        type: 'tags',
+        options: customerOptions,
+        loadOptions: loadCustomerOptions,
+        placeholder: t('sales.documents.list.filters.customerPlaceholder', 'Search customers'),
+        formatValue: (val: string) => {
+          const match = customerOptions.find((opt) => opt.value === val)
+          return match?.label ?? val
+        },
+      })
+      base.unshift({
+        id: 'channelId',
+        label: t('sales.documents.list.filters.channel', 'Channel'),
+        type: 'select',
+        options: channelOptions,
+        loadOptions: loadChannelOptions,
+      })
+      base.push(
+        {
+          id: 'lineItemCountMin',
+          label: t('sales.documents.list.filters.itemsMin', 'Min items'),
+          type: 'text',
+        },
+        {
+          id: 'lineItemCountMax',
+          label: t('sales.documents.list.filters.itemsMax', 'Max items'),
+          type: 'text',
+        },
+        {
+          id: 'totalNetMin',
+          label: t('sales.documents.list.filters.totalNetMin', 'Min total (net)'),
+          type: 'text',
+        },
+        {
+          id: 'totalNetMax',
+          label: t('sales.documents.list.filters.totalNetMax', 'Max total (net)'),
+          type: 'text',
+        },
+        {
+          id: 'tagIds',
+          label: t('sales.documents.list.filters.tags', 'Tags'),
+          type: 'tags',
+          options: tagOptions,
+          loadOptions: loadTagOptions,
+          formatValue: (val: string) => tagOptions.find((o) => o.value === val)?.label ?? val,
+          formatDescription: (val: string) => tagOptions.find((o) => o.value === val)?.description ?? null,
+        },
+      )
+    }
+
+    return base
+  }, [channelOptions, customerOptions, loadChannelOptions, loadCustomerOptions, loadTagOptions, supportsChannelsAndTags, tagOptions, t])
 
   const queryParams = React.useMemo(() => {
     const params = new URLSearchParams()
@@ -443,34 +489,54 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     (item: Record<string, unknown>): SalesDocumentRow => {
       const doc = item as ApiDocument
       const id = typeof doc.id === 'string' ? doc.id : ''
-      const number = kind === 'order'
-        ? doc.orderNumber ?? (item as any)?.order_number ?? id
-        : doc.quoteNumber ?? (item as any)?.quote_number ?? id
-      const customerSnapshot = (doc.customerSnapshot ?? null) as CustomerSnapshot | null
-      const customerName = resolveCustomerName(customerSnapshot, doc.customerEntityId ?? null)
+
+      // Order/quote routes transform query-engine rows to camelCase, while the
+      // invoice/credit-memo routes expose the raw snake_case index fields. Read
+      // either spelling so this shared table works across both conventions.
+      const pick = (camelKey: string): unknown => {
+        const camelValue = item[camelKey]
+        if (camelValue !== undefined && camelValue !== null) return camelValue
+        const snakeKey = camelKey.replace(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)
+        return item[snakeKey]
+      }
+
+      const numberFieldKey = kindConfig.numberField
+      const rawNumber = pick(numberFieldKey)
+      const number = typeof rawNumber === 'string' && rawNumber.trim().length ? rawNumber : id
+
+      const customerSnapshot = (pick('customerSnapshot') ?? null) as CustomerSnapshot | null
+      const customerName = resolveCustomerName(customerSnapshot, (pick('customerEntityId') as string | null) ?? null)
       const customerEmail = resolveCustomerEmail(customerSnapshot)
-      const totalNet = toNumber(doc.grandTotalNetAmount)
-      const totalGross = toNumber(doc.grandTotalGrossAmount)
-      const placedAt = doc.placedAt ?? null
-      const validUntil = doc.validUntil ?? null
-      const createdAt = doc.createdAt ?? null
-      const date = placedAt ?? validUntil ?? createdAt ?? null
+      const totalNet = toNumber(pick('grandTotalNetAmount'))
+      const totalGross = toNumber(pick('grandTotalGrossAmount'))
+
+      const createdAt = (pick('createdAt') as string | null) ?? null
+      const date = (() => {
+        if (kind === 'invoice' || kind === 'credit-memo') return (pick('issueDate') as string | null) ?? createdAt
+        return (pick('placedAt') as string | null) ?? (pick('validUntil') as string | null) ?? createdAt
+      })()
+
+      const reasonValue = pick('reason')
+
       return withDataTableNamespaces({
         id,
         number,
-        status: doc.status ?? null,
+        status: (pick('status') as string | null) ?? null,
         customerName,
         customerEmail,
-        channelId: doc.channelId ?? null,
-        lineItemCount: doc.lineItemCount ?? null,
+        channelId: (pick('channelId') as string | null) ?? null,
+        lineItemCount: (pick('lineItemCount') as number | null) ?? null,
         totalNet,
         totalGross,
-        currency: doc.currencyCode ?? null,
+        currency: (pick('currencyCode') as string | null) ?? null,
         date,
-        updatedAt: doc.updatedAt ?? null,
+        updatedAt: (pick('updatedAt') as string | null) ?? null,
+        dueDate: (pick('dueDate') as string | null) ?? null,
+        outstandingAmount: toNumber(pick('outstandingAmount')),
+        reason: typeof reasonValue === 'string' ? reasonValue : null,
       }, item)
     },
-    [kind]
+    [kind, kindConfig.numberField]
   )
 
   const loadDocuments = React.useCallback(async () => {
@@ -528,16 +594,14 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
 
   const handleDelete = React.useCallback(
     async (row: SalesDocumentRow) => {
-      const confirmMessage =
-        kind === 'order'
-          ? t(
-              'sales.documents.list.table.deleteOrderConfirm',
-              'Delete this sales order? Related shipments, payments, addresses, and items will be removed.'
-            )
-          : t(
-              'sales.documents.list.table.deleteQuoteConfirm',
-              'Delete this sales quote? Related addresses, comments, and items will be removed.'
-            )
+      const confirmMessage = (() => {
+        switch (kind) {
+          case 'order': return t('sales.documents.list.table.deleteOrderConfirm', 'Delete this sales order? Related shipments, payments, addresses, and items will be removed.')
+          case 'quote': return t('sales.documents.list.table.deleteQuoteConfirm', 'Delete this sales quote? Related addresses, comments, and items will be removed.')
+          case 'invoice': return t('sales.documents.list.table.deleteInvoiceConfirm', 'Delete this invoice? Related line items will be removed.')
+          case 'credit-memo': return t('sales.documents.list.table.deleteCreditMemoConfirm', 'Delete this credit memo? Related line items will be removed.')
+        }
+      })()
       const confirmed = await confirm({
         title: confirmMessage,
         variant: 'destructive',
@@ -552,15 +616,19 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
             }),
         )
         if (result.ok) {
-          flash(
-            kind === 'order'
-              ? t('sales.documents.list.table.orderDeleted', 'Sales order deleted.')
-              : t('sales.documents.list.table.quoteDeleted', 'Sales quote deleted.'),
-            'success'
-          )
+          const successMessage = (() => {
+            switch (kind) {
+              case 'order': return t('sales.documents.list.table.orderDeleted', 'Sales order deleted.')
+              case 'quote': return t('sales.documents.list.table.quoteDeleted', 'Sales quote deleted.')
+              case 'invoice': return t('sales.documents.list.table.invoiceDeleted', 'Invoice deleted.')
+              case 'credit-memo': return t('sales.documents.list.table.creditMemoDeleted', 'Credit memo deleted.')
+            }
+          })()
+          flash(successMessage, 'success')
           handleRefresh()
         }
       } catch (err) {
+        if (surfaceRecordConflict(err, t)) return
         console.error('sales.documents.delete', err)
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
@@ -572,13 +640,20 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
     router.push(`/backend/sales/${resource}/${row.id}?kind=${kind}`)
   }, [kind, resource, router])
 
-  const columns = React.useMemo<ColumnDef<SalesDocumentRow>[]>(() => [
-    {
+  const numberColumnHeader = (() => {
+    switch (kind) {
+      case 'order': return t('sales.documents.list.table.order', 'Order')
+      case 'quote': return t('sales.documents.list.table.quote', 'Quote')
+      case 'invoice': return t('sales.documents.list.table.invoice', 'Invoice')
+      case 'credit-memo': return t('sales.documents.list.table.creditMemo', 'Credit memo')
+    }
+  })()
+
+  const columns = React.useMemo<ColumnDef<SalesDocumentRow>[]>(() => {
+    const numberColumn: ColumnDef<SalesDocumentRow> = {
       id: 'number',
       accessorKey: 'number',
-      header: kind === 'order'
-        ? t('sales.documents.list.table.order', 'Order')
-        : t('sales.documents.list.table.quote', 'Quote'),
+      header: numberColumnHeader,
       cell: ({ row }) => (
         <div className="flex flex-col">
           <span className="font-semibold">{row.original.number}</span>
@@ -596,8 +671,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         </div>
       ),
       meta: SALES_DOCUMENT_NUMBER_COLUMN_META,
-    },
-    {
+    }
+
+    const customerColumn: ColumnDef<SalesDocumentRow> = {
       accessorKey: 'customerName',
       header: t('sales.documents.list.table.customer', 'Customer'),
       cell: ({ row }) => (
@@ -611,8 +687,9 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         </div>
       ),
       enableSorting: false,
-    },
-    {
+    }
+
+    const channelColumn: ColumnDef<SalesDocumentRow> = {
       accessorKey: 'channelId',
       header: t('sales.documents.list.table.channel', 'Channel'),
       cell: ({ row }) => {
@@ -624,45 +701,97 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
         )
       },
       enableSorting: false,
-    },
-    {
+    }
+
+    const lineItemCountColumn: ColumnDef<SalesDocumentRow> = {
       id: 'lineItemCount',
       accessorKey: 'lineItemCount',
       header: t('sales.documents.list.table.items', 'Items'),
       cell: ({ row }) => (
         <span className="text-sm font-semibold">{typeof row.original.lineItemCount === 'number' ? row.original.lineItemCount : '—'}</span>
       ),
-    },
-    {
+    }
+
+    const totalNetColumn: ColumnDef<SalesDocumentRow> = {
       id: 'grandTotalNetAmount',
       accessorKey: 'totalNet',
       header: t('sales.documents.list.table.totalNet', 'Total (net)'),
       cell: ({ row }) => (
         <span className="text-sm">{formatCurrency(row.original.totalNet ?? null, row.original.currency)}</span>
       ),
-    },
-    {
+    }
+
+    const totalGrossColumn: ColumnDef<SalesDocumentRow> = {
       id: 'grandTotalGrossAmount',
       accessorKey: 'totalGross',
       header: t('sales.documents.list.table.totalGross', 'Total (gross)'),
       cell: ({ row }) => (
         <span className="text-sm">{formatCurrency(row.original.totalGross ?? null, row.original.currency)}</span>
       ),
-    },
-    {
-      id: 'createdAt',
+    }
+
+    const dateColumn: ColumnDef<SalesDocumentRow> = {
+      id: kind === 'invoice' || kind === 'credit-memo' ? 'issueDate' : 'createdAt',
       accessorKey: 'date',
-      header: t('sales.documents.list.table.date', 'Date'),
+      header: kind === 'invoice' || kind === 'credit-memo'
+        ? t('sales.documents.list.table.issueDate', 'Issue date')
+        : t('sales.documents.list.table.date', 'Date'),
       cell: ({ row }) =>
         row.original.date
           ? <span className="text-xs text-muted-foreground">{new Date(row.original.date).toLocaleString()}</span>
           : <span className="text-xs text-muted-foreground">—</span>,
-    },
-  ], [channelOptions, kind, statusMap, t])
+    }
 
-  const emptyLabel = kind === 'order'
-    ? t('sales.documents.list.table.emptyOrders', 'No orders yet.')
-    : t('sales.documents.list.table.emptyQuotes', 'No quotes yet.')
+    const dueDateColumn: ColumnDef<SalesDocumentRow> = {
+      id: 'dueDate',
+      accessorKey: 'dueDate',
+      header: t('sales.documents.list.table.dueDate', 'Due date'),
+      cell: ({ row }) =>
+        row.original.dueDate
+          ? <span className="text-xs text-muted-foreground">{new Date(row.original.dueDate).toLocaleString()}</span>
+          : <span className="text-xs text-muted-foreground">—</span>,
+    }
+
+    const outstandingColumn: ColumnDef<SalesDocumentRow> = {
+      id: 'outstandingAmount',
+      accessorKey: 'outstandingAmount',
+      header: t('sales.documents.list.table.outstanding', 'Outstanding'),
+      cell: ({ row }) => (
+        <span className="text-sm">{formatCurrency(row.original.outstandingAmount ?? null, row.original.currency)}</span>
+      ),
+    }
+
+    const reasonColumn: ColumnDef<SalesDocumentRow> = {
+      id: 'reason',
+      accessorKey: 'reason',
+      header: t('sales.documents.list.table.reason', 'Reason'),
+      cell: ({ row }) => {
+        const reason = row.original.reason
+        if (!reason) return <span className="text-xs text-muted-foreground">—</span>
+        return <span className="text-sm">{reason.length > 60 ? `${reason.slice(0, 60)}...` : reason}</span>
+      },
+      enableSorting: false,
+    }
+
+    switch (kind) {
+      case 'order':
+      case 'quote':
+        return [numberColumn, customerColumn, channelColumn, lineItemCountColumn, totalNetColumn, totalGrossColumn, dateColumn]
+      case 'invoice':
+        return [numberColumn, customerColumn, dateColumn, dueDateColumn, totalGrossColumn, outstandingColumn]
+      case 'credit-memo':
+        return [numberColumn, customerColumn, reasonColumn, dateColumn, totalGrossColumn]
+    }
+  }, [channelOptions, kind, numberColumnHeader, statusMap, t])
+
+  const emptyLabel = (() => {
+    switch (kind) {
+      case 'order': return t('sales.documents.list.table.emptyOrders', 'No orders yet.')
+      case 'quote': return t('sales.documents.list.table.emptyQuotes', 'No quotes yet.')
+      case 'invoice': return t('sales.documents.list.table.emptyInvoices', 'No invoices yet.')
+      case 'credit-memo': return t('sales.documents.list.table.emptyCreditMemos', 'No credit memos yet.')
+    }
+  })()
 
   return (
     <Page>
@@ -671,17 +800,17 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           stickyActionsColumn
           title={(
             <div className="flex flex-col">
-              <span>{title}</span>
+              <h2 className="text-base font-semibold leading-tight">{title}</h2>
               <span className="text-sm font-normal text-muted-foreground">{subtitle}</span>
             </div>
           )}
-          actions={(
+          actions={supportsChannelsAndTags ? (
             <Button asChild>
               <Link href={`/backend/sales/documents/create?kind=${kind}`}>
                 {t('sales.documents.create.title', 'Create sales document')}
               </Link>
             </Button>
-          )}
+          ) : undefined}
           columns={columns}
           data={rows}
           sorting={sorting}
@@ -689,11 +818,14 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           isLoading={isLoading}
           searchValue={search}
           onSearchChange={handleSearchChange}
-          searchPlaceholder={
-            kind === 'order'
-              ? t('sales.documents.list.search.orders', 'Search orders…')
-              : t('sales.documents.list.search.quotes', 'Search quotes…')
-          }
+          searchPlaceholder={(() => {
+            switch (kind) {
+              case 'order': return t('sales.documents.list.search.orders', 'Search orders…')
+              case 'quote': return t('sales.documents.list.search.quotes', 'Search quotes…')
+              case 'invoice': return t('sales.documents.list.search.invoices', 'Search invoices…')
+              case 'credit-memo': return t('sales.documents.list.search.creditMemos', 'Search credit memos…')
+            }
+          })()}
           filters={filters}
           filterValues={filterValues}
           onFiltersApply={handleFiltersApply}
@@ -723,16 +855,27 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
                 },
                 {
                   id: 'delete',
-                  label:
-                    kind === 'order'
-                      ? t('sales.documents.list.table.deleteOrder', 'Delete order')
-                      : t('sales.documents.list.table.deleteQuote', 'Delete quote'),
+                  label: (() => {
+                    switch (kind) {
+                      case 'order': return t('sales.documents.list.table.deleteOrder', 'Delete order')
+                      case 'quote': return t('sales.documents.list.table.deleteQuote', 'Delete quote')
+                      case 'invoice': return t('sales.documents.list.table.deleteInvoice', 'Delete invoice')
+                      case 'credit-memo': return t('sales.documents.list.table.deleteCreditMemo', 'Delete credit memo')
+                    }
+                  })(),
                   onSelect: () => handleDelete(row),
                 },
               ]}
             />
           )}
-          perspective={{ tableId: kind === 'order' ? 'sales.orders' : 'sales.quotes' }}
+          perspective={{ tableId: (() => {
+            switch (kind) {
+              case 'order': return 'sales.orders'
+              case 'quote': return 'sales.quotes'
+              case 'invoice': return 'sales.invoices'
+              case 'credit-memo': return 'sales.credit_memos'
+            }
+          })() }}
           onRowClick={handleRowClick}
           emptyState={
             <div className="py-10 text-center text-sm text-muted-foreground">

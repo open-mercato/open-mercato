@@ -867,14 +867,15 @@ export const invoiceCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(
       z.object({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
         kind: lineKindSchema.optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
+        name: z.string().trim().max(500).nullable().optional(),
+        sku: z.string().trim().max(191).nullable().optional(),
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),
@@ -920,13 +921,14 @@ export const creditMemoCreateSchema = scoped.extend({
   currencyCode,
   metadata,
   customFieldSetId: uuid().optional(),
+  customFields: z.record(z.string(), z.unknown()).optional(),
   lines: z
     .array(
       z.object({
         orderLineId: uuid().optional(),
         lineNumber: z.coerce.number().int().min(0).optional(),
-        name: z.string().trim().max(500).optional(),
-        sku: z.string().trim().max(191).optional(),
+        name: z.string().trim().max(500).nullable().optional(),
+        sku: z.string().trim().max(191).nullable().optional(),
         description: z.string().trim().max(4000).optional(),
         quantity: decimal({ min: 0, max: MAX_QUANTITY, message: 'Quantity is too large.' }),
         quantityUnit: z.string().trim().max(25).optional(),

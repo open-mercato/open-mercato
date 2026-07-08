@@ -53,17 +53,79 @@ describe('invoice and credit memo route modules', () => {
     expect(creditMemoRoute.metadata).toBeDefined()
   })
 
-  it('invoice route metadata requires auth and invoices.manage feature', () => {
+  it('invoice route metadata uses .view for read and .manage for writes', () => {
     const { metadata } = require('../../api/invoices/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.invoices.view')
     expect(metadata.POST.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.PUT.requireFeatures).toContain('sales.invoices.manage')
+    expect(metadata.DELETE.requireFeatures).toContain('sales.invoices.manage')
   })
 
-  it('credit memo route metadata requires auth and credit_memos.manage feature', () => {
+  it('credit memo route metadata uses .view for read and .manage for writes', () => {
     const { metadata } = require('../../api/credit-memos/route')
     expect(metadata.GET.requireAuth).toBe(true)
-    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.view')
     expect(metadata.POST.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.PUT.requireFeatures).toContain('sales.credit_memos.manage')
+    expect(metadata.DELETE.requireFeatures).toContain('sales.credit_memos.manage')
+  })
+
+  it('invoice [id] route requires .view for read', () => {
+    const { metadata } = require('../../api/invoices/[id]/route')
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toContain('sales.invoices.view')
+  })
+
+  it('credit memo [id] route requires .view for read', () => {
+    const { metadata } = require('../../api/credit-memos/[id]/route')
+    expect(metadata.GET.requireAuth).toBe(true)
+    expect(metadata.GET.requireFeatures).toContain('sales.credit_memos.view')
+  })
+})
+
+describe('normalizeFinancialDocumentItem', () => {
+  const { normalizeFinancialDocumentItem } = require('../../api/_documentListEnrichers')
+
+  it('keeps invoice money fields as numeric strings and passes metadata through', () => {
+    const item = normalizeFinancialDocumentItem(
+      {
+        id: 'inv-1',
+        subtotal_net_amount: '10.00',
+        subtotal_gross_amount: '12.30',
+        tax_total_amount: '2.30',
+        grand_total_net_amount: '10.00',
+        grand_total_gross_amount: 12.3,
+        discount_total_amount: null,
+        paid_total_amount: '',
+        outstanding_amount: '12.30',
+        metadata: { source: 'import' },
+      },
+      'invoice',
+    )
+    expect(item.subtotalNetAmount).toBe('10.00')
+    expect(item.subtotalGrossAmount).toBe('12.30')
+    expect(item.taxTotalAmount).toBe('2.30')
+    expect(item.grandTotalNetAmount).toBe('10.00')
+    expect(item.grandTotalGrossAmount).toBe('12.3')
+    expect(item.discountTotalAmount).toBeNull()
+    expect(item.paidTotalAmount).toBeNull()
+    expect(item.outstandingAmount).toBe('12.30')
+    expect(item.metadata).toEqual({ source: 'import' })
+  })
+
+  it('keeps credit memo money fields as numeric strings', () => {
+    const item = normalizeFinancialDocumentItem(
+      {
+        id: 'cm-1',
+        subtotal_net_amount: '5.00',
+        grand_total_gross_amount: '6.15',
+        metadata: null,
+      },
+      'credit-memo',
+    )
+    expect(item.subtotalNetAmount).toBe('5.00')
+    expect(item.grandTotalGrossAmount).toBe('6.15')
+    expect(item.metadata).toBeNull()
   })
 })

@@ -2563,6 +2563,21 @@
         }
       },
       {
+        "path": "/customers/deals/map",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view",
+              "customers.activities.view"
+            ]
+          }
+        }
+      },
+      {
         "path": "/customers/deals",
         "methods": [
           "GET",
@@ -4300,7 +4315,9 @@
       "sales.returns.view",
       "sales.returns.create",
       "sales.returns.manage",
+      "sales.invoices.view",
       "sales.invoices.manage",
+      "sales.credit_memos.view",
       "sales.credit_memos.manage",
       "sales.channels.view",
       "sales.channels.manage",
@@ -4390,7 +4407,7 @@
           "GET": {
             "requireAuth": true,
             "requireFeatures": [
-              "sales.credit_memos.manage"
+              "sales.credit_memos.view"
             ]
           },
           "POST": {
@@ -4519,7 +4536,7 @@
           "GET": {
             "requireAuth": true,
             "requireFeatures": [
-              "sales.invoices.manage"
+              "sales.invoices.view"
             ]
           },
           "POST": {
@@ -5052,6 +5069,34 @@
             "requireAuth": true,
             "requireFeatures": [
               "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/credit-memos/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.credit_memos.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/invoices/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.invoices.view"
             ]
           }
         }

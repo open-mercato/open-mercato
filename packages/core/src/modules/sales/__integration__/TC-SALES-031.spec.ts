@@ -1,5 +1,6 @@
 import { expect, test, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
+import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
@@ -11,12 +12,13 @@ import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integratio
  * Credit memos are a standalone sales document with an active CRUD API
  * (`/api/sales/credit-memos`, gated by `sales.credit_memos.manage`). The create command
  * returns `{ creditMemoId }` — not the full record — so field values are read back via GET.
+ * The list/detail response is normalized to a camelCase document shape
+ * (`currencyCode`, `creditMemoNumber`, `orderId`, …) by `normalizeFinancialDocumentItem`.
  *
- * Scope notes (two pre-existing defects in the credit-memo command, tracked separately so
- * this coverage stays green and honest):
+ * Scope notes:
  *  - `orderId` is accepted and validated on create (an unknown order is rejected with 400,
- *    covered below) but the order relation is not persisted, so `order_id` reads back null
- *    and `?orderId=` does not surface it — linkage is therefore not asserted here.
+ *    covered below) and the order relation is now persisted, so `orderId` reads back the
+ *    created order id (linkage asserted below).
  *  - `PUT /api/sales/credit-memos` (update) currently returns 500, so the update leg is not
  *    exercised; this spec covers create → read → delete, which all work.
  */
@@ -26,13 +28,7 @@ type JsonRecord = Record<string, unknown>
 const NONEXISTENT_UUID = '00000000-0000-4000-8000-000000000000'
 
 async function readJson(response: APIResponse): Promise<JsonRecord> {
-  const raw = await response.text()
-  if (!raw) return {}
-  try {
-    return JSON.parse(raw) as JsonRecord
-  } catch {
-    return {}
-  }
+  return (await readJsonSafe<JsonRecord>(response)) ?? {}
 }
 
 function listItems(body: JsonRecord): JsonRecord[] {
@@ -71,14 +67,12 @@ test.describe('TC-SALES-031 credit memo create/read/delete', () => {
       ).find((row) => row.id === creditMemoId) ?? {}
       expect(created.id).toBe(creditMemoId)
       expect(created.reason).toBe(`QA credit ${stamp}`)
-      expect(created.currency_code).toBe('USD')
-      expect(typeof created.credit_memo_number).toBe('string')
-      expect((created.credit_memo_number as string).length).toBeGreaterThan(0)
-      // Characterization of a known gap (tracked separately): `orderId` is validated on
-      // create (see the unknown-order case below) but the order relation is not persisted,
-      // so `order_id` reads back null. This pins current behavior and will fail — by design —
-      // once the link is persisted, prompting a flip to `expect(created.order_id).toBe(orderId)`.
-      expect(created.order_id).toBeNull()
+      expect(created.currencyCode).toBe('USD')
+      expect(typeof created.creditMemoNumber).toBe('string')
+      expect((created.creditMemoNumber as string).length).toBeGreaterThan(0)
+      // The order relation is persisted on create, so the normalized document echoes the
+      // originating order id back through `orderId`.
+      expect(created.orderId).toBe(orderId)
 
       const deleteResponse = await apiRequest(
         request,
