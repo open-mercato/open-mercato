@@ -42,4 +42,4 @@ Delete `ISSUE_LOG.md` from the repository root; leave everything else untouched.
 
 ### Phase 1: Remove file
 
-- [ ] 1.1 Delete `ISSUE_LOG.md` and commit
+- [x] 1.1 Delete `ISSUE_LOG.md` and commit — 428af6dd9
