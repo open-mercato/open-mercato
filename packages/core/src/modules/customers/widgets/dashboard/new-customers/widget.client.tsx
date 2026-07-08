@@ -19,6 +19,9 @@ import {
   hydrateNewCustomersSettings,
   type CustomerNewCustomersSettings,
 } from './config'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type NewCustomerItem = {
   id: string
@@ -110,7 +113,7 @@ const CustomerNewCustomersWidget: React.FC<DashboardWidgetComponentProps<Custome
       const data = await loadNewCustomers(hydrated)
       setItems(data)
     } catch (err) {
-      console.error('Failed to load new customers widget data', err)
+      logger.error('Failed to load new customers widget data', { err })
       setError(t('customers.widgets.newCustomers.error'))
     } finally {
       setLoading(false)
