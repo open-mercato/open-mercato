@@ -8,6 +8,7 @@ import {
 } from '../index'
 import { resolveLevel, type LogLevel } from '../level'
 import { createConsoleLogger } from '../transport.console'
+import { createPrettyLogger, resetLogPrettyCache, resolvePrettyMode } from '../transport.pretty'
 import { resetServerLoggerCache } from '../transport.server'
 
 type FakePinoCall = { level: LogLevel; args: unknown[] }
@@ -48,7 +49,7 @@ function createFakePinoHarness(): FakePinoHarness {
   }
 }
 
-const TRACKED_ENV_KEYS = ['OM_LOG_LEVEL', 'NODE_ENV', 'NEXT_RUNTIME', 'OM_LOG_DESTINATION'] as const
+const TRACKED_ENV_KEYS = ['OM_LOG_LEVEL', 'NODE_ENV', 'NEXT_RUNTIME', 'OM_LOG_DESTINATION', 'OM_LOG_PRETTY'] as const
 
 const originalGetBuiltinModule = process.getBuiltinModule.bind(process)
 
@@ -63,6 +64,13 @@ function resetLoggerState(): void {
   resetLogLevelCache()
   resetLoggerRegistry()
   resetServerLoggerCache()
+  resetLogPrettyCache()
+}
+
+function forcePinoTransport(): void {
+  process.env.OM_LOG_PRETTY = 'false'
+  resetLogPrettyCache()
+  resetLoggerRegistry()
 }
 
 describe('structured logging facade', () => {
@@ -218,7 +226,8 @@ describe('structured logging facade', () => {
       expect(builtinSpy).not.toHaveBeenCalledWith('node:module')
     })
 
-    it('uses the pino-backed server transport on a plain node runtime', () => {
+    it('uses the pino-backed server transport on a plain node runtime when pretty mode is off', () => {
+      forcePinoTransport()
       const fake = createFakePinoHarness()
       mockPinoLoader(fake.factory)
       const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {})
@@ -233,6 +242,10 @@ describe('structured logging facade', () => {
   })
 
   describe('isomorphism', () => {
+    beforeEach(() => {
+      forcePinoTransport()
+    })
+
     it('does not touch pino at import time, only on the first server-side log call', () => {
       const fake = createFakePinoHarness()
       const builtinSpy = mockPinoLoader(fake.factory)
@@ -258,6 +271,10 @@ describe('structured logging facade', () => {
   })
 
   describe('server transport delegation to pino', () => {
+    beforeEach(() => {
+      forcePinoTransport()
+    })
+
     it('reorders message-first facade calls into pino object-first calls', () => {
       const fake = createFakePinoHarness()
       mockPinoLoader(fake.factory)
@@ -331,6 +348,10 @@ describe('structured logging facade', () => {
   })
 
   describe('server transport with real pino output', () => {
+    beforeEach(() => {
+      forcePinoTransport()
+    })
+
     function captureRealPino(): string[] {
       const lines: string[] = []
       const destination = { write: (line: string) => { lines.push(line) } }
@@ -387,6 +408,132 @@ describe('structured logging facade', () => {
       expect(entry.user?.token).toBe('[Redacted]')
       expect(entry.user?.name).toBe('ada')
       expect(entry.safeField).toBe('visible')
+    })
+  })
+
+  describe('pretty mode resolution', () => {
+    it.each<[string, boolean]>([
+      ['1', true],
+      ['true', true],
+      ['yes', true],
+      ['on', true],
+      ['0', false],
+      ['false', false],
+      ['off', false],
+      ['  TRUE  ', true],
+    ])('resolves OM_LOG_PRETTY=%s to %s regardless of NODE_ENV', (raw, expected) => {
+      expect(resolvePrettyMode({ OM_LOG_PRETTY: raw, NODE_ENV: 'production' })).toBe(expected)
+      expect(resolvePrettyMode({ OM_LOG_PRETTY: raw, NODE_ENV: 'development' })).toBe(expected)
+    })
+
+    it('defaults to on outside production and off in production when unset', () => {
+      expect(resolvePrettyMode({ NODE_ENV: 'production' })).toBe(false)
+      expect(resolvePrettyMode({ NODE_ENV: 'development' })).toBe(true)
+      expect(resolvePrettyMode({ NODE_ENV: 'test' })).toBe(true)
+      expect(resolvePrettyMode({})).toBe(true)
+    })
+
+    it('treats an unrecognized OM_LOG_PRETTY token as unset', () => {
+      expect(resolvePrettyMode({ OM_LOG_PRETTY: 'banana', NODE_ENV: 'production' })).toBe(false)
+      expect(resolvePrettyMode({ OM_LOG_PRETTY: 'banana', NODE_ENV: 'development' })).toBe(true)
+    })
+  })
+
+  describe('pretty transport', () => {
+    const PRETTY_LINE_PATTERN = /^\d{2}:\d{2}:\d{2}\.\d{3} /
+
+    function captureStream(stream: NodeJS.WriteStream): string[] {
+      const chunks: string[] = []
+      jest.spyOn(stream, 'write').mockImplementation(((chunk: string) => {
+        chunks.push(String(chunk))
+        return true
+      }) as typeof stream.write)
+      return chunks
+    }
+
+    it('is selected on a plain node runtime in non-production without touching pino', () => {
+      const builtinSpy = jest.spyOn(process, 'getBuiltinModule')
+      const chunks = captureStream(process.stdout)
+      createLogger('pretty-select-ns').info('hello', { queue: 'events' })
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]).toMatch(PRETTY_LINE_PATTERN)
+      expect(chunks[0]).toContain('INFO  [pretty-select-ns] hello queue=events')
+      expect(builtinSpy).not.toHaveBeenCalledWith('node:module')
+    })
+
+    it('renders timestamp, padded level, namespace, message, and key=value fields', () => {
+      const chunks = captureStream(process.stdout)
+      createPrettyLogger('queue').info('Job completed', {
+        queue: 'events',
+        jobId: 'd3e13935-0ccb-4794-ba0a-030872b27fc0',
+      })
+      expect(chunks).toHaveLength(1)
+      expect(chunks[0]).toMatch(
+        /^\d{2}:\d{2}:\d{2}\.\d{3} INFO {2}\[queue\] Job completed queue=events jobId=d3e13935-0ccb-4794-ba0a-030872b27fc0\n$/,
+      )
+    })
+
+    it('folds a component binding into the namespace scope and drops it from the tail', () => {
+      const chunks = captureStream(process.stdout)
+      createPrettyLogger('events')
+        .child({ component: 'stream', tenantId: 't-1' })
+        .warn('Payload skipped', { maxBytes: 4096 })
+      expect(chunks[0]).toContain('WARN  [events:stream] Payload skipped tenantId=t-1 maxBytes=4096')
+      expect(chunks[0]).not.toContain('component=')
+    })
+
+    it('appends the stack on following lines when fields.err is an Error', () => {
+      const chunks = captureStream(process.stdout)
+      const failure = new Error('pretty kaboom')
+      createPrettyLogger('err-ns').error('Handler error', { event: 'x.y.z', err: failure })
+      expect(chunks).toHaveLength(1)
+      const [firstLine, ...stackLines] = chunks[0].split('\n')
+      expect(firstLine).toContain('ERROR [err-ns] Handler error event=x.y.z')
+      expect(stackLines.join('\n')).toContain('pretty kaboom')
+    })
+
+    it('gates each method by the effective level', () => {
+      process.env.OM_LOG_LEVEL = 'warn'
+      resetLogLevelCache()
+      const chunks = captureStream(process.stdout)
+      const logger = createPrettyLogger('gating-ns')
+      logger.debug('quiet')
+      logger.info('quiet')
+      logger.warn('loud')
+      logger.error('loud')
+      expect(chunks).toHaveLength(2)
+      expect(chunks[0]).toContain('WARN  [gating-ns] loud')
+      expect(chunks[1]).toContain('ERROR [gating-ns] loud')
+    })
+
+    it('writes to stderr when OM_LOG_DESTINATION=stderr', () => {
+      process.env.OM_LOG_DESTINATION = 'stderr'
+      const stdoutChunks = captureStream(process.stdout)
+      const stderrChunks = captureStream(process.stderr)
+      createPrettyLogger('stdio-ns').info('protocol-safe line', { jobId: 'j-1' })
+      expect(stdoutChunks).toHaveLength(0)
+      expect(stderrChunks).toHaveLength(1)
+      expect(stderrChunks[0]).toContain('INFO  [stdio-ns] protocol-safe line jobId=j-1')
+    })
+
+    it('emits no ANSI codes when the stream is not a TTY', () => {
+      const chunks = captureStream(process.stdout)
+      createPrettyLogger('plain-ns').info('no colors')
+      expect(chunks[0]).not.toContain('\x1b[')
+    })
+
+    it('colors the timestamp and level when the stream is a TTY', () => {
+      const stdoutStream = process.stdout as { isTTY?: boolean }
+      const originalIsTty = stdoutStream.isTTY
+      stdoutStream.isTTY = true
+      try {
+        const chunks = captureStream(process.stdout)
+        createPrettyLogger('tty-ns').error('colored failure')
+        expect(chunks[0]).toContain('\x1b[31mERROR\x1b[0m')
+        expect(chunks[0]).toContain('\x1b[2m')
+      } finally {
+        stdoutStream.isTTY = originalIsTty
+      }
     })
   })
 })

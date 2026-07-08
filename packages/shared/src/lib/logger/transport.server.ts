@@ -40,10 +40,14 @@ type ProcessWithBuiltins = {
   stderr?: unknown
 }
 
+export function isStderrDestinationToken(raw: string | undefined): boolean {
+  return typeof raw === 'string' && raw.trim().toLowerCase() === 'stderr'
+}
+
 function resolveDestinationStream(nodeProcess: ProcessWithBuiltins): unknown {
-  const raw = nodeProcess.env?.[OM_LOG_DESTINATION_ENV]
-  if (typeof raw !== 'string') return undefined
-  return raw.trim().toLowerCase() === 'stderr' ? nodeProcess.stderr : undefined
+  return isStderrDestinationToken(nodeProcess.env?.[OM_LOG_DESTINATION_ENV])
+    ? nodeProcess.stderr
+    : undefined
 }
 
 let cachedRoot: PinoBaseLogger | null | undefined

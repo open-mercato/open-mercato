@@ -14,7 +14,7 @@ function formatBindingValue(value: unknown): string {
   return String(value)
 }
 
-function formatBindings(bindings: LogBindings): string {
+export function formatBindings(bindings: LogBindings): string {
   return Object.entries(bindings)
     .filter(([, value]) => value !== undefined)
     .map(([key, value]) => `${key}=${formatBindingValue(value)}`)

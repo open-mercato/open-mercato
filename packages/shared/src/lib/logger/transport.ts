@@ -1,5 +1,6 @@
 import type { Logger } from './index'
 import { createConsoleLogger } from './transport.console'
+import { createPrettyLogger, isPrettyModeEnabled } from './transport.pretty'
 import { createServerLogger } from './transport.server'
 
 function isNodeServerRuntime(): boolean {
@@ -9,7 +10,8 @@ function isNodeServerRuntime(): boolean {
   return true
 }
 
-/** Pick the runtime-appropriate transport: pino on the Node server, console elsewhere. */
+/** Pick the runtime-appropriate transport: pretty or pino on the Node server, console elsewhere. */
 export function selectTransport(namespace: string): Logger {
-  return isNodeServerRuntime() ? createServerLogger(namespace) : createConsoleLogger(namespace)
+  if (!isNodeServerRuntime()) return createConsoleLogger(namespace)
+  return isPrettyModeEnabled() ? createPrettyLogger(namespace) : createServerLogger(namespace)
 }

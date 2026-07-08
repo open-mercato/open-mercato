@@ -92,6 +92,28 @@ if (isLevelEnabled('debug')) {
 
 `getLogLevel()` returns the resolved level directly when you need it.
 
+## Pretty Mode in Development: `OM_LOG_PRETTY`
+
+Raw pino JSON is right for production aggregation but noisy to read in a terminal. In **pretty mode** the Node server transport writes one human-friendly line per call instead:
+
+```
+12:05:20.613 INFO  [queue] Job completed queue=events jobId=d3e13935-0ccb-4794-ba0a-030872b27fc0
+12:05:21.004 ERROR [events:stream] Payload skipped tenantId=t-9 maxBytes=4096
+```
+
+Timestamp, padded level (colored when the output is a TTY), `[namespace]` (a `component` binding folds into `[namespace:component]`), the message, and compact `key=value` fields; an `err` Error prints its stack on the following lines.
+
+| Source | Value | Effective mode |
+|---|---|---|
+| `OM_LOG_PRETTY` set | truthy token (`1`/`true`/`yes`/`on`) | pretty |
+| `OM_LOG_PRETTY` set | falsy token (`0`/`false`/`off`) | raw pino JSON |
+| unset or unrecognized, `NODE_ENV=production` | — | raw pino JSON |
+| unset or unrecognized, otherwise (dev/test) | — | pretty |
+
+So `yarn dev` is pretty by default and production stays structured JSON. Set `OM_LOG_PRETTY=0` in dev when you want raw JSON — for example when piping local output to Loki/Grafana.
+
+Two caveats: pretty mode is a plain formatter, so pino's **redaction does not apply** — it is a dev convenience, and the "never log credentials/PII" rule is what actually protects you; and it honors `OM_LOG_DESTINATION=stderr`, so stdout-protocol processes stay safe in dev too.
+
 ## Routing Logs to stderr: `OM_LOG_DESTINATION`
 
 By default the server transport writes JSON to stdout. Processes whose stdout **is a protocol channel** — most notably the MCP stdio server (`mercato ai_assistant mcp:serve`, which speaks JSON-RPC over stdout) — must not interleave log lines with protocol frames. Set `OM_LOG_DESTINATION=stderr` (case-insensitive) to make the pino root write to `process.stderr` instead; any other value (or unset) keeps the stdout default.
@@ -102,7 +124,7 @@ The value is read when the pino root is lazily created on the first log call. If
 
 `@open-mercato/shared` is consumed by server, browser, and edge bundles, so the facade selects its transport at runtime:
 
-- **Node server** — pino, emitting one JSON object per line to stdout. Correct for production log aggregation; ops wires the collector.
+- **Node server** — pino, emitting one JSON object per line to stdout (or the compact pretty transport when [pretty mode](#pretty-mode-in-development-om_log_pretty) resolves on). Correct for production log aggregation; ops wires the collector.
 - **Browser** (`window` defined) and **edge** (`NEXT_RUNTIME=edge`) — a console shim mapping the four levels to `console.debug/info/warn/error`, printing `[namespace]`, the message, and a compact `key=value` rendering of the merged bindings.
 
 pino never leaks into client bundles: the facade and console transport have zero static dependency on pino, and the server transport loads it lazily at the first server-side log call via a runtime `require` — never a static import. Merely importing the facade touches nothing pino-related, and any load failure falls back to the console transport. Because the shared package builds unbundled per-file, importing `@open-mercato/shared/lib/logger` pulls in only the logger files.
