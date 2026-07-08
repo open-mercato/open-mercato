@@ -63,6 +63,25 @@ type ResponsePayload = {
   totalPages: number
 }
 
+type RunParameterType = 'boolean' | 'string' | 'number' | 'select'
+
+type RunParameter = {
+  key: string
+  label: string
+  type: RunParameterType
+  description?: string
+  required?: boolean
+  defaultValue?: string | number | boolean
+  placeholder?: string
+  options?: { value: string; label?: string }[]
+  min?: number
+  max?: number
+  direction?: 'import' | 'export'
+  entityType?: string | string[]
+}
+
+type RunParameterValue = string | boolean
+
 type SyncOption = {
   integrationId: string
   title: string
@@ -72,6 +91,7 @@ type SyncOption = {
   runMode?: 'generic' | 'provider'
   canStartRun?: boolean
   supportedEntities: string[]
+  runParameters?: RunParameter[]
   hasCredentials: boolean
   isEnabled: boolean
   settingsPath: string
@@ -118,6 +138,36 @@ function formatEntityTypeLabel(entityType: string): string {
     .replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function getApplicableRunParameters(
+  option: SyncOption | null,
+  direction: 'import' | 'export',
+  entityType: string | null,
+): RunParameter[] {
+  const declared = option?.runParameters ?? []
+  return declared.filter((param) => {
+    if (param.direction && param.direction !== direction) return false
+    if (param.entityType !== undefined && entityType) {
+      const allowed = Array.isArray(param.entityType) ? param.entityType : [param.entityType]
+      if (!allowed.includes(entityType)) return false
+    }
+    return true
+  })
+}
+
+function buildDefaultRunParameterValues(params: RunParameter[]): Record<string, RunParameterValue> {
+  const values: Record<string, RunParameterValue> = {}
+  for (const param of params) {
+    if (param.type === 'boolean') {
+      values[param.key] = param.defaultValue === true
+    } else {
+      values[param.key] = param.defaultValue !== undefined && param.defaultValue !== null
+        ? String(param.defaultValue)
+        : ''
+    }
+  }
+  return values
+}
+
 function buildDefaultScheduleState(entityType: string): SyncScheduleEditorState {
   const normalized = entityType.trim().toLowerCase()
   const longerInterval = normalized === 'categories' || normalized === 'attributes'
@@ -148,6 +198,7 @@ export default function SyncRunsDashboardPage() {
   const [selectedDirection, setSelectedDirection] = React.useState<'import' | 'export'>('import')
   const [batchSize, setBatchSize] = React.useState('100')
   const [fullSync, setFullSync] = React.useState(false)
+  const [paramValues, setParamValues] = React.useState<Record<string, RunParameterValue>>({})
   const [scheduleEditor, setScheduleEditor] = React.useState<SyncScheduleEditorState>(() => buildDefaultScheduleState(''))
   const [isLoadingSchedule, setIsLoadingSchedule] = React.useState(false)
   const [isSavingSchedule, setIsSavingSchedule] = React.useState(false)
@@ -229,6 +280,19 @@ export default function SyncRunsDashboardPage() {
     () => selectedIntegration?.supportedEntities ?? [],
     [selectedIntegration],
   )
+
+  const runParameters = React.useMemo(
+    () => getApplicableRunParameters(selectedIntegration, selectedDirection, selectedEntityType),
+    [selectedIntegration, selectedDirection, selectedEntityType],
+  )
+
+  React.useEffect(() => {
+    setParamValues(buildDefaultRunParameterValues(runParameters))
+  }, [runParameters])
+
+  const updateParamValue = React.useCallback((key: string, value: RunParameterValue) => {
+    setParamValues((current) => ({ ...current, [key]: value }))
+  }, [])
 
   React.useEffect(() => {
     if (!selectedIntegration) {
@@ -351,27 +415,28 @@ export default function SyncRunsDashboardPage() {
       return
     }
 
+    const parameters: Record<string, RunParameterValue> = {}
+    for (const param of runParameters) {
+      if (param.key in paramValues) parameters[param.key] = paramValues[param.key]
+    }
+    const requestBody: Record<string, unknown> = {
+      integrationId: selectedIntegration.integrationId,
+      entityType: selectedEntityType,
+      direction: selectedDirection,
+      batchSize: parsedBatchSize,
+      fullSync,
+    }
+    if (runParameters.length > 0) requestBody.parameters = parameters
+
     try {
       const call = await runMutation({
         // optimistic-lock-exempt: starts a new sync run (create), not a concurrent record edit
         operation: () => apiCall<{ id: string }>('/api/data_sync/run', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            integrationId: selectedIntegration.integrationId,
-            entityType: selectedEntityType,
-            direction: selectedDirection,
-            batchSize: parsedBatchSize,
-            fullSync,
-          }),
+          body: JSON.stringify(requestBody),
         }, { fallback: null }),
-        mutationPayload: {
-          integrationId: selectedIntegration.integrationId,
-          entityType: selectedEntityType,
-          direction: selectedDirection,
-          batchSize: parsedBatchSize,
-          fullSync,
-        },
+        mutationPayload: requestBody,
         context: {
           operation: 'create',
           actionId: 'start-sync-run',
@@ -391,7 +456,7 @@ export default function SyncRunsDashboardPage() {
       const message = error instanceof Error ? error.message : t('data_sync.dashboard.start.error', 'Failed to start sync run')
       flash(message, 'error')
     }
-  }, [batchSize, fullSync, router, runMutation, selectedDirection, selectedEntityType, selectedIntegration, t])
+  }, [batchSize, fullSync, paramValues, router, runMutation, runParameters, selectedDirection, selectedEntityType, selectedIntegration, t])
 
   const handleSaveSchedule = React.useCallback(async () => {
     if (!selectedIntegration || !selectedEntityType) return
@@ -782,6 +847,78 @@ export default function SyncRunsDashboardPage() {
                     </div>
                   </div>
                 </div>
+
+                {runParameters.length > 0 ? (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Settings2 className="size-4 text-muted-foreground" />
+                      <h4 className="text-sm font-semibold">
+                        {t('data_sync.dashboard.start.parameters', 'Run parameters')}
+                      </h4>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {t('data_sync.dashboard.start.parametersHelp', 'Optional values this integration accepts for the manual run.')}
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {runParameters.map((param) => {
+                        const value = paramValues[param.key]
+                        if (param.type === 'boolean') {
+                          return (
+                            <div key={param.key} className="rounded-lg border bg-background p-3 sm:col-span-2">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="space-y-1">
+                                  <Label className="text-sm font-medium">{param.label}</Label>
+                                  {param.description ? (
+                                    <p className="text-xs text-muted-foreground">{param.description}</p>
+                                  ) : null}
+                                </div>
+                                <Switch
+                                  checked={value === true}
+                                  onCheckedChange={(checked) => updateParamValue(param.key, checked)}
+                                />
+                              </div>
+                            </div>
+                          )
+                        }
+                        return (
+                          <div key={param.key} className="space-y-2">
+                            <Label className="text-sm font-medium">
+                              {param.label}
+                              {param.required ? <span className="text-destructive"> *</span> : null}
+                            </Label>
+                            {param.type === 'select' ? (
+                              <Select
+                                value={typeof value === 'string' && value.length > 0 ? value : undefined}
+                                onValueChange={(next) => updateParamValue(param.key, next ?? '')}
+                              >
+                                <SelectTrigger>
+                                  <SelectValue placeholder={param.placeholder ?? undefined} />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {(param.options ?? []).map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label ?? option.value}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            ) : (
+                              <Input
+                                value={typeof value === 'string' ? value : ''}
+                                onChange={(event) => updateParamValue(param.key, event.target.value)}
+                                placeholder={param.placeholder ?? undefined}
+                                inputMode={param.type === 'number' ? 'numeric' : undefined}
+                              />
+                            )}
+                            {param.description ? (
+                              <p className="text-xs text-muted-foreground">{param.description}</p>
+                            ) : null}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-xs text-muted-foreground">

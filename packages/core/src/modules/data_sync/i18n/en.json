@@ -121,5 +121,8 @@
   "data_sync.runs.detail.retry": "Retry",
   "data_sync.runs.detail.retryError": "Failed to retry sync run",
   "data_sync.runs.detail.retrySuccess": "Sync run retried",
-  "data_sync.runs.detail.title": "Sync Run"
+  "data_sync.runs.detail.title": "Sync Run",
+  "data_sync.dashboard.start.parameters": "Run parameters",
+  "data_sync.dashboard.start.parametersHelp": "Optional values this integration accepts for the manual run.",
+  "data_sync.runs.detail.parameters": "Run parameters"
 }

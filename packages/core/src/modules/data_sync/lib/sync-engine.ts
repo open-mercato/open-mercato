@@ -6,12 +6,14 @@ import type { IntegrationStateService } from '../../integrations/lib/state-servi
 import type { ProgressService } from '../../progress/lib/progressService'
 import { refreshCoverageSnapshot } from '../../query_index/lib/coverage'
 import { emitDataSyncEvent } from '../events'
-import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
+import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch, RunParameterValue } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('data_sync').child({ component: 'sync-engine' })
+
+type RunParameters = Record<string, RunParameterValue> | undefined
 
 type SyncScope = {
   organizationId: string
@@ -462,6 +464,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
+          parameters: (run.parameters ?? undefined) as RunParameters,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)
@@ -606,6 +609,7 @@ export function createSyncEngine(deps: EngineDeps) {
           mapping,
           scope: { organizationId: scope.organizationId, tenantId: scope.tenantId },
           runId: run.id,
+          parameters: (run.parameters ?? undefined) as RunParameters,
         })) {
           if (run.progressJobId && await progressService.isCancellationRequested(run.progressJobId, scope.tenantId, scope.organizationId)) {
             await finalizeRun(run.id, 'cancelled', scope, undefined, operationalTelemetry)

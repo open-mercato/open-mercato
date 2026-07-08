@@ -121,5 +121,8 @@
   "data_sync.runs.detail.retry": "Wiederholen",
   "data_sync.runs.detail.retryError": "Lauf konnte nicht wiederholt werden",
   "data_sync.runs.detail.retrySuccess": "Lauf wiederholt",
-  "data_sync.runs.detail.title": "Synchronisierungslauf"
+  "data_sync.runs.detail.title": "Synchronisierungslauf",
+  "data_sync.dashboard.start.parameters": "Lauf-Parameter",
+  "data_sync.dashboard.start.parametersHelp": "Optionale Werte, die diese Integration für den manuellen Lauf akzeptiert.",
+  "data_sync.runs.detail.parameters": "Lauf-Parameter"
 }

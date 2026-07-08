@@ -121,5 +121,8 @@
   "data_sync.runs.detail.retry": "Reintentar",
   "data_sync.runs.detail.retryError": "No se pudo reintentar la ejecución",
   "data_sync.runs.detail.retrySuccess": "Ejecución reintentada",
-  "data_sync.runs.detail.title": "Ejecución de sincronización"
+  "data_sync.runs.detail.title": "Ejecución de sincronización",
+  "data_sync.dashboard.start.parameters": "Parámetros de ejecución",
+  "data_sync.dashboard.start.parametersHelp": "Valores opcionales que esta integración acepta para la ejecución manual.",
+  "data_sync.runs.detail.parameters": "Parámetros de ejecución"
 }

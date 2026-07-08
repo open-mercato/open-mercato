@@ -50,6 +50,7 @@ export async function GET(req: Request) {
           runMode: adapter.runMode ?? 'generic',
           canStartRun: adapter.runMode !== 'provider',
           supportedEntities: adapter.supportedEntities,
+          runParameters: adapter.runParameters ?? [],
           hasCredentials: Boolean(credentials),
           isEnabled,
           settingsPath: `/backend/integrations/${encodeURIComponent(integration.id)}`,

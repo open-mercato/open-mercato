@@ -100,6 +100,7 @@ export async function POST(req: Request, ctx: { params?: Promise<{ id?: string }
       cursor,
       triggeredBy: auth.sub,
       batchSize: 100,
+      parameters: previous.parameters ?? null,
       progressJob: {
         name: `Retry data sync ${previous.integrationId} — ${previous.entityType}`,
       },

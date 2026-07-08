@@ -9,6 +9,7 @@ import type { SyncRunService } from '../lib/sync-run-service'
 import { runSyncSchema } from '../data/validators'
 import { startDataSyncRun } from '../lib/start-run'
 import { getDataSyncAdapter } from '../lib/adapter-registry'
+import { normalizeRunParameters } from '../lib/run-parameters'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -72,6 +73,19 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Unsupported entity type for this integration' }, { status: 422 })
     }
 
+    const normalizedParameters = normalizeRunParameters(
+      adapter.runParameters,
+      parsed.data.direction,
+      parsed.data.parameters,
+      parsed.data.entityType,
+    )
+    if (!normalizedParameters.ok) {
+      return NextResponse.json(
+        { error: 'Invalid run parameters', details: { parameters: normalizedParameters.errors } },
+        { status: 422 },
+      )
+    }
+
     const integrationEnabled = await integrationStateService.isEnabled(parsed.data.integrationId, scope)
     if (!integrationEnabled) {
       return NextResponse.json({ error: 'Integration is disabled' }, { status: 409 })
@@ -120,6 +134,9 @@ export async function POST(req: Request) {
         cursor,
         triggeredBy: parsed.data.triggeredBy ?? auth.sub,
         batchSize: parsed.data.batchSize,
+        parameters: Object.keys(normalizedParameters.values).length > 0
+          ? normalizedParameters.values
+          : null,
       },
     })
 

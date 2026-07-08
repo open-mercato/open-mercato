@@ -68,6 +68,7 @@ export function createSyncRunService(em: EntityManager) {
       triggeredBy?: string | null
       progressJobId?: string | null
       jobId?: string | null
+      parameters?: Record<string, unknown> | null
     }, scope: SyncScope): Promise<SyncRun> {
       const row = em.create(SyncRun, {
         integrationId: input.integrationId,
@@ -79,6 +80,7 @@ export function createSyncRunService(em: EntityManager) {
         triggeredBy: input.triggeredBy,
         progressJobId: input.progressJobId,
         jobId: input.jobId,
+        parameters: input.parameters ?? null,
         organizationId: scope.organizationId,
         tenantId: scope.tenantId,
       })

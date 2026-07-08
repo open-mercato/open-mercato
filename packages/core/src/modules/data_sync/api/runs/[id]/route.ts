@@ -64,6 +64,7 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     batchesCompleted: run.batchesCompleted,
     lastError: run.lastError ?? null,
     progressJobId: run.progressJobId ?? null,
+    parameters: run.parameters ?? null,
     progressJob: progressJob
       ? {
         id: progressJob.id,

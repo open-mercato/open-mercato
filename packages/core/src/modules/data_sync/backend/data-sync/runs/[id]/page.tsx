@@ -33,6 +33,7 @@ type SyncRunDetail = {
   batchesCompleted: number
   lastError: string | null
   progressJobId: string | null
+  parameters: Record<string, unknown> | null
   progressJob: {
     id: string
     status: string
@@ -403,6 +404,26 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
             </CardContent>
           </Card>
         </div>
+
+        {run.parameters && Object.keys(run.parameters).length > 0 ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>{t('data_sync.runs.detail.parameters', 'Run parameters')}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                {Object.entries(run.parameters).map(([key, value]) => (
+                  <div key={key} className="flex items-center justify-between gap-3 rounded-md border bg-card px-3 py-2 text-sm">
+                    <dt className="font-medium text-muted-foreground">{key}</dt>
+                    <dd className="font-mono text-foreground">
+                      {typeof value === 'boolean' ? String(value) : String(value ?? '')}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {run.lastError && (
           <Card className="border-status-error-border bg-status-error-bg">

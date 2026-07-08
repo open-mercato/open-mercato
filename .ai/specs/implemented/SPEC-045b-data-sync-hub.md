@@ -2541,6 +2541,61 @@ export function createRateLimiter(requestsPerSecond: number) {
 
 ---
 
+## 11b. Run Parameters (operator-supplied, adapter-declared)
+
+Adapters may declare optional, operator-facing **run parameters** that are
+collected when a run is started. The mechanism is provider-agnostic — no
+provider is special-cased in `data_sync`.
+
+**Contract** (`lib/adapter.ts`):
+
+```ts
+type RunParameterType = 'boolean' | 'string' | 'number' | 'select'
+
+interface RunParameter {
+  key: string
+  label: string
+  type: RunParameterType
+  description?: string
+  required?: boolean
+  defaultValue?: boolean | string | number
+  placeholder?: string
+  options?: { value: string; label?: string }[]   // select
+  min?: number; max?: number                        // number
+  direction?: 'import' | 'export'                   // omit = both
+}
+
+interface DataSyncAdapter {
+  // …
+  readonly runParameters?: RunParameter[]
+}
+```
+
+**Flow**:
+
+1. `GET /api/data_sync/options` exposes each integration's `runParameters`.
+2. The dashboard renders a generic input per declared parameter (boolean →
+   switch, select → dropdown, number/string → text input).
+3. `POST /api/data_sync/run` validates and coerces the submitted values against
+   the adapter's declaration via `normalizeRunParameters` (`lib/run-parameters.ts`):
+   - undeclared keys are dropped (never passed through),
+   - blank values fall back to `defaultValue`; a blank **required** value → `422`,
+   - values are coerced to the declared type, with `min`/`max` and `select`
+     option enforcement,
+   - parameters not matching the run `direction` are ignored.
+4. Normalized values are persisted on `SyncRun.parameters` (JSONB, nullable) and
+   handed to the adapter on `StreamImportInput.parameters` /
+   `StreamExportInput.parameters` for the whole duration of the run.
+5. The run detail page surfaces the parameters read-only; **retry carries the
+   parameters forward** onto the new run.
+
+**Scope / limits (v1)**: scalar values only; parameters reach the streaming
+methods (and the persisted record), not `getMapping` / `getInitialCursor` /
+`validateConnection`; values are set once at run start and are immutable for the
+duration of the run. These are additive extension points if richer needs arise.
+
+---
+
 ## 12. Changelog
 
 | Date | Change |
@@ -2550,6 +2605,7 @@ export function createRateLimiter(requestsPerSecond: number) {
 | 2026-02-24 | Added `sync_excel` reference implementation |
 | 2026-03-04 | Clarified canonical ownership of `sync_external_id_mappings` and added migration/BC + compliance sections |
 | 2026-04-15 | Updated code snippets for MikroORM v7 (persist().flush(), getKysely(), class-based entity refs). |
+| 2026-06-29 | Added generic adapter-declared run parameters: `RunParameter` contract, `normalizeRunParameters` validation/coercion, `SyncRun.parameters` (JSONB) persistence, pass-through to import/export streams, dashboard inputs + read-only run-detail surfacing, retry carry-forward (see §11b). |
 
 ## Implementation Status
 
