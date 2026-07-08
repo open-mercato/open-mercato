@@ -221,6 +221,32 @@ function collectExistingPaths(candidates: Array<string | null | undefined>): str
   return Array.from(collected)
 }
 
+function isLikelyNextAppDirectory(candidate: string): boolean {
+  if (!existsSync(path.join(candidate, 'package.json'))) {
+    return false
+  }
+  return resolveFirstExistingPath(
+    path.join(candidate, 'next.config.ts'),
+    path.join(candidate, 'next.config.js'),
+    path.join(candidate, 'next.config.mjs'),
+    path.join(candidate, 'src', 'modules.ts'),
+  ) !== null
+}
+
+function resolveDefaultPrivateAttachmentsAppDirectory(): string {
+  const candidates = [
+    appDirectory,
+    path.join(projectRootDirectory, 'apps', 'mercato'),
+    path.join(projectRootDirectory, 'apps', 'app'),
+  ]
+  for (const candidate of candidates) {
+    if (isLikelyNextAppDirectory(candidate)) {
+      return candidate
+    }
+  }
+  return appDirectory
+}
+
 function readPackageScripts(packageRoot: string): Record<string, string> {
   try {
     const raw = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
@@ -246,6 +272,13 @@ const LEGACY_EPHEMERAL_ENV_FILE_PATH = path.join(projectRootDirectory, '.ai', 'q
 const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-build-cache.json')
 const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
 const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
+const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
+const EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT = path.join(
+  resolveDefaultPrivateAttachmentsAppDirectory(),
+  'storage',
+  'attachments',
+  'privateAttachments',
+)
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
@@ -1678,6 +1711,7 @@ function buildReusableEnvironment(
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
   const emailCapturePath = path.resolve(queueBaseDir, '..', 'test-email-capture.jsonl')
+  const privateAttachmentsRoot = resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir)
   return buildEnvironment({
     DATABASE_URL: databaseUrl,
     BASE_URL: baseUrl,
@@ -1731,9 +1765,23 @@ function buildReusableEnvironment(
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
     QUEUE_BASE_DIR: queueBaseDir,
+    [PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]:
+      process.env[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY] ?? privateAttachmentsRoot,
     NODE_NO_WARNINGS: '1',
     PW_CAPTURE_SCREENSHOTS: captureScreenshots ? '1' : '0',
   })
+}
+
+function resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir: string): string {
+  const resolvedQueueBaseDir = path.resolve(queueBaseDir)
+  const queueParent = path.dirname(resolvedQueueBaseDir)
+  if (path.basename(resolvedQueueBaseDir) === 'queue' && path.basename(queueParent) === '.mercato') {
+    const queueAppDirectory = path.dirname(queueParent)
+    if (isLikelyNextAppDirectory(queueAppDirectory)) {
+      return path.join(queueAppDirectory, 'storage', 'attachments', 'privateAttachments')
+    }
+  }
+  return EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT
 }
 
 export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
@@ -3089,6 +3137,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,
+      [PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]:
+        process.env[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY] ?? EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT,
       NODE_NO_WARNINGS: '1',
       PORT: String(applicationPort),
       PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',

@@ -32,7 +32,8 @@ export class SsoService {
       {},
       { tenantId: null },
     )
-    return configs.find((c) => c.allowedDomains.some((d) => d.toLowerCase() === domain)) ?? null
+    const matches = configs.filter((c) => c.allowedDomains.some((d) => d.toLowerCase() === domain))
+    return matches.length === 1 ? matches[0]! : null
   }
 
   async initiateLogin(
