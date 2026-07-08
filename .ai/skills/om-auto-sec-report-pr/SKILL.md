@@ -55,7 +55,7 @@ cover — invoke or quote them:
   add OWASP/paranoid checks on top.
 - `.agents/skills/om-auto-review-pr/SKILL.md` defines the claim/lock/worktree
   pattern used here verbatim (see step 1 below).
-- `.agents/skills/om-spec-writing/references/spec-checklist.md` and
+- `.ai/skills/om-spec-writing/references/spec-checklist.md` and
   `spec-writing/references/compliance-review.md` are the authoritative
   sources when the target is a spec (section 3 "Data Integrity &
   Security", compliance matrix fields).

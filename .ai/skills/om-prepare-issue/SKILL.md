@@ -13,7 +13,7 @@ Turn a "we want this eventually" brief into durable, actionable backlog without 
 
 This skill is for **deferred** work. It does NOT implement the feature. If the user wants the feature built now, hand off to `om-auto-create-pr` (free-form task) or `om-implement-spec` (after the spec exists) instead.
 
-This skill reuses the worktree/branch/commit/label discipline of `.agents/skills/om-auto-create-pr/SKILL.md` for the PR, the spec methodology of `.agents/skills/om-spec-writing/SKILL.md` for the spec, and the issue-claim/linking conventions of `.ai/skills/om-auto-fix-github/SKILL.md` for the tracking issue. Read those before deviating.
+This skill reuses the worktree/branch/commit/label discipline of `.agents/skills/om-auto-create-pr/SKILL.md` for the PR, the spec methodology of `.ai/skills/om-spec-writing/SKILL.md` for the spec, and the issue-claim/linking conventions of `.ai/skills/om-auto-fix-github/SKILL.md` for the tracking issue. Read those before deviating.
 
 ## Arguments
 
@@ -59,7 +59,7 @@ Reduce the brief to: goal in one sentence, affected modules/packages, and the ro
 
 ### 2. Write the spec with om-spec-writing
 
-Follow `.agents/skills/om-spec-writing/SKILL.md` end to end. Key points for this skill:
+Follow `.ai/skills/om-spec-writing/SKILL.md` end to end. Key points for this skill:
 
 - Create the spec at `$SPEC_PATH` (`{YYYY-MM-DD}-{kebab-title}.md`, `date` UTC). Enterprise scope goes under `.ai/specs/enterprise/`.
 - Start with a **Skeleton Spec** (TLDR + 2-3 key sections). If critical unknowns exist, add a numbered **Open Questions** block right after the TLDR and **STOP** — ask the user before filling in the rest. This is a hard gate; do not invent answers to architecture-blocking questions.

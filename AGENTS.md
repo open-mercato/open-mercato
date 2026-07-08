@@ -125,7 +125,7 @@ Most `om-*` automation skills (code review, auto-create/continue/review PR, merg
 ## Workflow Orchestration
 
 1.  **Spec-first**: Enter plan mode for non-trivial tasks (3+ steps or architectural decisions). Check `.ai/specs/` and `.ai/specs/enterprise/` before coding; create spec files using scope-appropriate naming (`{date}-{title}.md` for OSS and enterprise, with `date` as `YYYY-MM-DD` and `title` as kebab-case). Skip for small fixes.
-    -   **Detailed Workflow**: Refer to the **`om-spec-writing` skill** for research, phasing, and architectural review standards (`.agents/skills/om-spec-writing/SKILL.md`).
+    -   **Detailed Workflow**: Refer to the **`om-spec-writing` skill** for research, phasing, and architectural review standards (`.ai/skills/om-spec-writing/SKILL.md`).
     -   **Pre-implementation analysis**: Before implementing a complex spec, run the **`om-pre-implement-spec` skill** to audit backward compatibility, identify gaps, and produce a readiness report.
     -   **Implementation**: Use the **`om-implement-spec` skill** to execute spec phases with coordinated subagents, unit tests, progress tracking, and code-review compliance gates.
 2.  **Subagent strategy**: Use subagents liberally to keep main context clean. Offload research and parallel analysis. One task per subagent.
