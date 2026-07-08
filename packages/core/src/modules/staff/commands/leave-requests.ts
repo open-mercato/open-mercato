@@ -21,7 +21,17 @@ import {
   type StaffLeaveRequestDecisionInput,
   type StaffLeaveRequestUpdateInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import {
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  explicitStaffCommandScope,
+  extractUndoPayload,
+  requireTeamMember,
+  scopeForDecryption,
+  applyScopeToWhere,
+} from './shared'
 import { E } from '#generated/entities.ids.generated'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
@@ -167,8 +177,18 @@ function leaveRequestSeedFromSnapshot(snapshot: LeaveRequestSnapshot): Record<st
   }
 }
 
-async function requireLeaveRequest(em: EntityManager, id: string): Promise<StaffLeaveRequest> {
-  const request = await findOneWithDecryption(em, StaffLeaveRequest, { id, deletedAt: null }, undefined, { tenantId: null, organizationId: null })
+async function requireLeaveRequest(
+  em: EntityManager,
+  id: string,
+  scope: ReturnType<typeof explicitStaffCommandScope>,
+): Promise<StaffLeaveRequest> {
+  const request = await findOneWithDecryption(
+    em,
+    StaffLeaveRequest,
+    applyScopeToWhere<StaffLeaveRequest>({ id, deletedAt: null }, scope),
+    undefined,
+    scopeForDecryption(scope),
+  )
   if (!request) throw new CrudHttpError(404, { error: 'Leave request not found.' })
   return request
 }
@@ -245,9 +265,15 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     const parsed = staffLeaveRequestCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, parsed.memberId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      parsed.memberId,
+      scope,
+      'Team member not found',
+    )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -400,13 +426,14 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const scope = commandActorScope(ctx)
+    const request = await requireLeaveRequest(em, parsed.id, scope)
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
 
     if (parsed.memberId !== undefined) {
-      const member = await requireTeamMember(em, parsed.memberId, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.memberId, scope, 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       request.member = member
@@ -514,7 +541,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.pick({ id: true }).parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
@@ -595,7 +622,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
@@ -802,7 +829,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
