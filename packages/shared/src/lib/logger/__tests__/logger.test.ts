@@ -13,10 +13,11 @@ import { resetServerLoggerCache } from '../transport.server'
 type FakePinoCall = { level: LogLevel; args: unknown[] }
 
 type FakePinoHarness = {
-  factory: (options: Record<string, unknown>) => unknown
+  factory: (options: Record<string, unknown>, destination?: unknown) => unknown
   calls: FakePinoCall[]
   childBindings: Record<string, unknown>[]
   options: () => Record<string, unknown> | null
+  destination: () => unknown
 }
 
 function createFakePinoHarness(): FakePinoHarness {
@@ -33,18 +34,21 @@ function createFakePinoHarness(): FakePinoHarness {
       return makeInstance()
     },
   })
+  let recordedDestination: unknown
   return {
-    factory: (options) => {
+    factory: (options, destination) => {
       recordedOptions = options
+      recordedDestination = destination
       return makeInstance()
     },
     calls,
     childBindings,
     options: () => recordedOptions,
+    destination: () => recordedDestination,
   }
 }
 
-const TRACKED_ENV_KEYS = ['OM_LOG_LEVEL', 'NODE_ENV', 'NEXT_RUNTIME'] as const
+const TRACKED_ENV_KEYS = ['OM_LOG_LEVEL', 'NODE_ENV', 'NEXT_RUNTIME', 'OM_LOG_DESTINATION'] as const
 
 const originalGetBuiltinModule = process.getBuiltinModule.bind(process)
 
@@ -291,6 +295,38 @@ describe('structured logging facade', () => {
         paths: expect.arrayContaining(['password', '*.password', 'token', '*.token', 'secret', '*.secret', 'authorization', '*.authorization', 'headers.authorization', 'req.headers.authorization']),
         censor: '[Redacted]',
       })
+    })
+
+    it('writes to stdout by default (no destination passed to the pino factory)', () => {
+      delete process.env.OM_LOG_DESTINATION
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      createLogger('dest-default-ns').info('hello')
+      expect(fake.destination()).toBeUndefined()
+    })
+
+    it('passes process.stderr as the pino destination when OM_LOG_DESTINATION=stderr', () => {
+      process.env.OM_LOG_DESTINATION = 'stderr'
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      createLogger('dest-stderr-ns').info('hello')
+      expect(fake.destination()).toBe(process.stderr)
+    })
+
+    it('accepts case-insensitive and padded OM_LOG_DESTINATION tokens', () => {
+      process.env.OM_LOG_DESTINATION = '  STDERR '
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      createLogger('dest-mixed-ns').info('hello')
+      expect(fake.destination()).toBe(process.stderr)
+    })
+
+    it('falls back to the default destination for unrecognized OM_LOG_DESTINATION values', () => {
+      process.env.OM_LOG_DESTINATION = 'banana'
+      const fake = createFakePinoHarness()
+      mockPinoLoader(fake.factory)
+      createLogger('dest-junk-ns').info('hello')
+      expect(fake.destination()).toBeUndefined()
     })
   })
 

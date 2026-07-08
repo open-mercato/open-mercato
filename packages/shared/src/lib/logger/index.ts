@@ -2,6 +2,7 @@ import { selectTransport } from './transport'
 
 export type { LogLevel } from './level'
 export { getLogLevel, isLevelEnabled, resetLogLevelCache, OM_LOG_LEVEL_ENV } from './level'
+export { resetServerLoggerCache, OM_LOG_DESTINATION_ENV } from './transport.server'
 
 export type LogBindings = Record<string, unknown>
 

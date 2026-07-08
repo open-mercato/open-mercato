@@ -17,6 +17,8 @@ const REDACT_PATHS = [
 
 const REDACT_CENSOR = '[Redacted]'
 
+export const OM_LOG_DESTINATION_ENV = 'OM_LOG_DESTINATION'
+
 type PinoBaseLogger = {
   debug(fields: Record<string, unknown>, msg: string): void
   info(fields: Record<string, unknown>, msg: string): void
@@ -25,7 +27,7 @@ type PinoBaseLogger = {
   child(bindings: Record<string, unknown>): PinoBaseLogger
 }
 
-type PinoFactory = (options: Record<string, unknown>) => PinoBaseLogger
+type PinoFactory = (options: Record<string, unknown>, destination?: unknown) => PinoBaseLogger
 
 type NodeModuleBuiltin = {
   createRequire(basePath: string): (id: string) => unknown
@@ -34,9 +36,18 @@ type NodeModuleBuiltin = {
 type ProcessWithBuiltins = {
   cwd(): string
   getBuiltinModule?(id: string): unknown
+  env?: Record<string, string | undefined>
+  stderr?: unknown
+}
+
+function resolveDestinationStream(nodeProcess: ProcessWithBuiltins): unknown {
+  const raw = nodeProcess.env?.[OM_LOG_DESTINATION_ENV]
+  if (typeof raw !== 'string') return undefined
+  return raw.trim().toLowerCase() === 'stderr' ? nodeProcess.stderr : undefined
 }
 
 let cachedRoot: PinoBaseLogger | null | undefined
+let rootGeneration = 0
 
 /**
  * pino is loaded lazily via a runtime `require` obtained from
@@ -60,10 +71,12 @@ function loadPinoRoot(): PinoBaseLogger | null {
     const requireFromApp = moduleBuiltin.createRequire(`${nodeProcess.cwd()}/package.json`)
     const pinoExport = requireFromApp('pino') as PinoFactory | { default: PinoFactory }
     const pinoFactory = typeof pinoExport === 'function' ? pinoExport : pinoExport.default
-    cachedRoot = pinoFactory({
+    const destination = resolveDestinationStream(nodeProcess)
+    const options = {
       level: getLogLevel(),
       redact: { paths: REDACT_PATHS, censor: REDACT_CENSOR },
-    })
+    }
+    cachedRoot = destination ? pinoFactory(options, destination) : pinoFactory(options)
   } catch {
     cachedRoot = null
   }
@@ -82,8 +95,10 @@ function wrapPinoLogger(pinoLogger: PinoBaseLogger): Logger {
 
 export function createServerLogger(namespace: string, bindings: LogBindings = {}): Logger {
   let delegate: Logger | null = null
+  let delegateGeneration = -1
   const resolveDelegate = (): Logger => {
-    if (delegate) return delegate
+    if (delegate && delegateGeneration === rootGeneration) return delegate
+    delegateGeneration = rootGeneration
     const root = loadPinoRoot()
     delegate = root
       ? wrapPinoLogger(root.child({ name: namespace, ...bindings }))
@@ -102,4 +117,5 @@ export function createServerLogger(namespace: string, bindings: LogBindings = {}
 /** Internal: clear the cached pino root so tests can re-run transport selection. */
 export function resetServerLoggerCache(): void {
   cachedRoot = undefined
+  rootGeneration += 1
 }
