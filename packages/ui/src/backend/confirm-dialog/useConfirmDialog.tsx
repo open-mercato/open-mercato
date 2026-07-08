@@ -1,6 +1,9 @@
 "use client";
 import * as React from "react";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { createLogger } from "@open-mercato/shared/lib/logger";
+
+const logger = createLogger("ui");
 
 function DialogMountTracker({ trackerRef }: { trackerRef: React.MutableRefObject<boolean> }) {
   React.useEffect(() => {
@@ -82,9 +85,7 @@ export function useConfirmDialog(): UseConfirmDialogReturn {
           process.env.NODE_ENV === "development" &&
           !isDialogElementRenderedRef.current
         ) {
-          console.warn(
-            "useConfirmDialog: confirm() was called but ConfirmDialogElement is not rendered. Add {ConfirmDialogElement} to your JSX."
-          );
+          logger.warn("useConfirmDialog: confirm() was called but ConfirmDialogElement is not rendered. Add {ConfirmDialogElement} to your JSX.");
         }
 
         // If dialog is already open or a previous interaction is still

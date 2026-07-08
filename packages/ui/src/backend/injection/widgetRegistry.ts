@@ -1,6 +1,9 @@
 import type { ModuleInjectionWidgetEntry } from '@open-mercato/shared/modules/registry'
 import type { InjectionWidgetModule } from '@open-mercato/shared/modules/widgets/injection'
 import { applyInjectionWidgetOverridesToEntries } from '@open-mercato/shared/modules/overrides'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 type Entry = ModuleInjectionWidgetEntry
 
@@ -9,7 +12,7 @@ let _injectionWidgetEntries: Entry[] | null = null
 
 export function registerInjectionWidgets(entries: Entry[]) {
   if (_injectionWidgetEntries !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Injection widgets re-registered (this may occur during HMR)')
+    logger.debug('Injection widgets re-registered (this may occur during HMR)')
   }
   _injectionWidgetEntries = applyInjectionWidgetOverridesToEntries(entries)
 }
