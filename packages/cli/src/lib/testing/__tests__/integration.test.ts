@@ -27,8 +27,11 @@ import type { ChildProcess } from 'node:child_process'
 const CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const CHECKOUT_TEST_INJECTION_FLAG = 'NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED'
+const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
 const resolver = createResolver()
 const projectRootDirectory = resolver.getRootDir()
+const appDirectory = path.join(projectRootDirectory, 'apps', 'mercato')
+const defaultPrivateAttachmentsRoot = path.join(appDirectory, 'storage', 'attachments', 'privateAttachments')
 
 const mockHealthyReadinessFetch = (
   overrides: {
@@ -169,6 +172,7 @@ describe('integration cache and options', () => {
         'postgres://integration:integration@127.0.0.1:5432/open_mercato',
       )
       expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe('/tmp/open-mercato-queue')
+      expect(environment?.commandEnvironment[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]).toBe(defaultPrivateAttachmentsRoot)
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
@@ -203,6 +207,43 @@ describe('integration cache and options', () => {
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBe('true')
     } finally {
       fetchSpy.mockRestore()
+    }
+  }, REUSE_ENV_TEST_TIMEOUT_MS)
+
+  it('reuses app-local private attachment storage when queue state points at an app root', async () => {
+    const baseUrl = 'http://127.0.0.1:5001'
+    const appRoot = await mkdtemp(path.join(os.tmpdir(), 'om-integration-app-root-'))
+    const queueBaseDir = path.join(appRoot, '.mercato', 'queue')
+    const fetchSpy = mockHealthyReadinessFetch()
+
+    try {
+      await mkdir(path.join(appRoot, 'src'), { recursive: true })
+      await writeFile(path.join(appRoot, 'package.json'), '{"name":"integration-test-app"}\n', 'utf8')
+      await writeFile(path.join(appRoot, 'src', 'modules.ts'), 'export const enabledModules = []\n', 'utf8')
+
+      await writeEphemeralEnvironmentState({
+        baseUrl,
+        port: 5001,
+        databaseUrl: 'postgres://integration:integration@127.0.0.1:5432/open_mercato',
+        queueBaseDir,
+        logPrefix: 'integration',
+        captureScreenshots: false,
+      })
+
+      const environment = await tryReuseExistingEnvironment({
+        verbose: false,
+        captureScreenshots: false,
+        logPrefix: 'integration',
+        forceRebuild: false,
+      })
+
+      expect(environment).not.toBeNull()
+      expect(environment?.commandEnvironment[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]).toBe(
+        path.join(appRoot, 'storage', 'attachments', 'privateAttachments'),
+      )
+    } finally {
+      fetchSpy.mockRestore()
+      await rm(appRoot, { recursive: true, force: true })
     }
   }, REUSE_ENV_TEST_TIMEOUT_MS)
 
