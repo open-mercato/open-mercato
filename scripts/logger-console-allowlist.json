@@ -2,6 +2,10 @@
   "version": 1,
   "packages": {
     "cli": "CLI user-facing stdout/stderr output is intentional",
-    "create-app": "Scaffolding CLI prints user-facing progress to stdout"
+    "create-app": "Scaffolding CLI prints user-facing progress to stdout",
+    "cache": "Dependency cycle: @open-mercato/shared depends on @open-mercato/cache, so the logger cannot be imported here; the single fallback warn stays on console"
+  },
+  "files": {
+    "packages/*/src/**/cli.ts": "Module CLI command output (mercato <module> <cmd>) — user-facing stdout/stderr, same category as @open-mercato/cli"
   }
 }

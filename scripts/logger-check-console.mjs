@@ -9,8 +9,10 @@
  * The check is informational: existing call sites migrate incrementally via
  * the Boy Scout rule, so the script always exits 0. Whole packages whose
  * stdout output is intentional (CLI user output) are allowlisted in
- * `scripts/logger-console-allowlist.json` with the shape
- * `{ "packages": { "<package-dir>": "<reason>" } }`.
+ * `scripts/logger-console-allowlist.json` under `packages`; file glob
+ * patterns whose console output is intentional (module `cli.ts` command
+ * output) are allowlisted under `files`. Shape:
+ * `{ "packages": { "<package-dir>": "<reason>" }, "files": { "<glob>": "<reason>" } }`.
  *
  * Usage:
  *   node scripts/logger-check-console.mjs                 # report
@@ -79,17 +81,42 @@ function parseArgs(argv) {
   return opts
 }
 
-function loadAllowlistedPackages() {
+function loadAllowlist() {
   try {
     const raw = fs.readFileSync(ALLOWLIST_PATH, 'utf-8')
     const parsed = JSON.parse(raw)
-    return parsed && typeof parsed.packages === 'object' && parsed.packages !== null
-      ? parsed.packages
-      : {}
+    return {
+      packages:
+        parsed && typeof parsed.packages === 'object' && parsed.packages !== null
+          ? parsed.packages
+          : {},
+      files:
+        parsed && typeof parsed.files === 'object' && parsed.files !== null ? parsed.files : {},
+    }
   } catch (err) {
     console.error(yellow(`[logger-check-console] failed to read ${path.relative(ROOT, ALLOWLIST_PATH)}: ${err.message}`))
-    return {}
+    return { packages: {}, files: {} }
   }
+}
+
+function globPatternToRegExp(pattern) {
+  const GLOBSTAR_SLASH = '\u0000'
+  const GLOBSTAR = '\u0001'
+  const escaped = pattern
+    .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    .replace(/\*\*\//g, GLOBSTAR_SLASH)
+    .replace(/\*\*/g, GLOBSTAR)
+    .replace(/\*/g, '[^/]*')
+    .replaceAll(GLOBSTAR_SLASH, '(?:.*/)?')
+    .replaceAll(GLOBSTAR, '.*')
+  return new RegExp(`^${escaped}$`)
+}
+
+function buildFileAllowlistMatchers(fileAllowlist) {
+  return Object.entries(fileAllowlist).map(([pattern, reason]) => ({
+    regex: globPatternToRegExp(pattern),
+    reason,
+  }))
 }
 
 function derivePackageKey(relFile) {
@@ -134,7 +161,9 @@ function collectSources(opts) {
 
 function main() {
   const opts = parseArgs(process.argv.slice(2))
-  const allowlistedPackages = loadAllowlistedPackages()
+  const allowlist = loadAllowlist()
+  const allowlistedPackages = allowlist.packages
+  const fileAllowlistMatchers = buildFileAllowlistMatchers(allowlist.files)
   const files = collectSources(opts)
   const startedAt = Date.now()
 
@@ -158,7 +187,8 @@ function main() {
     }
     report.files += 1
     const findings = scanFile(relFile, content)
-    if (report.allowlistReason) report.allowlisted += findings.length
+    const fileAllowlistMatch = fileAllowlistMatchers.find((m) => m.regex.test(relFile))
+    if (report.allowlistReason || fileAllowlistMatch) report.allowlisted += findings.length
     else report.findings.push(...findings)
     packageReports.set(key, report)
   }
@@ -207,7 +237,8 @@ function main() {
       console.log(`[${report.packageKey}] ${yellow(`${report.allowlisted} allowlisted`)} ${dim(`(${report.allowlistReason})`)}`)
       continue
     }
-    console.log(`[${report.packageKey}] ${red(`${report.findings.length}`)} raw console.* calls`)
+    const allowlistedNote = report.allowlisted > 0 ? ` ${yellow(`(+${report.allowlisted} allowlisted)`)}` : ''
+    console.log(`[${report.packageKey}] ${red(`${report.findings.length}`)} raw console.* calls${allowlistedNote}`)
     if (opts.quiet) continue
     const shown = report.findings.slice(0, opts.showFindingLimit)
     for (const finding of shown) {
