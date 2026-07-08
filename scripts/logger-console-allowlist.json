@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "packages": {
+    "cli": "CLI user-facing stdout/stderr output is intentional",
+    "create-app": "Scaffolding CLI prints user-facing progress to stdout"
+  }
+}
