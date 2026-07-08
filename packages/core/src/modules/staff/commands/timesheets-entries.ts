@@ -22,7 +22,15 @@ import {
   type StaffTimeEntryUpdateInput,
 } from '../data/validators'
 import { staffTimeEntryCrudEvents } from '../lib/crud'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  extractUndoPayload,
+  scopeForDecryption,
+} from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
 
 type RbacServiceLike = {
@@ -174,6 +182,7 @@ const createTimeEntryCommand: CommandHandler<StaffTimeEntryCreateInput, { timeEn
     const parsed = staffTimeEntryCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -290,6 +299,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
     const parsed = staffTimeEntryStartTimerSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
 
@@ -457,12 +467,13 @@ const updateTimeEntryCommand: CommandHandler<StaffTimeEntryUpdateInput, { timeEn
   async execute(rawInput, ctx) {
     const parsed = staffTimeEntryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const entry = await findOneWithDecryption(
       em,
       StaffTimeEntry,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTimeEntry>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!entry) throw new CrudHttpError(404, { error: 'Time entry not found.' })
     ensureTenantScope(ctx, entry.tenantId)
@@ -583,12 +594,13 @@ const deleteTimeEntryCommand: CommandHandler<{ id?: string }, { timeEntryId: str
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Time entry id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const entry = await findOneWithDecryption(
       em,
       StaffTimeEntry,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTimeEntry>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!entry) throw new CrudHttpError(404, { error: 'Time entry not found.' })
     ensureTenantScope(ctx, entry.tenantId)

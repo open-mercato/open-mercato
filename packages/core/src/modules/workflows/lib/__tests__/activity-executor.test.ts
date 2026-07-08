@@ -263,6 +263,58 @@ describe('Activity Executor (Unit Tests)', () => {
       )
     })
 
+    test('should not interpolate non-allowlisted env vars into event payloads', async () => {
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_EVENT_SECRET
+      process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = 'event-secret-value'
+
+      const mockEventBus = {
+        emitEvent: jest.fn().mockResolvedValue(undefined),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockEventBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-event-secret',
+        activityName: 'Sensitive Event',
+        activityType: 'EMIT_EVENT',
+        config: {
+          eventName: 'test.event',
+          payload: {
+            secret: '{{env.OM_WORKFLOWS_TEST_EVENT_SECRET}}',
+            message: 'prefix {{env.OM_WORKFLOWS_TEST_EVENT_SECRET}} suffix',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(mockEventBus.emitEvent).toHaveBeenCalledWith(
+          'test.event',
+          expect.objectContaining({
+            secret: '',
+            message: 'prefix  suffix',
+          }),
+          {
+            organizationId: testOrgId,
+            tenantId: testTenantId,
+          },
+        )
+      } finally {
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_EVENT_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_EVENT_SECRET = originalSecret
+        }
+      }
+    })
+
     test('should fail EMIT_EVENT if event bus not available', async () => {
       mockContainer.resolve.mockImplementation(() => {
         throw new Error('eventBus not registered')
@@ -570,6 +622,61 @@ describe('Activity Executor (Unit Tests)', () => {
       )
     })
 
+    test('should not interpolate non-allowlisted env vars into webhook headers or body', async () => {
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET
+      process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET = 'webhook-secret-value'
+
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ success: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-webhook-secret',
+        activityName: 'Sensitive Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'https://example.com/webhook',
+          method: 'POST',
+          headers: {
+            Authorization: 'Bearer {{env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET}}',
+          },
+          body: {
+            secret: '{{env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET}}',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(global.fetch).toHaveBeenCalledWith(
+          'https://example.com/webhook',
+          expect.objectContaining({
+            headers: expect.objectContaining({
+              Authorization: 'Bearer ',
+            }),
+            body: JSON.stringify({ secret: '' }),
+          })
+        )
+      } finally {
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_WEBHOOK_SECRET = originalSecret
+        }
+      }
+    })
+
     test('should handle non-JSON webhook responses', async () => {
       ;(global.fetch as jest.Mock).mockResolvedValue({
         ok: true,
@@ -863,8 +970,13 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -878,11 +990,85 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('SSRF protection is bypassed')
+        )
       } finally {
+        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
           process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore OM_WORKFLOWS_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14f',
+        activityName: 'Production Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('ignored in production')
+        )
+      } finally {
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
@@ -905,10 +1091,14 @@ describe('Activity Executor (Unit Tests)', () => {
         },
       }
 
-      const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
       try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -928,9 +1118,79 @@ describe('Activity Executor (Unit Tests)', () => {
       } finally {
         warnSpy.mockRestore()
         if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
           delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
         } else {
-          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14g',
+        activityName: 'Production Legacy Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated and ignored in production')
+        )
+      } finally {
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
@@ -1390,6 +1650,79 @@ describe('Activity Executor (Unit Tests)', () => {
 
       expect(result.success).toBe(true)
       expect(mockFunction).toHaveBeenCalled()
+    })
+
+    test('should interpolate allowlisted env vars only', async () => {
+      const originalAppUrl = process.env.APP_URL
+      const originalAllowlist = process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST
+      const originalEndpoint = process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT
+      const originalSecret = process.env.OM_WORKFLOWS_TEST_TYPE_SECRET
+      process.env.APP_URL = 'https://app.example.com'
+      process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST =
+        'OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT'
+      process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT = 'https://endpoint.example.com'
+      process.env.OM_WORKFLOWS_TEST_TYPE_SECRET = 'type-secret-value'
+
+      const mockFunction = jest.fn().mockImplementation((args) => {
+        expect(args.appUrl).toBe('https://app.example.com')
+        expect(args.endpoint).toBe('https://endpoint.example.com')
+        expect(args.secret).toBe('')
+        expect(args.message).toBe(
+          'App https://app.example.com endpoint https://endpoint.example.com secret '
+        )
+        return { success: true }
+      })
+
+      mockContainer.resolve.mockReturnValue(mockFunction)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-env-allowlist',
+        activityName: 'Test Env Allowlist',
+        activityType: 'EXECUTE_FUNCTION',
+        config: {
+          functionName: 'testFunction',
+          args: {
+            appUrl: '{{env.APP_URL}}',
+            endpoint: '{{env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT}}',
+            secret: '{{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+            message:
+              'App {{env.APP_URL}} endpoint {{env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT}} secret {{env.OM_WORKFLOWS_TEST_TYPE_SECRET}}',
+          },
+        },
+      }
+
+      try {
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(true)
+        expect(mockFunction).toHaveBeenCalled()
+      } finally {
+        if (originalAppUrl === undefined) {
+          delete process.env.APP_URL
+        } else {
+          process.env.APP_URL = originalAppUrl
+        }
+        if (originalAllowlist === undefined) {
+          delete process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST
+        } else {
+          process.env.OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST = originalAllowlist
+        }
+        if (originalEndpoint === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT
+        } else {
+          process.env.OM_WORKFLOWS_TEST_PUBLIC_ENDPOINT = originalEndpoint
+        }
+        if (originalSecret === undefined) {
+          delete process.env.OM_WORKFLOWS_TEST_TYPE_SECRET
+        } else {
+          process.env.OM_WORKFLOWS_TEST_TYPE_SECRET = originalSecret
+        }
+      }
     })
 
     test('should handle nested objects with mixed type interpolations', async () => {

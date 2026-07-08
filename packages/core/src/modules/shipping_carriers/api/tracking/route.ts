@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { CarrierShipmentNotFoundError, type ShippingCarrierService } from '../../lib/shipping-service'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { trackingQuerySchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -34,9 +35,10 @@ export async function GET(req: Request) {
     })
     return NextResponse.json(tracking)
   } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : 'Failed to fetch tracking'
-    const status = error instanceof CarrierShipmentNotFoundError ? 404 : 502
-    return NextResponse.json({ error: message }, { status })
+    if (error instanceof CarrierShipmentNotFoundError) {
+      return NextResponse.json({ error: error.message }, { status: 404 })
+    }
+    return shippingCarrierUpstreamErrorResponse('tracking.get', error)
   }
 }
 
