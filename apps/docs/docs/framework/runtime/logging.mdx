@@ -92,6 +92,12 @@ if (isLevelEnabled('debug')) {
 
 `getLogLevel()` returns the resolved level directly when you need it.
 
+## Routing Logs to stderr: `OM_LOG_DESTINATION`
+
+By default the server transport writes JSON to stdout. Processes whose stdout **is a protocol channel** — most notably the MCP stdio server (`mercato ai_assistant mcp:serve`, which speaks JSON-RPC over stdout) — must not interleave log lines with protocol frames. Set `OM_LOG_DESTINATION=stderr` (case-insensitive) to make the pino root write to `process.stderr` instead; any other value (or unset) keeps the stdout default.
+
+The value is read when the pino root is lazily created on the first log call. If your entrypoint sets it programmatically after other code may already have logged, call `resetServerLoggerCache()` from `@open-mercato/shared/lib/logger` right after setting the env var — existing loggers re-resolve their transport on the next call. The `mcp:serve` CLI entrypoint does exactly this.
+
 ## Isomorphic Behavior
 
 `@open-mercato/shared` is consumed by server, browser, and edge bundles, so the facade selects its transport at runtime:
