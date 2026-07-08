@@ -1,11 +1,12 @@
 "use client"
 
 import * as React from 'react'
-import { ChevronDown, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { Input } from '@open-mercato/ui/primitives/input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 
 export const CONTROL_BORDER = 'border border-input'
@@ -79,17 +80,37 @@ export function AllDayToggle({ checked, onCheckedChange, label }: { checked: boo
   )
 }
 
-function formatDisplayDate(value: string, locale: string): string {
+function parseDateValue(value: string): Date | null {
+  if (!value) return null
   const parsed = new Date(`${value}T00:00:00`)
-  if (Number.isNaN(parsed.getTime())) return value
-  return new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' }).format(parsed)
+  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+function formatDateValue(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+}
+
+// Close the field's popover when the surrounding editor dialog scrolls, so a
+// portalled DS popover (DatePicker/Select) doesn't float over the form or drift
+// from its field (#3747 feedback). Radix ignores synthetic dismiss events, so
+// this drives the popover's controlled `open` state instead. The editor
+// dispatches `EDITOR_SCROLL_EVENT` on scroll.
+export const EDITOR_SCROLL_EVENT = 'om-calendar-editor-scroll'
+function useCloseOnEditorScroll(setOpen: (open: boolean) => void) {
+  React.useEffect(() => {
+    const handler = () => setOpen(false)
+    document.addEventListener(EDITOR_SCROLL_EVENT, handler)
+    return () => document.removeEventListener(EDITOR_SCROLL_EVENT, handler)
+  }, [setOpen])
+}
+
+// DS DatePicker (calendar popover) + DS Select (scrolling 30-min list) replace
+// the native `<input type=date|time>` overlays, which only opened via the
+// browser chevron and did not match the design system (#3747 feedback).
 export function DateControl({
   value,
   onChange,
   ariaLabel,
-  locale,
   className,
 }: {
   value: string
@@ -98,38 +119,44 @@ export function DateControl({
   locale: string
   className?: string
 }) {
+  const [open, setOpen] = React.useState(false)
+  useCloseOnEditorScroll(setOpen)
   return (
-    <div
-      className={cn(
-        'relative flex h-9 w-full items-center justify-between rounded-md bg-background px-3',
-        CONTROL_BORDER,
-        className,
-      )}
-    >
-      <span className="truncate text-sm text-foreground">{formatDisplayDate(value, locale)}</span>
-      <span aria-hidden className="h-px w-2 shrink-0" />
-      <ChevronDown aria-hidden className="size-4 shrink-0 opacity-60" />
-      <Input
-        type="date"
-        value={value}
-        onChange={(event) => { if (event.target.value) onChange(event.target.value) }}
-        aria-label={ariaLabel}
-        className="absolute inset-0 h-full w-full cursor-pointer border-0 bg-transparent p-0 opacity-0 shadow-none hover:bg-transparent"
-        inputClassName="h-full cursor-pointer"
-      />
-    </div>
+    <DatePicker
+      value={parseDateValue(value)}
+      onChange={(date) => { if (date) onChange(formatDateValue(date)) }}
+      footer="none"
+      open={open}
+      onOpenChange={setOpen}
+      aria-label={ariaLabel}
+      className={cn('w-full', className)}
+    />
   )
 }
 
+// 24h times at 30-minute steps.
+const TIME_OPTIONS: string[] = Array.from({ length: 48 }, (_, index) => {
+  const hour = Math.floor(index / 2)
+  const minute = index % 2 === 0 ? '00' : '30'
+  return `${String(hour).padStart(2, '0')}:${minute}`
+})
+
 export function TimeControl({ value, onChange, ariaLabel }: { value: string; onChange(next: string): void; ariaLabel: string }) {
+  const [open, setOpen] = React.useState(false)
+  useCloseOnEditorScroll(setOpen)
+  // Keep an off-grid value (e.g. an imported 22:15) selectable.
+  const options = value && !TIME_OPTIONS.includes(value) ? [value, ...TIME_OPTIONS] : TIME_OPTIONS
   return (
-    <Input
-      type="time"
-      value={value}
-      onChange={(event) => { if (event.target.value) onChange(event.target.value) }}
-      aria-label={ariaLabel}
-      className="h-9 w-32 shrink-0"
-    />
+    <Select value={value} onValueChange={onChange} open={open} onOpenChange={setOpen}>
+      <SelectTrigger aria-label={ariaLabel} className="h-9 w-32 shrink-0">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="max-h-64">
+        {options.map((time) => (
+          <SelectItem key={time} value={time}>{time}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 

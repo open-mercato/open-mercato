@@ -102,7 +102,7 @@ export function RelatedToField({
     >
       <div
         className={cn(
-          'flex h-10 w-full items-center rounded-md bg-background pl-2.5 pr-3',
+          'flex h-10 w-full items-center rounded-md bg-background pl-2.5 pr-3 transition-colors hover:bg-accent/50',
           error ? 'border border-status-error-border' : CONTROL_BORDER,
         )}
       >
@@ -113,7 +113,7 @@ export function RelatedToField({
           aria-expanded={open}
           aria-label={label}
           onClick={() => setOpen((previous) => !previous)}
-          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent"
+          className="h-full min-w-0 flex-1 justify-between rounded-none bg-transparent p-0 text-left shadow-none hover:bg-transparent dark:hover:bg-transparent"
         >
           <span className="flex min-w-0 items-center gap-2">
             {value ? (

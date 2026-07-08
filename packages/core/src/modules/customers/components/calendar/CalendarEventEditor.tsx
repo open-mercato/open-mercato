@@ -37,7 +37,7 @@ import type { ConflictScope } from '../../lib/calendar/preferences'
 import { renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { normalizeCustomFieldSubmitValue } from '../detail/customFieldUtils'
 import type { CalendarItem } from './types'
-import { Field } from './editor/inputs'
+import { EDITOR_SCROLL_EVENT, Field } from './editor/inputs'
 import { SegmentGroup } from './editor/SegmentGroup'
 import { PriorityField } from './editor/PriorityField'
 import { RelatedToField } from './editor/RelatedToField'
@@ -490,9 +490,20 @@ export function CalendarEventEditor({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         onKeyDown={handleKeyDown}
+        // Only dismiss on a genuine click OUTSIDE the whole editor. Radix
+        // relays a click inside the dialog (but outside an open DS
+        // DatePicker/Select popover) up to the dialog as an "interact
+        // outside" event when it dismisses that popover — without this guard
+        // it would tear down the entire editor. Keep it open when the target
+        // is inside the dialog body or inside any portalled popover.
+        onInteractOutside={(event) => {
+          const target = event.detail.originalEvent.target as HTMLElement | null
+          if (target?.closest('[data-dialog-content]') || target?.closest('[data-radix-popper-content-wrapper]')) {
+            event.preventDefault()
+          }
+        }}
         aria-describedby={undefined}
         dismissible={false}
-        elevated
         className="flex h-dvh max-h-dvh w-screen max-w-none flex-col gap-0 overflow-hidden rounded-none border-0 bg-background p-0 shadow-xl sm:h-auto sm:max-h-[calc(100dvh-4rem)] sm:w-full sm:max-w-lg sm:rounded-2xl sm:border-0 lg:max-w-3xl"
       >
         <VisuallyHidden>
@@ -511,7 +522,16 @@ export function CalendarEventEditor({
             <X aria-hidden className="size-5" />
           </IconButton>
         </div>
-        <div className="flex-1 overflow-y-auto">
+        <div
+          className="flex-1 overflow-y-auto"
+          onScroll={() => {
+            // Tell the DS date/time fields to close their (controlled) popover
+            // so a portalled popover doesn't float over the form or drift away
+            // from its field while scrolling (#3747 feedback). Radix ignores
+            // synthetic dismiss events, so the fields drive their own `open`.
+            document.dispatchEvent(new CustomEvent(EDITOR_SCROLL_EVENT))
+          }}
+        >
           <div className="px-4 py-4 sm:px-6 sm:py-5">
             <CrudForm<Record<string, unknown>>
               key={formKey}
