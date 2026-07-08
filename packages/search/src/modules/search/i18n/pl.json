@@ -17,6 +17,8 @@
   "search.api.errors.recreateFailed": "Nie udało się odtworzyć tabeli wektorowej z nowym wymiarem.",
   "search.api.errors.reindexFailed": "Operacja reindeksacji nie powiodła się.",
   "search.api.errors.reindexInProgress": "Reindeksacja jest już w toku.",
+  "search.api.errors.scopedQueueCancelFailed": "Nie udało się anulować zakolejkowanych zadań reindeksacji.",
+  "search.api.errors.scopedQueueCancelUnavailable": "Zakresowe anulowanie kolejki jest niedostępne.",
   "search.api.errors.searchFailed": "Operacja wyszukiwania nie powiodła się.",
   "search.api.errors.serviceUnavailable": "Usługa wyszukiwania jest niedostępna.",
   "search.api.errors.strategyUnavailable": "Żądana strategia wyszukiwania jest niedostępna.",
