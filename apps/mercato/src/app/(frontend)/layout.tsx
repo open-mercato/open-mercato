@@ -12,7 +12,7 @@ type LayoutProps = {
   children: React.ReactNode
 }
 
-const PUBLIC_SUFFIXES = ['/portal/login', '/portal/signup']
+const PUBLIC_SUFFIXES = ['/portal/login', '/portal/signup', '/portal/invite', '/portal/reset-password', '/portal/verify']
 
 function isPublicPortalRoute(pathname: string): boolean {
   if (/^\/[^/]+\/portal\/?$/.test(pathname)) return true

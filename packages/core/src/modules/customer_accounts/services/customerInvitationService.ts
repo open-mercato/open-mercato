@@ -26,7 +26,7 @@ export class CustomerInvitationService {
       invitedByCustomerUserId?: string | null
       displayName?: string | null
     },
-  ): Promise<{ invitation: CustomerUserInvitation; rawToken: string }> {
+  ): Promise<{ invitation: CustomerUserInvitation; rawToken: string; reused: boolean }> {
     const token = generateSecureToken()
     const emailHash = hashForLookup(email)
     const normalizedEmail = email.toLowerCase().trim()
@@ -62,7 +62,7 @@ export class CustomerInvitationService {
       existing.displayName = options.displayName || null
       existing.expiresAt = expiresAt
       await this.em.flush()
-      return { invitation: existing, rawToken: token }
+      return { invitation: existing, rawToken: token, reused: true }
     }
 
     const invitation = this.em.create(CustomerUserInvitation, {
@@ -80,7 +80,14 @@ export class CustomerInvitationService {
       createdAt: new Date(),
     } as any) as CustomerUserInvitation
     await this.em.persist(invitation).flush()
-    return { invitation, rawToken: token }
+    return { invitation, rawToken: token, reused: false }
+  }
+
+  // Hard-delete an invitation row. Used to roll back a freshly-created invite when
+  // its delivery email fails, so the persisted state matches the failure returned
+  // to the caller (no orphaned, un-emailed invitation left behind).
+  async removeInvitation(invitation: CustomerUserInvitation): Promise<void> {
+    await this.em.removeAndFlush(invitation)
   }
 
   async findByToken(token: string): Promise<CustomerUserInvitation | null> {

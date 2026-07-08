@@ -14,8 +14,14 @@ import {
   customerInviteIpRateLimitConfig,
 } from '@open-mercato/core/modules/customer_accounts/lib/rateLimiter'
 import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
+import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 
 export const metadata = {}
+
+function resolveInvitedByUserId(auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>): string | null {
+  if (auth.isApiKey) return auth.userId ?? null
+  return auth.sub
+}
 
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
@@ -53,17 +59,41 @@ export async function POST(req: Request) {
 
   const customerInvitationService = container.resolve('customerInvitationService') as CustomerInvitationService
 
-  const { invitation } = await customerInvitationService.createInvitation(
+  const { invitation, rawToken, reused } = await customerInvitationService.createInvitation(
     parsed.data.email,
     { tenantId: auth.tenantId!, organizationId: auth.orgId! },
     {
       customerEntityId: parsed.data.customerEntityId || null,
       roleIds: parsed.data.roleIds,
-      invitedByUserId: auth.sub,
+      invitedByUserId: resolveInvitedByUserId(auth),
       displayName: parsed.data.displayName || null,
     },
   )
 
+  try {
+    await sendCustomerInvitationEmail({
+      container,
+      organizationId: auth.orgId!,
+      email: invitation.email,
+      rawToken,
+    })
+  } catch (error) {
+    console.error('[customer_accounts.admin.users-invite] invitation email failed', error)
+    // Roll back a freshly-created invite so a 502 leaves no orphaned, un-emailed
+    // invitation. A reused (already-pending) invite is left intact — removing it
+    // would drop a prior legitimate invitation.
+    if (!reused) {
+      try {
+        await customerInvitationService.removeInvitation(invitation)
+      } catch (rollbackError) {
+        console.error('[customer_accounts.admin.users-invite] invitation rollback failed', rollbackError)
+      }
+    }
+    return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
+  }
+
+  // Emit only after the email is sent, so a subscriber observing "invited" can
+  // assume the recipient was actually notified (no event fires on the 502 path).
   void emitCustomerAccountsEvent('customer_accounts.user.invited', {
     invitationId: invitation.id,
     email: invitation.email,
@@ -104,6 +134,7 @@ const methodDoc: OpenApiMethodDoc = {
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
     { status: 429, description: 'Too many invitation requests', schema: rateLimitErrorSchema },
+    { status: 502, description: 'Invitation email could not be sent', schema: errorSchema },
   ],
 }
 

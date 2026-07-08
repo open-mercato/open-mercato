@@ -170,6 +170,10 @@ describe('integration cache and options', () => {
       )
       expect(environment?.commandEnvironment.QUEUE_BASE_DIR).toBe('/tmp/open-mercato-queue')
       expect(environment?.commandEnvironment.PW_CAPTURE_SCREENSHOTS).toBe('1')
+      expect(environment?.commandEnvironment.PLATFORM_PORTAL_BASE_URL).toBe(baseUrl)
+      expect(environment?.commandEnvironment.OM_TEST_EMAIL_CAPTURE_PATH).toBe(
+        path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl'),
+      )
       expect(environment?.commandEnvironment.NEXT_PUBLIC_OM_EXAMPLE_CHECKOUT_TEST_INJECTIONS_ENABLED).toBeUndefined()
     } finally {
       fetchSpy.mockRestore()
