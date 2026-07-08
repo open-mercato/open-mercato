@@ -7,7 +7,9 @@
     "skills": [
       "om-approve-merge-pr",
       "om-auto-continue-pr",
+      "om-auto-continue-pr-loop",
       "om-auto-create-pr",
+      "om-auto-create-pr-loop",
       "om-auto-fix-issue",
       "om-auto-review-pr",
       "om-auto-update-changelog",
@@ -18,6 +20,7 @@
       "om-integration-tests",
       "om-merge-buddy",
       "om-open-pr",
+      "om-prepare-issue",
       "om-review-prs",
       "om-root-cause",
       "om-setup-agent-pipeline",
@@ -47,11 +50,8 @@
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
-        "om-auto-create-pr-loop",
-        "om-auto-continue-pr-loop",
         "om-auto-fix-github",
         "om-auto-verify-and-fix-github",
-        "om-prepare-issue",
         "om-auto-publish-pr",
         "om-auto-qa-scenarios",
         "om-auto-verify-pr-ui"
