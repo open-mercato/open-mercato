@@ -213,6 +213,7 @@ const devLogTeeDisabled = process.env.OM_DEV_LOG_TEE === '0' || process.env.OM_D
 
 let devLogSessionInstance = null
 let devRunnerLogInstance = null
+let localDevLazyWorkerModeDefaultLogged = false
 
 function getDevLogSession() {
   if (devLogSessionInstance) return devLogSessionInstance
@@ -570,6 +571,15 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
     || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
   ) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
+    const lazyWorkersRaw = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    const lazyWorkersCanRun =
+      typeof lazyWorkersRaw !== 'string'
+      || lazyWorkersRaw.trim() === ''
+      || isEnabledEnvFlag(lazyWorkersRaw)
+    if (lazyWorkersCanRun && !localDevLazyWorkerModeDefaultLogged) {
+      localDevLazyWorkerModeDefaultLogged = true
+      console.warn('⚠️ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
+    }
   }
   if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
