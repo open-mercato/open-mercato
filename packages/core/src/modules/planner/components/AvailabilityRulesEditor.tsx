@@ -40,6 +40,9 @@ import {
   requiresResetConfirmation,
   selectCustomRuleIdsToDelete,
 } from './availabilityRulesEditorState'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'AvailabilityRulesEditor' })
 
 type AvailabilityRepeat = 'once' | 'daily' | 'weekly'
 type AvailabilitySubjectType = 'member' | 'resource' | 'ruleset'
@@ -1189,7 +1192,7 @@ export function AvailabilityRulesEditor({
       onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
       onError: (error) => {
         if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
-        console.error('planner.availability-rule-sets.delete', error)
+        logger.error('Failed to delete availability rule set', { err: error })
         const normalized = normalizeCrudServerError(error)
         flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
       },
