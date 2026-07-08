@@ -80,14 +80,25 @@ docblock states this limitation explicitly, mirroring `TC-SEARCH-007`.
   `typecheck`, `test`, `build:app`). Integration specs run in the ephemeral env on CI; locally
   confirm the file typechecks and lints and does not regress the suite build.
 
+## Changelog
+
+- 2026-07-08 — PR #4000 (https://github.com/open-mercato/open-mercato/pull/4000), Status: complete.
+
 ## Progress
 
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Author the integration test
 
-- [ ] 1.1 Add `TC-SEARCH-013.spec.ts` (scoped-cancel contract + per-scope isolation)
+- [x] 1.1 Add `TC-SEARCH-013.spec.ts` (scoped-cancel contract + per-scope isolation) — 52ff4f607
 
 ### Phase 2: Validate
 
-- [ ] 2.1 Typecheck search package + full validation gate
+- [x] 2.1 Typecheck search package + full validation gate — 52ff4f607
+
+  Gate results: `yarn build:packages` ✓, `yarn generate` ✓, `yarn i18n:check-sync` ✓,
+  `yarn i18n:check-usage` ✓ (advisory), `yarn typecheck` ✓ (21/21), Playwright `--list`
+  discovers & parses the spec ✓. `yarn test` (jest) and `yarn build:app` do **not** compile
+  `__integration__/*.spec.ts` (jest testMatch = `__tests__/**/*.test.ts`; Next build ignores
+  Playwright specs), so they are unaffected by this test-only change. Runtime execution of the
+  spec requires a booted app + DB and runs in the ephemeral integration CI env.
