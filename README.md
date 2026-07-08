@@ -194,6 +194,24 @@ yarn dev --database-name=review_1720 --no-update-env
 
 Without the flag, behavior is unchanged (no prompt, no `.env` mutation). See the [installation guides](https://docs.openmercato.com/installation/monorepo) and [`yarn setup`](https://docs.openmercato.com/installation/setup) for details.
 
+#### Reducing dev-mode memory usage
+
+`yarn dev` watches every workspace package by default, and the watcher's memory footprint scales with how many packages it tracks. On smaller machines you can narrow the watch scope so only the packages you actually touch stay live — the active mode is printed with an emoji at startup:
+
+```bash
+# Watch only packages you've touched recently (git working tree + branch diff)
+yarn dev --watch=auto-optimized
+OM_WATCH_SCOPE=auto-optimized yarn dev
+
+# Watch only an explicit set of packages
+OM_WATCH_SCOPE=env OM_WATCH_PACKAGES=core,ui yarn dev
+
+# Watch only the most frequently changed packages (default cap: 6)
+yarn dev --watch=popular
+```
+
+Set `OM_WATCH_SCOPE=all` (or `--watch=all`) to restore watching every package. See [Choosing which packages the watcher tracks](https://docs.openmercato.com/appendix/troubleshooting) for the full reference, including `OM_WATCH_POPULAR_LIMIT` and the `git`-detection toggles.
+
 ---
 
 ### Detailed guides (prerequisites, native services, troubleshooting)

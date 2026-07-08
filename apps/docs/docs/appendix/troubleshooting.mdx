@@ -78,7 +78,9 @@ OM_WATCH_PACKAGES_MODE=legacy OM_PACKAGE_WATCH_MODE=persistent yarn dev
 
 In the monorepo, `yarn dev` watches **every** workspace package (`packages/*` plus any activated `external/official-modules/packages/*`). On large checkouts you rarely edit more than a handful of packages in one session, so the watcher can be narrowed to a subset. The watch unit is the workspace package (its short label — `core`, `ui`, `shared`, `ai-assistant`, …); the app itself is still watched in full by Next.js/Turbopack regardless of the scope.
 
-Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var):
+Narrowing the watch scope is the main lever for **reducing dev-mode memory usage**: the watcher's footprint scales with the number of packages it tracks, so watching only the packages you actually edit meaningfully lowers idle RSS on memory-constrained machines.
+
+Pick a mode with the `OM_WATCH_SCOPE` env var or the `--watch=<mode>` flag on `yarn dev` / `yarn dev:greenfield` (the CLI flag wins over the env var). The active mode is printed with an emoji at dev startup — e.g. `watch scope: 🌐 all — all packages` or `watch scope: ⚡ auto-optimized — recently touched` — so you can confirm at a glance which packages are live:
 
 | Mode | What it watches |
 |------|-----------------|

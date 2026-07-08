@@ -107,6 +107,83 @@ describe('Queue - local strategy', () => {
     await queue.close()
   })
 
+  test('removeQueuedJobsByScope removes only matching tenant scoped jobs', async () => {
+    const queue = createQueue<{
+      tenantId?: string
+      organizationId?: string | null
+      jobType?: string
+      value: number
+    }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'batch-index', value: 1 })
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'index', value: 2 })
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: 'org-2', jobType: 'batch-index', value: 3 })
+    await queue.enqueue({ tenantId: 'tenant-2', organizationId: 'org-1', jobType: 'batch-index', value: 4 })
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: null, jobType: 'batch-index', value: 5 })
+    await queue.enqueue({ jobType: 'batch-index', value: 6 })
+
+    const scopedResult = await queue.removeQueuedJobsByScope!({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      jobTypes: ['batch-index'],
+    })
+
+    expect(scopedResult.removed).toBe(1)
+    let remaining = readJson(queuePath)
+    expect(remaining.map((job: { payload: { value: number } }) => job.payload.value)).toEqual([2, 3, 4, 5, 6])
+
+    const tenantResult = await queue.removeQueuedJobsByScope!({ tenantId: 'tenant-1', jobTypes: ['batch-index'] })
+
+    expect(tenantResult.removed).toBe(2)
+    remaining = readJson(queuePath)
+    expect(remaining.map((job: { payload: { value: number } }) => job.payload.value)).toEqual([2, 4, 6])
+
+    await queue.close()
+  })
+
+  test('removeQueuedJobsByScope preserves in-flight local jobs', async () => {
+    const queue = createQueue<{
+      tenantId: string
+      organizationId: string
+      jobType: string
+      value: number
+    }>('test-queue', 'local')
+    const queuePath = path.join('.mercato', 'queue', 'test-queue', 'queue.json')
+    let release!: () => void
+    const releasePromise = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let started!: () => void
+    const startedPromise = new Promise<void>((resolve) => {
+      started = resolve
+    })
+
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'batch-index', value: 1 })
+    await queue.enqueue({ tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'batch-index', value: 2 })
+    const processing = queue.process(async () => {
+      started()
+      await releasePromise
+    }, { limit: 1 })
+
+    await startedPromise
+    const result = await queue.removeQueuedJobsByScope!({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      jobTypes: ['batch-index'],
+    })
+
+    expect(result.removed).toBe(1)
+    let remaining = readJson(queuePath)
+    expect(remaining.map((job: { payload: { value: number } }) => job.payload.value)).toEqual([1])
+
+    release()
+    await processing
+    remaining = readJson(queuePath)
+    expect(remaining).toEqual([])
+    await queue.close()
+  })
+
   test('getJobCounts returns correct counts', async () => {
     const queue = createQueue<{ value: number }>('test-queue', 'local')
 

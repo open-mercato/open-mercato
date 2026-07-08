@@ -44,7 +44,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const rateLimitResponse = await checkRateLimit(
       rateLimiterService,
       { points: 60, duration: 60, keyPrefix: `webhooks:inbound:${params.endpointId}` },
-      `${params.endpointId}:${getClientIp(request, rateLimiterService.trustProxyDepth) ?? 'unknown'}`,
+      buildInboundRateLimitKey(params.endpointId, request, rateLimiterService.trustProxyDepth),
       translate(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
     )
 
@@ -152,6 +152,11 @@ type ResolveInboundReceiptMessageIdInput = {
   providerKey: string
   headers: Record<string, string>
   body: string
+}
+
+export function buildInboundRateLimitKey(endpointId: string, request: Request, trustProxyDepth: number): string {
+  const clientIp = getClientIp(request, trustProxyDepth)
+  return clientIp ? `${endpointId}:ip:${clientIp}` : `${endpointId}:global`
 }
 
 export function resolveInboundReceiptMessageId(
