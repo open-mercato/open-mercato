@@ -13,7 +13,7 @@ Turn a "we want this eventually" brief into durable, actionable backlog without 
 
 This skill is for **deferred** work. It does NOT implement the feature. If the user wants the feature built now, hand off to `om-auto-create-pr` (free-form task) or `om-implement-spec` (after the spec exists) instead.
 
-This skill reuses the worktree/branch/commit/label discipline of `.ai/skills/om-auto-create-pr/SKILL.md` for the PR, the spec methodology of `.ai/skills/om-spec-writing/SKILL.md` for the spec, and the issue-claim/linking conventions of `.ai/skills/om-auto-fix-github/SKILL.md` for the tracking issue. Read those before deviating.
+This skill reuses the worktree/branch/commit/label discipline of `.agents/skills/om-auto-create-pr/SKILL.md` for the PR, the spec methodology of `.agents/skills/om-spec-writing/SKILL.md` for the spec, and the issue-claim/linking conventions of `.ai/skills/om-auto-fix-github/SKILL.md` for the tracking issue. Read those before deviating.
 
 ## Arguments
 
@@ -29,7 +29,7 @@ This skill reuses the worktree/branch/commit/label discipline of `.ai/skills/om-
 
 ### 0. Pre-flight and claim
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 0 verbatim. This is new docs work, so the branch MUST use the `feat/` prefix.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 0 verbatim. This is new docs work, so the branch MUST use the `feat/` prefix.
 
 ```bash
 CURRENT_USER=$(gh api user --jq '.login')
@@ -59,7 +59,7 @@ Reduce the brief to: goal in one sentence, affected modules/packages, and the ro
 
 ### 2. Write the spec with om-spec-writing
 
-Follow `.ai/skills/om-spec-writing/SKILL.md` end to end. Key points for this skill:
+Follow `.agents/skills/om-spec-writing/SKILL.md` end to end. Key points for this skill:
 
 - Create the spec at `$SPEC_PATH` (`{YYYY-MM-DD}-{kebab-title}.md`, `date` UTC). Enterprise scope goes under `.ai/specs/enterprise/`.
 - Start with a **Skeleton Spec** (TLDR + 2-3 key sections). If critical unknowns exist, add a numbered **Open Questions** block right after the TLDR and **STOP** — ask the user before filling in the rest. This is a hard gate; do not invent answers to architecture-blocking questions.
@@ -71,7 +71,7 @@ Do NOT write any implementation code, migrations, or module files. The only file
 
 ### 3. Isolated worktree, branch, and first commit
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim. Base is always `develop`. Commit the spec as the first commit, then push.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim. Base is always `develop`. Commit the spec as the first commit, then push.
 
 ```bash
 git add "$SPEC_PATH"
@@ -83,7 +83,7 @@ If the Open Questions gate in step 2 is still unresolved, do not create the work
 
 ### 4. Open the spec PR
 
-This is a docs-only / spec-only PR. The minimum validation gate is the docs-only gate from `.ai/skills/om-auto-create-pr/SKILL.md` step 7:
+This is a docs-only / spec-only PR. The minimum validation gate is the docs-only gate from `.agents/skills/om-auto-create-pr/SKILL.md` step 7:
 
 - `yarn lint` if it catches markdown/YAML issues.
 - `git diff --check` — no trailing whitespace, no merge markers.
@@ -178,7 +178,7 @@ Make the three artifacts point at each other so the trail is navigable:
 
 ### 7. Cleanup and report back
 
-Clean up any worktree you created (per `.ai/skills/om-auto-create-pr/SKILL.md` step 13). Then report:
+Clean up any worktree you created (per `.agents/skills/om-auto-create-pr/SKILL.md` step 13). Then report:
 
 ```text
 prepare-issue: {brief}

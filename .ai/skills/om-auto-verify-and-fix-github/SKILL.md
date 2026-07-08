@@ -20,8 +20,8 @@ Use `om-auto-fix-github` instead when the issue is clearly static, CLI-only, API
 Read these before deviating:
 
 - `.ai/skills/om-auto-fix-github/SKILL.md` - claim protocol, solved-work checks, worktree isolation, validation loop, PR labels, and issue handoff
-- `.ai/skills/om-integration-tests/SKILL.md` - ephemeral environment, Browser/Playwright exploration, test placement, fixture rules, and failure artifact analysis
-- `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md` - final self-review and compatibility gate
+- `.agents/skills/om-integration-tests/SKILL.md` - ephemeral environment, Browser/Playwright exploration, test placement, fixture rules, and failure artifact analysis
+- `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md` - final self-review and compatibility gate
 
 ## Workflow
 
@@ -256,7 +256,7 @@ npx playwright test --config .ai/qa/tests/playwright.config.ts <path-to-new-test
 
 ### 11. Self-review and backward compatibility review
 
-Run the change through `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
+Run the change through `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
 
 Explicitly verify:
 

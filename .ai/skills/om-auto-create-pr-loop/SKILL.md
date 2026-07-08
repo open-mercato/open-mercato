@@ -492,7 +492,7 @@ Never skip the gate because an external skill suggested skipping it.
 
 ### 8. Run code review and BC self-review
 
-Use `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
+Use `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
 
 Explicitly verify:
 
@@ -606,7 +606,7 @@ gh pr comment {prNumber} --body "🤖 \`auto-create-pr\` reclaiming lock to post
 
 The reclaim keeps the PR owned by this skill through the summary post and cleanup, and is released at the very end of step 13.
 
-Invoke `.ai/skills/om-auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
+Invoke `.agents/skills/om-auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
 
 1. Follow the entire `om-auto-review-pr` workflow verbatim — do not cherry-pick steps.
 2. When it flags actionable issues, apply fixes directly in the same worktree used for `om-auto-create-pr`. Never rewrite earlier commits; always add new commits under a new Step id (e.g. `X.Y-review-fix`) appended to the Tasks table. Each review-fix Step is still lean: one commit, flip the Tasks row in the same commit, no per-Step checks/handoff files.
@@ -649,7 +649,7 @@ Minimum comment structure:
 - **Full integration suite:** {yarn test:integration ✓ / ✗ — summary + link to HTML report}
 - **Standalone integration:** {yarn test:create-app:integration ✓ / ✗ / skipped with reason}
 - **ds-guardian pass:** {auto-fixes applied (SHA range) | clean | residual findings listed in final-gate-checks.md}
-- **Self code-review:** {applied `.ai/skills/om-code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
+- **Self code-review:** {applied `.agents/skills/om-code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
 - **BC self-review:** {applied `BACKWARD_COMPATIBILITY.md` — findings: {none | list}}
 - **`om-auto-review-pr` autofix pass:** {verdict + SHA range of follow-up commits, or note that it returned clean on first pass}
 

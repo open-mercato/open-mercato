@@ -12,7 +12,7 @@ self-QA exception, and leave a follow-up integration-test scenario when the PR
 ships no automated UI test.
 
 This skill **operates on an existing PR**. It borrows the claim, isolated
-worktree, and lock-release discipline from `.ai/skills/om-auto-review-pr/SKILL.md`
+worktree, and lock-release discipline from `.agents/skills/om-auto-review-pr/SKILL.md`
 but it is **read-only on PR source code**: it never edits the PR's files, never
 pushes to the PR branch, and never merges. Its only writes are PR comments, an
 optional screenshot evidence branch, and (opt-in) QA labels.
@@ -54,7 +54,7 @@ PR branch. Never merge.
 
 ### 0. Claim the PR (in-progress lock)
 
-Follow `.ai/skills/om-auto-review-pr/SKILL.md` step 0 verbatim.
+Follow `.agents/skills/om-auto-review-pr/SKILL.md` step 0 verbatim.
 
 ```bash
 CURRENT_USER=$(gh api user --jq '.login')
@@ -119,7 +119,7 @@ test.
 
 ### 3. Isolated worktree for the PR head
 
-Follow `.ai/skills/om-auto-review-pr/SKILL.md` step 4. Reuse the current linked
+Follow `.agents/skills/om-auto-review-pr/SKILL.md` step 4. Reuse the current linked
 worktree when already inside one; otherwise create a temporary worktree from the
 PR head SHA. Never touch the primary worktree; never nest worktrees.
 
@@ -205,7 +205,7 @@ Exercise the scenario against `BASE_URL`, capturing a screenshot at each
 verification point. Two complementary approaches:
 
 - **Explore first with Playwright MCP** to discover real selectors and confirm
-  the happy path renders, mirroring `.ai/skills/om-integration-tests/SKILL.md`.
+  the happy path renders, mirroring `.agents/skills/om-integration-tests/SKILL.md`.
 - **Capture deterministic screenshots** by running a throwaway spec through the
   repo's Playwright config with screenshots forced on:
 

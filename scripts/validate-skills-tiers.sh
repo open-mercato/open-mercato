@@ -70,11 +70,37 @@ assigned_list=$(jq -r '[.tiers[].skills[]] | .[]' "${manifest}" | sort)
 unique_assigned=$(printf '%s\n' "${assigned_list}" | sort -u)
 multi_assigned=$(printf '%s\n' "${assigned_list}" | sort | uniq -d)
 
+external_skills=$(jq -r '.external.skills[]?' "${manifest}" | sort -u)
+
+is_external() {
+  needle="$1"
+  for candidate in ${external_skills}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+# A skill name must not be both tier-assigned and owned by the external
+# collection: the external copy is installed via `npx skills add` and a
+# same-named folder under .ai/skills/ is only a repo-local override.
+external_and_tiered=""
+for assigned in ${unique_assigned}; do
+  if is_external "${assigned}"; then
+    external_and_tiered="${external_and_tiered} ${assigned}"
+  fi
+done
+
 on_disk=$(find "${skills_dir}" -mindepth 2 -maxdepth 2 -type f -name SKILL.md \
   -exec dirname {} \; | xargs -n1 basename | sort -u)
 
 unassigned=""
 for skill in ${on_disk}; do
+  if is_external "${skill}"; then
+    # Repo-local override for an external skill; read in place, never symlinked.
+    continue
+  fi
   match=0
   for assigned in ${unique_assigned}; do
     if [ "${skill}" = "${assigned}" ]; then
@@ -102,9 +128,14 @@ for assigned in ${unique_assigned}; do
 done
 
 problems=0
+if [ -n "${external_and_tiered}" ]; then
+  echo "validate-skills-tiers: skill(s) listed both in a tier and in 'external.skills':${external_and_tiered}" >&2
+  echo "  External skills are installed via npx; remove them from the tier or from external.skills." >&2
+  problems=1
+fi
 if [ -n "${unassigned}" ]; then
   echo "validate-skills-tiers: skill folder(s) on disk but not assigned to any tier:${unassigned}" >&2
-  echo "  Add them to a tier in .ai/skills/tiers.json." >&2
+  echo "  Add them to a tier in .ai/skills/tiers.json, or to external.skills if the folder is a repo-local override of an external skill." >&2
   problems=1
 fi
 if [ -n "${multi_assigned}" ]; then

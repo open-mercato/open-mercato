@@ -1,16 +1,25 @@
 #!/bin/sh
 set -eu
 
-# Tiered, per-skill installer for Claude Code and Codex harnesses.
+# Skill installer for Claude Code and Codex harnesses. Two sources are mixed in:
 #
-# Reads .ai/skills/tiers.json (validated by scripts/validate-skills-tiers.sh)
-# and creates per-skill symlinks under .claude/skills/ and .codex/skills/.
+#   1. Local tiered skills: reads .ai/skills/tiers.json (validated by
+#      scripts/validate-skills-tiers.sh) and creates per-skill symlinks under
+#      .claude/skills/ and .codex/skills/.
+#   2. External shared skills: installs the open-mercato/skills collection via
+#      `npx skills add` into .agents/skills/ (the cross-agent skills directory;
+#      the CLI also symlinks .claude/skills/<name> when that directory exists).
+#      The external source and skill list live under `external` in tiers.json.
+#      A folder under .ai/skills/ matching an external skill name is a
+#      repo-local override that the external skill reads in place; it is never
+#      symlinked into the harness directories.
 #
 # Usage:
-#   install-skills.sh                           # default tier set (core)
+#   install-skills.sh                           # default tier set (core) + external skills
 #   install-skills.sh --with <csv>              # default + extra tiers (additive)
 #   install-skills.sh --tiers <csv>             # exactly the listed tiers (replaces default)
 #   install-skills.sh --all                     # every tier
+#   install-skills.sh --no-external             # skip the npx external-skills step (offline)
 #   install-skills.sh --list                    # print tier table and exit
 #   install-skills.sh --clean                   # remove all skill symlinks and exit
 #   install-skills.sh --help | -h               # show usage and exit
@@ -20,12 +29,15 @@ usage() {
 Usage: install-skills.sh [options]
 
 Options:
-  (no options)        Install the default tier set from .ai/skills/tiers.json.
+  (no options)        Install the default tier set from .ai/skills/tiers.json
+                      plus the external open-mercato/skills collection.
   --with <csv>        Install default tiers plus the given tier names (additive).
   --tiers <csv>       Install exactly the given tier names (replaces default).
   --all               Install every tier defined in tiers.json.
+  --no-external       Skip the `npx skills add` step for the external collection
+                      (also: OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
   --list              Print the tier table and exit without installing.
-  --clean             Remove all skill symlinks and exit.
+  --clean             Remove all skill symlinks (local and external) and exit.
   --help, -h          Show this message.
 
 --with, --tiers, and --all are mutually exclusive.
@@ -70,6 +82,7 @@ with_csv=""
 tiers_csv=""
 list_only=0
 clean_only=0
+no_external="${OM_SKIP_EXTERNAL_SKILLS:-0}"
 
 set_mode() {
   new_mode="$1"
@@ -93,6 +106,10 @@ while [ $# -gt 0 ]; do
       ;;
     --clean)
       clean_only=1
+      shift
+      ;;
+    --no-external)
+      no_external=1
       shift
       ;;
     --all)
@@ -178,6 +195,8 @@ dedup_lines() {
   awk 'NF && !seen[$0]++'
 }
 
+agents_dir="${repo_root}/.agents/skills"
+
 resolves_into_skills_dir() {
   link_path="$1"
   resolved=$(readlink -f -- "${link_path}" 2>/dev/null || true)
@@ -186,6 +205,20 @@ resolves_into_skills_dir() {
   fi
   case "${resolved}" in
     "${skills_dir}"/*)
+      return 0
+      ;;
+  esac
+  return 1
+}
+
+resolves_into_agents_dir() {
+  link_path="$1"
+  resolved=$(readlink -f -- "${link_path}" 2>/dev/null || true)
+  if [ -z "${resolved}" ]; then
+    return 1
+  fi
+  case "${resolved}" in
+    "${agents_dir}"/*)
       return 0
       ;;
   esac
@@ -209,7 +242,7 @@ clean_harness() {
   fi
   for entry in "${harness_dir}"/* "${harness_dir}"/.[!.]* "${harness_dir}"/..?*; do
     [ -e "${entry}" ] || [ -L "${entry}" ] || continue
-    if [ -L "${entry}" ] && resolves_into_skills_dir "${entry}"; then
+    if [ -L "${entry}" ] && { resolves_into_skills_dir "${entry}" || resolves_into_agents_dir "${entry}"; }; then
       rm -f "${entry}"
     fi
   done
@@ -316,6 +349,10 @@ fi
 if [ "${clean_only}" -eq 1 ]; then
   clean_harness "${repo_root}/.claude/skills"
   clean_harness "${repo_root}/.codex/skills"
+  if [ -d "${agents_dir}" ]; then
+    rm -rf "${agents_dir}"
+    echo "info: removed external skill copies under .agents/skills/."
+  fi
   echo "info: removed all skill symlinks under .claude/skills/ and .codex/skills/."
   exit 0
 fi
@@ -385,10 +422,28 @@ if [ -z "${selected_skills}" ]; then
   exit 1
 fi
 
+external_skills_list=$(jq -r '.external.skills[]?' "${manifest}")
+
+is_external_skill() {
+  needle="$1"
+  for candidate in ${external_skills_list}; do
+    if [ "${candidate}" = "${needle}" ]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 install_into_harness() {
   harness_dir="$1"
   prepare_harness_dir "${harness_dir}"
   for skill in ${selected_skills}; do
+    if is_external_skill "${skill}"; then
+      # Owned by the external collection; a same-named .ai/skills/ folder is a
+      # repo-local override and must not shadow the npx-installed skill.
+      echo "install-skills: warning: '${skill}' is an external skill; skipping local symlink." >&2
+      continue
+    fi
     skill_target="${skills_dir}/${skill}"
     if [ ! -d "${skill_target}" ]; then
       echo "install-skills: skill folder '${skill_target}' is missing on disk." >&2
@@ -403,11 +458,34 @@ install_into_harness() {
 install_into_harness "${repo_root}/.claude/skills"
 install_into_harness "${repo_root}/.codex/skills"
 
+# Mix in the external shared collection (open-mercato/skills). The npx CLI
+# copies each skill into .agents/skills/ (read natively by Codex and other
+# agents) and symlinks .claude/skills/<name> because that directory exists.
+external_source=$(jq -r '.external.source // empty' "${manifest}")
+external_status="none"
+if [ -n "${external_source}" ]; then
+  if [ "${no_external}" = "1" ]; then
+    external_status="skipped (--no-external)"
+  elif ! command -v npx >/dev/null 2>&1; then
+    external_status="skipped (npx not found)"
+    echo "install-skills: warning: npx not found; skipping external skills from ${external_source}." >&2
+  elif (cd "${repo_root}" && npx -y skills add "${external_source}" --skill '*' --agent claude-code --agent codex -y); then
+    external_status="installed from ${external_source}"
+  else
+    external_status="FAILED"
+    echo "install-skills: warning: installing external skills from ${external_source} failed;" >&2
+    echo "  local tier skills are installed. Re-run when online, or pass --no-external to silence this." >&2
+  fi
+fi
+
 skill_count=$(printf '%s\n' "${selected_skills}" | grep -c '.' || true)
 tier_count=$(printf '%s\n' "${selected_tiers}" | grep -c '.' || true)
 tier_summary=$(printf '%s\n' "${selected_tiers}" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
 
-printf 'Installed %s skills across %s tiers: %s.\n' "${skill_count}" "${tier_count}" "${tier_summary}"
+printf 'Installed %s local skills across %s tiers: %s.\n' "${skill_count}" "${tier_count}" "${tier_summary}"
+if [ "${external_status}" != "none" ]; then
+  printf 'External skills: %s.\n' "${external_status}"
+fi
 
 if [ -z "${mode}" ]; then
   cat <<'EOF'

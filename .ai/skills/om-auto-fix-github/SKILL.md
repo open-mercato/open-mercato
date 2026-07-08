@@ -243,7 +243,7 @@ If the full gate is too expensive to run immediately while debugging, do targete
 
 Before publishing, run the change through the same review discipline as an incoming PR.
 
-Use `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
+Use `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`.
 
 You must explicitly verify:
 

@@ -424,7 +424,7 @@ Never skip the gate because an external skill recorded in the plan suggested ski
 
 ### 6. Code review and BC self-review
 
-Use `.ai/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`. Verify:
+Use `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md`. Verify:
 
 - No frozen or stable contract surface was broken without the deprecation protocol.
 - No API response fields were removed.
@@ -444,7 +444,7 @@ Before you post the final summary comment, push the final changes, or flip the P
 # as re-entry without re-claiming.
 ```
 
-Invoke `.ai/skills/om-auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
+Invoke `.agents/skills/om-auto-review-pr/SKILL.md` against `{prNumber}` in autofix mode:
 
 1. Follow the entire `om-auto-review-pr` workflow verbatim — do not cherry-pick steps.
 2. Apply fixes directly in the same worktree used for this resume. Never rewrite earlier commits; always add new commits under a new Step id (e.g. `X.Y-review-fix`) appended to the Tasks table. Each review-fix Step is lean: one commit, flip the Tasks row in the same commit, no per-Step checks/handoff files.
@@ -488,7 +488,7 @@ Minimum comment structure:
 - **Full integration suite:** {yarn test:integration ✓ / ✗ — summary + link to HTML report}
 - **Standalone integration:** {yarn test:create-app:integration ✓ / ✗ / skipped with reason}
 - **ds-guardian pass:** {auto-fixes applied (SHA range) | clean | residual findings listed in final-gate-checks.md}
-- **Self code-review:** {applied `.ai/skills/om-code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
+- **Self code-review:** {applied `.agents/skills/om-code-review/SKILL.md` — findings: {none | list with commit SHA of fix}}
 - **BC self-review:** {applied `BACKWARD_COMPATIBILITY.md` — findings: {none | list}}
 - **`om-auto-review-pr` autofix pass:** {verdict + SHA range of follow-up commits, or note that it returned clean on first pass}
 
