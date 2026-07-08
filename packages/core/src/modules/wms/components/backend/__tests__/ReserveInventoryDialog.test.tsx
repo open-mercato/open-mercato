@@ -36,23 +36,39 @@ jest.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({ invalidateQueries: jest.fn() }),
 }))
 
+type CapturedComboboxProps = {
+  loadSuggestions?: (query?: string) => Promise<unknown>
+  resolveLabel?: (value: string) => unknown
+}
+
+// Keyed by placeholder so tests can assert that the `loadSuggestions`/
+// `resolveLabel` callbacks a given combobox receives stay referentially
+// stable across re-renders that shouldn't affect them (regression coverage
+// for the infinite suggestion-refetch loop fixed alongside this test).
+const mockComboboxCaptures: Record<string, CapturedComboboxProps> = {}
+
 jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
   ComboboxInput: ({
     placeholder,
     value,
     onChange,
+    loadSuggestions,
+    resolveLabel,
   }: {
     placeholder: string
     value: string
     onChange: (v: string) => void
-  }) => (
-    <input
-      placeholder={placeholder}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      data-testid={`combobox-${placeholder}`}
-    />
-  ),
+  } & CapturedComboboxProps) => {
+    mockComboboxCaptures[placeholder] = { loadSuggestions, resolveLabel }
+    return (
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        data-testid={`combobox-${placeholder}`}
+      />
+    )
+  },
 }))
 
 jest.mock('../../../lib/inventoryMutationUi', () => ({
@@ -88,6 +104,7 @@ const buildAccess = (overrides: Record<string, unknown> = {}) => ({
 describe('ReserveInventoryDialog', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    for (const key of Object.keys(mockComboboxCaptures)) delete mockComboboxCaptures[key]
   })
 
   it('renders without crashing when open', () => {
@@ -265,5 +282,65 @@ describe('ReserveInventoryDialog', () => {
     render(<ReserveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
     expect(screen.getByText('Reservation type')).toBeTruthy()
     expect(screen.getAllByText('Manual hold').length).toBeGreaterThan(0)
+  })
+
+  // Regression coverage for the infinite suggestion-refetch loop: warehouse
+  // and variant suggestion/label callbacks must keep the same reference
+  // across unrelated re-renders, otherwise ComboboxInput re-triggers its
+  // suggestion-loading effect on every keystroke/selection.
+  describe('combobox suggestion loader stability', () => {
+    it('keeps the Warehouse loadSuggestions/resolveLabel stable across an unrelated re-render', () => {
+      render(<ReserveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
+
+      const before = mockComboboxCaptures['Select warehouse…']
+      expect(before.loadSuggestions).toBeInstanceOf(Function)
+      expect(before.resolveLabel).toBeInstanceOf(Function)
+
+      fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '5' } })
+
+      const after = mockComboboxCaptures['Select warehouse…']
+      expect(after.loadSuggestions).toBe(before.loadSuggestions)
+      expect(after.resolveLabel).toBe(before.resolveLabel)
+    })
+
+    it('keeps the SKU loadSuggestions/resolveLabel stable after selecting a warehouse', () => {
+      render(<ReserveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
+
+      const before = mockComboboxCaptures['Search SKU or name…']
+      expect(before.loadSuggestions).toBeInstanceOf(Function)
+      expect(before.resolveLabel).toBeInstanceOf(Function)
+
+      fireEvent.change(screen.getByPlaceholderText('Select warehouse…'), {
+        target: { value: 'wh-uuid-1' },
+      })
+
+      const after = mockComboboxCaptures['Search SKU or name…']
+      expect(after.loadSuggestions).toBe(before.loadSuggestions)
+      expect(after.resolveLabel).toBe(before.resolveLabel)
+    })
+
+    it('reuses the Lot loadSuggestions while the variant is unchanged, but refreshes it once the variant changes', () => {
+      render(
+        <ReserveInventoryDialog
+          open
+          onOpenChange={jest.fn()}
+          access={buildAccess()}
+          initialCatalogVariantId="var-uuid-1"
+        />,
+      )
+
+      const beforeLot = mockComboboxCaptures['Any lot (system selects)…']
+      expect(beforeLot.loadSuggestions).toBeInstanceOf(Function)
+
+      fireEvent.change(screen.getByDisplayValue('1'), { target: { value: '3' } })
+      const afterUnrelatedChange = mockComboboxCaptures['Any lot (system selects)…']
+      expect(afterUnrelatedChange.loadSuggestions).toBe(beforeLot.loadSuggestions)
+
+      fireEvent.change(screen.getByPlaceholderText('Search SKU or name…'), {
+        target: { value: 'var-uuid-2' },
+      })
+      const afterVariantChange = mockComboboxCaptures['Any lot (system selects)…']
+      expect(afterVariantChange.loadSuggestions).not.toBe(beforeLot.loadSuggestions)
+    })
   })
 })
