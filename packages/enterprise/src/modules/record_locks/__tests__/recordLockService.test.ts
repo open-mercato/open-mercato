@@ -11,6 +11,7 @@ const DEFAULT_SETTINGS: RecordLockSettings = {
   strategy: 'optimistic',
   timeoutSeconds: 300,
   heartbeatSeconds: 30,
+  maxActiveLocksPerUser: 50,
   enabledResources: ['sales.quote'],
   allowForceUnlock: true,
   allowIncomingOverride: true,
@@ -22,13 +23,17 @@ function createService(
   actionLogService?: { findById: (id: string) => Promise<unknown> } | null,
   options?: { canOverrideIncoming?: boolean },
 ) {
+  const execute = jest.fn().mockResolvedValue([])
+  const connection = { execute }
   const em = {
     findOne: jest.fn(),
     find: jest.fn(),
+    count: jest.fn().mockResolvedValue(0),
     create: jest.fn(),
     persist: jest.fn(),
     flush: jest.fn(),
     transactional: jest.fn(),
+    getConnection: jest.fn(() => connection),
   } as any
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
 
@@ -518,6 +523,7 @@ describe('RecordLockService.acquire', () => {
     })
     em.find
       .mockResolvedValueOnce([competingLock])
+      .mockResolvedValueOnce([competingLock])
       .mockResolvedValueOnce([competingLock, joinedLock])
     em.create.mockReturnValue(joinedLock)
     em.flush.mockResolvedValue(undefined)
@@ -552,6 +558,7 @@ describe('RecordLockService.acquire', () => {
     serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
     serviceAny.findActiveLock = jest.fn()
       .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(buildLock({
         strategy: 'pessimistic',
         lockedByUserId: '40000000-0000-4000-8000-000000000099',
@@ -583,7 +590,7 @@ describe('RecordLockService.acquire', () => {
     expect(result.status).toBe(423)
     expect(result.code).toBe('record_locked')
     expect(result.lock?.lockedByUserId).toBe('40000000-0000-4000-8000-000000000099')
-    expect(serviceAny.findActiveLock).toHaveBeenCalledTimes(2)
+    expect(serviceAny.findActiveLock).toHaveBeenCalledTimes(3)
     expect(emitRecordLocksEvent).toHaveBeenCalledWith(
       'record_locks.lock.contended',
       expect.objectContaining({
@@ -591,6 +598,59 @@ describe('RecordLockService.acquire', () => {
         attemptedByUserId: '40000000-0000-4000-8000-000000000001',
       }),
     )
+  })
+
+  test('rejects new lock acquisition when the user active-lock quota is reached', async () => {
+    const cappedSettings = {
+      ...DEFAULT_SETTINGS,
+      strategy: 'pessimistic',
+      maxActiveLocksPerUser: 2,
+    } as RecordLockSettings & { maxActiveLocksPerUser: number }
+    const { service, em } = createService(cappedSettings)
+    const serviceAny = service as any
+
+    serviceAny.findLatestActionLog = jest.fn().mockResolvedValue(null)
+    em.find
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+    em.count.mockResolvedValueOnce(2)
+    em.create.mockReturnValue(buildLock({
+      strategy: 'pessimistic',
+      lockedByUserId: '40000000-0000-4000-8000-000000000001',
+    }))
+    em.flush.mockResolvedValue(undefined)
+
+    const result = await service.acquire({
+      tenantId: '60000000-0000-4000-8000-000000000001',
+      organizationId: '70000000-0000-4000-8000-000000000001',
+      userId: '40000000-0000-4000-8000-000000000001',
+      resourceKind: 'sales.quote',
+      resourceId: '20000000-0000-4000-8000-000000000099',
+    })
+
+    expect(result.ok).toBe(false)
+    if (result.ok) throw new Error('Expected quota failure')
+    expect(result.status).toBe(429)
+    expect(result.code).toBe('record_lock_quota_exceeded')
+    expect(result.error).toBe('Active record lock limit reached')
+    expect(result.lock).toBeNull()
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(em.getConnection().execute).toHaveBeenCalledWith(
+      'select pg_advisory_xact_lock(hashtext(?))',
+      ['record_locks:quota:60000000-0000-4000-8000-000000000001:70000000-0000-4000-8000-000000000001:40000000-0000-4000-8000-000000000001'],
+    )
+    expect(em.count).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({
+        tenantId: '60000000-0000-4000-8000-000000000001',
+        organizationId: '70000000-0000-4000-8000-000000000001',
+        lockedByUserId: '40000000-0000-4000-8000-000000000001',
+        status: 'active',
+        deletedAt: null,
+        expiresAt: { $gt: expect.any(Date) },
+      }),
+    )
+    expect(em.persist).not.toHaveBeenCalled()
   })
 })
 
