@@ -193,6 +193,6 @@ logger.debug('Matched subscribers', { event, count })
 
 Run with `OM_LOG_LEVEL=debug` to see the output; the flag and its documentation disappear.
 
-### Advisory checker
+### Console checker (CI-enforced)
 
-`yarn logger:check-console` reports raw `console.*` usage in `packages/*/src` (excluding tests). It is **informational only** — it prints findings and exits 0 — with a per-package allowlist for genuinely intended stdout such as CLI user output. Use it to watch that new code reaches for the facade instead of adding to the migration backlog.
+`yarn logger:check-console` reports raw `console.*` usage in `packages/*/src` (excluding tests) and exits 0 for local inspection. Since the application-wide migration brought the count to zero, CI runs the blocking variant — `yarn logger:check-console:ci` (`--strict`), which **fails the lint job on any new raw `console.*` call**. Intentional program output belongs on the allowlist (`scripts/logger-console-allowlist.json`) with a reason: whole packages under `packages` (CLI user output) or glob patterns under `files` (module `cli.ts` command output). Everything else should use the facade.

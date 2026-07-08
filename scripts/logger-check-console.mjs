@@ -20,9 +20,11 @@
  *   node scripts/logger-check-console.mjs --json          # machine output
  *   node scripts/logger-check-console.mjs --path <glob>   # narrow the scan
  *   node scripts/logger-check-console.mjs --limit <n>     # findings shown per package
+ *   node scripts/logger-check-console.mjs --strict        # exit 1 on any finding (CI gate)
  *
- * Exit code: always 0 (advisory). Promotion to a blocking gate is deferred
- * until the bulk of existing sites is migrated.
+ * Exit code: 0 by default (advisory). With --strict the script exits 1 when
+ * any non-allowlisted finding exists — used by CI (`yarn logger:check-console:ci`)
+ * now that the application-wide migration brought the baseline to zero.
  */
 
 import fs from 'node:fs'
@@ -64,11 +66,12 @@ const DEFAULT_IGNORE = [
 const CONSOLE_CALL_PATTERN = /\bconsole\.(log|info|warn|error|debug|trace|table|dir|group|groupCollapsed|groupEnd|count|time|timeEnd|timeLog|assert)\s*\(/g
 
 function parseArgs(argv) {
-  const opts = { quiet: false, json: false, paths: [], showFindingLimit: 12 }
+  const opts = { quiet: false, json: false, strict: false, paths: [], showFindingLimit: 12 }
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]
     if (arg === '--quiet') opts.quiet = true
     else if (arg === '--json') opts.json = true
+    else if (arg === '--strict') opts.strict = true
     else if (arg === '--path' && argv[i + 1]) {
       opts.paths.push(argv[i + 1])
       i++
@@ -218,6 +221,7 @@ function main() {
       })),
     }
     process.stdout.write(JSON.stringify(payload, null, 2) + '\n')
+    if (opts.strict && totalFindings > 0) process.exitCode = 1
     return
   }
 
@@ -226,8 +230,8 @@ function main() {
   console.log(dim('Docs: apps/docs/docs/framework/runtime/logging.mdx • Spec: .ai/specs/2026-07-02-structured-logging-facade.md'))
   console.log('')
 
-  if (totalFindings === 0 && totalAllowlisted === 0) {
-    console.log(green('No raw console.* calls detected.'))
+  if (totalFindings === 0) {
+    console.log(green(`No raw console.* calls detected${totalAllowlisted > 0 ? ` (${totalAllowlisted} allowlisted)` : ''}.`))
     return
   }
 
@@ -253,8 +257,13 @@ function main() {
   console.log(
     `Summary: ${red(`${totalFindings} raw console.* calls`)} • ${yellow(`${totalAllowlisted} allowlisted`)} • across ${reports.filter((r) => r.findings.length > 0).length} packages`,
   )
-  console.log(dim('This checker is advisory — exit code stays 0. Migrate incrementally via the Boy Scout rule.'))
-  console.log(dim('Package allowlist: scripts/logger-console-allowlist.json ({ "packages": { "<dir>": "<reason>" } }).'))
+  console.log(dim('Package allowlist: scripts/logger-console-allowlist.json ({ "packages": { "<dir>": "<reason>" }, "files": { "<glob>": "<reason>" } }).'))
+  if (opts.strict) {
+    console.log(red('Strict mode: raw console.* calls are not allowed — use createLogger() from @open-mercato/shared/lib/logger or add an allowlist entry with a reason.'))
+    process.exitCode = 1
+  } else {
+    console.log(dim('Advisory mode — exit code stays 0. Run with --strict to fail on findings (CI does).'))
+  }
 }
 
 main()
