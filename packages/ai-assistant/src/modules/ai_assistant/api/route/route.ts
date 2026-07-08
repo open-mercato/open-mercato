@@ -6,6 +6,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
 import { resolveOpenCodeModel } from '@open-mercato/shared/lib/ai/opencode-provider'
+import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
   resolveChatConfig,
   isProviderConfigured,
@@ -57,7 +58,7 @@ function createRoutingModel(providerId: ChatProviderId, configuredModel?: string
     // model list. The explicit override (if any) wins.
     const requested = (configuredModel ?? '').trim()
     modelId = requested.length > 0 ? requested : provider.defaultModel
-    modelWithProvider = `${providerId}/${modelId}`
+    modelWithProvider = joinProviderModel(providerId, modelId)
   }
 
   const apiKey = provider.resolveApiKey()
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
 
       console.log('[AI Route] Using provider:', factoryResolution.providerId)
 
-      const modelWithProvider = `${factoryResolution.providerId}/${factoryResolution.modelId}`
+      const modelWithProvider = joinProviderModel(factoryResolution.providerId, factoryResolution.modelId)
       console.log('[AI Route] Calling generateObject with', modelWithProvider)
 
       const result = await generateObject({
