@@ -1,5 +1,6 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 /**
  * Ensure app bootstrap is called before creating DI container.
  * Uses the shared generated-bootstrap loader so the command works both from
@@ -46,6 +47,10 @@ function parseArgs(rest: string[]): Record<string, string | boolean> {
 const mcpServe: ModuleCli = {
   command: 'mcp:serve',
   async run(rest) {
+    // stdout carries the MCP JSON-RPC protocol (StdioServerTransport) — route all
+    // facade logs to stderr and rebuild any pino root created earlier in this process.
+    process.env.OM_LOG_DESTINATION = 'stderr'
+    resetServerLoggerCache()
     const args = parseArgs(rest)
     // Prefer the OPEN_MERCATO_API_KEY env var so the secret never has to be
     // placed on the command line (argv is world-readable via ps / /proc).

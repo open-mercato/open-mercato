@@ -1,7 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { McpToolContext, ToolExecutionResult } from './types'
 import { getToolRegistry } from './tool-registry'
 import { hasRequiredFeatures } from './auth'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Strip empty strings from object values so LLM-generated `""` for optional
@@ -86,7 +89,7 @@ export async function executeTool(
     return { success: true, result }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error(`[MCP Tool] Error executing "${toolName}":`, error)
+    logger.error('Error executing tool', { toolName, err: error })
     return {
       success: false,
       error: message,
