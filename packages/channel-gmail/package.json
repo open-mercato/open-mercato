@@ -65,7 +65,7 @@
     "@open-mercato/core": "workspace:*",
     "@open-mercato/ui": "workspace:*",
     "@types/mailparser": "^3.4.5",
-    "mailparser": "^3.9.11"
+    "mailparser": "^3.9.12"
   },
   "peerDependencies": {
     "@mikro-orm/postgresql": "^7.0.14",

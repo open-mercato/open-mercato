@@ -5,9 +5,12 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { CustomFieldDef, CustomFieldEntityConfig } from '@open-mercato/core/modules/entities/data/entities'
 import { customFieldEntityConfigSchema, upsertCustomFieldDefSchema } from '@open-mercato/core/modules/entities/data/validators'
 import { z } from 'zod'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { invalidateDefinitionsCache } from './definitions.cache'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { mergeEntityFieldsetConfig, normalizeEntityFieldsetConfig } from '../lib/fieldsets'
+import { resolveEntityDefinitionsVersion } from '../lib/definitions-version'
 import {
   beginEntitiesMutationGuard,
   FIELD_DEFINITION_RESOURCE_KIND,
@@ -90,6 +93,31 @@ export async function POST(req: Request) {
     mutationPayload: { entityId, definitionCount: definitions.length },
   })
   if (guard.blockedResponse) return guard.blockedResponse
+
+  // Optimistic locking (issue #3152): the batch upserts a whole definition set,
+  // so guard the entity's aggregate schema version (the newest updated_at across
+  // its field definitions and fieldset config). A stale save — another tab changed
+  // the schema after this form loaded — fails with the same structured 409 the CRUD
+  // path returns. Strictly additive: callers that do not send the expected version
+  // header pass through unchanged.
+  const currentVersion = await resolveEntityDefinitionsVersion(em, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+  try {
+    enforceCommandOptimisticLock({
+      resourceKind: FIELD_DEFINITION_RESOURCE_KIND,
+      resourceId: entityId,
+      current: currentVersion,
+      request: req,
+    })
+  } catch (err) {
+    if (isCrudHttpError(err) && err.status === 409) {
+      return NextResponse.json(err.body, { status: err.status })
+    }
+    throw err
+  }
 
   await em.begin()
   try {
@@ -206,11 +234,20 @@ export async function POST(req: Request) {
     entityIds: [entityId],
   })
 
-  return NextResponse.json({ ok: true })
+  // Return the post-save version so the form can round-trip the token for a
+  // subsequent save (reorder, delete, second save) without a false conflict.
+  const nextVersion = await resolveEntityDefinitionsVersion(em, {
+    entityId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+  })
+
+  return NextResponse.json({ ok: true, version: nextVersion })
 }
 
 const batchResponseSchema = z.object({
   ok: z.literal(true),
+  version: z.string().nullable().optional(),
 })
 
 export const openApi: OpenApiRouteDoc = {
