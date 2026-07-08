@@ -2709,23 +2709,29 @@ export function DataTable<T>({
                   const priority = resolvePriority(header.column)
                   const isFirstDataColumn = headerIndex === 0
                   const stickyClass = stickyFirstColumn && isFirstDataColumn ? ` sticky left-0 z-10 bg-background ${STICKY_LEFT_SHADOW_CLASS}` : ''
-                  const headerCellContent = header.isPlaceholder ? null : (
+                  const isColumnSortable = sortable && !!header.column.getCanSort?.()
+                  const headerContent = header.isPlaceholder ? null : flexRender(header.column.columnDef.header, header.getContext())
+                  // Columns that can't be sorted (e.g. a manual "select" checkbox column) may render
+                  // interactive controls (Checkbox, etc.) in their header. Wrapping those in a <Button>
+                  // would nest a native <button> inside another, which is invalid HTML and triggers a
+                  // hydration error — so only sortable columns get the clickable Button affordance.
+                  const headerCellContent = header.isPlaceholder ? null : isColumnSortable ? (
                     <Button
                       variant="ghost"
                       type="button"
-                      className={`h-auto p-0 has-[>svg]:px-0 font-medium ${sortable && header.column.getCanSort?.() ? 'cursor-pointer select-none' : ''}`}
-                      onClick={() => sortable && header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
+                      className="h-auto p-0 has-[>svg]:px-0 font-medium cursor-pointer select-none"
+                      onClick={() => header.column.toggleSorting?.(header.column.getIsSorted() === 'asc')}
                     >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {sortable && header.column.getCanSort?.() ? (
-                        (() => {
-                          const sortState = header.column.getIsSorted()
-                          if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                          if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
-                          return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
-                        })()
-                      ) : null}
+                      {headerContent}
+                      {(() => {
+                        const sortState = header.column.getIsSorted()
+                        if (sortState === 'asc') return <ChevronUp className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        if (sortState === 'desc') return <ChevronDown className="ml-1 size-3.5 shrink-0 text-foreground" aria-hidden="true" />
+                        return <ChevronsUpDown className="ml-1 size-3.5 shrink-0 text-muted-foreground/50" aria-hidden="true" />
+                      })()}
                     </Button>
+                  ) : (
+                    <div className="h-auto p-0 has-[>svg]:px-0 font-medium">{headerContent}</div>
                   )
                   return enableHeaderDnd ? (
                     <SortableHeaderCell key={header.id} id={header.id} className={responsiveClass(priority, columnMeta?.hidden) + stickyClass}>
