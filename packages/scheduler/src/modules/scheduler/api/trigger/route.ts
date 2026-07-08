@@ -10,6 +10,9 @@ import { ScheduledJob } from '../../data/entities.js'
 import { scheduleTriggerSchema } from '../../data/validators.js'
 import type { ExecuteSchedulePayload } from '../../workers/execute-schedule.worker.js'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('scheduler').child({ component: 'trigger' })
 
 export const metadata = {
   requireAuth: true,
@@ -94,7 +97,7 @@ export async function POST(req: NextRequest) {
     const jobId = await executionQueue.enqueue(payload)
     await executionQueue.close()
 
-    console.log('[scheduler:trigger] Manually triggered schedule:', {
+    logger.info('Manually triggered schedule', {
       scheduleId: schedule.id,
       scheduleName: schedule.name,
       jobId,
@@ -108,7 +111,7 @@ export async function POST(req: NextRequest) {
     })
 
   } catch (error) {
-    console.error('[scheduler:trigger] Error:', error)
+    logger.error('Manual trigger failed', { err: error })
     return NextResponse.json(
       { error: error instanceof Error ? error.message : translate('scheduler.error.trigger_failed', 'Failed to trigger schedule') },
       { status: 400 }
