@@ -112,6 +112,8 @@ Timestamp, padded level (colored when the output is a TTY), `[namespace]` (a `co
 
 So `yarn dev` is pretty by default and production stays structured JSON. Set `OM_LOG_PRETTY=0` in dev when you want raw JSON — for example when piping local output to Loki/Grafana.
 
+Note for the dev runtime: `mercato server dev` spawns the Next.js, worker, and scheduler child processes with `NODE_ENV=production`, so the facade's `NODE_ENV`-based dev defaults would not apply there on their own. The dev command therefore injects `OM_LOG_PRETTY=1` and `OM_LOG_LEVEL=debug` into those children unless you set either variable yourself.
+
 Two caveats: pretty mode is a plain formatter, so pino's **redaction does not apply** — it is a dev convenience, and the "never log credentials/PII" rule is what actually protects you; and it honors `OM_LOG_DESTINATION=stderr`, so stdout-protocol processes stay safe in dev too.
 
 ## Routing Logs to stderr: `OM_LOG_DESTINATION`
