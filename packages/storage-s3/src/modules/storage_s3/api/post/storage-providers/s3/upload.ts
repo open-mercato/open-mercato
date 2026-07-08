@@ -13,6 +13,7 @@ import {
   resolveAttachmentMaxBytes,
   willExceedAttachmentTenantQuota,
 } from '@open-mercato/core/modules/attachments/lib/upload-limits'
+import { isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 import { randomUUID } from 'crypto'
 
@@ -30,11 +31,6 @@ const responseSchema = z.object({
 
 function sanitizeFileName(name: string): string {
   return name.replace(/[^a-zA-Z0-9._-]/g, '_') || 'upload'
-}
-
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
 }
 
 async function resolveDriver(
@@ -61,7 +57,7 @@ async function readTenantStorageUsageBytes(
   do {
     const page = await driver.listObjects('', 1000, continuationToken)
     for (const file of page.files) {
-      if (isKeyScoped(file.key, orgId, tenantId)) {
+      if (isS3KeyScopedToTenant(file.key, orgId, tenantId)) {
         totalBytes += file.size
       }
     }
@@ -94,7 +90,7 @@ export async function POST(req: Request) {
 
   const keyOverride = form.get('key') ? String(form.get('key')) : null
 
-  if (keyOverride !== null && !isKeyScoped(keyOverride, auth.orgId, auth.tenantId)) {
+  if (keyOverride !== null && !isS3KeyScopedToTenant(keyOverride, auth.orgId, auth.tenantId)) {
     return NextResponse.json(
       { error: 'Access denied: key override is not scoped to this tenant.' },
       { status: 403 },

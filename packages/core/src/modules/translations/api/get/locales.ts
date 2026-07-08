@@ -18,6 +18,7 @@ async function GET(req: Request) {
     const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
     const locales = await configService.getValue<string[]>('translations', 'supported_locales', {
       defaultValue: [...defaultLocales],
+      scope: { tenantId: context.tenantId },
     })
 
     return NextResponse.json({ locales: Array.isArray(locales) ? locales : [...defaultLocales] })
