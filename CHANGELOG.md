@@ -60,6 +60,7 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🐛 Preserve workflow visual-editor user task assignment and form configuration across save/read-back. *(@pmadajthey)*
 - 📦 Classify runtime @types as deps and harden OSM tile host check. (#3800) *(@patzick)*
 - 🔧 Batch search token rebuild silently loses all tokens on large batches. (#3791) *(@KamilGrocholski)*
 - 🐛 Support "All organizations" scope on deals filter-bar endpoints (#3768). (#3790) *(@adeptofvoltron)*

@@ -11,6 +11,7 @@ import type { Activity } from '../components/fields/ActivityArrayEditor'
 import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import { sanitizeId } from './graph-utils'
+import { mergeAdvancedNodeConfig } from './nodeConfigMerge'
 
 /**
  * Form values interface matching CrudForm field structure
@@ -49,7 +50,7 @@ export interface NodeFormValues {
   preConditions?: StartPreCondition[]
 
   // Advanced configuration (JSON)
-  advancedConfig?: string
+  advancedConfig?: string | Record<string, unknown>
 }
 
 /**
@@ -338,10 +339,12 @@ export function formValuesToNodeUpdates(
   }
 
   // Parse advanced config (JSON) and merge
-  if (values.advancedConfig && values.advancedConfig.trim()) {
+  if (values.advancedConfig) {
     try {
-      const parsed = JSON.parse(values.advancedConfig)
-      Object.assign(updates, parsed)
+      const parsed = typeof values.advancedConfig === 'string'
+        ? (values.advancedConfig.trim() ? JSON.parse(values.advancedConfig) : null)
+        : values.advancedConfig
+      mergeAdvancedNodeConfig(updates as Record<string, unknown>, parsed, { nodeType: node.type })
     } catch (error) {
       console.error('Invalid JSON in Advanced Configuration:', error)
       throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
