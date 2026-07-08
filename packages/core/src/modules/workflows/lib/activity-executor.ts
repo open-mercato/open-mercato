@@ -61,6 +61,34 @@ function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
   return false
 }
 
+const DEFAULT_WORKFLOW_ENV_INTERPOLATION_ALLOWLIST = new Set(['APP_URL'])
+const WORKFLOW_ENV_INTERPOLATION_ALLOWLIST_KEY = 'OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST'
+
+function getWorkflowEnvInterpolationAllowlist(): Set<string> {
+  const allowlist = new Set(DEFAULT_WORKFLOW_ENV_INTERPOLATION_ALLOWLIST)
+  const configuredKeys = process.env[WORKFLOW_ENV_INTERPOLATION_ALLOWLIST_KEY]
+  if (!configuredKeys) {
+    return allowlist
+  }
+
+  for (const key of configuredKeys.split(',')) {
+    const trimmedKey = key.trim()
+    if (trimmedKey) {
+      allowlist.add(trimmedKey)
+    }
+  }
+
+  return allowlist
+}
+
+function resolveWorkflowEnvInterpolation(envKey: string): string {
+  if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
+    return ''
+  }
+
+  return process.env[envKey] ?? ''
+}
+
 // ============================================================================
 // Types and Interfaces
 // ============================================================================
@@ -874,7 +902,7 @@ export async function executeCallApi(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
-  // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
+  // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
 
   const {
@@ -1162,7 +1190,7 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
  * - {{workflow.tenantId}} - tenant ID
  * - {{workflow.organizationId}} - organization ID
  * - {{workflow.currentStepId}} - current step ID
- * - {{env.VAR_NAME}} - environment variables
+ * - {{env.VAR_NAME}} - server-allowlisted environment variables
  * - {{now}} - current ISO timestamp
  */
 function interpolateVariables(
@@ -1202,7 +1230,7 @@ function interpolateVariables(
       // Handle {{env.*}} variables
       if (trimmedPath.startsWith('env.')) {
         const envKey = trimmedPath.substring('env.'.length)
-        return process.env[envKey] ?? config
+        return resolveWorkflowEnvInterpolation(envKey)
       }
 
       // Handle {{now}} - current timestamp
@@ -1247,8 +1275,7 @@ function interpolateVariables(
       // Handle {{env.*}} variables
       if (trimmedPath.startsWith('env.')) {
         const envKey = trimmedPath.substring('env.'.length)
-        const envValue = process.env[envKey]
-        return envValue !== undefined ? envValue : match
+        return resolveWorkflowEnvInterpolation(envKey)
       }
 
       // Handle {{now}} - current timestamp
