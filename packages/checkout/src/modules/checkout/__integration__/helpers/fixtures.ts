@@ -401,11 +401,14 @@ export async function waitForCheckoutStatus(
   token: string,
   transactionId: string,
   expectedStatus: string,
+  options?: { attempts?: number; intervalMs?: number },
 ): Promise<CheckoutTransactionRecord> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  const attempts = options?.attempts ?? 20
+  const intervalMs = options?.intervalMs ?? 150
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     const transaction = await readCheckoutTransaction(request, token, transactionId)
     if (transaction.status === expectedStatus) return transaction
-    await new Promise((resolve) => setTimeout(resolve, 150))
+    await new Promise((resolve) => setTimeout(resolve, intervalMs))
   }
   return readCheckoutTransaction(request, token, transactionId)
 }

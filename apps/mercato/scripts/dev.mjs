@@ -720,14 +720,14 @@ async function resolveWarmupTenantIdFromDatabase(email) {
 
 async function fetchWithTimeout(url, init = {}, timeoutMs = 45000, externalSignal = null) {
   if (externalSignal?.aborted) {
-    throw externalSignal.reason ?? new Error('warmup request aborted')
+    throw externalSignal?.reason ?? new Error('warmup request aborted')
   }
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), timeoutMs)
   timer.unref?.()
   const abortFromExternalSignal = () => {
-    controller.abort(externalSignal.reason ?? new Error('warmup request aborted'))
+    controller.abort(externalSignal?.reason ?? new Error('warmup request aborted'))
   }
   externalSignal?.addEventListener?.('abort', abortFromExternalSignal, { once: true })
 

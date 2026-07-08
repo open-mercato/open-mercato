@@ -1,0 +1,5544 @@
+{
+  "auth": {
+    "title": "Authentication & Accounts",
+    "description": "User accounts, sessions, roles and password resets.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "auth:user",
+        "class": "User",
+        "table": "users",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:role",
+        "class": "Role",
+        "table": "roles",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:user_sidebar_preference",
+        "class": "UserSidebarPreference",
+        "table": "user_sidebar_preferences",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:role_sidebar_preference",
+        "class": "RoleSidebarPreference",
+        "table": "role_sidebar_preferences",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:sidebar_variant",
+        "class": "SidebarVariant",
+        "table": "sidebar_variants",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:user_role",
+        "class": "UserRole",
+        "table": "user_roles",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "auth:session",
+        "class": "Session",
+        "table": "sessions",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "auth:password_reset",
+        "class": "PasswordReset",
+        "table": "password_resets",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "auth:role_acl",
+        "class": "RoleAcl",
+        "table": "role_acls",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:user_acl",
+        "class": "UserAcl",
+        "table": "user_acls",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "auth:user_consent",
+        "class": "UserConsent",
+        "table": "user_consents",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "auth.user.created",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "auth.user.updated",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "auth.user.deleted",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "auth.role.created",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "auth.role.updated",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "auth.role.deleted",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "auth.login.success",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "auth.login.failed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "auth.logout",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "auth.password.changed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "auth.password.reset.requested",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "auth.password.reset.completed",
+        "category": "lifecycle",
+        "entity": null
+      }
+    ],
+    "aclFeatures": [
+      "auth.users.list",
+      "auth.users.create",
+      "auth.users.edit",
+      "auth.users.delete",
+      "auth.roles.list",
+      "auth.roles.manage",
+      "auth.acl.manage",
+      "auth.sidebar.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/auth/locale",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          },
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/auth/profile",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/auth/roles/acl",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.acl.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.acl.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/roles",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.roles.list"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.roles.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.roles.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.roles.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/sidebar/preferences",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.sidebar.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.sidebar.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/sidebar/variants",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.sidebar.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/users/acl",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.acl.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.acl.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/users/consents",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.edit"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/users/resend-invite",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.create"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/users",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.list"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.create"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.edit"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.users.delete"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/sidebar/variants/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.sidebar.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.sidebar.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/admin/nav",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/auth/feature-check",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/auth/features",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "auth.acl.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/auth/login",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/auth/logout",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/auth/reset/confirm",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/auth/reset",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/auth/session/refresh",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          },
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "authService",
+      "rbacService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "auth.roles.list",
+        "auth.users.list"
+      ]
+    },
+    "notifications": [
+      "auth.password_reset.requested",
+      "auth.password_reset.completed",
+      "auth.account.locked",
+      "auth.login.new_device",
+      "auth.role.assigned",
+      "auth.role.revoked"
+    ],
+    "cli": [
+      "add-user",
+      "seed-roles",
+      "sync-role-acls",
+      "rotate-encryption-key",
+      "add-org",
+      "setup",
+      "list-orgs",
+      "list-tenants",
+      "list-users",
+      "set-password"
+    ]
+  },
+  "catalog": {
+    "title": "Product Catalog",
+    "description": "Configurable catalog for products, variants, and pricing used by the sales module.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "catalog:catalog_option_schema_template",
+        "class": "CatalogOptionSchemaTemplate",
+        "table": "catalog_product_option_schemas",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product",
+        "class": "CatalogProduct",
+        "table": "catalog_products",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_unit_conversion",
+        "class": "CatalogProductUnitConversion",
+        "table": "catalog_product_unit_conversions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_category",
+        "class": "CatalogProductCategory",
+        "table": "catalog_product_categories",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_category_assignment",
+        "class": "CatalogProductCategoryAssignment",
+        "table": "catalog_product_category_assignments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_tag",
+        "class": "CatalogProductTag",
+        "table": "catalog_product_tags",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_tag_assignment",
+        "class": "CatalogProductTagAssignment",
+        "table": "catalog_product_tag_assignments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_offer",
+        "class": "CatalogOffer",
+        "table": "catalog_product_offers",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_variant",
+        "class": "CatalogProductVariant",
+        "table": "catalog_product_variants",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_variant_relation",
+        "class": "CatalogProductVariantRelation",
+        "table": "catalog_product_variant_relations",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_price_kind",
+        "class": "CatalogPriceKind",
+        "table": "catalog_price_kinds",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "catalog:catalog_product_price",
+        "class": "CatalogProductPrice",
+        "table": "catalog_product_variant_prices",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "catalog.product.created",
+        "category": "crud",
+        "entity": "product"
+      },
+      {
+        "id": "catalog.product.updated",
+        "category": "crud",
+        "entity": "product"
+      },
+      {
+        "id": "catalog.product.deleted",
+        "category": "crud",
+        "entity": "product"
+      },
+      {
+        "id": "catalog.product_unit_conversion.created",
+        "category": "crud",
+        "entity": "product_unit_conversion"
+      },
+      {
+        "id": "catalog.product_unit_conversion.updated",
+        "category": "crud",
+        "entity": "product_unit_conversion"
+      },
+      {
+        "id": "catalog.product_unit_conversion.deleted",
+        "category": "crud",
+        "entity": "product_unit_conversion"
+      },
+      {
+        "id": "catalog.category.created",
+        "category": "crud",
+        "entity": "category"
+      },
+      {
+        "id": "catalog.category.updated",
+        "category": "crud",
+        "entity": "category"
+      },
+      {
+        "id": "catalog.category.deleted",
+        "category": "crud",
+        "entity": "category"
+      },
+      {
+        "id": "catalog.variant.created",
+        "category": "crud",
+        "entity": "variant"
+      },
+      {
+        "id": "catalog.variant.updated",
+        "category": "crud",
+        "entity": "variant"
+      },
+      {
+        "id": "catalog.variant.deleted",
+        "category": "crud",
+        "entity": "variant"
+      },
+      {
+        "id": "catalog.price.created",
+        "category": "crud",
+        "entity": "price"
+      },
+      {
+        "id": "catalog.price.updated",
+        "category": "crud",
+        "entity": "price"
+      },
+      {
+        "id": "catalog.price.deleted",
+        "category": "crud",
+        "entity": "price"
+      },
+      {
+        "id": "catalog.pricing.resolve.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "catalog.pricing.resolve.after",
+        "category": "lifecycle",
+        "entity": null
+      }
+    ],
+    "aclFeatures": [
+      "catalog.products.view",
+      "catalog.products.manage",
+      "catalog.categories.view",
+      "catalog.categories.manage",
+      "catalog.variants.manage",
+      "catalog.pricing.manage",
+      "catalog.settings.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/catalog/bulk-delete",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/categories",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.categories.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.categories.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.categories.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.categories.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/offers",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/option-schemas",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/price-kinds",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/prices",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.pricing.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.pricing.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.pricing.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/product-media",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/product-unit-conversions",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/products",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/settings",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/tags",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/variants",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.variants.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.variants.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.variants.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/catalog/dictionaries/[key]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "catalogPricingService"
+    ],
+    "searchEntities": [
+      "catalog:catalog_product",
+      "catalog:catalog_product_variant",
+      "catalog:catalog_product_category",
+      "catalog:catalog_offer",
+      "catalog:catalog_product_tag",
+      "catalog:catalog_price_kind",
+      "catalog:catalog_product_unit_conversion",
+      "catalog:catalog_option_schema_template"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "catalog.product.low_stock"
+    ],
+    "cli": [
+      "seed-units",
+      "seed-price-kinds",
+      "seed-examples",
+      "seed-examples-bundle"
+    ]
+  },
+  "currencies": {
+    "title": "Currencies",
+    "description": "Currencies and Exchange rate management",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "currencies:currency",
+        "class": "Currency",
+        "table": "currencies",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "currencies:exchange_rate",
+        "class": "ExchangeRate",
+        "table": "exchange_rates",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "currencies:currency_fetch_config",
+        "class": "CurrencyFetchConfig",
+        "table": "currency_fetch_configs",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "currencies.currency.created",
+        "category": "crud",
+        "entity": "currency"
+      },
+      {
+        "id": "currencies.currency.updated",
+        "category": "crud",
+        "entity": "currency"
+      },
+      {
+        "id": "currencies.currency.deleted",
+        "category": "crud",
+        "entity": "currency"
+      },
+      {
+        "id": "currencies.exchange_rate.created",
+        "category": "crud",
+        "entity": "exchange_rate"
+      },
+      {
+        "id": "currencies.exchange_rate.updated",
+        "category": "crud",
+        "entity": "exchange_rate"
+      },
+      {
+        "id": "currencies.exchange_rate.deleted",
+        "category": "crud",
+        "entity": "exchange_rate"
+      }
+    ],
+    "aclFeatures": [
+      "currencies.view",
+      "currencies.manage",
+      "currencies.rates.view",
+      "currencies.rates.manage",
+      "currencies.fetch.view",
+      "currencies.fetch.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/currencies/currencies/options",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/currencies/currencies",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/currencies/exchange-rates",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.rates.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.rates.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.rates.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.rates.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/currencies/fetch-configs",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.fetch.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.fetch.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.fetch.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "currencies.fetch.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/currencies/fetch-rates",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "currencies.list",
+        "exchange-rates.list"
+      ]
+    },
+    "notifications": [],
+    "cli": [
+      "seed",
+      "fetch-rates",
+      "list-providers"
+    ]
+  },
+  "customer_accounts": {
+    "title": "Customer Identity & Portal Authentication",
+    "description": "Customer-facing authentication with two-tier identity model and full RBAC.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "customer_accounts:customer_user",
+        "class": "CustomerUser",
+        "table": "customer_users",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customer_accounts:customer_role",
+        "class": "CustomerRole",
+        "table": "customer_roles",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customer_accounts:customer_role_acl",
+        "class": "CustomerRoleAcl",
+        "table": "customer_role_acls",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_role",
+        "class": "CustomerUserRole",
+        "table": "customer_user_roles",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_acl",
+        "class": "CustomerUserAcl",
+        "table": "customer_user_acls",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_session",
+        "class": "CustomerUserSession",
+        "table": "customer_user_sessions",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_email_verification",
+        "class": "CustomerUserEmailVerification",
+        "table": "customer_user_email_verifications",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_password_reset",
+        "class": "CustomerUserPasswordReset",
+        "table": "customer_user_password_resets",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:customer_user_invitation",
+        "class": "CustomerUserInvitation",
+        "table": "customer_user_invitations",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customer_accounts:domain_mapping",
+        "class": "DomainMapping",
+        "table": "domain_mappings",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "customer_accounts.user.created",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.user.updated",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.user.deleted",
+        "category": "crud",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.user.locked",
+        "category": "lifecycle",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.user.unlocked",
+        "category": "lifecycle",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.login.success",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.login.failed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.magic_link.requested",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.email.verified",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.password.reset_requested",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.password.reset",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.password.changed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.role.created",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "customer_accounts.role.updated",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "customer_accounts.role.deleted",
+        "category": "crud",
+        "entity": "role"
+      },
+      {
+        "id": "customer_accounts.user.invited",
+        "category": "lifecycle",
+        "entity": "user"
+      },
+      {
+        "id": "customer_accounts.invitation.accepted",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.password_reset.requested",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "customer_accounts.domain_mapping.created",
+        "category": "crud",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.verified",
+        "category": "lifecycle",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.activated",
+        "category": "lifecycle",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.dns_failed",
+        "category": "lifecycle",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.tls_failed",
+        "category": "lifecycle",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.deleted",
+        "category": "crud",
+        "entity": "domain_mapping"
+      },
+      {
+        "id": "customer_accounts.domain_mapping.replaced",
+        "category": "lifecycle",
+        "entity": "domain_mapping"
+      }
+    ],
+    "aclFeatures": [
+      "customer_accounts.view",
+      "customer_accounts.manage",
+      "customer_accounts.roles.manage",
+      "customer_accounts.invite",
+      "customer_accounts.domain.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/customer_accounts/admin/domain-mappings/[id]/health-check",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customer_accounts.domain.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/admin/domain-mappings/[id]/verify",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customer_accounts.domain.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/admin/domain-mappings",
+        "methods": [
+          "GET",
+          "POST",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customer_accounts.domain.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customer_accounts.domain.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customer_accounts.domain.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/admin/roles/[id]/acl",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/roles/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/roles",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users/[id]/reset-password",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users/[id]/send-reset-link",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users/[id]/verify-email",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users-invite",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/admin/users",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/domain-check",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/domain-resolve/all",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/domain-resolve",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/customer_accounts/email/verify",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/invitations/accept",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/login",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/magic-link/request",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/magic-link/verify",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/password/reset-confirm",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/password/reset-request",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/events/stream",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/feature-check",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/logout",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/nav",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/notifications/[id]/dismiss",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/notifications/[id]/read",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/notifications/mark-all-read",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/notifications/unread-count",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/notifications",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/password-change",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/profile",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/sessions/[id]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/sessions-refresh",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/sessions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/users/[id]/roles",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/users/[id]",
+        "methods": [
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/users-invite",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/portal/users",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/customer_accounts/signup",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [
+      "customerUserService",
+      "customerSessionService",
+      "customerTokenService",
+      "customerRbacService",
+      "customerInvitationService",
+      "domainMappingService"
+    ],
+    "searchEntities": [
+      "customer_accounts:customer_user",
+      "customer_accounts:customer_role"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "customer_accounts.admin.roles",
+        "customer_accounts.admin.users"
+      ]
+    },
+    "notifications": [
+      "customer_accounts.user.signup",
+      "customer_accounts.user.locked",
+      "customer_accounts.domain_mapping.verified",
+      "customer_accounts.domain_mapping.activated",
+      "customer_accounts.domain_mapping.dns_failed",
+      "customer_accounts.domain_mapping.tls_failed"
+    ],
+    "cli": []
+  },
+  "customers": {
+    "title": "Customer Relationship Management",
+    "description": "Core CRM capabilities for people, companies, deals, and activities.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "customers:customer_entity",
+        "class": "CustomerEntity",
+        "table": "customer_entities",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_person_profile",
+        "class": "CustomerPersonProfile",
+        "table": "customer_people",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customers:customer_person_company_link",
+        "class": "CustomerPersonCompanyLink",
+        "table": "customer_person_company_links",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_company_profile",
+        "class": "CustomerCompanyProfile",
+        "table": "customer_companies",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customers:customer_deal",
+        "class": "CustomerDeal",
+        "table": "customer_deals",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customers:customer_deal_stage_transition",
+        "class": "CustomerDealStageTransition",
+        "table": "customer_deal_stage_transitions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_deal_person_link",
+        "class": "CustomerDealPersonLink",
+        "table": "customer_deal_people",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_deal_company_link",
+        "class": "CustomerDealCompanyLink",
+        "table": "customer_deal_companies",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_activity",
+        "class": "CustomerActivity",
+        "table": "customer_activities",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customers:customer_interaction",
+        "class": "CustomerInteraction",
+        "table": "customer_interactions",
+        "editable": true,
+        "customFields": true
+      },
+      {
+        "id": "customers:customer_comment",
+        "class": "CustomerComment",
+        "table": "customer_comments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_address",
+        "class": "CustomerAddress",
+        "table": "customer_addresses",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_settings",
+        "class": "CustomerSettings",
+        "table": "customer_settings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_tag",
+        "class": "CustomerTag",
+        "table": "customer_tags",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_tag_assignment",
+        "class": "CustomerTagAssignment",
+        "table": "customer_tag_assignments",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_dictionary_entry",
+        "class": "CustomerDictionaryEntry",
+        "table": "customer_dictionary_entries",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_pipeline",
+        "class": "CustomerPipeline",
+        "table": "customer_pipelines",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_pipeline_stage",
+        "class": "CustomerPipelineStage",
+        "table": "customer_pipeline_stages",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_todo_link",
+        "class": "CustomerTodoLink",
+        "table": "customer_todo_links",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_entity_role",
+        "class": "CustomerEntityRole",
+        "table": "customer_entity_roles",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_dictionary_kind_setting",
+        "class": "CustomerDictionaryKindSetting",
+        "table": "customer_dictionary_kind_settings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_label",
+        "class": "CustomerLabel",
+        "table": "customer_labels",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_label_assignment",
+        "class": "CustomerLabelAssignment",
+        "table": "customer_label_assignments",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_company_billing",
+        "class": "CustomerCompanyBilling",
+        "table": "customer_company_billing",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "customers:customer_person_company_role",
+        "class": "CustomerPersonCompanyRole",
+        "table": "customer_person_company_roles",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "customers.person.created",
+        "category": "crud",
+        "entity": "person"
+      },
+      {
+        "id": "customers.person.updated",
+        "category": "crud",
+        "entity": "person"
+      },
+      {
+        "id": "customers.person.deleted",
+        "category": "crud",
+        "entity": "person"
+      },
+      {
+        "id": "customers.company.created",
+        "category": "crud",
+        "entity": "company"
+      },
+      {
+        "id": "customers.company.updated",
+        "category": "crud",
+        "entity": "company"
+      },
+      {
+        "id": "customers.company.deleted",
+        "category": "crud",
+        "entity": "company"
+      },
+      {
+        "id": "customers.deal.created",
+        "category": "crud",
+        "entity": "deal"
+      },
+      {
+        "id": "customers.deal.updated",
+        "category": "crud",
+        "entity": "deal"
+      },
+      {
+        "id": "customers.deal.deleted",
+        "category": "crud",
+        "entity": "deal"
+      },
+      {
+        "id": "customers.deal.won",
+        "category": "lifecycle",
+        "entity": "deal"
+      },
+      {
+        "id": "customers.deal.lost",
+        "category": "lifecycle",
+        "entity": "deal"
+      },
+      {
+        "id": "customers.comment.created",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "customers.comment.updated",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "customers.comment.deleted",
+        "category": "crud",
+        "entity": "comment"
+      },
+      {
+        "id": "customers.address.created",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "customers.address.updated",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "customers.address.deleted",
+        "category": "crud",
+        "entity": "address"
+      },
+      {
+        "id": "customers.activity.created",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "customers.activity.updated",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "customers.activity.deleted",
+        "category": "crud",
+        "entity": "activity"
+      },
+      {
+        "id": "customers.tag.created",
+        "category": "crud",
+        "entity": "tag"
+      },
+      {
+        "id": "customers.tag.updated",
+        "category": "crud",
+        "entity": "tag"
+      },
+      {
+        "id": "customers.tag.deleted",
+        "category": "crud",
+        "entity": "tag"
+      },
+      {
+        "id": "customers.tag.assigned",
+        "category": "crud",
+        "entity": "tag"
+      },
+      {
+        "id": "customers.tag.removed",
+        "category": "crud",
+        "entity": "tag"
+      },
+      {
+        "id": "customers.todo.created",
+        "category": "crud",
+        "entity": "todo"
+      },
+      {
+        "id": "customers.todo.updated",
+        "category": "crud",
+        "entity": "todo"
+      },
+      {
+        "id": "customers.todo.deleted",
+        "category": "crud",
+        "entity": "todo"
+      },
+      {
+        "id": "customers.interaction.created",
+        "category": "crud",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.interaction.updated",
+        "category": "crud",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.interaction.completed",
+        "category": "lifecycle",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.interaction.canceled",
+        "category": "lifecycle",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.interaction.reverted",
+        "category": "lifecycle",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.interaction.deleted",
+        "category": "crud",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.next_interaction.updated",
+        "category": "lifecycle",
+        "entity": "interaction"
+      },
+      {
+        "id": "customers.entity_role.created",
+        "category": "crud",
+        "entity": "entity_role"
+      },
+      {
+        "id": "customers.entity_role.updated",
+        "category": "crud",
+        "entity": "entity_role"
+      },
+      {
+        "id": "customers.entity_role.deleted",
+        "category": "crud",
+        "entity": "entity_role"
+      },
+      {
+        "id": "customers.label.created",
+        "category": "crud",
+        "entity": "label"
+      },
+      {
+        "id": "customers.label.updated",
+        "category": "crud",
+        "entity": "label"
+      },
+      {
+        "id": "customers.label.deleted",
+        "category": "crud",
+        "entity": "label"
+      },
+      {
+        "id": "customers.label_assignment.created",
+        "category": "crud",
+        "entity": "label_assignment"
+      },
+      {
+        "id": "customers.label_assignment.updated",
+        "category": "crud",
+        "entity": "label_assignment"
+      },
+      {
+        "id": "customers.label_assignment.deleted",
+        "category": "crud",
+        "entity": "label_assignment"
+      },
+      {
+        "id": "customers.person_company_link.created",
+        "category": "crud",
+        "entity": "person_company_link"
+      },
+      {
+        "id": "customers.person_company_link.updated",
+        "category": "crud",
+        "entity": "person_company_link"
+      },
+      {
+        "id": "customers.person_company_link.deleted",
+        "category": "crud",
+        "entity": "person_company_link"
+      },
+      {
+        "id": "customers.email.linked",
+        "category": "lifecycle",
+        "entity": "email_link"
+      },
+      {
+        "id": "customers.email.visibility_changed",
+        "category": "lifecycle",
+        "entity": "email_link"
+      }
+    ],
+    "aclFeatures": [
+      "customers.people.view",
+      "customers.people.manage",
+      "customers.companies.view",
+      "customers.companies.manage",
+      "customers.deals.view",
+      "customers.deals.manage",
+      "customers.activities.view",
+      "customers.activities.manage",
+      "customers.settings.manage",
+      "customers.pipelines.view",
+      "customers.pipelines.manage",
+      "customers.widgets.todos",
+      "customers.widgets.next-interactions",
+      "customers.widgets.new-customers",
+      "customers.widgets.new-deals",
+      "customers.interactions.view",
+      "customers.interactions.manage",
+      "customers.roles.view",
+      "customers.roles.manage",
+      "customers.email.compose",
+      "customers.email.view_private"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/customers/activities",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/addresses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/assignable-staff",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/comments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/companies",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dashboard/widgets/customer-todos",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.view",
+              "customers.widgets.todos"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dashboard/widgets/new-customers",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.view",
+              "customers.widgets.new-customers"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dashboard/widgets/new-deals",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.view",
+              "customers.widgets.new-deals"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dashboard/widgets/next-interactions",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "dashboards.view",
+              "customers.widgets.next-interactions"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/aggregate",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/bulk-update-owner",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/bulk-update-stage",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/map",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view",
+              "customers.activities.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/summary",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dictionaries/currency",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dictionaries/kind-settings",
+        "methods": [
+          "GET",
+          "PATCH"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/complete",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/conflicts",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/counts",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/tasks",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/labels/assign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/customers/labels",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/labels/unassign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/customers/people/check-phone",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/pipeline-stages/reorder",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/pipeline-stages",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/pipelines",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.pipelines.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/settings/address-format",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/settings/dictionary-sort-modes",
+        "methods": [
+          "GET",
+          "PATCH"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          },
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/settings/stuck-threshold",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/tags/assign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/tags",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/tags/unassign",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.activities.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/todos",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.interactions.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/companies/[id]/people",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/companies/[id]/roles",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/companies/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.companies.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/[id]/companies",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/[id]/people",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/[id]/stats",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dictionaries/[kind]/[id]",
+        "methods": [
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/dictionaries/[kind]",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/interactions/[id]/visibility",
+        "methods": [
+          "PATCH"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.email.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/companies/[linkId]",
+        "methods": [
+          "PATCH",
+          "DELETE"
+        ],
+        "auth": {
+          "PATCH": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/companies/enriched",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/companies",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/email-threads",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/emails",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.email.compose"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]/roles",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.roles.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/people/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.people.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [],
+    "searchEntities": [
+      "customers:customer_person_profile",
+      "customers:customer_company_profile",
+      "customers:customer_comment",
+      "customers:customer_deal",
+      "customers:customer_activity",
+      "customers:customer_todo_link"
+    ],
+    "hostTokens": {
+      "entityIds": [
+        "customers:customer_entity"
+      ],
+      "tableIds": [
+        "customers.companies.list",
+        "customers.deals.list",
+        "customers.people.list"
+      ]
+    },
+    "notifications": [
+      "customers.deal.won",
+      "customers.deal.lost"
+    ],
+    "cli": [
+      "seed-dictionaries",
+      "seed-examples",
+      "seed-stresstest",
+      "interactions:backfill"
+    ]
+  },
+  "data_sync": {
+    "title": "Data Sync",
+    "description": "Streaming data sync hub for import/export integrations.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "data_sync:sync_run",
+        "class": "SyncRun",
+        "table": "sync_runs",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "data_sync:sync_cursor",
+        "class": "SyncCursor",
+        "table": "sync_cursors",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "data_sync:sync_mapping",
+        "class": "SyncMapping",
+        "table": "sync_mappings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "data_sync:sync_schedule",
+        "class": "SyncSchedule",
+        "table": "sync_schedules",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "data_sync.run.started",
+        "category": "lifecycle",
+        "entity": "run"
+      },
+      {
+        "id": "data_sync.run.completed",
+        "category": "lifecycle",
+        "entity": "run"
+      },
+      {
+        "id": "data_sync.run.failed",
+        "category": "lifecycle",
+        "entity": "run"
+      },
+      {
+        "id": "data_sync.run.cancelled",
+        "category": "lifecycle",
+        "entity": "run"
+      }
+    ],
+    "aclFeatures": [
+      "data_sync.view",
+      "data_sync.run",
+      "data_sync.configure"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/data_sync/mappings",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/schedules",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/mappings/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/runs/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/schedules/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/options",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/run",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.run"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/runs/[id]/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.run"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/runs/[id]/retry",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.run"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/runs",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/data_sync/validate",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "data_sync.configure"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "externalIdMappingService",
+      "dataSyncRunService",
+      "dataSyncScheduleService",
+      "dataSyncEngine"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "data_sync.runs"
+      ]
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "integrations": {
+    "title": "Integrations",
+    "description": "Core integration framework — external ID mapping, status badges, and integration registry.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "integrations:sync_external_id_mapping",
+        "class": "SyncExternalIdMapping",
+        "table": "sync_external_id_mappings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "integrations:integration_credentials",
+        "class": "IntegrationCredentials",
+        "table": "integration_credentials",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "integrations:integration_state",
+        "class": "IntegrationState",
+        "table": "integration_states",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "integrations:integration_log",
+        "class": "IntegrationLog",
+        "table": "integration_logs",
+        "editable": false,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "integrations.credentials.updated",
+        "category": "custom",
+        "entity": "credentials"
+      },
+      {
+        "id": "integrations.state.updated",
+        "category": "custom",
+        "entity": "state"
+      },
+      {
+        "id": "integrations.version.changed",
+        "category": "custom",
+        "entity": "state"
+      },
+      {
+        "id": "integrations.log.created",
+        "category": "system",
+        "entity": "log"
+      }
+    ],
+    "aclFeatures": [
+      "integrations.view",
+      "integrations.manage",
+      "integrations.credentials.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/integrations/logs",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations/[id]/credentials",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.credentials.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.credentials.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations/[id]/health",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.view"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations/[id]/state",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/integrations/[id]/version",
+        "methods": [
+          "PUT"
+        ],
+        "auth": {
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "integrations.manage"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "integrationCredentialsService",
+      "integrationStateService",
+      "integrationLogService",
+      "integrationHealthService"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [],
+    "cli": []
+  },
+  "sales": {
+    "title": "Sales Management",
+    "description": "Quoting, ordering, fulfillment, and billing capabilities built on modular pricing and tax pipelines.",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "sales:sales_channel",
+        "class": "SalesChannel",
+        "table": "sales_channels",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_shipping_method",
+        "class": "SalesShippingMethod",
+        "table": "sales_shipping_methods",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_delivery_window",
+        "class": "SalesDeliveryWindow",
+        "table": "sales_delivery_windows",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_payment_method",
+        "class": "SalesPaymentMethod",
+        "table": "sales_payment_methods",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_tax_rate",
+        "class": "SalesTaxRate",
+        "table": "sales_tax_rates",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_order",
+        "class": "SalesOrder",
+        "table": "sales_orders",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_order_line",
+        "class": "SalesOrderLine",
+        "table": "sales_order_lines",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_order_adjustment",
+        "class": "SalesOrderAdjustment",
+        "table": "sales_order_adjustments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_settings",
+        "class": "SalesSettings",
+        "table": "sales_settings",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_document_sequence",
+        "class": "SalesDocumentSequence",
+        "table": "sales_document_sequences",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_quote",
+        "class": "SalesQuote",
+        "table": "sales_quotes",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_quote_line",
+        "class": "SalesQuoteLine",
+        "table": "sales_quote_lines",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_quote_adjustment",
+        "class": "SalesQuoteAdjustment",
+        "table": "sales_quote_adjustments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_shipment",
+        "class": "SalesShipment",
+        "table": "sales_shipments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_shipment_item",
+        "class": "SalesShipmentItem",
+        "table": "sales_shipment_items",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_return",
+        "class": "SalesReturn",
+        "table": "sales_returns",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_return_line",
+        "class": "SalesReturnLine",
+        "table": "sales_return_lines",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_invoice",
+        "class": "SalesInvoice",
+        "table": "sales_invoices",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_invoice_line",
+        "class": "SalesInvoiceLine",
+        "table": "sales_invoice_lines",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_credit_memo",
+        "class": "SalesCreditMemo",
+        "table": "sales_credit_memos",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_credit_memo_line",
+        "class": "SalesCreditMemoLine",
+        "table": "sales_credit_memo_lines",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_payment",
+        "class": "SalesPayment",
+        "table": "sales_payments",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_payment_allocation",
+        "class": "SalesPaymentAllocation",
+        "table": "sales_payment_allocations",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_note",
+        "class": "SalesNote",
+        "table": "sales_notes",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_document_address",
+        "class": "SalesDocumentAddress",
+        "table": "sales_document_addresses",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_document_tag",
+        "class": "SalesDocumentTag",
+        "table": "sales_document_tags",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "sales:sales_document_tag_assignment",
+        "class": "SalesDocumentTagAssignment",
+        "table": "sales_document_tag_assignments",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "sales.order.created",
+        "category": "crud",
+        "entity": "order"
+      },
+      {
+        "id": "sales.order.updated",
+        "category": "crud",
+        "entity": "order"
+      },
+      {
+        "id": "sales.order.deleted",
+        "category": "crud",
+        "entity": "order"
+      },
+      {
+        "id": "sales.quote.created",
+        "category": "crud",
+        "entity": "quote"
+      },
+      {
+        "id": "sales.quote.updated",
+        "category": "crud",
+        "entity": "quote"
+      },
+      {
+        "id": "sales.quote.deleted",
+        "category": "crud",
+        "entity": "quote"
+      },
+      {
+        "id": "sales.invoice.created",
+        "category": "crud",
+        "entity": "invoice"
+      },
+      {
+        "id": "sales.invoice.updated",
+        "category": "crud",
+        "entity": "invoice"
+      },
+      {
+        "id": "sales.invoice.deleted",
+        "category": "crud",
+        "entity": "invoice"
+      },
+      {
+        "id": "sales.credit_memo.created",
+        "category": "crud",
+        "entity": "credit_memo"
+      },
+      {
+        "id": "sales.credit_memo.updated",
+        "category": "crud",
+        "entity": "credit_memo"
+      },
+      {
+        "id": "sales.credit_memo.deleted",
+        "category": "crud",
+        "entity": "credit_memo"
+      },
+      {
+        "id": "sales.line.created",
+        "category": "crud",
+        "entity": "line"
+      },
+      {
+        "id": "sales.line.updated",
+        "category": "crud",
+        "entity": "line"
+      },
+      {
+        "id": "sales.line.deleted",
+        "category": "crud",
+        "entity": "line"
+      },
+      {
+        "id": "sales.payment.created",
+        "category": "crud",
+        "entity": "payment"
+      },
+      {
+        "id": "sales.payment.updated",
+        "category": "crud",
+        "entity": "payment"
+      },
+      {
+        "id": "sales.payment.deleted",
+        "category": "crud",
+        "entity": "payment"
+      },
+      {
+        "id": "sales.shipment.created",
+        "category": "crud",
+        "entity": "shipment"
+      },
+      {
+        "id": "sales.shipment.updated",
+        "category": "crud",
+        "entity": "shipment"
+      },
+      {
+        "id": "sales.shipment.deleted",
+        "category": "crud",
+        "entity": "shipment"
+      },
+      {
+        "id": "sales.return.created",
+        "category": "crud",
+        "entity": "return"
+      },
+      {
+        "id": "sales.return.updated",
+        "category": "crud",
+        "entity": "return"
+      },
+      {
+        "id": "sales.return.deleted",
+        "category": "crud",
+        "entity": "return"
+      },
+      {
+        "id": "sales.note.created",
+        "category": "crud",
+        "entity": "note"
+      },
+      {
+        "id": "sales.note.updated",
+        "category": "crud",
+        "entity": "note"
+      },
+      {
+        "id": "sales.note.deleted",
+        "category": "crud",
+        "entity": "note"
+      },
+      {
+        "id": "sales.channel.created",
+        "category": "crud",
+        "entity": "channel"
+      },
+      {
+        "id": "sales.channel.updated",
+        "category": "crud",
+        "entity": "channel"
+      },
+      {
+        "id": "sales.channel.deleted",
+        "category": "crud",
+        "entity": "channel"
+      },
+      {
+        "id": "sales.document.totals.calculated",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.document.calculate.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.document.calculate.after",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.line.calculate.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.line.calculate.after",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.tax.calculate.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.tax.calculate.after",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.shipping.adjustments.apply.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.shipping.adjustments.apply.after",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.payment.adjustments.apply.before",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "sales.payment.adjustments.apply.after",
+        "category": "lifecycle",
+        "entity": null
+      }
+    ],
+    "aclFeatures": [
+      "sales.orders.view",
+      "sales.orders.manage",
+      "sales.orders.approve",
+      "sales.widgets.new-orders",
+      "sales.widgets.new-quotes",
+      "sales.quotes.view",
+      "sales.quotes.manage",
+      "sales.documents.number.edit",
+      "sales.shipments.manage",
+      "sales.payments.manage",
+      "sales.returns.view",
+      "sales.returns.create",
+      "sales.returns.manage",
+      "sales.invoices.manage",
+      "sales.credit_memos.manage",
+      "sales.channels.view",
+      "sales.channels.manage",
+      "sales.settings.view",
+      "sales.settings.manage"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/sales/adjustment-kinds",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/channels",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/credit-memos",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.credit_memos.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.credit_memos.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.credit_memos.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.credit_memos.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/dashboard/widgets/new-orders",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/dashboard/widgets/new-quotes",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/delivery-windows",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/document-addresses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true
+          },
+          "DELETE": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/sales/document-history",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/sales/document-numbers",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/sales/invoices",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.invoices.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.invoices.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.invoices.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.invoices.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/notes",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true
+          },
+          "POST": {
+            "requireAuth": true
+          },
+          "PUT": {
+            "requireAuth": true
+          },
+          "DELETE": {
+            "requireAuth": true
+          }
+        }
+      },
+      {
+        "path": "/sales/order-adjustments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/order-line-statuses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/order-lines",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/order-statuses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/orders",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/payment-methods",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/payment-statuses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/payments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.payments.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.payments.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.payments.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/price-kinds",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.channels.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/quote-adjustments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/quote-lines",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/quotes/accept",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/sales/quotes/convert",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.manage",
+              "sales.orders.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/quotes",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/quotes/send",
+        "methods": [
+          "POST"
+        ],
+        "auth": {
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.quotes.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/returns",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.returns.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.returns.create"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.returns.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.returns.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/settings/document-numbers",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/settings/order-editing",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/shipment-statuses",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/sales/shipments",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.shipments.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.shipments.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.shipments.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/shipping-methods",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/tags",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.view"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.orders.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/tax-rates",
+        "methods": [
+          "GET",
+          "POST",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "POST": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          },
+          "DELETE": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.settings.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/sales/quotes/public/[token]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": false
+          }
+        }
+      },
+      {
+        "path": "/sales/returns/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "sales.returns.view"
+            ]
+          }
+        }
+      }
+    ],
+    "diTokens": [
+      "salesCalculationService",
+      "taxCalculationService",
+      "salesDocumentNumberGenerator",
+      "salesOrderService"
+    ],
+    "searchEntities": [
+      "sales:sales_channel",
+      "sales:sales_order",
+      "sales:sales_quote",
+      "sales:sales_order_line",
+      "sales:sales_quote_line",
+      "sales:sales_order_adjustment",
+      "sales:sales_quote_adjustment",
+      "sales:sales_shipment",
+      "sales:sales_shipment_item",
+      "sales:sales_invoice",
+      "sales:sales_invoice_line",
+      "sales:sales_credit_memo",
+      "sales:sales_credit_memo_line",
+      "sales:sales_payment",
+      "sales:sales_payment_allocation",
+      "sales:sales_note",
+      "sales:sales_document_address",
+      "sales:sales_shipping_method",
+      "sales:sales_delivery_window",
+      "sales:sales_payment_method",
+      "sales:sales_tax_rate",
+      "sales:sales_document_tag"
+    ],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": []
+    },
+    "notifications": [
+      "sales.order.created",
+      "sales.quote.created",
+      "sales.payment.received",
+      "sales.quote.expiring"
+    ],
+    "cli": [
+      "seed-tax-rates",
+      "seed-statuses",
+      "seed-adjustment-kinds",
+      "backfill-deal-loss-reasons",
+      "seed-shipping-methods",
+      "seed-payment-methods",
+      "seed-examples"
+    ]
+  },
+  "workflows": {
+    "title": "Workflow Engine",
+    "description": "Orchestrate business processes with state machines, transitions, and activities",
+    "coreVersion": "0.6.5",
+    "entities": [
+      {
+        "id": "workflows:workflow_definition",
+        "class": "WorkflowDefinition",
+        "table": "workflow_definitions",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "workflows:workflow_instance",
+        "class": "WorkflowInstance",
+        "table": "workflow_instances",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "workflows:workflow_branch_instance",
+        "class": "WorkflowBranchInstance",
+        "table": "workflow_branch_instances",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "workflows:step_instance",
+        "class": "StepInstance",
+        "table": "step_instances",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "workflows:user_task",
+        "class": "UserTask",
+        "table": "user_tasks",
+        "editable": true,
+        "customFields": false
+      },
+      {
+        "id": "workflows:workflow_event",
+        "class": "WorkflowEvent",
+        "table": "workflow_events",
+        "editable": false,
+        "customFields": false
+      },
+      {
+        "id": "workflows:workflow_event_trigger",
+        "class": "WorkflowEventTrigger",
+        "table": "workflow_event_triggers",
+        "editable": true,
+        "customFields": false
+      }
+    ],
+    "events": [
+      {
+        "id": "workflows.definition.created",
+        "category": "crud",
+        "entity": "definition"
+      },
+      {
+        "id": "workflows.definition.updated",
+        "category": "crud",
+        "entity": "definition"
+      },
+      {
+        "id": "workflows.definition.deleted",
+        "category": "crud",
+        "entity": "definition"
+      },
+      {
+        "id": "workflows.definition.customized",
+        "category": "lifecycle",
+        "entity": "definition"
+      },
+      {
+        "id": "workflows.definition.reset_to_code",
+        "category": "lifecycle",
+        "entity": "definition"
+      },
+      {
+        "id": "workflows.instance.created",
+        "category": "crud",
+        "entity": "instance"
+      },
+      {
+        "id": "workflows.instance.updated",
+        "category": "crud",
+        "entity": "instance"
+      },
+      {
+        "id": "workflows.instance.deleted",
+        "category": "crud",
+        "entity": "instance"
+      },
+      {
+        "id": "workflows.instance.started",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.instance.completed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.instance.failed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.instance.cancelled",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.instance.paused",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.instance.resumed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.activity.started",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.activity.completed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.activity.failed",
+        "category": "lifecycle",
+        "entity": null
+      },
+      {
+        "id": "workflows.trigger.created",
+        "category": "crud",
+        "entity": "trigger"
+      },
+      {
+        "id": "workflows.trigger.updated",
+        "category": "crud",
+        "entity": "trigger"
+      },
+      {
+        "id": "workflows.trigger.deleted",
+        "category": "crud",
+        "entity": "trigger"
+      },
+      {
+        "id": "workflows.branch.opened",
+        "category": "lifecycle",
+        "entity": "branch"
+      },
+      {
+        "id": "workflows.branch.completed",
+        "category": "lifecycle",
+        "entity": "branch"
+      },
+      {
+        "id": "workflows.branch.cancelled",
+        "category": "lifecycle",
+        "entity": "branch"
+      },
+      {
+        "id": "workflows.branch.failed",
+        "category": "lifecycle",
+        "entity": "branch"
+      },
+      {
+        "id": "workflows.join.completed",
+        "category": "lifecycle",
+        "entity": "branch"
+      }
+    ],
+    "aclFeatures": [
+      "workflows.view",
+      "workflows.manage",
+      "workflows.view_logs",
+      "workflows.view_tasks",
+      "workflows.definitions.view",
+      "workflows.definitions.create",
+      "workflows.definitions.edit",
+      "workflows.definitions.delete",
+      "workflows.instances.view",
+      "workflows.instances.create",
+      "workflows.instances.cancel",
+      "workflows.instances.retry",
+      "workflows.instances.signal",
+      "workflows.tasks.view",
+      "workflows.tasks.claim",
+      "workflows.tasks.complete",
+      "workflows.signals.send",
+      "workflows.events.view"
+    ],
+    "apiRoutes": [
+      {
+        "path": "/workflows/definitions",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/events",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances",
+        "methods": [
+          "GET",
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/validate-start",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/signals",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/tasks",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/definitions/[id]/customize",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/definitions/[id]/reset-to-code",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/definitions/[id]",
+        "methods": [
+          "GET",
+          "PUT",
+          "DELETE"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/events/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]/advance",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]/cancel",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]/events",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]/retry",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/instances/[id]/signal",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/tasks/[id]/claim",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/tasks/[id]/complete",
+        "methods": [
+          "POST"
+        ],
+        "auth": {}
+      },
+      {
+        "path": "/workflows/tasks/[id]",
+        "methods": [
+          "GET"
+        ],
+        "auth": {}
+      }
+    ],
+    "diTokens": [
+      "workflowExecutor",
+      "stepHandler",
+      "transitionHandler",
+      "activityExecutor",
+      "eventLogger",
+      "signalHandler",
+      "timerHandler"
+    ],
+    "searchEntities": [],
+    "hostTokens": {
+      "entityIds": [],
+      "tableIds": [
+        "workflows.definitions.list",
+        "workflows.instances.list",
+        "workflows.tasks.list"
+      ]
+    },
+    "notifications": [
+      "workflows.task.assigned"
+    ],
+    "cli": [
+      "start-worker",
+      "process-activities",
+      "seed-demo",
+      "seed-demo-with-rules",
+      "seed-sales-pipeline",
+      "seed-simple-approval",
+      "seed-order-approval",
+      "seed-all"
+    ]
+  }
+}

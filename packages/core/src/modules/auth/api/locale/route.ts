@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
+import { resolveForcedLocale } from '@open-mercato/shared/lib/i18n/locale'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { sanitizeRedirectPath } from '@open-mercato/core/modules/auth/lib/safeRedirect'
 import { getAppBaseUrl } from '@open-mercato/shared/lib/url'
@@ -21,6 +22,9 @@ export const metadata = {
 
 export async function POST(req: Request) {
   const { t } = await resolveTranslations()
+  if (resolveForcedLocale(process.env)) {
+    return NextResponse.json({ error: t('api.errors.localeForced', 'Locale is fixed by configuration') }, { status: 409 })
+  }
   try {
     const { locale } = await req.json()
     if (typeof locale !== 'string' || !supportedLocales.has(locale as Locale)) {
@@ -36,6 +40,9 @@ export async function POST(req: Request) {
 
 export async function GET(req: Request) {
   const { t } = await resolveTranslations()
+  if (resolveForcedLocale(process.env)) {
+    return NextResponse.json({ error: t('api.errors.localeForced', 'Locale is fixed by configuration') }, { status: 409 })
+  }
   const url = new URL(req.url)
   const locale = url.searchParams.get('locale')
   if (!locale || !supportedLocales.has(locale as Locale)) {

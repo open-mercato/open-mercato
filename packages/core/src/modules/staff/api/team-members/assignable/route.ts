@@ -6,6 +6,7 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createPagedListResponseSchema as createSharedPagedListResponseSchema } from '@open-mercato/shared/lib/openapi/crud'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/directory/utils/organizationScopeFilter'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import {
   resolveAuthActorId,
@@ -57,7 +58,7 @@ export const metadata = {
 async function canAccessAssignableStaff(
   rbac: RbacService | undefined,
   userId: string,
-  scope: { tenantId: string; organizationId: string },
+  scope: { tenantId: string; organizationId: string | null },
 ): Promise<boolean> {
   if (!rbac) return false
   if (
@@ -72,18 +73,13 @@ export async function GET(request: Request) {
   const { translate } = await resolveTranslations()
   try {
     const query = querySchema.parse(Object.fromEntries(new URL(request.url).searchParams))
-    const { container, em, auth, selectedOrganizationId } = await resolveCustomersRequestContext(request)
+    const { container, em, auth, scope: organizationScope } = await resolveCustomersRequestContext(request)
 
-    if (!selectedOrganizationId) {
-      throw new CrudHttpError(
-        400,
-        { error: translate('customers.errors.organization_required', 'Organization context is required') },
-      )
-    }
+    const orgFilter = resolveOrganizationScopeFilter(organizationScope, auth)
 
     const actorId = resolveAuthActorId(auth)
     const rbacService = container.resolve('rbacService') as RbacService | undefined
-    const scope = { tenantId: auth.tenantId, organizationId: selectedOrganizationId }
+    const scope = { tenantId: auth.tenantId, organizationId: orgFilter.rbacOrganizationId }
     const hasAccess = await canAccessAssignableStaff(rbacService, actorId, scope)
     if (!hasAccess) {
       throw new CrudHttpError(
@@ -104,7 +100,7 @@ export async function GET(request: Request) {
       StaffTeamMember,
       {
         tenantId: auth.tenantId,
-        organizationId: selectedOrganizationId,
+        ...orgFilter.where,
         deletedAt: null,
         isActive: true,
       },
@@ -136,7 +132,7 @@ export async function GET(request: Request) {
               id: { $in: userIds },
               deletedAt: null,
               tenantId: auth.tenantId,
-              organizationId: selectedOrganizationId,
+              ...orgFilter.where,
             },
             undefined,
             scope,
@@ -150,7 +146,7 @@ export async function GET(request: Request) {
               id: { $in: teamIds },
               deletedAt: null,
               tenantId: auth.tenantId,
-              organizationId: selectedOrganizationId,
+              ...orgFilter.where,
             },
             undefined,
             scope,

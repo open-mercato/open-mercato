@@ -691,6 +691,7 @@ describe('generator output compatibility', () => {
     'message-types.generated.ts',
     'messages.client.generated.ts',
     'modules.generated.ts',
+    'modules.i18n.generated.ts',
     'modules.runtime.generated.ts',
     'notification-handlers.generated.ts',
     'notifications.client.generated.ts',
@@ -720,6 +721,7 @@ describe('generator output compatibility', () => {
       'entities.ids.generated.ts',
       'entity-fields-registry.ts',
       'modules.app.generated.ts',
+      'modules.bootstrap.generated.ts',
       'modules.cli.generated.ts',
       'enabled-module-ids.generated.ts',
     ]))

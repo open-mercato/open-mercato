@@ -61,7 +61,7 @@ function normalizeTagLabels(labels: string[]): string[] {
         .map((label) => label.trim().toLowerCase())
         .filter((label) => label.length > 0),
     ),
-  ).sort()
+  ).sort((a, b) => a.localeCompare(b))
 }
 
 function buildTagLabelKey(labels: string[]): string {
@@ -209,22 +209,19 @@ function TagsSectionImpl({
     const task = (async () => {
       const currentTags = savedTagsRef.current
       const currentIds = new Set(currentTags.map((tag) => tag.id))
-      const finalTagOptions: TagOption[] = []
       const submittedDraftKey = buildTagLabelKey(trimmed)
 
       setSaving(true)
       setError(null)
       try {
-        for (const normalized of uniqueLabels) {
-          const existing = optionsRef.current.get(normalized)
-          if (existing) {
-            finalTagOptions.push(existing)
-            continue
-          }
-          const matchingLabel = trimmed.find((label) => label.toLowerCase() === normalized) ?? normalized
-          const created = await ensureTagOption(matchingLabel)
-          finalTagOptions.push(created)
-        }
+        const finalTagOptions = await Promise.all(
+          uniqueLabels.map((normalized) => {
+            const existing = optionsRef.current.get(normalized)
+            if (existing) return existing
+            const matchingLabel = trimmed.find((label) => label.toLowerCase() === normalized) ?? normalized
+            return ensureTagOption(matchingLabel)
+          }),
+        )
 
         const finalIds = new Set(finalTagOptions.map((tag) => tag.id))
         const added = finalTagOptions.filter((tag) => !currentIds.has(tag.id))

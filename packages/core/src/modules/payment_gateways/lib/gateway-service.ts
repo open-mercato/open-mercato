@@ -18,6 +18,7 @@ import { conflict } from '@open-mercato/shared/lib/crud/errors'
 import { GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
+import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
 
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
@@ -234,7 +235,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       })
 
       const statusChanged = applyAdapterResultStatus('capture', transaction, result.status)
-      transaction.gatewayMetadata = { ...transaction.gatewayMetadata, captureResult: result.providerData }
+      transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), captureResult: result.providerData }
       await em.flush()
       if (statusChanged) {
         await emitStatusEvent(result.status, {
@@ -283,7 +284,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
 
       const statusChanged = applyAdapterResultStatus('refund', transaction, result.status)
       transaction.gatewayRefundId = result.refundId
-      transaction.gatewayMetadata = { ...transaction.gatewayMetadata, refundResult: result.providerData }
+      transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), refundResult: result.providerData }
       await em.flush()
       if (statusChanged) {
         await emitStatusEvent(result.status, {
@@ -371,7 +372,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         const previousStatus = transaction.unifiedStatus
         transaction.unifiedStatus = status.status
         transaction.gatewayStatus = status.status
-        transaction.gatewayMetadata = { ...transaction.gatewayMetadata, statusResult: status.providerData ?? null }
+        transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), statusResult: status.providerData ?? null }
         transaction.lastPolledAt = new Date()
         await em.flush()
         await emitStatusEvent(status.status, {
@@ -421,10 +422,10 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         transaction.gatewayStatus = update.providerStatus
       }
       if (update.providerData) {
-        transaction.gatewayMetadata = { ...transaction.gatewayMetadata, ...update.providerData }
+        transaction.gatewayMetadata = { ...readGatewayMetadata(transaction.gatewayMetadata), ...update.providerData }
       }
       if (update.webhookEvent) {
-        const webhookLog = Array.isArray(transaction.webhookLog) ? transaction.webhookLog : []
+        const webhookLog = readWebhookLog(transaction.webhookLog)
         webhookLog.push({
           eventType: update.webhookEvent.eventType,
           receivedAt: update.webhookEvent.receivedAt ?? new Date().toISOString(),
