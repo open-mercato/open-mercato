@@ -73,16 +73,14 @@ export default async function SiteCatchAll({ params }: FrontendParams) {
     const portalContainer = await createRequestContainer()
     const em = portalContainer.resolve('em') as EntityManager
     const org = orgSlug
-      ? await em.findOne(Organization, { id: customerAuth.orgId, slug: orgSlug, deletedAt: null }, { populate: ['tenant'] })
+      ? await em.findOne(Organization, {
+          id: customerAuth.orgId,
+          slug: orgSlug,
+          deletedAt: null,
+        } as any)
       : null
     const organizationId = org ? String(org.id) : null
-    const organizationTenant = (org as any)?.tenant
-    const organizationTenantId = typeof organizationTenant === 'string'
-      ? organizationTenant
-      : organizationTenant?.id
-        ? String(organizationTenant.id)
-        : null
-    if (!organizationId || organizationId !== customerAuth.orgId || organizationTenantId !== customerAuth.tenantId) return renderAccessDenied()
+    if (!organizationId || organizationId !== customerAuth.orgId) return renderAccessDenied()
 
     const customerFeatures = match.route.requireCustomerFeatures
     if (customerFeatures && customerFeatures.length) {

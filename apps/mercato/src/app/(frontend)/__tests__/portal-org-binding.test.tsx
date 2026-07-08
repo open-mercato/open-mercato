@@ -163,7 +163,42 @@ describe('frontend customer portal org binding', () => {
       id: 'org-a-id',
       slug: 'org-b',
       deletedAt: null,
-    }, { populate: ['tenant'] })
+    })
+  })
+
+  it('allows protected portal page access when URL org matches the customer JWT org', async () => {
+    await SiteCatchAll({
+      params: Promise.resolve({ slug: ['org-a', 'portal', 'dashboard'] }),
+    })
+
+    expect(routeLoad).toHaveBeenCalled()
+    expect(mockCustomerRbac.userHasAllFeatures).toHaveBeenCalledWith(
+      'customer-user-1',
+      ['portal.dashboard.view'],
+      { tenantId: 'tenant-1', organizationId: 'org-a-id' },
+    )
+    expect(mockEm.findOne).toHaveBeenCalledWith(expect.any(Function), {
+      id: 'org-a-id',
+      slug: 'org-a',
+      deletedAt: null,
+    })
+  })
+
+  it('renders authenticated organization chrome when URL org matches the customer JWT org', async () => {
+    headerStore.get.mockReturnValue('/org-a/portal/dashboard')
+
+    const element = await FrontendLayout({ children: <div>child</div> })
+    renderToStaticMarkup(element as React.ReactElement)
+
+    expect(portalShellMock).toHaveBeenCalledWith(expect.objectContaining({
+      orgSlug: 'org-a',
+      organizationId: 'org-a-id',
+      tenantId: 'tenant-1',
+      authenticated: true,
+      userName: 'Customer One',
+      userEmail: 'customer@example.com',
+      customerAuth,
+    }))
   })
 
   it('does not render mismatched organization chrome for authenticated protected portal routes', async () => {

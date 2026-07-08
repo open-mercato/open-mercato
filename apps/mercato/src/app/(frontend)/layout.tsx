@@ -72,13 +72,15 @@ export default async function FrontendLayout({ children }: LayoutProps) {
     const em = container.resolve('em') as EntityManager
 
     const authOrg = customerAuth
-      ? await em.findOne(Organization, { id: customerAuth.orgId, slug: orgSlug, deletedAt: null }, { populate: ['tenant'] })
+      ? await em.findOne(Organization, {
+          id: customerAuth.orgId,
+          slug: orgSlug,
+          deletedAt: null,
+        } as any)
       : null
-    const authOrgTenantId = authOrg ? getOrganizationTenantId(authOrg) : null
     customerAuthMatchesUrlOrg = !!customerAuth
       && !!authOrg
       && String(authOrg.id) === customerAuth.orgId
-      && authOrgTenantId === customerAuth.tenantId
 
     const org = customerAuthMatchesUrlOrg
       ? authOrg
@@ -89,7 +91,7 @@ export default async function FrontendLayout({ children }: LayoutProps) {
     if (org) {
       orgName = org.name
       organizationId = String(org.id)
-      tenantId = getOrganizationTenantId(org)
+      tenantId = customerAuthMatchesUrlOrg && customerAuth ? customerAuth.tenantId : getOrganizationTenantId(org)
     }
 
     if (customerAuth && !isPublic && !customerAuthMatchesUrlOrg) {
