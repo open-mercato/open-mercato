@@ -72,6 +72,11 @@ Replace the hard-coded 9-entry `MODULE_FACTS_ALLOWLIST` + single `coreSrcRoot` i
 - [x] 5.3 Rewrite `module-facts.discovery.test.ts` onto `discoverPackageModuleSources`; trim `generateModuleFacts` mocks from `mercato.test.ts` — 512f98ceb
 - [x] 5.4 Docs: spec Reframe section + changelog, RELEASE_NOTES rewrite, analysis note; validation gate (cli typecheck ✓, cli suite 1172 ✓, create-app 72 ✓, build:packages 21/21 ✓ incl. 53 bundled sheets, generate ✓ file not recreated + zero drift, i18n:check-sync ✓, full typecheck 21/21 ✓) — 0d963c938
 
+### Phase 6: post-review follow-ups (auto-continue-pr, 2026-07-08)
+
+- [x] 6.1 Merge `origin/develop` to pick up the `AdvancedFilterPanel` stray-`ded`-token typecheck fix (#3966) that was failing the `test` CI job — this branch predated the fix — 312b5366f
+- [x] 6.2 Drop the now-dead `apps/mercato/src/module-facts.generated.json` rule from `.gitignore` (file removed in Phase 5, `yarn generate` no longer emits it) — 29b1b162e
+
 ## Result
 
 All phases complete. Gate green modulo 2 pre-existing locale-dependent test failures outside the diff. Ready for review.
