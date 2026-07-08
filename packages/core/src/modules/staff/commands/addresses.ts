@@ -12,8 +12,12 @@ import {
 } from '../data/validators'
 import { staffTeamMemberAddressCrudEvents } from '../lib/crud'
 import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
   requireTeamMember,
   scopedStaffSnapshotWhere,
@@ -96,9 +100,15 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
     const parsed = staffTeamMemberAddressCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      parsed.entityId,
+      scope,
+      'Team member not found',
+    )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -189,7 +199,12 @@ const createAddressCommand: CommandHandler<StaffTeamMemberAddressCreateInput, { 
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshotScope = staffSnapshotScopeFromSnapshot(after)
-    const member = await requireTeamMember(em, after.memberId, 'Team member not found', snapshotScope)
+    const member = await requireTeamMember(
+      em,
+      after.memberId,
+      explicitStaffCommandScope(after.tenantId, after.organizationId),
+      'Team member not found',
+    )
     let address = await em.findOne(StaffTeamMemberAddress, scopedStaffSnapshotWhere(after.id, snapshotScope))
     if (!address) {
       address = em.create(StaffTeamMemberAddress, {
@@ -267,13 +282,17 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberAddressUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const address = await em.findOne(StaffTeamMemberAddress, { id: parsed.id })
+    const scope = commandActorScope(ctx)
+    const address = await em.findOne(
+      StaffTeamMemberAddress,
+      applyScopeToWhere<StaffTeamMemberAddress>({ id: parsed.id }, scope),
+    )
     if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
     ensureTenantScope(ctx, address.tenantId)
     ensureOrganizationScope(ctx, address.organizationId)
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       address.member = member
@@ -375,7 +394,12 @@ const updateAddressCommand: CommandHandler<StaffTeamMemberAddressUpdateInput, { 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const snapshotScope = staffSnapshotScopeFromSnapshot(before)
     let address = await em.findOne(StaffTeamMemberAddress, scopedStaffSnapshotWhere(before.id, snapshotScope))
-    const member = await requireTeamMember(em, before.memberId, 'Team member not found', snapshotScope)
+    const member = await requireTeamMember(
+      em,
+      before.memberId,
+      explicitStaffCommandScope(before.tenantId, before.organizationId),
+      'Team member not found',
+    )
 
     if (!address) {
       address = em.create(StaffTeamMemberAddress, {
@@ -452,7 +476,11 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
     async execute(input, ctx) {
       const id = requireId(input, 'Address id required')
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const address = await em.findOne(StaffTeamMemberAddress, { id })
+      const scope = commandActorScope(ctx)
+      const address = await em.findOne(
+        StaffTeamMemberAddress,
+        applyScopeToWhere<StaffTeamMemberAddress>({ id }, scope),
+      )
       if (!address) throw new CrudHttpError(404, { error: 'Address not found' })
       ensureTenantScope(ctx, address.tenantId)
       ensureOrganizationScope(ctx, address.organizationId)
@@ -500,7 +528,12 @@ const deleteAddressCommand: CommandHandler<{ body?: Record<string, unknown>; que
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
       const snapshotScope = staffSnapshotScopeFromSnapshot(before)
-      const member = await requireTeamMember(em, before.memberId, 'Team member not found', snapshotScope)
+      const member = await requireTeamMember(
+        em,
+        before.memberId,
+        explicitStaffCommandScope(before.tenantId, before.organizationId),
+        'Team member not found',
+      )
       let address = await em.findOne(StaffTeamMemberAddress, scopedStaffSnapshotWhere(before.id, snapshotScope))
       if (!address) {
         address = em.create(StaffTeamMemberAddress, {

@@ -18,9 +18,13 @@ import {
 } from '../data/validators'
 import { staffTeamCrudEvents } from '../lib/crud'
 import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
   extractUndoPayload,
+  scopeForDecryption,
   scopedStaffSnapshotWhere,
   staffSnapshotDecryptionScope,
   staffSnapshotScopeFromContext,
@@ -92,6 +96,7 @@ const createTeamCommand: CommandHandler<StaffTeamCreateInput, { teamId: string }
     const { parsed, custom } = parseWithCustomFields(staffTeamCreateSchema, rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const now = new Date()
@@ -217,12 +222,13 @@ const updateTeamCommand: CommandHandler<StaffTeamUpdateInput, { teamId: string }
   async execute(rawInput, ctx) {
     const { parsed, custom } = parseWithCustomFields(staffTeamUpdateSchema, rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const team = await findOneWithDecryption(
       em,
       StaffTeam,
-      { id: parsed.id, deletedAt: null },
+      applyScopeToWhere<StaffTeam>({ id: parsed.id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!team) throw new CrudHttpError(404, { error: 'Team not found.' })
     ensureTenantScope(ctx, team.tenantId)
@@ -354,12 +360,13 @@ const deleteTeamCommand: CommandHandler<{ id?: string }, { teamId: string }> = {
     const id = input?.id
     if (!id) throw new CrudHttpError(400, { error: 'Team id is required.' })
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandActorScope(ctx)
     const team = await findOneWithDecryption(
       em,
       StaffTeam,
-      { id, deletedAt: null },
+      applyScopeToWhere<StaffTeam>({ id, deletedAt: null }, scope),
       undefined,
-      { tenantId: ctx.auth?.tenantId ?? null, organizationId: ctx.auth?.orgId ?? null },
+      scopeForDecryption(scope),
     )
     if (!team) throw new CrudHttpError(404, { error: 'Team not found.' })
     ensureTenantScope(ctx, team.tenantId)

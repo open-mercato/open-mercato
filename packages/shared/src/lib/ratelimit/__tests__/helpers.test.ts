@@ -101,14 +101,14 @@ describe('getClientIp', () => {
     expect(getClientIp(req)).toBeNull()
   })
 
-  it('falls back to x-real-ip when trustProxyDepth is 0', () => {
+  it('ignores x-real-ip when trustProxyDepth is 0', () => {
     const req = new Request('http://localhost', {
       headers: {
         'x-forwarded-for': 'spoofed-ip',
         'x-real-ip': '172.16.0.5',
       },
     })
-    expect(getClientIp(req, 0)).toBe('172.16.0.5')
+    expect(getClientIp(req, 0)).toBeNull()
   })
 
   it('extracts last IP with trustProxyDepth=1 (single proxy)', () => {

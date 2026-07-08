@@ -13,9 +13,13 @@ import {
 } from '../data/validators'
 import { staffTeamMemberCrudEvents } from '../lib/crud'
 import {
+  applyScopeToWhere,
+  commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
+  scopeForDecryption,
   scopedStaffSnapshotWhere,
   staffSnapshotDecryptionScope,
   staffSnapshotScopeFromSnapshot,
@@ -50,12 +54,13 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
     const member = await findOneWithDecryption(
       em,
       StaffTeamMember,
-      { id: parsed.memberId, deletedAt: null },
+      applyScopeToWhere<StaffTeamMember>({ id: parsed.memberId, deletedAt: null }, scope),
       undefined,
-      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      scopeForDecryption(scope),
     )
     if (!member) throw new CrudHttpError(404, { error: 'Team member not found.' })
     ensureTenantScope(ctx, member.tenantId)
@@ -145,12 +150,13 @@ const assignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentInp
     const before = payload?.before
     if (!before) return { memberId: logEntry.resourceId ?? '' }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = explicitStaffCommandScope(before.tenantId, before.organizationId)
     const member = await findOneWithDecryption(
       em,
       StaffTeamMember,
-      { id: before.memberId, deletedAt: null },
+      applyScopeToWhere<StaffTeamMember>({ id: before.memberId, deletedAt: null }, scope),
       undefined,
-      { tenantId: before.tenantId, organizationId: before.organizationId },
+      scopeForDecryption(scope),
     )
     if (!member) throw new CrudHttpError(404, { error: 'Team member not found.' })
     const currentTags = normalizeTagList(Array.isArray(member.tags) ? member.tags : [])
@@ -185,12 +191,13 @@ const unassignTeamMemberTagCommand: CommandHandler<StaffTeamMemberTagAssignmentI
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
     const member = await findOneWithDecryption(
       em,
       StaffTeamMember,
-      { id: parsed.memberId, deletedAt: null },
+      applyScopeToWhere<StaffTeamMember>({ id: parsed.memberId, deletedAt: null }, scope),
       undefined,
-      { tenantId: parsed.tenantId, organizationId: parsed.organizationId },
+      scopeForDecryption(scope),
     )
     if (!member) throw new CrudHttpError(404, { error: 'Team member not found.' })
     ensureTenantScope(ctx, member.tenantId)
