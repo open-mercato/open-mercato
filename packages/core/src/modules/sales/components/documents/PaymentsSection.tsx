@@ -18,6 +18,9 @@ import { emitSalesDocumentTotalsRefresh } from '@open-mercato/core/modules/sales
 import { PaymentDialog, type PaymentFormData, type PaymentTotals } from './PaymentDialog'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import { Plus } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type PaymentRow = {
   id: string
@@ -161,7 +164,7 @@ export function SalesDocumentPaymentsSection({
         onPaymentsChangeRef.current?.([])
       }
     } catch (err) {
-      console.error('sales.payments.list', err)
+      logger.error('sales.payments.list', { err })
       setError(t('sales.documents.payments.errorLoad', 'Failed to load payments.'))
       onPaymentsChangeRef.current?.([])
     } finally {
@@ -242,7 +245,7 @@ export function SalesDocumentPaymentsSection({
         if (handleSectionMutationError(err, t, () => void loadPayments())) {
           return
         }
-        console.error('sales.payments.delete', err)
+        logger.error('sales.payments.delete', { err })
         flash(t('sales.documents.payments.errorDelete', 'Failed to delete payment.'), 'error')
       }
     },

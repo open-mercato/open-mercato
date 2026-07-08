@@ -137,6 +137,9 @@ import {
 } from "@open-mercato/shared/lib/units/unitCodes";
 import type { AuthContext } from "@open-mercato/shared/lib/auth/server";
 import type { TranslateWithFallbackFn } from "@open-mercato/shared/lib/i18n/translate";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 // CRUD events configuration for workflow triggers
 const orderCrudEvents: CrudEventsConfig<SalesOrder> = {
@@ -4742,10 +4745,7 @@ const createQuoteCommand: CommandHandler<
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error(
-        "[sales.quotes.create] Failed to create notification:",
-        err,
-      );
+      logger.error("sales.quotes.create failed to create notification", { err });
     }
 
     // Emit CRUD side effects to trigger workflow event listeners
@@ -5748,10 +5748,7 @@ const createOrderCommand: CommandHandler<
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error(
-        "[sales.orders.create] Failed to create notification:",
-        err,
-      );
+      logger.error("sales.orders.create failed to create notification", { err });
     }
 
     // Emit CRUD side effects to trigger workflow event listeners
