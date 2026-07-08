@@ -471,6 +471,16 @@ if [ -n "${external_source}" ]; then
     echo "install-skills: warning: npx not found; skipping external skills from ${external_source}." >&2
   elif (cd "${repo_root}" && npx -y skills add "${external_source}" --skill '*' --agent claude-code --agent codex -y); then
     external_status="installed from ${external_source}"
+    # The npx CLI symlinks .claude/skills/<name> itself and expects Codex to
+    # read .agents/skills/ natively; mirror the symlinks into .codex/skills/
+    # so older Codex setups keep seeing the external skills too.
+    if [ -d "${agents_dir}" ]; then
+      mkdir -p "${repo_root}/.codex/skills"
+      for external_entry in "${agents_dir}"/*; do
+        [ -d "${external_entry}" ] || continue
+        ln -sfn "../../.agents/skills/$(basename "${external_entry}")" "${repo_root}/.codex/skills/$(basename "${external_entry}")"
+      done
+    fi
   else
     external_status="FAILED"
     echo "install-skills: warning: installing external skills from ${external_source} failed;" >&2
