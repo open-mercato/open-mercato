@@ -863,8 +863,13 @@ describe('Activity Executor (Unit Tests)', () => {
       }
 
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
       try {
         process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -878,11 +883,85 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('SSRF protection is bypassed')
+        )
       } finally {
+        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
           process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore OM_WORKFLOWS_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14f',
+        activityName: 'Production Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
+        delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('ignored in production')
+        )
+      } finally {
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
@@ -905,10 +984,14 @@ describe('Activity Executor (Unit Tests)', () => {
         },
       }
 
-      const prev = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
       const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
       try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'test'
 
         const result = await activityExecutor.executeActivity(
           mockEm,
@@ -928,9 +1011,79 @@ describe('Activity Executor (Unit Tests)', () => {
       } finally {
         warnSpy.mockRestore()
         if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
           delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
         } else {
-          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prev
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
+        }
+      }
+    })
+
+    test('should ignore WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS in production', async () => {
+      ;(global.fetch as jest.Mock).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => ({ ok: true }),
+      })
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-14g',
+        activityName: 'Production Legacy Internal Webhook',
+        activityType: 'CALL_WEBHOOK',
+        config: {
+          url: 'http://10.255.255.1/health',
+        },
+      }
+
+      const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+      const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+      const prevNodeEnv = process.env.NODE_ENV
+      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      try {
+        delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
+        process.env.NODE_ENV = 'production'
+
+        const result = await activityExecutor.executeActivity(
+          mockEm,
+          mockContainer,
+          activity,
+          mockContext
+        )
+
+        expect(result.success).toBe(false)
+        expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
+        expect(global.fetch).not.toHaveBeenCalled()
+        expect(warnSpy).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated and ignored in production')
+        )
+      } finally {
+        warnSpy.mockRestore()
+        if (prev === undefined) {
+          delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = prev
+        }
+        if (prevLegacy === undefined) {
+          delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
+        } else {
+          process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = prevLegacy
+        }
+        if (prevNodeEnv === undefined) {
+          delete process.env.NODE_ENV
+        } else {
+          process.env.NODE_ENV = prevNodeEnv
         }
       }
     })
