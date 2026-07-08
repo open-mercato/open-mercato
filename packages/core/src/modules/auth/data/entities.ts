@@ -178,6 +178,8 @@ export class SidebarVariant {
 }
 
 @Entity({ tableName: 'user_roles' })
+@Index({ name: 'user_roles_user_id_idx', properties: ['user'] })
+@Index({ name: 'user_roles_role_id_idx', properties: ['role'] })
 export class UserRole {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -271,7 +273,7 @@ export class RoleAcl {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
   updatedAt?: Date
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
@@ -306,7 +308,7 @@ export class UserAcl {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 
-  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date(), nullable: true })
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date(), nullable: true })
   updatedAt?: Date
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })

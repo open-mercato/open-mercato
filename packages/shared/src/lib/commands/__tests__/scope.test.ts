@@ -1,4 +1,4 @@
-import { ensureOrganizationScope } from '@open-mercato/shared/lib/commands/scope'
+import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -6,21 +6,24 @@ type ScopeShape = NonNullable<CommandRuntimeContext['organizationScope']>
 
 function buildCtx(overrides: {
   isSuperAdmin?: boolean
+  tenantId?: string | null
   orgId?: string | null
   selectedOrganizationId?: string | null
   organizationScope?: ScopeShape | null
+  systemActor?: boolean
 }): CommandRuntimeContext {
   return {
     container: {} as CommandRuntimeContext['container'],
     auth: {
       sub: 'user-1',
-      tenantId: 'tenant-1',
+      tenantId: overrides.tenantId === undefined ? 'tenant-1' : overrides.tenantId,
       orgId: overrides.orgId ?? null,
       isSuperAdmin: overrides.isSuperAdmin ?? false,
     },
     organizationScope: overrides.organizationScope ?? null,
     selectedOrganizationId: overrides.selectedOrganizationId ?? null,
     organizationIds: null,
+    systemActor: overrides.systemActor,
   }
 }
 
@@ -33,6 +36,33 @@ function buildScope(overrides: Partial<ScopeShape>): ScopeShape {
     ...overrides,
   }
 }
+
+describe('ensureTenantScope', () => {
+  it('denies a tenant-less non-superadmin acting on a tenant-scoped target (#3910)', () => {
+    const ctx = buildCtx({ tenantId: null, isSuperAdmin: false })
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).toThrow(CrudHttpError)
+  })
+
+  it('allows super admins with no tenant context to act on tenant-scoped targets', () => {
+    const ctx = buildCtx({ tenantId: null, isSuperAdmin: true })
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).not.toThrow()
+  })
+
+  it('preserves legacy system contexts without an authenticated actor', () => {
+    const ctx = { ...buildCtx({}), auth: null }
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).not.toThrow()
+  })
+
+  it('denies authenticated tenant-less systemActor contexts unless they are superadmin (#3910)', () => {
+    const ctx = buildCtx({ tenantId: null, isSuperAdmin: false, systemActor: true })
+    expect(() => ensureTenantScope(ctx, 'tenant-2')).toThrow(CrudHttpError)
+  })
+
+  it('allows a scoped principal acting inside its own tenant', () => {
+    const ctx = buildCtx({ tenantId: 'tenant-1' })
+    expect(() => ensureTenantScope(ctx, 'tenant-1')).not.toThrow()
+  })
+})
 
 describe('ensureOrganizationScope', () => {
   it('denies a restricted floating user acting on an org outside allowedIds (#2239)', () => {
@@ -57,6 +87,43 @@ describe('ensureOrganizationScope', () => {
       organizationScope: buildScope({ allowedIds: null }),
     })
     expect(() => ensureOrganizationScope(ctx, 'org-b')).not.toThrow()
+  })
+
+  it('denies null-tenant organization scope for a non-superadmin (#3910)', () => {
+    const ctx = buildCtx({
+      tenantId: null,
+      organizationScope: buildScope({ tenantId: null, allowedIds: null, filterIds: null }),
+    })
+    expect(() => ensureOrganizationScope(ctx, 'org-b')).toThrow(CrudHttpError)
+  })
+
+  it('allows null-tenant organization scope for a superadmin', () => {
+    const ctx = buildCtx({
+      tenantId: null,
+      isSuperAdmin: true,
+      organizationScope: buildScope({ tenantId: null, allowedIds: null, filterIds: null }),
+    })
+    expect(() => ensureOrganizationScope(ctx, 'org-b')).not.toThrow()
+  })
+
+  it('preserves null-tenant organization scope for system contexts without an authenticated actor', () => {
+    const ctx = {
+      ...buildCtx({
+        tenantId: null,
+        organizationScope: buildScope({ tenantId: null, allowedIds: null, filterIds: null }),
+      }),
+      auth: null,
+    }
+    expect(() => ensureOrganizationScope(ctx, 'org-b')).not.toThrow()
+  })
+
+  it('denies authenticated null-tenant systemActor organization scopes unless they are superadmin (#3910)', () => {
+    const ctx = buildCtx({
+      tenantId: null,
+      systemActor: true,
+      organizationScope: buildScope({ tenantId: null, allowedIds: null, filterIds: null }),
+    })
+    expect(() => ensureOrganizationScope(ctx, 'org-b')).toThrow(CrudHttpError)
   })
 
   it('allows a restricted user acting on an org inside allowedIds (allow-path regression)', () => {

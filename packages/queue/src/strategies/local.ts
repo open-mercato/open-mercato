@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import crypto from 'node:crypto'
-import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions } from '../types'
+import type { Queue, QueuedJob, JobHandler, LocalQueueOptions, ProcessOptions, ProcessResult, EnqueueOptions, QueueJobScope } from '../types'
 
 type LocalState = {
   lastProcessedId?: string
@@ -12,6 +12,19 @@ type LocalState = {
 type StoredJob<T> = QueuedJob<T> & {
   availableAt?: string
   attemptCount?: number
+}
+
+function payloadMatchesScope(payload: unknown, scope: QueueJobScope): boolean {
+  if (!payload || typeof payload !== 'object') return false
+  const scopedPayload = payload as { tenantId?: unknown; organizationId?: unknown; jobType?: unknown }
+  if (scopedPayload.tenantId !== scope.tenantId) return false
+  if (scope.organizationId !== undefined) {
+    if ((scopedPayload.organizationId ?? null) !== scope.organizationId) return false
+  }
+  if (scope.jobTypes?.length) {
+    return typeof scopedPayload.jobType === 'string' && scope.jobTypes.includes(scopedPayload.jobType)
+  }
+  return true
 }
 
 /** Default polling interval in milliseconds */
@@ -32,7 +45,10 @@ const fsp = fs.promises
  * **Limitations:**
  * - Jobs are processed sequentially (concurrency option is for logging/compatibility only)
  * - Not suitable for production or multi-process environments
- * - No retry mechanism for failed jobs
+ *
+ * Failed jobs are retried up to `DEFAULT_MAX_ATTEMPTS` times with exponential
+ * backoff and moved to a dead-letter store once attempts are exhausted (see the
+ * retry handling in `process()` below).
  *
  * All file I/O is asynchronous (`fs.promises.*`) so queue operations do not
  * block the Node.js event loop. A per-queue promise chain serializes
@@ -62,6 +78,7 @@ export function createLocalQueue<T = unknown>(
   let pollingTimer: ReturnType<typeof setInterval> | null = null
   let isProcessing = false
   let activeHandler: JobHandler<T> | null = null
+  const inFlightJobIds = new Set<string>()
 
   // Per-queue mutex. Serializes read-modify-write segments so async fs calls
   // cannot interleave and clobber each other's writes.
@@ -210,6 +227,10 @@ export function createLocalQueue<T = unknown>(
       ? pendingJobs.slice(0, options.limit)
       : pendingJobs
 
+    for (const job of jobsToProcess) {
+      inFlightJobIds.add(job.id)
+    }
+
     let processed = 0
     let failed = 0
     let lastJobId: string | undefined
@@ -217,58 +238,64 @@ export function createLocalQueue<T = unknown>(
     const deadJobIds = new Set<string>()
     const retryUpdates = new Map<string, StoredJob<T>>()
 
-    for (const job of jobsToProcess) {
-      const attemptNumber = (job.attemptCount ?? 0) + 1
-      try {
-        await Promise.resolve(
-          handler(job, {
-            jobId: job.id,
-            attemptNumber,
-            queueName: name,
-          })
-        )
-        processed++
-        lastJobId = job.id
-        completedJobIds.add(job.id)
-        console.log(`[queue:${name}] Job ${job.id} completed`)
-      } catch (error) {
-        console.error(`[queue:${name}] Job ${job.id} failed (attempt ${attemptNumber}/${DEFAULT_MAX_ATTEMPTS}):`, error)
-        failed++
-        lastJobId = job.id
-        if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
-          console.error(`[queue:${name}] Job ${job.id} exhausted all ${DEFAULT_MAX_ATTEMPTS} attempts, moving to dead letter`)
-          deadJobIds.add(job.id)
-        } else {
-          const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
-          retryUpdates.set(job.id, {
-            ...job,
-            attemptCount: attemptNumber,
-            availableAt: new Date(Date.now() + backoffMs).toISOString(),
-          })
+    try {
+      for (const job of jobsToProcess) {
+        const attemptNumber = (job.attemptCount ?? 0) + 1
+        try {
+          await Promise.resolve(
+            handler(job, {
+              jobId: job.id,
+              attemptNumber,
+              queueName: name,
+            })
+          )
+          processed++
+          lastJobId = job.id
+          completedJobIds.add(job.id)
+          console.log(`[queue:${name}] Job ${job.id} completed`)
+        } catch (error) {
+          console.error(`[queue:${name}] Job ${job.id} failed (attempt ${attemptNumber}/${DEFAULT_MAX_ATTEMPTS}):`, error)
+          failed++
+          lastJobId = job.id
+          if (attemptNumber >= DEFAULT_MAX_ATTEMPTS) {
+            console.error(`[queue:${name}] Job ${job.id} exhausted all ${DEFAULT_MAX_ATTEMPTS} attempts, moving to dead letter`)
+            deadJobIds.add(job.id)
+          } else {
+            const backoffMs = RETRY_BACKOFF_BASE_MS * Math.pow(2, attemptNumber - 1)
+            retryUpdates.set(job.id, {
+              ...job,
+              attemptCount: attemptNumber,
+              availableAt: new Date(Date.now() + backoffMs).toISOString(),
+            })
+          }
         }
       }
+
+      const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
+      if (hasChanges) {
+        await withFileLock(async () => {
+          // Re-read so jobs enqueued during handler execution are preserved.
+          const currentJobs = await readQueue()
+          const updatedJobs = currentJobs
+            .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
+            .map((j) => retryUpdates.get(j.id) ?? j)
+          await writeQueue(updatedJobs)
+
+          const newState: LocalState = {
+            lastProcessedId: lastJobId,
+            completedCount: (state.completedCount ?? 0) + processed,
+            failedCount: (state.failedCount ?? 0) + deadJobIds.size,
+          }
+          await writeState(newState)
+        })
+      }
+
+      return { processed, failed, lastJobId }
+    } finally {
+      for (const job of jobsToProcess) {
+        inFlightJobIds.delete(job.id)
+      }
     }
-
-    const hasChanges = completedJobIds.size > 0 || deadJobIds.size > 0 || retryUpdates.size > 0
-    if (hasChanges) {
-      await withFileLock(async () => {
-        // Re-read so jobs enqueued during handler execution are preserved.
-        const currentJobs = await readQueue()
-        const updatedJobs = currentJobs
-          .filter((j) => !completedJobIds.has(j.id) && !deadJobIds.has(j.id))
-          .map((j) => retryUpdates.get(j.id) ?? j)
-        await writeQueue(updatedJobs)
-
-        const newState: LocalState = {
-          lastProcessedId: lastJobId,
-          completedCount: (state.completedCount ?? 0) + processed,
-          failedCount: (state.failedCount ?? 0) + deadJobIds.size,
-        }
-        await writeState(newState)
-      })
-    }
-
-    return { processed, failed, lastJobId }
   }
 
   /**
@@ -331,6 +358,18 @@ export function createLocalQueue<T = unknown>(
     })
   }
 
+  async function removeQueuedJobsByScope(scope: QueueJobScope): Promise<{ removed: number }> {
+    return withFileLock(async () => {
+      const jobs = await readQueue()
+      const retainedJobs = jobs.filter((job) => inFlightJobIds.has(job.id) || !payloadMatchesScope(job.payload, scope))
+      const removed = jobs.length - retainedJobs.length
+      if (removed > 0) {
+        await writeQueue(retainedJobs)
+      }
+      return { removed }
+    })
+  }
+
   async function close(): Promise<void> {
     // Stop polling timer
     if (pollingTimer) {
@@ -377,6 +416,7 @@ export function createLocalQueue<T = unknown>(
     enqueue,
     process,
     clear,
+    removeQueuedJobsByScope,
     close,
     getJobCounts,
   }

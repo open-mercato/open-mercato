@@ -12,8 +12,12 @@ import {
 } from '../data/validators'
 import { staffTeamMemberJobHistoryCrudEvents } from '../lib/crud'
 import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
   ensureOrganizationScope,
   ensureTenantScope,
+  explicitStaffCommandScope,
   extractUndoPayload,
   requireTeamMember,
 } from './shared'
@@ -21,7 +25,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
-  enforceCommandOptimisticLock,
+  enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import type { CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
@@ -74,9 +78,15 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
     const parsed = staffTeamMemberJobHistoryCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      parsed.entityId,
+      scope,
+      'Team member not found',
+    )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -150,7 +160,12 @@ const createJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryCreateInp
       throw new CrudHttpError(400, { error: '[internal] redo snapshot unavailable for job history create' })
     }
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, after.memberId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      after.memberId,
+      explicitStaffCommandScope(after.tenantId, after.organizationId),
+      'Team member not found',
+    )
     let record = await em.findOne(StaffTeamMemberJobHistory, { id: after.id })
     if (!record) {
       record = em.create(StaffTeamMemberJobHistory, {
@@ -206,7 +221,11 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
   async execute(rawInput, ctx) {
     const parsed = staffTeamMemberJobHistoryUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const record = await em.findOne(StaffTeamMemberJobHistory, { id: parsed.id })
+    const scope = commandActorScope(ctx)
+    const record = await em.findOne(
+      StaffTeamMemberJobHistory,
+      applyScopeToWhere<StaffTeamMemberJobHistory>({ id: parsed.id }, scope),
+    )
     if (!record) {
       enforceRecordGoneIsConflict({
         resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
@@ -218,7 +237,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     }
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
       resourceId: record.id,
       current: record.updatedAt ?? null,
@@ -227,7 +246,7 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     })
 
     if (parsed.entityId !== undefined) {
-      const member = await requireTeamMember(em, parsed.entityId, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.entityId, scope, 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       record.member = member
@@ -298,7 +317,12 @@ const updateJobHistoryCommand: CommandHandler<StaffTeamMemberJobHistoryUpdateInp
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     let record = await em.findOne(StaffTeamMemberJobHistory, { id: before.id })
-    const member = await requireTeamMember(em, before.memberId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      before.memberId,
+      explicitStaffCommandScope(before.tenantId, before.organizationId),
+      'Team member not found',
+    )
 
     if (!record) {
       record = em.create(StaffTeamMemberJobHistory, {
@@ -354,7 +378,11 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       const id = requireId(input, 'Job history id required')
       const expectedUpdatedAt = typeof input.updatedAt === 'string' ? input.updatedAt : undefined
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const record = await em.findOne(StaffTeamMemberJobHistory, { id })
+      const scope = commandActorScope(ctx)
+      const record = await em.findOne(
+        StaffTeamMemberJobHistory,
+        applyScopeToWhere<StaffTeamMemberJobHistory>({ id }, scope),
+      )
       if (!record) {
         enforceRecordGoneIsConflict({
           resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
@@ -366,7 +394,7 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       }
       ensureTenantScope(ctx, record.tenantId)
       ensureOrganizationScope(ctx, record.organizationId)
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: JOB_HISTORY_LOCK_RESOURCE_KIND,
         resourceId: record.id,
         current: record.updatedAt ?? null,
@@ -416,7 +444,12 @@ const deleteJobHistoryCommand: CommandHandler<{ id?: string; updatedAt?: string;
       const before = payload?.before
       if (!before) return
       const em = (ctx.container.resolve('em') as EntityManager).fork()
-      const member = await requireTeamMember(em, before.memberId, 'Team member not found')
+      const member = await requireTeamMember(
+        em,
+        before.memberId,
+        explicitStaffCommandScope(before.tenantId, before.organizationId),
+        'Team member not found',
+      )
       let record = await em.findOne(StaffTeamMemberJobHistory, { id: before.id })
       if (!record) {
         record = em.create(StaffTeamMemberJobHistory, {

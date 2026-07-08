@@ -178,7 +178,10 @@ export interface RunAiAgentTextInput {
    */
   generateText?: (
     options: PreparedAiSdkOptions,
-  ) => Promise<GenerateTextResult<ToolSet, never> | StreamTextResult<ToolSet, never>>
+  ) => Promise<
+    | GenerateTextResult<ToolSet, Record<string, unknown>, never>
+    | StreamTextResult<ToolSet, Record<string, unknown>, never>
+  >
   /**
    * When `true`, the runtime appends a `loop-finish` SSE event to the
    * response stream after the AI SDK stream closes. The event payload is the
@@ -1633,7 +1636,7 @@ export async function runAiAgentText(input: RunAiAgentTextInput): Promise<Respon
   if (input.generateText) {
     try {
       const callbackResult = await input.generateText(preparedOptions)
-      const baseResponse = (callbackResult as StreamTextResult<ToolSet, never>).toUIMessageStreamResponse({
+      const baseResponse = (callbackResult as StreamTextResult<ToolSet, Record<string, unknown>, never>).toUIMessageStreamResponse({
         sendReasoning: true,
         headers: {
           'Cache-Control': 'no-cache, no-transform',

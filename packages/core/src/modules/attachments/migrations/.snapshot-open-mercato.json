@@ -270,6 +270,24 @@
           "nullable": true,
           "mappedType": "text"
         },
+        "organization_id": {
+          "name": "organization_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "uuid"
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamptz",
@@ -294,6 +312,16 @@
       "name": "attachment_partitions",
       "schema": "public",
       "indexes": [
+        {
+          "keyName": "attachment_partitions_tenant_idx",
+          "columnNames": [
+            "tenant_id"
+          ],
+          "composite": false,
+          "constraint": false,
+          "primary": false,
+          "unique": false
+        },
         {
           "keyName": "attachment_partitions_code_unique",
           "columnNames": [

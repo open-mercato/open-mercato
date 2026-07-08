@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { readApiResultOrThrow, apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -40,6 +41,7 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
   const roleId = params?.id
   const t = useT()
   const router = useRouter()
+  const pathname = usePathname()
   const scopeVersion = useOrganizationScopeVersion()
   // optimistic-lock: TeamRoleForm forwards optimisticLockUpdatedAt from initialValues.updatedAt (wrapper auto-derives the header on save + delete).
   const [initialValues, setInitialValues] = React.useState<TeamRoleFormValues | null>(null)
@@ -201,6 +203,20 @@ export default function StaffTeamRoleEditPage({ params }: { params?: { id?: stri
     flash(t('staff.teamRoles.messages.deleted', 'Team role deleted.'), 'success')
     router.push('/backend/staff/team-roles')
   }, [roleId, router, t])
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `staff.teamRole` + id
+  // explicitly. The resourceKind mirrors the TeamRoleForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same team role.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'staff.teamRole',
+      resourceId: roleId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (

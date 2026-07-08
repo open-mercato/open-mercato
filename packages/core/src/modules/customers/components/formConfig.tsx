@@ -51,7 +51,11 @@ import {
   ensureCustomerDictionary,
   invalidateCustomerDictionary,
 } from './detail/hooks/useCustomerDictionary'
-import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import {
+  CUSTOMER_DICTIONARIES_MANAGE_HREF,
+  getCustomerDictionaryManageHref,
+  type CustomerDictionaryKind,
+} from '../lib/dictionaries'
 import { normalizeCustomFieldSubmitValue } from './detail/customFieldUtils'
 import { CUSTOMER_PHONE_INVALID_MESSAGE_KEY } from '../data/validators'
 
@@ -115,6 +119,8 @@ type DictionarySelectFieldProps = {
   showLabelInput?: boolean
   showActiveAppearance?: boolean
 }
+
+export { CUSTOMER_DICTIONARIES_MANAGE_HREF, getCustomerDictionaryManageHref }
 
 const emailValidationSchema = z.string().email()
 const EMAIL_CHECK_DEBOUNCE_MS = 350
@@ -233,7 +239,7 @@ export function DictionarySelectField({
       fetchOptions={fetchOptions}
       createOption={createOption}
       labels={labels}
-      manageHref={manageHref}
+      manageHref={manageHref ?? getCustomerDictionaryManageHref(kind)}
       selectClassName={selectClassName}
       allowInlineCreate={allowInlineCreate}
       allowAppearance={allowAppearance}
@@ -949,6 +955,7 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.people.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -967,6 +974,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -995,6 +1004,8 @@ export const createPersonFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1310,6 +1321,7 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
             t={t}
             emptyLabel={t('customers.companies.detail.empty.addresses')}
             gridClassName="grid gap-4 min-[480px]:grid-cols-1 xl:grid-cols-2"
+            showCoordinateFields
             onCreate={async (payload: CustomerAddressInput) => {
               const nextId =
                 typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -1328,6 +1340,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                 region: payload.region ?? undefined,
                 postalCode: payload.postalCode ?? undefined,
                 country: payload.country ?? undefined,
+                latitude: payload.latitude ?? undefined,
+                longitude: payload.longitude ?? undefined,
                 isPrimary: payload.isPrimary ?? false,
               }
               const current = Array.isArray(addresses) ? addresses : []
@@ -1356,6 +1370,8 @@ export const createCompanyFormFields = (t: Translator): CrudField[] => {
                   region: payload.region ?? null,
                   postalCode: payload.postalCode ?? null,
                   country: payload.country ?? null,
+                  latitude: payload.latitude ?? null,
+                  longitude: payload.longitude ?? null,
                   isPrimary: payload.isPrimary ?? false,
                 }
               })
@@ -1464,12 +1480,29 @@ export function buildCompanyPayload(
 
 // URL/email/phone fields are clearable on edit: blanking a previously-set value transmits null,
 // so the edit-form value types widen to `string | null` to match the edit-schema output. See #2526.
-export type CompanyEditFormValues = Omit<CompanyFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone' | 'websiteUrl' | 'domain'> & {
+export type CompanyEditFormValues = Omit<
+  CompanyFormValues,
+  | 'addresses'
+  | 'primaryEmail'
+  | 'primaryPhone'
+  | 'websiteUrl'
+  | 'domain'
+  | 'legalName'
+  | 'brandName'
+  | 'sizeBucket'
+  | 'annualRevenue'
+  | 'description'
+> & {
   id: string
   primaryEmail?: string | null
   primaryPhone?: string | null
   websiteUrl?: string | null
   domain?: string | null
+  legalName?: string | null
+  brandName?: string | null
+  sizeBucket?: string | null
+  annualRevenue?: string | null
+  description?: string | null
 }
 
 export type PersonEditFormValues = Omit<PersonFormValues, 'addresses' | 'primaryEmail' | 'primaryPhone'> & {
@@ -1530,6 +1563,18 @@ const clearableDomainField = () =>
     .transform((val) => (val === '' ? null : val))
     .optional()
 
+// Plain optional string fields that map to nullable columns (legal name, brand name,
+// company size, annual revenue, description). On edit a blanked value must transmit null
+// so it actually clears — create-mode keeps the '' → undefined transform. See #3050.
+const clearableTextField = () =>
+  z
+    .string()
+    .trim()
+    .optional()
+    .or(z.literal(''))
+    .transform((val) => (val === '' ? null : val))
+    .optional()
+
 const clearablePhoneField = () =>
   z
     .string()
@@ -1548,6 +1593,11 @@ export const createCompanyEditSchema = () =>
     primaryPhone: clearablePhoneField(),
     websiteUrl: clearableUrlField(),
     domain: clearableDomainField(),
+    legalName: clearableTextField(),
+    brandName: clearableTextField(),
+    sizeBucket: clearableTextField(),
+    annualRevenue: clearableTextField(),
+    description: clearableTextField(),
   })
 
 export const createPersonEditSchema = () =>
@@ -1859,6 +1909,21 @@ export function buildCompanyEditPayload(values: CompanyEditFormValues, organizat
   assignClearable(payload, 'primaryPhone', values.primaryPhone)
   assignClearable(payload, 'websiteUrl', values.websiteUrl)
   assignClearable(payload, 'domain', typeof values.domain === 'string' ? values.domain.toLowerCase() : values.domain)
+
+  // Plain nullable string fields that must transmit null when blanked on edit (#3050).
+  assignClearable(payload, 'legalName', values.legalName)
+  assignClearable(payload, 'brandName', values.brandName)
+  assignClearable(payload, 'sizeBucket', values.sizeBucket)
+  assignClearable(payload, 'description', values.description)
+
+  // Annual revenue maps to a nullable numeric column: a blanked value must clear it.
+  // Non-empty values are already validated/normalized by buildCompanyPayload; an omitted
+  // (undefined) value stays a no-op like the other clearable fields. (#3050)
+  const annualRevenueRaw = values.annualRevenue
+  const annualRevenueBlank =
+    annualRevenueRaw === null ||
+    (typeof annualRevenueRaw === 'string' && annualRevenueRaw.trim().length === 0)
+  if (annualRevenueBlank) payload.annualRevenue = null
 
   return payload
 }

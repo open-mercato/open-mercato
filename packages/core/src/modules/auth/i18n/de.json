@@ -51,7 +51,7 @@
   "auth.login.requireRoleMessage": "Für den Zugriff ist die folgende Rolle erforderlich: {roles}",
   "auth.login.requireRolesMessage": "Für den Zugriff ist eine der folgenden Rollen erforderlich: {roles}",
   "auth.login.subtitle": "Greife auf deinen Arbeitsbereich zu",
-  "auth.login.tenantBanner": "Du meldest dich beim Tenant {tenant} an.",
+  "auth.login.tenantBanner": "Du meldest dich bei {tenant} an.",
   "auth.login.tenantClear": "Zurücksetzen",
   "auth.login.tenantLoading": "Tenant-Daten werden geladen...",
   "auth.manageAuthSettings": "Verwalte die Authentifizierungseinstellungen.",

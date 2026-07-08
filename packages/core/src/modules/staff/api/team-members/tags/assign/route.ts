@@ -13,6 +13,11 @@ import {
   staffTeamMemberTagAssignmentSchema,
   type StaffTeamMemberTagAssignmentInput,
 } from '../../../../data/validators'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../../guards'
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['staff.manage_team'] },
@@ -42,11 +47,51 @@ export async function POST(req: Request) {
     const { ctx, translate } = await buildContext(req)
     const body = await req.json().catch(() => ({}))
     const input = parseScopedCommandInput(staffTeamMemberTagAssignmentSchema, body, ctx, translate)
+
+    const auth = ctx.auth
+    const tenantId = auth?.tenantId ?? ''
+    const organizationId = ctx.selectedOrganizationId ?? null
+    const guardResult = await runStaffMutationGuards(
+      ctx.container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth?.sub ?? '',
+        resourceKind: 'staff.team_member',
+        resourceId: input.memberId,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: input,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const { result, logEntry } = await commandBus.execute<StaffTeamMemberTagAssignmentInput, { memberId: string }>(
       'staff.team-members.tags.assign',
       { input, ctx },
     )
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth?.sub ?? '',
+        resourceKind: 'staff.team_member',
+        resourceId: result?.memberId ?? input.memberId,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
+
     const response = NextResponse.json({ id: result?.memberId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(

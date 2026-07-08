@@ -42,6 +42,8 @@ import { loadPersonCompanyLinks, summarizePersonCompanies } from '../../../lib/p
 import { normalizeCustomerDetailCustomFields } from '../../detailCustomFields'
 import { buildEmailVisibilityMikroFilter } from '../../../lib/visibilityFilter'
 import { resolveCustomerDetailTenantScope } from '../../../lib/detailTenantScope'
+import { runWithCacheTenant } from '@open-mercato/cache'
+import { buildCollectionTags, canonicalizeResourceTag, isCrudCacheEnabled, resolveCrudCache } from '@open-mercato/shared/lib/crud/cache'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -50,6 +52,63 @@ export const metadata = {
 const paramsSchema = z.object({
   id: z.string().uuid(),
 })
+
+// Person detail is one of the heaviest custom GETs (decryption sweeps across
+// addresses, tags, labels, interactions, custom fields, plus per-link query
+// engine enrichment). Mirror the gated get-then-set cache from the roles list
+// (#3143) so a hit skips every sweep below. Writes flow through the customers
+// command bus, which already flushes the matching crud:<resourceKind> collection
+// tags post-commit — these set tags reuse the exact same shapes (see
+// invalidateCrudCache), so no new invalidation wiring is needed (#3663).
+// The resource ids below are canonicalized with canonicalizeResourceTag (just
+// like invalidateCrudCache does via expandResourceAliases) before building the
+// collection tags, so camelCase ids (tagAssignment, labelAssignment,
+// personCompanyLink) produce the SAME tag the command bus deletes on
+// write/undo/redo — otherwise the cache would never be invalidated for them.
+const PERSON_DETAIL_TTL_MS = 60_000
+const PERSON_DETAIL_TAG_RESOURCES = [
+  'customers.person',
+  'customers.address',
+  'customers.tagAssignment',
+  'customers.labelAssignment',
+  'customers.personCompanyLink',
+  'customers.interaction',
+  'customers.activity',
+] as const
+
+function buildPersonDetailCacheKey(params: {
+  personId: string
+  tenantId: string | null
+  organizationId: string | null
+  callerId: string | null
+  selectedOrganizationId: string | null
+  scopedOrganizationIds: string[]
+  interactionMode: 'canonical' | 'legacy'
+  includeTokens: string[]
+}): string {
+  const include = [...params.includeTokens].sort((a, b) => a.localeCompare(b)).join('|') || 'none'
+  const scoped = [...params.scopedOrganizationIds].sort((a, b) => a.localeCompare(b)).join('|') || 'null'
+  return [
+    'customers:person-detail',
+    params.personId,
+    `tenant=${params.tenantId ?? 'null'}`,
+    `org=${params.organizationId ?? 'null'}`,
+    `caller=${params.callerId ?? 'null'}`,
+    `selOrg=${params.selectedOrganizationId ?? 'null'}`,
+    `scope=${scoped}`,
+    `mode=${params.interactionMode}`,
+    `include=${include}`,
+  ].join(':')
+}
+
+function buildPersonDetailCacheTags(tenantId: string | null, organizationId: string | null): string[] {
+  const tags: string[] = []
+  for (const resource of PERSON_DETAIL_TAG_RESOURCES) {
+    const canonical = canonicalizeResourceTag(resource) ?? resource
+    tags.push(...buildCollectionTags(canonical, tenantId, [organizationId]))
+  }
+  return tags
+}
 
 function parseIncludeParams(request: Request): Set<string> {
   const url = new URL(request.url)
@@ -485,37 +544,46 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       return forbidden('Access denied')
     }
 
-    profile = await findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
+    // Gated get-then-set cache. Key on the resolved person plus the effective
+    // RBAC scope (caller identity, selected/visible orgs) and the payload-shaping
+    // inputs (interaction mode + include set). The lookup sits before the
+    // expensive sweeps below so a hit returns without touching the DB.
+    const personDetailTenantId = person.tenantId ?? auth.tenantId ?? null
+    const personDetailOrganizationId = person.organizationId ?? null
+    const personDetailCache = isCrudCacheEnabled() ? resolveCrudCache(container) : null
+    const personDetailCacheKey = personDetailCache
+      ? buildPersonDetailCacheKey({
+          personId: person.id,
+          tenantId: personDetailTenantId,
+          organizationId: personDetailOrganizationId,
+          callerId: auth.sub ?? null,
+          selectedOrganizationId: scope?.selectedId ?? auth.orgId ?? null,
+          scopedOrganizationIds: Array.isArray(scope?.filterIds) ? scope.filterIds : [],
+          interactionMode,
+          includeTokens: Array.from(includeTokens),
+        })
+      : null
+    const personDetailCacheTags = personDetailCache
+      ? buildPersonDetailCacheTags(personDetailTenantId, personDetailOrganizationId)
+      : []
+
+    if (personDetailCache && personDetailCacheKey) {
+      const cached = await runWithCacheTenant(personDetailTenantId, () => personDetailCache.get(personDetailCacheKey))
+      if (cached) {
+        statusCode = 200
+        profileMeta = { cacheHit: true, include: Array.from(includeTokens), interactionMode }
+        profiler.mark('cache_hit')
+        return NextResponse.json(cached)
+      }
+    }
+
+    const [profileResult, personCompanyLinks] = await Promise.all([
+      findOneWithDecryption(em, CustomerPersonProfile, { entity: person }, { populate: ['company'] }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }),
+      loadPersonCompanyLinks(em, person),
+    ])
+    profile = profileResult
     profiler.mark('profile_loaded', { found: !!profile })
-    companies = summarizePersonCompanies(profile, await loadPersonCompanyLinks(em, person))
-
-    if (includeAddresses) {
-      addresses = await findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
-      profiler.mark('addresses_loaded', { count: addresses.length })
-    }
-
-    tagAssignments = await findWithDecryption(
-      em,
-      CustomerTagAssignment,
-      { entity: person.id },
-      { populate: ['tag'] },
-      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-    )
-    profiler.mark('tags_loaded', { count: tagAssignments.length })
-
-    const labelAssignments = await findWithDecryption(
-      em,
-      CustomerLabelAssignment,
-      { entity: person.id },
-      { populate: ['label'] },
-      { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-    )
-    profiler.mark('labels_loaded', { count: labelAssignments.length })
-
-    if (includeComments) {
-      comments = await findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null })
-      profiler.mark('comments_loaded', { count: comments.length })
-    }
+    companies = summarizePersonCompanies(profile, personCompanyLinks)
 
     // Per-user email privacy (CRM email integration spec, "Layer 1 — DB filter"):
     // exclude private email interactions owned by other users from every read
@@ -528,18 +596,53 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       userFeatures: undefined,
     })
 
+    const personScope = { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null }
     const shouldLoadCanonicalInteractions = includeInteractions || includeActivities || includeTodos
-    const canonicalInteractionRows = shouldLoadCanonicalInteractions
-      ? await findWithDecryption(
-          em,
-          CustomerInteraction,
-          interactionFlags.unified
-            ? { entity: person.id, deletedAt: null, ...emailVisibilityFilter }
-            : { entity: person.id, ...emailVisibilityFilter },
-          { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
-          { tenantId: person.tenantId ?? auth.tenantId ?? null, organizationId: person.organizationId ?? auth.orgId ?? null },
-        )
-      : []
+
+    // Audited for #3386 rollout (P3): every findWithDecryption call in this
+    // block and in the activities/todoLinks fetches below sorts only on
+    // non-encrypted system columns (isPrimary, createdAt, occurredAt,
+    // scheduledAt). Each fetch is bounded by entity scope (one person) plus
+    // an explicit limit, so neither the paginated-list hazard (#3278) nor the
+    // two-phase encrypted-sort migration apply here.
+    //
+    // These reads only depend on the resolved person + scope + email visibility
+    // filter, so dispatch them together to avoid a server-side request waterfall
+    // before the detail surface can render (issue #3203).
+    const [
+      addressesResult,
+      tagAssignmentsResult,
+      labelAssignments,
+      commentsResult,
+      canonicalInteractionRows,
+    ] = await Promise.all([
+      includeAddresses
+        ? findWithDecryption(em, CustomerAddress, { entity: person.id }, { orderBy: { isPrimary: 'desc', createdAt: 'desc' } }, personScope)
+        : Promise.resolve<CustomerAddress[]>([]),
+      findWithDecryption(em, CustomerTagAssignment, { entity: person.id }, { populate: ['tag'] }, personScope),
+      findWithDecryption(em, CustomerLabelAssignment, { entity: person.id }, { populate: ['label'] }, personScope),
+      includeComments
+        ? findWithDecryption(em, CustomerComment, { entity: person.id }, { orderBy: { createdAt: 'desc' }, limit: 50 }, personScope)
+        : Promise.resolve<CustomerComment[]>([]),
+      shouldLoadCanonicalInteractions
+        ? findWithDecryption(
+            em,
+            CustomerInteraction,
+            interactionFlags.unified
+              ? { entity: person.id, deletedAt: null, ...emailVisibilityFilter }
+              : { entity: person.id, ...emailVisibilityFilter },
+            { orderBy: { scheduledAt: 'asc', createdAt: 'desc' }, limit: 100 },
+            personScope,
+          )
+        : Promise.resolve<CustomerInteraction[]>([]),
+    ])
+    addresses = addressesResult
+    tagAssignments = tagAssignmentsResult
+    comments = commentsResult
+    profiler.mark('addresses_loaded', { count: addresses.length })
+    profiler.mark('tags_loaded', { count: tagAssignments.length })
+    profiler.mark('labels_loaded', { count: labelAssignments.length })
+    profiler.mark('comments_loaded', { count: comments.length })
     profiler.mark('canonical_interactions_loaded', { count: canonicalInteractionRows.length })
     const canonicalActiveInteractions = canonicalInteractionRows.filter((interaction) => !interaction.deletedAt)
     const canonicalInteractions = shouldLoadCanonicalInteractions
@@ -676,35 +779,39 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
       profiler.mark('deals_loaded', { count: deals.length })
     }
 
-    const entityCustomFieldValues = await loadCustomFieldValues({
-      em,
-      entityId: E.customers.customer_entity,
-      recordIds: [person.id],
-      tenantIdByRecord: { [person.id]: person.tenantId ?? null },
-      organizationIdByRecord: { [person.id]: person.organizationId ?? null },
-      tenantFallbacks: [
-        person.tenantId ?? auth.tenantId ?? null,
-      ].filter((v): v is string => !!v),
-    })
-    profiler.mark('entity_custom_fields_loaded', { keys: Object.keys(entityCustomFieldValues?.[person.id] ?? {}).length })
-
-    let profileCustomFieldValues: Record<string, Record<string, unknown>> = {}
+    // Entity custom fields, profile custom fields, and the routing lookup do not
+    // depend on each other (profileId is already resolved above), so load them in
+    // parallel instead of three sequential awaits (issue #3203).
     const profileId = profile?.id ?? null
-    if (profileId) {
-      profileCustomFieldValues = await loadCustomFieldValues({
+    const [entityCustomFieldValues, profileCustomFieldValues, routing] = await Promise.all([
+      loadCustomFieldValues({
         em,
-        entityId: E.customers.customer_person_profile,
-        recordIds: [profileId],
-        tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
-        organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+        entityId: E.customers.customer_entity,
+        recordIds: [person.id],
+        tenantIdByRecord: { [person.id]: person.tenantId ?? null },
+        organizationIdByRecord: { [person.id]: person.organizationId ?? null },
         tenantFallbacks: [
-          profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+          person.tenantId ?? auth.tenantId ?? null,
         ].filter((v): v is string => !!v),
-      })
+      }),
+      profileId
+        ? loadCustomFieldValues({
+            em,
+            entityId: E.customers.customer_person_profile,
+            recordIds: [profileId],
+            tenantIdByRecord: { [profileId]: profile?.tenantId ?? null },
+            organizationIdByRecord: { [profileId]: profile?.organizationId ?? null },
+            tenantFallbacks: [
+              profile?.tenantId ?? person.tenantId ?? auth.tenantId ?? null,
+            ].filter((v): v is string => !!v),
+          })
+        : Promise.resolve<Record<string, Record<string, unknown>>>({}),
+      resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null),
+    ])
+    profiler.mark('entity_custom_fields_loaded', { keys: Object.keys(entityCustomFieldValues?.[person.id] ?? {}).length })
+    if (profileId) {
       profiler.mark('profile_custom_fields_loaded', { keys: Object.keys(profileCustomFieldValues?.[profileId] ?? {}).length })
     }
-
-    const routing = await resolvePersonCustomFieldRouting(em, person.tenantId ?? null, person.organizationId ?? null)
     profiler.mark('custom_field_routing_resolved', { keys: routing.size })
     customFields = normalizeCustomerDetailCustomFields(
       mergePersonCustomFieldValues(
@@ -716,16 +823,25 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
     profiler.mark('custom_fields_merged', { keys: Object.keys(customFields).length })
 
     const viewerUserIdFinal = viewerUserId
-    const counts = {
-      tags: tagAssignments.length + labelAssignments.length,
-      comments: includeComments
-        ? comments.length
-        : await em.count(CustomerComment, {
+    // The count fields are independent of each other; dispatch them together so
+    // the response counts object is assembled in one round of parallel queries
+    // instead of an inline await waterfall (issue #3203).
+    const [
+      commentsCount,
+      activitiesCount,
+      interactionsCount,
+      todosCount,
+      addressesCount,
+      dealsCount,
+    ] = await Promise.all([
+      includeComments
+        ? Promise.resolve(comments.length)
+        : em.count(CustomerComment, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      activities: await em.count(CustomerInteraction, {
+      em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
@@ -733,42 +849,51 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         interactionType: { $ne: 'task' },
         ...emailVisibilityFilter,
       }),
-      interactions: await em.count(CustomerInteraction, {
+      em.count(CustomerInteraction, {
         entity: person.id,
         organizationId: person.organizationId,
         tenantId: person.tenantId,
         deletedAt: null,
         ...emailVisibilityFilter,
       }),
-      todos: interactionFlags.unified
-        ? await em.count(CustomerInteraction, {
+      interactionFlags.unified
+        ? em.count(CustomerInteraction, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
             deletedAt: null,
             interactionType: 'task',
           })
-        : await em.count(CustomerTodoLink, {
+        : em.count(CustomerTodoLink, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      addresses: includeAddresses
-        ? addresses.length
-        : await em.count(CustomerAddress, {
+      includeAddresses
+        ? Promise.resolve(addresses.length)
+        : em.count(CustomerAddress, {
             entity: person.id,
             organizationId: person.organizationId,
             tenantId: person.tenantId,
           }),
-      deals: includeDeals
-        ? deals.length
-        : await em.count(CustomerDealPersonLink, {
+      includeDeals
+        ? Promise.resolve(deals.length)
+        : em.count(CustomerDealPersonLink, {
             person: person.id,
           }),
+    ])
+    const counts = {
+      tags: tagAssignments.length + labelAssignments.length,
+      comments: commentsCount,
+      activities: activitiesCount,
+      interactions: interactionsCount,
+      todos: todosCount,
+      addresses: addressesCount,
+      deals: dealsCount,
       companies: companies.length,
     }
 
-    const response = NextResponse.json({
+    const payload = {
       interactionMode,
       person: {
         id: person.id,
@@ -978,7 +1103,20 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         name: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.name ?? null : null,
         email: viewerUserIdFinal ? userMap.get(viewerUserIdFinal)?.email ?? auth.email ?? null : auth.email ?? null,
       },
-    })
+    }
+
+    if (personDetailCache && personDetailCacheKey) {
+      try {
+        await runWithCacheTenant(personDetailTenantId, () =>
+          personDetailCache.set(personDetailCacheKey, payload, {
+            ttl: PERSON_DETAIL_TTL_MS,
+            tags: personDetailCacheTags,
+          }),
+        )
+      } catch {}
+    }
+
+    const response = NextResponse.json(payload)
     statusCode = 200
     profileMeta = {
       include: Array.from(includeTokens),

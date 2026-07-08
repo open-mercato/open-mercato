@@ -80,6 +80,7 @@
   "dictionaries.config.success.delete": "Dictionary deleted.",
   "dictionaries.config.success.update": "Dictionary updated.",
   "dictionaries.customFields.allowInlineCreate": "Allow inline creation inside forms",
+  "dictionaries.customFields.allowMultiple": "Allow selecting multiple entries",
   "dictionaries.customFields.defaultValue": "Default value",
   "dictionaries.customFields.defaultValueNone": "No default",
   "dictionaries.customFields.defaultValueStale": "Default entry not found — it may have been deleted or renamed.",

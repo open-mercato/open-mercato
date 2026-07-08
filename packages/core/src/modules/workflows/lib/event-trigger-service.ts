@@ -123,6 +123,9 @@ function isSafeWorkflowRegexPattern(pattern: string): boolean {
   let lastClosedGroup: RegexGroupFrame | null = null
   let lastAtomWasQuantified = false
 
+  // Hand-written single-pass lexer: `index` is intentionally advanced inside the
+  // loop body (escape pairs, `(?:` prefixes, multi-char quantifiers, lazy `?`) on
+  // top of the `index += 1` update clause. Do not "simplify" these in-body writes.
   for (let index = 0; index < pattern.length; index += 1) {
     const char = pattern[index]
 

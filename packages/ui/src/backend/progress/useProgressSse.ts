@@ -6,8 +6,18 @@ import { subscribeProgressUpdate } from '@open-mercato/shared/lib/frontend/progr
 import type { ProgressJobDto, UseProgressPollResult } from './useProgressPoll'
 import { applyLocalProgressUpdate, isLocalProgressJob } from './useProgressPoll'
 
+const SSE_PROGRESS_SYNC_INTERVAL = 5000
+
 function isVisibleProgressJob(job: ProgressJobDto): boolean {
   return job.meta?.hiddenFromTopBar !== true
+}
+
+function isActiveStatus(status: ProgressJobDto['status']): boolean {
+  return status === 'pending' || status === 'running'
+}
+
+function isTerminalStatus(status: ProgressJobDto['status']): boolean {
+  return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 
 function upsertJob(list: ProgressJobDto[], job: ProgressJobDto): ProgressJobDto[] {
@@ -35,11 +45,11 @@ export function useProgressSse(): UseProgressPollResult {
       )
       if (result.ok && result.result) {
         setActiveJobs((prev) => [
-          ...prev.filter((job) => isLocalProgressJob(job) && (job.status === 'pending' || job.status === 'running')),
+          ...prev.filter((job) => isLocalProgressJob(job) && isActiveStatus(job.status)),
           ...result.result!.active.filter(isVisibleProgressJob),
         ])
         setRecentlyCompleted((prev) => [
-          ...prev.filter((job) => isLocalProgressJob(job) && (job.status === 'completed' || job.status === 'failed')),
+          ...prev.filter((job) => isLocalProgressJob(job) && isTerminalStatus(job.status)),
           ...result.result!.recentlyCompleted.filter(isVisibleProgressJob),
         ].slice(0, 10))
         setError(null)
@@ -60,6 +70,33 @@ export function useProgressSse(): UseProgressPollResult {
   }, [fetchJobs])
 
   React.useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = setInterval(() => {
+      void fetchJobs()
+    }, SSE_PROGRESS_SYNC_INTERVAL)
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        if (interval) {
+          clearInterval(interval)
+          interval = null
+        }
+      } else {
+        void fetchJobs()
+        if (interval) clearInterval(interval)
+        interval = setInterval(() => {
+          void fetchJobs()
+        }, SSE_PROGRESS_SYNC_INTERVAL)
+      }
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      if (interval) clearInterval(interval)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [fetchJobs])
+
+  React.useEffect(() => {
     return subscribeProgressUpdate((detail) => {
       applyLocalProgressUpdate(detail, setActiveJobs, setRecentlyCompleted)
     })
@@ -74,23 +111,32 @@ export function useProgressSse(): UseProgressPollResult {
         void fetchJobs()
         return
       }
+      const status = (payload.status as ProgressJobDto['status']) ?? 'running'
+      const job: ProgressJobDto = {
+        id: jobId,
+        jobType: payload.jobType ?? 'progress',
+        name: payload.name ?? payload.jobType ?? 'Progress job',
+        description: payload.description ?? null,
+        meta: (payload.meta && typeof payload.meta === 'object') ? payload.meta as Record<string, unknown> : null,
+        status,
+        progressPercent: payload.progressPercent ?? 0,
+        processedCount: payload.processedCount ?? 0,
+        totalCount: payload.totalCount ?? null,
+        etaSeconds: payload.etaSeconds ?? null,
+        cancellable: payload.cancellable ?? false,
+        startedAt: payload.startedAt ?? null,
+        finishedAt: payload.finishedAt ?? null,
+        errorMessage: payload.errorMessage ?? null,
+      }
+
+      if (isTerminalStatus(status)) {
+        setActiveJobs((prev) => prev.filter((item) => item.id !== jobId))
+        setRecentlyCompleted((prev) => upsertJob(prev, job).slice(0, 10))
+        return
+      }
+
       setActiveJobs((prev) =>
-        upsertJob(prev, {
-          id: jobId,
-          jobType: payload.jobType ?? 'progress',
-          name: payload.name ?? payload.jobType ?? 'Progress job',
-          description: payload.description ?? null,
-          meta: (payload.meta && typeof payload.meta === 'object') ? payload.meta as Record<string, unknown> : null,
-          status: (payload.status as ProgressJobDto['status']) ?? 'running',
-          progressPercent: payload.progressPercent ?? 0,
-          processedCount: payload.processedCount ?? 0,
-          totalCount: payload.totalCount ?? null,
-          etaSeconds: payload.etaSeconds ?? null,
-          cancellable: payload.cancellable ?? false,
-          startedAt: payload.startedAt ?? null,
-          finishedAt: payload.finishedAt ?? null,
-          errorMessage: payload.errorMessage ?? null,
-        }),
+        upsertJob(prev, job),
       )
     },
     [fetchJobs],

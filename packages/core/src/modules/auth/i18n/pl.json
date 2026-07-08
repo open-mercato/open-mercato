@@ -51,7 +51,7 @@
   "auth.login.requireRoleMessage": "Dostęp wymaga roli: {roles}",
   "auth.login.requireRolesMessage": "Dostęp wymaga jednej z następujących ról: {roles}",
   "auth.login.subtitle": "Uzyskaj dostęp do swojego środowiska",
-  "auth.login.tenantBanner": "Logujesz się do najemcy {tenant}.",
+  "auth.login.tenantBanner": "Logujesz się do {tenant}.",
   "auth.login.tenantClear": "Wyczyść",
   "auth.login.tenantLoading": "Ładowanie szczegółów najemcy...",
   "auth.manageAuthSettings": "Zarządzaj ustawieniami uwierzytelniania.",

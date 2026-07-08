@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { resolveTranslationsRouteContext } from '@open-mercato/core/modules/translations/api/context'
+import { resolveTranslationsRouteContext, resolveTranslationsActorId } from '@open-mercato/core/modules/translations/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import {
+  runCrudMutationGuardAfterSuccess,
+  validateCrudMutationGuard,
+} from '@open-mercato/shared/lib/crud/mutation-guard'
 import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -23,8 +27,38 @@ async function PUT(req: Request) {
     const body = bodySchema.parse(await req.json())
     const uniqueLocales = [...new Set(body.locales.map((l) => l.toLowerCase().trim()))]
 
+    const guardUserId = resolveTranslationsActorId(context.auth)
+    const guardResult = await validateCrudMutationGuard(context.container, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      userId: guardUserId,
+      resourceKind: 'translations.locales',
+      resourceId: 'supported_locales',
+      operation: 'custom',
+      requestMethod: req.method,
+      requestHeaders: req.headers,
+      mutationPayload: { locales: uniqueLocales },
+    })
+    if (guardResult && !guardResult.ok) {
+      return NextResponse.json(guardResult.body, { status: guardResult.status })
+    }
+
     const configService = context.container.resolve('moduleConfigService') as ModuleConfigService
-    await configService.setValue('translations', 'supported_locales', uniqueLocales)
+    await configService.setValue('translations', 'supported_locales', uniqueLocales, { tenantId: context.tenantId })
+
+    if (guardResult?.ok && guardResult.shouldRunAfterSuccess) {
+      await runCrudMutationGuardAfterSuccess(context.container, {
+        tenantId: context.tenantId,
+        organizationId: context.organizationId,
+        userId: guardUserId,
+        resourceKind: 'translations.locales',
+        resourceId: 'supported_locales',
+        operation: 'custom',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        metadata: guardResult.metadata ?? null,
+      })
+    }
 
     return NextResponse.json({ locales: uniqueLocales })
   } catch (err) {

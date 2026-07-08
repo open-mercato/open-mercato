@@ -4,6 +4,7 @@ import {
   DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
   RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
   RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
+  RETURN_ADJUSTMENT_ZERO_MESSAGE,
   SHIPPING_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
   SHIPPING_ADJUSTMENT_NEGATIVE_NET_MESSAGE,
   SURCHARGE_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE,
@@ -80,14 +81,54 @@ describe('enforceAdjustmentSign — return adjustments', () => {
     expect(result.success).toBe(true)
   })
 
-  it('accepts zero amounts for kind="return"', () => {
+  it('rejects zero amounts for kind="return" (issue #3037)', () => {
     const result = orderUpsertSchema.safeParse({
       ...base,
       kind: 'return',
       amountNet: 0,
       amountGross: 0,
     })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain(RETURN_ADJUSTMENT_ZERO_MESSAGE)
+    }
+  })
+
+  it('rejects a return with no amounts supplied (issue #3037)', () => {
+    const result = orderUpsertSchema.safeParse({
+      ...base,
+      kind: 'return',
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain(RETURN_ADJUSTMENT_ZERO_MESSAGE)
+    }
+  })
+
+  it('accepts a return when only one negative amount is supplied', () => {
+    const result = orderUpsertSchema.safeParse({
+      ...base,
+      kind: 'return',
+      amountGross: -5,
+    })
     expect(result.success).toBe(true)
+  })
+
+  it('does not flag a positive return as zero-valued', () => {
+    const result = orderUpsertSchema.safeParse({
+      ...base,
+      kind: 'return',
+      amountNet: 5,
+      amountGross: 5,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain(RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE)
+      expect(messages).not.toContain(RETURN_ADJUSTMENT_ZERO_MESSAGE)
+    }
   })
 
   it('accepts positive amounts for non-return adjustments', () => {
@@ -257,5 +298,19 @@ describe('enforceAdjustmentSign — quote adjustments retain return behavior', (
       amountGross: -7.5,
     })
     expect(result.success).toBe(true)
+  })
+
+  it('rejects zero amounts for kind="return" on quote adjustments (issue #3037)', () => {
+    const result = quoteUpsertSchema.safeParse({
+      ...base,
+      kind: 'return',
+      amountNet: 0,
+      amountGross: 0,
+    })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const messages = result.error.issues.map((i) => i.message)
+      expect(messages).toContain(RETURN_ADJUSTMENT_ZERO_MESSAGE)
+    }
   })
 })

@@ -1,4 +1,5 @@
 import { hash } from 'bcryptjs'
+import { randomBytes } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
@@ -80,6 +81,29 @@ const DERIVED_EMAIL_ENV = {
   employee: 'OM_INIT_EMPLOYEE_EMAIL',
 } as const
 
+export type DemoUserRole = 'superadmin' | 'admin' | 'employee'
+export type DemoUserEmail = { role: DemoUserRole; email: string }
+
+/**
+ * Returns the canonical list of demo user emails the setup path may have
+ * seeded. Honors OM_INIT_ADMIN_EMAIL / OM_INIT_EMPLOYEE_EMAIL exactly the
+ * same way the derived-user seeding branch does, so the deactivation loop
+ * never drifts from the seeding loop.
+ *
+ * Pure function — no side effects, safe to unit-test in isolation.
+ *
+ * @internal Exported for tests; not part of the public auth API.
+ */
+export function resolveDemoUserEmails(): DemoUserEmail[] {
+  const adminEmail = readEnvValue(DERIVED_EMAIL_ENV.admin) ?? `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+  const employeeEmail = readEnvValue(DERIVED_EMAIL_ENV.employee) ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
+  return [
+    { role: 'superadmin', email: DEMO_SUPERADMIN_EMAIL },
+    { role: 'admin', email: adminEmail },
+    { role: 'employee', email: employeeEmail },
+  ]
+}
+
 export type SetupInitialTenantOptions = {
   orgName: string
   primaryUser: PrimaryUserInput
@@ -97,6 +121,20 @@ export type SetupInitialTenantOptions = {
    * reusing or clobbering an existing organization.
    */
   orgSlug?: string
+  /**
+   * Opt-in flag that allows seeding the derived admin/employee accounts when
+   * the OM_INIT_ADMIN_PASSWORD / OM_INIT_EMPLOYEE_PASSWORD env vars are unset.
+   *
+   * - In non-production (`NODE_ENV !== 'production'`): the demo accounts are
+   *   seeded with the well-known `'secret'` password so local dev workflows
+   *   (e.g. `mercato init`) stay predictable for developers.
+   * - In production: the fallback uses a randomly generated 96-bit password
+   *   (printed once by the CLI) so an operator who deliberately opts in still
+   *   avoids the historical hardcoded credential. When this flag is false/unset
+   *   in production and the env vars are missing, `DerivedUserPasswordRequiredError`
+   *   is thrown instead of silently seeding any account.
+   */
+  allowDemoDerivedPasswords?: boolean
 }
 
 export class OrgSlugExistsError extends Error {
@@ -106,10 +144,19 @@ export class OrgSlugExistsError extends Error {
   }
 }
 
+export class DerivedUserPasswordRequiredError extends Error {
+  constructor(public readonly missing: string[]) {
+    super(
+      `DERIVED_USER_PASSWORD_REQUIRED: missing ${missing.join(', ')} (set the env vars, pass allowDemoDerivedPasswords: true / --include-demo-users in non-production, or disable derived user seeding)`,
+    )
+    this.name = 'DerivedUserPasswordRequiredError'
+  }
+}
+
 export type SetupInitialTenantResult = {
   tenantId: string
   organizationId: string
-  users: Array<{ user: User; roles: string[]; created: boolean }>
+  users: Array<{ user: User; roles: string[]; created: boolean; generatedPassword?: string | null }>
   reusedExistingUser: boolean
 }
 
@@ -161,7 +208,7 @@ export async function setupInitialTenant(
   let tenantId: string | undefined
   let organizationId: string | undefined
   let reusedExistingUser = false
-  const userSnapshots: Array<{ user: User; roles: string[]; created: boolean }> = []
+  const userSnapshots: Array<{ user: User; roles: string[]; created: boolean; generatedPassword?: string | null }> = []
 
   await em.transactional(async (tem) => {
     if (!existingUser) return
@@ -202,6 +249,7 @@ export async function setupInitialTenant(
       roles: string[]
       name?: string | null
       passwordHash?: string | null
+      generatedPassword?: string | null
     }> = [
       { email: primaryUser.email, roles: primaryRoles, name: resolvePrimaryName(primaryUser) },
     ]
@@ -210,20 +258,49 @@ export async function setupInitialTenant(
       const employeeOverride = readEnvValue(DERIVED_EMAIL_ENV.employee)
       const adminEmail = adminOverride ?? `admin@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
       const employeeEmail = employeeOverride ?? `employee@${DEFAULT_DERIVED_EMAIL_DOMAIN}`
-      const adminPassword = readEnvValue('OM_INIT_ADMIN_PASSWORD') || 'secret'
-      const employeePassword = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD') || 'secret'
-      const adminPasswordHash = adminPassword ? await resolvePasswordHash({ email: adminEmail, password: adminPassword }) : null
-      const employeePasswordHash = employeePassword
-        ? await resolvePasswordHash({ email: employeeEmail, password: employeePassword })
-        : null
-      addUniqueBaseUser(baseUsers, { email: adminEmail, roles: ['admin'], passwordHash: adminPasswordHash })
-      addUniqueBaseUser(baseUsers, { email: employeeEmail, roles: ['employee'], passwordHash: employeePasswordHash })
+      const envAdminPwd = readEnvValue('OM_INIT_ADMIN_PASSWORD')
+      const envEmployeePwd = readEnvValue('OM_INIT_EMPLOYEE_PASSWORD')
+      const isProduction = process.env.NODE_ENV === 'production'
+      const allowDemo = options.allowDemoDerivedPasswords === true
+      if (isProduction && !allowDemo) {
+        const missing: string[] = []
+        if (!envAdminPwd) missing.push('OM_INIT_ADMIN_PASSWORD')
+        if (!envEmployeePwd) missing.push('OM_INIT_EMPLOYEE_PASSWORD')
+        if (missing.length) {
+          throw new DerivedUserPasswordRequiredError(missing)
+        }
+      }
+      // In non-production, fall back to the well-known DEMO_DERIVED_PASSWORD so
+      // local dev workflows stay predictable (admin@/employee@ login with the
+      // documented demo password). In production we either have env-supplied
+      // values, or — for opt-in --include-demo-users flows — we generate a
+      // random one-time password and surface it via `generatedPassword` so the
+      // operator can capture it. Production callers without env vars and
+      // without the opt-in already threw above.
+      const fallbackAdminPwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
+      const fallbackEmployeePwd = isProduction ? generateDerivedPassword() : DEMO_DERIVED_PASSWORD
+      const adminPasswordPlain = envAdminPwd ?? fallbackAdminPwd
+      const employeePasswordPlain = envEmployeePwd ?? fallbackEmployeePwd
+      const adminPasswordHash = await hash(adminPasswordPlain, 10)
+      const employeePasswordHash = await hash(employeePasswordPlain, 10)
+      addUniqueBaseUser(baseUsers, {
+        email: adminEmail,
+        roles: ['admin'],
+        passwordHash: adminPasswordHash,
+        generatedPassword: envAdminPwd ? null : adminPasswordPlain,
+      })
+      addUniqueBaseUser(baseUsers, {
+        email: employeeEmail,
+        roles: ['employee'],
+        passwordHash: employeePasswordHash,
+        generatedPassword: envEmployeePwd ? null : employeePasswordPlain,
+      })
     }
     const passwordHash = await resolvePasswordHash(primaryUser)
 
     await em.transactional(async (tem) => {
       const tenant = tem.create(Tenant, {
-        name: `${options.orgName} Tenant`,
+        name: options.orgName,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -327,7 +404,7 @@ export async function setupInitialTenant(
           if (base.name) user.name = base.name
           if (confirm) user.isConfirmed = true
           tem.persist(user)
-          userSnapshots.push({ user, roles: base.roles, created: false })
+          userSnapshots.push({ user, roles: base.roles, created: false, generatedPassword: base.generatedPassword ?? null })
         } else {
           user = tem.create(User, {
             email: (encryptedPayload as any).email ?? base.email,
@@ -340,7 +417,7 @@ export async function setupInitialTenant(
             createdAt: new Date(),
           })
           tem.persist(user)
-          userSnapshots.push({ user, roles: base.roles, created: true })
+          userSnapshots.push({ user, roles: base.roles, created: true, generatedPassword: base.generatedPassword ?? null })
         }
         await tem.flush()
         for (const roleName of base.roles) {
@@ -362,7 +439,7 @@ export async function setupInitialTenant(
   }
 
   await ensureDefaultRoleAcls(em, tenantId, resolvedModules, { includeSuperadminRole })
-  await deactivateDemoSuperAdminIfSelfOnboardingEnabled(em)
+  await deactivateDemoUsersIfSelfOnboardingEnabled(em)
 
   // Call module onTenantCreated hooks
   for (const mod of resolvedModules) {
@@ -394,13 +471,33 @@ function readEnvValue(key: string): string | undefined {
 }
 
 function addUniqueBaseUser(
-  baseUsers: Array<{ email: string; roles: string[]; name?: string | null; passwordHash?: string | null }>,
-  entry: { email: string; roles: string[]; name?: string | null; passwordHash?: string | null },
+  baseUsers: Array<{ email: string; roles: string[]; name?: string | null; passwordHash?: string | null; generatedPassword?: string | null }>,
+  entry: { email: string; roles: string[]; name?: string | null; passwordHash?: string | null; generatedPassword?: string | null },
 ) {
   if (!entry.email) return
   const normalized = entry.email.toLowerCase()
   if (baseUsers.some((user) => user.email.toLowerCase() === normalized)) return
   baseUsers.push(entry)
+}
+
+/**
+ * Well-known demo password seeded for derived admin@/employee@ accounts in
+ * non-production (`NODE_ENV !== 'production'`) when no env override is set.
+ * Keeps the documented `yarn dev` / `mercato init` DX predictable. Never used
+ * in production: the production branch either consumes env-supplied values or
+ * falls back to `generateDerivedPassword()` so credentials remain non-guessable.
+ */
+const DEMO_DERIVED_PASSWORD = 'secret'
+
+/**
+ * Generate a 16-character base64url password (96 bits of entropy) for a derived
+ * demo user in production when no env override is provided AND the caller
+ * explicitly opted in via `allowDemoDerivedPasswords`. Surfaced via the
+ * `users[].generatedPassword` snapshot so CLI callers can print it to the
+ * operator — there is no other recovery path for these credentials.
+ */
+function generateDerivedPassword(): string {
+  return randomBytes(12).toString('base64url')
 }
 
 function isDemoModeEnabled(): boolean {
@@ -562,28 +659,59 @@ async function ensureRoleAclFor(
   }
 }
 
-async function deactivateDemoSuperAdminIfSelfOnboardingEnabled(em: EntityManager) {
+/**
+ * Neutralizes every demo account the setup path may have seeded
+ * (superadmin, admin, employee — honoring OM_INIT_*_EMAIL overrides)
+ * when SELF_SERVICE_ONBOARDING_ENABLED is on and the operator did not
+ * opt in to keeping demo credentials via shouldKeepDemoSuperadminDuringInit.
+ *
+ * Each user is processed in its own try/catch so a single failure (e.g.
+ * decryption error on a legacy row) does not skip the remaining accounts.
+ *
+ * @internal Exported for tests; not part of the public auth API.
+ */
+export async function deactivateDemoUsersIfSelfOnboardingEnabled(em: EntityManager) {
   if (process.env.SELF_SERVICE_ONBOARDING_ENABLED !== 'true') return
   if (shouldKeepDemoSuperadminDuringInit()) return
-  try {
-    const user = await findOneWithDecryption(em, User, { email: DEMO_SUPERADMIN_EMAIL }, {}, { tenantId: null, organizationId: null })
-    if (!user) return
-    let dirty = false
-    if (user.passwordHash) {
-      user.passwordHash = null
-      dirty = true
+  for (const { role, email } of resolveDemoUserEmails()) {
+    try {
+      const user = await findOneWithDecryption(
+        em,
+        User,
+        { email },
+        {},
+        { tenantId: null, organizationId: null },
+      )
+      if (!user) continue
+      let dirty = false
+      if (user.passwordHash) {
+        user.passwordHash = null
+        dirty = true
+      }
+      if (user.isConfirmed !== false) {
+        user.isConfirmed = false
+        dirty = true
+      }
+      if (dirty) {
+        await em.persist(user).flush()
+      }
+    } catch (error) {
+      console.error(
+        `[auth.setup] failed to deactivate demo ${role} user (${email})`,
+        error,
+      )
     }
-    if (user.isConfirmed !== false) {
-      user.isConfirmed = false
-      dirty = true
-    }
-    if (dirty) {
-      await em.persist(user).flush()
-    }
-  } catch (error) {
-    console.error('[auth.setup] failed to deactivate demo superadmin user', error)
   }
 }
+
+/**
+ * @deprecated Renamed to {@link deactivateDemoUsersIfSelfOnboardingEnabled}
+ * because the helper now neutralizes admin/employee demo accounts in addition
+ * to superadmin (security tracker finding #5). Kept as an internal alias to
+ * avoid breaking any out-of-tree caller that imported the old name; will be
+ * removed in a future major.
+ */
+const deactivateDemoSuperAdminIfSelfOnboardingEnabled = deactivateDemoUsersIfSelfOnboardingEnabled
 
 /** Try to get modules from runtime registry; returns empty array if not yet registered. */
 function tryGetModules(): Module[] {

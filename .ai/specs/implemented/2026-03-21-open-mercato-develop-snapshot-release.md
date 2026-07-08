@@ -6,6 +6,8 @@
 **Author:** Open Mercato Team
 **Related:** [2026-03-20-official-modules-platform-sync-playbook.md](./2026-03-20-official-modules-platform-sync-playbook.md), `.github/workflows/snapshot.yml`, `.github/workflows/release.yml`, `scripts/release-snapshot.sh`, `scripts/publish-packages.sh`
 
+> 2026-06-24 update: PR package previews are now specified separately in [../2026-06-22-label-based-package-previews.md](../2026-06-22-label-based-package-previews.md). This develop snapshot contract remains responsible for trusted pushes to `develop`; PR npm canary snapshots moved behind explicit manual `NPM Snapshot Preview` dispatches.
+
 ## TLDR
 
 **Key Points:**
@@ -401,11 +403,14 @@ None in this draft.
 ### 2026-03-21
 - Initial specification for publishing lockstep develop snapshots under the npm `develop` dist-tag
 
+### 2026-06-22
+- Clarified that PR preview publishing is no longer part of `.github/workflows/snapshot.yml`; pkg.pr.new previews and opt-in npm canary snapshots are covered by the label-based package previews spec
+
 ## Implementation Status
 
 | Phase | Status | Date | Notes |
 |-------|--------|------|-------|
-| Phase 1 — Develop Snapshot Dist-tag | Done | 2026-03-21 | Snapshot workflow now resolves trusted `develop` pushes to npm dist-tag `develop` and keeps PR previews on `canary` |
+| Phase 1 — Develop Snapshot Dist-tag | Done | 2026-03-21 | Snapshot workflow resolves trusted `develop` pushes to npm dist-tag `develop`; PR preview publishing is now handled by the 2026-06-22 label-based package previews spec |
 | Phase 2 — Unique Version Format | Done | 2026-03-21 | Snapshot versions now use `<next-patch>-<channel>.<buildId>.<shortSha>` and publish via configurable dist-tag |
 | Phase 3 — Validation And Documentation | Done | 2026-03-21 | Standalone validation now waits for every public package, including `create-mercato-app`, and docs now describe the `@develop` channel |
 
