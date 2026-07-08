@@ -43,6 +43,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — organization branding is single-owner admin config (directory.organization); OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/entities/api/encryption.ts':
     'OSS-only — per-entity encryption-map admin config; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/entities/api/definitions.batch.ts':
+    'OSS-only — entity field-definition batch save is an admin schema-config surface (issue #3152) guarded by an aggregate updated_at version, not a per-row record; the OSS floor guards the two-tab schema-edit race. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/integrations/api/[id]/credentials/route.ts':
     'OSS-only — integration credentials are single-admin config keyed by bundle id (integrations.integration); OSS floor guards concurrent admin edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/integrations/api/[id]/state/route.ts':
@@ -57,6 +59,10 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'OSS-only — global feature-toggle command (feature_toggles.global), instance-level admin config added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
   'packages/core/src/modules/planner/commands/availability-weekly.ts':
     'OSS-only — weekly availability rule-set edit (sibling of the allowlisted availability-date-specific site) added on develop; OSS floor guards concurrent edits. Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/messages/api/[id]/route.ts':
+    'OSS-only — draft update/send (PATCH) + delete (DELETE) of messages.message enforce the synchronous OSS updated_at floor in the hand-written route (no makeCrudRoute decorator); the 409 surfaces on the shared conflict banner (#3260). Enterprise record_locks migration deferred.',
+  'packages/core/src/modules/messages/commands/actions.ts':
+    'OSS-only — message action execute (messages.message) enforces the synchronous OSS updated_at floor before the terminal-action claim; the action also has its own actionTaken idempotency guard. Enterprise record_locks migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.

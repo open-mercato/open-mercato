@@ -13,7 +13,7 @@ import { toErrorMessage } from './message-detail/utils'
 
 export type MessageFolder = 'inbox' | 'sent' | 'drafts' | 'archived' | 'all'
 
-export type MessageBulkActionId = 'markRead' | 'markUnread' | 'archive' | 'delete'
+export type MessageBulkActionId = 'markRead' | 'markUnread' | 'archive' | 'unarchive' | 'delete'
 
 type BulkExecutionSummary = {
   action: MessageBulkActionId
@@ -84,6 +84,14 @@ const MESSAGE_BULK_REQUESTS: Record<MessageBulkActionId, MessageBulkRequestConfi
     errorKey: 'messages.errors.stateChangeFailed',
     errorFallback: 'Failed to update message state.',
   },
+  unarchive: {
+    method: 'DELETE',
+    buildUrl: (messageId) => `/api/messages/${encodeURIComponent(messageId)}/archive`,
+    successKey: 'messages.bulk.flash.unarchiveSuccess',
+    successFallback: '{count} messages moved to inbox.',
+    errorKey: 'messages.errors.stateChangeFailed',
+    errorFallback: 'Failed to update message state.',
+  },
   delete: {
     method: 'DELETE',
     buildUrl: (messageId) => `/api/messages/${encodeURIComponent(messageId)}`,
@@ -110,6 +118,11 @@ const MESSAGE_BULK_ACTIONS: Record<MessageBulkActionId, MessageBulkActionDefinit
     labelKey: 'messages.actions.archive',
     labelFallback: 'Archive',
   },
+  unarchive: {
+    id: 'messages-unarchive',
+    labelKey: 'messages.actions.unarchive',
+    labelFallback: 'Unarchive',
+  },
   delete: {
     id: 'messages-delete',
     labelKey: 'messages.actions.delete',
@@ -120,7 +133,7 @@ const MESSAGE_BULK_ACTIONS: Record<MessageBulkActionId, MessageBulkActionDefinit
 
 const MESSAGE_BULK_ACTION_IDS_BY_FOLDER = {
   inbox: ['markRead', 'markUnread', 'archive', 'delete'],
-  archived: ['markRead', 'markUnread', 'delete'],
+  archived: ['markRead', 'markUnread', 'unarchive', 'delete'],
   sent: ['delete'],
   drafts: ['delete'],
   all: [],

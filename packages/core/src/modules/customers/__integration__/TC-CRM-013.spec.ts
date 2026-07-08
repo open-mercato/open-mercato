@@ -73,10 +73,9 @@ test.describe('TC-CRM-013: Pipeline View Navigation', () => {
       // on the page (e.g. lane-total breakdown).
       await expect(dealCard.getByText('USD', { exact: true })).toBeVisible();
 
-      // Open the card's kebab menu and choose "Open deal". The menu items are
-      // rendered via React portal, so the menuitem lookup is page-scoped, not card-scoped.
-      await dealCard.getByRole('button', { name: 'Deal actions' }).click();
-      await page.getByRole('menuitem', { name: 'Open deal', exact: true }).click();
+      // Clicking the card title is the primary card-to-detail navigation path and avoids
+      // coupling this navigation test to the portal-rendered action menu.
+      await dealCard.getByRole('heading', { name: dealTitle, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`/backend/customers/deals/${dealId}$`));
       await expect(page.getByText(dealTitle, { exact: true }).first()).toBeVisible();
 

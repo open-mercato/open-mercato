@@ -463,6 +463,7 @@
   "sales.documents.adjustments.errorDelete": "Failed to delete adjustment.",
   "sales.documents.adjustments.errorLoad": "Failed to load adjustments.",
   "sales.documents.adjustments.errorRate": "Enter a percentage rate.",
+  "sales.documents.adjustments.errorReturnZero": "Return adjustments must use a non-zero amount. Create the return through the Returns tab instead.",
   "sales.documents.adjustments.errorSave": "Failed to save adjustment.",
   "sales.documents.adjustments.errorScope": "Organization and tenant are required.",
   "sales.documents.adjustments.kind": "Kind",

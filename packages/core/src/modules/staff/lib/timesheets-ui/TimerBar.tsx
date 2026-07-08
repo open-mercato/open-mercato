@@ -82,13 +82,12 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
 
   const startElapsedCounter = useCallback((startedAt: string) => {
     const startTime = new Date(startedAt).getTime()
-    const now = Date.now()
-    const initialElapsed = Math.max(0, Math.floor((now - startTime) / 1000))
-    setElapsedSeconds(initialElapsed)
+    const calcElapsed = () => Math.max(0, Math.floor((Date.now() - startTime) / 1000))
+    setElapsedSeconds(calcElapsed())
 
     if (intervalRef.current) clearInterval(intervalRef.current)
     intervalRef.current = setInterval(() => {
-      setElapsedSeconds((prev) => prev + 1)
+      setElapsedSeconds(calcElapsed())
     }, 1000)
   }, [])
 
@@ -103,10 +102,9 @@ export function TimerBar({ projects, staffMemberId, onTimerStopped }: TimerBarPr
   useEffect(() => {
     if (!staffMemberId) return
 
-    const today = getToday()
     const checkActiveTimer = async () => {
       const response = await apiCall(
-        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&from=${today}&to=${today}&pageSize=50`,
+        `/api/staff/timesheets/time-entries?staffMemberId=${staffMemberId}&running=true&pageSize=50`,
       )
       if (!response.ok) return
 

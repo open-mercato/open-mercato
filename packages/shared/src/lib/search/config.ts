@@ -1,4 +1,5 @@
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { parseNumberWithDefault } from '@open-mercato/shared/lib/number'
 
 export type SearchConfig = {
   enabled: boolean
@@ -18,11 +19,7 @@ function parseBoolean(raw: string | undefined, fallback: boolean): boolean {
 }
 
 function parseNumber(raw: string | undefined, fallback: number, min = 1): number {
-  if (raw == null) return fallback
-  const value = Number.parseInt(raw, 10)
-  if (!Number.isFinite(value)) return fallback
-  if (value < min) return fallback
-  return value
+  return parseNumberWithDefault(raw, fallback, { integer: true, min })
 }
 
 function parseHashAlgorithm(raw: string | undefined): 'sha256' | 'sha1' | 'md5' {

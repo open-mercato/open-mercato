@@ -13,6 +13,10 @@ import {
 } from '../../../lib/credentials-service'
 import { collectCredentialUrlValidationErrors } from '../../../lib/credentials-field-validation'
 import {
+  maskSecretCredentials,
+  mergeMaskedSecretCredentials,
+} from '../../../lib/credentials-masking'
+import {
   resolveUserFeatures,
   runIntegrationMutationGuardAfterSuccess,
   runIntegrationMutationGuards,
@@ -71,10 +75,14 @@ export async function GET(req: Request, ctx: { params?: Promise<{ id?: string }>
     throw error
   }
 
+  const schema = credentialsService.getSchema(integration.id)
+  const { credentials, secretFieldsConfigured } = maskSecretCredentials(schema, values ?? {})
+
   return NextResponse.json({
     integrationId: integration.id,
-    schema: credentialsService.getSchema(integration.id),
-    credentials: values ?? {},
+    schema,
+    credentials,
+    secretFieldsConfigured,
     updatedAt: updatedAt?.toISOString() ?? null,
   })
 }
@@ -134,6 +142,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
 
   const credentialsService = container.resolve('integrationCredentialsService') as CredentialsService
   const scope = { organizationId: auth.orgId as string, tenantId: auth.tenantId }
+  const schema = credentialsService.getSchema(integration.id)
 
   try {
     const currentUpdatedAt = await credentialsService.resolveUpdatedAt(integration.id, scope)
@@ -154,7 +163,7 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   const credentialFieldErrors = collectCredentialUrlValidationErrors(
-    credentialsService.getSchema(integration.id),
+    schema,
     payloadData.credentials,
   )
   if (Object.keys(credentialFieldErrors).length > 0) {
@@ -165,7 +174,12 @@ export async function PUT(req: Request, ctx: { params?: Promise<{ id?: string }>
   }
 
   try {
-    await credentialsService.save(integration.id, payloadData.credentials, scope)
+    // Secret fields are returned masked on GET; when the client round-trips the
+    // mask sentinel it means "unchanged", so restore the existing stored secret
+    // instead of overwriting it with the placeholder.
+    const existing = await credentialsService.resolve(integration.id, scope)
+    const credentialsToSave = mergeMaskedSecretCredentials(schema, payloadData.credentials, existing ?? {})
+    await credentialsService.save(integration.id, credentialsToSave, scope)
   } catch (error) {
     if (isCredentialsEncryptionUnavailableError(error)) {
       return NextResponse.json({ error: 'Integration credentials encryption is unavailable' }, { status: 503 })

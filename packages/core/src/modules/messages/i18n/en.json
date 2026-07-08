@@ -34,6 +34,7 @@
   "messages.bulk.flash.markReadSuccess": "{count} messages marked as read.",
   "messages.bulk.flash.markUnreadSuccess": "{count} messages marked as unread.",
   "messages.bulk.flash.partial": "{succeeded} of {total} messages processed; {failed} failed.",
+  "messages.bulk.flash.unarchiveSuccess": "{count} messages moved to inbox.",
   "messages.compose": "Compose message",
   "messages.composeHint": "Create a message, attach objects, and send it to selected recipients.",
   "messages.composer.attachmentPicker.confirm": "Attach selected",
