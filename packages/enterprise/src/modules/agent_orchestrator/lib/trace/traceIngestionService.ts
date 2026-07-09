@@ -9,8 +9,20 @@ import {
   type AgentToolCallStatus,
 } from '../../data/entities'
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
+import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
 
 export type IngestScope = { tenantId: string; organizationId: string }
+
+export type IngestTraceOptions = {
+  /**
+   * When supplied, payloads exceeding the inline cap are offloaded to encrypted
+   * storage and the returned key is stamped on the row's artifact-key column
+   * (F1). Absent (unit tests, storage-less callers) → capped inline only,
+   * exactly as before. Injected rather than resolved here so `ingestTrace` stays
+   * pure over the EntityManager.
+   */
+  offloadArtifact?: ArtifactOffloader
+}
 
 export type IngestTraceResult = {
   runId: string
@@ -20,10 +32,11 @@ export type IngestTraceResult = {
 }
 
 /**
- * Inline-summary size cap. Until the encrypted storage-s3 offload step lands
- * (separate PR1 follow-up), large request/response/attribute payloads are stored
- * capped on the row rather than offloaded by key. This mirrors how the shipped
- * MVP already persists full `input`/`output` jsonb on `agent_runs`.
+ * Inline-summary size cap. Payloads at or below this serialized length are
+ * stored verbatim on the row; larger ones are truncated to a redacted preview
+ * and (when an offloader is supplied — F1) offloaded in full to encrypted
+ * storage with the key stamped on the row's artifact-key column. Attribute /
+ * context payloads with no artifact-key column stay capped inline only.
  */
 const SUMMARY_CHAR_LIMIT = 4000
 
@@ -37,6 +50,31 @@ function capSummary(value: unknown): unknown {
   }
   if (serialized.length <= SUMMARY_CHAR_LIMIT) return value
   return { _truncated: true, preview: serialized.slice(0, SUMMARY_CHAR_LIMIT) }
+}
+
+/**
+ * Cap a keyed payload inline, offloading the full value to encrypted storage
+ * when it exceeds the cap and an offloader is available. Returns the inline
+ * summary to persist plus the artifact key (or null when not offloaded).
+ */
+async function offloadOrCap(
+  value: unknown,
+  ref: ArtifactEncryptionRef,
+  offload: ArtifactOffloader | undefined,
+): Promise<{ summary: unknown; key: string | null }> {
+  if (value === undefined || value === null) return { summary: value ?? null, key: null }
+  let serialized: string
+  try {
+    serialized = JSON.stringify(value)
+  } catch {
+    return { summary: { _unserializable: true }, key: null }
+  }
+  if (serialized.length <= SUMMARY_CHAR_LIMIT) return { summary: value, key: null }
+  const key = offload ? await offload(ref, value) : null
+  return {
+    summary: { _truncated: true, offloaded: key != null, preview: serialized.slice(0, SUMMARY_CHAR_LIMIT) },
+    key,
+  }
 }
 
 /**
@@ -55,9 +93,11 @@ export async function ingestTrace(
   em: EntityManager,
   scope: IngestScope,
   rawPayload: unknown,
+  options: IngestTraceOptions = {},
 ): Promise<IngestTraceResult> {
   const payload: TraceIngest = traceIngestSchema.parse(rawPayload)
   const { tenantId, organizationId } = scope
+  const offload = options.offloadArtifact
 
   // 1. Upsert the run, then flush so its id is available and run-level scalar
   //    changes are committed before any subsequent find (avoids the MikroORM
@@ -85,6 +125,11 @@ export async function ingestTrace(
     em.persist(run)
   }
   applyRunFields(run, payload)
+  if (payload.output !== undefined) {
+    const { summary, key } = await offloadOrCap(payload.output, ARTIFACT_REFS.runOutput, offload)
+    run.output = summary
+    run.outputArtifactKey = key
+  }
   await em.flush()
 
   // 2. Append new spans (dedupe by externalSpanId), flush to assign ids.
@@ -124,6 +169,8 @@ export async function ingestTrace(
   let toolCallsAppended = 0
   for (const { span, payloadSpan } of freshSpans) {
     for (const toolCall of payloadSpan.toolCalls ?? []) {
+      const request = await offloadOrCap(toolCall.requestSummary, ARTIFACT_REFS.toolRequest, offload)
+      const response = await offloadOrCap(toolCall.responseSummary, ARTIFACT_REFS.toolResponse, offload)
       em.persist(
         em.create(AgentToolCall, {
           tenantId,
@@ -131,8 +178,10 @@ export async function ingestTrace(
           spanId: span.id,
           agentRunId: run.id,
           toolName: toolCall.toolName,
-          requestSummary: capSummary(toolCall.requestSummary),
-          responseSummary: capSummary(toolCall.responseSummary),
+          requestSummary: request.summary,
+          requestArtifactKey: request.key,
+          responseSummary: response.summary,
+          responseArtifactKey: response.key,
           status: (toolCall.status ?? 'ok') as AgentToolCallStatus,
           latencyMs: toolCall.latencyMs ?? null,
           errorMessage: toolCall.errorMessage ?? null,
@@ -160,6 +209,6 @@ function applyRunFields(run: AgentRun, payload: TraceIngest): void {
   if (payload.currency !== undefined) run.currency = payload.currency
   if (payload.latencyMs !== undefined) run.latencyMs = payload.latencyMs
   if (payload.contextRouting !== undefined) run.contextRouting = capSummary(payload.contextRouting)
-  if (payload.output !== undefined) run.output = capSummary(payload.output)
+  // `output` is handled asynchronously in `ingestTrace` (offload path); see below.
   run.updatedAt = new Date()
 }

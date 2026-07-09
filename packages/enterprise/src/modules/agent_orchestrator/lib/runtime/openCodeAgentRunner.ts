@@ -22,6 +22,7 @@ import {
 } from './persistence'
 import type { AgentRunSessionStore } from './agentRunSessionStore'
 import { ingestTrace } from '../trace/traceIngestionService'
+import { createArtifactOffloader } from '../trace/artifactStore'
 import type { TraceSpanIngest } from '../../data/validators'
 
 /**
@@ -296,10 +297,12 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
+      const scope = { tenantId: args.tenantId, organizationId: args.organizationId }
       await ingestTrace(
         em,
-        { tenantId: args.tenantId, organizationId: args.organizationId },
+        scope,
         { runtime: 'opencode', externalRunId: args.externalRunId, agentId: args.agentId, spans },
+        { offloadArtifact: createArtifactOffloader(this.container, scope) },
       )
     } catch (err) {
       console.warn(`[internal] failed to ingest OpenCode trace for "${args.agentId}":`, err)

@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { traceIngestSchema } from '../data/validators'
 import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestionService'
+import { createArtifactOffloader } from '../lib/trace/artifactStore'
 import { evaluateRun } from '../lib/eval/evalRuntimeService'
 import { resolveJudgeSampleRate, shouldSampleForJudge } from '../lib/eval/sampling'
 import { AgentEvalAssertion } from '../data/entities'
@@ -28,7 +29,9 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     const input = ingestTraceCommandSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
-    const result = await ingestTrace(em, scope, input.payload)
+    const result = await ingestTrace(em, scope, input.payload, {
+      offloadArtifact: createArtifactOffloader(ctx.container, scope),
+    })
 
     // Inline deterministic evaluation (gate tier). Reuses the same EM; `warn`
     // results never block, a failing `gate` marks the run evalPassed = false.

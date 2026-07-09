@@ -45,7 +45,7 @@
 
 | ID | Item | Effort · priority | Status (2026-07-09) |
 |----|------|-------------------|---------------------|
-| F1 | Encrypted S3 artifact offload (artifact-key columns exist, unpopulated) | M · medium | ⬜ **Open** — no `lib/trace/artifactStore.ts`, no `storage-s3` wiring |
+| F1 | Encrypted S3 artifact offload (artifact-key columns exist, unpopulated) | M · medium | ✅ **Done (2026-07-09)** — `lib/trace/artifactStore.ts` (encrypt via reused F5 maps → `storage-s3` upload, fail-open degrade); wired into `ingestTrace` (run output + tool request/response) via injected offloader; read path `GET /runs/:id/artifact` (key-belongs-to-run validated, server-side decrypt) + inspector "load full payload" wiring; unit-tested |
 | F2 | `AgentMetricRollup` + scheduler + persisted anti-rubber-stamp signals | M · medium | ✅ **Shipped** — `AgentMetricRollup` entity + `lib/metrics/` |
 | F3 | Span/tool-call partitioning + tiered retention + archival worker | L · low (risk-high) | ⬜ **Open** — no `PARTITION` in any migration; re-prioritized alongside the native-runtime rollout |
 | F4 | `/runs` ACL gate rollout safety (`agents.view`→`trace.view` needs `auth sync-role-acls`) | S · **high** | ✅ **Done** — route gates `trace.view`, `setup.ts` grants it, `runs-acl-rollout.test.ts` encodes the invariant; deploy note added to the scaling runbook (§ ACL sync) + RELEASE_NOTES (2026-07-09) |
