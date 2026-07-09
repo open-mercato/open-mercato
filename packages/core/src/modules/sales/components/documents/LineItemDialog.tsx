@@ -1364,7 +1364,7 @@ export function LineItemDialog({
       if (Number.isFinite(total)) return total === 0;
       return Array.isArray(response.result?.items) && response.result.items.length === 0;
     } catch (err) {
-      console.error("sales.document.items.lineCount", err);
+      logger.error("sales.document.items.lineCount", { err });
       return false;
     }
   }, [documentId, documentKey, existingLineCount, resourcePath]);
@@ -3168,7 +3168,7 @@ export function LineItemDialog({
           if (merged.lineMode === "service") setServiceOption(currentService);
         })
         .catch((err) => {
-          console.error("sales.document.items.verifyServiceReference", err);
+          logger.error("sales.document.items.verifyServiceReference", { err });
         });
     }
     if (initialLine.productId && merged.lineMode === "product") {
