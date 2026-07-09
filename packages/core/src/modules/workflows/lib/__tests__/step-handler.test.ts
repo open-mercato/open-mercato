@@ -477,7 +477,16 @@ describe('Step Handler (Unit Tests)', () => {
       // Calls: step instance, event, user task, event
       expect(mockEm.create).toHaveBeenCalledTimes(4)
       const userTaskCall = (mockEm.create as jest.Mock).mock.calls[2] as [string, any] // Third call is user task
-      expect(userTaskCall[1].formSchema).toBeDefined()
+      expect(userTaskCall[1].formSchema).toMatchObject({
+        type: 'object',
+        required: ['approved'],
+        properties: {
+          approved: {
+            type: 'boolean',
+            title: 'Approved',
+          },
+        },
+      })
       expect(userTaskCall[1].assignedTo).toBe('manager@example.com')
       expect(userTaskCall[1].dueDate).toBeDefined()
     })

@@ -11,7 +11,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { completeUserTask } from '../../../../lib/task-handler'
+import { completeUserTask, UserTaskError } from '../../../../lib/task-handler'
 import {
   workflowsTag,
   completeTaskRequestSchema as openApiCompleteTaskSchema,
@@ -129,6 +129,21 @@ export async function POST(
     logger.error('Error completing user task', { err: error })
 
     // Handle specific error codes from task-handler
+    if (error instanceof UserTaskError) {
+      if (error.code === 'FORM_VALIDATION_FAILED') {
+        return NextResponse.json(
+          { error: error.message, code: error.code, details: error.details },
+          { status: 400 }
+        )
+      }
+      if (error.code === 'TASK_NOT_FOUND' || error.code === 'INSTANCE_NOT_FOUND' || error.code === 'DEFINITION_NOT_FOUND') {
+        return NextResponse.json(
+          { error: error.message, code: error.code, details: error.details },
+          { status: 404 }
+        )
+      }
+    }
+
     if (error instanceof Error) {
       if (error.message.includes('not found')) {
         return NextResponse.json(
