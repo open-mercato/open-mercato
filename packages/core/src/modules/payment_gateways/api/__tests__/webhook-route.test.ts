@@ -33,11 +33,11 @@ jest.mock('@open-mercato/core/modules/payment_gateways/lib/webhook-processor', (
 }))
 
 function createMockRequest(body: string, headers: Record<string, string> = {}): Request {
-  return {
+  return new Request('http://localhost/api/payment_gateways/webhook/stripe', {
     method: 'POST',
-    headers: new Headers(headers),
-    text: jest.fn(async () => body),
-  } as unknown as Request
+    headers,
+    body,
+  })
 }
 
 describe('payment gateway webhook route security', () => {
@@ -63,6 +63,7 @@ describe('payment gateway webhook route security', () => {
 
   test('rate limits unauthenticated provider webhooks before parsing the body', async () => {
     const request = createMockRequest('{"session":"sess_1"}', { 'x-forwarded-for': '203.0.113.9' })
+    const getReaderSpy = jest.spyOn(request.body!, 'getReader')
     ;(getWebhookHandler as jest.Mock).mockReturnValue({
       handler: jest.fn(),
       readSessionIdHint: jest.fn(),
@@ -82,7 +83,26 @@ describe('payment gateway webhook route security', () => {
       duration: 60,
       keyPrefix: 'payment_gateways:webhook',
     })
-    expect(request.text).not.toHaveBeenCalled()
+    expect(getReaderSpy).not.toHaveBeenCalled()
+    expect(findWithDecryption).not.toHaveBeenCalled()
+  })
+
+  test('rejects an oversized declared body before verification', async () => {
+    const handler = jest.fn()
+    ;(getWebhookHandler as jest.Mock).mockReturnValue({
+      handler,
+      readSessionIdHint: jest.fn(),
+    })
+    const request = new Request('http://localhost/api/payment_gateways/webhook/stripe', {
+      method: 'POST',
+      headers: { 'content-length': String(1024 * 1024 + 1) },
+      body: '{}',
+    })
+
+    const response = await POST(request, { params: { provider: 'stripe' } })
+
+    expect(response.status).toBe(413)
+    expect(handler).not.toHaveBeenCalled()
     expect(findWithDecryption).not.toHaveBeenCalled()
   })
 
