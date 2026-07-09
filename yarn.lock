@@ -3424,6 +3424,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dagrejs/dagre@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "@dagrejs/dagre@npm:3.0.0"
+  dependencies:
+    "@dagrejs/graphlib": "npm:4.0.1"
+  checksum: 10/4b42954ee1ab0fe041ec70d3fc2d763be98ce0adc90b1ce19bebb309e822ebdf9606548fc1956e32b96b2a9278a077809065dff05bd42d593d7620e363f9d15e
+  languageName: node
+  linkType: hard
+
+"@dagrejs/graphlib@npm:4.0.1":
+  version: 4.0.1
+  resolution: "@dagrejs/graphlib@npm:4.0.1"
+  checksum: 10/2b013162e42b3d26633e2edc8f83ec36390312d10bb1c57e805708d23229a1b5c59ff95b52b29915b44a84857bfbbe327d502aed0ac1b5326c9235c983015c08
+  languageName: node
+  linkType: hard
+
 "@datadog/pprof@npm:^5.13.3":
   version: 5.14.1
   resolution: "@datadog/pprof@npm:5.14.1"
@@ -7692,6 +7708,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
+    "@dagrejs/dagre": "npm:^3.0.0"
     "@mikro-orm/core": "npm:^7.1.5"
     "@mikro-orm/decorators": "npm:^7.1.5"
     "@mikro-orm/postgresql": "npm:^7.1.5"
