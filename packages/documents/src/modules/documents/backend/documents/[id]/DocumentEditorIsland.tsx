@@ -6,11 +6,17 @@ import { EditorContent, useEditor } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import {
+  AlignCenter,
+  AlignJustify,
+  AlignLeft,
+  AlignRight,
   Bold,
   Code2,
+  Database,
   Heading1,
   Heading2,
   Heading3,
+  Highlighter,
   ImagePlus,
   Italic,
   Link2,
@@ -19,18 +25,30 @@ import {
   ListTodo,
   Loader2,
   MessageSquare,
+  Palette,
+  PanelLeft,
   Pilcrow,
+  Redo2,
   Save,
   Strikethrough,
   Table2,
   Underline,
   Unlink,
+  Undo2,
+  X,
 } from 'lucide-react'
 import * as Y from 'yjs'
-import { getCollaborativeEditorExtensions, getDocumentEditorExtensions } from '../../../lib/editorConfig'
+import {
+  getClientEditorExtras,
+  getCollaborativeEditorExtensions,
+  getDocumentEditorExtensions,
+  type EntityRefAttributes,
+} from '../../../lib/editorConfig'
+import { createEntitySuggestionExtension, insertEntityRef } from '../../../lib/entitySuggestion'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -40,14 +58,45 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { EntityPicker } from '../components/EntityPicker'
+import { OutlinePane } from './OutlinePane'
 
 const COLLAB_CONNECTION_TIMEOUT_MS = 6000
+const TITLE_MAX_LENGTH = 512
+
+const HIGHLIGHT_COLORS = [
+  { value: '#fef08a', labelKey: 'documents.editor.colors.yellow' },
+  { value: '#bbf7d0', labelKey: 'documents.editor.colors.green' },
+  { value: '#bfdbfe', labelKey: 'documents.editor.colors.blue' },
+  { value: '#e9d5ff', labelKey: 'documents.editor.colors.purple' },
+  { value: '#fbcfe8', labelKey: 'documents.editor.colors.pink' },
+  { value: '#fed7aa', labelKey: 'documents.editor.colors.orange' },
+  { value: '#fecaca', labelKey: 'documents.editor.colors.red' },
+  { value: '#e5e7eb', labelKey: 'documents.editor.colors.gray' },
+] as const
+
+const TEXT_COLORS = [
+  { value: '#111827', labelKey: 'documents.editor.colors.black' },
+  { value: '#dc2626', labelKey: 'documents.editor.colors.red' },
+  { value: '#ea580c', labelKey: 'documents.editor.colors.orange' },
+  { value: '#ca8a04', labelKey: 'documents.editor.colors.yellow' },
+  { value: '#16a34a', labelKey: 'documents.editor.colors.green' },
+  { value: '#2563eb', labelKey: 'documents.editor.colors.blue' },
+  { value: '#7c3aed', labelKey: 'documents.editor.colors.purple' },
+  { value: '#db2777', labelKey: 'documents.editor.colors.pink' },
+] as const
 
 type ContentResponse = {
   contentHtml?: string | null
   content_html?: string | null
   contentText?: string | null
   content_text?: string | null
+  updatedAt?: string | null
+  updated_at?: string | null
+}
+
+type DocumentMetadataUpdateResponse = {
+  id?: string | null
   updatedAt?: string | null
   updated_at?: string | null
 }
@@ -97,6 +146,16 @@ type EditorSelectionRange = {
   to: number
 }
 
+type EditorWordCount = {
+  words: number
+  characters: number
+}
+
+type CharacterCountStorage = {
+  words: () => number
+  characters: () => number
+}
+
 type CollabState =
   | { mode: 'connecting' }
   | { mode: 'fallback' }
@@ -112,9 +171,11 @@ type DocumentEditorIslandProps = {
   title: string
   initialContentHtml: string
   initialUpdatedAt?: string | null
+  documentUpdatedAt?: string | null
   readOnly: boolean
   onEditorReady?: (editor: Editor | null) => void
   onComment?: (selection: EditorSelectionRange) => void
+  onTitleChange?: (title: string, updatedAt: string | null) => void
 }
 
 type DocumentEditorSurfaceProps = DocumentEditorIslandProps & {
@@ -157,6 +218,43 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
 function readUpdatedAt(payload: ContentResponse | null): string | null {
   if (!payload) return null
   return payload.updatedAt ?? payload.updated_at ?? null
+}
+
+function readDocumentUpdatedAt(payload: DocumentMetadataUpdateResponse | null): string | null {
+  if (!payload) return null
+  return payload.updatedAt ?? payload.updated_at ?? null
+}
+
+function readCharacterCountStorage(editor: Editor): CharacterCountStorage | null {
+  const storage = editor.storage as unknown as Record<string, unknown>
+  const candidate = storage.characterCount
+  if (!candidate || typeof candidate !== 'object') return null
+  const record = candidate as Record<string, unknown>
+  if (typeof record.words !== 'function' || typeof record.characters !== 'function') return null
+  return {
+    words: record.words as () => number,
+    characters: record.characters as () => number,
+  }
+}
+
+function readEditorWordCount(editor: Editor | null): EditorWordCount {
+  if (!editor) return { words: 0, characters: 0 }
+  const characterCount = readCharacterCountStorage(editor)
+  if (!characterCount) return { words: 0, characters: 0 }
+  return {
+    words: characterCount.words(),
+    characters: characterCount.characters(),
+  }
+}
+
+function findEntityRefElement(target: EventTarget | null): HTMLElement | null {
+  if (!(target instanceof Element)) return null
+  const element = target.closest('span[data-entity-ref]')
+  return element instanceof HTMLElement ? element : null
+}
+
+function createApiCallError(message: string, status: number, body: unknown): Error & { status: number; body: unknown } {
+  return Object.assign(new Error(message), { status, body })
 }
 
 function readAttachmentUrl(documentId: string, payload: AttachmentUploadResponse | null): string | null {
@@ -334,6 +432,25 @@ const COLLAB_PRESENCE_STYLE = `
 .om-doc-collab .ProseMirror-yjs-selection {
   border-radius: 2px;
 }
+.ProseMirror .om-entity-ref {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  vertical-align: baseline;
+  background: color-mix(in oklab, var(--primary) 12%, transparent);
+  color: var(--primary);
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent);
+  border-radius: var(--radius-sm, 0.25rem);
+  padding: 0 0.375em;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  cursor: default;
+}
+.ProseMirror .om-entity-ref:hover {
+  background: color-mix(in oklab, var(--primary) 18%, transparent);
+  border-color: color-mix(in oklab, var(--primary) 34%, transparent);
+}
 @keyframes om-doc-caret-flag {
   0% { opacity: 0; transform: translateY(3px); }
   8%, 52% { opacity: 1; transform: translateY(0); }
@@ -374,6 +491,38 @@ function ToolbarButton({
       onClick={onClick}
     >
       {icon}
+    </IconButton>
+  )
+}
+
+type SwatchButtonProps = {
+  label: string
+  color: string | null
+  active?: boolean
+  onClick: () => void
+}
+
+function SwatchButton({ label, color, active = false, onClick }: SwatchButtonProps) {
+  return (
+    <IconButton
+      type="button"
+      size="sm"
+      variant={active ? 'outline' : 'ghost'}
+      aria-label={label}
+      aria-pressed={active}
+      title={label}
+      onMouseDown={(event) => event.preventDefault()}
+      onClick={onClick}
+    >
+      {color ? (
+        <span
+          className="size-4 rounded-sm border border-border"
+          style={{ backgroundColor: color }}
+          aria-hidden="true"
+        />
+      ) : (
+        <X className="size-4" aria-hidden="true" />
+      )}
     </IconButton>
   )
 }
@@ -424,9 +573,11 @@ function DocumentEditorSurface({
   title,
   initialContentHtml,
   initialUpdatedAt,
+  documentUpdatedAt,
   readOnly,
   onEditorReady,
   onComment,
+  onTitleChange,
   editorMode,
   collabResources,
   connectionStatus,
@@ -438,9 +589,20 @@ function DocumentEditorSurface({
   const editorRef = React.useRef<Editor | null>(null)
   const saveTimerRef = React.useRef<number | null>(null)
   const updatedAtRef = React.useRef<string | null>(initialUpdatedAt ?? null)
+  const entityPickerOpenRef = React.useRef(false)
+  const committedTitleRef = React.useRef(title)
+  const documentUpdatedAtRef = React.useRef<string | null>(documentUpdatedAt ?? null)
   const [linkEditorOpen, setLinkEditorOpen] = React.useState(false)
   const [linkHref, setLinkHref] = React.useState('')
   const [isUploadingImage, setIsUploadingImage] = React.useState(false)
+  const [entityPickerOpen, setEntityPickerOpen] = React.useState(false)
+  const [pendingSuggestionRange, setPendingSuggestionRange] = React.useState<EditorSelectionRange | null>(null)
+  const [highlightPickerOpen, setHighlightPickerOpen] = React.useState(false)
+  const [textColorPickerOpen, setTextColorPickerOpen] = React.useState(false)
+  const [outlineOpen, setOutlineOpen] = React.useState(false)
+  const [wordCount, setWordCount] = React.useState<EditorWordCount>({ words: 0, characters: 0 })
+  const [titleValue, setTitleValue] = React.useState(title)
+  const [isRenamingTitle, setIsRenamingTitle] = React.useState(false)
 
   const mutationContextId = `documents-editor:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -454,17 +616,39 @@ function DocumentEditorSurface({
   })
 
   const effectiveReadOnly = readOnly || editorMode === 'fallback'
+  const handleEntitySuggestionTrigger = React.useCallback((ctx: { query: string; range: EditorSelectionRange }) => {
+    setPendingSuggestionRange(ctx.range)
+    entityPickerOpenRef.current = true
+    setEntityPickerOpen(true)
+  }, [])
+  const handleEntitySuggestionClose = React.useCallback(() => {
+    if (!entityPickerOpenRef.current) setPendingSuggestionRange(null)
+  }, [])
   const extensions = React.useMemo(() => {
+    const entitySuggestionExtensions = readOnly
+      ? []
+      : [createEntitySuggestionExtension({
+        onTrigger: handleEntitySuggestionTrigger,
+        onClose: handleEntitySuggestionClose,
+      })]
     if (editorMode === 'collab' && collabResources) {
-      return getCollaborativeEditorExtensions({
-        ydoc: collabResources.ydoc,
-        provider: collabResources.provider,
-        user: { name: collabResources.user.name, color: collabResources.user.color },
-        placeholder: t('documents.editor.placeholder', 'Start writing…'),
-      })
+      return [
+        ...getCollaborativeEditorExtensions({
+          ydoc: collabResources.ydoc,
+          provider: collabResources.provider,
+          user: { name: collabResources.user.name, color: collabResources.user.color },
+          placeholder: t('documents.editor.placeholder', 'Start writing…'),
+        }),
+        ...getClientEditorExtras(),
+        ...entitySuggestionExtensions,
+      ]
     }
-    return getDocumentEditorExtensions()
-  }, [collabResources, editorMode, t])
+    return [
+      ...getDocumentEditorExtensions(),
+      ...getClientEditorExtras(),
+      ...entitySuggestionExtensions,
+    ]
+  }, [collabResources, editorMode, handleEntitySuggestionClose, handleEntitySuggestionTrigger, readOnly, t])
 
   const saveContent = React.useCallback(async () => {
     const editor = editorRef.current
@@ -521,28 +705,53 @@ function DocumentEditorSurface({
       attributes: {
         class: 'min-h-96 text-base leading-7 text-foreground focus-visible:outline-none',
       },
+      handleClick(_view, _pos, event) {
+        const entityRefElement = findEntityRefElement(event.target)
+        if (!entityRefElement || (!event.metaKey && !event.ctrlKey)) return false
+        const href = entityRefElement.dataset.href
+        if (!href) return false
+        window.open(href, '_blank', 'noopener')
+        return true
+      },
     },
     onCreate: ({ editor: createdEditor }) => {
       editorRef.current = createdEditor
+      setWordCount(readEditorWordCount(createdEditor))
       onEditorReady?.(createdEditor)
     },
     onDestroy: () => {
       editorRef.current = null
+      setWordCount({ words: 0, characters: 0 })
       onEditorReady?.(null)
     },
     onUpdate: ({ editor: updatedEditor }) => {
       editorRef.current = updatedEditor
+      setWordCount(readEditorWordCount(updatedEditor))
       scheduleAutosave()
     },
   }, [documentId, editorMode, extensions, initialContentHtml])
 
   React.useEffect(() => {
     editorRef.current = editor
+    setWordCount(readEditorWordCount(editor))
   }, [editor])
 
   React.useEffect(() => {
     updatedAtRef.current = initialUpdatedAt ?? null
   }, [initialUpdatedAt])
+
+  React.useEffect(() => {
+    entityPickerOpenRef.current = entityPickerOpen
+  }, [entityPickerOpen])
+
+  React.useEffect(() => {
+    committedTitleRef.current = title
+    setTitleValue(title)
+  }, [title])
+
+  React.useEffect(() => {
+    documentUpdatedAtRef.current = documentUpdatedAt ?? null
+  }, [documentUpdatedAt])
 
   React.useEffect(() => {
     if (!editor) return
@@ -633,6 +842,134 @@ function DocumentEditorSurface({
     }
   }, [documentId, effectiveReadOnly, mutationContextId, retryLastMutation, runMutation, scheduleAutosave, t])
 
+  const handleEntityPickerOpenChange = React.useCallback((open: boolean) => {
+    entityPickerOpenRef.current = open
+    setEntityPickerOpen(open)
+    if (!open) setPendingSuggestionRange(null)
+  }, [])
+
+  const openEntityPicker = React.useCallback(() => {
+    setPendingSuggestionRange(null)
+    entityPickerOpenRef.current = true
+    setEntityPickerOpen(true)
+  }, [])
+
+  const handleEntityPick = React.useCallback((pick: { type: string; id: string; label: string; href: string | null }) => {
+    const currentEditor = editorRef.current
+    if (!currentEditor || effectiveReadOnly) return
+    const attrs: EntityRefAttributes = {
+      entityType: pick.type,
+      entityId: pick.id,
+      label: pick.label,
+      href: pick.href,
+    }
+    if (pendingSuggestionRange) {
+      currentEditor.chain().focus().deleteRange(pendingSuggestionRange).run()
+    }
+    insertEntityRef(currentEditor, attrs)
+    entityPickerOpenRef.current = false
+    setEntityPickerOpen(false)
+    setPendingSuggestionRange(null)
+  }, [effectiveReadOnly, pendingSuggestionRange])
+
+  const applyHighlight = React.useCallback((color: string) => {
+    runCommand((currentEditor) => currentEditor.chain().focus().setHighlight({ color }).run())
+    setHighlightPickerOpen(false)
+  }, [runCommand])
+
+  const clearHighlight = React.useCallback(() => {
+    runCommand((currentEditor) => currentEditor.chain().focus().unsetHighlight().run())
+    setHighlightPickerOpen(false)
+  }, [runCommand])
+
+  const applyTextColor = React.useCallback((color: string) => {
+    runCommand((currentEditor) => currentEditor.chain().focus().setColor(color).run())
+    setTextColorPickerOpen(false)
+  }, [runCommand])
+
+  const clearTextColor = React.useCallback(() => {
+    runCommand((currentEditor) => currentEditor.chain().focus().unsetColor().run())
+    setTextColorPickerOpen(false)
+  }, [runCommand])
+
+  const commitTitle = React.useCallback(async () => {
+    if (readOnly || isRenamingTitle) return
+    const nextTitle = titleValue.trim()
+    const currentTitle = committedTitleRef.current
+    if (nextTitle.length === 0 || nextTitle === currentTitle) {
+      setTitleValue(currentTitle)
+      return
+    }
+
+    setIsRenamingTitle(true)
+    try {
+      const call = await runMutation({
+        operation: async () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(documentUpdatedAtRef.current),
+            async () => {
+              const result = await apiCall<DocumentMetadataUpdateResponse>(
+                `/api/documents/${encodeURIComponent(documentId)}`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ id: documentId, title: nextTitle }),
+                },
+              )
+              if (!result.ok) {
+                throw createApiCallError(t('documents.editor.error.rename'), result.status, result.result)
+              }
+              return result
+            },
+          ),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'documents.document',
+          resourceId: documentId,
+          retryLastMutation,
+        },
+        mutationPayload: { id: documentId, title: nextTitle },
+      })
+      const nextUpdatedAt = readDocumentUpdatedAt(call.result) ?? documentUpdatedAtRef.current
+      committedTitleRef.current = nextTitle
+      documentUpdatedAtRef.current = nextUpdatedAt
+      setTitleValue(nextTitle)
+      onTitleChange?.(nextTitle, nextUpdatedAt)
+    } catch (err) {
+      if (surfaceRecordConflict(err, t)) {
+        flash(t('ui.forms.flash.recordModified'), 'error')
+      } else {
+        flash(err instanceof Error ? err.message : t('documents.editor.error.rename'), 'error')
+      }
+      setTitleValue(committedTitleRef.current)
+    } finally {
+      setIsRenamingTitle(false)
+    }
+  }, [
+    documentId,
+    isRenamingTitle,
+    mutationContextId,
+    onTitleChange,
+    readOnly,
+    retryLastMutation,
+    runMutation,
+    t,
+    titleValue,
+  ])
+
+  const handleTitleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      event.currentTarget.blur()
+      return
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      setTitleValue(committedTitleRef.current)
+      event.currentTarget.blur()
+    }
+  }, [])
+
   const connectionLabel = React.useMemo(() => {
     if (editorMode === 'fallback') return t('documents.editor.realtime.offline')
     if (connectionStatus === 'connected') return t('documents.editor.realtime.connected')
@@ -654,15 +991,39 @@ function DocumentEditorSurface({
     : readOnly
       ? t('documents.editor.readOnly')
       : null
+  const activeTextColor = editor ? editor.getAttributes('textStyle').color : null
+  const currentTextColor = typeof activeTextColor === 'string' ? activeTextColor : null
+  const activeHighlightColor = editor ? editor.getAttributes('highlight').color : null
+  const currentHighlightColor = typeof activeHighlightColor === 'string' ? activeHighlightColor : null
 
   return (
     <div className={cn('space-y-3', editorMode === 'collab' ? 'om-doc-collab' : null)}>
-      {editorMode === 'collab' ? (
-        <style dangerouslySetInnerHTML={{ __html: COLLAB_PRESENCE_STYLE }} />
-      ) : null}
+      <style dangerouslySetInnerHTML={{ __html: COLLAB_PRESENCE_STYLE }} />
       <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
         <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
           <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+            <ToolbarGroup>
+              <ToolbarButton
+                label={t('documents.editor.toolbar.undo')}
+                icon={<Undo2 />}
+                disabled={toolbarDisabled || !(editor?.can().undo() ?? false)}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().undo().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.redo')}
+                icon={<Redo2 />}
+                disabled={toolbarDisabled || !(editor?.can().redo() ?? false)}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().redo().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.outline')}
+                icon={<PanelLeft />}
+                active={outlineOpen}
+                disabled={!editor}
+                onClick={() => setOutlineOpen((current) => !current)}
+              />
+            </ToolbarGroup>
+            <ToolbarDivider />
             <ToolbarGroup>
               <ToolbarButton
                 label={t('documents.editor.toolbar.paragraph')}
@@ -696,6 +1057,37 @@ function DocumentEditorSurface({
             <ToolbarDivider />
             <ToolbarGroup>
               <ToolbarButton
+                label={t('documents.editor.toolbar.alignLeft')}
+                icon={<AlignLeft />}
+                active={editor?.isActive({ textAlign: 'left' }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setTextAlign('left').run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.alignCenter')}
+                icon={<AlignCenter />}
+                active={editor?.isActive({ textAlign: 'center' }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setTextAlign('center').run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.alignRight')}
+                icon={<AlignRight />}
+                active={editor?.isActive({ textAlign: 'right' }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setTextAlign('right').run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.alignJustify')}
+                icon={<AlignJustify />}
+                active={editor?.isActive({ textAlign: 'justify' }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setTextAlign('justify').run())}
+              />
+            </ToolbarGroup>
+            <ToolbarDivider />
+            <ToolbarGroup>
+              <ToolbarButton
                 label={t('documents.editor.toolbar.bold')}
                 icon={<Bold />}
                 active={editor?.isActive('bold') ?? false}
@@ -723,6 +1115,78 @@ function DocumentEditorSurface({
                 disabled={toolbarDisabled}
                 onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleStrike().run())}
               />
+              <div className="relative">
+                <ToolbarButton
+                  label={t('documents.editor.toolbar.highlight')}
+                  icon={<Highlighter />}
+                  active={currentHighlightColor !== null}
+                  disabled={toolbarDisabled}
+                  onClick={() => {
+                    setHighlightPickerOpen((current) => !current)
+                    setTextColorPickerOpen(false)
+                  }}
+                />
+                {highlightPickerOpen ? (
+                  <div
+                    className="absolute left-0 top-full z-popover mt-2 flex items-center gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setHighlightPickerOpen(false)
+                    }}
+                  >
+                    <SwatchButton
+                      label={t('documents.editor.toolbar.highlightNone')}
+                      color={null}
+                      active={currentHighlightColor === null}
+                      onClick={clearHighlight}
+                    />
+                    {HIGHLIGHT_COLORS.map((option) => (
+                      <SwatchButton
+                        key={option.value}
+                        label={t('documents.editor.toolbar.highlightColor', { color: t(option.labelKey) })}
+                        color={option.value}
+                        active={currentHighlightColor?.toLowerCase() === option.value}
+                        onClick={() => applyHighlight(option.value)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+              <div className="relative">
+                <ToolbarButton
+                  label={t('documents.editor.toolbar.textColor')}
+                  icon={<Palette />}
+                  active={currentTextColor !== null}
+                  disabled={toolbarDisabled}
+                  onClick={() => {
+                    setTextColorPickerOpen((current) => !current)
+                    setHighlightPickerOpen(false)
+                  }}
+                />
+                {textColorPickerOpen ? (
+                  <div
+                    className="absolute left-0 top-full z-popover mt-2 flex items-center gap-1 rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-lg"
+                    onKeyDown={(event) => {
+                      if (event.key === 'Escape') setTextColorPickerOpen(false)
+                    }}
+                  >
+                    <SwatchButton
+                      label={t('documents.editor.toolbar.textColorDefault')}
+                      color={null}
+                      active={currentTextColor === null}
+                      onClick={clearTextColor}
+                    />
+                    {TEXT_COLORS.map((option) => (
+                      <SwatchButton
+                        key={option.value}
+                        label={t('documents.editor.toolbar.textColorValue', { color: t(option.labelKey) })}
+                        color={option.value}
+                        active={currentTextColor?.toLowerCase() === option.value}
+                        onClick={() => applyTextColor(option.value)}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+              </div>
             </ToolbarGroup>
             <ToolbarDivider />
             <ToolbarGroup>
@@ -761,6 +1225,12 @@ function DocumentEditorSurface({
                 }
               />
               <ToolbarButton
+                label={t('documents.editor.toolbar.insertRecord')}
+                icon={<Database />}
+                disabled={toolbarDisabled}
+                onClick={openEntityPicker}
+              />
+              <ToolbarButton
                 label={t('documents.editor.toolbar.link')}
                 icon={<Link2 />}
                 active={editor?.isActive('link') ?? false}
@@ -783,6 +1253,9 @@ function DocumentEditorSurface({
             </ToolbarGroup>
             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
               <PresenceAvatars users={presenceUsers} />
+              <span className="text-xs text-muted-foreground">
+                {t('documents.editor.wordCount', { words: wordCount.words, characters: wordCount.characters })}
+              </span>
               <ConnectionStatusPill status={resolvedConnectionStatus} label={connectionLabel} />
               <Button
                 type="button"
@@ -843,71 +1316,93 @@ function DocumentEditorSurface({
               {readOnlyMessage}
             </p>
           ) : null}
-          <article className="mx-auto min-h-96 max-w-3xl rounded-lg bg-card px-6 py-8 shadow-lg md:px-12 md:py-16">
-            <h1 className="mb-8 text-3xl font-semibold leading-tight text-foreground">{title}</h1>
-            {editor ? (
-              <BubbleMenu
-                editor={editor}
-                shouldShow={shouldShowBubbleMenu}
-                className="z-popover flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow-md"
-              >
-                <ToolbarButton
-                  size="sm"
-                  label={t('documents.editor.toolbar.bold')}
-                  icon={<Bold />}
-                  active={editor.isActive('bold')}
-                  disabled={effectiveReadOnly}
-                  onMouseDown={keepBubbleSelectionOnMouseDown}
-                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}
+          <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-start">
+            {outlineOpen ? <OutlinePane editor={editor} /> : null}
+            <article className="mx-auto min-h-96 max-w-3xl flex-1 rounded-lg bg-card px-6 py-8 shadow-lg md:px-12 md:py-16">
+              {readOnly ? (
+                <h1 className="mb-8 text-3xl font-semibold leading-tight text-foreground">{titleValue}</h1>
+              ) : (
+                <Input
+                  value={titleValue}
+                  onChange={(event) => setTitleValue(event.target.value)}
+                  onBlur={() => void commitTitle()}
+                  onKeyDown={handleTitleKeyDown}
+                  maxLength={TITLE_MAX_LENGTH}
+                  disabled={isRenamingTitle}
+                  aria-label={t('documents.editor.title.ariaLabel')}
+                  className="mb-8 h-auto border-0 bg-transparent px-0 py-0 text-3xl font-semibold leading-tight text-foreground shadow-none focus-visible:shadow-focus"
                 />
-                <ToolbarButton
-                  size="sm"
-                  label={t('documents.editor.toolbar.italic')}
-                  icon={<Italic />}
-                  active={editor.isActive('italic')}
-                  disabled={effectiveReadOnly}
-                  onMouseDown={keepBubbleSelectionOnMouseDown}
-                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}
-                />
-                <ToolbarButton
-                  size="sm"
-                  label={t('documents.editor.toolbar.underline')}
-                  icon={<Underline />}
-                  active={editor.isActive('underline')}
-                  disabled={effectiveReadOnly}
-                  onMouseDown={keepBubbleSelectionOnMouseDown}
-                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleMark('underline').run())}
-                />
-                <ToolbarButton
-                  size="sm"
-                  label={t('documents.editor.toolbar.link')}
-                  icon={<Link2 />}
-                  active={editor.isActive('link')}
-                  disabled={effectiveReadOnly}
-                  onMouseDown={keepBubbleSelectionOnMouseDown}
-                  onClick={openLinkEditor}
-                />
-                {onComment ? (
-                  <>
-                    <ToolbarDivider />
-                    <Button
-                      type="button"
-                      size="2xs"
-                      variant="ghost"
-                      onMouseDown={keepBubbleSelectionOnMouseDown}
-                      onClick={handleCommentSelection}
-                    >
-                      <MessageSquare />
-                      {t('documents.editor.toolbar.comment', 'Comment')}
-                    </Button>
-                  </>
-                ) : null}
-              </BubbleMenu>
-            ) : null}
-            <EditorContent className={DOCUMENT_EDITOR_CONTENT_CLASS} editor={editor} />
-          </article>
+              )}
+              {editor ? (
+                <BubbleMenu
+                  editor={editor}
+                  shouldShow={shouldShowBubbleMenu}
+                  className="z-popover flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow-md"
+                >
+                  <ToolbarButton
+                    size="sm"
+                    label={t('documents.editor.toolbar.bold')}
+                    icon={<Bold />}
+                    active={editor.isActive('bold')}
+                    disabled={effectiveReadOnly}
+                    onMouseDown={keepBubbleSelectionOnMouseDown}
+                    onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}
+                  />
+                  <ToolbarButton
+                    size="sm"
+                    label={t('documents.editor.toolbar.italic')}
+                    icon={<Italic />}
+                    active={editor.isActive('italic')}
+                    disabled={effectiveReadOnly}
+                    onMouseDown={keepBubbleSelectionOnMouseDown}
+                    onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}
+                  />
+                  <ToolbarButton
+                    size="sm"
+                    label={t('documents.editor.toolbar.underline')}
+                    icon={<Underline />}
+                    active={editor.isActive('underline')}
+                    disabled={effectiveReadOnly}
+                    onMouseDown={keepBubbleSelectionOnMouseDown}
+                    onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleMark('underline').run())}
+                  />
+                  <ToolbarButton
+                    size="sm"
+                    label={t('documents.editor.toolbar.link')}
+                    icon={<Link2 />}
+                    active={editor.isActive('link')}
+                    disabled={effectiveReadOnly}
+                    onMouseDown={keepBubbleSelectionOnMouseDown}
+                    onClick={openLinkEditor}
+                  />
+                  {onComment ? (
+                    <>
+                      <ToolbarDivider />
+                      <Button
+                        type="button"
+                        size="2xs"
+                        variant="ghost"
+                        onMouseDown={keepBubbleSelectionOnMouseDown}
+                        onClick={handleCommentSelection}
+                      >
+                        <MessageSquare />
+                        {t('documents.editor.toolbar.comment', 'Comment')}
+                      </Button>
+                    </>
+                  ) : null}
+                </BubbleMenu>
+              ) : null}
+              <EditorContent className={DOCUMENT_EDITOR_CONTENT_CLASS} editor={editor} />
+            </article>
+          </div>
         </div>
       </div>
+
+      <EntityPicker
+        open={entityPickerOpen}
+        onOpenChange={handleEntityPickerOpenChange}
+        onPick={handleEntityPick}
+      />
 
       <input
         ref={fileInputRef}
@@ -926,9 +1421,11 @@ export default function DocumentEditorIsland({
   title,
   initialContentHtml,
   initialUpdatedAt,
+  documentUpdatedAt,
   readOnly,
   onEditorReady,
   onComment,
+  onTitleChange,
 }: DocumentEditorIslandProps) {
   const t = useT()
   const resourcesRef = React.useRef<CollabResources | null>(null)
@@ -1086,9 +1583,11 @@ export default function DocumentEditorIsland({
         title={title}
         initialContentHtml={initialContentHtml}
         initialUpdatedAt={initialUpdatedAt}
+        documentUpdatedAt={documentUpdatedAt}
         readOnly={readOnly}
         onEditorReady={onEditorReady}
         onComment={onComment}
+        onTitleChange={onTitleChange}
         editorMode="fallback"
         connectionStatus="offline"
         presenceUsers={[]}
@@ -1103,9 +1602,11 @@ export default function DocumentEditorIsland({
       title={title}
       initialContentHtml={initialContentHtml}
       initialUpdatedAt={initialUpdatedAt}
+      documentUpdatedAt={documentUpdatedAt}
       readOnly={readOnly}
       onEditorReady={onEditorReady}
       onComment={onComment}
+      onTitleChange={onTitleChange}
       editorMode="collab"
       collabResources={collabState.resources}
       connectionStatus={collabState.connectionStatus}

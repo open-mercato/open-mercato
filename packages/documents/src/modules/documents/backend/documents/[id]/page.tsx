@@ -212,6 +212,20 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
     }))
   }, [])
 
+  const handleTitleChange = React.useCallback((title: string, updatedAt: string | null) => {
+    setState((current) => {
+      if (current.status !== 'ready') return current
+      return {
+        ...current,
+        document: {
+          ...current.document,
+          title,
+          updatedAt,
+        },
+      }
+    })
+  }, [])
+
   if (state.status === 'loading') {
     return (
       <Page>
@@ -293,9 +307,11 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
               title={state.document.title}
               initialContentHtml={state.content.contentHtml}
               initialUpdatedAt={state.content.updatedAt ?? state.document.updatedAt ?? null}
+              documentUpdatedAt={state.document.updatedAt ?? null}
               readOnly={readOnly}
               onEditorReady={setEditor}
               onComment={canComment ? handleEditorComment : undefined}
+              onTitleChange={handleTitleChange}
             />
           </div>
           <aside className="space-y-4 md:w-80 md:shrink-0">

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { assertTier, resolveUserAccess } from '../../../../lib/permissions'
+import { resolveUserLabels } from '../../../../lib/userLabels'
 import {
   handleDocumentsRouteError,
   readBody,
@@ -19,6 +20,13 @@ const accessCheckSchema = z.object({
 
 const accessCheckResponseSchema = z.object({
   withoutAccess: z.array(z.string().uuid()),
+  withoutAccessUsers: z.array(
+    z.object({
+      userId: z.string().uuid(),
+      label: z.string().nullable(),
+      secondary: z.string().nullable(),
+    }),
+  ),
 })
 
 export const metadata = {
@@ -48,8 +56,21 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       )
       if (!tier) withoutAccess.push(userId)
     }
+    const labels = await resolveUserLabels(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      withoutAccess,
+    )
+    const withoutAccessUsers = withoutAccess.map((userId) => {
+      const label = labels.get(userId) ?? null
+      return {
+        userId,
+        label: label?.label ?? null,
+        secondary: label?.secondary ?? null,
+      }
+    })
 
-    return NextResponse.json({ withoutAccess })
+    return NextResponse.json({ withoutAccess, withoutAccessUsers })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.accessCheck')
   }

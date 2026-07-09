@@ -12,6 +12,7 @@ import { documentCommentCreateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { emitDocumentsEvent } from '../../../events'
 import { assertTier, hasTier, resolveUserAccess } from '../../../lib/permissions'
+import { resolveUserLabels } from '../../../lib/userLabels'
 import {
   hasDocumentsFeature,
   handleDocumentsRouteError,
@@ -35,6 +36,7 @@ type SerializedComment = {
   authorUserId: string
   body: string
   anchor: Record<string, unknown> | null
+  mentions: { userId: string }[]
   resolvedAt: string | null
   resolvedByUserId: string | null
   createdAt: string
@@ -47,6 +49,15 @@ const commentResolveSchema = z.object({
   resolved: z.boolean(),
 })
 
+const commentMentionSchema = z.object({
+  userId: z.string().uuid(),
+})
+
+const userLabelSchema = z.object({
+  label: z.string(),
+  secondary: z.string().nullable().optional(),
+})
+
 const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
   z.object({
     id: z.string().uuid(),
@@ -55,6 +66,7 @@ const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
     authorUserId: z.string().uuid(),
     body: z.string(),
     anchor: z.record(z.string(), z.unknown()).nullable(),
+    mentions: z.array(commentMentionSchema),
     resolvedAt: z.string().nullable(),
     resolvedByUserId: z.string().uuid().nullable(),
     createdAt: z.string(),
@@ -65,6 +77,7 @@ const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
 
 const commentListResponseSchema = z.object({
   items: z.array(commentNodeSchema),
+  userLabels: z.record(z.string(), userLabelSchema),
 })
 
 const commentCreateResponseSchema = z.object({
@@ -98,6 +111,7 @@ function serializeComment(comment: DocumentComment): SerializedComment {
     authorUserId: comment.authorUserId,
     body: comment.body,
     anchor: comment.anchor ?? null,
+    mentions: comment.mentions ?? [],
     resolvedAt: comment.resolvedAt ? comment.resolvedAt.toISOString() : null,
     resolvedByUserId: comment.resolvedByUserId ?? null,
     createdAt: comment.createdAt.toISOString(),
@@ -138,6 +152,23 @@ function extractMentionedUserIds(body: string): string[] {
         .map((value) => value.toLowerCase()),
     ),
   )
+}
+
+function dedupeUserIds(userIds: string[]): string[] {
+  return Array.from(new Set(userIds.map((userId) => userId.toLowerCase())))
+}
+
+function collectCommentLabelUserIds(comments: DocumentComment[]): string[] {
+  const userIds: string[] = []
+  for (const comment of comments) {
+    userIds.push(comment.authorUserId)
+    if (comment.resolvedByUserId) userIds.push(comment.resolvedByUserId)
+    for (const mention of comment.mentions ?? []) {
+      userIds.push(mention.userId)
+    }
+    userIds.push(...extractMentionedUserIds(comment.body))
+  }
+  return dedupeUserIds(userIds)
 }
 
 async function loadScopedComment(documentId: string, commentId: string, ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>): Promise<DocumentComment> {
@@ -272,8 +303,16 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       },
       { orderBy: { createdAt: 'ASC' } },
     )
+    const userLabels = await resolveUserLabels(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      collectCommentLabelUserIds(comments),
+    )
 
-    return NextResponse.json({ items: buildThreadedComments(comments) })
+    return NextResponse.json({
+      items: buildThreadedComments(comments),
+      userLabels: Object.fromEntries(userLabels.entries()),
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.list')
   }
@@ -288,6 +327,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const input = documentCommentCreateSchema.parse(await readBody(request))
     await assertParentComment(documentId, input.parentCommentId, ctx)
     const userId = resolveActorUserId(ctx.auth)
+    const mentionUserIds = dedupeUserIds([
+      ...(input.mentions ?? []).map((mention) => mention.userId),
+      ...extractMentionedUserIds(input.body),
+    ])
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: documentId,
@@ -304,6 +347,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       authorUserId: userId,
       body: input.body,
       anchor: input.anchor ?? null,
+      mentions: mentionUserIds.length > 0
+        ? mentionUserIds.map((mentionedUserId) => ({ userId: mentionedUserId }))
+        : null,
     })
     ctx.em.persist(comment)
     await ctx.em.flush()
@@ -315,14 +361,13 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       organizationId: ctx.organizationId,
       userId,
     })
-    const mentionedIds = extractMentionedUserIds(comment.body)
     const canShare =
       hasDocumentsFeature(ctx.auth, 'documents.share')
       || hasDocumentsFeature(ctx.auth, 'documents.manage')
       || document.ownerUserId === userId
     const grantSet = new Set((input.grantAccessTo ?? []).map((id) => id.toLowerCase()))
 
-    for (const mentionedId of mentionedIds) {
+    for (const mentionedId of mentionUserIds) {
       if (!grantSet.has(mentionedId) || !canShare) continue
       const tier = await resolveUserAccess(
         ctx.em,
@@ -344,7 +389,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     }
 
     const notifyMentionedIds: string[] = []
-    for (const mentionedId of mentionedIds) {
+    for (const mentionedId of mentionUserIds) {
       const tier = await resolveUserAccess(
         ctx.em,
         documentId,
@@ -437,7 +482,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     POST: {
       summary: 'Create document comment',
-      description: 'Mentions use bracketed user-id tokens in the comment body: @[user-uuid].',
+      description: 'Mentions may be sent out-of-band as mentions: [{ userId }]. Legacy bracketed @[user-uuid] tokens in the comment body are still honored.',
       requestBody: { contentType: 'application/json', schema: documentCommentCreateSchema },
       responses: [{ status: 201, description: 'Comment created', schema: commentCreateResponseSchema }],
       errors: [

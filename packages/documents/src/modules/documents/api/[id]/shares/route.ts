@@ -6,13 +6,13 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import { DocumentShare } from '../../../data/entities'
 import { documentShareCreateSchema, documentShareUpdateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { emitDocumentsEvent } from '../../../events'
 import { assertTier } from '../../../lib/permissions'
+import { resolveUserLabels } from '../../../lib/userLabels'
 import {
   handleDocumentsRouteError,
   loadScopedShare,
@@ -71,7 +71,7 @@ async function resolveId(context: RouteContext): Promise<string> {
   return params.id
 }
 
-type PrincipalLabel = { label: string; secondary: string | null }
+type PrincipalLabel = { label: string; secondary?: string | null }
 
 function cleanString(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
@@ -87,18 +87,9 @@ async function resolvePrincipalLabels(
   const roleIds = [...new Set(shares.filter((s) => s.principalType === 'role').map((s) => s.principalId))]
 
   if (userIds.length > 0) {
-    const users = await findWithDecryption(em, User, {
-      id: { $in: userIds },
-      tenantId: scope.tenantId,
-      deletedAt: null,
-      $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
-    } as FilterQuery<User>)
-    for (const user of users) {
-      const name = cleanString(user.name)
-      const email = cleanString(user.email)
-      const label = name ?? email
-      if (!label) continue
-      labels.set(user.id, { label, secondary: name && email && email !== name ? email : null })
+    const userLabels = await resolveUserLabels(em, scope, userIds)
+    for (const [userId, label] of userLabels.entries()) {
+      labels.set(userId, label)
     }
   }
 

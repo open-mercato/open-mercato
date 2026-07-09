@@ -7,6 +7,7 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { emitDocumentsEvent } from '../../../events'
 import { assertTier } from '../../../lib/permissions'
 import { loadDocumentContent } from '../../../lib/contentService'
+import { resolveUserLabels } from '../../../lib/userLabels'
 import {
   handleDocumentsRouteError,
   readBody,
@@ -29,6 +30,7 @@ const versionListItemSchema = z.object({
   id: z.string().uuid(),
   label: z.string().nullable(),
   createdByUserId: z.string().uuid(),
+  createdByLabel: z.string().nullable(),
   createdAt: z.string(),
 })
 
@@ -53,7 +55,7 @@ async function resolveId(context: RouteContext): Promise<string> {
   return params.id
 }
 
-function serializeVersion(version: DocumentVersion): z.infer<typeof versionListItemSchema> {
+function serializeVersion(version: DocumentVersion): z.infer<typeof versionCreateResponseSchema> {
   return {
     id: version.id,
     label: version.label ?? null,
@@ -76,8 +78,18 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       },
       { orderBy: { createdAt: 'DESC' } },
     )
+    const labels = await resolveUserLabels(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      versions.map((version) => version.createdByUserId),
+    )
 
-    return NextResponse.json({ items: versions.map(serializeVersion) })
+    return NextResponse.json({
+      items: versions.map((version) => ({
+        ...serializeVersion(version),
+        createdByLabel: labels.get(version.createdByUserId)?.label ?? null,
+      })),
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.versions.list')
   }

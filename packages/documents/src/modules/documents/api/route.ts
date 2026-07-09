@@ -7,6 +7,7 @@ import { Document, DocumentContent, DocumentShare } from '../data/entities'
 import { documentCreateSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { emitDocumentsEvent } from '../events'
+import { resolveUserLabels } from '../lib/userLabels'
 import {
   handleDocumentsRouteError,
   hasDocumentsFeature,
@@ -33,8 +34,10 @@ const documentListItemSchema = z.object({
   title: z.string(),
   folderId: z.string().uuid().nullable(),
   ownerUserId: z.string().uuid(),
+  ownerLabel: z.string().nullable(),
   createdByUserId: z.string().uuid(),
   isActive: z.boolean(),
+  sharedWithCount: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
 })
@@ -119,9 +122,30 @@ export async function GET(request: Request): Promise<Response> {
 
     const total = visibleDocuments.length
     const start = (query.page - 1) * query.pageSize
-    const items = visibleDocuments
-      .slice(start, start + query.pageSize)
-      .map(serializeDocument)
+    const pageDocuments = visibleDocuments.slice(start, start + query.pageSize)
+    const ownerLabels = await resolveUserLabels(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      pageDocuments.map((document) => document.ownerUserId),
+    )
+    const pageDocumentIds = pageDocuments.map((document) => document.id)
+    const shareCounts = new Map<string, number>()
+    if (pageDocumentIds.length > 0) {
+      const shares = await ctx.em.find(DocumentShare, {
+        documentId: { $in: pageDocumentIds },
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        deletedAt: null,
+      } as FilterQuery<DocumentShare>)
+      for (const share of shares) {
+        shareCounts.set(share.documentId, (shareCounts.get(share.documentId) ?? 0) + 1)
+      }
+    }
+    const items = pageDocuments.map((document) => ({
+      ...serializeDocument(document),
+      ownerLabel: ownerLabels.get(document.ownerUserId)?.label ?? null,
+      sharedWithCount: shareCounts.get(document.id) ?? 0,
+    }))
 
     return NextResponse.json({
       items,
