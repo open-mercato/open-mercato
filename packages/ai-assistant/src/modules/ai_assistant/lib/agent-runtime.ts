@@ -1762,7 +1762,7 @@ export interface RunAiAgentObjectInput<TSchema = ZodTypeAny> {
    * structured-output schema, instead of the toolless `generateObject` call.
    *
    * When `true` AND the agent resolves at least one tool, the runtime dispatches
-   * via `generateText({ tools, experimental_output: Output.object({ schema }) })`
+   * via `generateText({ tools, output: Output.object({ schema }) })`
    * so the model can call its allowlisted tools to gather data before emitting
    * the structured object. The mutation-approval gate (`buildWrapperPrepareStep`)
    * is wired identically to chat mode, and read-only agents already have every
@@ -1979,12 +1979,12 @@ export async function runAiAgentObject<TSchema = unknown>(
       tools,
       stopWhen: toolStopConditions as never,
       prepareStep: toolWrapperPrepareStep as never,
-      experimental_output: Output.object({ schema: resolvedOutput.schema as never }),
+      output: Output.object({ schema: resolvedOutput.schema as never }),
       abortSignal: abortController.signal,
     })
     return {
       mode: 'generate',
-      object: (toolResult as unknown as { experimental_output: TSchema }).experimental_output,
+      object: (toolResult as unknown as { output: TSchema }).output,
       finishReason: (toolResult as { finishReason?: string }).finishReason,
       usage: {
         inputTokens: toolResult.usage?.inputTokens,
