@@ -279,7 +279,7 @@ export type DataTableProps<T> = {
    * bridge. The bridge is provided for one minor version; legacy callers SHOULD
    * migrate to the tree shape — see the spec
    * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
-   * Compatibility" section and `RELEASE_NOTES.md`.
+   * Compatibility" section and `UPGRADE_NOTES.md`.
    *
    * When the legacy flat shape is detected, DataTable converts it to a tree via
    * `flatToTree` for internal rendering and converts any user edits back via
