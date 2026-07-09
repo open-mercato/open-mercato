@@ -91,6 +91,18 @@ The agent runtime enforces process-local protection around each run:
 
 The agent-orchestrator performance migration adds composite indexes on `agent_runs` and `agent_proposals` using `CREATE INDEX IF NOT EXISTS`. A plain `CREATE INDEX` blocks writes for the duration of the build, so on deployments where those tables are already large, pre-create the indexes with `CREATE INDEX CONCURRENTLY` **before** deploying — the migration then becomes a no-op thanks to `IF NOT EXISTS`.
 
+## ACL sync after upgrade (run-list access)
+
+`GET /api/agent_orchestrator/runs` is gated on the `agent_orchestrator.trace.view` feature (previously `agent_orchestrator.agents.view`). New tenants receive the grant automatically from `setup.ts` `defaultRoleFeatures`, but **existing tenants provisioned before this change do not** — their operators will get a `403` on the run list until the feature is re-applied.
+
+After deploying, run:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+This re-applies `defaultRoleFeatures` to every existing tenant's roles, restoring run-list access for every persona that already had `agents.view` (the two features are granted together, so the sync is deterministic — see `runs-acl-rollout.test.ts`). The command is idempotent; re-running it is safe.
+
 ## Monitoring checklist
 
 Watch these signals in production:
