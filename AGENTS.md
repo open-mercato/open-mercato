@@ -87,6 +87,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
+| Structured logging / replacing raw `console.*` with the logging facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `packages/shared/AGENTS.md` |
 | Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` + `om-backend-ui-design` skill (+ `om-ds-guardian` skill for DS-token compliance) |
 | Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` + `om-backend-ui-design` skill |
 | Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
@@ -99,6 +100,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| Editing files under `apps/mercato/src/app/**` or env vars in `apps/mercato/.env.example` — MUST mirror the change into the create-app template in the same task | `packages/create-app/AGENTS.md` → Template Sync Checklist |
 | Deploying a freshly scaffolded Open Mercato app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `packages/cli/AGENTS.md` |
 | **Performance** | |
 | Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, evaluating watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |
@@ -132,7 +134,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 
 - Pipeline labels are mutually exclusive: `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`.
 - Category labels are additive: `bug`, `feature`, `refactor`, `security`, `dependencies`, `enterprise`, `documentation`.
-- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`.
+- Meta labels are additive: `needs-qa`, `skip-qa`, `qa-approved`, `qa-self-verified`, `in-progress`, `screenshots`.
 - Priority labels are mutually exclusive within their group (only one at a time): `priority-low`, `priority-medium`, `priority-high`, `priority-extreme`. They are applied to issues and PRs to communicate urgency, are additive with respect to category and meta labels, and default to **unset** (treated as `priority-medium`) when no priority label is present. Use `priority-extreme` for production outages or security incidents that require immediate action; `priority-high` for release-blocking issues; `priority-low` for cosmetic, opportunistic, or follow-up cleanup work.
 - Treat priority as a first-class signal, not an afterthought. Every issue and every non-draft PR SHOULD carry exactly one priority label; `om-auto-*` skills are expected to set or infer it (see the priority-inference rule below) rather than leave it unset. When a PR inherits from an issue, copy the issue's priority forward unless the change in scope clearly warrants a different one.
 - Priority inference (used by auto-skills when no priority label is present): production outage, data loss, or a security incident → `priority-extreme`; security hardening, release-blocking regression, auth/session/tenant-scope/money/event-reliability fixes → `priority-high`; ordinary bug fixes and net-new features → `priority-medium`; cosmetic, docs-only, dependency bumps, opportunistic cleanup, or follow-up chores → `priority-low`. When signals conflict, pick the higher priority and say why in the label comment.
@@ -146,6 +148,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 - `needs-qa` is for UI changes, new features, sales or order flows, and other customer-facing behavior that needs manual exercise.
 - `skip-qa` is for docs-only, dependency-only, CI-only, test-only, typo-only, or similarly low-risk non-customer-facing changes.
 - `qa-approved` records that manual QA passed for a `needs-qa` PR. It is the durable proof that gates the merge; the `merge-queue` pipeline label is the routing state, while `qa-approved` is the evidence that QA actually happened. Set both when QA passes.
+- `screenshots` records that UI QA visual evidence was attached to the PR (posted by `om-auto-verify-pr-ui`); it is informational only — it does not gate merge and is orthogonal to `needs-qa`/`qa-approved`.
 - **QA-approval merge gate (hard rule): a PR that carries `needs-qa` MUST NOT be merged unless it also carries `qa-approved`, even when every other check is green.** Moving such a PR to `merge-queue` without `qa-approved` is not sufficient — the QA-approval gate blocks it. This is a **label policy enforced by reviewers and the PR-automation tooling** (`om-merge-buddy` classifies it as not-mergeable; `om-approve-merge-pr` and the auto-review/continue skills refuse to merge it); there is no longer a dedicated `merge-gate` CI workflow, so the maintainer is responsible for upholding it (optionally via a branch-protection rule that requires the `qa-approved` label). `skip-qa` is the explicit opt-out: a PR with `skip-qa` does not require `qa-approved`. Never combine `skip-qa` with `needs-qa`/`qa-approved`.
 - **Self-QA exception:** the manual QA is normally performed by the dedicated QA reviewers. When they have no capacity to test in time, any engineer may self-QA instead — but only by (1) checking the PR out and running it locally, (2) clicking through the affected flow, and (3) attaching proof to the PR: a screenshot showing it working, or a written confirmation describing what was exercised and the observed result. After that, apply BOTH `qa-approved` (so the gate passes) and `qa-self-verified` (so it is auditable that a non-QA engineer signed off via this exception, not the QA team). Do not apply `qa-approved` via the self-QA path without the attached evidence. Refer to QA reviewers by role, never by GitHub handle — assignments change.
 - `qa-failed` is a hard block: a PR carrying it MUST NOT merge until QA re-runs and it is cleared. `do-not-merge` and `blocked` are likewise hard merge blocks. The QA-approval gate (reviewers + PR-automation tooling) treats any of these as not-mergeable.
@@ -249,7 +252,7 @@ Import strategy:
 
 Third-party module developers depend on stable platform APIs. Any change to a **contract surface** is a breaking change that blocks merge unless the deprecation protocol is followed.
 
-**Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in RELEASE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
+**Deprecation protocol** (summary): (1) never remove in one release, (2) add `@deprecated` JSDoc, (3) provide a bridge (re-export/alias/dual-emit) for ≥1 minor version, (4) document in UPGRADE_NOTES.md, (5) reference a spec with "Migration & Backward Compatibility" section.
 
 ## Boundary Labels for Agent Rules
 

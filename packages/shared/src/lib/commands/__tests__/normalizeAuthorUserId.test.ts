@@ -3,8 +3,20 @@ import { normalizeAuthorUserId } from '@open-mercato/shared/lib/commands/helpers
 describe('normalizeAuthorUserId', () => {
   const validUuid = 'a1b2c3d4-e5f6-1a2b-9c3d-4e5f6a7b8c9d'
 
-  it('returns explicit authorUserId when provided', () => {
-    expect(normalizeAuthorUserId('explicit-id', { sub: validUuid })).toBe('explicit-id')
+  it('ignores explicit authorUserId for normal authenticated callers', () => {
+    const spoofedUuid = 'b1b2c3d4-e5f6-1a2b-9c3d-4e5f6a7b8c9d'
+
+    expect(normalizeAuthorUserId(spoofedUuid, { sub: validUuid })).toBe(validUuid)
+  })
+
+  it('honors explicit authorUserId for super admins', () => {
+    const delegatedUuid = 'b1b2c3d4-e5f6-1a2b-9c3d-4e5f6a7b8c9d'
+
+    expect(normalizeAuthorUserId(delegatedUuid, { sub: validUuid, isSuperAdmin: true })).toBe(delegatedUuid)
+  })
+
+  it('rejects non-UUID explicit authorUserId values for super admins', () => {
+    expect(normalizeAuthorUserId('not-a-uuid', { sub: validUuid, isSuperAdmin: true })).toBe(validUuid)
   })
 
   it('returns null when no explicit ID and auth is null', () => {

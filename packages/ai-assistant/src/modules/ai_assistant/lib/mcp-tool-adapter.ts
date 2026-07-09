@@ -1,6 +1,9 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { dynamicTool, type Tool } from 'ai'
 import type { InProcessMcpClient, ToolInfoWithSchema } from './in-process-client'
 import { toSafeZodSchema } from './schema-utils'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Convert MCP tools to Vercel AI SDK format.
@@ -43,7 +46,7 @@ export function convertMcpToolsToAiSdk(
         },
       })
     } catch (error) {
-      console.error(`[MCP Adapter] Error converting tool "${mcpTool.name}":`, error)
+      logger.error('Error converting tool', { toolName: mcpTool.name, err: error })
     }
   }
 

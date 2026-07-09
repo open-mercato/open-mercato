@@ -9,6 +9,9 @@ import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { StaffTimeProjectMember, StaffTeamMember } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.timesheets.view'] },
@@ -73,7 +76,7 @@ export async function GET(req: Request) {
     if (err instanceof CrudHttpError) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('staff.timesheets.my-projects failed', err)
+    logger.error('staff.timesheets.my-projects failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.myProjects', 'Failed to load your projects.') },

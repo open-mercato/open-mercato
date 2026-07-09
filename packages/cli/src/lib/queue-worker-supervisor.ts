@@ -30,6 +30,7 @@ import {
   type QueueStrategyType,
 } from '@open-mercato/queue'
 import type { ModuleWorker } from '@open-mercato/shared/modules/registry'
+import type { LazyWorkerSpawnMode } from './auto-spawn-workers'
 
 export type LazySupervisorSpawnFn = (
   command: string,
@@ -49,6 +50,7 @@ export type LazyWorkerSupervisorOptions = {
   workers: ModuleWorker[]
   pollMs: number
   restartOnUnexpectedExit: boolean
+  spawnMode?: LazyWorkerSpawnMode
   strategy?: QueueStrategyType
   /** Override for tests. Defaults to `child_process.spawn`. */
   spawnFn?: LazySupervisorSpawnFn
@@ -112,6 +114,7 @@ export function startLazyWorkerSupervisor(
 ): LazyWorkerSupervisorHandle {
   const logger = options.logger ?? console
   const strategy: QueueStrategyType = options.strategy ?? resolveStrategyFromEnv(options.runtimeEnv)
+  const spawnMode: LazyWorkerSpawnMode = options.spawnMode ?? 'per-queue'
   const probe: LazySupervisorProbeFn = options.probeFn
     ?? ((queueName) => getQueuePendingProbe(queueName, strategy))
   const groups = groupWorkersByQueue(options.workers)
@@ -119,6 +122,8 @@ export function startLazyWorkerSupervisor(
   const startedQueues = new Set<string>()
   const activeChildren = new Map<string, ChildProcess>()
   const startingQueues = new Set<string>()
+  let activeSharedChild: ChildProcess | undefined
+  let startingSharedWorker = false
   const probeErrorLastLoggedAt = new Map<string, number>()
 
   let stopping = false
@@ -142,6 +147,22 @@ export function startLazyWorkerSupervisor(
 
   const spawnFn: LazySupervisorSpawnFn =
     options.spawnFn ?? ((command, args, opts) => nodeSpawn(command, args as string[], opts))
+
+  const markSharedWorkerStarted = () => {
+    for (const group of groups) {
+      startedQueues.add(group.queueName)
+      activeChildren.set(group.queueName, activeSharedChild as ChildProcess)
+    }
+  }
+
+  const clearSharedWorker = () => {
+    for (const group of groups) {
+      if (activeChildren.get(group.queueName) === activeSharedChild) {
+        activeChildren.delete(group.queueName)
+      }
+    }
+    activeSharedChild = undefined
+  }
 
   function logProbeError(queueName: string, message: string): void {
     const now = Date.now()
@@ -215,6 +236,81 @@ export function startLazyWorkerSupervisor(
     })
   }
 
+  function spawnSharedWorker(triggerQueueNames: string[]): void {
+    if (stopping) return
+    if (activeSharedChild) return
+    if (startingSharedWorker) return
+    startingSharedWorker = true
+
+    const triggerSummary = triggerQueueNames.length > 0
+      ? ` after pending job(s) on ${triggerQueueNames.join(', ')}`
+      : ''
+    logger.log(`[lazy-supervisor] Pending job detected${triggerSummary} — starting shared worker for all queues`)
+    let child: ChildProcess
+    try {
+      child = spawnFn(
+        'node',
+        [options.mercatoBin, 'queue', 'worker', '--all'],
+        {
+          stdio: 'inherit',
+          env: options.runtimeEnv,
+          cwd: options.appDir,
+        },
+      )
+    } catch (err) {
+      startingSharedWorker = false
+      const message = err instanceof Error ? err.message : String(err)
+      logger.error(`[lazy-supervisor] Failed to spawn shared worker: ${message}`)
+      return
+    }
+
+    activeSharedChild = child
+    markSharedWorkerStarted()
+    startingSharedWorker = false
+    for (const group of groups) {
+      if (options.onSpawn) {
+        try {
+          options.onSpawn(group.queueName, child)
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.warn(`[lazy-supervisor] onSpawn callback threw for "${group.queueName}": ${message}`)
+        }
+      }
+    }
+
+    child.on('exit', (code, signal) => {
+      clearSharedWorker()
+      for (const group of groups) {
+        if (options.onChildExit) {
+          try {
+            options.onChildExit(group.queueName, code, signal)
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            logger.warn(`[lazy-supervisor] onChildExit callback threw for "${group.queueName}": ${message}`)
+          }
+        }
+      }
+      if (stopping) return
+      const expected = signal === 'SIGTERM' || signal === 'SIGINT'
+      if (expected) return
+      const reason = code !== null ? `code ${code}` : `signal ${signal ?? 'unknown'}`
+      logger.warn(`[lazy-supervisor] Shared worker exited (${reason}).`)
+      if (!options.restartOnUnexpectedExit) return
+      void (async () => {
+        const readyQueues: string[] = []
+        for (const group of groups) {
+          const result = await safeProbe(group.queueName)
+          if (!result || result.error) continue
+          if (result.ready > 0) readyQueues.push(group.queueName)
+        }
+        if (readyQueues.length > 0) {
+          logger.warn('[lazy-supervisor] Restarting shared worker because jobs remain pending.')
+          spawnSharedWorker(readyQueues)
+        }
+      })()
+    })
+  }
+
   async function safeProbe(queueName: string): Promise<QueuePendingProbeResult | null> {
     try {
       return await probe(queueName, strategy)
@@ -228,6 +324,7 @@ export function startLazyWorkerSupervisor(
   async function tickOnce(): Promise<void> {
     if (stopping) return
     if (groups.length === 0) return
+    if (spawnMode === 'shared' && (activeSharedChild || startingSharedWorker)) return
 
     const toCheck = groups.filter((g) => !activeChildren.has(g.queueName) && !startingQueues.has(g.queueName))
     if (toCheck.length === 0) return
@@ -241,6 +338,7 @@ export function startLazyWorkerSupervisor(
 
     if (stopping) return
 
+    const readySharedQueues: string[] = []
     for (const { group, result } of probes) {
       if (!result) continue
       if (result.error) {
@@ -250,8 +348,15 @@ export function startLazyWorkerSupervisor(
         continue
       }
       if (result.ready > 0) {
+        if (spawnMode === 'shared') {
+          readySharedQueues.push(group.queueName)
+          continue
+        }
         spawnQueueWorker(group.queueName)
       }
+    }
+    if (spawnMode === 'shared' && readySharedQueues.length > 0) {
+      spawnSharedWorker(readySharedQueues)
     }
   }
 

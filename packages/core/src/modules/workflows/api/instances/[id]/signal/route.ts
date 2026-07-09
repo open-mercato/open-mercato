@@ -11,6 +11,9 @@ import {
   sendSignalResponseSchema,
   workflowErrorSchema,
 } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -56,7 +59,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
       )
     }
 
-    console.log('[Signal API] Auth context:', {
+    logger.debug('Signal auth context resolved', {
+      component: 'signal',
       userId: auth.sub,
       tenantId,
       organizationId,
@@ -92,12 +96,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       message: 'Signal sent successfully',
     })
   } catch (error: any) {
-    console.error('[Signal API] Error occurred:', {
-      name: error.name,
-      message: error.message,
-      code: error.code,
-      stack: error.stack,
-    })
+    logger.error('Signal request failed', { component: 'signal', err: error })
 
     // Handle Zod validation errors
     if (error.name === 'ZodError') {

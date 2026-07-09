@@ -25,6 +25,9 @@ import {
   reorderEntriesRequestSchema,
 } from '../../../openapi'
 import { resolveDictionaryActorId } from '../../../context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -127,7 +130,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries/reorder.POST] Unexpected error', err)
+    logger.error('Failed to reorder dictionary entries', { err })
     return NextResponse.json({ error: 'Failed to reorder dictionary entries' }, { status: 500 })
   }
 }

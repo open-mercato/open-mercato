@@ -18,6 +18,9 @@ import { getEntityIds } from '../encryption/entityIds'
 import { normalizeCustomFieldValues } from '../custom-fields/normalize'
 import { parseBooleanToken } from '../boolean'
 import { isEventDeclared } from '../../modules/events'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'data-engine' })
 
 const undeclaredEventWarned = new Set<string>()
 
@@ -25,10 +28,7 @@ function warnIfUndeclaredEvent(eventName: string, context: string): void {
   if (isEventDeclared(eventName)) return
   if (undeclaredEventWarned.has(eventName)) return
   undeclaredEventWarned.add(eventName)
-  console.warn(
-    `[data-engine] ${context} is emitting undeclared event "${eventName}". ` +
-    `Declare it in the owning module's events.ts (createModuleEvents) so the event registry stays authoritative.`,
-  )
+  logger.warn('Emitting undeclared event — declare it in the owning module events.ts (createModuleEvents) so the event registry stays authoritative', { context, eventName })
 }
 
 /** Internal: clear the undeclared-event warning cache. Exposed for tests. */
@@ -618,7 +618,7 @@ export class DefaultDataEngine implements DataEngine {
         // defers the coverage recompute + fulltext delete, so this stays bounded.
         // Errors are logged, not thrown — index drift never fails the originating write.
         await bus.emitEvent('query_index.delete_one', enrichedPayload).catch((err: unknown) => {
-          console.error('[data-engine] query_index.delete_one emit failed', err)
+          logger.error('query_index.delete_one emit failed', { err })
         })
       } else {
         const payload = indexer.buildUpsertPayload
@@ -638,7 +638,7 @@ export class DefaultDataEngine implements DataEngine {
         // and defers the heavy token-reindex pipeline (build doc + encrypt + decrypt +
         // tokenize + DELETE + chunked INSERT) so write latency stays bounded.
         await bus.emitEvent('query_index.upsert_one', enrichedPayload).catch((err: unknown) => {
-          console.error('[data-engine] query_index.upsert_one emit failed', err)
+          logger.error('query_index.upsert_one emit failed', { err })
         })
       }
 

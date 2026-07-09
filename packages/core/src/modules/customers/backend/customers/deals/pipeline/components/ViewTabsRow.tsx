@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { translateWithFallback } from '@open-mercato/shared/lib/i18n/translate'
 
-export type KanbanView = 'kanban' | 'list'
+export type KanbanView = 'kanban' | 'list' | 'map'
 
 type ViewTabsRowProps = {
   active: KanbanView
@@ -14,12 +14,14 @@ type ViewTabsRowProps = {
 
 const VIEW_KANBAN_HREF = '/backend/customers/deals/pipeline'
 const VIEW_LIST_HREF = '/backend/customers/deals'
+const VIEW_MAP_HREF = '/backend/customers/deals/map'
 
 export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.ReactElement {
   const t = useT()
   const labels = {
     kanban: translateWithFallback(t, 'customers.deals.kanban.view.kanban', 'Kanban'),
     list: translateWithFallback(t, 'customers.deals.kanban.view.list', 'List'),
+    map: translateWithFallback(t, 'customers.deals.kanban.view.map', 'Map'),
   }
 
   const baseTab =
@@ -34,6 +36,7 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
   // navigate back to /pipeline.
   const isKanbanActive = active === 'kanban'
   const isListActive = active === 'list'
+  const isMapActive = active === 'map'
 
   return (
     <div
@@ -75,6 +78,24 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
           className={`${baseTab} ${inactiveTab}`}
         >
           {labels.list}
+        </Link>
+      )}
+      {isMapActive ? (
+        <span
+          role="tab"
+          aria-selected={true}
+          className={`${baseTab} ${activeTab}`}
+        >
+          {labels.map}
+        </span>
+      ) : (
+        <Link
+          href={VIEW_MAP_HREF}
+          role="tab"
+          aria-selected={false}
+          className={`${baseTab} ${inactiveTab}`}
+        >
+          {labels.map}
         </Link>
       )}
     </div>

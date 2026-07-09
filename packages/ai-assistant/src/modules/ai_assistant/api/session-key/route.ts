@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -10,6 +11,8 @@ import {
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const logger = createLogger('ai_assistant')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['ai_assistant.view'] },
@@ -77,7 +80,7 @@ export async function POST(req: NextRequest) {
       expiresAt: expiresAt.toISOString(),
     })
   } catch (error) {
-    console.error('[Session Key] Error:', error)
+    logger.error('Session Key — Error', { err: error })
     return NextResponse.json(
       { error: 'Failed to create session key' },
       { status: 500 }

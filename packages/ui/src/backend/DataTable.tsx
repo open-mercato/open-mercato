@@ -92,6 +92,9 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DataTable' })
 
 let refreshScheduled = false
 
@@ -276,7 +279,7 @@ export type DataTableProps<T> = {
    * bridge. The bridge is provided for one minor version; legacy callers SHOULD
    * migrate to the tree shape — see the spec
    * `.ai/specs/implemented/2026-05-10-crm-list-filter-redesign.md` "Migration & Backward
-   * Compatibility" section and `RELEASE_NOTES.md`.
+   * Compatibility" section and `UPGRADE_NOTES.md`.
    *
    * When the legacy flat shape is detected, DataTable converts it to a tree via
    * `flatToTree` for internal rendering and converts any user edits back via
@@ -393,7 +396,7 @@ function collectUniqueById<T extends { id: string }>(
     if (!entry.id) continue
     if (byId.has(entry.id)) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn(`[UMES] Duplicate injected ${warningScope} id "${entry.id}" detected. Keeping the first entry.`)
+        logger.warn('Duplicate injected id detected; keeping the first entry', { scope: warningScope, id: entry.id })
       }
       continue
     }
@@ -1057,12 +1060,7 @@ export function DataTable<T>({
     }
     if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
       legacyAdvancedFilterWarnedRef.current = true
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[DataTable] `advancedFilter.value` was passed as the legacy `AdvancedFilterState` shape. ' +
-        'This bridge will be removed in the next minor version — migrate to the tree shape ' +
-        '(`AdvancedFilterTree`, see `@open-mercato/shared/lib/query/advanced-filter-tree`).',
-      )
+      logger.warn('advancedFilter.value was passed as the legacy AdvancedFilterState shape. This bridge will be removed in the next minor version — migrate to the tree shape (AdvancedFilterTree, see @open-mercato/shared/lib/query/advanced-filter-tree).')
     }
     const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
     return {
@@ -1775,8 +1773,7 @@ export function DataTable<T>({
           : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.debug('[DataTable] perspective payload', payload)
+        logger.debug('Perspective payload', { payload })
       }
       const existing = input.perspectiveId
         ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
@@ -2690,14 +2687,18 @@ export function DataTable<T>({
     return () => observer.disconnect()
   }, [tableScrollEl])
   const allRows = table.getRowModel().rows
-  const rowVirtualizer = virtualized
-    ? useVirtualizer({
-        count: allRows.length,
-        getScrollElement: () => virtualScrollRef.current,
-        estimateSize: () => 48,
-        overscan: virtualizedOverscan,
-      })
-    : null
+  // Hooks must run on every render regardless of props (Rules of Hooks). Call
+  // useVirtualizer unconditionally and keep it inert when virtualization is off
+  // (count 0, no scroll element → no observers, no measurement work), then
+  // derive the nullable handle from the prop. Mirrors the unconditional-hooks-
+  // first pattern in RowActions.
+  const rowVirtualizerInstance = useVirtualizer({
+    count: virtualized ? allRows.length : 0,
+    getScrollElement: () => (virtualized ? virtualScrollRef.current : null),
+    estimateSize: () => 48,
+    overscan: virtualizedOverscan,
+  })
+  const rowVirtualizer = virtualized ? rowVirtualizerInstance : null
   const virtualMaxHeightStyle: React.CSSProperties | undefined = virtualized
     ? {
         maxHeight: typeof virtualizedMaxHeight === 'number'

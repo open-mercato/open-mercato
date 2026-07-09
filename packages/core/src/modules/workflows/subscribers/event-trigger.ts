@@ -8,6 +8,9 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows').child({ component: 'event-trigger' })
 
 export const metadata = {
   event: '*', // Subscribe to ALL events
@@ -42,7 +45,7 @@ export default async function handle(
 ): Promise<void> {
   const eventName = ctx.eventName
   if (!eventName) {
-    // Skip if no event name (shouldn't happen, but be safe)
+    logger.warn('Skipping trigger evaluation because subscriber context is missing eventName')
     return
   }
 
@@ -83,7 +86,7 @@ export default async function handle(
     } as unknown as AwilixContainer
   } catch (error) {
     // DI not available - skip
-    console.warn(`[workflow-trigger] Cannot resolve dependencies for event "${eventName}":`, error)
+    logger.warn('Cannot resolve dependencies for event', { event: eventName, err: error })
     return
   }
 
@@ -98,20 +101,31 @@ export default async function handle(
       organizationId,
     })
 
+    logger.debug('Evaluated triggers', {
+      event: eventName,
+      tenantId,
+      organizationId,
+      matched: result.triggered + result.skipped + result.errors.length,
+      triggered: result.triggered,
+      skipped: result.skipped,
+      errors: result.errors.length,
+    })
+
     if (result.triggered > 0) {
-      console.log(
-        `[workflow-trigger] Triggered ${result.triggered} workflow(s) for "${eventName}"` +
-        (result.skipped > 0 ? ` (${result.skipped} skipped)` : '') +
-        (result.errors.length > 0 ? ` (${result.errors.length} errors)` : '')
-      )
+      logger.info('Triggered workflows for event', {
+        event: eventName,
+        triggered: result.triggered,
+        skipped: result.skipped,
+        errors: result.errors.length,
+      })
     }
 
     if (result.errors.length > 0) {
       for (const err of result.errors) {
-        console.error(`[workflow-trigger] Trigger ${err.triggerId} failed:`, err.error)
+        logger.error('Trigger failed', { triggerId: err.triggerId, err: err.error })
       }
     }
   } catch (error) {
-    console.error(`[workflow-trigger] Error processing triggers for "${eventName}":`, error)
+    logger.error('Error processing triggers for event', { event: eventName, err: error })
   }
 }

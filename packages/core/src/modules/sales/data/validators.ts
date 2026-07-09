@@ -435,6 +435,8 @@ export const RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE =
   'Return adjustments must use a non-positive amountNet (returns reduce the total).'
 export const RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE =
   'Return adjustments must use a non-positive amountGross (returns reduce the total).'
+export const RETURN_ADJUSTMENT_ZERO_MESSAGE =
+  'Return adjustments must use a non-zero amount. Create the return through the Returns tab instead of recording a zero-value Return adjustment.'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_NET_MESSAGE =
   'Discount adjustments must use a non-negative amountNet (discounts reduce the total).'
 export const DISCOUNT_ADJUSTMENT_NEGATIVE_GROSS_MESSAGE =
@@ -483,19 +485,32 @@ export const enforceAdjustmentSign = (
 ) => {
   if (!value.kind) return
   if (value.kind === 'return') {
-    if (typeof value.amountNet === 'number' && value.amountNet > 0) {
+    const netIsPositive = typeof value.amountNet === 'number' && value.amountNet > 0
+    const grossIsPositive = typeof value.amountGross === 'number' && value.amountGross > 0
+    if (netIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_NET_MESSAGE,
         path: ['amountNet'],
       })
     }
-    if (typeof value.amountGross === 'number' && value.amountGross > 0) {
+    if (grossIsPositive) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: RETURN_ADJUSTMENT_POSITIVE_GROSS_MESSAGE,
         path: ['amountGross'],
       })
+    }
+    if (!netIsPositive && !grossIsPositive) {
+      const netIsNegative = typeof value.amountNet === 'number' && value.amountNet < 0
+      const grossIsNegative = typeof value.amountGross === 'number' && value.amountGross < 0
+      if (!netIsNegative && !grossIsNegative) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: RETURN_ADJUSTMENT_ZERO_MESSAGE,
+          path: ['amountNet'],
+        })
+      }
     }
     return
   }
