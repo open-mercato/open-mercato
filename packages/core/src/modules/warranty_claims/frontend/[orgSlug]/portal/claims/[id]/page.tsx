@@ -51,6 +51,7 @@ type PortalClaim = {
   status: string
   priority: string
   orderId: string | null
+  orderNumber: string | null
   reasonCode: string | null
   rejectionReasonCode: string | null
   resolutionSummary: string | null
@@ -584,7 +585,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           <dl className="grid gap-4 md:grid-cols-2">
             <div>
               <dt className="text-xs text-muted-foreground">{t('warranty_claims.portal.detail.order')}</dt>
-              <dd className="mt-1 text-sm font-medium">{claim.orderId ?? t('warranty_claims.portal.value.notAvailable')}</dd>
+              <dd className="mt-1 text-sm font-medium">{claim.orderNumber ?? t('warranty_claims.portal.value.notAvailable')}</dd>
             </div>
             <div>
               <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.reasonCode')}</dt>

@@ -7,6 +7,11 @@ import {
   deleteCustomerCompanyFixture,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import {
+  canManageSalesOrders,
+  createSalesOrderFixture,
+  deleteSalesEntityIfExists,
+} from '@open-mercato/core/helpers/integration/salesFixtures'
+import {
   cleanupDraftClaimWithLines,
   readWarrantyClaimSettings,
   uniqueLabel,
@@ -89,6 +94,72 @@ test.describe('TC-WC-015: warranty claims bug regressions', () => {
     } finally {
       await cleanupDraftClaimWithLines(request, adminToken, claimId)
       await deleteCustomerCompanyFixture(request, adminToken, customerId)
+    }
+  })
+
+  test('snapshots the referenced order number onto the claim and matches it in desk search', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const stamp = uniqueLabel('tc-wc-015-ordno')
+    let orderId: string | null = null
+    let claimId: string | null = null
+
+    try {
+      if (!(await canManageSalesOrders(request, adminToken))) {
+        test.skip(true, 'sales order management is unavailable for the admin role on this database')
+      }
+      orderId = await createSalesOrderFixture(request, adminToken)
+      const orderRead = await apiRequest(request, 'GET', `/api/sales/orders?id=${encodeURIComponent(orderId)}&pageSize=1`, { token: adminToken })
+      const orderBody = await readJsonSafe<{ items?: Array<{ id?: string; orderNumber?: string | null }> }>(orderRead)
+      const orderNumber = orderBody?.items?.[0]?.orderNumber ?? null
+      expect(orderNumber, 'sales order fixture should expose an order number').toBeTruthy()
+
+      const createResponse = await apiRequest(request, 'POST', '/api/warranty_claims', {
+        token: adminToken,
+        data: {
+          claimType: 'warranty',
+          channel: 'staff',
+          orderId,
+          currencyCode: 'USD',
+          lines: [
+            {
+              lineNo: 1,
+              sku: `WC-015-ORDNO-${stamp}`,
+              productName: 'QA order snapshot product',
+              qtyClaimed: 1,
+            },
+          ],
+        },
+      })
+      const createBody = await readJsonSafe<{ id?: string | null }>(createResponse)
+      expect(createResponse.status(), 'claim create with a real order should return 201').toBe(201)
+      claimId = createBody?.id ?? null
+
+      const listResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/warranty_claims?id=${encodeURIComponent(claimId!)}`,
+        { token: adminToken },
+      )
+      const listBody = await readJsonSafe<{ items?: Array<{ orderNumber?: string | null }> }>(listResponse)
+      expect(
+        listBody?.items?.[0]?.orderNumber,
+        'claim list payload should carry the snapshotted order number',
+      ).toBe(orderNumber)
+
+      const searchResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/warranty_claims?search=${encodeURIComponent(orderNumber!)}&pageSize=100`,
+        { token: adminToken },
+      )
+      const searchBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(searchResponse)
+      expect(
+        searchBody?.items?.some((item) => item.id === claimId),
+        'desk search by order number should find the claim',
+      ).toBe(true)
+    } finally {
+      await cleanupDraftClaimWithLines(request, adminToken, claimId)
+      if (orderId) await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
     }
   })
 })

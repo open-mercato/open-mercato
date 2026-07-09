@@ -166,6 +166,8 @@ type ClaimSnapshot = {
   vendorName: string | null
   vendorRef: string | null
   orderId: string | null
+  orderNumber: string | null
+  awaitingStaffReply: boolean
   salesReturnId: string | null
   replacementOrderId: string | null
   sourceClaimId: string | null
@@ -458,6 +460,8 @@ function snapshotClaim(claim: WarrantyClaim, lines: readonly WarrantyClaimLine[]
     vendorName: claim.vendorName ?? null,
     vendorRef: claim.vendorRef ?? null,
     orderId: claim.orderId ?? null,
+    orderNumber: claim.orderNumber ?? null,
+    awaitingStaffReply: claim.awaitingStaffReply === true,
     salesReturnId: claim.salesReturnId ?? null,
     replacementOrderId: claim.replacementOrderId ?? null,
     sourceClaimId: claim.sourceClaimId ?? null,
@@ -517,6 +521,8 @@ function restoreClaimFromSnapshot(claim: WarrantyClaim, snapshot: ClaimSnapshot)
   claim.vendorName = snapshot.vendorName
   claim.vendorRef = snapshot.vendorRef
   claim.orderId = snapshot.orderId
+  claim.orderNumber = snapshot.orderNumber
+  claim.awaitingStaffReply = snapshot.awaitingStaffReply === true
   claim.salesReturnId = snapshot.salesReturnId
   claim.replacementOrderId = snapshot.replacementOrderId
   claim.sourceClaimId = snapshot.sourceClaimId
@@ -865,6 +871,18 @@ async function resolveCustomerName(
   return readCustomerName(customer) ?? fallback ?? null
 }
 
+async function resolveOrderNumber(
+  ctx: CommandRuntimeContext,
+  orderId: string | null | undefined,
+  scope: WarrantyClaimScope,
+  fallback: string | null | undefined,
+): Promise<string | null> {
+  if (!orderId) return null
+  const row = await querySalesReferenceRow(ctx, 'sales_orders', scope, orderId, ['id', 'order_number'])
+  if (!row) return fallback ?? null
+  return readString(row, 'order_number') ?? fallback ?? null
+}
+
 type CustomerUsersDb = {
   customer_users: {
     id: string
@@ -1085,10 +1103,13 @@ function assertClaimUpdateFields(claim: WarrantyClaim, input: ClaimUpdateInput):
   }
 }
 
-function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null): void {
+function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, customerName: string | null, orderNumber: string | null): void {
   if (hasOwn(input, 'customerId')) claim.customerId = input.customerId ?? null
   if (hasOwn(input, 'customerName')) claim.customerName = customerName
-  if (hasOwn(input, 'orderId')) claim.orderId = input.orderId ?? null
+  if (hasOwn(input, 'orderId')) {
+    claim.orderId = input.orderId ?? null
+    claim.orderNumber = orderNumber
+  }
   if (hasOwn(input, 'reasonCode')) claim.reasonCode = input.reasonCode ?? null
   if (hasOwn(input, 'priority') && input.priority) claim.priority = input.priority
   if (hasOwn(input, 'notes')) claim.notes = input.notes ?? null
@@ -1187,6 +1208,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
       organizationId: scope.organizationId,
     })
     const customerName = await resolveCustomerName(ctx, input.customerId, scope, input.customerName, { strict: true })
+    const orderNumber = await resolveOrderNumber(ctx, input.orderId, scope, null)
     const claimId = randomUUID()
     let claim!: WarrantyClaim
     let createdLines: WarrantyClaimLine[] = []
@@ -1210,6 +1232,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
           vendorName: input.vendorName ?? null,
           vendorRef: input.vendorRef ?? null,
           orderId: input.orderId ?? null,
+          orderNumber,
           salesReturnId: input.salesReturnId ?? null,
           replacementOrderId: input.replacementOrderId ?? null,
           sourceClaimId: null,
@@ -1311,8 +1334,11 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
     const customerName = shouldRefreshCustomerName
       ? await resolveCustomerName(ctx, input.customerId ?? claim.customerId, scope, input.customerName ?? claim.customerName, { strict: customerChanged })
       : claim.customerName ?? null
+    const orderNumber = hasOwn(input, 'orderId')
+      ? await resolveOrderNumber(ctx, input.orderId, scope, (input.orderId ?? null) === (claim.orderId ?? null) ? claim.orderNumber : null)
+      : claim.orderNumber ?? null
     await withAtomicFlush(em, [
-      () => applyClaimUpdate(claim, input, customerName),
+      () => applyClaimUpdate(claim, input, customerName, orderNumber),
     ], { transaction: true, label: 'warranty_claims.claim.update' })
     await emitClaimCrud(ctx, 'updated', claim)
     return { claimId: claim.id }
@@ -1544,6 +1570,7 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
         if (input.toStatus === 'closed') claim.closedAt = now
         applySlaResume(em, claim, fromStatus, input.toStatus, now)
         applySlaPause(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
+        claim.awaitingStaffReply = false
         claim.updatedAt = now
         appendClaimEvent(em, claim, 'status_changed', {
           visibility: 'customer',
@@ -1764,6 +1791,8 @@ const commentClaimCommand: CommandHandler<CommentClaimInput, { claimId: string }
           actorUserId: input.actorCustomerId ? null : (ctx.auth?.sub ?? null),
           actorCustomerId: input.actorCustomerId ?? null,
         })
+        claim.awaitingStaffReply = Boolean(input.actorCustomerId)
+        claim.updatedAt = new Date()
         if (input.actorCustomerId && fromStatus === 'info_requested') {
           const now = new Date()
           claim.status = 'in_review'

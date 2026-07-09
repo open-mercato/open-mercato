@@ -114,6 +114,7 @@ export const searchConfig: SearchModuleConfig = {
         const lines: string[] = []
         appendLine(lines, 'Claim number', readString(record, 'claim_number', 'claimNumber') ?? '')
         appendLine(lines, 'Customer', readString(record, 'customer_name', 'customerName') ?? '')
+        appendLine(lines, 'Order number', readString(record, 'order_number', 'orderNumber') ?? '')
         appendLine(lines, 'Claim type', readString(record, 'claim_type', 'claimType') ?? '')
         appendLine(lines, 'Status', readString(record, 'status', 'status') ?? '')
         appendLine(lines, 'Vendor', readString(record, 'vendor_name', 'vendorName') ?? '')

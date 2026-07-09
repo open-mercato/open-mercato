@@ -2379,6 +2379,23 @@
           "enumItems": [],
           "mappedType": "uuid"
         },
+        "awaiting_staff_reply": {
+          "name": "awaiting_staff_reply",
+          "type": "boolean",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": false,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": "false",
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "boolean"
+        },
         "channel": {
           "name": "channel",
           "type": "text",
@@ -2684,6 +2701,23 @@
           "collation": null,
           "enumItems": [],
           "mappedType": "uuid"
+        },
+        "order_number": {
+          "name": "order_number",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "text"
         },
         "organization_id": {
           "name": "organization_id",

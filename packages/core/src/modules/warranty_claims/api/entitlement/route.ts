@@ -22,6 +22,13 @@ type EntitlementHistoryDb = {
     serial_number: string | null
     deleted_at: Date | null
   }
+  warranty_claims: {
+    id: string
+    organization_id: string
+    tenant_id: string
+    claim_number: string
+    deleted_at: Date | null
+  }
   warranty_claim_registrations: {
     id: string
     organization_id: string
@@ -44,6 +51,7 @@ type EntitlementResponse = WarrantyEntitlementResult & {
   hasPriorClaims?: boolean
   priorClaimCount?: number
   priorRegistrationCount?: number
+  relatedClaimNumbers?: string[]
 }
 
 const UNKNOWN_ENTITLEMENT: WarrantyEntitlementResult = {
@@ -73,6 +81,7 @@ const entitlementResultSchema = z.object({
   hasPriorClaims: z.boolean().optional(),
   priorClaimCount: z.number().int().nonnegative().optional(),
   priorRegistrationCount: z.number().int().nonnegative().optional(),
+  relatedClaimNumbers: z.array(z.string()).optional(),
 })
 
 export const metadata = {
@@ -124,21 +133,31 @@ async function resolveSerialHistory(
   context: Pick<EntitlementRouteContext, 'tenantId' | 'organizationId' | 'em'>,
   serialNumber: string | null | undefined,
   excludeClaimId?: string | null,
-): Promise<Pick<EntitlementResponse, 'hasPriorClaims' | 'priorClaimCount' | 'priorRegistrationCount'>> {
+): Promise<Pick<EntitlementResponse, 'hasPriorClaims' | 'priorClaimCount' | 'priorRegistrationCount' | 'relatedClaimNumbers'>> {
   const serial = serialNumber?.trim()
   if (!serial) return {}
   const db = context.em.getKysely<EntitlementHistoryDb>()
   let claimQuery = db
     .selectFrom('warranty_claim_lines')
-    .select(sql<NumericAggregateValue>`count(distinct claim_id)`.as('count'))
-    .where('tenant_id', '=', context.tenantId)
-    .where('organization_id', '=', context.organizationId)
-    .where('serial_number', '=', serial)
-    .where('deleted_at', 'is', null)
+    .innerJoin('warranty_claims', 'warranty_claims.id', 'warranty_claim_lines.claim_id')
+    .select('warranty_claims.claim_number as claimNumber')
+    .distinct()
+    .where('warranty_claim_lines.tenant_id', '=', context.tenantId)
+    .where('warranty_claim_lines.organization_id', '=', context.organizationId)
+    .where('warranty_claim_lines.serial_number', '=', serial)
+    .where('warranty_claim_lines.deleted_at', 'is', null)
+    .where('warranty_claims.tenant_id', '=', context.tenantId)
+    .where('warranty_claims.organization_id', '=', context.organizationId)
+    .where('warranty_claims.deleted_at', 'is', null)
   if (excludeClaimId) {
-    claimQuery = claimQuery.where('claim_id', '!=', excludeClaimId)
+    claimQuery = claimQuery.where('warranty_claim_lines.claim_id', '!=', excludeClaimId)
   }
-  const claimRow = await claimQuery.executeTakeFirst()
+  const claimRows = await claimQuery.execute()
+  const relatedClaimNumbers = Array.from(new Set(
+    claimRows
+      .map((row) => row.claimNumber)
+      .filter((claimNumber): claimNumber is string => typeof claimNumber === 'string' && claimNumber.length > 0),
+  )).sort((left, right) => left.localeCompare(right))
   const registrationRow = await db
     .selectFrom('warranty_claim_registrations')
     .select(sql<NumericAggregateValue>`count(*)`.as('count'))
@@ -147,11 +166,12 @@ async function resolveSerialHistory(
     .where('serial_number', '=', serial)
     .where('deleted_at', 'is', null)
     .executeTakeFirst()
-  const priorClaimCount = parseNumeric(claimRow?.count)
+  const priorClaimCount = relatedClaimNumbers.length
   return {
     hasPriorClaims: priorClaimCount > 0,
     priorClaimCount,
     priorRegistrationCount: parseNumeric(registrationRow?.count),
+    relatedClaimNumbers: relatedClaimNumbers.slice(0, 8),
   }
 }
 

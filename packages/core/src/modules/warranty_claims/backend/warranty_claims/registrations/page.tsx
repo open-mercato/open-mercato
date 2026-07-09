@@ -10,7 +10,7 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -31,9 +31,60 @@ type RegistrationsResponse = {
 
 const PAGE_SIZE = 20
 
-function shortId(value: string | null): string {
-  if (!value) return ''
-  return value.length > 8 ? value.slice(0, 8) : value
+function toStringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length ? value.trim() : null
+}
+
+function getCustomerDisplayName(record: Record<string, unknown>): string | null {
+  return toStringOrNull(record.display_name) ?? toStringOrNull(record.displayName)
+}
+
+function useCustomerDisplayNames(customerIds: readonly (string | null | undefined)[]): Record<string, string> {
+  const [customerNames, setCustomerNames] = React.useState<Record<string, string>>({})
+  const resolvedCustomerIdsRef = React.useRef<Set<string>>(new Set())
+
+  React.useEffect(() => {
+    const unresolvedIds = new Set<string>()
+    for (const customerId of customerIds) {
+      const normalized = toStringOrNull(customerId)
+      if (normalized && !resolvedCustomerIdsRef.current.has(normalized)) {
+        unresolvedIds.add(normalized)
+      }
+    }
+    if (!unresolvedIds.size) return
+
+    for (const customerId of unresolvedIds) resolvedCustomerIdsRef.current.add(customerId)
+
+    const controller = new AbortController()
+    const idsParam = [...unresolvedIds].map(encodeURIComponent).join(',')
+    Promise.all([
+      readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+        `/api/customers/people?ids=${idsParam}&pageSize=100`,
+        { signal: controller.signal },
+        { fallback: { items: [] }, errorMessage: '[internal] Failed to load customer display names' },
+      ),
+      readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+        `/api/customers/companies?ids=${idsParam}&pageSize=100`,
+        { signal: controller.signal },
+        { fallback: { items: [] }, errorMessage: '[internal] Failed to load customer display names' },
+      ),
+    ])
+      .then(([people, companies]) => {
+        const nextNames: Record<string, string> = {}
+        for (const record of [...(people.items ?? []), ...(companies.items ?? [])]) {
+          const customerId = toStringOrNull(record.id)
+          const displayName = getCustomerDisplayName(record)
+          if (customerId && displayName) nextNames[customerId] = displayName
+        }
+        if (Object.keys(nextNames).length) {
+          setCustomerNames((current) => ({ ...current, ...nextNames }))
+        }
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [customerIds])
+
+  return customerNames
 }
 
 function coverageVariant(value: string | null): 'success' | 'warning' | 'neutral' {
@@ -68,6 +119,8 @@ export default function WarrantyClaimRegistrationsPage() {
   const [search, setSearch] = React.useState('')
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const customerIds = React.useMemo(() => rows.map((row) => row.customerId), [rows])
+  const customerNames = useCustomerDisplayNames(customerIds)
 
   const mutationContextId = 'warranty-claim-registrations-list'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -176,7 +229,7 @@ export default function WarrantyClaimRegistrationsPage() {
             href={`/backend/warranty_claims/registrations/${row.original.id}/edit`}
             className="font-medium hover:underline"
           >
-            {row.original.serialNumber ?? shortId(row.original.id)}
+            {row.original.serialNumber ?? '—'}
           </Link>
         ),
       },
@@ -189,7 +242,13 @@ export default function WarrantyClaimRegistrationsPage() {
       {
         accessorKey: 'customerId',
         header: t('warranty_claims.registrations.list.column.customer', 'Customer'),
-        cell: ({ row }) => row.original.customerId ? <span className="font-mono text-xs">{shortId(row.original.customerId)}</span> : noValue,
+        cell: ({ row }) => {
+          const customerId = row.original.customerId
+          const displayName = customerId ? customerNames[customerId] : undefined
+          return displayName
+            ? <span>{displayName}</span>
+            : <span className="text-sm text-muted-foreground">—</span>
+        },
       },
       {
         accessorKey: 'coverageType',
@@ -224,7 +283,7 @@ export default function WarrantyClaimRegistrationsPage() {
         ),
       },
     ]
-  }, [t])
+  }, [customerNames, t])
 
   return (
     <Page>

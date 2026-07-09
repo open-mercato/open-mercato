@@ -128,7 +128,7 @@ export type WarrantyClaimStatsResult = {
 }
 
 export type WarrantyClaimRiskSignal = {
-  id: 'duplicate_serial' | 'repeat_claimer' | 'value_velocity'
+  id: 'duplicate_serial' | 'duplicate_order_claim' | 'repeat_claimer' | 'value_velocity'
   level: 'low' | 'medium' | 'high'
   messageKey: string
   params?: Record<string, string | number>

@@ -4,12 +4,16 @@ import * as React from 'react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import type { CrudField, CrudFieldOption, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { loadOrderOptions, resolveOrderLabel } from '../../components/orderLookup'
+import { ClaimLineProductPicker, type ClaimProductPick } from '../../components/productLookup'
 
 export type RegistrationRecord = {
   id: string
   serialNumber: string | null
   productName: string | null
   sku: string | null
+  productId: string | null
+  variantId: string | null
   customerId: string | null
   orderId: string | null
   purchaseDate: string | null
@@ -68,6 +72,20 @@ function normalizeOption(item: unknown): CrudFieldOption | null {
   return { value: id, label: email ? `${label} (${email})` : label }
 }
 
+async function resolveCustomerLabel(value: string): Promise<string> {
+  const params = new URLSearchParams({ id: value, page: '1', pageSize: '1' })
+  const [people, companies] = await Promise.all([
+    apiCall<{ items?: unknown[] }>(`/api/customers/people?${params.toString()}`, undefined, { fallback: { items: [] } }),
+    apiCall<{ items?: unknown[] }>(`/api/customers/companies?${params.toString()}`, undefined, { fallback: { items: [] } }),
+  ])
+  const items = [
+    ...(Array.isArray(people.result?.items) ? people.result.items : []),
+    ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
+  ]
+  const option = items.map(normalizeOption).find((item): item is CrudFieldOption => item !== null)
+  return option?.label ?? value
+}
+
 export function normalizeRegistration(value: unknown): RegistrationRecord | null {
   if (!isRecord(value)) return null
   const id = toStringOrNull(value.id)
@@ -77,6 +95,8 @@ export function normalizeRegistration(value: unknown): RegistrationRecord | null
     serialNumber: toStringOrNull(value.serialNumber),
     productName: toStringOrNull(value.productName),
     sku: toStringOrNull(value.sku),
+    productId: toStringOrNull(value.productId),
+    variantId: toStringOrNull(value.variantId),
     customerId: toStringOrNull(value.customerId),
     orderId: toStringOrNull(value.orderId),
     purchaseDate: dateInputValue(value.purchaseDate) || null,
@@ -105,6 +125,8 @@ export function buildRegistrationPayload(values: RegistrationFormValues, id?: st
   payload.serialNumber = nullableText(values.serialNumber)
   payload.productName = nullableText(values.productName)
   payload.sku = nullableText(values.sku)
+  payload.productId = nullableText(values.productId)
+  payload.variantId = nullableText(values.variantId)
   payload.customerId = nullableText(values.customerId)
   payload.orderId = nullableText(values.orderId)
   payload.purchaseDate = dateToIso(values.purchaseDate)
@@ -146,11 +168,6 @@ export function useRegistrationFormConfig(
     return items.map(normalizeOption).filter((option): option is CrudFieldOption => option !== null)
   }, [])
 
-  const customerSeedOptions = React.useMemo<CrudFieldOption[]>(() => {
-    if (!registration?.customerId) return []
-    return [{ value: registration.customerId, label: registration.customerId }]
-  }, [registration?.customerId])
-
   const coverageOptions = React.useMemo<CrudFieldOption[]>(
     () => COVERAGE_TYPES.map((value) => ({ value, label: coverageLabel(t, value) })),
     [t],
@@ -183,14 +200,20 @@ export function useRegistrationFormConfig(
       label: t('warranty_claims.registrations.form.customerId', 'Customer'),
       type: 'combobox',
       loadOptions: loadCustomerOptions,
-      seedOptions: customerSeedOptions,
+      resolveLabel: resolveCustomerLabel,
+      seedOptions: [],
       allowCustomValues: false,
       placeholder: t('warranty_claims.registrations.form.customerId.placeholder', 'Search customers'),
     },
     {
       id: 'orderId',
       label: t('warranty_claims.registrations.form.orderId', 'Order ID'),
-      type: 'text',
+      type: 'combobox',
+      loadOptions: loadOrderOptions,
+      resolveLabel: resolveOrderLabel,
+      seedOptions: [],
+      allowCustomValues: false,
+      placeholder: t('warranty_claims.registrations.form.orderId.placeholder', 'Search orders'),
     },
     {
       id: 'purchaseDate',
@@ -221,13 +244,33 @@ export function useRegistrationFormConfig(
       rows: 5,
       layout: 'full',
     },
-  ], [coverageOptions, customerSeedOptions, loadCustomerOptions, sourceOptions, t])
+  ], [coverageOptions, loadCustomerOptions, sourceOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {
       id: 'product',
       title: t('warranty_claims.registrations.form.group.product', 'Product'),
       fields: ['serialNumber', 'productName', 'sku'],
+      component: ({ values, setValue }) => (
+        <ClaimLineProductPicker
+          value={{
+            productId: nullableText(values.productId),
+            variantId: nullableText(values.variantId),
+            productName: nullableText(values.productName),
+            sku: nullableText(values.sku),
+          }}
+          onPick={(pick: ClaimProductPick) => {
+            setValue('productId', pick.productId)
+            setValue('variantId', pick.variantId)
+            setValue('sku', pick.sku)
+            setValue('productName', pick.productName)
+          }}
+          onClear={() => {
+            setValue('productId', null)
+            setValue('variantId', null)
+          }}
+        />
+      ),
     },
     {
       id: 'ownership',

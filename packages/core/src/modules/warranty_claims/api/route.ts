@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { parseScopedCommandInput, withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
@@ -63,6 +64,7 @@ const listSchema = z
     ids: idsSchema,
     search: z.string().trim().max(300).optional(),
     overdueOnly: booleanQuerySchema,
+    needsAttention: booleanQuerySchema,
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     sortField: z.enum(['slaDueAt', 'createdAt', 'updatedAt']).optional(),
@@ -114,6 +116,52 @@ function toIso(value: unknown): string | null {
   return null
 }
 
+type ClaimLineSearchDb = {
+  warranty_claim_lines: {
+    claim_id: string
+    tenant_id: string
+    organization_id: string
+    serial_number: string | null
+    sku: string | null
+    deleted_at: Date | null
+  }
+}
+
+const LINE_SEARCH_MATCH_LIMIT = 500
+
+async function findClaimIdsMatchingLineSearch(ctx: CrudCtx, term: string): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!tenantId) return []
+  const selectedOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const visibleOrganizationIds = Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
+    ? ctx.organizationIds
+    : null
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const db = em.getKysely<ClaimLineSearchDb>()
+    const pattern = buildIlikeTerm(term)
+    let query = db
+      .selectFrom('warranty_claim_lines')
+      .select('claim_id')
+      .distinct()
+      .where('tenant_id', '=', tenantId)
+      .where('deleted_at', 'is', null)
+      .where((eb) => eb.or([
+        eb('serial_number', 'ilike', pattern),
+        eb('sku', 'ilike', pattern),
+      ]))
+    if (selectedOrganizationId) {
+      query = query.where('organization_id', '=', selectedOrganizationId)
+    } else if (visibleOrganizationIds) {
+      query = query.where('organization_id', 'in', visibleOrganizationIds)
+    }
+    const rows = await query.limit(LINE_SEARCH_MATCH_LIMIT).execute()
+    return rows.map((row) => row.claim_id)
+  } catch {
+    return []
+  }
+}
+
 function selectedStatuses(query: ClaimListQuery): string[] {
   const statuses = Array.isArray(query.status) ? query.status : []
   const bracketStatuses = Array.isArray(query['status[]']) ? query['status[]'] : []
@@ -135,6 +183,8 @@ function transformClaimItem(item: unknown): unknown {
     vendorName: readString(record, 'vendor_name', 'vendorName'),
     vendorRef: readString(record, 'vendor_ref', 'vendorRef'),
     orderId: readString(record, 'order_id', 'orderId'),
+    orderNumber: readString(record, 'order_number', 'orderNumber'),
+    awaitingStaffReply: readBool(record, 'awaiting_staff_reply', 'awaitingStaffReply'),
     salesReturnId: readString(record, 'sales_return_id', 'salesReturnId'),
     replacementOrderId: readString(record, 'replacement_order_id', 'replacementOrderId'),
     sourceClaimId: readString(record, 'source_claim_id', 'sourceClaimId'),
@@ -184,6 +234,8 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       'vendor_name',
       'vendor_ref',
       'order_id',
+      'order_number',
+      'awaiting_staff_reply',
       'sales_return_id',
       'replacement_order_id',
       'source_claim_id',
@@ -213,7 +265,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       const statuses = selectedStatuses(query)
@@ -231,15 +283,20 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       if (query.customerId) filters.customer_id = { $eq: query.customerId }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
       if (query.assigneeUserId) filters.assignee_user_id = { $eq: query.assigneeUserId }
+      if (query.needsAttention === true) filters.awaiting_staff_reply = { $eq: true }
       if (Array.isArray(query.ids) && query.ids.length) filters.id = { $in: query.ids }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)
-        filters.$or = [
+        const searchBranches: Record<string, unknown>[] = [
           { claim_number: { $ilike: pattern } },
           { customer_name: { $ilike: pattern } },
+          { order_number: { $ilike: pattern } },
           { vendor_name: { $ilike: pattern } },
           { vendor_ref: { $ilike: pattern } },
         ]
+        const lineMatchIds = await findClaimIdsMatchingLineSearch(ctx, query.search)
+        if (lineMatchIds.length) searchBranches.push({ id: { $in: lineMatchIds } })
+        filters.$or = searchBranches
       }
       return filters
     },
@@ -304,6 +361,8 @@ const claimListItemSchema = z.object({
   customerId: z.string().uuid().nullable(),
   customerName: z.string().nullable(),
   orderId: z.string().uuid().nullable(),
+  orderNumber: z.string().nullable(),
+  awaitingStaffReply: z.boolean(),
   assigneeUserId: z.string().uuid().nullable(),
   totalClaimedAmount: z.string().nullable(),
   totalApprovedAmount: z.string().nullable(),

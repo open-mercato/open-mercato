@@ -280,6 +280,21 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
       const resumedClaim = await readClaim(request, adminToken, claimId!)
       expect(resumedClaim.status, 'customer reply should move info_requested claim back to in_review').toBe('in_review')
       expect(resumedClaim.slaPausedAt, 'customer reply should clear the SLA pause').toBeNull()
+      expect(
+        (resumedClaim as { awaitingStaffReply?: boolean }).awaitingStaffReply,
+        'customer reply should raise the awaiting-staff-reply flag',
+      ).toBe(true)
+      const needsAttentionList = await apiRequest(
+        request,
+        'GET',
+        '/api/warranty_claims?needsAttention=true&pageSize=100',
+        { token: adminToken },
+      )
+      const needsAttentionBody = await readJsonSafe<{ items?: Array<{ id?: string }> }>(needsAttentionList)
+      expect(
+        needsAttentionBody?.items?.some((item) => item.id === claimId),
+        'needsAttention filter should surface the customer-replied claim',
+      ).toBe(true)
 
       let customerReplyNotified = false
       for (let attempt = 0; attempt < 20 && !customerReplyNotified; attempt += 1) {
@@ -302,6 +317,11 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         visibility: 'internal',
       })
       expect(staffComment.status(), 'staff internal comment should return 200').toBe(200)
+      const answeredClaim = await readClaim(request, adminToken, claimId!)
+      expect(
+        (answeredClaim as { awaitingStaffReply?: boolean }).awaitingStaffReply,
+        'staff comment should clear the awaiting-staff-reply flag',
+      ).toBe(false)
 
       const eventsA = await request.get(`/api/warranty_claims/portal/events?claimId=${encodeURIComponent(claimId!)}`, {
         headers: portalCookieHeaders(sessionA),

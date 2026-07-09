@@ -12,6 +12,12 @@ import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../../lib/dictionaryLabels'
+import {
+  loadOrderOptions,
+  loadSalesReturnOptions,
+  resolveOrderLabel,
+  resolveSalesReturnLabel,
+} from '../../../components/orderLookup'
 
 type ClaimEditRecord = {
   id: string
@@ -19,6 +25,7 @@ type ClaimEditRecord = {
   customerId: string | null
   customerName: string | null
   orderId: string | null
+  orderNumber: string | null
   reasonCode: string | null
   priority: string | null
   notes: string | null
@@ -60,6 +67,7 @@ function normalizeClaim(value: unknown): ClaimEditRecord | null {
     customerId: toStringOrNull(value.customerId),
     customerName: toStringOrNull(value.customerName),
     orderId: toStringOrNull(value.orderId),
+    orderNumber: toStringOrNull(value.orderNumber),
     reasonCode: toStringOrNull(value.reasonCode),
     priority: toStringOrNull(value.priority),
     notes: toStringOrNull(value.notes),
@@ -191,6 +199,11 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
       ? 'fulfillment'
       : 'locked'
 
+  const claimOrderId = claim?.orderId ?? null
+  const loadSalesReturnOptionsForClaim = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    return loadSalesReturnOptions(query, { orderId: claimOrderId })
+  }, [claimOrderId])
+
   const fields = React.useMemo<CrudField[]>(() => {
     if (editableMode === 'intake') {
       return [
@@ -206,7 +219,18 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
             : [],
         },
         { id: 'customerName', label: t('warranty_claims.form.customerName'), type: 'text' },
-        { id: 'orderId', label: t('warranty_claims.form.orderId'), type: 'text', placeholder: t('warranty_claims.form.orderId.placeholder') },
+        {
+          id: 'orderId',
+          label: t('warranty_claims.form.orderId'),
+          type: 'combobox',
+          loadOptions: loadOrderOptions,
+          allowCustomValues: false,
+          placeholder: t('warranty_claims.form.orderId.placeholder'),
+          resolveLabel: resolveOrderLabel,
+          seedOptions: claim?.orderId && claim.orderNumber
+            ? [{ value: claim.orderId, label: claim.orderNumber }]
+            : [],
+        },
         {
           id: 'reasonCode',
           label: t('warranty_claims.form.reasonCode'),
@@ -228,16 +252,35 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     if (editableMode === 'fulfillment') {
       return [
         { id: 'advanceReplacement', label: t('warranty_claims.form.advanceReplacement'), type: 'checkbox' },
-        { id: 'replacementOrderId', label: t('warranty_claims.form.replacementOrderId'), type: 'text' },
+        {
+          id: 'replacementOrderId',
+          label: t('warranty_claims.form.replacementOrderId'),
+          type: 'combobox',
+          loadOptions: loadOrderOptions,
+          allowCustomValues: false,
+          resolveLabel: resolveOrderLabel,
+          seedOptions: [],
+        },
         { id: 'advanceShippedAt', label: t('warranty_claims.form.advanceShippedAt'), type: 'datetime-local' },
-        { id: 'salesReturnId', label: t('warranty_claims.form.salesReturnId'), type: 'text' },
+        {
+          id: 'salesReturnId',
+          label: t('warranty_claims.form.salesReturnId'),
+          type: 'combobox',
+          loadOptions: loadSalesReturnOptionsForClaim,
+          allowCustomValues: false,
+          resolveLabel: resolveSalesReturnLabel,
+          seedOptions: [],
+          description: claimOrderId
+            ? undefined
+            : t('warranty_claims.form.salesReturnId.noOrder', 'Link the claim to an order first to select a return.'),
+        },
         { id: 'vendorName', label: t('warranty_claims.form.vendorName'), type: 'text' },
         { id: 'vendorRef', label: t('warranty_claims.form.vendorRef'), type: 'text' },
         { id: 'resolutionSummary', label: t('warranty_claims.form.resolutionSummary'), type: 'textarea', rows: 5, layout: 'full' },
       ]
     }
     return []
-  }, [claim?.customerId, claim?.customerName, editableMode, loadCustomerOptions, loadDictionaryOptions, t])
+  }, [claim?.customerId, claim?.customerName, claim?.orderNumber, claimOrderId, editableMode, loadCustomerOptions, loadDictionaryOptions, loadSalesReturnOptionsForClaim, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

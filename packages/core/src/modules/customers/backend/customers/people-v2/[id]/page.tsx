@@ -308,7 +308,9 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         .filter((widget) => (widget.placement?.kind ?? 'tab') === 'tab')
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
-          const label = widget.placement?.groupLabel ?? widget.module.metadata.title ?? tabId
+          const label = widget.placement?.groupLabel
+            ? t(widget.placement.groupLabel, widget.module.metadata.title ?? tabId)
+            : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (
             <widget.module.Widget
@@ -320,7 +322,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
           return { id: tabId, label, priority, render }
         })
         .sort((a, b) => b.priority - a.priority),
-    [data, injectedTabWidgets, injectionContext],
+    [data, injectedTabWidgets, injectionContext, t],
   )
 
   const injectedTabMap = React.useMemo(() => new Map(injectedTabs.map((tab) => [tab.id, tab.render])), [injectedTabs])

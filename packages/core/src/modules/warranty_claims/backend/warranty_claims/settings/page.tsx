@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { RefreshCw, Save } from 'lucide-react'
+import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -14,10 +14,13 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { ComboboxInput, type ComboboxOption } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ICON_SUGGESTIONS } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
@@ -29,6 +32,11 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
+import {
+  fetchAssignableStaffMembersPage,
+  type AssignableStaffMember,
+} from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
+import { parseEscalationTiers, type EscalationTier } from '../../../lib/escalation'
 
 type WarrantyDictionaryKind =
   | 'warranty-claim-fault-code'
@@ -49,6 +57,13 @@ type DialogState =
 type DictionaryListItem = {
   id?: string
   key?: string
+}
+
+type EscalationTierRow = {
+  key: string
+  atPct: string
+  action: EscalationTier['action']
+  toUserId: string
 }
 
 type GeneralSettingsResult = {
@@ -84,10 +99,27 @@ type GeneralSettingsFormValues = {
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: string
   businessHours: string
-  escalationTiers: string
+  escalationTiers: EscalationTierRow[]
   adjudicationUseRules: boolean
   quarantineGrades: string[]
   returnLabelProvider: string
+}
+
+type EscalationTiersFieldTranslations = {
+  rowLabel: (index: number) => string
+  atPctLabel: string
+  actionLabel: string
+  actionNotify: string
+  actionReassign: string
+  toUserLabel: string
+  toUserPlaceholder: string
+  addRow: string
+  removeRow: string
+  empty: string
+  error: {
+    atPct: string
+    toUserId: string
+  }
 }
 
 type GeneralSettingsTranslations = {
@@ -111,6 +143,7 @@ type GeneralSettingsTranslations = {
     businessHours: string
     escalationTiers: string
   }
+  escalationTiers: EscalationTiersFieldTranslations
   fields: {
     slaHours: string
     slaHoursHelp: string
@@ -144,6 +177,7 @@ type GeneralSettingsTranslations = {
 type GeneralFieldErrors = {
   businessHours?: string
   escalationTiers?: string
+  escalationTierRowErrors?: Record<string, { atPct?: string; toUserId?: string }>
 }
 
 const DEFAULT_FORM_VALUES: DictionaryFormValues = {
@@ -225,16 +259,57 @@ function parseNullableJsonObject(value: string): JsonParseResult<Record<string, 
   return { ok: false }
 }
 
-function parseNullableJsonObjectArray(value: string): JsonParseResult<Record<string, unknown>[]> {
-  const trimmed = value.trim()
-  if (!trimmed) return { ok: true, value: null }
-  try {
-    const parsed: unknown = JSON.parse(trimmed)
-    if (Array.isArray(parsed) && parsed.every(isRecord)) return { ok: true, value: parsed }
-  } catch {
-    return { ok: false }
+let escalationTierRowSeq = 0
+
+function nextEscalationTierRowKey(): string {
+  escalationTierRowSeq += 1
+  return `escalation-tier-${escalationTierRowSeq}`
+}
+
+function buildEscalationTierRows(raw: unknown): EscalationTierRow[] {
+  return parseEscalationTiers(raw).map((tier) => ({
+    key: nextEscalationTierRowKey(),
+    atPct: String(tier.atPct),
+    action: tier.action,
+    toUserId: tier.toUserId ?? '',
+  }))
+}
+
+const ESCALATION_TIER_MIN_PCT = 1
+const ESCALATION_TIER_MAX_PCT = 1000
+
+type EscalationTierRowsValidation =
+  | { ok: true; value: EscalationTier[] | null }
+  | { ok: false; rowErrors: Record<string, { atPct?: string; toUserId?: string }> }
+
+function validateEscalationTierRows(
+  rows: EscalationTierRow[],
+  translations: EscalationTiersFieldTranslations,
+): EscalationTierRowsValidation {
+  const rowErrors: Record<string, { atPct?: string; toUserId?: string }> = {}
+  const parsed: EscalationTier[] = []
+
+  for (const row of rows) {
+    const atPctNumber = Number(row.atPct)
+    const rowError: { atPct?: string; toUserId?: string } = {}
+    if (!Number.isInteger(atPctNumber) || atPctNumber < ESCALATION_TIER_MIN_PCT || atPctNumber > ESCALATION_TIER_MAX_PCT) {
+      rowError.atPct = translations.error.atPct
+    }
+    const toUserId = row.toUserId.trim()
+    if (row.action === 'reassign' && !toUserId) {
+      rowError.toUserId = translations.error.toUserId
+    }
+    if (Object.keys(rowError).length) {
+      rowErrors[row.key] = rowError
+      continue
+    }
+    parsed.push(row.action === 'reassign' ? { atPct: atPctNumber, action: row.action, toUserId } : { atPct: atPctNumber, action: row.action })
   }
-  return { ok: false }
+
+  if (Object.keys(rowErrors).length) return { ok: false, rowErrors }
+
+  const sorted = [...parsed].sort((left, right) => left.atPct - right.atPct)
+  return { ok: true, value: sorted.length ? sorted : null }
 }
 
 function normalizeEntry(item: unknown): DictionaryTableEntry | null {
@@ -267,7 +342,7 @@ function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSetting
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
     businessHours: stringifyJsonValue(settings.businessHours),
-    escalationTiers: stringifyJsonValue(settings.escalationTiers),
+    escalationTiers: buildEscalationTierRows(settings.escalationTiers),
     adjudicationUseRules: settings.adjudicationUseRules,
     quarantineGrades: settings.quarantineGrades ?? [],
     returnLabelProvider: settings.returnLabelProvider ?? '',
@@ -495,6 +570,131 @@ function GeneralQuarantineGradesField({
   )
 }
 
+function EscalationTiersField({
+  id,
+  label,
+  description,
+  rows,
+  rowErrors,
+  error,
+  disabled,
+  translations,
+  loadStaffOptions,
+  resolveStaffLabel,
+  onAddRow,
+  onRemoveRow,
+  onAtPctChange,
+  onActionChange,
+  onUserChange,
+}: {
+  id: string
+  label: string
+  description: string
+  rows: EscalationTierRow[]
+  rowErrors?: Record<string, { atPct?: string; toUserId?: string }>
+  error?: string
+  disabled?: boolean
+  translations: EscalationTiersFieldTranslations
+  loadStaffOptions: (query?: string) => Promise<ComboboxOption[]>
+  resolveStaffLabel: (userId: string) => Promise<string>
+  onAddRow: () => void
+  onRemoveRow: (key: string) => void
+  onAtPctChange: (key: string, value: string) => void
+  onActionChange: (key: string, value: EscalationTierRow['action']) => void
+  onUserChange: (key: string, value: string) => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <h4 className="text-sm font-medium">{label}</h4>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      {rows.length === 0 ? (
+        <p className="rounded-md border border-dashed border-border bg-background p-4 text-sm text-muted-foreground">
+          {translations.empty}
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row, index) => {
+            const rowError = rowErrors?.[row.key]
+            const atPctFieldId = `${id}-${row.key}-atPct`
+            const actionFieldId = `${id}-${row.key}-action`
+            const toUserFieldId = `${id}-${row.key}-toUserId`
+            return (
+              <div key={row.key} className="space-y-3 rounded-md border border-border bg-background p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <h5 className="text-sm font-medium">{translations.rowLabel(index + 1)}</h5>
+                  <IconButton
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-label={translations.removeRow}
+                    disabled={disabled}
+                    onClick={() => onRemoveRow(row.key)}
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </IconButton>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-2">
+                    <Label htmlFor={atPctFieldId}>{translations.atPctLabel}</Label>
+                    <Input
+                      id={atPctFieldId}
+                      type="number"
+                      min={ESCALATION_TIER_MIN_PCT}
+                      max={ESCALATION_TIER_MAX_PCT}
+                      value={row.atPct}
+                      disabled={disabled}
+                      aria-invalid={rowError?.atPct ? true : undefined}
+                      onChange={(event) => onAtPctChange(row.key, event.target.value)}
+                    />
+                    {rowError?.atPct ? <p className="text-sm text-status-error-text">{rowError.atPct}</p> : null}
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor={actionFieldId}>{translations.actionLabel}</Label>
+                    <Select
+                      value={row.action}
+                      onValueChange={(value) => onActionChange(row.key, value === 'reassign' ? 'reassign' : 'notify')}
+                    >
+                      <SelectTrigger id={actionFieldId} disabled={disabled}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="notify">{translations.actionNotify}</SelectItem>
+                        <SelectItem value="reassign">{translations.actionReassign}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {row.action === 'reassign' ? (
+                    <div className="space-y-2">
+                      <Label htmlFor={toUserFieldId}>{translations.toUserLabel}</Label>
+                      <ComboboxInput
+                        value={row.toUserId}
+                        onChange={(value) => onUserChange(row.key, value)}
+                        placeholder={translations.toUserPlaceholder}
+                        loadSuggestions={loadStaffOptions}
+                        resolveLabel={resolveStaffLabel}
+                        allowCustomValues={false}
+                        disabled={disabled}
+                      />
+                      {rowError?.toUserId ? <p className="text-sm text-status-error-text">{rowError.toUserId}</p> : null}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+      <Button type="button" variant="outline" size="sm" disabled={disabled} onClick={onAddRow}>
+        <Plus className="size-4" aria-hidden="true" />
+        {translations.addRow}
+      </Button>
+      {error ? <ErrorMessage label={error} /> : null}
+    </div>
+  )
+}
+
 function GeneralSettingsSubsection({
   title,
   children,
@@ -578,7 +778,7 @@ export default function WarrantyClaimSettingsPage() {
     },
     jsonErrors: {
       businessHours: t('warranty_claims.settings.general.error.businessHoursJson', 'Invalid business hours JSON'),
-      escalationTiers: t('warranty_claims.settings.general.error.escalationTiersJson', 'Invalid escalation tiers JSON'),
+      escalationTiers: t('warranty_claims.settings.general.error.escalationTiersInvalid', 'Fix the highlighted escalation tier rows.'),
     },
     fields: {
       slaHours: t('warranty_claims.settings.general.fields.slaHours.label', 'SLA hours'),
@@ -599,14 +799,30 @@ export default function WarrantyClaimSettingsPage() {
       autoApproveRequireInWarrantyHelp: t('warranty_claims.settings.general.fields.autoApproveRequireInWarranty.help', 'Only auto-approve when every line is still in warranty.'),
       businessHours: t('warranty_claims.settings.general.fields.businessHours.label', 'Business hours JSON'),
       businessHoursHelp: t('warranty_claims.settings.general.fields.businessHours.help', 'Shape: { timezone, week: { mon:[{start,end}], ... }, holidays:[...] }. Leave empty to disable.'),
-      escalationTiers: t('warranty_claims.settings.general.fields.escalationTiers.label', 'Escalation tiers JSON'),
-      escalationTiersHelp: t('warranty_claims.settings.general.fields.escalationTiers.help', "Shape: [{ atPct, action:'notify'|'reassign', toUserId? }]. Leave empty to disable."),
+      escalationTiers: t('warranty_claims.settings.general.fields.escalationTiersEditor.label', 'Escalation tiers'),
+      escalationTiersHelp: t('warranty_claims.settings.general.fields.escalationTiersEditor.help', 'Notify or reassign a claim once its SLA has elapsed past a percentage threshold. Tiers apply in ascending order. Leave empty to disable.'),
       adjudicationUseRules: t('warranty_claims.settings.general.fields.adjudicationUseRules.label', 'Use business rules for adjudication'),
       adjudicationUseRulesHelp: t('warranty_claims.settings.general.fields.adjudicationUseRules.help', 'When on and the business_rules module is present, claim submission is evaluated by the rule engine; otherwise the built-in light rule is used.'),
       quarantineGrades: t('warranty_claims.settings.general.fields.quarantineGrades.label', 'Quarantine grades'),
       quarantineGradesHelp: t('warranty_claims.settings.general.fields.quarantineGrades.help', 'Grades that automatically hold a claim on receiving.'),
       returnLabelProvider: t('warranty_claims.settings.general.fields.returnLabelProvider.label', 'Return label provider'),
       returnLabelProviderHelp: t('warranty_claims.settings.general.fields.returnLabelProvider.help', 'Optional provider key for the return-label seam. Leave empty for manual entry only.'),
+    },
+    escalationTiers: {
+      rowLabel: (index: number) => t('warranty_claims.settings.general.escalationTiers.rowLabel', 'Tier {number}', { number: index }),
+      atPctLabel: t('warranty_claims.settings.general.escalationTiers.atPctLabel', 'SLA elapsed (%)'),
+      actionLabel: t('warranty_claims.settings.general.escalationTiers.actionLabel', 'Action'),
+      actionNotify: t('warranty_claims.settings.general.escalationTiers.action.notify', 'Notify'),
+      actionReassign: t('warranty_claims.settings.general.escalationTiers.action.reassign', 'Reassign'),
+      toUserLabel: t('warranty_claims.settings.general.escalationTiers.toUserLabel', 'Reassign to'),
+      toUserPlaceholder: t('warranty_claims.settings.general.escalationTiers.toUserPlaceholder', 'Search staff'),
+      addRow: t('warranty_claims.settings.general.escalationTiers.addRow', 'Add tier'),
+      removeRow: t('warranty_claims.settings.general.escalationTiers.removeRow', 'Remove tier'),
+      empty: t('warranty_claims.settings.general.escalationTiers.empty', 'No escalation tiers configured. Claims will not auto-escalate.'),
+      error: {
+        atPct: t('warranty_claims.settings.general.escalationTiers.error.atPct', 'Enter a whole number between 1 and 1000.'),
+        toUserId: t('warranty_claims.settings.general.escalationTiers.error.toUserId', 'Select a staff member to reassign to.'),
+      },
     },
   }), [t])
 
@@ -640,6 +856,85 @@ export default function WarrantyClaimSettingsPage() {
     setGeneralForm((prev) => ({ ...prev, ...patch }))
   }, [])
 
+  const staffOptionLabel = React.useCallback((member: AssignableStaffMember): string => (
+    member.email && member.email !== member.displayName
+      ? `${member.displayName} (${member.email})`
+      : member.displayName
+  ), [])
+
+  const loadEscalationStaffOptions = React.useCallback(async (query?: string): Promise<ComboboxOption[]> => {
+    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24 })
+    return page.items.map((member) => ({ value: member.userId, label: staffOptionLabel(member) }))
+  }, [staffOptionLabel])
+
+  const resolveStaffUserLabel = React.useCallback(async (userId: string): Promise<string> => {
+    const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/auth/users?ids=${encodeURIComponent(userId)}`,
+    )
+    if (!response.ok || !response.result) return userId
+    const user = (response.result.items ?? [])[0]
+    if (!user) return userId
+    const displayName = toStringOrNull(user.display_name) ?? toStringOrNull(user.displayName)
+    return displayName ?? toStringOrNull(user.email) ?? userId
+  }, [])
+
+  const addEscalationTierRow = React.useCallback(() => {
+    setGeneralForm((prev) => ({
+      ...prev,
+      escalationTiers: [
+        ...prev.escalationTiers,
+        { key: nextEscalationTierRowKey(), atPct: '', action: 'notify', toUserId: '' },
+      ],
+    }))
+  }, [])
+
+  const clearEscalationTierRowError = React.useCallback((key: string, field: 'atPct' | 'toUserId') => {
+    setGeneralFieldErrors((prev) => {
+      if (!prev.escalationTierRowErrors?.[key]?.[field]) return prev
+      const nextRowErrors = { ...prev.escalationTierRowErrors, [key]: { ...prev.escalationTierRowErrors[key], [field]: undefined } }
+      const hasRemainingErrors = Object.values(nextRowErrors).some((rowError) => rowError?.atPct || rowError?.toUserId)
+      return { ...prev, escalationTierRowErrors: nextRowErrors, escalationTiers: hasRemainingErrors ? prev.escalationTiers : undefined }
+    })
+  }, [])
+
+  const removeEscalationTierRow = React.useCallback((key: string) => {
+    setGeneralForm((prev) => ({
+      ...prev,
+      escalationTiers: prev.escalationTiers.filter((row) => row.key !== key),
+    }))
+    setGeneralFieldErrors((prev) => {
+      if (!prev.escalationTierRowErrors?.[key]) return prev
+      const nextRowErrors = { ...prev.escalationTierRowErrors }
+      delete nextRowErrors[key]
+      const hasRemainingErrors = Object.values(nextRowErrors).some((rowError) => rowError?.atPct || rowError?.toUserId)
+      return { ...prev, escalationTierRowErrors: nextRowErrors, escalationTiers: hasRemainingErrors ? prev.escalationTiers : undefined }
+    })
+  }, [])
+
+  const updateEscalationTierAtPct = React.useCallback((key: string, value: string) => {
+    setGeneralForm((prev) => ({
+      ...prev,
+      escalationTiers: prev.escalationTiers.map((row) => (row.key === key ? { ...row, atPct: value } : row)),
+    }))
+    clearEscalationTierRowError(key, 'atPct')
+  }, [clearEscalationTierRowError])
+
+  const updateEscalationTierAction = React.useCallback((key: string, value: EscalationTierRow['action']) => {
+    setGeneralForm((prev) => ({
+      ...prev,
+      escalationTiers: prev.escalationTiers.map((row) => (row.key === key ? { ...row, action: value } : row)),
+    }))
+    clearEscalationTierRowError(key, 'toUserId')
+  }, [clearEscalationTierRowError])
+
+  const updateEscalationTierUser = React.useCallback((key: string, value: string) => {
+    setGeneralForm((prev) => ({
+      ...prev,
+      escalationTiers: prev.escalationTiers.map((row) => (row.key === key ? { ...row, toUserId: value } : row)),
+    }))
+    clearEscalationTierRowError(key, 'toUserId')
+  }, [clearEscalationTierRowError])
+
   const handleGeneralSubmit = React.useCallback(async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setGeneralSaveError(null)
@@ -653,7 +948,7 @@ export default function WarrantyClaimSettingsPage() {
     const defaultWarrantyMonths = warrantyMonthsText.length ? Number(warrantyMonthsText) : null
     const currencyCode = toStringOrNull(generalForm.autoApproveCurrencyCode)?.toUpperCase() ?? null
     const businessHoursResult = parseNullableJsonObject(generalForm.businessHours)
-    const escalationTiersResult = parseNullableJsonObjectArray(generalForm.escalationTiers)
+    const escalationTiersResult = validateEscalationTierRows(generalForm.escalationTiers, generalTranslations.escalationTiers)
     const returnLabelProvider = toStringOrNull(generalForm.returnLabelProvider)
     const quarantineGrades = Array.from(new Set(
       generalForm.quarantineGrades
@@ -665,6 +960,7 @@ export default function WarrantyClaimSettingsPage() {
       setGeneralFieldErrors({
         businessHours: businessHoursResult.ok ? undefined : generalTranslations.jsonErrors.businessHours,
         escalationTiers: escalationTiersResult.ok ? undefined : generalTranslations.jsonErrors.escalationTiers,
+        escalationTierRowErrors: escalationTiersResult.ok ? undefined : escalationTiersResult.rowErrors,
       })
       return
     }
@@ -735,6 +1031,7 @@ export default function WarrantyClaimSettingsPage() {
     generalForm,
     generalMutationContext,
     generalSettings?.updatedAt,
+    generalTranslations.escalationTiers,
     generalTranslations.invalidError,
     generalTranslations.jsonErrors.businessHours,
     generalTranslations.jsonErrors.escalationTiers,
@@ -1040,7 +1337,7 @@ export default function WarrantyClaimSettingsPage() {
                   </div>
 
                   <GeneralSettingsSubsection title={generalTranslations.sections.slaEscalation}>
-                    <div className="grid gap-4 md:grid-cols-2">
+                    <div className="space-y-4">
                       <GeneralJsonTextareaField
                         id="warranty-claims-business-hours"
                         label={generalTranslations.fields.businessHours}
@@ -1055,19 +1352,22 @@ export default function WarrantyClaimSettingsPage() {
                           }
                         }}
                       />
-                      <GeneralJsonTextareaField
+                      <EscalationTiersField
                         id="warranty-claims-escalation-tiers"
                         label={generalTranslations.fields.escalationTiers}
                         description={generalTranslations.fields.escalationTiersHelp}
-                        value={generalForm.escalationTiers}
+                        rows={generalForm.escalationTiers}
+                        rowErrors={generalFieldErrors.escalationTierRowErrors}
                         error={generalFieldErrors.escalationTiers}
                         disabled={generalSaving}
-                        onChange={(value) => {
-                          updateGeneralForm({ escalationTiers: value })
-                          if (generalFieldErrors.escalationTiers) {
-                            setGeneralFieldErrors((prev) => ({ ...prev, escalationTiers: undefined }))
-                          }
-                        }}
+                        translations={generalTranslations.escalationTiers}
+                        loadStaffOptions={loadEscalationStaffOptions}
+                        resolveStaffLabel={resolveStaffUserLabel}
+                        onAddRow={addEscalationTierRow}
+                        onRemoveRow={removeEscalationTierRow}
+                        onAtPctChange={updateEscalationTierAtPct}
+                        onActionChange={updateEscalationTierAction}
+                        onUserChange={updateEscalationTierUser}
                       />
                     </div>
                   </GeneralSettingsSubsection>

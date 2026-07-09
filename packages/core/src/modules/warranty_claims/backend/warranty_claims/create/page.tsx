@@ -32,6 +32,10 @@ import {
   computeEntitlementPreview,
   type ClaimProductPick,
 } from '../../components/productLookup'
+import {
+  loadOrderOptions as loadOrderOptionsShared,
+  resolveOrderLabel,
+} from '../../components/orderLookup'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { TroubleshootingWalker, type TroubleshootingWalkerGuide } from '../../components/TroubleshootingWalker'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
@@ -156,13 +160,6 @@ function normalizeDictionaryOption(item: unknown): CrudFieldOption | null {
   if (!value) return null
   const label = toStringOrNull(item.label) ?? value
   return { value, label }
-}
-
-function normalizeOrderOption(item: unknown): CrudFieldOption | null {
-  if (!isRecord(item)) return null
-  const id = toStringOrNull(item.id)
-  if (!id) return null
-  return { value: id, label: toStringOrNull(item.orderNumber) ?? id }
 }
 
 function readBoolean(value: unknown): boolean {
@@ -921,35 +918,11 @@ export default function CreateWarrantyClaimPage() {
   }, [])
 
   const loadOrderOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    const params = new URLSearchParams({ page: '1', pageSize: '20' })
-    const trimmed = query?.trim()
-    if (trimmed) params.set('search', trimmed)
-    if (selectedCustomerId) params.set('customerId', selectedCustomerId)
-    const response = await apiCall<{ items?: unknown[] }>(
-      `/api/sales/orders?${params.toString()}`,
-      undefined,
-      { fallback: { items: [] } },
-    )
-    if (response.ok === false && response.status === 403) {
-      setOrderAccessDenied(true)
-      return []
-    }
-    setOrderAccessDenied(false)
-    const items = Array.isArray(response.result?.items) ? response.result.items : []
-    return items.map(normalizeOrderOption).filter((option): option is CrudFieldOption => option !== null)
+    return loadOrderOptionsShared(query, {
+      customerId: selectedCustomerId,
+      onAccessChange: setOrderAccessDenied,
+    })
   }, [selectedCustomerId])
-
-  const resolveOrderLabel = React.useCallback(async (value: string): Promise<string> => {
-    const response = await apiCall<{ items?: unknown[] }>(
-      `/api/sales/orders?${new URLSearchParams({ id: value, page: '1', pageSize: '1' }).toString()}`,
-      undefined,
-      { fallback: { items: [] } },
-    )
-    const option = (response.result?.items ?? [])
-      .map(normalizeOrderOption)
-      .find((item): item is CrudFieldOption => item !== null)
-    return option?.label ?? value
-  }, [])
 
   React.useEffect(() => {
     let cancelled = false

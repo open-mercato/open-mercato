@@ -17,6 +17,9 @@ type VendorRecoveryClaim = {
 
 type VendorRecoverySuggestion = {
   lineId: string
+  lineNo: number
+  productName: string | null
+  sku: string | null
   vendorName: string
   policyId: string
   recoveryRatePct: string | null
@@ -165,7 +168,9 @@ export function VendorRecoverySuggestionsPanel({
                   {group.suggestions.map((suggestion) => (
                     <div key={`${suggestion.policyId}:${suggestion.lineId}`} className="text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">
-                        {t('warranty_claims.vendorRecoverySuggestions.line', 'Line {lineId}', { lineId: suggestion.lineId })}
+                        {suggestion.productName ?? suggestion.sku
+                          ? `#${suggestion.lineNo} — ${suggestion.productName ?? suggestion.sku}`
+                          : t('warranty_claims.vendorRecoverySuggestions.lineFallback', 'Line {lineNo}', { lineNo: suggestion.lineNo })}
                       </span>
                       {suggestion.causalFault ? (
                         <span>

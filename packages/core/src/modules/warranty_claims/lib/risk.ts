@@ -5,7 +5,7 @@ import { WarrantyClaim, WarrantyClaimLine } from '../data/entities'
 export type ClaimRiskLevel = 'none' | 'low' | 'medium' | 'high'
 
 export type ClaimRiskSignal = {
-  id: 'duplicate_serial' | 'repeat_claimer' | 'value_velocity'
+  id: 'duplicate_serial' | 'duplicate_order_claim' | 'repeat_claimer' | 'value_velocity'
   level: 'low' | 'medium' | 'high'
   messageKey: string
   params?: Record<string, string | number>
@@ -23,6 +23,7 @@ type WarrantyClaimsTable = {
   claim_number: string
   status: string
   customer_id: string | null
+  order_id: string | null
   currency_code: string | null
   total_claimed_amount: string | number | null
   created_at: Date
@@ -119,6 +120,34 @@ export async function evaluateClaimRisk(
         messageKey: 'warranty_claims.risk.duplicateSerial',
         params: { serial, count: related.size },
         relatedClaimNumbers: Array.from(related).sort((left, right) => left.localeCompare(right)),
+      })
+    }
+  }
+
+  const orderId = claim.orderId ?? null
+  if (orderId) {
+    const orderRows = await db
+      .selectFrom('warranty_claims')
+      .select('claim_number as claimNumber')
+      .where('tenant_id', '=', scope.tenantId)
+      .where('organization_id', '=', scope.organizationId)
+      .where('deleted_at', 'is', null)
+      .where('order_id', '=', orderId)
+      .where('status', '!=', 'cancelled')
+      .where('id', '!=', claim.id)
+      .execute()
+    const relatedOrderClaims = Array.from(new Set(
+      orderRows
+        .map((row) => row.claimNumber)
+        .filter((claimNumber): claimNumber is string => typeof claimNumber === 'string' && claimNumber.length > 0),
+    )).sort((left, right) => left.localeCompare(right))
+    if (relatedOrderClaims.length > 0) {
+      signals.push({
+        id: 'duplicate_order_claim',
+        level: 'medium',
+        messageKey: 'warranty_claims.risk.duplicateOrderClaim',
+        params: { count: relatedOrderClaims.length },
+        relatedClaimNumbers: relatedOrderClaims,
       })
     }
   }

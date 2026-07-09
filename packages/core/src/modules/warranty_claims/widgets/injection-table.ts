@@ -9,6 +9,22 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 40,
     },
   ],
+  'detail:customers.person:tabs': [
+    {
+      widgetId: 'warranty_claims.injection.customer-claims-tab',
+      kind: 'tab',
+      groupLabel: 'warranty_claims.customerTab.title',
+      priority: 40,
+    },
+  ],
+  'detail:customers.company:tabs': [
+    {
+      widgetId: 'warranty_claims.injection.customer-claims-tab',
+      kind: 'tab',
+      groupLabel: 'warranty_claims.customerTab.title',
+      priority: 40,
+    },
+  ],
 }
 
 export default injectionTable

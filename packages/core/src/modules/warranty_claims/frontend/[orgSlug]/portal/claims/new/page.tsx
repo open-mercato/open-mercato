@@ -136,6 +136,14 @@ type PortalTroubleshootingResponse = {
   guide: (TroubleshootingWalkerGuide & { id: string }) | null
 }
 
+type PortalClaimSerialMatch = {
+  claimNumber: string
+}
+
+type PortalClaimSerialLookupResponse = {
+  items: PortalClaimSerialMatch[]
+}
+
 const WIZARD_STEP_IDS: WizardStepId[] = ['order', 'items', 'details', 'review']
 const EMPTY_SELECT_VALUE = '__empty__'
 
@@ -261,12 +269,62 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
   const [troubleshootingGuide, setTroubleshootingGuide] = React.useState<TroubleshootingWalkerGuide | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
+  const [serialDuplicateWarnings, setSerialDuplicateWarnings] = React.useState<Record<string, string[]>>({})
+  const serialLookupTimers = React.useRef<Record<string, number>>({})
+  const isMountedRef = React.useRef(true)
 
   React.useEffect(() => {
     if (!loading && !user) {
       router.replace(`/${params.orgSlug}/portal/login`)
     }
   }, [loading, user, router, params.orgSlug])
+
+  React.useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      Object.values(serialLookupTimers.current).forEach((timer) => window.clearTimeout(timer))
+    }
+  }, [])
+
+  const clearSerialLookupTimer = React.useCallback((localId: string) => {
+    const timer = serialLookupTimers.current[localId]
+    if (timer) {
+      window.clearTimeout(timer)
+      delete serialLookupTimers.current[localId]
+    }
+  }, [])
+
+  const clearSerialDuplicateWarning = React.useCallback((localId: string) => {
+    setSerialDuplicateWarnings((current) => {
+      if (!(localId in current)) return current
+      const next = { ...current }
+      delete next[localId]
+      return next
+    })
+  }, [])
+
+  const checkSerialDuplicate = React.useCallback((localId: string, serialNumber: string) => {
+    clearSerialLookupTimer(localId)
+    const trimmed = serialNumber.trim()
+    if (!trimmed) {
+      clearSerialDuplicateWarning(localId)
+      return
+    }
+    serialLookupTimers.current[localId] = window.setTimeout(() => {
+      void apiCall<PortalClaimSerialLookupResponse>(
+        `/api/warranty_claims/portal/claims?serialNumber=${encodeURIComponent(trimmed)}&pageSize=5`,
+      )
+        .then((result) => {
+          if (!isMountedRef.current || !result.ok || !result.result) return
+          const claimNumbers = result.result.items
+            .map((item) => item.claimNumber)
+            .filter((value): value is string => typeof value === 'string' && value.length > 0)
+          setSerialDuplicateWarnings((current) => ({ ...current, [localId]: claimNumbers }))
+        })
+        .catch(() => {})
+    }, 300)
+  }, [clearSerialDuplicateWarning, clearSerialLookupTimer])
 
   React.useEffect(() => {
     if (!user) return
@@ -436,7 +494,9 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
 
   const removeLine = React.useCallback((localId: string) => {
     setLines((current) => (current.length > 1 ? current.filter((line) => line.localId !== localId) : current))
-  }, [])
+    clearSerialLookupTimer(localId)
+    clearSerialDuplicateWarning(localId)
+  }, [clearSerialDuplicateWarning, clearSerialLookupTimer])
 
   const pruneImportedLineDrafts = React.useCallback(() => {
     setLines((current) => {
@@ -993,7 +1053,11 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                   <FormField label={t('warranty_claims.form.serialNumber')}>
                     <Input
                       value={line.serialNumber}
-                      onChange={(event) => updateLine(line.localId, { serialNumber: event.target.value })}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        updateLine(line.localId, { serialNumber: value })
+                        checkSerialDuplicate(line.localId, value)
+                      }}
                       disabled={submitting}
                     />
                   </FormField>
@@ -1020,6 +1084,15 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                     />
                   </FormField>
                 </div>
+                {serialDuplicateWarnings[line.localId]?.length ? (
+                  <Alert status="warning" style="lighter" className="mt-4">
+                    <AlertDescription>
+                      {t('warranty_claims.portal.new.duplicateWarning', {
+                        claimNumbers: serialDuplicateWarnings[line.localId]!.join(', '),
+                      })}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
               </div>
             ))}
           </div>

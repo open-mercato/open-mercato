@@ -12,6 +12,9 @@ export type VendorRecoveryClaimInput = {
 
 export type VendorRecoveryLineInput = {
   id: string
+  lineNo?: number
+  productName?: string | null
+  sku?: string | null
   vendorName?: string | null
   lineStatus?: WarrantyClaimLineStatus | null
   vendorClaimLineId?: string | null

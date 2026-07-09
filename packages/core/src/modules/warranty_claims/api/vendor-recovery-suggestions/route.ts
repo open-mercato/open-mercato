@@ -18,6 +18,9 @@ const querySchema = z.object({
 
 const suggestionSchema = z.object({
   lineId: z.string().uuid(),
+  lineNo: z.number().int(),
+  productName: z.string().nullable(),
+  sku: z.string().nullable(),
   vendorName: z.string(),
   policyId: z.string().uuid(),
   recoveryRatePct: z.string().nullable(),
@@ -121,6 +124,9 @@ export async function GET(req: Request) {
     })
     const suggestions = matches.map((match) => ({
       lineId: match.line.id,
+      lineNo: match.line.lineNo ?? 0,
+      productName: match.line.productName ?? null,
+      sku: match.line.sku ?? null,
       vendorName: toSuggestionVendorName(match.line.vendorName, match.policy.vendorName),
       policyId: match.policy.id,
       recoveryRatePct: toNullableString(match.policy.recoveryRatePct),

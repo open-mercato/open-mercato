@@ -42,7 +42,7 @@ import { DEFAULT_SLA_HOURS } from './constants'
   properties: ['tenantId', 'organizationId', 'claimNumber'],
 })
 export class WarrantyClaim {
-  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'escalationLevel'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'escalationLevel' | 'awaitingStaffReply'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -109,6 +109,12 @@ export class WarrantyClaim {
 
   @Property({ name: 'order_id', type: 'uuid', nullable: true })
   orderId?: string | null
+
+  @Property({ name: 'order_number', type: 'text', nullable: true })
+  orderNumber?: string | null
+
+  @Property({ name: 'awaiting_staff_reply', type: 'boolean', default: false })
+  awaitingStaffReply: boolean = false
 
   @Property({ name: 'sales_return_id', type: 'uuid', nullable: true })
   salesReturnId?: string | null

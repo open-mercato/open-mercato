@@ -4,8 +4,9 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Info, MessageSquare, RefreshCw, UserRound } from 'lucide-react'
+import { Copy, Info, MessageSquare, RefreshCw, UserRound } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
+import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
@@ -33,6 +34,7 @@ import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@ope
 import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/attachment'
 import {
   fetchAssignableStaffMembersPage,
@@ -113,8 +115,11 @@ type ClaimRecord = {
   channel: ClaimChannel | string | null
   status: ClaimStatus | string | null
   priority: ClaimPriority | string | null
+  customerId: string | null
   customerName: string | null
   orderId: string | null
+  orderNumber: string | null
+  awaitingStaffReply: boolean
   vendorName: string | null
   vendorRef: string | null
   totalClaimedAmount: string | null
@@ -380,13 +385,18 @@ function formatTriageMessage(value: TriageMessageValue, t: TranslateFn): string 
   return t(value.messageKey, value.params)
 }
 
-function formatTimelineBody(event: ClaimEvent, t: TranslateFn): string | null {
+function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record<string, string>): string | null {
   if (event.body) return event.body
   const payload = event.payload
   const action = payload ? toStringOrNull(payload.action) : null
   if (event.kind === 'system' && action === 'sla_paused') return t('warranty_claims.timeline.slaPaused')
   if (event.kind === 'system' && action === 'sla_resumed') return t('warranty_claims.timeline.slaResumed')
   if (event.kind === 'system' && action === 'auto_approved') return t('warranty_claims.timeline.autoApproved')
+  if (event.kind === 'assignment') {
+    const assigneeUserId = payload ? toStringOrNull(payload.assigneeUserId) : null
+    if (!assigneeUserId) return t('warranty_claims.timeline.unassigned')
+    return t('warranty_claims.timeline.assignedTo', { name: userNames[assigneeUserId] ?? assigneeUserId })
+  }
   const from = payload ? toStringOrNull(payload.from) ?? toStringOrNull(payload.fromStatus) : null
   const to = payload ? toStringOrNull(payload.to) ?? toStringOrNull(payload.toStatus) : null
   if (event.kind === 'status_changed' && from && to) {
@@ -429,8 +439,11 @@ function normalizeClaim(value: unknown): ClaimRecord | null {
     channel: toStringOrNull(value.channel),
     status: toStringOrNull(value.status),
     priority: toStringOrNull(value.priority),
+    customerId: toStringOrNull(value.customerId),
     customerName: toStringOrNull(value.customerName),
     orderId: toStringOrNull(value.orderId),
+    orderNumber: toStringOrNull(value.orderNumber),
+    awaitingStaffReply: parseBooleanFromUnknown(value.awaitingStaffReply) ?? false,
     vendorName: toStringOrNull(value.vendorName),
     vendorRef: toStringOrNull(value.vendorRef),
     totalClaimedAmount: toStringOrNull(value.totalClaimedAmount),
@@ -676,6 +689,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const router = useRouter()
   const id = typeof params?.id === 'string' ? params.id : ''
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const currentUserId = useCurrentUserId()
   const [claim, setClaim] = React.useState<ClaimRecord | null>(null)
   const [lines, setLines] = React.useState<ClaimLine[]>([])
   const [events, setEvents] = React.useState<ClaimEvent[]>([])
@@ -883,6 +897,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       if (event.actorUserId && !resolvedUserIdsRef.current.has(event.actorUserId)) {
         unresolvedIds.add(event.actorUserId)
       }
+      if (event.kind === 'assignment') {
+        const assigneeUserId = toStringOrNull(event.payload?.assigneeUserId)
+        if (assigneeUserId && !resolvedUserIdsRef.current.has(assigneeUserId)) {
+          unresolvedIds.add(assigneeUserId)
+        }
+      }
     }
     if (!unresolvedIds.size) return
 
@@ -940,7 +960,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const currentLineDisposition = lineDialog?.mode === 'edit' ? lineDialog.line.disposition : null
   const riskSignals = riskAssessment.signals
   const assigneeDisplayName = claim?.assigneeUserId
-    ? userNames[claim.assigneeUserId] ?? claim.assigneeUserId
+    ? userNames[claim.assigneeUserId] ?? '—'
     : t('warranty_claims.detail.unassigned')
   const eligibleVendorLines = React.useMemo(
     () => lines.filter((line) => line.lineStatus === 'resolved' && !line.vendorClaimLineId),
@@ -1008,9 +1028,8 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     }
   }, [claim, loadData, mutationContext, runMutation, t])
 
-  const assignClaim = React.useCallback(async () => {
-    if (!claim) return
-    const assigneeUserId = selectedAssigneeUserId === UNASSIGNED_SELECT_VALUE ? null : selectedAssigneeUserId
+  const performAssignment = React.useCallback(async (assigneeUserId: string | null) => {
+    if (!claim) return false
     const payload = { id: claim.id, assigneeUserId }
     let conflictSurfaced = false
     try {
@@ -1037,15 +1056,27 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         context: mutationContext,
         mutationPayload: payload,
       })
-      if (conflictSurfaced) return
+      if (conflictSurfaced) return false
       flash(t('warranty_claims.list.flash.assigned'), 'success')
-      setAssignDialogOpen(false)
       await loadData()
+      return true
     } catch (err) {
-      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return false
       flash(translateErrorMessage(err, t, 'warranty_claims.detail.error.action'), 'error')
+      return false
     }
-  }, [claim, loadData, mutationContext, runMutation, selectedAssigneeUserId, t])
+  }, [claim, loadData, mutationContext, runMutation, t])
+
+  const assignClaim = React.useCallback(async () => {
+    const assigneeUserId = selectedAssigneeUserId === UNASSIGNED_SELECT_VALUE ? null : selectedAssigneeUserId
+    const success = await performAssignment(assigneeUserId)
+    if (success) setAssignDialogOpen(false)
+  }, [performAssignment, selectedAssigneeUserId])
+
+  const assignToMe = React.useCallback(async () => {
+    if (!currentUserId) return
+    await performAssignment(currentUserId)
+  }, [currentUserId, performAssignment])
 
   const loadAiSuggestion = React.useCallback(async () => {
     if (!id) return
@@ -1520,10 +1551,26 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-2xl font-bold tracking-tight">{claim.claimNumber ?? claim.id}</h1>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={t('warranty_claims.detail.copyLink')}
+                    onClick={() => {
+                      void navigator.clipboard.writeText(window.location.href)
+                      flash(t('warranty_claims.detail.linkCopied'), 'success')
+                    }}
+                  >
+                    <Copy className="size-4" aria-hidden />
+                  </Button>
                   <StatusBadge variant="neutral">{t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}</StatusBadge>
                   {claimChannel ? <StatusBadge variant="neutral">{t(`warranty_claims.channel.${claimChannel}`)}</StatusBadge> : null}
                   <ClaimStatusBadge status={claim.status} />
                   <ClaimPriorityBadge priority={claim.priority} />
+                  {claim.awaitingStaffReply ? (
+                    <StatusBadge variant="warning">{t('warranty_claims.detail.badge.customerReplied')}</StatusBadge>
+                  ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   <span>{t('warranty_claims.detail.customer')}: {claim.customerName ?? noValue}</span>
@@ -1534,7 +1581,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                         href={`/backend/sales/documents/${claim.orderId}`}
                         className="text-foreground underline-offset-4 hover:underline"
                       >
-                        {claim.orderId}
+                        {claim.orderNumber ?? t('warranty_claims.detail.viewOrder')}
                       </Link>
                     ) : noValue}
                   </span>
@@ -1550,6 +1597,17 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                     >
                       {t('warranty_claims.detail.reassign')}
                     </Button>
+                    {currentUserId && claim.assigneeUserId !== currentUserId ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-auto px-2 py-1 text-xs"
+                        onClick={() => { void assignToMe() }}
+                      >
+                        {t('warranty_claims.detail.assignToMe')}
+                      </Button>
+                    ) : null}
                   </span>
                   <span className="inline-flex flex-wrap items-center gap-2">
                     <span>{t('warranty_claims.list.column.slaDueAt')}:</span>
@@ -1736,7 +1794,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                 <div className="space-y-3">
                   {events.length ? events.map((event) => {
                     const Icon = eventIcon(event.kind)
-                    const body = formatTimelineBody(event, t)
+                    const body = formatTimelineBody(event, t, userNames)
                     const actor = resolveTimelineActor(event, claim, userNames, t)
                     return (
                       <div key={event.id} className="flex gap-3 rounded-lg border border-border bg-card p-4">

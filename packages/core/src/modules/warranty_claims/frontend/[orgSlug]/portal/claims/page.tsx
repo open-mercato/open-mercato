@@ -10,12 +10,13 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { DataTable } from '@open-mercato/ui'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalEmptyState } from '@open-mercato/ui/portal/components/PortalEmptyState'
-import { CLAIM_STATUS_BADGE_VARIANTS } from '../../../../backend/components/ClaimStatusBadge'
+import { CLAIM_STATUS_BADGE_VARIANTS, type ClaimStatus } from '../../../../backend/components/ClaimStatusBadge'
 
 type Props = { params: { orgSlug: string } }
 
@@ -67,6 +68,8 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
   const [totalPages, setTotalPages] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
 
   React.useEffect(() => {
     if (!loading && !user) {
@@ -74,13 +77,18 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     }
   }, [loading, user, router, params.orgSlug])
 
+  const statusFilter = typeof filterValues.status === 'string' ? filterValues.status : ''
+
   React.useEffect(() => {
     if (!user) return
     let cancelled = false
     setIsLoading(true)
     setError(null)
+    const queryParams = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+    if (search.trim()) queryParams.set('search', search.trim())
+    if (statusFilter) queryParams.set('status', statusFilter)
     apiCall<PortalClaimsResponse>(
-      `/api/warranty_claims/portal/claims?page=${page}&pageSize=${pageSize}`,
+      `/api/warranty_claims/portal/claims?${queryParams.toString()}`,
     )
       .then((res) => {
         if (cancelled) return
@@ -109,7 +117,24 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, t, user])
+  }, [page, pageSize, search, statusFilter, t, user])
+
+  const statusOptions = React.useMemo(
+    () => (Object.keys(CLAIM_STATUS_BADGE_VARIANTS) as ClaimStatus[]).map((status) => ({
+      value: status,
+      label: t(`warranty_claims.status.${status}`),
+    })),
+    [t],
+  )
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('warranty_claims.list.filter.status'),
+      type: 'select',
+      options: statusOptions,
+    },
+  ], [statusOptions, t])
 
   const columns = React.useMemo<ColumnDef<PortalClaimRow>[]>(() => [
     {
@@ -182,6 +207,22 @@ export default function WarrantyClaimsPortalListPage({ params }: Props) {
         data={rows}
         isLoading={isLoading}
         error={error}
+        searchValue={search}
+        onSearchChange={(value) => {
+          setSearch(value)
+          setPage(1)
+        }}
+        searchPlaceholder={t('warranty_claims.portal.list.searchPlaceholder')}
+        filters={filters}
+        filterValues={filterValues}
+        onFiltersApply={(values) => {
+          setFilterValues(values)
+          setPage(1)
+        }}
+        onFiltersClear={() => {
+          setFilterValues({})
+          setPage(1)
+        }}
         pagination={{
           page,
           pageSize,

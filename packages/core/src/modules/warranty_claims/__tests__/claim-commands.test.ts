@@ -256,7 +256,7 @@ function makeUsersKysely() {
           return customerWhere && customerWhere[2] === CUSTOMER_ID ? [{ id: PORTAL_USER_ID }] : []
         }
         if (table === 'sales_orders') {
-          return idWhere && idWhere[2] === ORDER_ID ? [{ id: ORDER_ID }] : []
+          return idWhere && idWhere[2] === ORDER_ID ? [{ id: ORDER_ID, order_number: 'SO-1042' }] : []
         }
         if (table === 'sales_order_lines') {
           return idWhere && idWhere[2] === ORDER_LINE_ID ? [{ id: ORDER_LINE_ID, order_id: ORDER_ID }] : []
@@ -351,6 +351,8 @@ function makeClaim(status: WarrantyClaimStatus, fields: Partial<WarrantyClaim> =
     vendorName: fields.vendorName ?? null,
     vendorRef: fields.vendorRef ?? null,
     orderId: fields.orderId ?? null,
+    orderNumber: fields.orderNumber ?? null,
+    awaitingStaffReply: fields.awaitingStaffReply ?? false,
     salesReturnId: fields.salesReturnId ?? null,
     replacementOrderId: fields.replacementOrderId ?? null,
     sourceClaimId: fields.sourceClaimId ?? null,
@@ -855,6 +857,77 @@ describe('warranty claim commands', () => {
 
     expect(result).toMatchObject({ claimId: expect.any(String) })
     expect(mockClaims.some((record) => record.orderId === ORDER_ID)).toBe(true)
+    expect(mockClaims[0]?.orderNumber ?? null).toBeNull()
+  })
+
+  test('create snapshots the order number from the referenced sales order', async () => {
+    const { ctx } = makeContext()
+
+    await createClaimCommand.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      claimType: 'warranty',
+      customerId: CUSTOMER_ID,
+      orderId: ORDER_ID,
+    }, ctx)
+
+    expect(mockClaims).toHaveLength(1)
+    expect(mockClaims[0]).toMatchObject({ orderId: ORDER_ID, orderNumber: 'SO-1042' })
+  })
+
+  test('update refreshes and clears the order number snapshot with the order reference', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      orderId: ORDER_ID,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.orderNumber).toBe('SO-1042')
+
+    await updateClaimCommand.execute({
+      id: CLAIM_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      orderId: null,
+    } as ClaimUpdateInput, ctx)
+    expect(claim.orderId).toBeNull()
+    expect(claim.orderNumber).toBeNull()
+  })
+
+  test('customer replies raise the awaiting-staff-reply flag and staff actions clear it', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('in_review')
+    mockClaims.push(claim)
+
+    await commentClaimCommand.execute({
+      claimId: CLAIM_ID,
+      body: 'Any update on my claim?',
+      visibility: 'customer',
+      actorCustomerId: CUSTOMER_ID,
+    }, ctx)
+    expect(claim.awaitingStaffReply).toBe(true)
+
+    await commentClaimCommand.execute({
+      claimId: CLAIM_ID,
+      body: 'We are inspecting the unit today.',
+      visibility: 'customer',
+    }, ctx)
+    expect(claim.awaitingStaffReply).toBe(false)
+
+    await commentClaimCommand.execute({
+      claimId: CLAIM_ID,
+      body: 'Thanks, waiting for the outcome.',
+      visibility: 'customer',
+      actorCustomerId: CUSTOMER_ID,
+    }, ctx)
+    expect(claim.awaitingStaffReply).toBe(true)
+
+    await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'approved' }, ctx)
+    expect(claim.awaitingStaffReply).toBe(false)
   })
 
   test('lock enforcement failures abort mutations', async () => {

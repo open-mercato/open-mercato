@@ -14,6 +14,11 @@ import {
   deleteCustomerCompanyFixture,
 } from '@open-mercato/core/helpers/integration/customerAccountsFixtures'
 import {
+  canManageSalesOrders,
+  createSalesOrderFixture,
+  deleteSalesEntityIfExists,
+} from '@open-mercato/core/helpers/integration/salesFixtures'
+import {
   assignClaim,
   cancelThenDeleteClaimIfPossible,
   createClaimFixture,
@@ -43,6 +48,7 @@ test.describe('TC-WC-010: warranty claim stats and risk', () => {
     let roleId: string | null = null
     let noFeatureUserId: string | null = null
     let repeatCustomerId: string | null = null
+    let sharedOrderId: string | null = null
     const claimIds: string[] = []
 
     try {
@@ -191,10 +197,49 @@ test.describe('TC-WC-010: warranty claim stats and risk', () => {
         repeatRisk.signals.some((signal) => signal.id === 'repeat_claimer'),
         'the third claim for a customer inside the 90-day window should emit repeat_claimer',
       ).toBe(true)
+
+      if (await canManageSalesOrders(request, adminToken)) {
+        sharedOrderId = await createSalesOrderFixture(request, adminToken)
+        const orderPrior = await createClaimFixture(request, adminToken, {
+          claimType: 'warranty',
+          orderId: sharedOrderId,
+          reasonCode: 'defective',
+          currencyCode: 'USD',
+          lines: [
+            {
+              lineNo: 1,
+              sku: `WC-010-ORD-A-${stamp}`,
+              productName: 'QA duplicate order part A',
+              qtyClaimed: 1,
+            },
+          ],
+        })
+        claimIds.push(orderPrior.id!)
+        const orderTarget = await createClaimFixture(request, adminToken, {
+          claimType: 'warranty',
+          orderId: sharedOrderId,
+          reasonCode: 'defective',
+          currencyCode: 'USD',
+          lines: [
+            {
+              lineNo: 1,
+              sku: `WC-010-ORD-B-${stamp}`,
+              productName: 'QA duplicate order part B',
+              qtyClaimed: 1,
+            },
+          ],
+        })
+        claimIds.push(orderTarget.id!)
+        const orderRisk = await readWarrantyClaimRisk(request, adminToken, orderTarget.id!)
+        const orderSignal = orderRisk.signals.find((signal) => signal.id === 'duplicate_order_claim')
+        expect(orderSignal, 'a second open claim on the same order should emit duplicate_order_claim').toBeTruthy()
+        expect(orderSignal?.relatedClaimNumbers).toContain(orderPrior.claimNumber)
+      }
     } finally {
       for (const claimId of [...claimIds].reverse()) {
         await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
       }
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', sharedOrderId)
       await deleteCustomerCompanyFixture(request, adminToken, repeatCustomerId)
       await deleteUserIfExists(request, adminToken, noFeatureUserId)
       await deleteRoleIfExists(request, adminToken, roleId)

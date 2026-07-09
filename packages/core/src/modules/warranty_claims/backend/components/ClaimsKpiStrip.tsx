@@ -28,6 +28,7 @@ type ClaimsKpiStripProps = {
   hasError: boolean
   onOverdueClick: () => void
   onAssignedToMeClick: () => void
+  onOpenClaimsClick: () => void
 }
 
 type KpiCardProps = {
@@ -86,6 +87,7 @@ export function ClaimsKpiStrip({
   hasError,
   onOverdueClick,
   onAssignedToMeClick,
+  onOpenClaimsClick,
 }: ClaimsKpiStripProps) {
   const t = useT()
 
@@ -119,6 +121,7 @@ export function ClaimsKpiStrip({
         label={t('warranty_claims.kpi.openClaims', 'Open claims')}
         value={formatNumber(openClaims)}
         description={t('warranty_claims.kpi.openClaims.description', 'Active queue')}
+        onClick={onOpenClaimsClick}
       />
       <KpiCard
         label={t('warranty_claims.kpi.overdue', 'Overdue')}

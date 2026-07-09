@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import type { EntityManager } from '@mikro-orm/postgresql'
+import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -12,6 +12,7 @@ import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-merc
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimLine } from '../../../data/entities'
 import {
+  claimStatusSchema,
   portalIntakeInputSchema,
   type ClaimCreateInput,
   type PortalIntakeInput,
@@ -23,9 +24,21 @@ export const metadata = {
   POST: { requireAuth: false },
 }
 
+const emptyQueryValueToUndefined = (value: unknown): unknown => {
+  if (typeof value !== 'string') return value
+  const trimmed = value.trim()
+  return trimmed.length ? trimmed : undefined
+}
+
+const optionalTrimmedQueryString = (max: number) =>
+  z.preprocess(emptyQueryValueToUndefined, z.string().trim().min(1).max(max).optional())
+
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  search: optionalTrimmedQueryString(190),
+  status: z.preprocess(emptyQueryValueToUndefined, claimStatusSchema.optional()),
+  serialNumber: optionalTrimmedQueryString(191),
 })
 
 type PortalContext = {
@@ -114,6 +127,7 @@ function serializePortalClaim(claim: WarrantyClaim, lines: WarrantyClaimLine[]) 
     claimType: claim.claimType,
     status: claim.status,
     orderId: claim.orderId ?? null,
+    orderNumber: claim.orderNumber ?? null,
     reasonCode: claim.reasonCode ?? null,
     resolutionSummary: claim.resolutionSummary ?? null,
     createdAt: toIso(claim.createdAt),
@@ -282,16 +296,42 @@ export async function GET(req: Request) {
   const query = listQuerySchema.safeParse({
     page: url.searchParams.get('page') ?? undefined,
     pageSize: url.searchParams.get('pageSize') ?? undefined,
+    search: url.searchParams.get('search') ?? undefined,
+    status: url.searchParams.get('status') ?? undefined,
+    serialNumber: url.searchParams.get('serialNumber') ?? undefined,
   })
   if (!query.success) {
     return NextResponse.json({ ok: false, error: 'Invalid input' }, { status: 400 })
   }
-  const { page, pageSize } = query.data
-  const where = {
+  const { page, pageSize, search, status, serialNumber } = query.data
+  const where: FilterQuery<WarrantyClaim> = {
     tenantId: context.tenantId,
     organizationId: context.organizationId,
     customerId: context.customerId,
     deletedAt: null,
+  }
+  if (status) where.status = status
+  if (search) {
+    where.$or = [
+      { claimNumber: { $ilike: `%${search}%` } },
+      { orderNumber: { $ilike: `%${search}%` } },
+    ]
+  }
+  if (serialNumber) {
+    const matchingLines = await context.em.find(WarrantyClaimLine, {
+      serialNumber,
+      tenantId: context.tenantId,
+      organizationId: context.organizationId,
+      deletedAt: null,
+      claim: { customerId: context.customerId, deletedAt: null },
+    })
+    const matchingClaimIds = Array.from(new Set(
+      matchingLines.map((line) => relationId(line.claim)).filter((id): id is string => Boolean(id)),
+    ))
+    if (matchingClaimIds.length === 0) {
+      return NextResponse.json({ items: [], total: 0, page, pageSize, totalPages: 1 })
+    }
+    where.id = { $in: matchingClaimIds }
   }
   const total = await context.em.count(WarrantyClaim, where)
   const claims = await findWithDecryption(
@@ -439,6 +479,7 @@ const portalClaimSchema = z.object({
   claimType: z.string(),
   status: z.string(),
   orderId: z.string().uuid().nullable(),
+  orderNumber: z.string().nullable(),
   reasonCode: z.string().nullable(),
   resolutionSummary: z.string().nullable(),
   createdAt: z.string().nullable(),
