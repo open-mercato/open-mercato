@@ -4,6 +4,14 @@ import type { EntityManager } from '@mikro-orm/core'
 import { ScheduledJob } from './data/entities.js'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 
+const writeLine = (text = '') => {
+  process.stdout.write(`${text}\n`)
+}
+
+const writeErrorLine = (text: string) => {
+  process.stderr.write(`${text}\n`)
+}
+
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
   for (let i = 0; i < rest.length; i += 2) {
@@ -46,13 +54,13 @@ const listCommand: ModuleCli = {
     })
 
     if (jobs.length === 0) {
-      console.log('No scheduled jobs found.')
+      writeLine('No scheduled jobs found.')
       return
     }
 
-    console.log(`\nFound ${jobs.length} scheduled job(s):\n`)
-    console.log('ID'.padEnd(38) + 'Name'.padEnd(35) + 'Type'.padEnd(12) + 'Schedule'.padEnd(20) + 'Status'.padEnd(10) + 'Next Run')
-    console.log('-'.repeat(140))
+    writeLine(`\nFound ${jobs.length} scheduled job(s):\n`)
+    writeLine('ID'.padEnd(38) + 'Name'.padEnd(35) + 'Type'.padEnd(12) + 'Schedule'.padEnd(20) + 'Status'.padEnd(10) + 'Next Run')
+    writeLine('-'.repeat(140))
 
     for (const job of jobs) {
       const id = String(job.id).padEnd(38)
@@ -61,10 +69,10 @@ const listCommand: ModuleCli = {
       const schedule = (job.scheduleValue || '').substring(0, 18).padEnd(20)
       const status = (job.isEnabled ? '✓ Enabled' : '✗ Disabled').padEnd(10)
       const nextRun = job.nextRunAt ? new Date(job.nextRunAt).toISOString() : 'N/A'
-      console.log(`${id}${name}${type}${schedule}${status}${nextRun}`)
+      writeLine(`${id}${name}${type}${schedule}${status}${nextRun}`)
     }
 
-    console.log('')
+    writeLine('')
   },
 }
 
@@ -84,20 +92,20 @@ const statusCommand: ModuleCli = {
 
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
-    console.log('\n📊 Scheduler Status\n')
-    console.log('Strategy:', queueStrategy === 'async' ? 'BullMQ (async)' : 'Local (polling)')
+    writeLine('\n📊 Scheduler Status\n')
+    writeLine(`Strategy: ${queueStrategy === 'async' ? 'BullMQ (async)' : 'Local (polling)'}`)
     
     if (queueStrategy === 'local') {
       const pollInterval = parseInt(process.env.SCHEDULER_POLL_INTERVAL_MS || '30000', 10)
-      console.log('Poll Interval:', `${Math.round(pollInterval / 1000)}s`)
+      writeLine(`Poll Interval: ${Math.round(pollInterval / 1000)}s`)
     }
     
-    console.log('')
-    console.log('Schedules:')
-    console.log(`  Total: ${totalCount}`)
-    console.log(`  Enabled: ${enabledCount}`)
-    console.log(`  Due Now: ${dueCount}`)
-    console.log('')
+    writeLine('')
+    writeLine('Schedules:')
+    writeLine(`  Total: ${totalCount}`)
+    writeLine(`  Enabled: ${enabledCount}`)
+    writeLine(`  Due Now: ${dueCount}`)
+    writeLine('')
   },
 }
 
@@ -106,7 +114,7 @@ const runCommand: ModuleCli = {
   async run(rest) {
     const scheduleId = rest[0]
     if (!scheduleId) {
-      console.error('Usage: mercato scheduler run <schedule-id>')
+      writeErrorLine('Usage: mercato scheduler run <schedule-id>')
       return
     }
 
@@ -116,28 +124,27 @@ const runCommand: ModuleCli = {
 
     const job = await em.findOne(ScheduledJob, { id: scheduleId, deletedAt: null })
     if (!job) {
-      console.error(`Schedule not found: ${scheduleId}`)
+      writeErrorLine(`Schedule not found: ${scheduleId}`)
       return
     }
 
-    console.log(`\n🚀 Manually triggering schedule: ${job.name}\n`)
-    console.log(`  ID: ${job.id}`)
-    console.log(`  Type: ${job.scheduleType}`)
-    console.log(`  Schedule: ${job.scheduleValue}`)
-    console.log(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
-    console.log('')
+    writeLine(`\n🚀 Manually triggering schedule: ${job.name}\n`)
+    writeLine(`  ID: ${job.id}`)
+    writeLine(`  Type: ${job.scheduleType}`)
+    writeLine(`  Schedule: ${job.scheduleValue}`)
+    writeLine(`  Target: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
+    writeLine('')
 
     try {
       // Manually enqueue the job (triggering the scheduler-execution worker)
       const schedulerQueue = queueService.getQueue('scheduler-execution')
       await schedulerQueue.add('execute-schedule', { scheduleId: job.id })
 
-      console.log('✓ Job successfully triggered via scheduler-execution queue')
-      console.log('  The worker will pick it up and enqueue to:', 
-        job.targetType === 'queue' ? job.targetQueue : job.targetCommand)
-      console.log('✓ Manual trigger completed\n')
+      writeLine('✓ Job successfully triggered via scheduler-execution queue')
+      writeLine(`  The worker will pick it up and enqueue to: ${job.targetType === 'queue' ? job.targetQueue : job.targetCommand}`)
+      writeLine('✓ Manual trigger completed\n')
     } catch (error: unknown) {
-      console.error('✗ Failed to trigger job:', error instanceof Error ? error.message : String(error))
+      writeErrorLine(`✗ Failed to trigger job: ${error instanceof Error ? error.message : String(error)}`)
       process.exit(1)
     }
   },
@@ -149,7 +156,7 @@ const startCommand: ModuleCli = {
     const { resolve } = await createRequestContainer()
     const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
 
-    console.log(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
+    writeLine(`🚀 Starting scheduler (strategy: ${queueStrategy})...\n`)
 
     if (queueStrategy === 'async') {
       // BullMQ strategy: Sync schedules with BullMQ repeatable jobs
@@ -157,22 +164,22 @@ const startCommand: ModuleCli = {
         const bullmqService = resolve('bullmqSchedulerService') as { syncAll(): Promise<void> } | undefined
         
         if (!bullmqService) {
-          console.error('❌ BullMQSchedulerService not available.')
-          console.error('   Set QUEUE_STRATEGY=async and configure REDIS_URL.')
+          writeErrorLine('❌ BullMQSchedulerService not available.')
+          writeErrorLine('   Set QUEUE_STRATEGY=async and configure REDIS_URL.')
           process.exit(1)
         }
 
         // Sync all enabled schedules with BullMQ
         await bullmqService.syncAll()
 
-        console.log('✓ Scheduler sync completed')
-        console.log('')
-        console.log('BullMQ is managing all schedules.')
-        console.log('Start workers to process jobs:')
-        console.log('  yarn mercato worker:start')
-        console.log('')
+        writeLine('✓ Scheduler sync completed')
+        writeLine('')
+        writeLine('BullMQ is managing all schedules.')
+        writeLine('Start workers to process jobs:')
+        writeLine('  yarn mercato worker:start')
+        writeLine('')
       } catch (error: unknown) {
-        console.error('❌ Failed to sync schedules:', error instanceof Error ? error.message : String(error))
+        writeErrorLine(`❌ Failed to sync schedules: ${error instanceof Error ? error.message : String(error)}`)
         process.exit(1)
       }
     } else {
@@ -181,8 +188,8 @@ const startCommand: ModuleCli = {
         const localService = resolve('localSchedulerService') as { start(): Promise<void>; stop(): Promise<void> } | undefined
         
         if (!localService) {
-          console.error('❌ LocalSchedulerService not available.')
-          console.error('   This should not happen in local mode.')
+          writeErrorLine('❌ LocalSchedulerService not available.')
+          writeErrorLine('   This should not happen in local mode.')
           process.exit(1)
         }
 
@@ -191,17 +198,17 @@ const startCommand: ModuleCli = {
         // Start the local polling engine
         await localService.start()
 
-        console.log('✓ Local scheduler started (polling every', Math.round(pollInterval / 1000), 'seconds)')
-        console.log('Press Ctrl+C to stop.')
-        console.log('')
-        console.log('💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.')
-        console.log('')
+        writeLine(`✓ Local scheduler started (polling every ${Math.round(pollInterval / 1000)} seconds)`)
+        writeLine('Press Ctrl+C to stop.')
+        writeLine('')
+        writeLine('💡 Tip: For production, use QUEUE_STRATEGY=async with Redis.')
+        writeLine('')
 
         // Keep the process alive and handle graceful shutdown
         const gracefulShutdown = async () => {
-          console.log('\n📛 Shutting down...')
+          writeLine('\n📛 Shutting down...')
           await localService.stop()
-          console.log('✓ Stopped')
+          writeLine('✓ Stopped')
           process.exit(0)
         }
 
@@ -211,7 +218,7 @@ const startCommand: ModuleCli = {
         // Keep process alive
         await new Promise(() => {}) // Never resolves
       } catch (error: unknown) {
-        console.error('❌ Failed to start local scheduler:', error instanceof Error ? error.message : String(error))
+        writeErrorLine(`❌ Failed to start local scheduler: ${error instanceof Error ? error.message : String(error)}`)
         process.exit(1)
       }
     }

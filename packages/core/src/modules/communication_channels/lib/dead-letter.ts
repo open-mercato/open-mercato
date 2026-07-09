@@ -2,6 +2,9 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelIngestDeadLetter } from '../data/entities'
 import type { NormalizedInboundMessage } from './adapter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'dead-letter' })
 
 const DEAD_LETTER_RAW_BODY_MAX_BYTES_DEFAULT = 32_768
 
@@ -78,10 +81,6 @@ export async function writeIngestDeadLetter(args: WriteIngestDeadLetterArgs): Pr
     em.persist(deadLetter)
     await em.flush()
   } catch (ddlErr) {
-    console.error(
-      `[communication_channels:dead-letter] failed to record dead-letter for channel ${channel.id}: ${
-        ddlErr instanceof Error ? ddlErr.message : String(ddlErr)
-      }`,
-    )
+    logger.error('failed to record dead-letter for channel', { channelId: channel.id, err: ddlErr })
   }
 }

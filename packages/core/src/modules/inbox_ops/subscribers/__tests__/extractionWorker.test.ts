@@ -3,6 +3,26 @@
 import handle from '../extractionWorker'
 import { InboxEmail, InboxProposal, InboxProposalAction, InboxDiscrepancy, InboxSettings } from '../../data/entities'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 const mockRunExtraction = jest.fn()
 jest.mock('@open-mercato/core/modules/inbox_ops/lib/llmProvider', () => ({
   runExtractionWithConfiguredProvider: (...args: unknown[]) => mockRunExtraction(...args),
@@ -220,7 +240,8 @@ describe('extractionWorker', () => {
       mockNativeUpdate.mockResolvedValue(1)
       mockFindOneWithDecryption.mockResolvedValueOnce(null)
 
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+      mockLogger.error.mockClear()
+      const consoleSpy = mockLogger.error
 
       await handle(
         { ...basePayload, emailId: 'email-missing' },
@@ -228,7 +249,8 @@ describe('extractionWorker', () => {
       )
 
       expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Email not found: email-missing'),
+        'Email not found',
+        { emailId: 'email-missing' },
       )
       consoleSpy.mockRestore()
     })
@@ -869,7 +891,8 @@ describe('extractionWorker', () => {
 
       mockCreateMessageRecordForEmail.mockRejectedValueOnce(new Error('Command bus unavailable'))
 
-      const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+      mockLogger.error.mockClear()
+      const consoleSpy = mockLogger.error
 
       await handle(basePayload, mockCtx as any)
 

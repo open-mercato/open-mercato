@@ -37,6 +37,9 @@ import {
   getCheckoutCustomerFieldSemanticType,
   validateCheckoutCustomerData,
 } from '../lib/customerDataValidation'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('checkout').child({ component: 'PayPage' })
 
 type CustomerFieldOption = {
   value: string
@@ -1764,7 +1767,7 @@ export function PayPage({
         Object.entries(transformed as Record<string, unknown>).map(([fieldPath, value]) => [fieldPath, String(value)]),
       )
     } catch (error) {
-      console.error('[PayPage] Error in transformValidation:', error)
+      logger.error('Error in transformValidation', { err: error })
       return nextErrors
     }
   }, [triggerPayPageFormEvent])
@@ -1799,7 +1802,7 @@ export function PayPage({
           setFieldErrors((current) => ({ ...current, [fieldPath]: nextMessage }))
         }
       } catch (error) {
-        console.error('[PayPage] Error in onFieldChange:', error)
+        logger.error('Error in onFieldChange', { err: error })
       }
     })()
   }, [applySubmitDataToState, triggerPayPageFormEvent])
@@ -1888,7 +1891,7 @@ export function PayPage({
             }
           }
         } catch (error) {
-          console.error('[PayPage] Error in transformFormData:', error)
+          logger.error('Error in transformFormData', { err: error })
         }
       }
 

@@ -69,6 +69,9 @@ import { readMarkdownPreferenceCookie, writeMarkdownPreferenceCookie } from '@op
 import { InjectionSpot, useInjectionWidgets } from '@open-mercato/ui/backend/injection/InjectionSpot'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 function formatMessageAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
   if (typeof amount !== 'number' || !Number.isFinite(amount)) return null
@@ -155,7 +158,7 @@ function CurrencyInlineEditor({
       await onSave(draft ?? null)
       setEditing(false)
     } catch (err) {
-      console.error('sales.documents.currency.save', err)
+      logger.error('sales.documents.currency.save', { err })
     } finally {
       setSaving(false)
     }
@@ -467,7 +470,7 @@ function CustomerInlineEditor({
       await onSave(draftId, draftEmail)
       setMode(null)
     } catch (err) {
-      console.error('sales.documents.customer.save', err)
+      logger.error('sales.documents.customer.save', { err })
     }
   }, [draftEmail, draftId, onClearError, onSave])
 
@@ -488,7 +491,7 @@ function CustomerInlineEditor({
       await onSaveSnapshot(payload)
       setMode(null)
     } catch (err) {
-      console.error('sales.documents.customer.snapshot.save', err)
+      logger.error('sales.documents.customer.snapshot.save', { err })
     }
   }, [buildSnapshotPayload, onClearError, onSaveSnapshot, phoneIsValid])
 
@@ -2131,7 +2134,7 @@ export default function SalesDocumentDetailPage({
         })
         return merged
       } catch (err) {
-        console.error('sales.documents.loadCustomers', err)
+        logger.error('sales.documents.loadCustomers', { err })
         flash(t('sales.documents.form.errors.customers', 'Failed to load customers.'), 'error')
         return []
       } finally {
@@ -2166,7 +2169,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertChannelOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadChannels', err)
+        logger.error('sales.documents.loadChannels', { err })
         if (!query) {
           flash(t('sales.channels.offers.filters.channelsLoadError', 'Failed to load channels'), 'error')
         }
@@ -2238,7 +2241,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertShippingMethodOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadShippingMethods', err)
+        logger.error('sales.documents.loadShippingMethods', { err })
         if (!query) {
           flash(
             t('sales.documents.detail.shippingMethodLoadError', 'Failed to load shipping methods.'),
@@ -2295,7 +2298,7 @@ export default function SalesDocumentDetailPage({
         if (!query) upsertPaymentMethodOptions([])
         return []
       } catch (err) {
-        console.error('sales.documents.loadPaymentMethods', err)
+        logger.error('sales.documents.loadPaymentMethods', { err })
         if (!query) {
           flash(
             t('sales.documents.detail.paymentMethodLoadError', 'Failed to load payment methods.'),
@@ -2325,7 +2328,7 @@ export default function SalesDocumentDetailPage({
       const items = Array.isArray(response.result?.items) ? response.result.items : []
       setHasPayments(items.some((item) => item && typeof (item as any).id === 'string'))
     } catch (err) {
-      console.error('sales.documents.currency.paymentsGuard', err)
+      logger.error('sales.documents.currency.paymentsGuard', { err })
     }
   }, [kind, record?.id])
 
@@ -2349,7 +2352,7 @@ export default function SalesDocumentDetailPage({
         }
         return email ?? null
       } catch (err) {
-        console.error('sales.documents.fetchCustomerEmail', err)
+        logger.error('sales.documents.fetchCustomerEmail', { err })
         return null
       }
     },
@@ -2375,7 +2378,7 @@ export default function SalesDocumentDetailPage({
           return option
         }
       } catch (err) {
-        console.error('sales.documents.channel.ensure', err)
+        logger.error('sales.documents.channel.ensure', { err })
       }
       return null
     },
@@ -2479,7 +2482,7 @@ export default function SalesDocumentDetailPage({
       upsertStatusOptions([])
       return []
     } catch (err) {
-      console.error('sales.documents.loadStatuses', err)
+      logger.error('sales.documents.loadStatuses', { err })
       flash(t('sales.documents.detail.status.errorLoad', 'Failed to load statuses.'), 'error')
       return []
     } finally {
@@ -2613,7 +2616,7 @@ export default function SalesDocumentDetailPage({
           addresses: normalizeGuardList(call.result?.orderAddressEditableStatuses ?? null),
         })
       } catch (err) {
-        console.error('sales.documents.loadGuards', err)
+        logger.error('sales.documents.loadGuards', { err })
       }
     }
     void loadGuards()
@@ -2719,7 +2722,7 @@ export default function SalesDocumentDetailPage({
       const ordered = [...mapped].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
       setAdjustmentRows(ordered)
     } catch (err) {
-      console.error('sales.documents.adjustments.totals.load', err)
+      logger.error('sales.documents.adjustments.totals.load', { err })
     }
   }, [kind, parseNumber, record?.currencyCode, record?.id])
 
@@ -2736,7 +2739,7 @@ export default function SalesDocumentDetailPage({
       }
       await loadAdjustmentsForTotals()
     } catch (err) {
-      console.error('sales.documents.totals.refresh', err)
+      logger.error('sales.documents.totals.refresh', { err })
     }
   }, [fetchDocumentByKind, kind, loadAdjustmentsForTotals, record?.id])
 
@@ -3719,7 +3722,7 @@ export default function SalesDocumentDetailPage({
         router.replace(`/backend/sales/orders/${orderId}`)
       }, { quoteId: record.id })
     } catch (err) {
-      console.error('sales.documents.convert', err)
+      logger.error('sales.documents.convert', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.detail.convertError', 'Failed to convert quote.'), 'error')
       }
@@ -3744,7 +3747,7 @@ export default function SalesDocumentDetailPage({
         if (updated) setRecord(updated)
       }, { quoteId: record.id, validForDays })
     } catch (err) {
-      console.error('sales.quotes.send', err)
+      logger.error('sales.quotes.send', { err })
       flash(t('sales.quotes.send.failed', 'Failed to send quote.'), 'error')
     } finally {
       setSending(false)
@@ -3776,7 +3779,7 @@ export default function SalesDocumentDetailPage({
       const listPath = kind === 'order' ? '/backend/sales/orders' : '/backend/sales/quotes'
       router.push(listPath)
     } catch (err) {
-      console.error('sales.documents.delete', err)
+      logger.error('sales.documents.delete', { err })
       if (!handleDocumentMutationError(err, t, () => setReloadKey((prev) => prev + 1))) {
         flash(t('sales.documents.detail.deleteFailed', 'Could not delete document.'), 'error')
       }
@@ -4127,7 +4130,7 @@ export default function SalesDocumentDetailPage({
           appearanceColor: '#0ea5e9',
         })
       } catch (err) {
-        console.error('sales.shipments.comment', err)
+        logger.error('sales.shipments.comment', { err })
       }
     },
     [record, salesNotesAdapter],

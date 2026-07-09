@@ -756,7 +756,6 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
     generateModuleDi,
     generateModulePackageSources,
     generateOpenApi,
-    generateModuleFacts,
   } = await import('./lib/generators')
   const resolver = createResolver()
   await generateEntityIds({ resolver, quiet })
@@ -767,7 +766,6 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
   await generateModuleDi({ resolver, quiet })
   await generateModulePackageSources({ resolver, quiet })
   await generateOpenApi({ resolver, quiet })
-  await generateModuleFacts({ resolver, quiet })
 }
 
 /**
@@ -2072,6 +2070,13 @@ export async function run(argv = process.argv) {
             while (!stopping) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
+              // buildServerProcessEnvironment forces NODE_ENV=production, so the
+              // logging facade's dev defaults (pretty output, debug level) never
+              // apply to the spawned Next.js/worker/scheduler processes on their
+              // own — default them here for the dev command, respecting explicit
+              // user overrides.
+              if (runtimeEnv.OM_LOG_PRETTY === undefined) runtimeEnv.OM_LOG_PRETTY = '1'
+              if (runtimeEnv.OM_LOG_LEVEL === undefined) runtimeEnv.OM_LOG_LEVEL = 'debug'
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
               // Guard the default-on events single-delivery: if this process runs
               // no events worker, fall back to safe inline dual-dispatch so

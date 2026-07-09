@@ -3,6 +3,9 @@ import type { CacheStrategy } from '@open-mercato/cache'
 import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'tenant-encryption' })
 
 export type EncryptedFieldRule = {
   field: string
@@ -42,8 +45,7 @@ function cacheKey(key: MapCacheKey): string {
 function debug(event: string, payload: Record<string, unknown>) {
   if (!isEncryptionDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`${event} [tenant-encryption]`, payload)
+    logger.debug(event, payload)
   } catch {
     // ignore
   }

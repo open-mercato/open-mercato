@@ -69,6 +69,7 @@
   "shipping_carriers.create.summary.targetPoint": "Casillero",
   "shipping_carriers.create.summary.to": "Hasta",
   "shipping_carriers.create.title": "Crear envio con transportista",
+  "shipping_carriers.errors.upstreamFailed": "Error en la solicitud al transportista. Intentalo de nuevo mas tarde.",
   "shipping_carriers.feature.manage": "Gestionar operaciones de transportistas",
   "shipping_carriers.feature.view": "Ver envios de transportistas",
   "shipping_carriers.status.cancelled": "Cancelado",

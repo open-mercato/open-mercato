@@ -30,6 +30,9 @@ import {
 } from './command-interceptor-runner'
 import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -624,7 +627,7 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] execute-invalidation failed', { commandId, err })
+          logger.debug('Cache execute-invalidation failed', { commandId, err })
         } catch {}
       }
     }
@@ -656,7 +659,7 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] undo-invalidation failed', { commandId: log.commandId, err })
+          logger.debug('Cache undo-invalidation failed', { commandId: log.commandId, err })
         } catch {}
       }
     }

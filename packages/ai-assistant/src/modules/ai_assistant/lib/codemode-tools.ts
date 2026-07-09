@@ -1,3 +1,5 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
 /**
  * Code Mode Tools
  *
@@ -29,6 +31,8 @@ import {
   incrementToolCallCount,
 } from './session-memory'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
+const logger = createLogger('ai_assistant').child({ component: 'codemode' })
 
 const DEFAULT_AI_API_REQUEST_TIMEOUT_MS = 30_000
 
@@ -336,7 +340,7 @@ async function generateCommonTypes(): Promise<string> {
   }
 
   cachedCommonTypes = typeLines.join('\n')
-  console.error(`[Code Mode] Generated ${typeLines.length - 1} common type stubs`)
+  logger.debug('Generated common type stubs', { count: typeLines.length - 1 })
   return cachedCommonTypes
 }
 
@@ -586,14 +590,13 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
       }),
       requiredFeatures: [...CODE_MODE_REQUIRED_FEATURES],
       handler: async (input: { code: string }, ctx: McpToolContext) => {
-        const codePreview = input.code.slice(0, 120).replace(/\n/g, ' ')
-        console.error(`[AI Usage] search: code="${codePreview}${input.code.length > 120 ? '...' : ''}"`)
+        logger.debug('search tool invoked', { codeChars: input.code.length })
 
         // Check session memory for cached result
         if (ctx.sessionId) {
           const cached = lookupSearchCache(ctx.sessionId, input.code)
           if (cached) {
-            console.error(`[AI Usage] search: CACHE HIT (label="${cached.label}")`)
+            logger.debug('search tool cache hit', { label: cached.label })
             const memoryContext = buildMemoryContext(ctx.sessionId)
             return {
               success: true,
@@ -606,7 +609,7 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
           // Enforce tool call limit
           const { count, exceeded } = incrementToolCallCount(ctx.sessionId)
           if (exceeded) {
-            console.error(`[AI Usage] search: TOOL CALL LIMIT EXCEEDED (count=${count})`)
+            logger.warn('search tool call limit exceeded', { count })
             return {
               success: false,
               error: 'Tool call limit exceeded. Summarize what you know and respond to the user.',
@@ -619,7 +622,7 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
         const result = await sandbox.execute(input.code)
 
         if (result.error) {
-          console.error(`[AI Usage] search: ERROR in ${result.durationMs}ms — ${result.error}`)
+          logger.info('search tool errored', { durationMs: result.durationMs, err: result.error })
           return {
             success: false,
             error: result.error,
@@ -629,7 +632,7 @@ Use BEFORE execute to learn endpoint schemas for CREATE/UPDATE. Skip for common 
         }
 
         const truncated = truncateResult(result.result)
-        console.error(`[AI Usage] search: OK in ${result.durationMs}ms — ${truncated.length} chars`)
+        logger.info('search tool succeeded', { durationMs: result.durationMs, resultChars: truncated.length })
 
         // Store in session memory
         if (ctx.sessionId) {
@@ -674,14 +677,13 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
       }),
       requiredFeatures: [...CODE_MODE_REQUIRED_FEATURES],
       handler: async (input: { code: string }, ctx: McpToolContext) => {
-        const codePreview = input.code.slice(0, 120).replace(/\n/g, ' ')
-        console.error(`[AI Usage] execute: code="${codePreview}${input.code.length > 120 ? '...' : ''}" user=${ctx.userId || 'unknown'}`)
+        logger.debug('execute tool invoked', { codeChars: input.code.length, userId: ctx.userId || 'unknown' })
 
         // Enforce tool call limit
         if (ctx.sessionId) {
           const { count, exceeded } = incrementToolCallCount(ctx.sessionId)
           if (exceeded) {
-            console.error(`[AI Usage] execute: TOOL CALL LIMIT EXCEEDED (count=${count})`)
+            logger.warn('execute tool call limit exceeded', { count })
             return {
               success: false,
               error: 'Tool call limit exceeded. Summarize what you know and respond to the user.',
@@ -723,7 +725,7 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
         const result = await sandbox.execute(input.code)
 
         if (result.error) {
-          console.error(`[AI Usage] execute: ERROR in ${result.durationMs}ms — apiCalls=${apiCallCount} — ${result.error}`)
+          logger.info('execute tool errored', { durationMs: result.durationMs, apiCalls: apiCallCount, err: result.error })
           return {
             success: false,
             error: result.error,
@@ -734,7 +736,7 @@ RULES: For FIND/LIST → GET only (1 call). For UPDATE → PUT to collection pat
         }
 
         const truncated = truncateResult(result.result)
-        console.error(`[AI Usage] execute: OK in ${result.durationMs}ms — apiCalls=${apiCallCount} — ${truncated.length} chars`)
+        logger.info('execute tool succeeded', { durationMs: result.durationMs, apiCalls: apiCallCount, resultChars: truncated.length })
 
         const memoryContext = ctx.sessionId ? buildMemoryContext(ctx.sessionId) : undefined
         return {
@@ -779,9 +781,7 @@ export function createApiRequestFn(
 
     if (!authorization.allowed) {
       const callDuration = Date.now() - callStart
-      console.error(
-        `[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${authorization.statusCode} in ${callDuration}ms (blocked by Code Mode RBAC)`
-      )
+      logger.warn('api.request blocked by Code Mode RBAC', { method: normalizedMethod, path: apiPath, statusCode: authorization.statusCode, durationMs: callDuration })
       return {
         success: false,
         statusCode: authorization.statusCode,
@@ -834,7 +834,7 @@ export function createApiRequestFn(
     const callDuration = Date.now() - callStart
 
     if (!response.ok) {
-      console.error(`[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${response.status} in ${callDuration}ms`)
+      logger.debug('api.request completed with error status', { method: normalizedMethod, path: apiPath, status: response.status, durationMs: callDuration })
 
       // Format 400 validation errors into a clear fix instruction for the LLM
       if (response.status === 400) {
@@ -853,7 +853,7 @@ export function createApiRequestFn(
       }
     }
 
-    console.error(`[AI Usage] api.request: ${normalizedMethod} ${apiPath} → ${response.status} in ${callDuration}ms (${responseText.length} bytes)`)
+    logger.debug('api.request completed', { method: normalizedMethod, path: apiPath, status: response.status, durationMs: callDuration, bytes: responseText.length })
 
     // Add mutation warning for non-GET calls
     if (!['GET', 'HEAD', 'OPTIONS'].includes(normalizedMethod)) {

@@ -18,6 +18,9 @@ import { formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DEFAULT_SETTINGS, hydrateSalesNewQuotesSettings, type DatePeriodOption, type SalesNewQuotesSettings } from './config'
 import { readString, toDateInputValue, openNativeDatePicker, formatAmount } from '../shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type NewQuoteItem = {
   id: string
@@ -121,7 +124,7 @@ const SalesNewQuotesWidget: React.FC<DashboardWidgetComponentProps<SalesNewQuote
       const data = await loadNewQuotes(hydrated)
       setItems(data)
     } catch (err) {
-      console.error('Failed to load new quotes widget data', err)
+      logger.error('Failed to load new quotes widget data', { err })
       setError(translate('sales.widgets.newQuotes.error', 'Failed to load quotes'))
     } finally {
       setLoading(false)
