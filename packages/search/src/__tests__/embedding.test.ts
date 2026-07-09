@@ -2,10 +2,16 @@ jest.mock('ai', () => ({
   embed: jest.fn(),
 }))
 
+jest.mock('ai-sdk-ollama', () => ({
+  createOllama: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
+}))
+
 import { embed } from 'ai'
+import { createOllama } from 'ai-sdk-ollama'
 import { EmbeddingService } from '../vector/services/embedding'
 
 const mockedEmbed = jest.mocked(embed)
+const mockedCreateOllama = jest.mocked(createOllama)
 
 describe('EmbeddingService', () => {
   const originalEnv = { ...process.env }
@@ -78,6 +84,28 @@ describe('EmbeddingService', () => {
     })
 
     await expect(service.createEmbedding('test input')).resolves.toEqual([0.25, 0.5, 0.75])
+  })
+
+  it('injects the guarded fetch transport into the Ollama SDK client', async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.VECTOR_EMBEDDING_TIMEOUT_MS = '100'
+    mockedEmbed.mockResolvedValue({ embedding: [0.25] } as Awaited<ReturnType<typeof embed>>)
+
+    const service = new EmbeddingService({
+      config: {
+        providerId: 'ollama',
+        model: 'nomic-embed-text',
+        dimension: 768,
+        baseUrl: 'https://ollama.example.com',
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    await expect(service.createEmbedding('test input')).resolves.toEqual([0.25])
+    expect(mockedCreateOllama).toHaveBeenCalledWith({
+      baseURL: 'https://ollama.example.com',
+      fetch: expect.any(Function),
+    })
   })
 
   it('rejects persisted Ollama baseUrl pointing at a private IP in production', async () => {
