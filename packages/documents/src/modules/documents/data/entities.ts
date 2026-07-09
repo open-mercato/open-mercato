@@ -170,6 +170,7 @@ export class DocumentComment {
   [OptionalProps]?:
     | 'parentCommentId'
     | 'anchor'
+    | 'mentions'
     | 'resolvedAt'
     | 'resolvedByUserId'
     | 'createdAt'
@@ -199,6 +200,9 @@ export class DocumentComment {
 
   @Property({ type: 'json', nullable: true })
   anchor?: Record<string, unknown> | null
+
+  @Property({ name: 'mentions', type: 'json', nullable: true })
+  mentions?: { userId: string }[] | null
 
   @Property({ name: 'resolved_at', type: Date, nullable: true })
   resolvedAt?: Date | null
@@ -282,6 +286,48 @@ export class DocumentAttachment {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'document_templates' })
+@Index({ name: 'document_templates_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
+export class DocumentTemplate {
+  [OptionalProps]?: 'description' | 'contextSlots' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ type: 'varchar', length: 256 })
+  name!: string
+
+  @Property({ type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'body_html', type: 'text' })
+  bodyHtml!: string
+
+  @Property({ name: 'context_slots', type: 'json', nullable: true })
+  contextSlots?: { slot: string; entityType: string; required?: boolean }[] | null
+
+  @Property({ name: 'created_by_user_id', type: 'uuid' })
+  createdByUserId!: string
+
+  @Property({ name: 'is_active', type: 'boolean', default: true })
+  isActive: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
 export default [
   Document,
   DocumentContent,
@@ -290,4 +336,5 @@ export default [
   DocumentComment,
   DocumentVersion,
   DocumentAttachment,
+  DocumentTemplate,
 ]

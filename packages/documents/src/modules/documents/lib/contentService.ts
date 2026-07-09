@@ -75,7 +75,7 @@ export async function persistDocumentContent(
   em: EntityManager,
   documentId: string,
   scope: DocumentScope,
-  input: { yjsState?: Buffer | null; contentHtml: string; contentText: string },
+  input: { yjsState?: Buffer | null; contentHtml?: string | null; contentText?: string | null },
   deps: PersistDocumentContentDeps,
 ): Promise<void> {
   if (!deps.searchIndexer || typeof deps.searchIndexer.indexRecordById !== 'function') {
@@ -96,8 +96,16 @@ export async function persistDocumentContent(
     em.persist(content)
   }
 
-  content.contentHtml = input.contentHtml
-  content.contentText = input.contentText || deriveContentTextFromHtml(input.contentHtml)
+  const hasContentHtml = Object.prototype.hasOwnProperty.call(input, 'contentHtml')
+  const hasContentText = Object.prototype.hasOwnProperty.call(input, 'contentText')
+  if (hasContentHtml) {
+    content.contentHtml = input.contentHtml ?? ''
+  }
+  if (hasContentText) {
+    content.contentText = input.contentText ?? deriveContentTextFromHtml(content.contentHtml ?? '')
+  } else if (hasContentHtml) {
+    content.contentText = deriveContentTextFromHtml(content.contentHtml ?? '')
+  }
   if (Object.prototype.hasOwnProperty.call(input, 'yjsState')) {
     content.yjsState = input.yjsState ?? null
   }

@@ -40,7 +40,7 @@ export type CollabHooksDeps = {
     em: unknown,
     documentId: string,
     scope: CollabScope,
-    input: { yjsState: Buffer; contentHtml: string; contentText: string },
+    input: { yjsState: Buffer; contentHtml?: string | null; contentText?: string | null },
     deps: { searchIndexer: unknown },
   ) => Promise<void>
   allowedOrigins?: string[] | null
@@ -75,6 +75,8 @@ function toContext(claims: CollabTokenClaims): CollabContext {
 }
 
 export function createCollabHooks(deps: CollabHooksDeps) {
+  const materializationWarningRooms = new Set<string>()
+
   return {
     async onAuthenticate(data: {
       token?: string
@@ -138,20 +140,27 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       if (deps.isRoomClosing?.(data.documentName)) return
       if (isReadOnlyTier(data.context.tier)) return
 
-      const { html, text } = yDocToContent(data.document)
+      const materialized = yDocToContent(data.document)
+      if (!materialized && !materializationWarningRooms.has(data.documentName)) {
+        materializationWarningRooms.add(data.documentName)
+        console.warn(`[documents-collab] materialization failed for room ${data.documentName}; preserving previous html/text`)
+      }
       const container = await deps.resolveContainer()
       const em = container.resolve('em')
       const searchIndexer = container.resolve('searchIndexer')
+      const yjsState = Buffer.from(Y.encodeStateAsUpdate(data.document))
 
       await deps.persistContent(
         em,
         data.documentName,
         { tenantId: data.context.tenantId, organizationId: data.context.organizationId },
-        {
-          yjsState: Buffer.from(Y.encodeStateAsUpdate(data.document)),
-          contentHtml: html,
-          contentText: text,
-        },
+        materialized
+          ? {
+              yjsState,
+              contentHtml: materialized.html,
+              contentText: materialized.text,
+            }
+          : { yjsState },
         { searchIndexer },
       )
     },

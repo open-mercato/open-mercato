@@ -1,9 +1,21 @@
+import { createRequire } from 'node:module'
 import type { JSONContent } from '@tiptap/core'
 import { TiptapTransformer } from '@hocuspocus/transformer'
-import { generateHTML, generateJSON } from '@tiptap/html'
 import * as Y from 'yjs'
 import { deriveContentTextFromHtml } from './contentService'
 import { COLLAB_FRAGMENT_FIELD, getDocumentEditorExtensions } from './editorConfig'
+
+type TiptapHtmlServer = typeof import('@tiptap/html/server')
+
+const requireFromHere = createRequire(import.meta.url)
+let tiptapHtmlServer: TiptapHtmlServer | null = null
+
+function getTiptapHtmlServer(): TiptapHtmlServer {
+  if (!tiptapHtmlServer) {
+    tiptapHtmlServer = requireFromHere('@tiptap/html/server') as TiptapHtmlServer
+  }
+  return tiptapHtmlServer
+}
 
 function hasRenderableContent(node: JSONContent): boolean {
   if (node.type === 'text') return Boolean(node.text)
@@ -11,7 +23,7 @@ function hasRenderableContent(node: JSONContent): boolean {
   return Boolean(node.type && node.type !== 'doc' && node.type !== 'paragraph' && node.type !== 'text')
 }
 
-export function yDocToContent(ydoc: Y.Doc): { html: string; text: string } {
+export function yDocToContent(ydoc: Y.Doc): { html: string; text: string } | null {
   try {
     if (ydoc.getXmlFragment(COLLAB_FRAGMENT_FIELD).length === 0) {
       return { html: '', text: '' }
@@ -22,11 +34,12 @@ export function yDocToContent(ydoc: Y.Doc): { html: string; text: string } {
       return { html: '', text: '' }
     }
 
+    const { generateHTML } = getTiptapHtmlServer()
     const html = generateHTML(json, getDocumentEditorExtensions())
     const text = deriveContentTextFromHtml(html)
     return { html, text }
   } catch {
-    return { html: '', text: '' }
+    return null
   }
 }
 
@@ -34,6 +47,7 @@ export function htmlToYDoc(html: string): Y.Doc {
   if (!html.trim()) return new Y.Doc()
 
   const extensions = getDocumentEditorExtensions()
+  const { generateJSON } = getTiptapHtmlServer()
   const json = generateJSON(html, extensions) as JSONContent
   return TiptapTransformer.toYdoc(json, COLLAB_FRAGMENT_FIELD, extensions)
 }

@@ -6,4 +6,5 @@ export const DOCUMENTS_ENTITY_IDS = {
   documentComment: 'documents:document_comment',
   documentVersion: 'documents:document_version',
   documentAttachment: 'documents:document_attachment',
+  documentTemplate: 'documents:document_template',
 } as const
