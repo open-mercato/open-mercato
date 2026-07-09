@@ -23,7 +23,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { MentionPicker } from './MentionPicker'
 
 export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
@@ -44,12 +44,35 @@ type DocumentComment = {
   parentCommentId: string | null
   authorUserId: string
   body: string
+  mentions: CommentMention[]
   anchor: CommentAnchor | null
   resolvedAt: string | null
   resolvedByUserId: string | null
   createdAt: string
   updatedAt: string
   replies: DocumentComment[]
+}
+
+type CommentMention = {
+  userId: string
+}
+
+type UserLabel = {
+  label: string
+  secondary?: string | null
+}
+
+type UserLabels = Record<string, UserLabel>
+
+type PendingMention = {
+  userId: string
+  name: string
+}
+
+type AccessCheckUser = {
+  userId: string
+  label: string | null
+  secondary: string | null
 }
 
 type CommentsRailProps = {
@@ -63,7 +86,7 @@ type CommentsRailProps = {
 type CommentsState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'ready'; comments: DocumentComment[] }
+  | { status: 'ready'; comments: DocumentComment[]; userLabels: UserLabels }
 
 type GrantAccessChoice = 'share' | 'skip'
 
@@ -71,7 +94,7 @@ type GrantAccessPromptState = {
   names: string[]
 }
 
-type Translate = (key: string, fallback?: string) => string
+type LabelFor = (userId: string) => string
 
 type CommentItemProps = {
   comment: DocumentComment
@@ -81,11 +104,13 @@ type CommentItemProps = {
   onJump: (comment: DocumentComment) => void
   onReply: (comment: DocumentComment) => void
   onResolve: (comment: DocumentComment) => void
-  t: Translate
+  labelFor: LabelFor
+  t: TranslateFn
 }
 
 const MENTION_TOKEN_PATTERN =
   /@\[([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]/gi
+const EMPTY_USER_LABELS: UserLabels = {}
 
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? value as Record<string, unknown> : null
@@ -145,6 +170,7 @@ function normalizeComment(value: unknown): DocumentComment | null {
     parentCommentId: readNullableString(record, 'parentCommentId', 'parent_comment_id'),
     authorUserId,
     body,
+    mentions: readMentions(record.mentions),
     anchor: readAnchor(record.anchor),
     resolvedAt: readNullableString(record, 'resolvedAt', 'resolved_at'),
     resolvedByUserId: readNullableString(record, 'resolvedByUserId', 'resolved_by_user_id'),
@@ -167,6 +193,13 @@ function readCommentItems(payload: unknown): DocumentComment[] {
   return []
 }
 
+function readCommentPayload(payload: unknown): { comments: DocumentComment[]; userLabels: UserLabels } {
+  return {
+    comments: readCommentItems(payload),
+    userLabels: readUserLabels(payload),
+  }
+}
+
 function canCommentWithTier(tier: DocumentTier): boolean {
   return tier === 'commenter' || tier === 'editor' || tier === 'owner'
 }
@@ -181,34 +214,6 @@ function formatDateTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp))
 }
 
-function shortenId(value: string): string {
-  return value.length > 12 ? value.slice(0, 8) : value
-}
-
-function extractMentionedUserIds(body: string): string[] {
-  return Array.from(
-    new Set(
-      Array.from(body.matchAll(MENTION_TOKEN_PATTERN))
-        .map((match) => match[1])
-        .filter((value): value is string => typeof value === 'string' && value.length > 0)
-        .map((value) => value.toLowerCase()),
-    ),
-  )
-}
-
-function extractMentionNames(body: string): Map<string, string> {
-  const names = new Map<string, string>()
-  for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
-    const userId = match[1]
-    if (!userId) continue
-    const beforeToken = body.slice(0, match.index ?? 0)
-    const nameMatch = beforeToken.match(/@([^@\n]{1,120})\s*$/)
-    const name = nameMatch?.[1]?.trim()
-    if (name) names.set(userId.toLowerCase(), name)
-  }
-  return names
-}
-
 function readStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   return value
@@ -216,42 +221,154 @@ function readStringArray(value: unknown): string[] {
     .map((entry) => entry.toLowerCase())
 }
 
-function readAccessCheckWithoutAccess(payload: unknown): string[] {
+function normalizeMention(value: unknown): CommentMention | null {
+  const record = readRecord(value)
+  if (!record) return null
+  const userId = readString(record, 'userId', 'user_id')
+  return userId ? { userId: userId.toLowerCase() } : null
+}
+
+function readMentions(value: unknown): CommentMention[] {
+  if (!Array.isArray(value)) return []
+  return value.map(normalizeMention).filter((mention): mention is CommentMention => mention !== null)
+}
+
+function normalizeUserLabel(value: unknown): UserLabel | null {
+  const record = readRecord(value)
+  if (!record) return null
+  const label = readString(record, 'label')
+  if (!label) return null
+  return {
+    label,
+    secondary: readNullableString(record, 'secondary'),
+  }
+}
+
+function readUserLabels(payload: unknown): UserLabels {
+  const record = readRecord(payload)
+  const rawLabels = readRecord(record?.userLabels)
+  if (!rawLabels) return {}
+  const labels: UserLabels = {}
+  for (const [userId, rawLabel] of Object.entries(rawLabels)) {
+    const label = normalizeUserLabel(rawLabel)
+    if (label) labels[userId.toLowerCase()] = label
+  }
+  return labels
+}
+
+function normalizeAccessCheckUser(value: unknown): AccessCheckUser | null {
+  const record = readRecord(value)
+  if (!record) return null
+  const userId = readString(record, 'userId', 'user_id', 'id')
+  if (!userId) return null
+  return {
+    userId: userId.toLowerCase(),
+    label: readNullableString(record, 'label'),
+    secondary: readNullableString(record, 'secondary'),
+  }
+}
+
+function readAccessCheckWithoutAccessUsers(payload: unknown): AccessCheckUser[] | null {
+  const record = readRecord(payload)
+  if (!record || !Array.isArray(record.withoutAccessUsers)) return null
+  return record.withoutAccessUsers
+    .map(normalizeAccessCheckUser)
+    .filter((user): user is AccessCheckUser => user !== null)
+}
+
+function readAccessCheckWithoutAccessIds(payload: unknown): string[] {
   const record = readRecord(payload)
   if (!record) return []
   return readStringArray(record.withoutAccess)
 }
 
-function formatCommentBody(body: string): React.ReactNode[] {
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
+type MentionRange = {
+  start: number
+  end: number
+  label: string
+  key: string
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+function rangesOverlap(first: MentionRange, second: MentionRange): boolean {
+  return first.start < second.end && second.start < first.end
+}
+
+function pushMentionRange(ranges: MentionRange[], range: MentionRange) {
+  if (range.start >= range.end) return
+  if (ranges.some((existing) => rangesOverlap(existing, range))) return
+  ranges.push(range)
+}
+
+function formatCommentBody(body: string, mentions: CommentMention[], labelFor: LabelFor): React.ReactNode[] {
+  const ranges: MentionRange[] = []
   let tokenIndex = 0
   for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
     const matchIndex = match.index ?? 0
     const token = match[0]
     const userId = match[1] ?? ''
-    const between = body.slice(lastIndex, matchIndex)
-    const readablePrefix = between.match(/@([^\s]+)\s$/)
-    const label = readablePrefix?.[1] ?? shortenId(userId)
-    const literalBefore = readablePrefix ? between.slice(0, readablePrefix.index) : between
-    if (literalBefore.length > 0) {
-      parts.push(literalBefore)
+    const label = labelFor(userId)
+    const legacyPrefix = `@${label} `
+    const beforeToken = body.slice(0, matchIndex)
+    const start = beforeToken.endsWith(legacyPrefix) ? matchIndex - legacyPrefix.length : matchIndex
+    pushMentionRange(ranges, {
+      start,
+      end: matchIndex + token.length,
+      label,
+      key: `legacy:${userId}:${tokenIndex}`,
+    })
+    tokenIndex += 1
+  }
+
+  const labels = Array.from(new Set(mentions.map((mention) => labelFor(mention.userId))))
+  labels.forEach((label, labelIndex) => {
+    const pattern = new RegExp(`@${escapeRegExp(label)}(?=$|[\\s.,;:!?()[\\]{}<>])`, 'g')
+    let match: RegExpExecArray | null
+    let mentionIndex = 0
+    while ((match = pattern.exec(body)) !== null) {
+      pushMentionRange(ranges, {
+        start: match.index,
+        end: match.index + match[0].length,
+        label,
+        key: `label:${labelIndex}:${mentionIndex}`,
+      })
+      mentionIndex += 1
     }
+  })
+
+  ranges.sort((first, second) => first.start - second.start || first.end - second.end)
+  const parts: React.ReactNode[] = []
+  let lastIndex = 0
+  for (const range of ranges) {
+    if (range.start < lastIndex) continue
+    const literalBefore = body.slice(lastIndex, range.start)
+    if (literalBefore.length > 0) parts.push(literalBefore)
     parts.push(
       <span
-        key={`${userId}:${tokenIndex}`}
+        key={range.key}
         className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-primary"
       >
-        @{label}
+        @{range.label}
       </span>,
     )
-    lastIndex = matchIndex + token.length
-    tokenIndex += 1
+    lastIndex = range.end
   }
   if (lastIndex < body.length) {
     parts.push(body.slice(lastIndex))
   }
   return parts.length > 0 ? parts : [body]
+}
+
+function findCommentById(comments: DocumentComment[], commentId: string): DocumentComment | null {
+  for (const comment of comments) {
+    if (comment.id === commentId) return comment
+    const reply = findCommentById(comment.replies, commentId)
+    if (reply) return reply
+  }
+  return null
 }
 
 function CommentItem({
@@ -262,6 +379,7 @@ function CommentItem({
   onJump,
   onReply,
   onResolve,
+  labelFor,
   t,
 }: CommentItemProps) {
   const hasAnchor = comment.anchor !== null
@@ -270,7 +388,7 @@ function CommentItem({
     <>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{shortenId(comment.authorUserId)}</p>
+          <p className="truncate text-sm font-medium">{labelFor(comment.authorUserId)}</p>
           <p className="text-xs text-muted-foreground">{formatDateTime(comment.createdAt)}</p>
         </div>
         {resolved ? (
@@ -279,7 +397,7 @@ function CommentItem({
           </StatusBadge>
         ) : null}
       </div>
-      <p className="whitespace-pre-wrap text-sm text-foreground">{formatCommentBody(comment.body)}</p>
+      <p className="whitespace-pre-wrap text-sm text-foreground">{formatCommentBody(comment.body, comment.mentions, labelFor)}</p>
     </>
   )
 
@@ -329,6 +447,7 @@ function CommentItem({
               onJump={onJump}
               onReply={onReply}
               onResolve={onResolve}
+              labelFor={labelFor}
               t={t}
             />
           ))}
@@ -346,7 +465,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
   const grantAccessResolverRef = React.useRef<((choice: GrantAccessChoice) => void) | null>(null)
   const [state, setState] = React.useState<CommentsState>({ status: 'loading' })
   const [body, setBody] = React.useState('')
-  const [mentionedUsers, setMentionedUsers] = React.useState<Map<string, string>>(() => new Map())
+  const [pendingMentions, setPendingMentions] = React.useState<PendingMention[]>([])
   const [parentCommentId, setParentCommentId] = React.useState<string | null>(null)
   const [pendingAnchor, setPendingAnchor] = React.useState<CommentAnchor | null>(null)
   const [mentionPickerOpen, setMentionPickerOpen] = React.useState(false)
@@ -373,7 +492,8 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
         setState({ status: 'error', message: t('documents.comments.error.load') })
         return
       }
-      setState({ status: 'ready', comments: readCommentItems(call.result) })
+      const nextState = readCommentPayload(call.result)
+      setState({ status: 'ready', comments: nextState.comments, userLabels: nextState.userLabels })
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : t('documents.comments.error.load') })
     }
@@ -385,6 +505,10 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
 
   const canComment = canCommentWithTier(tier)
   const canResolve = canResolveWithTier(tier)
+  const userLabels = state.status === 'ready' ? state.userLabels : EMPTY_USER_LABELS
+  const labelFor = React.useCallback<LabelFor>((userId) => {
+    return userLabels[userId.toLowerCase()]?.label ?? t('documents.users.unknown')
+  }, [t, userLabels])
 
   React.useEffect(() => {
     if (!commentFocusRequest || !canComment) return
@@ -432,18 +556,9 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
 
   const handleBodyChange = React.useCallback((nextBody: string) => {
     setBody(nextBody)
-    const namesFromBody = extractMentionNames(nextBody)
-    if (namesFromBody.size === 0) return
-    setMentionedUsers((current) => {
-      const next = new Map(current)
-      for (const [id, name] of namesFromBody) {
-        next.set(id, name)
-      }
-      return next
-    })
   }, [])
 
-  const checkMentionAccess = React.useCallback(async (userIds: string[]): Promise<string[]> => {
+  const checkMentionAccess = React.useCallback(async (userIds: string[]): Promise<AccessCheckUser[]> => {
     const call = await apiCall<unknown>(
       `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
       {
@@ -453,11 +568,17 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
       },
     )
     if (!call.ok) throw new Error(t('documents.comments.error.save'))
-    return readAccessCheckWithoutAccess(call.result)
+    const withoutAccessUsers = readAccessCheckWithoutAccessUsers(call.result)
+    if (withoutAccessUsers) return withoutAccessUsers
+    return readAccessCheckWithoutAccessIds(call.result).map((userId) => ({
+      userId,
+      label: null,
+      secondary: null,
+    }))
   }, [documentId, t])
 
-  const resolveGrantAccessTo = React.useCallback(async (trimmedBody: string): Promise<string[] | undefined> => {
-    const mentionedIds = extractMentionedUserIds(trimmedBody)
+  const resolveGrantAccessTo = React.useCallback(async (mentions: PendingMention[]): Promise<string[] | undefined> => {
+    const mentionedIds = Array.from(new Set(mentions.map((mention) => mention.userId.toLowerCase())))
     if (mentionedIds.length === 0) return undefined
 
     const withoutAccess = await checkMentionAccess(mentionedIds)
@@ -467,20 +588,18 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
       return []
     }
 
-    const namesFromBody = extractMentionNames(trimmedBody)
-    const names = withoutAccess.map((userId) =>
-      mentionedUsers.get(userId) ?? namesFromBody.get(userId) ?? shortenId(userId),
-    )
+    const names = withoutAccess.map((user) => user.label ?? labelFor(user.userId))
     const choice = await requestGrantAccessChoice(names)
-    return choice === 'share' ? withoutAccess : []
-  }, [canShare, checkMentionAccess, mentionedUsers, requestGrantAccessChoice, t])
+    return choice === 'share' ? withoutAccess.map((user) => user.userId) : []
+  }, [canShare, checkMentionAccess, labelFor, requestGrantAccessChoice, t])
 
   const handleSubmit = React.useCallback(async () => {
     const trimmedBody = body.trim()
     if (!trimmedBody || !canComment) return
+    const mentions = pendingMentions.map(({ userId }) => ({ userId }))
     setIsSubmitting(true)
     try {
-      const grantAccessTo = await resolveGrantAccessTo(trimmedBody)
+      const grantAccessTo = await resolveGrantAccessTo(pendingMentions)
       await runMutation({
         operation: async () => {
           await apiCallOrThrow(
@@ -492,6 +611,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
                 body: trimmedBody,
                 anchor: pendingAnchor ?? captureSelectionAnchor(),
                 parentCommentId,
+                ...(mentions.length > 0 ? { mentions } : {}),
                 ...(grantAccessTo !== undefined ? { grantAccessTo } : {}),
               }),
             },
@@ -504,10 +624,10 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
           resourceId: documentId,
           retryLastMutation,
         },
-        mutationPayload: { body: trimmedBody, parentCommentId, grantAccessTo },
+        mutationPayload: { body: trimmedBody, parentCommentId, mentions, grantAccessTo },
       })
       setBody('')
-      setMentionedUsers(new Map())
+      setPendingMentions([])
       setParentCommentId(null)
       setPendingAnchor(null)
       setMentionPickerOpen(false)
@@ -525,6 +645,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
     mutationContextId,
     parentCommentId,
     pendingAnchor,
+    pendingMentions,
     reload,
     resolveGrantAccessTo,
     retryLastMutation,
@@ -600,7 +721,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
     if (event.key === 'Escape') {
       event.preventDefault()
       setBody('')
-      setMentionedUsers(new Map())
+      setPendingMentions([])
       setParentCommentId(null)
       setPendingAnchor(null)
       setMentionPickerOpen(false)
@@ -608,18 +729,21 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
   }, [handleSubmit])
 
   const handleMentionPick = React.useCallback((user: { id: string; name: string }) => {
-    const mentionText = `@${user.name} @[${user.id}]`
-    setMentionedUsers((current) => {
-      const next = new Map(current)
-      next.set(user.id.toLowerCase(), user.name)
-      return next
-    })
-    setBody((current) => `${current}${current.trim().length > 0 ? ' ' : ''}${mentionText}`)
+    const userId = user.id.toLowerCase()
+    const mentionText = `@${user.name} `
+    setPendingMentions((current) =>
+      current.some((mention) => mention.userId === userId)
+        ? current
+        : [...current, { userId, name: user.name }],
+    )
+    setBody((current) => `${current}${current.length > 0 && !/\s$/.test(current) ? ' ' : ''}${mentionText}`)
     setMentionPickerOpen(false)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }, [])
 
   const comments = state.status === 'ready' ? state.comments : []
+  const parentComment = parentCommentId ? findCommentById(comments, parentCommentId) : null
+  const replyToName = parentComment ? labelFor(parentComment.authorUserId) : t('documents.users.unknown')
 
   return (
     <>
@@ -655,6 +779,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
                 onJump={handleJump}
                 onReply={handleReply}
                 onResolve={(nextComment) => void handleResolve(nextComment)}
+                labelFor={labelFor}
                 t={t}
               />
             ))}
@@ -676,7 +801,7 @@ export function CommentsRail({ documentId, tier, editor, commentFocusRequest, ca
               {parentCommentId ? (
                 <p className="inline-flex items-center gap-2 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
                   <CornerDownRight className="size-3" aria-hidden="true" />
-                  {t('documents.comments.actions.reply')} {shortenId(parentCommentId)}
+                  {t('documents.comments.replyTo', { name: replyToName })}
                 </p>
               ) : null}
               <Textarea

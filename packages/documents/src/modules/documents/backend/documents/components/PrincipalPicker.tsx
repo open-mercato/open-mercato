@@ -132,12 +132,11 @@ export function PrincipalPicker({
 
   const [searchValue, setSearchValue] = React.useState('')
   const [selectedLabel, setSelectedLabel] = React.useState<string | null>(null)
-  const [manualValue, setManualValue] = React.useState(value ?? '')
   const [items, setItems] = React.useState<PrincipalOption[]>([])
   const [open, setOpen] = React.useState(false)
   const [loading, setLoading] = React.useState(false)
   const [loadingMore, setLoadingMore] = React.useState(false)
-  const [unavailable, setUnavailable] = React.useState(false)
+  const [fetchError, setFetchError] = React.useState(false)
   const [hasFetched, setHasFetched] = React.useState(false)
   const [page, setPage] = React.useState(1)
   const [total, setTotal] = React.useState(0)
@@ -148,12 +147,11 @@ export function PrincipalPicker({
     requestSequenceRef.current += 1
     setSearchValue('')
     setSelectedLabel(null)
-    setManualValue('')
     setItems([])
     setOpen(false)
     setLoading(false)
     setLoadingMore(false)
-    setUnavailable(false)
+    setFetchError(false)
     setHasFetched(false)
     setPage(1)
     setTotal(0)
@@ -162,32 +160,26 @@ export function PrincipalPicker({
   }, [principalType])
 
   React.useEffect(() => {
-    if (value) {
-      if (unavailable) setManualValue(value)
-      return
-    }
+    if (value) return
     setSearchValue('')
     setSelectedLabel(null)
-    setManualValue('')
     setItems([])
     setOpen(false)
+    setFetchError(false)
     setHasFetched(false)
     setActiveIndex(-1)
-  }, [unavailable, value])
+  }, [value])
 
-  const enterUnavailableMode = React.useCallback(() => {
+  const enterErrorState = React.useCallback(() => {
     requestSequenceRef.current += 1
-    setUnavailable(true)
+    setFetchError(true)
     setOpen(false)
     setItems([])
     setLoading(false)
     setLoadingMore(false)
     setHasFetched(false)
-    setSearchValue('')
-    setSelectedLabel(null)
-    setManualValue(value ?? '')
     setActiveIndex(-1)
-  }, [value])
+  }, [])
 
   const fetchPage = React.useCallback(async (query: string, nextPage: number, append: boolean) => {
     const requestId = append ? requestSequenceRef.current : requestSequenceRef.current + 1
@@ -199,6 +191,7 @@ export function PrincipalPicker({
       setLoading(true)
       setHasFetched(false)
     }
+    setFetchError(false)
 
     try {
       const call = await apiCall<PrincipalListPayload>(
@@ -208,7 +201,7 @@ export function PrincipalPicker({
       )
       if (requestSequenceRef.current !== requestId) return
       if (!call.ok) {
-        enterUnavailableMode()
+        enterErrorState()
         return
       }
       const pageResult = readPrincipalPage(call.result, principalType, nextPage)
@@ -216,33 +209,35 @@ export function PrincipalPicker({
       setPage(nextPage)
       setTotal(pageResult.total)
       setTotalPages(pageResult.totalPages)
+      setFetchError(false)
       setHasFetched(true)
       setOpen(true)
       if (!append) setActiveIndex(pageResult.items.length > 0 ? 0 : -1)
       else if (pageResult.items.length > 0) setActiveIndex((current) => current < 0 ? 0 : current)
     } catch {
-      if (requestSequenceRef.current === requestId) enterUnavailableMode()
+      if (requestSequenceRef.current === requestId) enterErrorState()
     } finally {
       if (requestSequenceRef.current !== requestId) return
       if (append) setLoadingMore(false)
       else setLoading(false)
     }
-  }, [enterUnavailableMode, principalType])
+  }, [enterErrorState, principalType])
 
   React.useEffect(() => {
-    if (disabled || unavailable || !open || selectedLabel) return
+    if (disabled || fetchError || !open || selectedLabel) return
     const query = searchValue.trim()
     const timer = window.setTimeout(() => {
       void fetchPage(query, 1, false)
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [disabled, fetchPage, open, searchValue, selectedLabel, unavailable])
+  }, [disabled, fetchError, fetchPage, open, searchValue, selectedLabel])
 
   const selectOption = React.useCallback((option: PrincipalOption) => {
     setSelectedLabel(option.label)
     setSearchValue('')
     setItems([])
     setOpen(false)
+    setFetchError(false)
     setHasFetched(false)
     setActiveIndex(-1)
     onChange(option.id, option.label)
@@ -251,18 +246,12 @@ export function PrincipalPicker({
   const clearSelection = React.useCallback(() => {
     setSearchValue('')
     setSelectedLabel(null)
-    setManualValue('')
     setItems([])
     setOpen(false)
+    setFetchError(false)
     setHasFetched(false)
     setActiveIndex(-1)
     onChange(null, null)
-  }, [onChange])
-
-  const handleManualChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const nextValue = event.target.value
-    setManualValue(nextValue)
-    onChange(nextValue.length > 0 ? nextValue : null, nextValue.length > 0 ? nextValue : null)
   }, [onChange])
 
   const handleSearchChange = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -270,6 +259,7 @@ export function PrincipalPicker({
     if (selectedLabel || value) onChange(null, null)
     setSelectedLabel(null)
     setSearchValue(nextValue)
+    setFetchError(false)
     setOpen(true)
   }, [onChange, selectedLabel, value])
 
@@ -277,6 +267,12 @@ export function PrincipalPicker({
     if (loading || loadingMore || page >= totalPages) return
     void fetchPage(searchValue.trim(), page + 1, true)
   }, [fetchPage, loading, loadingMore, page, searchValue, totalPages])
+
+  const handleRetry = React.useCallback(() => {
+    setFetchError(false)
+    setOpen(false)
+    void fetchPage(searchValue.trim(), 1, false)
+  }, [fetchPage, searchValue])
 
   const handleKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') return
@@ -305,13 +301,13 @@ export function PrincipalPicker({
     }
   }, [activeIndex, items, open, selectOption])
 
-  const displayValue = selectedLabel ?? (value && searchValue.length === 0 ? value : searchValue)
+  const displayValue = selectedLabel ?? searchValue
   const placeholder =
     principalType === 'user'
       ? t('documents.share.picker.searchUser')
       : t('documents.share.picker.searchRole')
   const canLoadMore = page < totalPages
-  const hasText = unavailable ? manualValue.length > 0 : displayValue.length > 0
+  const hasText = displayValue.length > 0
 
   return (
     <div
@@ -329,19 +325,19 @@ export function PrincipalPicker({
         <Input
           id={inputId}
           className="w-full"
-          value={unavailable ? manualValue : displayValue}
-          onChange={unavailable ? handleManualChange : handleSearchChange}
+          value={displayValue}
+          onChange={handleSearchChange}
           onFocus={() => {
-            if (!unavailable && !selectedLabel) setOpen(true)
+            if (!selectedLabel && !fetchError) setOpen(true)
           }}
           placeholder={placeholder}
           disabled={disabled}
-          leftIcon={unavailable ? undefined : <Search />}
-          role={unavailable ? undefined : 'combobox'}
-          aria-expanded={unavailable ? undefined : open}
-          aria-controls={unavailable ? undefined : listId}
-          aria-autocomplete={unavailable ? undefined : 'list'}
-          aria-activedescendant={!unavailable && activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
+          leftIcon={<Search />}
+          role="combobox"
+          aria-expanded={open && !fetchError}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={!fetchError && activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
         />
         </div>
         {hasText ? (
@@ -358,11 +354,23 @@ export function PrincipalPicker({
         ) : null}
       </div>
 
-      {unavailable ? (
-        <p className="text-xs text-muted-foreground">{t('documents.share.picker.unavailable')}</p>
+      {fetchError ? (
+        <div className="flex items-center justify-between gap-2 rounded border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
+          <span>{t('documents.share.picker.error')}</span>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={handleRetry}
+            disabled={disabled || loading}
+          >
+            {t('documents.share.picker.retry')}
+          </Button>
+        </div>
       ) : null}
 
-      {open && !unavailable ? (
+      {open && !fetchError ? (
         <div
           id={listId}
           role="listbox"

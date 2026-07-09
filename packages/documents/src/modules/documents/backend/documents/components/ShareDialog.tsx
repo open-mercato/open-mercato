@@ -77,7 +77,7 @@ function readPermission(value: string | null): DocumentSharePermission {
   return 'viewer'
 }
 
-function normalizeShare(value: unknown): ShareRow | null {
+function normalizeShare(value: unknown, removedPrincipalLabel: string): ShareRow | null {
   const record = readRecord(value)
   if (!record) return null
   const id = readString(record, 'id')
@@ -98,7 +98,7 @@ function normalizeShare(value: unknown): ShareRow | null {
     id,
     principalId,
     principalType,
-    principalLabel: resolvedLabel ?? principalId,
+    principalLabel: resolvedLabel ?? removedPrincipalLabel,
     principalSecondary: readString(record, 'principalSecondary', 'principal_secondary'),
     resolved: resolvedLabel !== null,
     permission,
@@ -106,14 +106,14 @@ function normalizeShare(value: unknown): ShareRow | null {
   }
 }
 
-function readShareItems(payload: SharesResponse | unknown[] | null): ShareRow[] {
-  if (Array.isArray(payload)) return payload.map(normalizeShare).filter((row): row is ShareRow => row !== null)
+function readShareItems(payload: SharesResponse | unknown[] | null, removedPrincipalLabel: string): ShareRow[] {
+  if (Array.isArray(payload)) return payload.map((row) => normalizeShare(row, removedPrincipalLabel)).filter((row): row is ShareRow => row !== null)
   const record = readRecord(payload)
   if (!record) return []
   const candidates = [record.items, record.data, record.shares]
   for (const candidate of candidates) {
     if (Array.isArray(candidate)) {
-      return candidate.map(normalizeShare).filter((row): row is ShareRow => row !== null)
+      return candidate.map((row) => normalizeShare(row, removedPrincipalLabel)).filter((row): row is ShareRow => row !== null)
     }
   }
   return []
@@ -155,7 +155,7 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
         setError(t('documents.share.dialog.error.load'))
         return
       }
-      setShares(readShareItems(call.result ?? fallback))
+      setShares(readShareItems(call.result ?? fallback, t('documents.share.removedPrincipal')))
     } catch (err) {
       setError(err instanceof Error ? err.message : t('documents.share.dialog.error.load'))
     } finally {
@@ -316,7 +316,7 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
         <div className="space-y-4">
           <form className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 md:grid-cols-3" onSubmit={submitAddShare}>
             <div className="space-y-2">
-              <Label htmlFor={principalInputId}>{t('documents.share.dialog.principal')}</Label>
+              <Label htmlFor={principalInputId}>{t('documents.share.dialog.principalSearch')}</Label>
               <PrincipalPicker
                 id={principalInputId}
                 principalType={principalType}

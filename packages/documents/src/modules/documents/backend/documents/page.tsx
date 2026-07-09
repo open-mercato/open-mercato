@@ -24,6 +24,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
 import { ShareDialog } from './components/ShareDialog'
+import { NewFromTemplateDialog } from './components/NewFromTemplateDialog'
 
 type DocumentRow = {
   id: string
@@ -64,6 +65,12 @@ type FoldersResponse = {
   folders?: unknown[]
 }
 
+type TemplatesResponse = {
+  items?: unknown[]
+  data?: unknown[]
+  templates?: unknown[]
+}
+
 type FolderDialogState =
   | { mode: 'create'; parentFolderId?: string | null }
   | { mode: 'rename'; folder: FolderRow }
@@ -84,6 +91,14 @@ function readNumber(record: Record<string, unknown>, ...keys: string[]): number 
   for (const key of keys) {
     const value = record[key]
     if (typeof value === 'number' && Number.isFinite(value)) return value
+  }
+  return null
+}
+
+function readBoolean(record: Record<string, unknown>, ...keys: string[]): boolean | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'boolean') return value
   }
   return null
 }
@@ -142,6 +157,14 @@ function normalizeFolders(payload: FoldersResponse | unknown[] | null): FolderRo
     .filter((folder): folder is FolderRow => folder !== null)
 }
 
+function hasActiveTemplate(payload: TemplatesResponse | unknown[] | null): boolean {
+  return readArrayPayload(payload, 'items', 'data', 'templates').some((item) => {
+    const record = readRecord(item)
+    if (!record) return false
+    return readBoolean(record, 'isActive', 'is_active') !== false
+  })
+}
+
 function readCreatedId(payload: unknown): string | null {
   const root = readRecord(payload)
   if (!root) return null
@@ -198,6 +221,8 @@ export default function DocumentsPage() {
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [shareDocument, setShareDocument] = React.useState<DocumentRow | null>(null)
+  const [newFromTemplateOpen, setNewFromTemplateOpen] = React.useState(false)
+  const [hasTemplates, setHasTemplates] = React.useState(false)
   const [folderDialog, setFolderDialog] = React.useState<FolderDialogState | null>(null)
   const [folderName, setFolderName] = React.useState('')
   const folderNameInputId = React.useId()
@@ -263,6 +288,21 @@ export default function DocumentsPage() {
   React.useEffect(() => {
     void loadData()
   }, [loadData, reloadToken])
+
+  React.useEffect(() => {
+    let cancelled = false
+    apiCall<TemplatesResponse>('/api/documents/templates', undefined, { fallback: { items: [] } })
+      .then((call) => {
+        if (cancelled) return
+        setHasTemplates(call.ok && hasActiveTemplate(call.result ?? { items: [] }))
+      })
+      .catch(() => {
+        if (!cancelled) setHasTemplates(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   React.useEffect(() => {
     if (folderDialog?.mode === 'rename') {
@@ -564,9 +604,21 @@ export default function DocumentsPage() {
             <DataTable<DocumentRow>
               title={selectedFolder ? selectedFolder.name : t('documents.list.title')}
               actions={(
-                <Button type="button" onClick={() => void handleCreateDocument()}>
-                  {t('documents.actions.create')}
-                </Button>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button asChild variant="outline">
+                    <Link href="/backend/documents/templates">
+                      {t('documents.templates.actions.manage', 'Templates')}
+                    </Link>
+                  </Button>
+                  {hasTemplates ? (
+                    <Button type="button" variant="outline" onClick={() => setNewFromTemplateOpen(true)}>
+                      {t('documents.templates.instantiate.title', 'New from template')}
+                    </Button>
+                  ) : null}
+                  <Button type="button" onClick={() => void handleCreateDocument()}>
+                    {t('documents.actions.create')}
+                  </Button>
+                </div>
               )}
               refreshButton={{
                 label: t('documents.actions.refresh'),
@@ -672,6 +724,11 @@ export default function DocumentsPage() {
             onOpenChange={(open) => { if (!open) setShareDocument(null) }}
           />
         ) : null}
+        <NewFromTemplateDialog
+          open={newFromTemplateOpen}
+          folderId={selectedFolderId}
+          onOpenChange={setNewFromTemplateOpen}
+        />
         {ConfirmDialogElement}
       </PageBody>
     </Page>

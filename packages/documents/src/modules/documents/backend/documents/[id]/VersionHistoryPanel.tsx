@@ -18,7 +18,7 @@ type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
 type DocumentVersion = {
   id: string
   label: string | null
-  createdByUserId: string
+  createdByLabel: string | null
   createdAt: string
 }
 
@@ -58,13 +58,12 @@ function normalizeVersion(value: unknown): DocumentVersion | null {
   const record = readRecord(value)
   if (!record) return null
   const id = readString(record, 'id')
-  const createdByUserId = readString(record, 'createdByUserId', 'created_by_user_id')
   const createdAt = readString(record, 'createdAt', 'created_at')
-  if (!id || !createdByUserId || !createdAt) return null
+  if (!id || !createdAt) return null
   return {
     id,
     label: readNullableString(record, 'label'),
-    createdByUserId,
+    createdByLabel: readNullableString(record, 'createdByLabel', 'created_by_label'),
     createdAt,
   }
 }
@@ -90,10 +89,6 @@ function formatDateTime(value: string): string {
   const timestamp = Date.parse(value)
   if (!Number.isFinite(timestamp)) return value
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp))
-}
-
-function shortenId(value: string): string {
-  return value.length > 12 ? value.slice(0, 8) : value
 }
 
 export function VersionHistoryPanel({ documentId, tier, onRestored }: VersionHistoryPanelProps) {
@@ -274,7 +269,7 @@ export function VersionHistoryPanel({ documentId, tier, onRestored }: VersionHis
                     <Clock className="size-3" aria-hidden="true" />
                     {formatDateTime(version.createdAt)}
                   </p>
-                  <p className="text-xs text-muted-foreground">{shortenId(version.createdByUserId)}</p>
+                  <p className="text-xs text-muted-foreground">{version.createdByLabel ?? t('documents.users.unknown')}</p>
                 </div>
                 {canEdit ? (
                   <Button
