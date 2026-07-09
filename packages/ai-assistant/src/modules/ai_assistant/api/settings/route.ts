@@ -13,6 +13,7 @@ import {
   isOpenCodeProviderConfigured,
 } from '@open-mercato/shared/lib/ai/opencode-provider'
 import { AiAgentRuntimeOverrideRepository, AiAgentRuntimeOverrideValidationError } from '../../data/repositories/AiAgentRuntimeOverrideRepository'
+import { resolveModerationPolicy } from '../../lib/moderation-policy'
 import { AiTenantModelAllowlistRepository } from '../../data/repositories/AiTenantModelAllowlistRepository'
 import { isBaseurlAllowlisted, readBaseurlAllowlist } from '../../lib/baseurl-allowlist'
 import { loadAgentRegistry, listAgents } from '../../lib/agent-registry'
@@ -53,6 +54,9 @@ const runtimeOverrideUpsertSchema = z.object({
   allowedOverrideModelsByProvider: z
     .record(z.string().min(1).max(64), z.array(z.string().min(1).max(256)))
     .optional(),
+  // Input moderation override: true = on, false = off, null = inherit.
+  // Spec 2026-06-04-ai-input-moderation-and-safety-identifiers.
+  inputModeration: z.boolean().nullable().optional(),
 })
 
 const runtimeOverrideClearSchema = z.object({
@@ -224,6 +228,7 @@ export async function GET(req: NextRequest) {
         const em = container.resolve<EntityManager>('em')
         const repo = new AiAgentRuntimeOverrideRepository(em)
         const overrideRow = await repo.getDefault({ tenantId, organizationId, agentId: null })
+        const tenantWideInputModeration = overrideRow?.inputModeration ?? null
         if (overrideRow) {
           tenantOverride = {
             providerId: overrideRow.providerId ?? null,
@@ -339,6 +344,20 @@ export async function GET(req: NextRequest) {
             modelId: agentResolution.modelId,
             baseURL: agentResolution.baseURL ?? null,
             source: agentResolution.source,
+            moderation: {
+              // `untrustedInput` agents enforce moderation; the UI renders a
+              // non-editable "Enforced" badge for them.
+              enforced: agent.untrustedInput === true,
+              // Per-agent control value: null = inherit, true = on, false = off.
+              override: agentOverrideRow?.inputModeration ?? null,
+              // Resolved runtime policy (enforced | on | off) after precedence.
+              effective: resolveModerationPolicy({
+                untrustedInput: agent.untrustedInput,
+                perAgentOverride: agentOverrideRow?.inputModeration ?? null,
+                tenantWideOverride: tenantWideInputModeration,
+                env,
+              }),
+            },
           }
         })
         agentResolutions = await Promise.all(agentResolutionPromises)
@@ -695,6 +714,9 @@ export async function PUT(req: NextRequest) {
       ...(allowedOverrideModelsByProvider !== undefined
         ? { allowedOverrideModelsByProvider }
         : {}),
+      ...(Object.prototype.hasOwnProperty.call(bodyResult.data, 'inputModeration')
+        ? { inputModeration: bodyResult.data.inputModeration ?? null }
+        : {}),
     }
     const row = await repo.upsertDefault(
       upsertInput,
@@ -710,6 +732,7 @@ export async function PUT(req: NextRequest) {
       baseURL: row.baseUrl,
       allowedOverrideProviders: row.allowedOverrideProviders ?? null,
       allowedOverrideModelsByProvider: row.allowedOverrideModelsByProvider ?? {},
+      inputModeration: row.inputModeration ?? null,
       updatedAt: row.updatedAt,
     })
   } catch (error) {

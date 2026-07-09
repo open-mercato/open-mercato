@@ -304,3 +304,44 @@ describe('LM Studio preset', () => {
     expect(model).toBeDefined()
   })
 })
+
+describe('OpenAIAdapter — safety identifier + moderation capability', () => {
+  it('maps an end-user identifier into the OpenAI safetyIdentifier providerOptions fragment', () => {
+    // Key MUST be the AI SDK provider-option name `safetyIdentifier` (camelCase);
+    // the SDK translates it to the `safety_identifier` request-body field and
+    // strips unknown providerOptions keys, so a snake_case key would be dropped.
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')!
+    const provider = createOpenAICompatibleProvider(openaiPreset)
+    expect(provider.mapEndUserIdentifier?.('hashed-id')).toEqual({
+      openai: { safetyIdentifier: 'hashed-id' },
+    })
+  })
+
+  it('does not map a safety identifier for OpenAI-compatible backends (OpenAI-only param)', () => {
+    // `safety_identifier` is an OpenAI-specific body field; compatible/self-hosted
+    // backends (Groq, DeepInfra, Azure, Ollama, …) may reject the unknown param,
+    // so they must not advertise the mapping.
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.mapEndUserIdentifier).toBeUndefined()
+    for (const preset of OPENAI_COMPATIBLE_PRESETS) {
+      const built = createOpenAICompatibleProvider(preset)
+      if (preset.id === 'openai') {
+        expect(built.mapEndUserIdentifier).toBeDefined()
+      } else {
+        expect(built.mapEndUserIdentifier).toBeUndefined()
+      }
+    }
+  })
+
+  it('marks the native OpenAI preset as supporting input moderation', () => {
+    const openaiPreset = OPENAI_COMPATIBLE_PRESETS.find((preset) => preset.id === 'openai')
+    expect(openaiPreset).toBeDefined()
+    const provider = createOpenAICompatibleProvider(openaiPreset!)
+    expect(provider.supportsInputModeration).toBe(true)
+  })
+
+  it('leaves OpenAI-compatible backends without moderation support', () => {
+    const provider = createOpenAICompatibleProvider(DEEPINFRA_PRESET)
+    expect(provider.supportsInputModeration).toBe(false)
+  })
+})
