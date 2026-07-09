@@ -133,6 +133,9 @@ docker/opencode/opencode.jsonc
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
 .ai/dev-ephemeral-envs.json
+# om-prepare-test-env shared descriptor + per-run QA artifacts (generated, not source)
+.ai/qa/test-env.json
+.ai/qa/artifacts_*/
 .agents/
 
 apps/mercato/data/

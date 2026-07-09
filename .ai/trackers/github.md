@@ -187,6 +187,45 @@ PR_NUMBER=$(gh pr view --json number --jq .number)
 gh pr comment {prNumber} --body-file <path-or-process-substitution>
 ```
 
+#### attach-image-evidence
+`{prNumber}`, a markdown comment body (without the images), a `{slug}` (e.g. `pr-{prNumber}`), and a list of local PNG paths → post one comment with the images embedded **inline**, and return the comment URL.
+
+GitHub does not accept image bytes through the comment API, so make the images referenceable first. For a **public** repo, upload them to a dedicated **slash-free** evidence branch (never the change's own branch) via the Contents API and reference `raw.githubusercontent.com` URLs — those render inline in comments:
+
+```bash
+OWNER_REPO=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+EVIDENCE_BRANCH="qa-evidence-{slug}"                 # slash-free: some raw URLs 404 on slashed refs
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)
+
+# create the evidence branch if missing (branched from the default branch head)
+gh api "repos/${OWNER_REPO}/git/refs/heads/${EVIDENCE_BRANCH}" >/dev/null 2>&1 || {
+  SHA=$(gh api "repos/${OWNER_REPO}/git/refs/heads/${DEFAULT_BRANCH}" --jq .object.sha)
+  gh api -X POST "repos/${OWNER_REPO}/git/refs" -f ref="refs/heads/${EVIDENCE_BRANCH}" -f sha="$SHA" >/dev/null
+}
+
+# upload each image. An image-sized base64 string blows the shell arg limit, so it
+# must never touch a command line — write it to a temp file and let `jq --rawfile`
+# read it into the JSON body, which `gh api --input -` sends over stdin. Pass the
+# existing blob sha to overwrite on re-runs.
+BODY_IMAGES=""
+for img in <image-paths>; do
+  path="{slug}/$(basename "$img")"
+  base64 < "$img" | tr -d '\n' > /tmp/ev-content.b64            # portable across GNU/BSD; no newlines
+  existing=$(gh api "repos/${OWNER_REPO}/contents/${path}?ref=${EVIDENCE_BRANCH}" --jq .sha 2>/dev/null || true)
+  jq -n --rawfile c /tmp/ev-content.b64 --arg m "qa evidence {slug}" --arg b "$EVIDENCE_BRANCH" --arg s "$existing" \
+     'if $s == "" then {message:$m,branch:$b,content:$c} else {message:$m,branch:$b,content:$c,sha:$s} end' \
+     | gh api -X PUT "repos/${OWNER_REPO}/contents/${path}" --input - >/dev/null
+  url="https://raw.githubusercontent.com/${OWNER_REPO}/${EVIDENCE_BRANCH}/${path}"
+  BODY_IMAGES="${BODY_IMAGES}\n![$(basename "$img")](${url})"
+done
+
+# assemble the comment (caller's body + the image markdown) and post it
+{ cat <body-file>; printf "%b" "$BODY_IMAGES"; } | gh pr comment {prNumber} --body-file -
+gh pr view {prNumber} --json url --jq .url
+```
+
+Fallbacks: for a **private** repo the raw URLs need auth and will not render — post the comment with the image links plus the local artifact paths and note that inline rendering is unavailable (a private-visibility limit), rather than failing. When even the evidence branch cannot be pushed (no write access), degrade to listing the artifact paths in the comment. Never store evidence on the change's own branch, and never force-push.
+
 #### assign-pr / unassign-pr
 ```bash
 gh pr edit {prNumber} --add-assignee "<login>"
