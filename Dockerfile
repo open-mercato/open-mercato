@@ -59,7 +59,19 @@ COPY eslint.config.mjs ./
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build
 
-# Dev stage: install + build packages only, no production build; run dev server with watch
+# Dev stage: a LEAN runtime image, not a build.
+#
+# docker-compose.fullapp.dev.yml bind-mounts the repo (.:/app) and named volumes
+# over node_modules and every package dist/, then dev-entrypoint.sh runs
+# `yarn install` + `build:packages` + `generate` at container start. Baking a
+# `yarn install` + `yarn build:packages` into the image here is therefore
+# duplicated work: the entrypoint redoes it unconditionally, and the bind mount
+# masks whatever the image built. Keeping the stage lean (OS toolchain + corepack
+# + entrypoint scripts) makes the image build in seconds and lets the entrypoint
+# own the single install/build pass — roughly halving cold first-boot time.
+#
+# The build toolchain (python3/make/g++) is kept because the entrypoint's
+# runtime `yarn install` still compiles native modules (better-sqlite3, etc.).
 FROM node:24-alpine AS dev
 
 ENV NODE_ENV=development \
@@ -70,45 +82,8 @@ WORKDIR /app
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 RUN corepack enable
 
-COPY package.json yarn.lock .yarnrc.yml turbo.json ./
-COPY tsconfig.base.json tsconfig.json ./
-COPY apps/docs/package.json ./apps/docs/
-COPY apps/mercato/package.json ./apps/mercato/
-COPY packages/ai-assistant/package.json ./packages/ai-assistant/
-COPY packages/cache/package.json ./packages/cache/
-COPY packages/channel-gmail/package.json ./packages/channel-gmail/
-COPY packages/channel-imap/package.json ./packages/channel-imap/
-COPY packages/checkout/package.json ./packages/checkout/
-COPY packages/cli/package.json ./packages/cli/
-COPY packages/content/package.json ./packages/content/
-COPY packages/core/package.json ./packages/core/
-COPY packages/create-app/package.json ./packages/create-app/
-COPY packages/enterprise/package.json ./packages/enterprise/
-COPY packages/events/package.json ./packages/events/
-COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
-COPY packages/onboarding/package.json ./packages/onboarding/
-COPY packages/queue/package.json ./packages/queue/
-COPY packages/scheduler/package.json ./packages/scheduler/
-COPY packages/search/package.json ./packages/search/
-COPY packages/shared/package.json ./packages/shared/
-COPY packages/storage-s3/package.json ./packages/storage-s3/
-COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
-COPY packages/ui/package.json ./packages/ui/
-COPY packages/webhooks/package.json ./packages/webhooks/
-COPY scripts/official-modules-setup.mjs ./scripts/
-COPY scripts/lib/official-modules.mjs ./scripts/lib/
-RUN yarn install --immutable
-
-COPY packages/ ./packages/
-COPY apps/ ./apps/
-COPY scripts/ ./scripts/
-
-COPY newrelic.js ./
-COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
-COPY eslint.config.mjs ./
-
-RUN yarn build:packages
-
+# Entrypoint scripts are also bind-mounted at runtime (.:/app); baking them in
+# keeps the image runnable/consistent on its own and matches the runner stage.
 COPY docker/scripts/dev-entrypoint.sh /app/docker/scripts/dev-entrypoint.sh
 COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
 COPY docker/scripts/mcp-entrypoint.sh /app/docker/scripts/mcp-entrypoint.sh

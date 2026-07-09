@@ -35,6 +35,7 @@ param(
     [switch]$SkipLlmPrompt,
     [switch]$SkipDefenderExclusion,
     [switch]$IncludeNativeToolchain,
+    [switch]$Rebuild,
     [int]$TimeoutMinutes = 30,
     [string]$LogPath = "",
 
@@ -549,6 +550,7 @@ function Invoke-StandaloneClone {
     if ($DryRun) { $forward += "-DryRun" }
     if ($SkipInstall) { $forward += "-SkipInstall" }
     if ($SkipLlmPrompt) { $forward += "-SkipLlmPrompt" }
+    if ($Rebuild) { $forward += "-Rebuild" }
     if ($SkipDefenderExclusion) { $forward += "-SkipDefenderExclusion" }
     if ($Yes) { $forward += "-Yes" }
     if ($TimeoutMinutes -ne 30) { $forward += @("-TimeoutMinutes", $TimeoutMinutes) }
@@ -844,11 +846,22 @@ function Test-PortConflicts {
 
 function Start-Stack {
     Write-StepHeader "Start containers (docker compose up)"
-    if ($DryRun) { Write-Info "Would run: docker compose -f $script:ComposeFile up -d --build"; return }
+    # Do NOT force --build on every run: the image is built once (Compose builds
+    # it when missing), the source is bind-mounted, and dependencies install at
+    # container start — so rebuilding the image each launch just repeats ~10 min
+    # of work. Pass -Rebuild to force it (Dockerfile / base-image changes).
+    $composeArgs = @("up", "-d")
+    if ($Rebuild) { $composeArgs += "--build" }
+
+    if ($DryRun) { Write-Info ("Would run: docker compose -f $script:ComposeFile " + ($composeArgs -join " ")); return }
 
     Test-PortConflicts
-    Write-Info "Building images and starting services (first build can take 10+ minutes)..."
-    $exitCode = Invoke-Compose @("up", "-d", "--build")
+    if ($Rebuild) {
+        Write-Info "Rebuilding images and starting services..."
+    } else {
+        Write-Info "Starting services (the FIRST run builds images and can take 10+ minutes; later runs are much faster)..."
+    }
+    $exitCode = Invoke-Compose $composeArgs
     if ($exitCode -ne 0) {
         Write-Fail "docker compose up failed (exit $exitCode). Inspect with: docker compose -f $script:ComposeFile logs --tail 100"
     }
@@ -991,7 +1004,8 @@ function Show-FinalSummary {
     Write-Host "  Superadmin:    $adminEmail / $adminPassword"
     Write-Host ""
     Write-Host "  Stop:          stop-windows.bat"
-    Write-Host "  Restart:       start-windows.bat"
+    Write-Host "  Restart:       start-windows.bat                                 (reuses the built image)"
+    Write-Host "  Rebuild image: powershell scripts\windows\start-dev.ps1 -Rebuild (after a Dockerfile change)"
     Write-Host "  Logs:          docker compose -f $script:ComposeFile logs -f app"
     Write-Host "  Full reset:    powershell scripts\windows\start-dev.ps1 -Reset   (DELETES all data)"
     if ($script:ResolvedLogPath) {
