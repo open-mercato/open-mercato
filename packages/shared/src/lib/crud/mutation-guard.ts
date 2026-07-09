@@ -1,4 +1,7 @@
 import type { AwilixContainer } from 'awilix'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 export type CrudMutationGuardValidationSuccess = {
   ok: true
@@ -94,12 +97,12 @@ export async function runCrudMutationGuardAfterSuccess(
   try {
     await service.afterMutationSuccess(input)
   } catch (error) {
-    console.error('[crud-mutation-guard] after-success hook failed', {
+    logger.error('Mutation guard after-success hook failed', {
       resourceKind: input.resourceKind,
       resourceId: input.resourceId,
       operation: input.operation,
       requestMethod: input.requestMethod,
-      error: error instanceof Error ? error.message : String(error),
+      err: error,
     })
   }
 }

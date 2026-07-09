@@ -21,6 +21,9 @@ import {
   validateStartResponseSchema,
   workflowErrorSchema,
 } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -93,7 +96,7 @@ export async function POST(request: NextRequest) {
       validatedRules: result.validatedRules.length > 0 ? result.validatedRules : undefined,
     })
   } catch (error) {
-    console.error('Error validating workflow start:', error)
+    logger.error('Error validating workflow start', { err: error })
     return NextResponse.json(
       { error: 'Failed to validate workflow start' },
       { status: 500 }

@@ -41,6 +41,9 @@ import {
   willExceedAttachmentTenantQuota,
 } from '../lib/upload-limits'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['attachments.view'] },
@@ -400,7 +403,7 @@ export async function POST(req: Request) {
     })
     storedPath = stored.storagePath
   } catch (error) {
-    console.error('[attachments] failed to persist file', error)
+    logger.error('Failed to persist file', { err: error })
     return NextResponse.json({ error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
@@ -421,7 +424,7 @@ export async function POST(req: Request) {
         mimeType: fileMimeType,
       })
     } catch (error) {
-      console.error('[attachments] failed to extract attachment content', error)
+      logger.error('Failed to extract attachment content', { err: error })
     } finally {
       await cleanup().catch(() => {})
     }
@@ -467,16 +470,16 @@ export async function POST(req: Request) {
       }
     })
   } catch (error) {
-    console.error('[attachments] failed to persist attachment with custom attributes', error)
+    logger.error('Failed to persist attachment with custom attributes', { err: error })
     return NextResponse.json({ error: 'Failed to save attachment attributes.' }, { status: 500 })
   }
 
   if (useLlmOcr) {
     requestOcrProcessing(em, att, uploadDriver, storedPath).catch((error) => {
-      console.error('[attachments] failed to queue OCR processing', error)
+      logger.error('Failed to queue OCR processing', { err: error })
     })
   } else if (wantsLlmOcr) {
-    console.warn('[attachments] OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
+    logger.warn('OCR requested but OPENAI_API_KEY not configured, falling back to text extraction when available')
   }
 
   if (dataEngine) {
@@ -557,7 +560,7 @@ export async function DELETE(req: Request) {
   if (!record) return NextResponse.json({ error: 'Attachment not found' }, { status: 404 })
   await em.remove(record).flush()
   await clearAttachmentThumbnailCache(record.partitionCode, record.id).catch((error) => {
-    console.error('[attachments] failed to cleanup cached thumbnails', error)
+    logger.error('Failed to cleanup cached thumbnails', { err: error })
   })
   if (record.storagePath) {
     const delDriver = await storageDriverFactory.resolveForPartition(record.partitionCode, {

@@ -7,6 +7,9 @@ import {
 import { S3StorageDriver } from './lib/s3-driver'
 import { createStorageService } from './lib/storage-service'
 import { s3HealthCheck } from './lib/health'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('storage_s3')
 
 type IntegrationCredentialsService = {
   resolve(integrationId: string, scope: { tenantId: string; organizationId: string }): Promise<Record<string, unknown> | null>
@@ -15,7 +18,7 @@ type IntegrationCredentialsService = {
 // Module-level registration — runs at import time, before any DI container is built.
 // This avoids the singleton-proxy resolution issue when registering via DI.
 registerExternalStorageDriver('s3', (config: Record<string, unknown>) => {
-  console.log('[storage-s3] Creating S3StorageDriver with config:', {
+  logger.debug('Creating S3StorageDriver', {
     bucket: config.bucket,
     region: config.region,
     endpoint: config.endpoint,
@@ -35,10 +38,10 @@ export function register(container: AppContainer) {
       const credsSvc = container.resolve('integrationCredentialsService') as IntegrationCredentialsService
       const creds = await credsSvc.resolve('storage_s3', scope)
       if (!creds) {
-        console.log('[storage-s3] No marketplace credentials found for scope', scope)
+        logger.debug('No marketplace credentials found for scope', { tenantId: scope.tenantId, organizationId: scope.organizationId })
         return config
       }
-      console.log('[storage-s3] Injecting marketplace credentials into S3 driver config')
+      logger.debug('Injecting marketplace credentials into S3 driver config')
       return {
         authMode: creds.authMode,
         bucket: config.bucket ?? (creds.bucket ? String(creds.bucket) : undefined),
@@ -50,7 +53,7 @@ export function register(container: AppContainer) {
         sessionToken: creds.sessionToken ? String(creds.sessionToken) : undefined,
       }
     } catch (err) {
-      console.warn('[storage-s3] Credential enhancer failed, using partition config as-is:', err)
+      logger.warn('Credential enhancer failed, using partition config as-is', { err })
       return config
     }
   })

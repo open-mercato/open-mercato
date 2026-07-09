@@ -12,6 +12,9 @@ import type { Mapping } from '../components/fields/MappingArrayEditor'
 import type { StartPreCondition } from '../components/fields/StartPreConditionsEditor'
 import { sanitizeId } from './graph-utils'
 import { mergeAdvancedNodeConfig } from './nodeConfigMerge'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * Form values interface matching CrudForm field structure
@@ -346,7 +349,7 @@ export function formValuesToNodeUpdates(
         : values.advancedConfig
       mergeAdvancedNodeConfig(updates as Record<string, unknown>, parsed, { nodeType: node.type })
     } catch (error) {
-      console.error('Invalid JSON in Advanced Configuration:', error)
+      logger.error('Invalid JSON in Advanced Configuration', { err: error })
       throw new Error('Invalid JSON in Advanced Configuration. Please check your syntax.')
     }
   }

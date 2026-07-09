@@ -13,6 +13,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const PIPELINE_STAGE_RESOURCE_KIND = 'customers.pipelineStage'
 
@@ -83,7 +86,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('customers.pipeline-stages.reorder failed', err)
+    logger.error('customers.pipeline-stages.reorder failed', { err })
     return NextResponse.json({ error: 'Failed to reorder pipeline stages' }, { status: 400 })
   }
 }

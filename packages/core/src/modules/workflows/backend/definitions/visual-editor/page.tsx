@@ -46,6 +46,9 @@ import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { WorkflowDefinitionTrigger } from '../../../data/entities'
 import type { WorkflowMetadataState, WorkflowMetadataHandlers } from '../../../data/types'
 import * as React from 'react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 /**
  * VisualEditorPage - Visual workflow definition editor
@@ -170,7 +173,7 @@ export default function VisualEditorPage() {
         setSource((definition.source as 'code' | 'code_override' | 'user') ?? null)
         setUpdatedAt(typeof definition.updatedAt === 'string' ? definition.updatedAt : null)
       } catch (error) {
-        console.error('Error loading workflow definition:', error)
+        logger.error('Error loading workflow definition', { err: error })
         flash('Failed to load workflow definition', 'error')
       } finally {
         setIsLoading(false)
@@ -455,7 +458,7 @@ export default function VisualEditorPage() {
       }, 1500)
 
     } catch (error) {
-      console.error('Error saving workflow definition:', error)
+      logger.error('Error saving workflow definition', { err: error })
       flash('Failed to save workflow definition. Please try again.', 'error')
     } finally {
       setIsSaving(false)

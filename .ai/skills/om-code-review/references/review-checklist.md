@@ -314,7 +314,7 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 ### Deprecation Protocol (when changing any of the above)
 - [ ] `@deprecated` JSDoc added with migration guidance and target removal version
 - [ ] Bridge provided (re-export, alias, or dual-emit) for at least one minor version
-- [ ] Documented in RELEASE_NOTES.md
+- [ ] Documented in UPGRADE_NOTES.md
 - [ ] Spec in `.ai/specs/` with "Migration & Backward Compatibility" section
 
 ## 22. Anti-Pattern Checklist

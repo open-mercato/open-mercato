@@ -6,6 +6,9 @@ import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/ba
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export type GuardedMutationRunner = <T>(
   runner: () => Promise<T>,
@@ -41,7 +44,7 @@ export function useInteractionMutations({
     try {
       await onAfterChange()
     } catch (err) {
-      console.warn(`[${logContext}] onAfterChange threw`, err)
+      logger.warn('onAfterChange threw', { component: logContext, err })
     }
   }, [logContext, onAfterChange])
 
@@ -64,7 +67,7 @@ export function useInteractionMutations({
         await triggerRefresh()
       } catch (err) {
         if (surfaceRecordConflict(err, t)) { await triggerRefresh(); return }
-        console.warn(`[${logContext}] complete interaction failed`, interactionId, err)
+        logger.warn('Complete interaction failed', { component: logContext, interactionId, err })
         flash(t('customers.timeline.planned.error', 'Failed to complete activity'), 'error')
       }
     },
@@ -90,7 +93,7 @@ export function useInteractionMutations({
         await triggerRefresh()
       } catch (err) {
         if (surfaceRecordConflict(err, t)) { await triggerRefresh(); return }
-        console.warn(`[${logContext}] cancel interaction failed`, interactionId, err)
+        logger.warn('Cancel interaction failed', { component: logContext, interactionId, err })
         flash(t('customers.timeline.planned.cancelError', 'Failed to cancel activity'), 'error')
       }
     },

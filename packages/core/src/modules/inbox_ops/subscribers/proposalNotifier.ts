@@ -1,6 +1,9 @@
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'proposal-notifier' })
 
 export const metadata = {
   event: 'inbox_ops.proposal.created',
@@ -44,7 +47,7 @@ export default async function handle(payload: ProposalCreatedPayload, ctx: Resol
       organizationId: payload.organizationId ?? null,
     })
   } catch (err) {
-    console.error('[inbox_ops:proposal-notifier] Failed to create notification:', err)
+    logger.error('Failed to create notification', { err })
     throw err
   }
 }

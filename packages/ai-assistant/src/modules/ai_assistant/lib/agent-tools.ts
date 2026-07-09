@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { dynamicTool, type Tool } from 'ai'
 import type { AwilixContainer } from 'awilix'
 import type { ZodType } from 'zod'
@@ -14,6 +15,8 @@ import {
 import { toolRegistry } from './tool-registry'
 import { toSafeZodSchema } from './schema-utils'
 import { prepareMutation } from './prepare-mutation'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Error thrown by `resolveAiAgentTools` (and downstream `runAiAgentText`) when
@@ -297,7 +300,7 @@ function adaptToolToAiSdk(
 /**
  * Resolves the agent's whitelisted tools into an AI SDK `tools` map, enforcing
  * the same policy gate as the HTTP dispatcher. Throws {@link AgentPolicyError}
- * on agent-level deny; tool-level denies are skipped with a `console.warn`
+ * on agent-level deny; tool-level denies are skipped with a logger warning
  * because the agent author whitelisted a tool the caller is not currently
  * permitted to execute (deterministic non-failure — the remaining tools still
  * reach the model).
@@ -338,9 +341,7 @@ export async function resolveAiAgentTools(
       mutationPolicyOverride,
     })
     if (!toolDecision.ok) {
-      console.warn(
-        `[AI Agents] Skipping tool "${toolName}" for agent "${agent.id}": ${toolDecision.message}`,
-      )
+      logger.warn('Skipping tool for agent', { toolName, agentId: agent.id, reason: toolDecision.message })
       continue
     }
 
@@ -348,9 +349,7 @@ export async function resolveAiAgentTools(
       | AiToolDefinition
       | undefined
     if (!record) {
-      console.warn(
-        `[AI Agents] Tool "${toolName}" vanished from registry between policy checks; skipping.`,
-      )
+      logger.warn('Tool vanished from registry between policy checks; skipping', { toolName })
       continue
     }
 
@@ -389,10 +388,7 @@ export async function resolveAiAgentTools(
         effectiveMutationPolicy,
       )
     } catch (error) {
-      console.error(
-        `[AI Agents] Failed to adapt tool "${toolName}" for agent "${agent.id}":`,
-        error,
-      )
+      logger.error('Failed to adapt tool for agent', { toolName, agentId: agent.id, err: error })
     }
   }
 
