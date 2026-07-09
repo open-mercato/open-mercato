@@ -27,9 +27,9 @@ describe('data_sync adapter registry', () => {
 
   it('registers and retrieves an adapter by providerKey', () => {
     const { registerDataSyncAdapter, getDataSyncAdapter } = require('../adapter-registry')
-    const adapter = makeAdapter('subiekt')
+    const adapter = makeAdapter('shopify')
     registerDataSyncAdapter(adapter)
-    expect(getDataSyncAdapter('subiekt')).toBe(adapter)
+    expect(getDataSyncAdapter('shopify')).toBe(adapter)
   })
 
   it('returns undefined for an unknown providerKey', () => {
@@ -39,7 +39,7 @@ describe('data_sync adapter registry', () => {
 
   it('lists all registered adapters', () => {
     const { registerDataSyncAdapter, getAllDataSyncAdapters } = require('../adapter-registry')
-    const a = makeAdapter('subiekt')
+    const a = makeAdapter('shopify')
     const b = makeAdapter('akeneo')
     registerDataSyncAdapter(a)
     registerDataSyncAdapter(b)
@@ -55,11 +55,11 @@ describe('data_sync adapter registry', () => {
   it('shares state across duplicated module instances via globalThis', () => {
     jest.isolateModules(() => {
       const first = require('../adapter-registry')
-      first.registerDataSyncAdapter(makeAdapter('subiekt'))
+      first.registerDataSyncAdapter(makeAdapter('shopify'))
     })
     jest.isolateModules(() => {
       const second = require('../adapter-registry')
-      expect(second.getDataSyncAdapter('subiekt')?.providerKey).toBe('subiekt')
+      expect(second.getDataSyncAdapter('shopify')?.providerKey).toBe('shopify')
     })
   })
 })
