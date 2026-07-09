@@ -30,6 +30,26 @@ workflow activities on the `workflow-activities` queue.
   <queue>`): also start a worker for `workflow-invoke-agent`; `worker --all`
   picks it up automatically.
 
+### Agent orchestrator — `/runs` list gated on `trace.view` (ACL tightening)
+
+`GET /api/agent_orchestrator/runs` now requires the
+`agent_orchestrator.trace.view` feature instead of
+`agent_orchestrator.agents.view`. New tenants get the grant automatically from
+`setup.ts` `defaultRoleFeatures`; **existing tenants do not** and their
+operators will `403` on the run list until the feature is re-applied.
+
+- **Action for operators**: after deploying, run `yarn mercato auth
+  sync-role-acls` to re-apply `defaultRoleFeatures` to existing tenants'
+  roles. Every role that already had `agents.view` also receives `trace.view`
+  (the two are granted together), so the sync deterministically restores
+  run-list access for every persona that previously had it. The command is
+  idempotent.
+- **Migration**: no schema change; ACL grant only. The rollout invariant is
+  encoded in `runs-acl-rollout.test.ts`.
+
+See the [Agent Orchestration Scaling runbook](apps/docs/docs/deployment/agent-orchestration-scaling.mdx)
+(§ ACL sync after upgrade) for the deploy step.
+
 ### Workflows — definition versioning (contract-surface change)
 
 The `workflow_definitions` unique constraint is **relaxed** from

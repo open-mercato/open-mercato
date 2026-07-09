@@ -39,18 +39,22 @@
 
 ## Deferred follow-ups on the shipped work (from spec 4, F1–F10)
 
-| ID | Item | Effort · priority |
-|----|------|-------------------|
-| F1 | Encrypted S3 artifact offload (artifact-key columns exist, unpopulated) | M · medium |
-| F2 | `AgentMetricRollup` + scheduler + persisted anti-rubber-stamp signals | M · medium |
-| F3 | Span/tool-call partitioning + tiered retention + archival worker | L · low (risk-high) |
-| F4 | `/runs` ACL gate rollout safety (`agents.view`→`trace.view` needs `auth sync-role-acls`) | S · **high** |
-| F5 | Module `encryption.ts` + route reads via decryption helpers | S · medium |
-| F6 | Dispose→correction hook test | S · medium |
-| F7 | i18n flatten + de/es/pl locales (pre-existing; partially advanced this session for new trace keys) | M · low |
-| F8 | Runner stamps `runtime` + `externalRunId` for cross-correlation | S · low |
-| F9 | `llm_judge` assertion management (CRUD or seed) | M · low |
-| F10 | Cockpit guard-results panel (**blocked** on guardrails overlay #5) | M · low |
+> **Status re-audited 2026-07-09** against code on `feat/agent-orchestrator-mvp`. Most of this table
+> was stale — only **F1** and **F3** remain genuine code gaps; **F8** is partial and folds into the
+> lightweight-runtime spec. The `Status` column reflects the re-audit; the original effort/priority is kept.
+
+| ID | Item | Effort · priority | Status (2026-07-09) |
+|----|------|-------------------|---------------------|
+| F1 | Encrypted S3 artifact offload (artifact-key columns exist, unpopulated) | M · medium | ⬜ **Open** — no `lib/trace/artifactStore.ts`, no `storage-s3` wiring |
+| F2 | `AgentMetricRollup` + scheduler + persisted anti-rubber-stamp signals | M · medium | ✅ **Shipped** — `AgentMetricRollup` entity + `lib/metrics/` |
+| F3 | Span/tool-call partitioning + tiered retention + archival worker | L · low (risk-high) | ⬜ **Open** — no `PARTITION` in any migration; re-prioritized alongside the native-runtime rollout |
+| F4 | `/runs` ACL gate rollout safety (`agents.view`→`trace.view` needs `auth sync-role-acls`) | S · **high** | ✅ **Done** — route gates `trace.view`, `setup.ts` grants it, `runs-acl-rollout.test.ts` encodes the invariant; deploy note added to the scaling runbook (§ ACL sync) + RELEASE_NOTES (2026-07-09) |
+| F5 | Module `encryption.ts` + route reads via decryption helpers | S · medium | ✅ **Shipped** — `encryption.ts` declares `AgentRun.input/output`, `AgentProposal.payload`, `AgentEvalCase.input/expected` |
+| F6 | Dispose→correction hook test | S · medium | ✅ **Done** — `__tests__/dispose-correction-hook.test.ts` covers edit/reject → correction+draft eval case, approve/auto_approve → none (4 tests, passing) |
+| F7 | i18n flatten + de/es/pl locales (pre-existing; partially advanced this session for new trace keys) | M · low | ✅ **Present** — `i18n/{en,es,de,pl}.json` all exist (run `i18n:check-sync` to confirm parity) |
+| F8 | Runner stamps `runtime` + `externalRunId` for cross-correlation | S · low | 🟡 **Partial** — OpenCode stamps both; in-process leaves `externalRunId` null by design. Subsumed by the native-runtime spec's Phase 1 (`createRun` stamps `externalRunId=runId`) — do it there |
+| F9 | `llm_judge` assertion management (CRUD or seed) | M · low | ✅ **Shipped** — `api/eval-assertions` route + `backend/eval-assertions` page |
+| F10 | Cockpit guard-results panel (**blocked** on guardrails overlay #5) | M · low | ⬜ **Open** — guardrails P1 shipped (`lib/guardrails/`); the cockpit panel itself is still unbuilt |
 
 ## Implementation Plan
 
