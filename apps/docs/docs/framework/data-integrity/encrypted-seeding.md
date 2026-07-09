@@ -142,7 +142,7 @@ own tenant, and the confidential plaintext never enters the repository.
 ## Encryption backend interaction
 
 Whether loaded data is encrypted at rest depends on the configured KMS backend
-(see [the encryption configuration](../security/)):
+(see [the encryption configuration](../../architecture/data-encryption.mdx)):
 
 - **Vault** (`VAULT_ADDR` + `VAULT_TOKEN`) or a **derived fallback key**
   (`TENANT_DATA_ENCRYPTION_FALLBACK_KEY`) → marked fields are encrypted at rest
