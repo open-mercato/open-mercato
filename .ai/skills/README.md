@@ -69,11 +69,11 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 11 | Daily-driver skills installed by default. |
-| `automation` | opt-in | 5 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 4 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
-| external | always | 23 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` (skip with `--no-external`). |
+| external | always | 25 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
 
 Run `yarn install-skills --list` at any time to see tier definitions, current memberships, and which tiers are installed locally.
 
@@ -86,7 +86,7 @@ Run `yarn install-skills --list` at any time to see tier definitions, current me
 The install script does two things on every run:
 
 1. Reads `.ai/skills/tiers.json` and creates one symlink per selected local skill under `.claude/skills/` and `.codex/skills/`.
-2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into `.agents/skills/` (read natively by Codex and other agents; the CLI also symlinks each skill into `.claude/skills/`). This step needs network access; when it fails the script warns and continues with local skills only.
+2. Installs the external collection with `npx -y skills add open-mercato/skills --skill '*'` into `.agents/skills/` (read natively by Codex and other agents; the CLI also symlinks each skill into `.claude/skills/`), then runs `npx -y skills update --project` so re-runs refresh the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current). This step needs network access; when it fails the script warns and continues with local skills only.
 
 ```bash
 yarn install-skills                              # core tier + external collection (default)
@@ -184,13 +184,12 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 | `om-auto-verify-and-fix-github` | Browser-first GitHub issue fix workflow. Claims a GitHub issue, checks for existing solutions, creates an isolated worktree, reproduces the bug through the Browser against the ephemeral integration environment, records a failing Playwright integration test, fixes the bug, makes the test green, runs validation/review gates, pushes a branch, and opens a PR linked to the issue. |
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
-| `om-auto-verify-pr-ui` | Manually QA a GitHub PR's UI by number without merging it. Checks the PR out in an isolated worktree, boots it locally against the ephemeral integration environment, derives a UI QA scenario from the diff, drives it with Playwright while capturing screenshots, and posts the screenshots plus a pass/fail verification report as a PR comment to help QA reviewers. When the PR diff defines no integration test, also posts a follow-up comment with a ready-to-implement integration-test scenario (recommending /om-integration-tests). Use when the user says "verify PR <n> in the UI", "QA PR <n>", "run the UI for PR <n>", "screenshot PR <n>", or "self-QA PR <n>". |
 
 ### external (open-mercato/skills)
 
 These skills are installed from [open-mercato/skills](https://github.com/open-mercato/skills) into `.agents/skills/`; their descriptions are maintained upstream. They read `.ai/agentic.config.json`, `.ai/trackers/github.md`, the root docs, and any repo-local override under `.ai/skills/<name>/`.
 
-`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-stabilize-ci`, `om-sync-merged-pr-issues`, `om-verify-in-repo`
+`om-approve-merge-pr`, `om-auto-continue-pr`, `om-auto-continue-pr-loop`, `om-auto-create-pr`, `om-auto-create-pr-loop`, `om-auto-fix-issue`, `om-auto-review-pr`, `om-auto-update-changelog`, `om-auto-verify-pr-ui`, `om-check-and-commit`, `om-code-review`, `om-fix`, `om-followup-issue-from-pr`, `om-integration-tests`, `om-merge-buddy`, `om-open-pr`, `om-prepare-issue`, `om-prepare-test-env`, `om-review-prs`, `om-root-cause`, `om-setup-agent-pipeline`, `om-spec-writing`, `om-stabilize-ci`, `om-sync-merged-pr-issues`, `om-verify-in-repo`
 
 ### security
 
