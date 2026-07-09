@@ -155,6 +155,21 @@ Measured delta:
 
 Action item: when the `16.3.x` line is released as stable, retest before upgrading. Expected impact is roughly a **30% dev-memory reduction** for this repo, but the stable release alone should not be treated as a complete fix because the canary still peaked at `5.8 GB` and remained dominated by `next-turbopack`.
 
+### 2026-07-07 eager-graph analysis, 16.3.0-preview.5 A/B, and lazy-i18n follow-up
+
+An esbuild-metafile analysis of `apps/mercato/src/bootstrap.ts` (static-import edges only) explained why lazy-loading module commands (#3703) produced no RSS change: the eager server-bootstrap closure was 9.96 MB / 1,391 files, of which command handlers contributed only ~85 KB post-#3703 — while 41% (4.1 MB) was all-locale i18n JSONs and ~1.1 MB was an `@open-mercato/ui` barrel leak via `customers/message-objects.ts`. Lazy code whose transitive closure is already eagerly resident (via `di.generated.ts` / `entities.generated.ts`) defers near-zero unique bytes.
+
+Changes landed with this entry: per-locale lazy `translationsLoaders` in generated registries (additive `Module` field; `loadDictionary()` hydrates on first use), the ui-barrel deep-import fix, dynamic seed imports in `customers/setup.ts`, Next `16.2.9 → 16.3.0-preview.5`, and dev-only `experimental.turbopackMemoryEviction: 'full'` (16.3 replaced the byte-count `turbopackMemoryLimit` knob with snapshot eviction). Eager bootstrap closure after: **4.68 MB / 1,036 files (−53%)**.
+
+Measured A/B (`profile-dev-rss.mjs`, 240 s cold boot, identical warm-route set /login, /backend, /api/auth/features, /backend/customers/people):
+
+| Profile | Next.js | Peak total RSS | Mean RSS | Idle plateau (tail-20 mean) |
+|---------|---------|----------------|----------|------------------------------|
+| `baseline-16-2-9` | `16.2.9` | `7531 MB` | `2544 MB` | `1447 MB` |
+| `optimized-16-3-preview` | `16.3.0-preview.5` | `7537 MB` | `2627 MB` | `1308 MB` (−10%) |
+
+Findings: the cold-compile spike sets the peak in both runs and was unchanged — the 2026-06-21 canary deltas (−27.5% peak) **did not reproduce** on `preview.5` with this short workload. The steady-state plateau improved ~10%. The canary-retest action item above stands; peak reduction likely needs the client-boundary workstream (`2026-05-13-frontend-client-boundary-ram-reduction.md`) rather than server-graph slimming alone.
+
 ## Migration & backward compatibility
 
 - **No contract surface is touched** by this PR.

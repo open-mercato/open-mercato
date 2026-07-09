@@ -971,6 +971,27 @@
         }
       },
       {
+        "path": "/catalog/settings",
+        "methods": [
+          "GET",
+          "PUT"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.products.view"
+            ]
+          },
+          "PUT": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "catalog.settings.manage"
+            ]
+          }
+        }
+      },
+      {
         "path": "/catalog/tags",
         "methods": [
           "GET"
@@ -2558,6 +2579,21 @@
             "requireAuth": true,
             "requireFeatures": [
               "customers.deals.manage"
+            ]
+          }
+        }
+      },
+      {
+        "path": "/customers/deals/map",
+        "methods": [
+          "GET"
+        ],
+        "auth": {
+          "GET": {
+            "requireAuth": true,
+            "requireFeatures": [
+              "customers.deals.view",
+              "customers.activities.view"
             ]
           }
         }
@@ -5126,6 +5162,7 @@
       "seed-tax-rates",
       "seed-statuses",
       "seed-adjustment-kinds",
+      "backfill-deal-loss-reasons",
       "seed-shipping-methods",
       "seed-payment-methods",
       "seed-examples"

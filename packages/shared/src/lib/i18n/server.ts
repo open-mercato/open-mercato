@@ -63,7 +63,20 @@ export async function loadDictionary(locale: Locale): Promise<Dict> {
   const merged: Dict = { ...flattenDictionary(baseRaw) }
   const modules = getModules()
   for (const m of modules) {
-    const dict = m.translations?.[locale]
+    let dict = m.translations?.[locale]
+    if (!dict) {
+      const loader = m.translationsLoaders?.[locale]
+      if (loader) {
+        try {
+          dict = await loader()
+          // Hydrate so later sync reads (and repeat loads) see the resolved
+          // dictionary without re-importing the locale bundle.
+          if (dict) m.translations = { ...(m.translations ?? {}), [locale]: dict }
+        } catch (err) {
+          console.warn(`[i18n] failed to load '${locale}' translations for module '${m.id}'`, err)
+        }
+      }
+    }
     if (dict) Object.assign(merged, flattenDictionary(dict))
   }
   setCachedDictionary(locale, merged)

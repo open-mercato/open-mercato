@@ -1,14 +1,6 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { FeatureToggle } from '@open-mercato/core/modules/feature_toggles/data/entities'
-import {
-  ensureCustomerCustomFieldDefinitions,
-  seedCustomerDictionaries,
-  seedCurrencyDictionary,
-  seedCustomerExamples,
-  seedDefaultPipeline,
-} from './cli'
-import { ensureDictionaryEntry } from './commands/shared'
 import { DEFAULT_CUSTOMER_ROLE_TYPES } from './lib/customerRoleTypes'
 
 const interactionFeatureToggles = [
@@ -57,6 +49,13 @@ async function seedInteractionFeatureToggles(em: EntityManager): Promise<void> {
 
 export const setup: ModuleSetupConfig = {
   seedDefaults: async (ctx) => {
+    // Seed helpers live in cli.ts / commands, whose transitive closure is heavy.
+    // setup.ts is imported eagerly by the generated module registry, so these
+    // imports stay dynamic to keep seeding cost out of the dev-server boot graph.
+    const [
+      { seedCustomerDictionaries, seedCurrencyDictionary, seedDefaultPipeline, ensureCustomerCustomFieldDefinitions },
+      { ensureDictionaryEntry },
+    ] = await Promise.all([import('./cli'), import('./commands/shared')])
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedCustomerDictionaries(ctx.em, scope)
     await seedCurrencyDictionary(ctx.em, scope)
@@ -77,6 +76,7 @@ export const setup: ModuleSetupConfig = {
   },
 
   seedExamples: async (ctx) => {
+    const { seedCustomerExamples } = await import('./cli')
     const scope = { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
     await seedCustomerExamples(ctx.em, ctx.container, scope)
   },

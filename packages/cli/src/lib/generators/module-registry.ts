@@ -38,6 +38,7 @@ import {
   optionalPropertyAccess,
   parenthesized,
   propertyAccess,
+  renderExpressionText,
   spreadExpression,
   type GeneratedObjectEntry,
   variableStatement,
@@ -1908,10 +1909,8 @@ function processTranslations(options: {
   modId: string
   appImportBase: string
   pkgImportBase: string
-  imports: string[]
-  extraImports?: string[]
 }): string[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
+  const { roots, appImportBase, pkgImportBase } = options
   const i18nApp = path.join(roots.appBase, 'i18n')
   const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   const i18nCore = path.join(pkgI18nBase, 'i18n')
@@ -1926,27 +1925,11 @@ function processTranslations(options: {
   for (const locale of locales) {
     const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
     const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
-    if (coreHas && appHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(
-        `'${locale}': { ...( ${cName} as unknown as Record<string,string> ), ...( ${aName} as unknown as Record<string,string> ) }`
-      )
-    } else if (appHas) {
-      const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(aName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${aName} as unknown as Record<string,string>`)
-    } else if (coreHas) {
-      const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(cName, `${pkgImportBase}/i18n/${locale}.json`))
-      translations.push(`'${locale}': ${cName} as unknown as Record<string,string>`)
-    }
+    const importPaths: string[] = []
+    if (coreHas) importPaths.push(`${pkgImportBase}/i18n/${locale}.json`)
+    if (appHas) importPaths.push(`${appImportBase}/i18n/${locale}.json`)
+    if (!importPaths.length) continue
+    translations.push(`'${locale}': ${renderExpressionText(buildTranslationLoaderAst(importPaths))}`)
   }
   return translations
 }
@@ -2160,6 +2143,7 @@ function renderAstModuleRegistryFile(options: {
     namedImports: [
       { name: 'createLazyModuleSubscriber' },
       { name: 'createLazyModuleWorker' },
+      { name: 'createTranslationsLoader' },
       { name: 'Module', isTypeOnly: true },
     ],
   })
@@ -2275,7 +2259,7 @@ function renderAstLegacyModuleRegistryOutput(options: {
 }): string {
   const importSection = [
     ...(options.includeCreateElementImport ? ["import { createElement } from 'react'"] : []),
-    "import { createLazyModuleSubscriber, createLazyModuleWorker, type Module } from '@open-mercato/shared/modules/registry'",
+    "import { createLazyModuleSubscriber, createLazyModuleWorker, createTranslationsLoader, type Module } from '@open-mercato/shared/modules/registry'",
     ...options.imports.map((entry) => serializeGeneratedImport(entry)),
   ].join('\n')
 
@@ -2633,15 +2617,22 @@ async function processWorkersAst(options: {
   return workers
 }
 
+function buildTranslationLoaderAst(importPaths: string[]): WriterFunction {
+  return callExpression(
+    identifier('createTranslationsLoader'),
+    importPaths.map((importPath) =>
+      arrowFunction({ body: importExpression(sanitizeGeneratedModuleSpecifier(importPath)) }),
+    ),
+  )
+}
+
 function processTranslationsAst(options: {
   roots: ModuleRoots
   modId: string
   appImportBase: string
   pkgImportBase: string
-  imports: string[]
-  extraImports?: string[]
 }): GeneratedObjectEntry[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
+  const { roots, appImportBase, pkgImportBase } = options
   const i18nApp = path.join(roots.appBase, 'i18n')
   const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   const i18nCore = path.join(pkgI18nBase, 'i18n')
@@ -2668,44 +2659,14 @@ function processTranslationsAst(options: {
   for (const locale of locales) {
     const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
     const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
-
-    if (coreHas && appHas) {
-      const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push({
-        name: JSON.stringify(locale),
-        value: objectLiteral([
-          { kind: 'spread', value: asExpression(identifier(coreName), 'unknown as Record<string, string>') },
-          { kind: 'spread', value: asExpression(identifier(appName), 'unknown as Record<string, string>') },
-        ]),
-      })
-      continue
-    }
-
-    if (appHas) {
-      const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
-      imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
-      translations.push({
-        name: JSON.stringify(locale),
-        value: asExpression(identifier(appName), 'unknown as Record<string, string>'),
-      })
-      continue
-    }
-
-    if (coreHas) {
-      const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
-      imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
-      translations.push({
-        name: JSON.stringify(locale),
-        value: asExpression(identifier(coreName), 'unknown as Record<string, string>'),
-      })
-    }
+    const importPaths: string[] = []
+    if (coreHas) importPaths.push(`${pkgImportBase}/i18n/${locale}.json`)
+    if (appHas) importPaths.push(`${appImportBase}/i18n/${locale}.json`)
+    if (!importPaths.length) continue
+    translations.push({
+      name: JSON.stringify(locale),
+      value: buildTranslationLoaderAst(importPaths),
+    })
   }
 
   return translations
@@ -3039,8 +3000,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports,
-      extraImports: runtimeImports,
     }))
 
     // 17. Subscribers
@@ -3093,7 +3052,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${backendRoutes.length ? `backendRoutes: [${backendRoutes.join(', ')}],` : ''}
       ${apis.length ? `apis: [${apis.join(', ')}],` : ''}
       ${cliImportName ? `cli: ${cliImportName},` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
+      ${translations.length ? `translationsLoaders: { ${translations.join(', ')} },` : ''}
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
       ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
       ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
@@ -3112,7 +3071,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
       ${runtimeFrontendRoutes.length ? `frontendRoutes: [${runtimeFrontendRoutes.join(', ')}],` : ''}
       ${runtimeBackendRoutes.length ? `backendRoutes: [${runtimeBackendRoutes.join(', ')}],` : ''}
       ${runtimeApis.length ? `apis: [${runtimeApis.join(', ')}],` : ''}
-      ${translations.length ? `translations: { ${translations.join(', ')} },` : ''}
+      ${translations.length ? `translationsLoaders: { ${translations.join(', ')} },` : ''}
       ${subscribers.length ? `subscribers: [${subscribers.join(', ')}],` : ''}
       ${workers.length ? `workers: [${workers.join(', ')}],` : ''}
       ${extensionsImportName ? `entityExtensions: ((${extensionsImportName}.default ?? ${extensionsImportName}.extensions) as import('@open-mercato/shared/modules/entities').EntityExtension[]) || [],` : ''}
@@ -3537,17 +3496,12 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       }
     }
 
-    const translationImports: string[] = []
     translations.push(...processTranslationsAst({
       roots,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports,
-      extraImports: translationImports,
     }))
-    bootstrapImports.push(...translationImports)
-    i18nImports.push(...translationImports)
 
     subscribers.push(...await processSubscribersAst({
       roots,
@@ -3585,8 +3539,8 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       moduleEntries.push({ name: 'info', value: propertyAccess(identifier(infoImportName), 'metadata') })
     }
     if (translations.length > 0) {
-      moduleEntries.push({ name: 'translations', value: objectLiteral(translations) })
-      i18nModuleEntries.push({ name: 'translations', value: objectLiteral(translations) })
+      moduleEntries.push({ name: 'translationsLoaders', value: objectLiteral(translations) })
+      i18nModuleEntries.push({ name: 'translationsLoaders', value: objectLiteral(translations) })
     }
     if (subscribers.length > 0) {
       moduleEntries.push({ name: 'subscribers', value: arrayLiteral(subscribers, writeValue) })
@@ -3894,7 +3848,6 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
-      imports,
     }))
 
     // Subscribers
@@ -3936,7 +3889,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
       moduleEntries.push({ name: 'cli', value: identifier(cliImportName) })
     }
     if (translations.length > 0) {
-      moduleEntries.push({ name: 'translations', value: objectLiteral(translations) })
+      moduleEntries.push({ name: 'translationsLoaders', value: objectLiteral(translations) })
     }
     if (subscribers.length > 0) {
       moduleEntries.push({ name: 'subscribers', value: arrayLiteral(subscribers, writeValue) })

@@ -232,6 +232,11 @@ export type Module = {
   apis?: ModuleApi[]
   cli?: ModuleCli[]
   translations?: Record<string, Record<string, string>>
+  // Optional: per-locale lazy translation loaders. Generated registries emit
+  // these instead of eager locale-JSON imports so only the active locale's
+  // dictionary enters the server module graph; loadDictionary() hydrates the
+  // resolved dictionary back into `translations[locale]` on first use.
+  translationsLoaders?: Record<string, () => Promise<Record<string, string>>>
   // Optional: per-module feature declarations discovered from acl.ts (module root)
   features?: Array<{ id: string; title: string; module: string }>
   // Auto-discovered event subscribers
@@ -563,5 +568,33 @@ export function createLazyModuleWorker(
     )
     const handler = await handlerPromise
     return handler(job, ctx)
+  }
+}
+
+function unwrapTranslationModule(loaded: unknown): Record<string, string> {
+  const candidate = loaded as { default?: Record<string, string> } | null
+  return (candidate?.default ?? candidate ?? {}) as Record<string, string>
+}
+
+export function createTranslationsLoader(
+  ...loadBundles: Array<() => Promise<unknown>>
+): () => Promise<Record<string, string>> {
+  return async () => {
+    const results = await Promise.allSettled(loadBundles.map((load) => load()))
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<unknown> => result.status === 'fulfilled'
+    )
+    const rejected = results.filter(
+      (result): result is PromiseRejectedResult => result.status === 'rejected'
+    )
+    if (!fulfilled.length && rejected.length) throw rejected[0].reason
+    for (const failure of rejected) {
+      console.warn('[i18n] failed to load a module translations bundle', failure.reason)
+    }
+    const merged: Record<string, string> = {}
+    for (const result of fulfilled) {
+      Object.assign(merged, unwrapTranslationModule(result.value))
+    }
+    return merged
   }
 }
