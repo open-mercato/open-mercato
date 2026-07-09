@@ -114,9 +114,11 @@ export const EntityRefNode = Node.create({
 export const COLLAB_FRAGMENT_FIELD = 'default'
 
 export function getDocumentEditorExtensions(options?: { history?: boolean }) {
-  const starterKit = options?.history === false
-    ? StarterKit.configure({ undoRedo: false })
-    : StarterKit
+  const starterKit = StarterKit.configure({
+    link: false,
+    underline: false,
+    ...(options?.history === false ? { undoRedo: false as const } : {}),
+  })
 
   return [
     starterKit,

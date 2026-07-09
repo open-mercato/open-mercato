@@ -221,6 +221,8 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
       ? t('documents.entityPicker.empty')
       : t('documents.entityPicker.unavailable')
 
+  if (!open) return null
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" onKeyDown={handleKeyDown}>

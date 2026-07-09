@@ -137,8 +137,7 @@ function normalizeDocument(value: unknown, folderMap: Map<string, FolderRow>, un
   const folderId = readString(record, 'folderId', 'folder_id')
   const folderName = readString(record, 'folderName', 'folder_name') ?? (folderId ? folderMap.get(folderId)?.name ?? null : null)
   const ownerLabel =
-    readString(record, 'ownerName', 'owner_name', 'ownerEmail', 'owner_email', 'createdByName', 'created_by_name') ??
-    readString(record, 'ownerUserId', 'owner_user_id') ??
+    readString(record, 'ownerLabel', 'owner_label', 'ownerName', 'owner_name', 'ownerEmail', 'owner_email') ??
     unknownOwner
   return {
     id,
