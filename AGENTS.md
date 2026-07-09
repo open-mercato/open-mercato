@@ -87,6 +87,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
+| Structured logging / replacing raw `console.*` with the logging facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `packages/shared/AGENTS.md` |
 | Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` + `om-backend-ui-design` skill (+ `om-ds-guardian` skill for DS-token compliance) |
 | Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` + `om-backend-ui-design` skill |
 | Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
@@ -99,6 +100,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding onboarding wizard steps, tenant setup hooks (`onTenantCreated`/`seedDefaults`), welcome/invitation emails | `packages/onboarding/AGENTS.md` |
 | Adding static content pages (privacy policies, terms, legal pages) | `packages/content/AGENTS.md` |
 | Testing standalone apps with Verdaccio, publishing packages, canary releases, template scaffolding | `packages/create-app/AGENTS.md` |
+| Editing files under `apps/mercato/src/app/**` or env vars in `apps/mercato/.env.example` — MUST mirror the change into the create-app template in the same task | `packages/create-app/AGENTS.md` → Template Sync Checklist |
 | Deploying a freshly scaffolded Open Mercato app to Railway with `mercato deploy railway` | [`.ai/specs/2026-05-12-railway-one-command-deploy.md`](.ai/specs/2026-05-12-railway-one-command-deploy.md) + [`apps/docs/docs/deployment/railway.mdx`](apps/docs/docs/deployment/railway.mdx) + `packages/cli/AGENTS.md` |
 | **Performance** | |
 | Profiling dev-mode memory (`yarn dev:profile`), ranking memory hogs, evaluating watcher / Vite-vs-Turbopack tradeoffs | `.ai/specs/2026-05-27-dev-mode-memory-quick-wins.md` + `scripts/profile-dev-rss.mjs` |

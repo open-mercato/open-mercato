@@ -61,6 +61,7 @@
  * @see packages/core/src/modules/inbox_ops/lib/llmProvider.ts
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
@@ -73,6 +74,8 @@ import {
   type EffectiveAllowlist,
   type TenantAllowlistSnapshot,
 } from './model-allowlist'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Minimal AI SDK LanguageModel shape — the factory exposes the protocol-
@@ -775,7 +778,7 @@ interface EnforceAllowlistResult {
  *  2. The provider's `defaultModel` (if allowed).
  *  3. The first model from the effective allowlist for that provider.
  *
- * Both fall-back paths emit a `console.warn` so the operator can see why the
+ * Both fall-back paths emit a logger warning so the operator can see why the
  * runtime did not honor the requested combination. The function never throws.
  */
 function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult {
@@ -795,7 +798,7 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
         ? 'the effective allowlist (env ∩ tenant)'
         : 'OM_AI_AVAILABLE_PROVIDERS'
       fallback = `Provider "${provider.id}" is not in ${source}; using "${replacement.id}" instead.`
-      console.warn(`[AI Model Factory] ${fallback}`)
+      logger.warn('Allowlist provider fallback', { reason: fallback })
       provider = replacement
       modelId = pickAllowedModel({
         provider,
@@ -819,7 +822,7 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
         ? `the effective allowlist (env ∩ tenant) for "${provider.id}"`
         : `OM_AI_AVAILABLE_MODELS_${provider.id.toUpperCase()}`
       const reason = `Model "${modelId}" is not in ${source}; using "${replacementModel}" instead.`
-      console.warn(`[AI Model Factory] ${reason}`)
+      logger.warn('Allowlist model fallback', { reason })
       fallback = fallback ? `${fallback} ${reason}` : reason
       modelId = replacementModel
     }

@@ -140,7 +140,11 @@ jobs:
     if: needs.snapshot.outputs.snapshot_version != ''
     services:
       postgres:
-        image: postgres:17
+        # MUST match the pgvector-enabled image used by local dev / prod
+        # (docker-compose.yml, docker-compose.fullapp.yml) — plain `postgres:17`
+        # lacks the `vector` extension, so `CREATE EXTENSION vector` fails and
+        # any vector-search codepath exercised by the integration suite breaks.
+        image: pgvector/pgvector:pg17-trixie
         env:
           POSTGRES_USER: mercato
           POSTGRES_PASSWORD: secret

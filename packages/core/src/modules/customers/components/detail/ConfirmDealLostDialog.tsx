@@ -9,6 +9,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type LossReasonOption = {
   id: string
@@ -54,7 +57,7 @@ export function ConfirmDealLostDialog({
         if (!cancelled) setLossReasons(items)
       })
       .catch((loadError) => {
-        console.error('customers.deals.detail.lossReasons failed', loadError)
+        logger.error('customers.deals.detail.lossReasons failed', { loadError })
         if (!cancelled) {
           setLossReasons([])
           setDictionaryLoadFailed(true)

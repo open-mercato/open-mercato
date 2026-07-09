@@ -13,6 +13,9 @@ import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
 import type * as workflowExecutorModule from './workflow-executor'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export interface SendSignalOptions {
   /**
@@ -357,7 +360,7 @@ export async function sendSignalByCorrelationKey(
       signalsProcessed++
     } catch (error) {
       // Log error but continue processing other instances
-      console.error(`Failed to send signal to instance ${instance.id}:`, error)
+      logger.error('Failed to send signal to instance', { instanceId: instance.id, err: error })
     }
   }
 

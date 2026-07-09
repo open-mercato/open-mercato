@@ -1,8 +1,11 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AiChatRequestContext } from './attachment-bridge-types'
 import { AiTokenUsageRepository } from '../data/repositories/AiTokenUsageRepository'
 import { emitAiAssistantEvent } from '../events'
+
+const logger = createLogger('ai_assistant')
 
 export interface RecordTokenUsageInput {
   authContext: AiChatRequestContext
@@ -89,10 +92,7 @@ export async function recordTokenUsage(
       reasoningTokens,
     })
   } catch (error) {
-    console.warn(
-      '[AI token-usage] recordTokenUsage failed (turn continues unaffected):',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('recordTokenUsage failed (turn continues unaffected)', { err: error })
     return
   }
 
@@ -114,9 +114,6 @@ export async function recordTokenUsage(
       { persistent: false },
     )
   } catch (emitError) {
-    console.warn(
-      '[AI token-usage] Event emit failed (non-fatal):',
-      emitError instanceof Error ? emitError.message : emitError,
-    )
+    logger.warn('Token-usage event emit failed (non-fatal)', { err: emitError })
   }
 }

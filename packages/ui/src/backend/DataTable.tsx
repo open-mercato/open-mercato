@@ -92,6 +92,9 @@ import {
   useSortable,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DataTable' })
 
 let refreshScheduled = false
 
@@ -393,7 +396,7 @@ function collectUniqueById<T extends { id: string }>(
     if (!entry.id) continue
     if (byId.has(entry.id)) {
       if (process.env.NODE_ENV !== 'production') {
-        console.warn(`[UMES] Duplicate injected ${warningScope} id "${entry.id}" detected. Keeping the first entry.`)
+        logger.warn('Duplicate injected id detected; keeping the first entry', { scope: warningScope, id: entry.id })
       }
       continue
     }
@@ -1057,12 +1060,7 @@ export function DataTable<T>({
     }
     if (!legacyAdvancedFilterWarnedRef.current && process.env.NODE_ENV !== 'production') {
       legacyAdvancedFilterWarnedRef.current = true
-      // eslint-disable-next-line no-console
-      console.warn(
-        '[DataTable] `advancedFilter.value` was passed as the legacy `AdvancedFilterState` shape. ' +
-        'This bridge will be removed in the next minor version — migrate to the tree shape ' +
-        '(`AdvancedFilterTree`, see `@open-mercato/shared/lib/query/advanced-filter-tree`).',
-      )
+      logger.warn('advancedFilter.value was passed as the legacy AdvancedFilterState shape. This bridge will be removed in the next minor version — migrate to the tree shape (AdvancedFilterTree, see @open-mercato/shared/lib/query/advanced-filter-tree).')
     }
     const legacy = advancedFilterInput as Extract<typeof advancedFilterInput, { value: AdvancedFilterState }>
     return {
@@ -1775,8 +1773,7 @@ export function DataTable<T>({
           : {}),
       }
       if (process.env.NODE_ENV !== 'production') {
-        // eslint-disable-next-line no-console
-        console.debug('[DataTable] perspective payload', payload)
+        logger.debug('Perspective payload', { payload })
       }
       const existing = input.perspectiveId
         ? perspectiveData?.perspectives.find((p) => p.id === input.perspectiveId) ?? null
