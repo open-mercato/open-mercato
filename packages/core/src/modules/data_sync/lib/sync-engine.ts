@@ -149,6 +149,31 @@ export function createSyncEngine(deps: EngineDeps) {
     }
   }
 
+  async function logExportItemFailures(
+    runId: string,
+    integrationId: string,
+    results: ExportBatch['results'],
+    scope: SyncScope,
+  ): Promise<void> {
+    const failedResults = results.filter((result) => result.status === 'error' && result.error)
+    for (const result of failedResults) {
+      const label = result.externalId ? `${result.externalId} (id: ${result.localId})` : result.localId
+      const errorMessage = result.error!.split('\n')[0]
+      const message = `Failed to export item ${label}: ${errorMessage}`
+
+      await integrationLogService.write(
+        {
+          integrationId,
+          runId,
+          level: 'error',
+          message,
+          payload: { kind: 'export-item-failure', summary: result.error },
+        },
+        scope,
+      )
+    }
+  }
+
   async function writeOperationalLog(params: {
     integrationId: string
     runId: string
@@ -600,6 +625,7 @@ export function createSyncEngine(deps: EngineDeps) {
             scope,
           )
           await updateProgress(run.progressJobId, processedCount, null, scope)
+          await logExportItemFailures(run.id, run.integrationId, batch.results, scope)
 
           await writeOperationalLog({
             integrationId: run.integrationId,
