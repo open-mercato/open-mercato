@@ -46,6 +46,41 @@ export function isMultipartRequestWithinUploadLimit(contentLengthHeader: string 
   return contentLength <= (resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES)
 }
 
+export class MultipartUploadLimitError extends Error {
+  constructor() {
+    super('Multipart request exceeds the maximum upload size.')
+    this.name = 'MultipartUploadLimitError'
+  }
+}
+
+export function isMultipartUploadLimitError(error: unknown): error is MultipartUploadLimitError {
+  return error instanceof MultipartUploadLimitError
+}
+
+export async function parseMultipartFormDataWithinUploadLimit(request: Request): Promise<FormData> {
+  if (!isMultipartRequestWithinUploadLimit(request.headers.get('content-length'))) {
+    throw new MultipartUploadLimitError()
+  }
+
+  if (!request.body) return request.formData()
+
+  const maxBytes = resolveDefaultAttachmentMaxUploadBytes() + MULTIPART_CONTENT_LENGTH_OVERHEAD_BYTES
+  let consumedBytes = 0
+  const boundedBody = request.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      consumedBytes += chunk.byteLength
+      if (consumedBytes > maxBytes) {
+        controller.error(new MultipartUploadLimitError())
+        return
+      }
+      controller.enqueue(chunk)
+    },
+  }))
+  const contentType = request.headers.get('content-type')
+  const headers = contentType ? { 'content-type': contentType } : undefined
+  return new Response(boundedBody, { headers }).formData()
+}
+
 export function willExceedAttachmentTenantQuota(currentUsageBytes: number, incomingFileBytes: number): boolean {
   return (currentUsageBytes + incomingFileBytes) > resolveAttachmentTenantQuotaBytes()
 }
