@@ -63,4 +63,8 @@ Goal: stop maintaining two copies of the generalized `om-*` pipeline skills. The
 - [x] 7.1 `sh -n install-skills.sh`, tiers validator (20 local / 25 external), preview-workflows test green — 44e21387f
 - [x] 7.2 Repo-local `.ai/trackers/github.md` diff-clean vs canonical; docs references updated (verify-pr-ui external, new external skills) — 44e21387f
 
-> Follow-up (separate PR): mirror the mixin (external install + repo-local overrides + `skills update`) into the `packages/create-app/agentic/` standalone-app template.
+### Phase 8: Consolidate autofix to a single skill (user request)
+
+- [x] 8.1 Remove local `om-auto-fix-github` (folder + automation-tier entry); repoint all live refs to the external `om-auto-fix-issue` under `.agents/skills/`; keep `om-auto-verify-and-fix-github` as the distinct browser-first variant — c58930dc0
+
+> Follow-up (separate PR): mirror the mixin (external install with an explicit standalone skill subset + repo-local overrides + `skills update`, single `om-auto-fix-issue`) into the `packages/create-app/agentic/` standalone-app template (both the create-app wizard `shared.ts` and the CLI `agentic:init` `agentic-setup.ts` copy pipelines).
