@@ -193,10 +193,10 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
-    // Inject metadata.initiatedBy if not provided
+    // User-started instances must always record the authenticated caller.
     const metadata = {
       ...input.metadata,
-      initiatedBy: input.metadata?.initiatedBy || auth.sub,
+      initiatedBy: auth.sub,
     }
 
     // Start workflow
