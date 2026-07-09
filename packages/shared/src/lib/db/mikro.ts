@@ -4,6 +4,9 @@ import { MikroORM } from '@mikro-orm/core'
 import { ReflectMetadataProvider } from '@mikro-orm/decorators/legacy'
 import { PostgreSqlDriver, type EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgresql'
 import { getSslConfig } from './ssl'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'orm' })
 
 export type AppMikroORM = MikroORM<PostgreSqlDriver, PostgreSqlEntityManager<PostgreSqlDriver>>
 
@@ -22,7 +25,7 @@ function setRegisteredEntities(entities: any[]): void {
 
 export function registerOrmEntities(entities: any[]) {
   if (getRegisteredEntities() !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] ORM entities re-registered (this may occur during HMR)')
+    logger.debug('ORM entities re-registered (this may occur during HMR)')
   }
   setRegisteredEntities(entities)
 }
@@ -106,7 +109,7 @@ export async function getOrm() {
   const sslConfig = getSslConfig()
 
   if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-    console.log('[orm] pool config', {
+    logger.info('Pool config', {
       poolMin,
       poolMax,
       poolIdleTimeout,
@@ -150,7 +153,7 @@ export async function getOrm() {
       ssl: sslConfig,
       onPoolCreated: (pool: any) => {
         if (process.env.OM_DB_POOL_DEBUG === '1' || process.env.OM_INTEGRATION_TEST === 'true') {
-          console.log('[orm] pg pool created with options', {
+          logger.info('pg pool created with options', {
             max: pool.options?.max,
             min: pool.options?.min,
             idleTimeoutMillis: pool.options?.idleTimeoutMillis,

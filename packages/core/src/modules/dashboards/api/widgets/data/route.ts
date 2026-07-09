@@ -14,6 +14,9 @@ import { runApiInterceptorsBefore } from '@open-mercato/shared/lib/crud/intercep
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { dashboardsTag, dashboardsErrorSchema } from '../../openapi'
 import { widgetDataRequestSchema, widgetDataResponseSchema } from './schema'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dashboards').child({ component: 'widgets-data' })
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['analytics.view'] },
@@ -122,7 +125,7 @@ export async function POST(req: Request) {
     const result = await service.fetchWidgetData(requestData)
     return NextResponse.json(result)
   } catch (err) {
-    console.error('[widgets/data] Error:', err)
+    logger.error('Widget data request failed', { err })
     if (err instanceof WidgetDataValidationError) {
       return NextResponse.json({ error: err.message }, { status: 400 })
     }

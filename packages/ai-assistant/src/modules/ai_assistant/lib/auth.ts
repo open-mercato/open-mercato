@@ -1,7 +1,10 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Successful authentication result.
@@ -107,7 +110,7 @@ export async function authenticateMcpRequest(
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    console.error('[MCP Auth] Authentication failed:', message)
+    logger.error('MCP authentication failed', { err: error })
     return { success: false, error: 'Authentication failed' }
   }
 }
