@@ -28,7 +28,6 @@ services:
       # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
       # loaded on new sessions (restart this service after `yarn generate`).
       - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
->>>>>>> 887ef17df (feat(agent-orchestrator): file-defined agents on OpenCode (CLAUDE.md/OUTCOME.md/skills/sub-agents/tools) (#3495))
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
