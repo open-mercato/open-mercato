@@ -1,5 +1,6 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { EntityManager, FilterQuery } from '@mikro-orm/postgresql'
