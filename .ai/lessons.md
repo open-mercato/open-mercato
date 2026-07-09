@@ -977,3 +977,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Put bounded outbound-discovery caches at process scope when providers are request-scoped, key them by every credential/config input, and verify reserved IPv4 and IPv6 ranges against public-address controls.
 
 **Applies to**: SSRF guards, OIDC/OAuth discovery, JWKS/token/user-info clients, and request-scoped outbound provider services.
+
+## DNS pinning must keep fetch and dispatcher implementations compatible
+
+**Context**: A pinned outbound request used an `undici` package `Agent` with Node's bundled global `fetch`, then returned only the legacy single-address DNS callback shape while Node 24 requested all addresses.
+
+**Rule**: Use `fetch` and `Agent` from the same `undici` implementation, and make custom lookup callbacks support both single-address and `{ all: true }` result shapes. Cover the dispatcher path with a regression test and smoke-test at least one real HTTPS endpoint.
+
+**Applies to**: SSRF-safe fetch helpers, custom `undici` dispatchers, DNS pinning, and runtimes that enable automatic address-family selection.

@@ -1,6 +1,6 @@
 import { lookup } from 'node:dns/promises'
 import { isIP } from 'node:net'
-import { Agent, type Dispatcher } from 'undici'
+import { Agent, fetch as undiciFetch, type Dispatcher } from 'undici'
 import { isBlockedHostname, isPrivateIpAddress } from './network'
 
 export type UrlSafetyReason =
@@ -202,7 +202,14 @@ export type SafeOutboundFetchOptions = AssertSafeOutboundUrlOptions & {
    * not actually open sockets, so DNS pinning is unnecessary and would just complicate mocking.
    */
   fetchImpl?: typeof fetch
+  /** Test seam for the dispatcher-compatible fetch used by DNS-pinned requests. */
+  pinnedFetchImpl?: PinnedFetch
 }
+
+export type PinnedFetch = (
+  rawUrl: string,
+  init: RequestInit & { dispatcher: Dispatcher },
+) => Promise<Response>
 
 /**
  * Validates an outbound URL and performs `fetch()` with the connection pinned to a
@@ -242,9 +249,8 @@ export async function safeOutboundFetch(
   })
 
   try {
-    return await globalThis.fetch(rawUrl, { ...mergedInit, dispatcher } as RequestInit & {
-      dispatcher: Dispatcher
-    })
+    const pinnedFetch = options.pinnedFetchImpl ?? (undiciFetch as unknown as PinnedFetch)
+    return await pinnedFetch(rawUrl, { ...mergedInit, dispatcher })
   } finally {
     dispatcher.close().catch(() => {})
   }
@@ -252,8 +258,12 @@ export async function safeOutboundFetch(
 
 export type PinnedDnsLookup = (
   host: string,
-  opts: unknown,
-  cb: (err: NodeJS.ErrnoException | null, address: string, family: number) => void,
+  opts: { all?: boolean },
+  cb: (
+    err: NodeJS.ErrnoException | null,
+    address: string | ResolvedHostAddress[],
+    family?: number,
+  ) => void,
 ) => void
 
 /**
@@ -266,13 +276,17 @@ export function createPinnedDnsLookup(
   expectedHostname: string,
   pinned: ResolvedHostAddress,
 ): PinnedDnsLookup {
-  return (host, _opts, cb) => {
+  return (host, opts, cb) => {
     if (host !== expectedHostname) {
       const err: NodeJS.ErrnoException = new Error(
         `Refusing DNS lookup for unexpected host "${host}" (expected "${expectedHostname}")`,
       )
       err.code = 'EREFUSED'
       cb(err, '', 0)
+      return
+    }
+    if (opts.all) {
+      cb(null, [pinned])
       return
     }
     cb(null, pinned.address, pinned.family)
