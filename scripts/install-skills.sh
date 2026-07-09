@@ -8,18 +8,21 @@ set -eu
 #      .claude/skills/ and .codex/skills/.
 #   2. External shared skills: installs the open-mercato/skills collection via
 #      `npx skills add` into .agents/skills/ (the cross-agent skills directory;
-#      the CLI also symlinks .claude/skills/<name> when that directory exists).
+#      the CLI also symlinks .claude/skills/<name> when that directory exists),
+#      then runs `npx skills update` so a re-run always refreshes the already
+#      installed external skills to the latest published versions (the lockfile
+#      is gitignored, so `add` seeds and `update` keeps them current).
 #      The external source and skill list live under `external` in tiers.json.
 #      A folder under .ai/skills/ matching an external skill name is a
 #      repo-local override that the external skill reads in place; it is never
 #      symlinked into the harness directories.
 #
 # Usage:
-#   install-skills.sh                           # default tier set (core) + external skills
+#   install-skills.sh                           # default tier set (core) + install/update external skills
 #   install-skills.sh --with <csv>              # default + extra tiers (additive)
 #   install-skills.sh --tiers <csv>             # exactly the listed tiers (replaces default)
 #   install-skills.sh --all                     # every tier
-#   install-skills.sh --no-external             # skip the npx external-skills step (offline)
+#   install-skills.sh --no-external             # skip the npx external-skills install/update step (offline)
 #   install-skills.sh --list                    # print tier table and exit
 #   install-skills.sh --clean                   # remove all skill symlinks and exit
 #   install-skills.sh --help | -h               # show usage and exit
@@ -34,8 +37,10 @@ Options:
   --with <csv>        Install default tiers plus the given tier names (additive).
   --tiers <csv>       Install exactly the given tier names (replaces default).
   --all               Install every tier defined in tiers.json.
-  --no-external       Skip the `npx skills add` step for the external collection
-                      (also: OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
+  --no-external       Skip the external-collection step for the external
+                      collection — `npx skills add` on first run and
+                      `npx skills update` on re-runs (also:
+                      OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
   --list              Print the tier table and exit without installing.
   --clean             Remove all skill symlinks (local and external) and exit.
   --help, -h          Show this message.
@@ -475,6 +480,18 @@ if [ -n "${external_source}" ]; then
     echo "install-skills: warning: npx not found; skipping external skills from ${external_source}." >&2
   elif (cd "${repo_root}" && npx -y skills add "${external_source}" --skill '*' --agent claude-code --agent codex -y); then
     external_status="installed from ${external_source}"
+    # `add` seeds the collection (and re-resolves on a fresh checkout), but on a
+    # clone that already has the skills a follow-up `update` guarantees they are
+    # bumped to the latest published versions — the point of a re-run. The
+    # lockfile is gitignored, so this is how contributors pick up new skills and
+    # fixes without a manual reinstall. Non-fatal when offline mid-run: the
+    # freshly added skills stay installed.
+    if (cd "${repo_root}" && npx -y skills update --project -y); then
+      external_status="updated to latest from ${external_source}"
+    else
+      echo "install-skills: warning: could not update external skills to latest;" >&2
+      echo "  the installed versions are kept. Re-run when online to refresh." >&2
+    fi
     # The npx CLI symlinks .claude/skills/<name> itself and expects Codex to
     # read .agents/skills/ natively; mirror the symlinks into .codex/skills/
     # so older Codex setups keep seeing the external skills too.
