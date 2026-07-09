@@ -724,44 +724,62 @@ function Invoke-LlmProviderPrompt {
         }
     }
 
-    if ($SkipLlmPrompt -or $NonInteractive -or $DryRun) {
-        Write-Warn "No LLM API key configured - AI chat stays disabled. Add OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY) to .env and re-run start-windows.bat."
+    if ($DryRun) {
+        Write-Info "Would require an LLM provider API key (OpenAI / Anthropic / Google)."
         return
+    }
+
+    # Explicit opt-out for automation or configure-later. Kept so the flag
+    # still means what the docs say, but it is the ONLY way to skip.
+    if ($SkipLlmPrompt) {
+        Write-Warn "-SkipLlmPrompt set with no LLM key - AI chat will not work until you add OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY) to .env and restart the opencode container."
+        return
+    }
+
+    # Non-interactive with no key and no explicit opt-out: fail fast rather
+    # than stand up a stack whose whole purpose (the AI assistant) is dead.
+    if ($NonInteractive) {
+        Write-Fail "No LLM provider API key found. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY in the environment (or .env), or pass -SkipLlmPrompt to proceed without AI."
     }
 
     Write-Host ""
-    Write-Host "The AI assistant (OpenCode + MCP) needs an LLM provider API key." -ForegroundColor Cyan
-    Write-Host "  [1] OpenAI"
-    Write-Host "  [2] Anthropic"
-    Write-Host "  [3] Google Gemini"
-    Write-Host "  [4] Skip (configure later in .env)"
-    $choice = Read-Host "Choose a provider [1-4, default 4]"
+    Write-Host "The AI assistant (OpenCode + MCP) needs at least one LLM provider API key." -ForegroundColor Cyan
+    Write-Host "This is what powers the Cmd+K agent, so setup requires one to continue."
+    Write-Host "(Press Ctrl+C to abort, or re-run later with -SkipLlmPrompt to configure it in .env yourself.)"
 
-    $selected = switch ($choice) {
-        "1" { $script:LlmProviders[0] }
-        "2" { $script:LlmProviders[1] }
-        "3" { $script:LlmProviders[2] }
-        default { $null }
-    }
-    if (-not $selected) {
-        Write-Warn "AI provider skipped - add a key to .env later and restart the opencode container."
-        return
-    }
+    while ($true) {
+        Write-Host ""
+        Write-Host "  [1] OpenAI"
+        Write-Host "  [2] Anthropic"
+        Write-Host "  [3] Google Gemini"
+        $choice = Read-Host "Choose a provider [1-3]"
+        $selected = switch ($choice) {
+            "1" { $script:LlmProviders[0] }
+            "2" { $script:LlmProviders[1] }
+            "3" { $script:LlmProviders[2] }
+            default { $null }
+        }
+        if (-not $selected) {
+            Write-Host "Please enter 1, 2, or 3." -ForegroundColor Yellow
+            continue
+        }
 
-    $secureKey = Read-Host ("Paste your {0} API key (input hidden, Enter to skip)" -f $selected.Label) -AsSecureString
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
-    try {
-        $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-    } finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
-    if ([string]::IsNullOrWhiteSpace($plainKey)) {
-        Write-Warn "No key entered - AI provider skipped."
-        return
-    }
+        $secureKey = Read-Host ("Paste your {0} API key (input hidden)" -f $selected.Label) -AsSecureString
+        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
+        try {
+            $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+        } finally {
+            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        }
+        if ([string]::IsNullOrWhiteSpace($plainKey)) {
+            Write-Host "A key is required to continue. Try again." -ForegroundColor Yellow
+            continue
+        }
 
-    Set-AiProviderConfig -Entry $selected -KeyValue $plainKey
-    Write-Ok ("AI provider configured: {0}" -f $selected.Label)
+        Set-AiProviderConfig -Entry $selected -KeyValue $plainKey
+        Write-Ok ("AI provider configured: {0}" -f $selected.Label)
+        break
+    }
 }
 
 # ---------------------------------------------------------------------------
@@ -771,8 +789,21 @@ function Invoke-LlmProviderPrompt {
 function Invoke-Compose {
     # Streams the command's output to the console (so `ps`, `logs`, and error
     # diagnostics are actually visible) and returns only the exit code.
+    #
+    # Docker Compose writes benign warnings ("variable is not set, defaulting
+    # to a blank string") and build/pull progress to stderr. Under
+    # $ErrorActionPreference='Stop' those native stderr lines would otherwise
+    # be promoted to terminating errors and abort setup, so the call runs under
+    # 'Continue' and merges stderr into the visible host stream via 2>&1.
     param([string[]]$Arguments)
-    & docker compose -f (Join-Path $script:RepoRoot $script:ComposeFile) @Arguments | Out-Host
+    $composeFilePath = Join-Path $script:RepoRoot $script:ComposeFile
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & docker compose -f $composeFilePath @Arguments 2>&1 | Out-Host
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
     return $LASTEXITCODE
 }
 

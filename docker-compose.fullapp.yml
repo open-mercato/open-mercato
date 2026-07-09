@@ -14,7 +14,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -154,6 +154,10 @@ services:
       NODE_OPTIONS: ${NODE_OPTIONS:---max-old-space-size=3072}
       DEPLOY_ENV: ${DEPLOY_ENV:-local}
       PORT: ${CONTAINER_PORT:-3000}
+      # Bind on all interfaces so Docker's published-port forwarding can reach
+      # the server; next start otherwise honors the container's HOSTNAME and
+      # binds an address unreachable from the host.
+      HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
       APP_URL: ${APP_URL:-http://localhost:3000}
@@ -166,7 +170,10 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      # Point OpenCode clients at the sibling opencode service (the code default
+      # http://localhost:4096 is unreachable from inside the app container).
+      OPENCODE_URL: ${OPENCODE_URL:-http://opencode:4096}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}

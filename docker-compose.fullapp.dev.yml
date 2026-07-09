@@ -15,7 +15,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -144,6 +144,31 @@ services:
   #     -f docker-compose.fullapp.traefik.yml \
   #     -f docker-compose.fullapp.traefik.dev.yml up --build
 
+  # One-shot: raise the shared WSL2/Linux kernel's inotify limits before the
+  # app starts watching. Turbopack watches the whole repo via inotify and does
+  # NOT honor the polling env vars above, so the defaults overflow with
+  # "System limit for number of file watchers reached". All Docker Desktop /
+  # WSL2 containers share one kernel, so this single privileged container
+  # raises the limit for the app too. Each `|| true` keeps a read-only or
+  # already-higher value from failing the run. If your Docker policy forbids
+  # privileged containers, remove this service and the app's dependency on it,
+  # then raise the limits on the host/WSL2 kernel yourself.
+  file-watch-limits:
+    image: busybox:1.37
+    container_name: mercato-file-watch-limits-${DEPLOY_ENV:-local}
+    privileged: true
+    restart: "no"
+    network_mode: none
+    command:
+      - sh
+      - -c
+      - |
+        sysctl -w fs.inotify.max_user_watches=16777216 || true
+        sysctl -w fs.inotify.max_user_instances=8192 || true
+        sysctl -w fs.inotify.max_queued_events=1048576 || true
+        echo "[file-watch-limits] inotify limits now:"
+        sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances fs.inotify.max_queued_events || true
+
   app:
     build:
       context: .
@@ -185,6 +210,12 @@ services:
       CHOKIDAR_USEPOLLING: ${CHOKIDAR_USEPOLLING:-true}
       WATCHPACK_POLLING: ${WATCHPACK_POLLING:-true}
       OM_DEV_SPLASH_PORT: ${OM_DEV_SPLASH_PORT:-4000}
+      # Bind on all interfaces INSIDE the container: the dev server (next dev)
+      # and the splash both default to loopback (127.0.0.1), which Docker's
+      # published-port forwarding cannot reach, so the browser gets connection
+      # refused even though the port is mapped.
+      HOSTNAME: 0.0.0.0
+      OM_DEV_SPLASH_BIND: ${OM_DEV_SPLASH_BIND:-0.0.0.0}
       REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       QUEUE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
       TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
@@ -206,7 +237,7 @@ services:
       OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
       OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
       OPENCODE_MODEL: ${OPENCODE_MODEL:-}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
@@ -243,6 +274,8 @@ services:
       MCP_URL: ${MCP_URL:-http://mcp:3001}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     depends_on:
+      file-watch-limits:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
