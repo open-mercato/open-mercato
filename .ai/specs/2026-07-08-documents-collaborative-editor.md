@@ -49,6 +49,7 @@ Deliver the module in four milestones so the new infrastructure is proven early 
 | **M2 — Realtime + presence** | Collab-token mint route; Hocuspocus sidecar (`onAuthenticate`/`onLoadDocument`/`onStoreDocument` + read-only write enforcement + tenant-scoped queries + room-close on revoke); Yjs binding on the shared editor config; live cursors via Awareness; content materialization → `DocumentContentService`; dev/prod deploy wiring. | New WebSocket sidecar process. |
 | **M3 — Comments/@mentions + version history** | Inline comment anchors + right-rail UI; @mention → OM notification; version snapshot timeline + safe restore (through the authoritative Y.Doc). | None. |
 | **M4 — Export** | `.docx` export (MIT `html-to-docx`) + **PDF** export (permissive HTML→PDF renderer) — both real server endpoints + tests. | None. |
+| **M5 — Deep OM integration + Google-Docs UX** | Editor-stack assessment (TipTap keep/wrap/migrate verdict); human-readable labels everywhere (zero naked UUIDs); Google-Docs UX features (align, highlight, text color, undo/redo, outline, word count, inline rename); embeddable business-entity chips (`@`-trigger + toolbar picker over customers/companies/deals/products/quotes); document templates with entity-data autofill; integration tests. | None (client-side HTTP coupling only). |
 
 ## Architecture
 
@@ -343,8 +344,91 @@ Module-local tests under `packages/documents/src/modules/documents/__integration
 ### M4 — Export  _(LANDED — verified 2026-07-08)_
 - [x] `.docx` export (`html-to-docx`) + real PDF export (`puppeteer-core`, 503 without Chromium) at `GET /api/documents/[id]/export?format=docx|pdf` (viewer+, tier-gated); PDF renderer has an SSRF egress guard (request interception aborts all non-`data:` subresource fetches); Export menu (same-origin cookie download); integration tests (TC-DOCUMENTS-006 asserts docx `PK` + pdf `%PDF`/503 + non-shared 403).
 
+## M5 — Deep OM Integration + Google-Docs UX (2026-07-09)
+
+### Editor stack assessment (TipTap verdict: KEEP)
+
+A team member raised two concerns: TipTap's license may not permit free commercial use, and TipTap degrades under heavy plugin load (suggesting Slate / raw ProseMirror / MDXEditor). Both were researched with primary sources (npm license fields, the tiptap monorepo LICENSE, tiptap.dev pricing/release notes, GitHub issues):
+
+- **Licensing — unfounded for our dependency set.** `@tiptap/core@3.x` and every `@tiptap/extension-*`/`@tiptap/html`/`@tiptap/y-tiptap` package we use is **MIT** (verified npm `license` fields + repo `LICENSE.md`, © Tiptap GmbH). `@hocuspocus/*@4` is MIT. The paid line is Tiptap **Cloud/Pro services** (hosted collab, Content AI, DOCX/PDF import-export services, Comments-as-a-service, Pro registry) — none are dependencies: comments, versions, export, and mentions are in-house and collab is self-hosted Hocuspocus. 2024–2026 direction moved toward openness (10 formerly-Pro extensions MIT-relicensed June 2025).
+- **Performance — the concern describes TipTap v2.** v2's real problem was React re-rendering on every transaction; v3 (which we ship) defaults `shouldRerenderOnTransaction: false` and provides selective `useEditorState` subscriptions. Remaining large-doc costs (node-view mount, huge selections) live in ProseMirror itself, so a raw-PM/Slate/MDXEditor rewrite cannot remove them. Slate is 0.x with a community collab story; MDXEditor is a markdown authoring component (no realtime, Lexical-based) — neither fits a shipped tiptap+yjs+hocuspocus module.
+- **Verdict: keep.** Mitigations adopted: pin `@tiptap/*@3.x` + `@hocuspocus/*@4.x`; never add `@tiptap-pro/*` registry packages (procurement decision required); never set `shouldRerenderOnTransaction: true`; keep the editor isolated in its own island; prefer plain `renderHTML` chips over React node views for new nodes.
+
+### Workstream A — Human-readable labels everywhere (naked-GUID elimination)
+
+Audit findings (10) and fixes. A shared helper `lib/userLabels.ts` (`resolveUserLabels(em, scope, userIds) → Map<id, { label, secondary }>`) generalizes the shares-route resolver and is reused by every route below.
+
+| # | Finding | Fix |
+|---|---|---|
+| 1 | List Owner column falls back to raw `ownerUserId` | list GET returns `ownerLabel` (name ?? email) resolved via `resolveUserLabels` |
+| 2 | "Shared with" count always 0 (API never returns it) | list GET returns real active-share count per doc (single grouped query) |
+| 3 | Comment author renders `shortenId(authorUserId)` | comments GET returns `userLabels` map (authors + resolvedBy + mentioned); rail renders names |
+| 4 | Reply badge shows truncated comment UUID | render parent comment's author name + body snippet |
+| 5/6 | Mentions stored/rendered as `@[uuid]` tokens; raw token visible in composer | **out-of-band mentions**: comment POST carries `mentions: [{ userId }]`; body stores plain `@Name` text only; new `document_comments.mentions` json column; notifications/access-check read the stored array; legacy `@[uuid]` tokens still resolved at render via `userLabels` (backward compatible) |
+| 7 | Grant-access prompt falls back to truncated UUID | access-check response includes `label` per user id |
+| 8 | Version creator renders `shortenId(createdByUserId)` | versions GET returns `createdByLabel` |
+| 9 | ShareDialog falls back to raw id for deleted/foreign principals | render localized "removed user" placeholder instead of the id |
+| 10 | PrincipalPicker manual-UUID degrade mode | kept as a last-resort failure path (auth API down/forbidden), documented; primary path is always the searchable picker |
+
+### Workstream B — Google-Docs UX features
+
+All client extensions are MIT `@tiptap/*@3.x`. New deps: `@tiptap/extension-text-align`, `@tiptap/extension-highlight`, `@tiptap/extension-text-style` (TextStyle + Color), `@tiptap/extensions` (CharacterCount — already transitive via starter-kit), `@tiptap/suggestion` (Workstream C).
+
+- **Text alignment** (left/center/right/justify) on paragraphs + headings — toolbar group. **Highlight** (multicolor palette) and **text color** (fixed palette; colors are document *content* — inline styles in the doc, not UI chrome, so DS token rules do not apply to the stored values). Both in shared `editorConfig.ts` (sidecar must render the marks' HTML).
+- **Undo/redo toolbar buttons** — collab mode uses the Collaboration extension's Yjs undo manager commands; fallback mode uses StarterKit `undoRedo` (already conditionally enabled).
+- **Document outline** — hand-rolled left pane computed from heading nodes on debounced updates (no new dep); click scrolls to/selects the heading.
+- **Word/character count** — `CharacterCount` from `@tiptap/extensions`, status-bar display.
+- **Inline rename** — the editor `<h1>` title becomes an editable field; save via existing metadata PUT (optimistic lock via `updatedAt`, conflict via `surfaceRecordConflict`). Closes the "no rename UI" gap.
+
+### Workstream C — Embeddable business-entity chips
+
+Users insert references to records from other modules; **never see or type UUIDs**.
+
+- **Node:** inline atom node `entityRef` in the **shared** `editorConfig.ts`, attrs `{ entityType, entityId, label, href }` (label/href are insert-time snapshots — the sanctioned FK-id + snapshot pattern). `renderHTML` → `<span data-entity-ref data-entity-type data-entity-id data-href class="om-entity-ref">label</span>` (plain HTML render, no React node view — identical output client-side, sidecar materialization, and export; docx/pdf show the label text). Cmd/Ctrl+click (via `editorProps.handleClick`, client-only) opens the record's backoffice page.
+- **Insertion:** `@`-trigger in the document body via `@tiptap/suggestion` (client-only plugin) + a toolbar "Insert record" button — both open the same searchable **EntityPicker** (built on the module's existing combobox pattern; sectioned by entity type).
+- **Registry (`lib/entityRegistry.ts`, client):** static list of embeddable types — `customer-person` (`GET /api/customers/people?search=`), `customer-company` (`/api/customers/companies`), `deal` (`/api/customers/deals`), `product` (`/api/catalog/products`), `quote` (`/api/sales/quotes`) — each with i18n label, item→`{ id, label, subtitle }` mapping, and backoffice href template (`/backend/customers/people/[id]`, `/backend/customers/companies/[id]`, `/backend/customers/deals/[id]`, `/backend/catalog/products/[id]`, `/backend/sales/quotes/[id]`).
+- **Architecture compliance:** coupling is **client-side HTTP only** — the documents module never imports other modules' code or entities; the picker calls their public list APIs with the caller's session, so ACL enforcement is inherited (a user without `customers.deals.view` gets 403 → that type is hidden from the picker: graceful degrade, soft-optional integration). No server-side cross-module lookups, no ORM relations, no new contract surfaces.
+
+### Workstream D — Document templates with entity autofill
+
+Pre-configured document types (offer letter, meeting notes, deal summary) instantiated with system data; the user adds free text around it.
+
+- **Entity `document_template`** (tenant/org-scoped, mirrors existing entity conventions): `id`, `organization_id`, `tenant_id`, `name` varchar(256), `description` text nullable, `body_html` text (TipTap-compatible HTML with `{{slot.field}}` tokens + optional `entityRef` chips), `context_slots` json (`[{ slot, entityType, required }]`), `created_by_user_id`, `is_active`, `created_at`/`updated_at`/`deleted_at`. One additive migration (together with `document_comments.mentions`).
+- **API:** `/api/documents/templates` (GET/POST/PUT/DELETE via `makeCrudRoute` conventions; optimistic lock default-on; zod validators). ACL: list/read requires `documents.view`; manage (create/edit/delete) requires **`documents.templates.manage`** (new additive feature id, granted to admin by default in `setup.ts`).
+- **Instantiation is client-side** (no new server endpoint, ACL-safe by construction): "New from template" flow → pick template → one `LookupSelect` picker per context slot (same registry as Workstream C) → tokens `{{slot.field}}` filled from the picked list-item fields (person: `name`/`email`/`phone`; company: `name`/`email`/`phone`; deal: `title`/`status`/`value`/`valueCurrency`; product: `title`/`subtitle`/`sku`; quote: `number`) plus `{{slot.chip}}` → an `entityRef` chip, `{{date}}` → localized today — then `POST /api/documents` + `PUT /api/documents/[id]/content` with the filled HTML → open the editor. The collab sidecar already seeds a room from `contentHtml` when `yjs_state` is empty (`htmlToYDoc`), so no realtime changes are needed.
+- **Template management UI:** `backend/documents/templates/page.tsx` (DataTable list + create/edit page using a single-user TipTap editor with the shared extension set + an "insert field token" dropdown per slot). Unresolved tokens (unfilled optional slots) are stripped at instantiation.
+- **Seeded defaults:** `setup.ts` seeds three example templates per tenant (offer letter, meeting notes, deal summary) — idempotent, translated via the default locale.
+
+### M5 API contract additions (all additive)
+
+| Route | Change |
+|---|---|
+| `GET /api/documents` | + `ownerLabel`, `sharedWithCount` per item |
+| `GET /api/documents/[id]/comments` | + `userLabels: Record<id,{label}>`; comment nodes + `mentions` |
+| `POST /api/documents/[id]/comments` | + optional `mentions: [{ userId }]` (body no longer needs `@[uuid]` tokens; legacy tokens still parsed) |
+| `POST /api/documents/[id]/comments/access-check` | + `label` per returned user id |
+| `GET /api/documents/[id]/versions` | + `createdByLabel` per version |
+| `/api/documents/templates` (new) | CRUD for `document_template` |
+
+### M5 Integration Test Coverage
+
+- **TC-DOCUMENTS-007 (labels):** list returns `ownerLabel` + real `sharedWithCount`; comments GET returns `userLabels` covering author + mentioned users; comment POST with `mentions` array notifies without `@[uuid]` in body; access-check returns labels; versions GET returns `createdByLabel`; **no raw UUID rendered** for these surfaces.
+- **TC-DOCUMENTS-008 (templates):** template CRUD (manage-feature gating: non-admin edit → 403; read with `documents.view` → 200); instantiation flow API-level (create doc + PUT filled content → GET content contains filled values and an `entityRef` span; unfilled optional tokens stripped); template optimistic lock (stale `updatedAt` → 409); cross-tenant template isolation.
+- **Key UI paths (preview QA, manual + screenshots):** insert an entity chip via `@` and via toolbar; create doc from template with slot pickers; rename inline; align/highlight/color/undo/redo; outline navigation; word count; comments with name-rendered mentions.
+
+### M5 — Implementation Phases & Status
+
+- [ ] M5-P0 · Schema: `document_comments.mentions` json column + `DocumentTemplate` entity + validators + one additive migration + snapshot + `lib/constants.ts` entry.
+- [ ] M5-P1 · Server labels: `lib/userLabels.ts` + list GET (`ownerLabel`, `sharedWithCount`) + comments GET/POST (`userLabels`, out-of-band `mentions`) + access-check labels + versions `createdByLabel`.
+- [ ] M5-P2 · Editor lib: `entityRef` node + align/highlight/color/character-count in `editorConfig.ts` (shared vs client split respected) + `lib/entityRegistry.ts` + `EntityPicker` component + new `@tiptap/*` deps.
+- [ ] M5-P3 · Editor island integration: toolbar groups (align/highlight/color/undo/redo/insert-record), `@`-suggestion wiring, outline pane, word count, inline rename.
+- [ ] M5-P4 · Comments rail client: author/mention names via `userLabels`, out-of-band mention composer (no visible tokens), reply badge, grant-access labels.
+- [ ] M5-P5 · Templates: CRUD API + `documents.templates.manage` ACL + templates management UI + "New from template" flow + seeded defaults.
+- [ ] M5-P6 · Integration tests TC-DOCUMENTS-007/008 + i18n (4 locales) + full gate + preview QA sweep.
+
 ## Open Questions
 
+- **Editor stack (TipTap concern)** — Resolved 2026-07-09: keep TipTap v3 (all deps verified MIT; perf concern was v2's re-render behavior). See "Editor stack assessment".
 - **Realtime transport** — Resolved: Hocuspocus WebSocket sidecar (user-approved; Ask-First infra gate satisfied).
 - **Sidecar auth handshake** — Resolved: short-lived per-doc collab-token minted by a Next route; sidecar verifies via OM JWT + `createRequestContainer()`; tier baked into the token (see Security & auth design).
 - **Sharing model** — Resolved: per-document explicit sharing (owner + viewer/commenter/editor).
@@ -399,3 +483,4 @@ Module-local tests under `packages/documents/src/modules/documents/__integration
 - **2026-07-08** — **M2 + M3 + M4 implemented and verified** (realtime Hocuspocus sidecar + collab-token handshake + live cursors; comments/@mentions rail + version history; docx/PDF export). No new entities/columns (no migration). Full gate green (build:packages → generate → build:packages → typecheck 22 pkgs → test **5472 core + 33 documents** → build:app); sidecar boots live (Hocuspocus 4.3.0). Four-reviewer jury (fresh Claude Opus + Codex + DeepSeek; Kimi absent) fixed **3 confirmed blockers** — PDF-export SSRF (egress guard), share-downgrade not enforced on a live socket (`shared` now force-closes the room), empty-`yjsState` `Y.applyUpdate` crash (length guard) — plus a live-boot fix (sidecar consumes package **dist** for MikroORM v7 legacy decorators / entity-class identity; `tsx` devDep). Two DeepSeek "criticals" (`connectionConfig`/`lastContext` field names) dismissed as spurious after verifying the installed `@hocuspocus/server@4` dist. Non-blocking follow-ups: @mention title-disclosure to non-shared org users; client auto-reconnect UX.
 - **2026-07-09** — **Editor UI follow-up implemented** (Documents Item 3): the client island keeps the M2 realtime token/provider/Y.Doc/awareness/degrade wiring but presents it as a Google-Docs-like backoffice surface with a sticky grouped toolbar, centered document page, in-canvas title, presence avatar stack, semantic status pill, client-only Placeholder extension, and TipTap v3 BubbleMenu selection toolbar. The page passes the document title into the island and wires bubble-menu comments to the existing comments rail through a pending selection anchor. No API, persistence, sidecar, or schema changes.
 - **2026-07-09** — **Mention access prompt follow-up implemented** (Documents Item 2): comment creation now checks whether mentioned users can open the document, prompts share-capable authors to grant commenter access before notifying, and filters mention notifications to users with final document access. Added `POST /api/documents/[id]/comments/access-check` plus optional `grantAccessTo` on comment creation; no schema changes.
+- **2026-07-09** — **M5 spec added** (Deep OM integration + Google-Docs UX): TipTap keep-verdict recorded with sourced licensing/perf research; naked-GUID elimination plan (10 audit findings, shared `resolveUserLabels`, out-of-band comment mentions with a new `mentions` json column); Google-Docs UX features (align/highlight/color/undo-redo/outline/word-count/inline rename); `entityRef` chip node + `@`-trigger EntityPicker over customers/companies/deals/products/quotes (client-side HTTP coupling, FK-id + label snapshot); `document_template` entity + CRUD + client-side instantiation with `{{slot.field}}` autofill + seeded defaults; TC-DOCUMENTS-007/008 coverage.
