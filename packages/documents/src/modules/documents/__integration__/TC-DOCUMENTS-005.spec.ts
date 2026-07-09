@@ -53,6 +53,10 @@ type NotificationListBody = {
   items?: NotificationItem[]
 }
 
+type AccessCheckBody = {
+  withoutAccess?: string[]
+}
+
 type VersionItem = {
   id?: string
   label?: string | null
@@ -220,6 +224,23 @@ async function listComments(
   return Array.isArray(body?.items) ? body.items : []
 }
 
+async function checkMentionAccess(
+  request: APIRequestContext,
+  token: string,
+  documentId: string,
+  userIds: string[],
+): Promise<string[]> {
+  const response = await apiRequest(
+    request,
+    'POST',
+    `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
+    { token, data: { userIds } },
+  )
+  const body = await readJsonSafe<AccessCheckBody>(response)
+  expect(response.status(), 'POST /api/documents/[id]/comments/access-check should return 200').toBe(200)
+  return Array.isArray(body?.withoutAccess) ? body.withoutAccess : []
+}
+
 async function resolveComment(
   request: APIRequestContext,
   token: string,
@@ -269,7 +290,6 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
 
       await shareWithUser(request, adminToken, documentId, commenter.id, 'commenter')
       await shareWithUser(request, adminToken, documentId, viewer.id, 'viewer')
-      await shareWithUser(request, adminToken, documentId, mentionTarget.id, 'viewer')
 
       const createCommentResponse = await apiRequest(
         request,
@@ -313,6 +333,14 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       expect(resolveCommentResponse.status(), 'commenter should resolve a comment').toBe(200)
       expect(typeof resolveCommentBody?.resolvedAt === 'string' && resolveCommentBody.resolvedAt.length > 0).toBe(true)
 
+      const withoutAccessBeforeGrant = await checkMentionAccess(
+        request,
+        commenter.token,
+        documentId,
+        [mentionTarget.id],
+      )
+      expect(withoutAccessBeforeGrant).toContain(mentionTarget.id)
+
       const mentionCommentResponse = await apiRequest(
         request,
         'POST',
@@ -327,21 +355,69 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       const mentionCommentId = expectId(mentionCommentBody?.id, 'mention comment response should include id')
       const notificationPath = `/api/notifications?sourceEntityId=${encodeURIComponent(mentionCommentId)}`
 
-      const mentionedNotificationsResponse = await apiRequest(request, 'GET', notificationPath, {
+      const skippedMentionNotificationsResponse = await apiRequest(request, 'GET', notificationPath, {
+        token: mentionTarget.token,
+      })
+      const skippedMentionNotificationsBody = await readJsonSafe<NotificationListBody>(skippedMentionNotificationsResponse)
+      expect(skippedMentionNotificationsResponse.status(), 'mentioned user should read notifications').toBe(200)
+      const skippedMentionItems = Array.isArray(skippedMentionNotificationsBody?.items)
+        ? skippedMentionNotificationsBody.items
+        : []
+      expect(skippedMentionItems.length, 'non-shared mentioned user should not receive a notification').toBe(0)
+
+      const grantMentionCommentResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(documentId)}/comments`,
+        {
+          token: adminToken,
+          data: {
+            body: `grant @[${mentionTarget.id}]`,
+            anchor: null,
+            parentCommentId: null,
+            grantAccessTo: [mentionTarget.id],
+          },
+        },
+      )
+      const grantMentionCommentBody = await readJsonSafe<MutationBody>(grantMentionCommentResponse)
+      expect(grantMentionCommentResponse.status(), 'owner grant mention POST should return 201').toBe(201)
+      const grantMentionCommentId = expectId(
+        grantMentionCommentBody?.id,
+        'grant mention comment response should include id',
+      )
+
+      const withoutAccessAfterGrant = await checkMentionAccess(
+        request,
+        adminToken,
+        documentId,
+        [mentionTarget.id],
+      )
+      expect(withoutAccessAfterGrant, 'grant mention should give the target commenter access').not.toContain(mentionTarget.id)
+
+      const grantedTargetDocumentResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${encodeURIComponent(documentId)}`,
+        { token: mentionTarget.token },
+      )
+      expect(grantedTargetDocumentResponse.status(), 'grant mention target should now open the document').toBe(200)
+
+      const grantedNotificationPath = `/api/notifications?sourceEntityId=${encodeURIComponent(grantMentionCommentId)}`
+      const mentionedNotificationsResponse = await apiRequest(request, 'GET', grantedNotificationPath, {
         token: mentionTarget.token,
       })
       const mentionedNotificationsBody = await readJsonSafe<NotificationListBody>(mentionedNotificationsResponse)
-      expect(mentionedNotificationsResponse.status(), 'mentioned user should read notifications').toBe(200)
+      expect(mentionedNotificationsResponse.status(), 'granted mentioned user should read notifications').toBe(200)
       const mentionedItems = Array.isArray(mentionedNotificationsBody?.items)
         ? mentionedNotificationsBody.items
         : []
-      expect(mentionedItems.length, 'mentioned user should receive a notification').toBeGreaterThanOrEqual(1)
+      expect(mentionedItems.length, 'granted mentioned user should receive a notification').toBeGreaterThanOrEqual(1)
       expect(
         mentionedItems.some((item) =>
           item.type === 'documents.comment.mentioned'
-          && item.sourceEntityId === mentionCommentId
+          && item.sourceEntityId === grantMentionCommentId
           && typeof item.linkHref === 'string'
-          && item.linkHref.includes(`commentId=${mentionCommentId}`),
+          && item.linkHref.includes(`commentId=${grantMentionCommentId}`),
         ),
         'mention notification should link to the source comment',
       ).toBe(true)

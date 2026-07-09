@@ -15,7 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
-import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import {
   Select,
@@ -25,6 +24,7 @@ import {
   SelectValue,
 } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { PrincipalPicker } from './PrincipalPicker'
 
 type DocumentSharePrincipalType = 'user' | 'role'
 type DocumentSharePermission = 'viewer' | 'commenter' | 'editor'
@@ -307,11 +307,11 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
           <form className="grid gap-3 rounded-lg border border-border bg-muted/20 p-4 md:grid-cols-3" onSubmit={submitAddShare}>
             <div className="space-y-2">
               <Label htmlFor={principalInputId}>{t('documents.share.dialog.principal')}</Label>
-              <Input
+              <PrincipalPicker
                 id={principalInputId}
-                value={principalId}
-                onChange={(event) => setPrincipalId(event.target.value)}
-                placeholder={t('documents.share.dialog.principalPlaceholder')}
+                principalType={principalType}
+                value={principalId || null}
+                onChange={(id) => setPrincipalId(id ?? '')}
                 disabled={!canManage || isSubmitting}
               />
             </div>
@@ -319,7 +319,10 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
               <Label>{t('documents.share.dialog.principalType')}</Label>
               <Select
                 value={principalType}
-                onValueChange={(value) => setPrincipalType(readPrincipalType(value))}
+                onValueChange={(value) => {
+                  setPrincipalType(readPrincipalType(value))
+                  setPrincipalId('')
+                }}
                 disabled={!canManage || isSubmitting}
               >
                 <SelectTrigger>

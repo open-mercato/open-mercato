@@ -3,6 +3,7 @@
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
 import { EditorContent, useEditor } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import {
   Bold,
@@ -17,6 +18,7 @@ import {
   ListOrdered,
   ListTodo,
   Loader2,
+  MessageSquare,
   Pilcrow,
   Save,
   Strikethrough,
@@ -37,6 +39,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { cn } from '@open-mercato/shared/lib/utils'
 
 const COLLAB_CONNECTION_TIMEOUT_MS = 6000
 
@@ -89,6 +92,11 @@ type PresenceUser = {
 
 type ConnectionStatus = 'connecting' | 'connected' | 'offline'
 
+type EditorSelectionRange = {
+  from: number
+  to: number
+}
+
 type CollabState =
   | { mode: 'connecting' }
   | { mode: 'fallback' }
@@ -101,10 +109,12 @@ type CollabState =
 
 type DocumentEditorIslandProps = {
   documentId: string
+  title: string
   initialContentHtml: string
   initialUpdatedAt?: string | null
   readOnly: boolean
   onEditorReady?: (editor: Editor | null) => void
+  onComment?: (selection: EditorSelectionRange) => void
 }
 
 type DocumentEditorSurfaceProps = DocumentEditorIslandProps & {
@@ -119,6 +129,8 @@ type ToolbarButtonProps = {
   icon: React.ReactNode
   active?: boolean
   disabled?: boolean
+  size?: 'sm' | 'default'
+  onMouseDown?: (event: React.MouseEvent<HTMLButtonElement>) => void
   onClick: () => void
 }
 
@@ -231,15 +243,77 @@ function destroyCollabResources(resources: CollabResources): void {
   }
 }
 
-function ToolbarButton({ label, icon, active = false, disabled = false, onClick }: ToolbarButtonProps) {
+const CONNECTION_STATUS_STYLES: Record<ConnectionStatus, { pill: string; dot: string }> = {
+  connected: {
+    pill: 'border-status-success-border bg-status-success-bg text-status-success-text',
+    dot: 'bg-status-success-icon',
+  },
+  connecting: {
+    pill: 'border-status-warning-border bg-status-warning-bg text-status-warning-text',
+    dot: 'bg-status-warning-icon',
+  },
+  offline: {
+    pill: 'border-status-error-border bg-status-error-bg text-status-error-text',
+    dot: 'bg-status-error-icon',
+  },
+}
+
+const DOCUMENT_EDITOR_CONTENT_CLASS = cn(
+  'max-w-none text-foreground',
+  '[&_.ProseMirror]:min-h-96 [&_.ProseMirror]:focus-visible:outline-none',
+  '[&_.ProseMirror>*:first-child]:mt-0 [&_.ProseMirror>*:last-child]:mb-0',
+  '[&_h1]:mb-4 [&_h1]:mt-8 [&_h1]:text-3xl [&_h1]:font-bold [&_h1]:leading-tight',
+  '[&_h2]:mb-3 [&_h2]:mt-7 [&_h2]:text-2xl [&_h2]:font-semibold [&_h2]:leading-tight',
+  '[&_h3]:mb-2 [&_h3]:mt-6 [&_h3]:text-xl [&_h3]:font-semibold [&_h3]:leading-snug',
+  '[&_p]:my-4 [&_p]:leading-7',
+  '[&_ul]:my-4 [&_ul]:list-disc [&_ul]:pl-6',
+  '[&_ol]:my-4 [&_ol]:list-decimal [&_ol]:pl-6',
+  '[&_li]:my-1 [&_li>p]:my-1',
+  '[&_ul[data-type=taskList]]:list-none [&_ul[data-type=taskList]]:pl-0',
+  '[&_ul[data-type=taskList]_li]:flex [&_ul[data-type=taskList]_li]:items-start [&_ul[data-type=taskList]_li]:gap-2',
+  '[&_ul[data-type=taskList]_label]:mt-1 [&_ul[data-type=taskList]_label]:shrink-0',
+  '[&_blockquote]:my-6 [&_blockquote]:border-l-4 [&_blockquote]:border-border [&_blockquote]:pl-4 [&_blockquote]:italic [&_blockquote]:text-muted-foreground',
+  '[&_pre]:my-6 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:bg-muted [&_pre]:p-4 [&_pre]:font-mono [&_pre]:text-sm [&_pre]:leading-6',
+  '[&_code]:rounded-sm [&_code]:bg-muted [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-sm',
+  '[&_pre_code]:bg-transparent [&_pre_code]:p-0',
+  '[&_a]:text-primary [&_a]:underline [&_a]:underline-offset-4',
+  '[&_hr]:my-8 [&_hr]:border-border',
+  '[&_img]:my-6 [&_img]:h-auto [&_img]:max-w-full [&_img]:rounded-md',
+  '[&_table]:my-6 [&_table]:w-full [&_table]:border-collapse',
+  '[&_td]:border [&_td]:border-border [&_td]:px-3 [&_td]:py-2 [&_td]:align-top',
+  '[&_th]:border [&_th]:border-border [&_th]:bg-muted [&_th]:px-3 [&_th]:py-2 [&_th]:text-left [&_th]:font-semibold',
+  '[&_.is-editor-empty:first-child]:before:pointer-events-none [&_.is-editor-empty:first-child]:before:float-left',
+  '[&_.is-editor-empty:first-child]:before:h-0 [&_.is-editor-empty:first-child]:before:text-muted-foreground',
+  '[&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
+)
+
+function ToolbarGroup({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('flex items-center gap-1', className)}>{children}</div>
+}
+
+function ToolbarDivider() {
+  return <div className="hidden h-6 border-l border-border md:block" aria-hidden="true" />
+}
+
+function ToolbarButton({
+  label,
+  icon,
+  active = false,
+  disabled = false,
+  size = 'default',
+  onMouseDown,
+  onClick,
+}: ToolbarButtonProps) {
   return (
     <IconButton
       type="button"
+      size={size}
       variant={active ? 'outline' : 'ghost'}
       aria-label={label}
       aria-pressed={active}
       title={label}
       disabled={disabled}
+      onMouseDown={onMouseDown}
       onClick={onClick}
     >
       {icon}
@@ -247,23 +321,42 @@ function ToolbarButton({ label, icon, active = false, disabled = false, onClick 
   )
 }
 
+function ConnectionStatusPill({ status, label }: { status: ConnectionStatus; label: string }) {
+  const styles = CONNECTION_STATUS_STYLES[status]
+  return (
+    <span className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', styles.pill)}>
+      <span className={cn('size-2 rounded-full', styles.dot)} aria-hidden="true" />
+      {label}
+    </span>
+  )
+}
+
 function PresenceAvatars({ users }: { users: PresenceUser[] }) {
   const t = useT()
   if (users.length === 0) return null
+  const visibleUsers = users.slice(0, 4)
+  const hiddenCount = users.length - visibleUsers.length
   return (
-    <div className="flex items-center gap-2" aria-label={t('documents.editor.realtime.presenceLabel')}>
-      <span className="text-xs text-muted-foreground">{t('documents.editor.realtime.presenceLabel')}</span>
-      <div className="flex items-center gap-1">
-        {users.map((user) => (
+    <div className="flex items-center" aria-label={t('documents.editor.realtime.presenceLabel')}>
+      <div className="flex -space-x-2">
+        {visibleUsers.map((user) => (
           <Avatar
             key={user.key}
             label={user.name}
             title={user.name}
             size="xs"
-            className="border border-background text-primary-foreground"
+            className="border border-background text-primary-foreground ring-2 ring-background"
             style={{ backgroundColor: user.color }}
           />
         ))}
+        {hiddenCount > 0 ? (
+          <span
+            className="inline-flex size-5 items-center justify-center rounded-full border border-background bg-muted text-xs font-semibold text-muted-foreground ring-2 ring-background"
+            title={t('documents.editor.realtime.moreCollaborators', '{count} more collaborators', { count: hiddenCount })}
+          >
+            +{hiddenCount}
+          </span>
+        ) : null}
       </div>
     </div>
   )
@@ -271,10 +364,12 @@ function PresenceAvatars({ users }: { users: PresenceUser[] }) {
 
 function DocumentEditorSurface({
   documentId,
+  title,
   initialContentHtml,
   initialUpdatedAt,
   readOnly,
   onEditorReady,
+  onComment,
   editorMode,
   collabResources,
   connectionStatus,
@@ -308,10 +403,11 @@ function DocumentEditorSurface({
         ydoc: collabResources.ydoc,
         provider: collabResources.provider,
         user: { name: collabResources.user.name, color: collabResources.user.color },
+        placeholder: t('documents.editor.placeholder', 'Start writing…'),
       })
     }
     return getDocumentEditorExtensions()
-  }, [collabResources, editorMode])
+  }, [collabResources, editorMode, t])
 
   const saveContent = React.useCallback(async () => {
     const editor = editorRef.current
@@ -366,7 +462,7 @@ function DocumentEditorSurface({
     editable: !effectiveReadOnly,
     editorProps: {
       attributes: {
-        class: 'min-h-96 rounded-b-lg px-4 py-4 text-sm focus-visible:outline-none',
+        class: 'min-h-96 text-base leading-7 text-foreground focus-visible:outline-none',
       },
     },
     onCreate: ({ editor: createdEditor }) => {
@@ -437,6 +533,14 @@ function DocumentEditorSurface({
     scheduleAutosave()
   }, [effectiveReadOnly, scheduleAutosave])
 
+  const handleCommentSelection = React.useCallback(() => {
+    const currentEditor = editorRef.current
+    if (!currentEditor || !onComment) return
+    const { from, to } = currentEditor.state.selection
+    if (from === to) return
+    onComment({ from, to })
+  }, [onComment])
+
   const handleImageFiles = React.useCallback(async (files: FileList | null) => {
     const file = files?.item(0)
     const currentEditor = editorRef.current
@@ -481,184 +585,269 @@ function DocumentEditorSurface({
 
   const isBusy = isUploadingImage
   const toolbarDisabled = effectiveReadOnly || !editor
+  const resolvedConnectionStatus = editorMode === 'fallback' ? 'offline' : connectionStatus
+  const shouldShowBubbleMenu = React.useCallback((selection: { from: number; to: number }) => {
+    return selection.from !== selection.to && (!effectiveReadOnly || Boolean(onComment))
+  }, [effectiveReadOnly, onComment])
+  const keepBubbleSelectionOnMouseDown = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault()
+  }, [])
+  const readOnlyMessage = editorMode === 'fallback'
+    ? t('documents.editor.realtime.readOnlyFallback')
+    : readOnly
+      ? t('documents.editor.readOnly')
+      : null
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-border bg-card">
-        <div className="flex flex-wrap items-center gap-2 border-b border-border p-3">
-          <ToolbarButton
-            label={t('documents.editor.toolbar.paragraph')}
-            icon={<Pilcrow />}
-            active={editor?.isActive('paragraph') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setParagraph().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.heading1')}
-            icon={<Heading1 />}
-            active={editor?.isActive('heading', { level: 1 }) ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 1 }).run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.heading2')}
-            icon={<Heading2 />}
-            active={editor?.isActive('heading', { level: 2 }) ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 2 }).run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.heading3')}
-            icon={<Heading3 />}
-            active={editor?.isActive('heading', { level: 3 }) ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 3 }).run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.bold')}
-            icon={<Bold />}
-            active={editor?.isActive('bold') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.italic')}
-            icon={<Italic />}
-            active={editor?.isActive('italic') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.underline')}
-            icon={<Underline />}
-            active={editor?.isActive('underline') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleMark('underline').run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.strike')}
-            icon={<Strikethrough />}
-            active={editor?.isActive('strike') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleStrike().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.bulletList')}
-            icon={<List />}
-            active={editor?.isActive('bulletList') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBulletList().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.orderedList')}
-            icon={<ListOrdered />}
-            active={editor?.isActive('orderedList') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleOrderedList().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.taskList')}
-            icon={<ListTodo />}
-            active={editor?.isActive('taskList') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleTaskList().run())}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.table')}
-            icon={<Table2 />}
-            disabled={toolbarDisabled}
-            onClick={() =>
-              runCommand((currentEditor) =>
-                currentEditor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
-              )
-            }
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.link')}
-            icon={<Link2 />}
-            active={editor?.isActive('link') ?? false}
-            disabled={toolbarDisabled}
-            onClick={openLinkEditor}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.image')}
-            icon={isUploadingImage ? <Loader2 className="animate-spin" /> : <ImagePlus />}
-            disabled={toolbarDisabled || isUploadingImage}
-            onClick={() => fileInputRef.current?.click()}
-          />
-          <ToolbarButton
-            label={t('documents.editor.toolbar.codeBlock')}
-            icon={<Code2 />}
-            active={editor?.isActive('codeBlock') ?? false}
-            disabled={toolbarDisabled}
-            onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleCodeBlock().run())}
-          />
-          <div className="ml-auto flex items-center gap-2">
-            <PresenceAvatars users={presenceUsers} />
-            <span className="text-xs text-muted-foreground">{connectionLabel}</span>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => void saveContent()}
-              disabled={editorMode === 'collab' || effectiveReadOnly || !editor || isBusy}
-            >
-              <Save />
-              {t('documents.actions.save')}
-            </Button>
+      <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
+        <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
+          <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+            <ToolbarGroup>
+              <ToolbarButton
+                label={t('documents.editor.toolbar.paragraph')}
+                icon={<Pilcrow />}
+                active={editor?.isActive('paragraph') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().setParagraph().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.heading1')}
+                icon={<Heading1 />}
+                active={editor?.isActive('heading', { level: 1 }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 1 }).run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.heading2')}
+                icon={<Heading2 />}
+                active={editor?.isActive('heading', { level: 2 }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 2 }).run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.heading3')}
+                icon={<Heading3 />}
+                active={editor?.isActive('heading', { level: 3 }) ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleHeading({ level: 3 }).run())}
+              />
+            </ToolbarGroup>
+            <ToolbarDivider />
+            <ToolbarGroup>
+              <ToolbarButton
+                label={t('documents.editor.toolbar.bold')}
+                icon={<Bold />}
+                active={editor?.isActive('bold') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.italic')}
+                icon={<Italic />}
+                active={editor?.isActive('italic') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.underline')}
+                icon={<Underline />}
+                active={editor?.isActive('underline') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleMark('underline').run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.strike')}
+                icon={<Strikethrough />}
+                active={editor?.isActive('strike') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleStrike().run())}
+              />
+            </ToolbarGroup>
+            <ToolbarDivider />
+            <ToolbarGroup>
+              <ToolbarButton
+                label={t('documents.editor.toolbar.bulletList')}
+                icon={<List />}
+                active={editor?.isActive('bulletList') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBulletList().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.orderedList')}
+                icon={<ListOrdered />}
+                active={editor?.isActive('orderedList') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleOrderedList().run())}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.taskList')}
+                icon={<ListTodo />}
+                active={editor?.isActive('taskList') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleTaskList().run())}
+              />
+            </ToolbarGroup>
+            <ToolbarDivider />
+            <ToolbarGroup>
+              <ToolbarButton
+                label={t('documents.editor.toolbar.table')}
+                icon={<Table2 />}
+                disabled={toolbarDisabled}
+                onClick={() =>
+                  runCommand((currentEditor) =>
+                    currentEditor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+                  )
+                }
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.link')}
+                icon={<Link2 />}
+                active={editor?.isActive('link') ?? false}
+                disabled={toolbarDisabled}
+                onClick={openLinkEditor}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.image')}
+                icon={isUploadingImage ? <Loader2 className="animate-spin" /> : <ImagePlus />}
+                disabled={toolbarDisabled || isUploadingImage}
+                onClick={() => fileInputRef.current?.click()}
+              />
+              <ToolbarButton
+                label={t('documents.editor.toolbar.codeBlock')}
+                icon={<Code2 />}
+                active={editor?.isActive('codeBlock') ?? false}
+                disabled={toolbarDisabled}
+                onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleCodeBlock().run())}
+              />
+            </ToolbarGroup>
+            <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+              <PresenceAvatars users={presenceUsers} />
+              <ConnectionStatusPill status={resolvedConnectionStatus} label={connectionLabel} />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => void saveContent()}
+                disabled={editorMode === 'collab' || effectiveReadOnly || !editor || isBusy}
+              >
+                <Save />
+                {t('documents.actions.save')}
+              </Button>
+            </div>
           </div>
+
+          {linkEditorOpen ? (
+            <div
+              className="flex flex-col gap-3 border-t border-border bg-muted/30 p-3 md:flex-row md:items-end"
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                  event.preventDefault()
+                  applyLink()
+                }
+                if (event.key === 'Escape') {
+                  event.preventDefault()
+                  setLinkEditorOpen(false)
+                }
+              }}
+            >
+              <div className="min-w-0 flex-1 space-y-2">
+                <Label htmlFor={linkInputId}>{t('documents.editor.link.url')}</Label>
+                <Input
+                  id={linkInputId}
+                  type="url"
+                  value={linkHref}
+                  onChange={(event) => setLinkHref(event.target.value)}
+                  placeholder={t('documents.editor.link.placeholder')}
+                  disabled={effectiveReadOnly}
+                />
+              </div>
+              <Button type="button" onClick={applyLink} disabled={effectiveReadOnly}>
+                <Link2 />
+                {t('documents.editor.link.apply')}
+              </Button>
+              <Button type="button" variant="outline" onClick={removeLink} disabled={effectiveReadOnly}>
+                <Unlink />
+                {t('documents.editor.link.remove')}
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setLinkEditorOpen(false)}>
+                {t('documents.actions.cancel')}
+              </Button>
+            </div>
+          ) : null}
         </div>
 
-        {linkEditorOpen ? (
-          <div
-            className="flex flex-col gap-3 border-b border-border bg-muted/20 p-3 md:flex-row md:items-end"
-            onKeyDown={(event) => {
-              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                event.preventDefault()
-                applyLink()
-              }
-              if (event.key === 'Escape') {
-                event.preventDefault()
-                setLinkEditorOpen(false)
-              }
-            }}
-          >
-            <div className="min-w-0 flex-1 space-y-2">
-              <Label htmlFor={linkInputId}>{t('documents.editor.link.url')}</Label>
-              <Input
-                id={linkInputId}
-                type="url"
-                value={linkHref}
-                onChange={(event) => setLinkHref(event.target.value)}
-                placeholder={t('documents.editor.link.placeholder')}
-                disabled={effectiveReadOnly}
-              />
-            </div>
-            <Button type="button" onClick={applyLink} disabled={effectiveReadOnly}>
-              <Link2 />
-              {t('documents.editor.link.apply')}
-            </Button>
-            <Button type="button" variant="outline" onClick={removeLink} disabled={effectiveReadOnly}>
-              <Unlink />
-              {t('documents.editor.link.remove')}
-            </Button>
-            <Button type="button" variant="ghost" onClick={() => setLinkEditorOpen(false)}>
-              {t('documents.actions.cancel')}
-            </Button>
-          </div>
-        ) : null}
-
-        <EditorContent editor={editor} />
+        <div className="bg-muted px-4 py-8 md:px-8 md:py-10">
+          {readOnlyMessage ? (
+            <p className="mx-auto mb-4 max-w-3xl rounded-md border border-status-info-border bg-status-info-bg px-3 py-2 text-sm text-status-info-text">
+              {readOnlyMessage}
+            </p>
+          ) : null}
+          <article className="mx-auto min-h-96 max-w-3xl rounded-lg bg-card px-6 py-8 shadow-lg md:px-12 md:py-16">
+            <h1 className="mb-8 text-3xl font-semibold leading-tight text-foreground">{title}</h1>
+            {editor ? (
+              <BubbleMenu
+                editor={editor}
+                shouldShow={shouldShowBubbleMenu}
+                className="z-popover flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow-md"
+              >
+                <ToolbarButton
+                  size="sm"
+                  label={t('documents.editor.toolbar.bold')}
+                  icon={<Bold />}
+                  active={editor.isActive('bold')}
+                  disabled={effectiveReadOnly}
+                  onMouseDown={keepBubbleSelectionOnMouseDown}
+                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleBold().run())}
+                />
+                <ToolbarButton
+                  size="sm"
+                  label={t('documents.editor.toolbar.italic')}
+                  icon={<Italic />}
+                  active={editor.isActive('italic')}
+                  disabled={effectiveReadOnly}
+                  onMouseDown={keepBubbleSelectionOnMouseDown}
+                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleItalic().run())}
+                />
+                <ToolbarButton
+                  size="sm"
+                  label={t('documents.editor.toolbar.underline')}
+                  icon={<Underline />}
+                  active={editor.isActive('underline')}
+                  disabled={effectiveReadOnly}
+                  onMouseDown={keepBubbleSelectionOnMouseDown}
+                  onClick={() => runCommand((currentEditor) => currentEditor.chain().focus().toggleMark('underline').run())}
+                />
+                <ToolbarButton
+                  size="sm"
+                  label={t('documents.editor.toolbar.link')}
+                  icon={<Link2 />}
+                  active={editor.isActive('link')}
+                  disabled={effectiveReadOnly}
+                  onMouseDown={keepBubbleSelectionOnMouseDown}
+                  onClick={openLinkEditor}
+                />
+                {onComment ? (
+                  <>
+                    <ToolbarDivider />
+                    <Button
+                      type="button"
+                      size="2xs"
+                      variant="ghost"
+                      onMouseDown={keepBubbleSelectionOnMouseDown}
+                      onClick={handleCommentSelection}
+                    >
+                      <MessageSquare />
+                      {t('documents.editor.toolbar.comment', 'Comment')}
+                    </Button>
+                  </>
+                ) : null}
+              </BubbleMenu>
+            ) : null}
+            <EditorContent className={DOCUMENT_EDITOR_CONTENT_CLASS} editor={editor} />
+          </article>
+        </div>
       </div>
-
-      {editorMode === 'fallback' ? (
-        <p className="rounded border border-status-info-border bg-status-info-bg px-3 py-2 text-sm text-status-info-text">
-          {t('documents.editor.realtime.readOnlyFallback')}
-        </p>
-      ) : readOnly ? (
-        <p className="rounded border border-status-info-border bg-status-info-bg px-3 py-2 text-sm text-status-info-text">
-          {t('documents.editor.readOnly')}
-        </p>
-      ) : null}
 
       <input
         ref={fileInputRef}
@@ -674,10 +863,12 @@ function DocumentEditorSurface({
 
 export default function DocumentEditorIsland({
   documentId,
+  title,
   initialContentHtml,
   initialUpdatedAt,
   readOnly,
   onEditorReady,
+  onComment,
 }: DocumentEditorIslandProps) {
   const t = useT()
   const resourcesRef = React.useRef<CollabResources | null>(null)
@@ -755,8 +946,12 @@ export default function DocumentEditorIsland({
         ))
       }
 
+      let hasConnected = false
       const updateConnectionStatus = (connectionStatus: ConnectionStatus) => {
-        if (connectionStatus === 'connected') clearConnectionTimer()
+        if (connectionStatus === 'connected') {
+          hasConnected = true
+          clearConnectionTimer()
+        }
         if (cancelled || resourcesRef.current !== resources) return
         setCollabState((current) => (
           current.mode === 'collab' && current.resources === resources
@@ -771,11 +966,25 @@ export default function DocumentEditorIsland({
         if (record?.state === true) updateConnectionStatus('connected')
       }
 
+      // A mid-session disconnect/close (e.g. the sidecar force-closing the room after a
+      // share/downgrade/restore) must NOT tear the editor down: HocuspocusProvider
+      // auto-reconnects and re-mints a fresh token (picking up the caller's current
+      // tier). Only fall back to read-only when we never connected in the first place;
+      // a genuine loss of access surfaces separately as `authenticationFailed`.
+      const handleDisconnect = () => {
+        if (cancelled) return
+        if (!hasConnected) {
+          fallbackToReadOnly()
+          return
+        }
+        updateConnectionStatus('offline')
+      }
+
       provider.on('status', handleStatus)
       provider.on('synced', handleSynced)
       provider.on('authenticationFailed', fallbackToReadOnly)
-      provider.on('disconnect', fallbackToReadOnly)
-      provider.on('close', fallbackToReadOnly)
+      provider.on('disconnect', handleDisconnect)
+      provider.on('close', handleDisconnect)
       provider.awareness?.on('change', updatePresence)
 
       connectionTimer = window.setTimeout(fallbackToReadOnly, COLLAB_CONNECTION_TIMEOUT_MS)
@@ -814,10 +1023,12 @@ export default function DocumentEditorIsland({
       <DocumentEditorSurface
         key={`fallback:${documentId}`}
         documentId={documentId}
+        title={title}
         initialContentHtml={initialContentHtml}
         initialUpdatedAt={initialUpdatedAt}
         readOnly={readOnly}
         onEditorReady={onEditorReady}
+        onComment={onComment}
         editorMode="fallback"
         connectionStatus="offline"
         presenceUsers={[]}
@@ -829,10 +1040,12 @@ export default function DocumentEditorIsland({
     <DocumentEditorSurface
       key={`collab:${documentId}`}
       documentId={documentId}
+      title={title}
       initialContentHtml={initialContentHtml}
       initialUpdatedAt={initialUpdatedAt}
       readOnly={readOnly}
       onEditorReady={onEditorReady}
+      onComment={onComment}
       editorMode="collab"
       collabResources={collabState.resources}
       connectionStatus={collabState.connectionStatus}

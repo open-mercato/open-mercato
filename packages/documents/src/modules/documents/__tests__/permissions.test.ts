@@ -1,5 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
+import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import {
   Document,
   DocumentShare,
@@ -9,6 +10,7 @@ import {
 import {
   hasTier,
   resolvePermission,
+  resolveUserAccess,
   TIER_RANK,
   type DocumentTier,
 } from '../lib/permissions'
@@ -39,6 +41,12 @@ type MockShareRow = Pick<
 type PrincipalFilter = {
   principalType?: unknown
   principalId?: unknown
+}
+
+type MockUserRoleRow = {
+  user: string
+  role: { id: string }
+  deletedAt: Date | null
 }
 
 function makeDocument(overrides: Partial<MockDocumentRow> = {}): MockDocumentRow {
@@ -104,6 +112,7 @@ class MockEntityManager {
   constructor(
     private readonly document: MockDocumentRow | null,
     private readonly shares: MockShareRow[] = [],
+    private readonly userRoles: MockUserRoleRow[] = [],
   ) {}
 
   async findOne(entity: unknown, where: unknown): Promise<MockDocumentRow | null> {
@@ -116,9 +125,16 @@ class MockEntityManager {
     return this.document
   }
 
-  async find(entity: unknown, where: unknown): Promise<MockShareRow[]> {
-    if (entity !== DocumentShare) return []
+  async find(entity: unknown, where: unknown): Promise<unknown[]> {
     const query = readQuery(where)
+    if (entity === UserRole) {
+      return this.userRoles.filter((row) => {
+        if (query.user !== row.user) return false
+        if (query.deletedAt === null && row.deletedAt !== null) return false
+        return true
+      })
+    }
+    if (entity !== DocumentShare) return []
     const principalFilters = Array.isArray(query.$or)
       ? query.$or.map((filter) => readQuery(filter) as PrincipalFilter)
       : []
@@ -133,8 +149,12 @@ class MockEntityManager {
   }
 }
 
-function mockEm(document: MockDocumentRow | null, shares: MockShareRow[] = []): EntityManager {
-  return new MockEntityManager(document, shares) as unknown as EntityManager
+function mockEm(
+  document: MockDocumentRow | null,
+  shares: MockShareRow[] = [],
+  userRoles: MockUserRoleRow[] = [],
+): EntityManager {
+  return new MockEntityManager(document, shares, userRoles) as unknown as EntityManager
 }
 
 describe('documents permission tiers', () => {
@@ -202,6 +222,30 @@ describe('documents permission tiers', () => {
       mockEm(makeDocument({ deletedAt: new Date('2026-07-08T00:00:00.000Z') })),
       DOCUMENT_ID,
       makeCtx(),
+    )
+    expect(result).toBeNull()
+  })
+
+  it('resolves explicit recipient access from UserRole role ids', async () => {
+    const result = await resolveUserAccess(
+      mockEm(
+        makeDocument(),
+        [makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' })],
+        [{ user: USER_ID, role: { id: ROLE_ID }, deletedAt: null }],
+      ),
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      USER_ID,
+    )
+    expect(result).toBe('editor')
+  })
+
+  it('does not treat manage features as explicit recipient access', async () => {
+    const result = await resolveUserAccess(
+      mockEm(makeDocument()),
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      USER_ID,
     )
     expect(result).toBeNull()
   })

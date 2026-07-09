@@ -35,6 +35,16 @@ type DocumentContent = {
   updatedAt?: string | null
 }
 
+type CommentSelection = {
+  from: number
+  to: number
+}
+
+type CommentFocusRequest = {
+  anchor: CommentSelection
+  requestId: number
+}
+
 type LoadState =
   | { status: 'loading' }
   | { status: 'notFound' }
@@ -120,6 +130,7 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
   const [showVersions, setShowVersions] = React.useState(false)
   const [editorEpoch, setEditorEpoch] = React.useState(0)
   const [editor, setEditor] = React.useState<import('@tiptap/core').Editor | null>(null)
+  const [commentFocusRequest, setCommentFocusRequest] = React.useState<CommentFocusRequest | null>(null)
 
   React.useEffect(() => {
     if (!documentId) {
@@ -173,6 +184,10 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
     }
   }, [documentId, t])
 
+  React.useEffect(() => {
+    setCommentFocusRequest(null)
+  }, [documentId])
+
   const reloadEditor = React.useCallback(() => {
     if (!documentId) return
     setEditor(null)
@@ -189,6 +204,13 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
       })
       .finally(() => setEditorEpoch((current) => current + 1))
   }, [documentId])
+
+  const handleEditorComment = React.useCallback((selection: CommentSelection) => {
+    setCommentFocusRequest((current) => ({
+      anchor: selection,
+      requestId: (current?.requestId ?? 0) + 1,
+    }))
+  }, [])
 
   if (state.status === 'loading') {
     return (
@@ -235,11 +257,12 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
   }
 
   const readOnly = state.document.tier === 'viewer' || state.document.tier === 'commenter'
+  const canComment = state.document.tier !== 'viewer'
 
   return (
     <Page>
       <PageHeader
-        title={state.document.title}
+        title={t('documents.nav.document')}
         actions={(
           <>
             <Button asChild variant="outline">
@@ -267,14 +290,22 @@ export default function DocumentEditorPage({ params }: { params?: { id?: string 
             <DocumentEditorIsland
               key={`${state.document.id}:${editorEpoch}`}
               documentId={state.document.id}
+              title={state.document.title}
               initialContentHtml={state.content.contentHtml}
               initialUpdatedAt={state.content.updatedAt ?? state.document.updatedAt ?? null}
               readOnly={readOnly}
               onEditorReady={setEditor}
+              onComment={canComment ? handleEditorComment : undefined}
             />
           </div>
           <aside className="space-y-4 md:w-80 md:shrink-0">
-            <CommentsRail documentId={state.document.id} tier={state.document.tier} editor={editor} />
+            <CommentsRail
+              documentId={state.document.id}
+              tier={state.document.tier}
+              editor={editor}
+              commentFocusRequest={commentFocusRequest}
+              canShare={state.document.canShare}
+            />
             {showVersions ? (
               <VersionHistoryPanel
                 documentId={state.document.id}

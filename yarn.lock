@@ -7854,10 +7854,12 @@ __metadata:
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@tiptap/core": "npm:^3"
+    "@tiptap/extension-bubble-menu": "npm:^3"
     "@tiptap/extension-collaboration": "npm:^3.27.3"
     "@tiptap/extension-collaboration-caret": "npm:^3.27.3"
     "@tiptap/extension-image": "npm:^3"
     "@tiptap/extension-link": "npm:^3"
+    "@tiptap/extension-placeholder": "npm:^3"
     "@tiptap/extension-table": "npm:^3"
     "@tiptap/extension-table-cell": "npm:^3"
     "@tiptap/extension-table-header": "npm:^3"
@@ -11402,7 +11404,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@tiptap/extension-bubble-menu@npm:^3.27.3":
+"@tiptap/extension-bubble-menu@npm:^3, @tiptap/extension-bubble-menu@npm:^3.27.3":
   version: 3.27.3
   resolution: "@tiptap/extension-bubble-menu@npm:3.27.3"
   dependencies:
@@ -11604,6 +11606,15 @@ __metadata:
   peerDependencies:
     "@tiptap/core": 3.27.3
   checksum: 10/e3062a6069856c313eb0e3da3f64e4f42c7879152652cbefd63248df1924d46886aa4f947d9ecfb41a83d83b241dff75d702849ad74a0d7ea2d77901a922f507
+  languageName: node
+  linkType: hard
+
+"@tiptap/extension-placeholder@npm:^3":
+  version: 3.27.3
+  resolution: "@tiptap/extension-placeholder@npm:3.27.3"
+  peerDependencies:
+    "@tiptap/extensions": 3.27.3
+  checksum: 10/da77c99b7352b3d83f22e247949e4e0fe1407f3affb0e6618c71615a9cc70d97878f433caf978ae74c805144a2807e496ace9ddb8c2a4ced67e4d6d49f71b0ba
   languageName: node
   linkType: hard
 

@@ -58,6 +58,7 @@ export const documentShareUpdateSchema = z.object({
 export const documentCommentCreateSchema = z.object({
   body: requiredTrimmedString(8000, 'documents.validation.comment.bodyRequired'),
   anchor: anchorSchema.optional().nullable(),
+  grantAccessTo: z.array(uuid()).max(50).optional(),
   parentCommentId: clearableUuidSchema,
 })
 

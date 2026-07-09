@@ -3,7 +3,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { Document, DocumentShare } from '../data/entities'
 
 export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
@@ -123,6 +123,53 @@ export async function resolvePermission(
     documentId,
     tenantId: ctx.tenantId,
     organizationId,
+    deletedAt: null,
+    $or: principals,
+  } as FilterQuery<DocumentShare>)
+
+  return maxShareTier(shares)
+}
+
+export async function resolveUserAccess(
+  em: EntityManager,
+  documentId: string,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+): Promise<DocumentTier | null> {
+  const document = await em.findOne(Document, {
+    id: documentId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    deletedAt: null,
+  })
+  if (!document) return null
+  if (document.ownerUserId === userId) return 'owner'
+
+  const userRoles = await em.find(
+    UserRole,
+    { user: userId, deletedAt: null } as FilterQuery<UserRole>,
+    { fields: ['role'] as const },
+  )
+  const roleIds = Array.from(
+    new Set(
+      userRoles
+        .map((row) => String((row.role as { id?: string })?.id ?? row.role))
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  )
+
+  const principals: Array<FilterQuery<DocumentShare>> = [
+    { principalType: 'user', principalId: userId },
+  ]
+  if (roleIds.length > 0) {
+    principals.push({ principalType: 'role', principalId: { $in: roleIds } } as FilterQuery<DocumentShare>)
+  }
+
+  const shares = await em.find(DocumentShare, {
+    documentId,
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
     deletedAt: null,
     $or: principals,
   } as FilterQuery<DocumentShare>)

@@ -1,16 +1,19 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
+import type { FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
-import { Document, DocumentComment } from '../../../data/entities'
+import { User } from '@open-mercato/core/modules/auth/data/entities'
+import { Document, DocumentComment, DocumentShare } from '../../../data/entities'
 import { documentCommentCreateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { emitDocumentsEvent } from '../../../events'
-import { assertTier, hasTier } from '../../../lib/permissions'
+import { assertTier, hasTier, resolveUserAccess } from '../../../lib/permissions'
 import {
+  hasDocumentsFeature,
   handleDocumentsRouteError,
   loadScopedDocument,
   readBody,
@@ -158,6 +161,56 @@ async function assertParentComment(
   await loadScopedComment(documentId, parentCommentId, ctx)
 }
 
+async function assertShareUserPrincipal(
+  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
+  userId: string,
+): Promise<void> {
+  const user = await ctx.em.findOne(User, {
+    id: userId,
+    tenantId: ctx.tenantId,
+    deletedAt: null,
+    $or: [{ organizationId: null }, { organizationId: ctx.organizationId }],
+  } as FilterQuery<User>)
+  if (!user) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
+}
+
+async function grantMentionAccessToUser(
+  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
+  documentId: string,
+  userId: string,
+  actorUserId: string,
+): Promise<DocumentShare> {
+  await assertShareUserPrincipal(ctx, userId)
+  const existing = await ctx.em.findOne(
+    DocumentShare,
+    {
+      documentId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      principalType: 'user',
+      principalId: userId,
+    },
+    { orderBy: { updatedAt: 'DESC' } },
+  )
+  const now = new Date()
+  const share = existing ?? ctx.em.create(DocumentShare, {
+    id: randomUUID(),
+    tenantId: ctx.tenantId,
+    organizationId: ctx.organizationId,
+    documentId,
+    principalType: 'user',
+    principalId: userId,
+    permission: 'commenter',
+    createdByUserId: actorUserId,
+  })
+  share.permission = 'commenter'
+  share.deletedAt = null
+  share.updatedAt = now
+  if (!existing) ctx.em.persist(share)
+  await ctx.em.flush()
+  return share
+}
+
 async function emitMentionNotifications(
   ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
   document: Document,
@@ -262,7 +315,45 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       organizationId: ctx.organizationId,
       userId,
     })
-    await emitMentionNotifications(ctx, document, comment, extractMentionedUserIds(comment.body))
+    const mentionedIds = extractMentionedUserIds(comment.body)
+    const canShare =
+      hasDocumentsFeature(ctx.auth, 'documents.share')
+      || hasDocumentsFeature(ctx.auth, 'documents.manage')
+      || document.ownerUserId === userId
+    const grantSet = new Set((input.grantAccessTo ?? []).map((id) => id.toLowerCase()))
+
+    for (const mentionedId of mentionedIds) {
+      if (!grantSet.has(mentionedId) || !canShare) continue
+      const tier = await resolveUserAccess(
+        ctx.em,
+        documentId,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        mentionedId,
+      )
+      if (tier) continue
+      const share = await grantMentionAccessToUser(ctx, documentId, mentionedId, userId)
+      await emitDocumentsEvent('documents.document.shared', {
+        id: documentId,
+        shareId: share.id,
+        principalType: share.principalType,
+        principalId: share.principalId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId,
+      })
+    }
+
+    const notifyMentionedIds: string[] = []
+    for (const mentionedId of mentionedIds) {
+      const tier = await resolveUserAccess(
+        ctx.em,
+        documentId,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        mentionedId,
+      )
+      if (tier) notifyMentionedIds.push(mentionedId)
+    }
+    await emitMentionNotifications(ctx, document, comment, notifyMentionedIds)
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: documentId,

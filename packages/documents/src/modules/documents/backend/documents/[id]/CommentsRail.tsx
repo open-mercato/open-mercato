@@ -14,6 +14,15 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MentionPicker } from './MentionPicker'
 
@@ -22,6 +31,11 @@ export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
 type CommentAnchor = {
   from: number
   to: number
+}
+
+type CommentFocusRequest = {
+  anchor: CommentAnchor
+  requestId: number
 }
 
 type DocumentComment = {
@@ -42,12 +56,20 @@ type CommentsRailProps = {
   documentId: string
   tier: DocumentTier
   editor: Editor | null
+  commentFocusRequest?: CommentFocusRequest | null
+  canShare?: boolean
 }
 
 type CommentsState =
   | { status: 'loading' }
   | { status: 'error'; message: string }
   | { status: 'ready'; comments: DocumentComment[] }
+
+type GrantAccessChoice = 'share' | 'skip'
+
+type GrantAccessPromptState = {
+  names: string[]
+}
 
 type Translate = (key: string, fallback?: string) => string
 
@@ -163,6 +185,43 @@ function shortenId(value: string): string {
   return value.length > 12 ? value.slice(0, 8) : value
 }
 
+function extractMentionedUserIds(body: string): string[] {
+  return Array.from(
+    new Set(
+      Array.from(body.matchAll(MENTION_TOKEN_PATTERN))
+        .map((match) => match[1])
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map((value) => value.toLowerCase()),
+    ),
+  )
+}
+
+function extractMentionNames(body: string): Map<string, string> {
+  const names = new Map<string, string>()
+  for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
+    const userId = match[1]
+    if (!userId) continue
+    const beforeToken = body.slice(0, match.index ?? 0)
+    const nameMatch = beforeToken.match(/@([^@\n]{1,120})\s*$/)
+    const name = nameMatch?.[1]?.trim()
+    if (name) names.set(userId.toLowerCase(), name)
+  }
+  return names
+}
+
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return []
+  return value
+    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
+    .map((entry) => entry.toLowerCase())
+}
+
+function readAccessCheckWithoutAccess(payload: unknown): string[] {
+  const record = readRecord(payload)
+  if (!record) return []
+  return readStringArray(record.withoutAccess)
+}
+
 function formatCommentBody(body: string): React.ReactNode[] {
   const parts: React.ReactNode[] = []
   let lastIndex = 0
@@ -170,16 +229,20 @@ function formatCommentBody(body: string): React.ReactNode[] {
   for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
     const matchIndex = match.index ?? 0
     const token = match[0]
-    const userId = match[1]
-    if (matchIndex > lastIndex) {
-      parts.push(body.slice(lastIndex, matchIndex))
+    const userId = match[1] ?? ''
+    const between = body.slice(lastIndex, matchIndex)
+    const readablePrefix = between.match(/@([^\s]+)\s$/)
+    const label = readablePrefix?.[1] ?? shortenId(userId)
+    const literalBefore = readablePrefix ? between.slice(0, readablePrefix.index) : between
+    if (literalBefore.length > 0) {
+      parts.push(literalBefore)
     }
     parts.push(
       <span
         key={`${userId}:${tokenIndex}`}
         className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-primary"
       >
-        @{shortenId(userId)}
+        @{label}
       </span>,
     )
     lastIndex = matchIndex + token.length
@@ -275,16 +338,21 @@ function CommentItem({
   )
 }
 
-export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
+export function CommentsRail({ documentId, tier, editor, commentFocusRequest, canShare = false }: CommentsRailProps) {
   const t = useT()
   const composerId = React.useId()
+  const composerRef = React.useRef<HTMLFormElement | null>(null)
   const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
+  const grantAccessResolverRef = React.useRef<((choice: GrantAccessChoice) => void) | null>(null)
   const [state, setState] = React.useState<CommentsState>({ status: 'loading' })
   const [body, setBody] = React.useState('')
+  const [mentionedUsers, setMentionedUsers] = React.useState<Map<string, string>>(() => new Map())
   const [parentCommentId, setParentCommentId] = React.useState<string | null>(null)
+  const [pendingAnchor, setPendingAnchor] = React.useState<CommentAnchor | null>(null)
   const [mentionPickerOpen, setMentionPickerOpen] = React.useState(false)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [resolvingCommentId, setResolvingCommentId] = React.useState<string | null>(null)
+  const [grantAccessPrompt, setGrantAccessPrompt] = React.useState<GrantAccessPromptState | null>(null)
 
   const mutationContextId = `documents-comments:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -318,6 +386,41 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
   const canComment = canCommentWithTier(tier)
   const canResolve = canResolveWithTier(tier)
 
+  React.useEffect(() => {
+    if (!commentFocusRequest || !canComment) return
+    setParentCommentId(null)
+    setPendingAnchor(commentFocusRequest.anchor)
+    window.setTimeout(() => {
+      composerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      textareaRef.current?.focus()
+    }, 0)
+  }, [canComment, commentFocusRequest])
+
+  React.useEffect(() => () => {
+    grantAccessResolverRef.current?.('skip')
+    grantAccessResolverRef.current = null
+  }, [])
+
+  const resolveGrantAccessPrompt = React.useCallback((choice: GrantAccessChoice) => {
+    const resolver = grantAccessResolverRef.current
+    grantAccessResolverRef.current = null
+    setGrantAccessPrompt(null)
+    resolver?.(choice)
+  }, [])
+
+  const grantPromptKeyDown = useDialogKeyHandler({
+    onConfirm: () => resolveGrantAccessPrompt('share'),
+    onCancel: () => resolveGrantAccessPrompt('skip'),
+  })
+
+  const requestGrantAccessChoice = React.useCallback((names: string[]): Promise<GrantAccessChoice> => {
+    grantAccessResolverRef.current?.('skip')
+    return new Promise((resolve) => {
+      grantAccessResolverRef.current = resolve
+      setGrantAccessPrompt({ names })
+    })
+  }, [])
+
   const captureSelectionAnchor = React.useCallback((): CommentAnchor | null => {
     if (!editor) return null
     const { from, to } = editor.state.selection
@@ -327,11 +430,57 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
     return { from, to }
   }, [editor])
 
+  const handleBodyChange = React.useCallback((nextBody: string) => {
+    setBody(nextBody)
+    const namesFromBody = extractMentionNames(nextBody)
+    if (namesFromBody.size === 0) return
+    setMentionedUsers((current) => {
+      const next = new Map(current)
+      for (const [id, name] of namesFromBody) {
+        next.set(id, name)
+      }
+      return next
+    })
+  }, [])
+
+  const checkMentionAccess = React.useCallback(async (userIds: string[]): Promise<string[]> => {
+    const call = await apiCall<unknown>(
+      `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ userIds }),
+      },
+    )
+    if (!call.ok) throw new Error(t('documents.comments.error.save'))
+    return readAccessCheckWithoutAccess(call.result)
+  }, [documentId, t])
+
+  const resolveGrantAccessTo = React.useCallback(async (trimmedBody: string): Promise<string[] | undefined> => {
+    const mentionedIds = extractMentionedUserIds(trimmedBody)
+    if (mentionedIds.length === 0) return undefined
+
+    const withoutAccess = await checkMentionAccess(mentionedIds)
+    if (withoutAccess.length === 0) return undefined
+    if (!canShare) {
+      flash(t('documents.comments.grant.noAccessInfo'), 'info')
+      return []
+    }
+
+    const namesFromBody = extractMentionNames(trimmedBody)
+    const names = withoutAccess.map((userId) =>
+      mentionedUsers.get(userId) ?? namesFromBody.get(userId) ?? shortenId(userId),
+    )
+    const choice = await requestGrantAccessChoice(names)
+    return choice === 'share' ? withoutAccess : []
+  }, [canShare, checkMentionAccess, mentionedUsers, requestGrantAccessChoice, t])
+
   const handleSubmit = React.useCallback(async () => {
     const trimmedBody = body.trim()
     if (!trimmedBody || !canComment) return
     setIsSubmitting(true)
     try {
+      const grantAccessTo = await resolveGrantAccessTo(trimmedBody)
       await runMutation({
         operation: async () => {
           await apiCallOrThrow(
@@ -341,8 +490,9 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
               headers: { 'content-type': 'application/json' },
               body: JSON.stringify({
                 body: trimmedBody,
-                anchor: captureSelectionAnchor(),
+                anchor: pendingAnchor ?? captureSelectionAnchor(),
                 parentCommentId,
+                ...(grantAccessTo !== undefined ? { grantAccessTo } : {}),
               }),
             },
             { errorMessage: t('documents.comments.error.save') },
@@ -354,10 +504,12 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
           resourceId: documentId,
           retryLastMutation,
         },
-        mutationPayload: { body: trimmedBody, parentCommentId },
+        mutationPayload: { body: trimmedBody, parentCommentId, grantAccessTo },
       })
       setBody('')
+      setMentionedUsers(new Map())
       setParentCommentId(null)
+      setPendingAnchor(null)
       setMentionPickerOpen(false)
       await reload()
     } catch (err) {
@@ -372,7 +524,9 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
     documentId,
     mutationContextId,
     parentCommentId,
+    pendingAnchor,
     reload,
+    resolveGrantAccessTo,
     retryLastMutation,
     runMutation,
     t,
@@ -419,6 +573,7 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
   }, [canResolve, documentId, mutationContextId, reload, retryLastMutation, runMutation, t])
 
   const handleReply = React.useCallback((comment: DocumentComment) => {
+    setPendingAnchor(null)
     setParentCommentId(comment.id)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }, [])
@@ -445,13 +600,20 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
     if (event.key === 'Escape') {
       event.preventDefault()
       setBody('')
+      setMentionedUsers(new Map())
       setParentCommentId(null)
+      setPendingAnchor(null)
       setMentionPickerOpen(false)
     }
   }, [handleSubmit])
 
   const handleMentionPick = React.useCallback((user: { id: string; name: string }) => {
     const mentionText = `@${user.name} @[${user.id}]`
+    setMentionedUsers((current) => {
+      const next = new Map(current)
+      next.set(user.id.toLowerCase(), user.name)
+      return next
+    })
     setBody((current) => `${current}${current.trim().length > 0 ? ' ' : ''}${mentionText}`)
     setMentionPickerOpen(false)
     window.setTimeout(() => textareaRef.current?.focus(), 0)
@@ -460,7 +622,8 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
   const comments = state.status === 'ready' ? state.comments : []
 
   return (
-    <section className="rounded-lg border border-border bg-card p-4">
+    <>
+      <section className="rounded-lg border border-border bg-card p-4">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <MessageSquare className="size-4 text-muted-foreground" aria-hidden="true" />
@@ -500,6 +663,7 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
 
         {canComment ? (
           <form
+            ref={composerRef}
             className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
             onSubmit={(event) => {
               event.preventDefault()
@@ -519,7 +683,7 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
                 ref={textareaRef}
                 id={composerId}
                 value={body}
-                onChange={(event) => setBody(event.target.value)}
+                onChange={(event) => handleBodyChange(event.target.value)}
                 placeholder={t('documents.comments.composer.placeholder')}
                 maxLength={8000}
                 showCount
@@ -547,7 +711,32 @@ export function CommentsRail({ documentId, tier, editor }: CommentsRailProps) {
           </form>
         ) : null}
       </div>
-    </section>
+      </section>
+
+      <Dialog
+        open={grantAccessPrompt !== null}
+        onOpenChange={(open) => {
+          if (!open) resolveGrantAccessPrompt('skip')
+        }}
+      >
+        <DialogContent onKeyDown={grantPromptKeyDown}>
+          <DialogHeader>
+            <DialogTitle>{t('documents.comments.grant.title')}</DialogTitle>
+            <DialogDescription>
+              {t('documents.comments.grant.body', { names: grantAccessPrompt?.names.join(', ') ?? '' })}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => resolveGrantAccessPrompt('skip')}>
+              {t('documents.comments.grant.skip')}
+            </Button>
+            <Button type="button" onClick={() => resolveGrantAccessPrompt('share')}>
+              {t('documents.comments.grant.share')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 

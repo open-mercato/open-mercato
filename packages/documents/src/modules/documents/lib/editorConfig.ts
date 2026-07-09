@@ -10,6 +10,7 @@ import TableCell from '@tiptap/extension-table-cell'
 import TableHeader from '@tiptap/extension-table-header'
 import TaskList from '@tiptap/extension-task-list'
 import TaskItem from '@tiptap/extension-task-item'
+import Placeholder from '@tiptap/extension-placeholder'
 
 const UnderlineMark = Mark.create({
   name: 'underline',
@@ -57,6 +58,7 @@ export function getCollaborativeEditorExtensions(args: {
   ydoc: import('yjs').Doc
   provider: unknown
   user: { name: string; color: string }
+  placeholder?: string
 }) {
   return [
     ...getDocumentEditorExtensions({ history: false }),
@@ -67,6 +69,9 @@ export function getCollaborativeEditorExtensions(args: {
     CollaborationCaret.configure({
       provider: args.provider,
       user: args.user,
+    }),
+    Placeholder.configure({
+      placeholder: args.placeholder ?? 'Start writing…',
     }),
   ]
 }
