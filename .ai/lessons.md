@@ -969,3 +969,5 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Rule**: Use `node:crypto` helpers (`randomInt`, `randomUUID`, or `randomBytes`) for any generated value that may touch auth, security checks, identifiers, request headers, or authenticated API calls. Reserve `Math.random()` only for explicitly non-security demo data, and prefer deterministic fixtures when uniqueness is not required.
 
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
+
+- 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
