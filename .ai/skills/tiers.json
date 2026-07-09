@@ -52,7 +52,6 @@
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
-        "om-auto-fix-github",
         "om-auto-verify-and-fix-github",
         "om-auto-publish-pr",
         "om-auto-qa-scenarios"

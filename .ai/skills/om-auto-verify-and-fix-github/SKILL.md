@@ -5,9 +5,9 @@ description: Browser-first GitHub issue fix workflow. Claims a GitHub issue, che
 
 # Auto Verify And Fix GitHub
 
-Fix a GitHub issue end to end when the issue has a browser-visible user flow. This is the browser-first variant of `om-auto-fix-github`: prove the bug in the running app before editing, preserve the reproduction as a Playwright integration test, then fix the product and open a PR.
+Fix a GitHub issue end to end when the issue has a browser-visible user flow. This is the browser-first variant of `om-auto-fix-issue`: prove the bug in the running app before editing, preserve the reproduction as a Playwright integration test, then fix the product and open a PR.
 
-Use `om-auto-fix-github` instead when the issue is clearly static, CLI-only, API-only with no browser surface, or cannot reasonably be reproduced through the application UI.
+Use `om-auto-fix-issue` instead when the issue is clearly static, CLI-only, API-only with no browser surface, or cannot reasonably be reproduced through the application UI.
 
 ## Arguments
 
@@ -19,7 +19,7 @@ Use `om-auto-fix-github` instead when the issue is clearly static, CLI-only, API
 
 Read these before deviating:
 
-- `.ai/skills/om-auto-fix-github/SKILL.md` - claim protocol, solved-work checks, worktree isolation, validation loop, PR labels, and issue handoff
+- `.agents/skills/om-auto-fix-issue/SKILL.md` - claim protocol, solved-work checks, worktree isolation, validation loop, PR labels, and issue handoff
 - `.agents/skills/om-integration-tests/SKILL.md` - ephemeral environment, Browser/Playwright exploration, test placement, fixture rules, and failure artifact analysis
 - `.agents/skills/om-code-review/SKILL.md` and `BACKWARD_COMPATIBILITY.md` - final self-review and compatibility gate
 
@@ -27,7 +27,7 @@ Read these before deviating:
 
 ### 0. Claim the issue lock
 
-Run the same in-progress check as `om-auto-fix-github` before doing anything else:
+Run the same in-progress check as `om-auto-fix-issue` before doing anything else:
 
 ```bash
 CURRENT_USER=$(gh api user --jq '.login')
@@ -103,7 +103,7 @@ Reduce the issue to:
 - likely owning package/module,
 - smallest safe fix scope.
 
-If there is no browser-visible path after triage, stop and report that this issue should use `om-auto-fix-github` unless the user explicitly authorizes a non-browser fallback.
+If there is no browser-visible path after triage, stop and report that this issue should use `om-auto-fix-issue` unless the user explicitly authorizes a non-browser fallback.
 
 ### 4. Create an isolated worktree
 

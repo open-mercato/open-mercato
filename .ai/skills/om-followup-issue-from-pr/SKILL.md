@@ -13,4 +13,4 @@ Specs live in `.ai/specs/` (OSS) and `.ai/specs/enterprise/` (Enterprise). Filen
 
 ## Tracking-issue template
 
-Use a `## Spec` section (not "Design doc") linking the spec path, and state the pickup path: run `/om-implement-spec` for spec implementation (or `/om-auto-fix-github` for a scoped bug), noting the spec is actionable only after its spec PR is merged into `develop`.
+Use a `## Spec` section (not "Design doc") linking the spec path, and state the pickup path: run `/om-implement-spec` for spec implementation (or `/om-auto-fix-issue` for a scoped bug), noting the spec is actionable only after its spec PR is merged into `develop`.
