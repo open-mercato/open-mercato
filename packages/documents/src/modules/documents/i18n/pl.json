@@ -256,6 +256,7 @@
   "documents.templates.list.noDescription": "Brak opisu",
   "documents.templates.list.searchPlaceholder": "Szukaj szablonów",
   "documents.templates.list.title": "Szablony dokumentów",
+  "documents.templates.notFound": "Nie znaleziono szablonu",
   "documents.templates.slots.add": "Dodaj slot",
   "documents.templates.slots.empty": "Brak slotów kontekstu encji.",
   "documents.templates.slots.entityType": "Typ encji",

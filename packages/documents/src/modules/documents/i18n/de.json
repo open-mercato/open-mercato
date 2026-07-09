@@ -256,6 +256,7 @@
   "documents.templates.list.noDescription": "Keine Beschreibung",
   "documents.templates.list.searchPlaceholder": "Vorlagen suchen",
   "documents.templates.list.title": "Dokumentvorlagen",
+  "documents.templates.notFound": "Vorlage nicht gefunden",
   "documents.templates.slots.add": "Slot hinzufügen",
   "documents.templates.slots.empty": "Keine Entitäts-Kontext-Slots.",
   "documents.templates.slots.entityType": "Entitätstyp",

@@ -256,6 +256,7 @@
   "documents.templates.list.noDescription": "No description",
   "documents.templates.list.searchPlaceholder": "Search templates",
   "documents.templates.list.title": "Document templates",
+  "documents.templates.notFound": "Template not found",
   "documents.templates.slots.add": "Add slot",
   "documents.templates.slots.empty": "No entity context slots.",
   "documents.templates.slots.entityType": "Entity type",

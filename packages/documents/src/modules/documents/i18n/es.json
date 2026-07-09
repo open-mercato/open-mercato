@@ -256,6 +256,7 @@
   "documents.templates.list.noDescription": "Sin descripción",
   "documents.templates.list.searchPlaceholder": "Buscar plantillas",
   "documents.templates.list.title": "Plantillas de documentos",
+  "documents.templates.notFound": "Plantilla no encontrada",
   "documents.templates.slots.add": "Añadir espacio",
   "documents.templates.slots.empty": "Sin espacios de contexto de entidad.",
   "documents.templates.slots.entityType": "Tipo de entidad",

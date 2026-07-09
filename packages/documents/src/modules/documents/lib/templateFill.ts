@@ -28,7 +28,7 @@ function escapeRegExp(value: string): string {
 }
 
 function replaceToken(source: string, token: string, replacement: string): string {
-  return source.replace(new RegExp(`{{\\s*${escapeRegExp(token)}\\s*}}`, 'g'), replacement)
+  return source.replace(new RegExp(`{{\\s*${escapeRegExp(token)}\\s*}}`, 'g'), () => replacement)
 }
 
 function buildEntityChip(slot: TemplateFillSlot): string {

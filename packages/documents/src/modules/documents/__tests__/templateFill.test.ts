@@ -22,6 +22,25 @@ describe('fillTemplateTokens', () => {
     )
   })
 
+  it('inserts values containing replacement dollar-patterns literally', () => {
+    const html = '<p>HEAD</p><p>Hello {{customer.name}} and {{customer.email}}</p>'
+    const slots: TemplateFillSlot[] = [
+      {
+        slot: 'customer',
+        entityType: 'customer-person',
+        rawItem: {
+          id: '33333333-3333-4333-8333-333333333333',
+          name: 'x$`y',
+          email: "a$'b$&c$$d",
+        },
+      },
+    ]
+
+    expect(fillTemplateTokens(html, slots)).toBe(
+      '<p>HEAD</p><p>Hello x$`y and a$&#39;b$&amp;c$$d</p>',
+    )
+  })
+
   it('substitutes entity chips with escaped attributes and label text', () => {
     const html = '<p>Deal: {{deal.chip}}</p>'
     const slots: TemplateFillSlot[] = [

@@ -709,7 +709,7 @@ function DocumentEditorSurface({
         const entityRefElement = findEntityRefElement(event.target)
         if (!entityRefElement || (!event.metaKey && !event.ctrlKey)) return false
         const href = entityRefElement.dataset.href
-        if (!href) return false
+        if (!href || !href.startsWith('/') || href.startsWith('//')) return false
         window.open(href, '_blank', 'noopener')
         return true
       },
