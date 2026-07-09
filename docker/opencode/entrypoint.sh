@@ -75,7 +75,22 @@ if [ -z "$MODEL" ]; then
     openrouter)
       MODEL="meta-llama/llama-3.3-70b-instruct"
       ;;
+    deepinfra)
+      MODEL="deepinfra/zai-org/GLM-5.1"
+      ;;
+    groq)
+      MODEL="groq/llama-3.3-70b-versatile"
+      ;;
+    together)
+      MODEL="together/meta-llama/Llama-3.3-70B-Instruct-Turbo"
+      ;;
+    fireworks)
+      MODEL="fireworks/accounts/fireworks/models/llama-v3p3-70b-instruct"
+      ;;
     *)
+      # azure / litellm / ollama / lm-studio have no universal default — the
+      # Windows configurator makes OM_AI_MODEL required for them, so this is a
+      # last-resort fallback only.
       MODEL="openai/gpt-5-mini"
       ;;
   esac
@@ -90,6 +105,22 @@ case "$MODEL" in
   *)
     CONFIG_MODEL="$PROVIDER/$MODEL"
     ;;
+esac
+
+# Resolve the provider's API key + base URL. Cloud OpenAI-compatible providers
+# get a sensible default base URL when the operator leaves theirs blank; local
+# backends default to host.docker.internal so the container can reach the host.
+PROVIDER_KEY=""
+PROVIDER_BASE_URL=""
+case "$PROVIDER" in
+  azure)      PROVIDER_KEY="${AZURE_OPENAI_API_KEY:-}"; PROVIDER_BASE_URL="${AZURE_OPENAI_BASE_URL:-}";;
+  deepinfra)  PROVIDER_KEY="${DEEPINFRA_API_KEY:-}"; PROVIDER_BASE_URL="${DEEPINFRA_BASE_URL:-https://api.deepinfra.com/v1/openai}";;
+  groq)       PROVIDER_KEY="${GROQ_API_KEY:-}"; PROVIDER_BASE_URL="${GROQ_BASE_URL:-https://api.groq.com/openai/v1}";;
+  together)   PROVIDER_KEY="${TOGETHER_API_KEY:-}"; PROVIDER_BASE_URL="${TOGETHER_BASE_URL:-https://api.together.xyz/v1}";;
+  fireworks)  PROVIDER_KEY="${FIREWORKS_API_KEY:-}"; PROVIDER_BASE_URL="${FIREWORKS_BASE_URL:-https://api.fireworks.ai/inference/v1}";;
+  litellm)    PROVIDER_KEY="${LITELLM_API_KEY:-}"; PROVIDER_BASE_URL="${LITELLM_BASE_URL:-}";;
+  ollama)     PROVIDER_KEY="${OLLAMA_API_KEY:-ollama}"; PROVIDER_BASE_URL="${OLLAMA_BASE_URL:-http://host.docker.internal:11434/v1}";;
+  lm-studio)  PROVIDER_KEY="${LM_STUDIO_API_KEY:-lm-studio}"; PROVIDER_BASE_URL="${LM_STUDIO_BASE_URL:-http://host.docker.internal:1234/v1}";;
 esac
 
 # Build provider configuration
@@ -109,6 +140,16 @@ case "$PROVIDER" in
       OPENROUTER_OPTIONS=", \"options\": { \"baseURL\": \"$OPENROUTER_BASE_URL\" }"
     fi
     PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} }$OPENROUTER_OPTIONS }"
+    ;;
+  azure | deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
+    # Treat as an OpenAI-compatible endpoint (@ai-sdk/openai-compatible). The
+    # key/baseURL are passed explicitly so OpenCode does not need a built-in
+    # provider definition for the id.
+    COMPAT_OPTIONS="\"apiKey\": \"$PROVIDER_KEY\""
+    if [ -n "$PROVIDER_BASE_URL" ]; then
+      COMPAT_OPTIONS="$COMPAT_OPTIONS, \"baseURL\": \"$PROVIDER_BASE_URL\""
+    fi
+    PROVIDER_CONFIG="\"$PROVIDER\": { \"npm\": \"@ai-sdk/openai-compatible\", \"options\": { $COMPAT_OPTIONS }, \"models\": { \"$MODEL_ID\": {} } }"
     ;;
   *)
     echo "Warning: Unknown provider '$PROVIDER', defaulting to anthropic"

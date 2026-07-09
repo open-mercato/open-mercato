@@ -692,93 +692,159 @@ function Initialize-EnvFiles {
 # LLM provider prompt
 # ---------------------------------------------------------------------------
 
+# Every OM-supported chat provider (from apps/mercato/.env.example). Embedding-
+# only providers (Mistral, Cohere, AWS Bedrock) are intentionally excluded — the
+# assistant needs a chat model. `KeyEnv`/`Provider` map to the OM_AI_PROVIDER id
+# and the provider's API-key var; `BaseUrlEnv` is the *_BASE_URL var when the
+# backend has one; `KeyRequired`/`BaseUrlRequired` drive the prompt; `BaseUrl`
+# pre-fills a sensible default the user can accept.
 $script:LlmProviders = @(
-    @{ Env = "OPENAI_API_KEY"; Provider = "openai"; Label = "OpenAI" },
-    @{ Env = "ANTHROPIC_API_KEY"; Provider = "anthropic"; Label = "Anthropic" },
-    @{ Env = "GOOGLE_GENERATIVE_AI_API_KEY"; Provider = "google"; Label = "Google Gemini" }
+    @{ Provider = "openai";     Label = "OpenAI";                      KeyEnv = "OPENAI_API_KEY";                BaseUrlEnv = "OPENAI_BASE_URL";     KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. gpt-5-mini" },
+    @{ Provider = "anthropic";  Label = "Anthropic (Claude)";          KeyEnv = "ANTHROPIC_API_KEY";             BaseUrlEnv = $null;                 KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. claude-haiku-4-5-20251001" },
+    @{ Provider = "google";     Label = "Google Gemini";               KeyEnv = "GOOGLE_GENERATIVE_AI_API_KEY";  BaseUrlEnv = $null;                 KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. gemini-3-flash" },
+    @{ Provider = "azure";      Label = "Azure OpenAI / AI Foundry";   KeyEnv = "AZURE_OPENAI_API_KEY";          BaseUrlEnv = "AZURE_OPENAI_BASE_URL"; KeyRequired = $true;  BaseUrlRequired = $true;  BaseUrl = ""; ModelRequired = $true;  ModelHint = "your Azure deployment name" },
+    @{ Provider = "openrouter"; Label = "OpenRouter (gateway)";        KeyEnv = "OPENROUTER_API_KEY";            BaseUrlEnv = "OPENROUTER_BASE_URL"; KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. meta-llama/llama-3.3-70b-instruct" },
+    @{ Provider = "deepinfra";  Label = "DeepInfra";                   KeyEnv = "DEEPINFRA_API_KEY";             BaseUrlEnv = "DEEPINFRA_BASE_URL";  KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. zai-org/GLM-5.1" },
+    @{ Provider = "groq";       Label = "Groq";                        KeyEnv = "GROQ_API_KEY";                  BaseUrlEnv = "GROQ_BASE_URL";       KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. llama-3.3-70b-versatile" },
+    @{ Provider = "together";   Label = "Together AI";                 KeyEnv = "TOGETHER_API_KEY";              BaseUrlEnv = "TOGETHER_BASE_URL";   KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. meta-llama/Llama-3.3-70B-Instruct-Turbo" },
+    @{ Provider = "fireworks";  Label = "Fireworks AI";                KeyEnv = "FIREWORKS_API_KEY";             BaseUrlEnv = "FIREWORKS_BASE_URL";  KeyRequired = $true;  BaseUrlRequired = $false; BaseUrl = ""; ModelRequired = $false; ModelHint = "e.g. accounts/fireworks/models/llama-v3p3-70b-instruct" },
+    @{ Provider = "litellm";    Label = "LiteLLM (self-hosted proxy)"; KeyEnv = "LITELLM_API_KEY";               BaseUrlEnv = "LITELLM_BASE_URL";    KeyRequired = $true;  BaseUrlRequired = $true;  BaseUrl = ""; ModelRequired = $true;  ModelHint = "model name as configured in your proxy" },
+    @{ Provider = "ollama";     Label = "Ollama (local)";              KeyEnv = "OLLAMA_API_KEY";                BaseUrlEnv = "OLLAMA_BASE_URL";     KeyRequired = $false; BaseUrlRequired = $true;  BaseUrl = "http://host.docker.internal:11434/v1"; ModelRequired = $true; ModelHint = "e.g. llama3.3" },
+    @{ Provider = "lm-studio";  Label = "LM Studio (local)";           KeyEnv = "LM_STUDIO_API_KEY";             BaseUrlEnv = "LM_STUDIO_BASE_URL";  KeyRequired = $false; BaseUrlRequired = $true;  BaseUrl = "http://host.docker.internal:1234/v1"; ModelRequired = $true; ModelHint = "the loaded model id" }
 )
 
+function Read-SecretValue {
+    param([string]$Prompt)
+    $secure = Read-Host $Prompt -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        return [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+
 function Set-AiProviderConfig {
-    # Writes the provider key + OM_AI_PROVIDER. The default model is owned by
-    # the runtime/opencode entrypoint — pinning OM_AI_MODEL here would freeze
-    # a value the platform later moves off (fill-missing-only never updates it).
-    param([hashtable]$Entry, [string]$KeyValue)
+    # Writes the provider key + optional base URL + OM_AI_PROVIDER, and OM_AI_MODEL
+    # only when a model was supplied. For providers with a good runtime default
+    # (OpenAI, Anthropic, ...) we leave OM_AI_MODEL unset so the platform can move
+    # its default forward; for providers that have no universal default (Azure
+    # deployment names, local model ids) the model is required and pinned here.
+    param([hashtable]$Entry, [string]$KeyValue, [string]$BaseUrl = "", [string]$Model = "")
     $rootEnv = Join-Path $script:RepoRoot ".env"
-    Add-EnvValue -FilePath $rootEnv -Key $Entry.Env -Value $KeyValue.Trim() -Secret -ReplaceEmpty
+    if (-not [string]::IsNullOrWhiteSpace($KeyValue)) {
+        Add-EnvValue -FilePath $rootEnv -Key $Entry.KeyEnv -Value $KeyValue.Trim() -Secret -ReplaceEmpty
+    }
+    if ($Entry.BaseUrlEnv -and -not [string]::IsNullOrWhiteSpace($BaseUrl)) {
+        Add-EnvValue -FilePath $rootEnv -Key $Entry.BaseUrlEnv -Value $BaseUrl.Trim() -ReplaceEmpty
+    }
     Add-EnvValue -FilePath $rootEnv -Key "OM_AI_PROVIDER" -Value $Entry.Provider -ReplaceEmpty
+    if (-not [string]::IsNullOrWhiteSpace($Model)) {
+        Add-EnvValue -FilePath $rootEnv -Key "OM_AI_MODEL" -Value $Model.Trim() -ReplaceEmpty
+    }
 }
 
 function Invoke-LlmProviderPrompt {
     Write-StepHeader "AI provider (LLM API key)"
     $rootEnv = Join-Path $script:RepoRoot ".env"
 
+    # Already configured, in .env or the ambient environment?
     foreach ($entry in $script:LlmProviders) {
-        $fromFile = Get-EnvValue -FilePath $rootEnv -Key $entry.Env
+        $fromFile = Get-EnvValue -FilePath $rootEnv -Key $entry.KeyEnv
         if (-not [string]::IsNullOrWhiteSpace($fromFile)) {
             Write-Ok ("AI already configured: {0}" -f $entry.Label)
             return
         }
-        $fromEnv = [Environment]::GetEnvironmentVariable($entry.Env)
+        $fromEnv = [Environment]::GetEnvironmentVariable($entry.KeyEnv)
         if (-not [string]::IsNullOrWhiteSpace($fromEnv)) {
-            if (-not $DryRun) { Set-AiProviderConfig -Entry $entry -KeyValue $fromEnv }
+            if (-not $DryRun) {
+                $baseFromEnv = if ($entry.BaseUrlEnv) { [Environment]::GetEnvironmentVariable($entry.BaseUrlEnv) } else { "" }
+                Set-AiProviderConfig -Entry $entry -KeyValue $fromEnv -BaseUrl $baseFromEnv
+            }
             Write-Ok ("AI configured from environment: {0}" -f $entry.Label)
             return
         }
     }
 
     if ($DryRun) {
-        Write-Info "Would require an LLM provider API key (OpenAI / Anthropic / Google)."
+        Write-Info "Would require one LLM provider (OpenAI, Anthropic, Google, Azure, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, or LM Studio)."
         return
     }
 
-    # Explicit opt-out for automation or configure-later. Kept so the flag
-    # still means what the docs say, but it is the ONLY way to skip.
+    # Explicit opt-out for automation or configure-later. The ONLY way to skip.
     if ($SkipLlmPrompt) {
-        Write-Warn "-SkipLlmPrompt set with no LLM key - AI chat will not work until you add OPENAI_API_KEY (or ANTHROPIC_API_KEY / GOOGLE_GENERATIVE_AI_API_KEY) to .env and restart the opencode container."
+        Write-Warn "-SkipLlmPrompt set with no LLM key - AI chat will not work until you set a provider (e.g. OPENAI_API_KEY) in .env and restart the opencode container."
         return
     }
 
     # Non-interactive with no key and no explicit opt-out: fail fast rather
     # than stand up a stack whose whole purpose (the AI assistant) is dead.
     if ($NonInteractive) {
-        Write-Fail "No LLM provider API key found. Set OPENAI_API_KEY, ANTHROPIC_API_KEY, or GOOGLE_GENERATIVE_AI_API_KEY in the environment (or .env), or pass -SkipLlmPrompt to proceed without AI."
+        Write-Fail "No LLM provider API key found. Set a provider key (e.g. OPENAI_API_KEY / ANTHROPIC_API_KEY / AZURE_OPENAI_API_KEY) in the environment or .env, or pass -SkipLlmPrompt to proceed without AI."
     }
 
     Write-Host ""
-    Write-Host "The AI assistant (OpenCode + MCP) needs at least one LLM provider API key." -ForegroundColor Cyan
-    Write-Host "This is what powers the Cmd+K agent, so setup requires one to continue."
-    Write-Host "(Press Ctrl+C to abort, or re-run later with -SkipLlmPrompt to configure it in .env yourself.)"
+    Write-Host "The AI assistant (OpenCode + MCP) needs one LLM provider to power the Cmd+K agent." -ForegroundColor Cyan
+    Write-Host "Setup requires one to continue. (Ctrl+C aborts; re-run later with -SkipLlmPrompt to configure it in .env yourself.)"
 
     while ($true) {
         Write-Host ""
-        Write-Host "  [1] OpenAI"
-        Write-Host "  [2] Anthropic"
-        Write-Host "  [3] Google Gemini"
-        $choice = Read-Host "Choose a provider [1-3]"
-        $selected = switch ($choice) {
-            "1" { $script:LlmProviders[0] }
-            "2" { $script:LlmProviders[1] }
-            "3" { $script:LlmProviders[2] }
-            default { $null }
+        for ($i = 0; $i -lt $script:LlmProviders.Count; $i++) {
+            Write-Host ("  [{0,2}] {1}" -f ($i + 1), $script:LlmProviders[$i].Label)
         }
-        if (-not $selected) {
-            Write-Host "Please enter 1, 2, or 3." -ForegroundColor Yellow
+        $choice = Read-Host ("Choose a provider [1-{0}]" -f $script:LlmProviders.Count)
+        $index = 0
+        if (-not [int]::TryParse($choice, [ref]$index) -or $index -lt 1 -or $index -gt $script:LlmProviders.Count) {
+            Write-Host ("Please enter a number between 1 and {0}." -f $script:LlmProviders.Count) -ForegroundColor Yellow
+            continue
+        }
+        $selected = $script:LlmProviders[$index - 1]
+
+        # API key (required for hosted providers; optional for local backends).
+        $plainKey = ""
+        if ($selected.KeyRequired) {
+            $plainKey = Read-SecretValue ("Paste your {0} API key (input hidden)" -f $selected.Label)
+            if ([string]::IsNullOrWhiteSpace($plainKey)) {
+                Write-Host "A key is required for this provider. Try again." -ForegroundColor Yellow
+                continue
+            }
+        } else {
+            $plainKey = Read-SecretValue ("{0} API key (optional for local servers - press Enter to skip)" -f $selected.Label)
+        }
+
+        # Base URL where the backend needs one. Local providers pre-fill a
+        # host.docker.internal default so the container can reach the host.
+        $baseUrl = ""
+        if ($selected.BaseUrlEnv) {
+            $default = $selected.BaseUrl
+            $promptText = if ($selected.BaseUrlRequired) {
+                if ($default) { "{0} base URL [{1}]" -f $selected.Label, $default } else { "{0} base URL (required)" -f $selected.Label }
+            } else {
+                "{0} base URL (optional - press Enter for the provider default)" -f $selected.Label
+            }
+            $entered = Read-Host $promptText
+            $baseUrl = if ([string]::IsNullOrWhiteSpace($entered)) { $default } else { $entered.Trim() }
+            if ($selected.BaseUrlRequired -and [string]::IsNullOrWhiteSpace($baseUrl)) {
+                Write-Host "This provider requires a base URL. Try again." -ForegroundColor Yellow
+                continue
+            }
+        }
+
+        # Model: required where there is no universal default (Azure deployment,
+        # local model ids); optional elsewhere (blank keeps the platform default).
+        $model = ""
+        $modelPrompt = if ($selected.ModelRequired) {
+            "{0} model ({1}) (required)" -f $selected.Label, $selected.ModelHint
+        } else {
+            "{0} model ({1}) (optional - press Enter for the default)" -f $selected.Label, $selected.ModelHint
+        }
+        $model = (Read-Host $modelPrompt).Trim()
+        if ($selected.ModelRequired -and [string]::IsNullOrWhiteSpace($model)) {
+            Write-Host "This provider needs a model/deployment id. Try again." -ForegroundColor Yellow
             continue
         }
 
-        $secureKey = Read-Host ("Paste your {0} API key (input hidden)" -f $selected.Label) -AsSecureString
-        $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureKey)
-        try {
-            $plainKey = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-        } finally {
-            [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-        }
-        if ([string]::IsNullOrWhiteSpace($plainKey)) {
-            Write-Host "A key is required to continue. Try again." -ForegroundColor Yellow
-            continue
-        }
-
-        Set-AiProviderConfig -Entry $selected -KeyValue $plainKey
+        Set-AiProviderConfig -Entry $selected -KeyValue $plainKey -BaseUrl $baseUrl -Model $model
         Write-Ok ("AI provider configured: {0}" -f $selected.Label)
         break
     }
@@ -908,6 +974,14 @@ function Wait-ForApp {
     $splashDownSince = $null
     $lastActivity = ""
 
+    Write-Host ""
+    Write-Host "The FIRST boot installs dependencies, builds every package, and seeds the" -ForegroundColor Cyan
+    Write-Host "database inside the container. This commonly takes 10 minutes (up to ~20 on a" -ForegroundColor Cyan
+    Write-Host "slow disk / connection) - it is NOT stuck. The build progress page on" -ForegroundColor Cyan
+    Write-Host "http://localhost:$script:SplashPort is blank until the install finishes; that's expected." -ForegroundColor Cyan
+    Write-Host "You can watch the raw logs in another terminal with:" -ForegroundColor Cyan
+    Write-Host "  docker compose -f $script:ComposeFile logs -f app" -ForegroundColor DarkGray
+    Write-Host ""
     Write-Info "Waiting for the app (progress from build splash on :$script:SplashPort; budget ${TimeoutMinutes}m)..."
     while ((Get-Date) -lt $deadline) {
         if (Test-HttpListening $appUrl 5) {
@@ -916,7 +990,7 @@ function Wait-ForApp {
             return
         }
 
-        $statusLine = $null
+        $statusLine = "installing dependencies & building (first boot, ~10 min - not stuck)"
         try {
             $splash = Invoke-RestMethod -Uri $splashStatusUrl -TimeoutSec 5
             $splashDownSince = $null
@@ -930,16 +1004,13 @@ function Wait-ForApp {
                 if ($latest -and $latest.label) { $lastActivity = $latest.label }
                 elseif ($latest) { $lastActivity = [string]$latest }
             }
-            $statusLine = $lastActivity
+            if ($lastActivity) { $statusLine = $lastActivity }
         } catch {
             if (-not $splashDownSince) { $splashDownSince = Get-Date }
-            if (((Get-Date) - $splashDownSince).TotalSeconds -gt 120) {
-                $statusLine = "(splash unreachable; container still starting)"
-            }
         }
 
         $elapsed = "{0:mm\:ss}" -f ((Get-Date) - $startedAt)
-        Write-Host ("`r[{0}] building... {1}" -f $elapsed, $statusLine) -NoNewline
+        Write-Host ("`r[{0}] {1}   " -f $elapsed, $statusLine) -NoNewline
         Start-Sleep -Seconds 5
     }
 
