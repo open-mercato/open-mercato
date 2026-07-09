@@ -264,7 +264,56 @@ function ModelComparisonCard({ currentModel }: { currentModel: string | null }) 
 
 // Tool calls as an accordion — each row expands to its captured request and
 // response (both are real, redacted summaries from the trace).
-function ToolCallsCard({ toolCalls }: { toolCalls: ToolCallView[] }) {
+/**
+ * On-demand loader for a full offloaded trace artifact (F1). When the row
+ * carries an artifact key, the inline view is a redacted preview; this fetches
+ * and renders the full decrypted payload through the secured artifact endpoint.
+ * Renders nothing when there is no key (the payload was stored inline).
+ */
+function ArtifactExpander({
+  runId,
+  artifactKey,
+  kind,
+}: {
+  runId: string
+  artifactKey: string | null
+  kind: 'output' | 'tool_request' | 'tool_response'
+}) {
+  const t = useT()
+  const [full, setFull] = React.useState<unknown>(undefined)
+  const [isLoading, setIsLoading] = React.useState(false)
+
+  if (!artifactKey) return null
+
+  const loadFull = async () => {
+    setIsLoading(true)
+    const call = await apiCall<{ payload: unknown }>(
+      `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifact?key=${encodeURIComponent(artifactKey)}&kind=${kind}`,
+      undefined,
+      { fallback: { payload: undefined } },
+    )
+    setIsLoading(false)
+    if (!call.ok) {
+      flash(t('agent_orchestrator.traces.detail.artifactError'), 'error')
+      return
+    }
+    setFull(call.result?.payload ?? null)
+  }
+
+  if (full !== undefined) {
+    return <JsonDisplay data={full} />
+  }
+
+  return (
+    <Button variant="outline" size="sm" className="mt-1" onClick={loadFull} disabled={isLoading}>
+      {isLoading
+        ? t('agent_orchestrator.traces.detail.artifactLoading')
+        : t('agent_orchestrator.traces.detail.loadFullArtifact')}
+    </Button>
+  )
+}
+
+function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId: string }) {
   const t = useT()
   const [openId, setOpenId] = React.useState<string | null>(toolCalls[0]?.id ?? null)
   return (
@@ -310,6 +359,7 @@ function ToolCallsCard({ toolCalls }: { toolCalls: ToolCallView[] }) {
                         <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1 text-xs">
                           {formatSummary(toolCall.requestSummary)}
                         </pre>
+                        <ArtifactExpander runId={runId} artifactKey={toolCall.requestArtifactKey} kind="tool_request" />
                       </div>
                     ) : null}
                     {hasSummary(toolCall.responseSummary) ? (
@@ -320,6 +370,7 @@ function ToolCallsCard({ toolCalls }: { toolCalls: ToolCallView[] }) {
                         <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1 text-xs">
                           {formatSummary(toolCall.responseSummary)}
                         </pre>
+                        <ArtifactExpander runId={runId} artifactKey={toolCall.responseArtifactKey} kind="tool_response" />
                       </div>
                     ) : null}
                   </div>
@@ -670,10 +721,13 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
 
                 {/* Tool calls + Output — two columns */}
                 <div className="grid gap-6 lg:grid-cols-2">
-                  <ToolCallsCard toolCalls={detail.toolCalls} />
+                  <ToolCallsCard toolCalls={detail.toolCalls} runId={run.id} />
                   <InspectorCard title={t('agent_orchestrator.traces.detail.output')}>
                     {run.output != null ? (
-                      <JsonDisplay data={run.output} />
+                      <div className="space-y-1">
+                        <JsonDisplay data={run.output} />
+                        <ArtifactExpander runId={run.id} artifactKey={run.outputArtifactKey} kind="output" />
+                      </div>
                     ) : (
                       <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
                         <EmptyArt className="size-28 text-muted-foreground" />

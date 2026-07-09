@@ -47,6 +47,8 @@ export type RunView = {
   errorMessage: string | null
   input: unknown
   output: unknown
+  /** storage-s3 key for the full offloaded output (F1); null when inline. */
+  outputArtifactKey: string | null
   createdAt: string | null
   updatedAt: string | null
   // Trace-eval overlay fields (present on the trace list + detail reads).
@@ -90,6 +92,9 @@ export type ToolCallView = {
   errorMessage: string | null
   requestSummary: unknown
   responseSummary: unknown
+  /** storage-s3 keys for the full offloaded request/response (F1); null when inline. */
+  requestArtifactKey: string | null
+  responseArtifactKey: string | null
 }
 
 export type EvalResultView = {
@@ -245,6 +250,7 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     errorMessage: asString(item.error_message) ?? asString(item.errorMessage),
     input: item.input ?? null,
     output: item.output ?? null,
+    outputArtifactKey: asString(item.output_artifact_key) ?? asString(item.outputArtifactKey),
     createdAt: asString(item.created_at) ?? asString(item.createdAt),
     updatedAt: asString(item.updated_at) ?? asString(item.updatedAt),
     runtime: asString(item.runtime),
@@ -294,6 +300,8 @@ export function mapToolCall(item: Record<string, unknown>): ToolCallView | null 
     errorMessage: asString(item.error_message) ?? asString(item.errorMessage),
     requestSummary: item.request_summary ?? item.requestSummary ?? null,
     responseSummary: item.response_summary ?? item.responseSummary ?? null,
+    requestArtifactKey: asString(item.request_artifact_key) ?? asString(item.requestArtifactKey),
+    responseArtifactKey: asString(item.response_artifact_key) ?? asString(item.responseArtifactKey),
   }
 }
 

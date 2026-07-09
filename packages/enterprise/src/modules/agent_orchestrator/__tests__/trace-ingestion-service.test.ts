@@ -149,3 +149,98 @@ describe('ingestTrace', () => {
     expect(storeFor(AgentSpan)).toHaveLength(3)
   })
 })
+
+describe('ingestTrace — artifact offload (F1)', () => {
+  const bigOutput = { note: 'x'.repeat(5000) }
+
+  it('offloads a large output and stamps the key + redacted inline summary', async () => {
+    const { em, storeFor } = createFakeEm()
+    const seen: Array<{ field: string; value: unknown }> = []
+    const offloadArtifact = jest.fn(async (ref: { field: string }, value: unknown) => {
+      seen.push({ field: ref.field, value })
+      return 'artifact-key-1'
+    })
+    const payload = { ...basePayload(), output: bigOutput }
+
+    await ingestTrace(em, SCOPE, payload, { offloadArtifact })
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.outputArtifactKey).toBe('artifact-key-1')
+    expect((run.output as { _truncated?: boolean })._truncated).toBe(true)
+    expect((run.output as { offloaded?: boolean }).offloaded).toBe(true)
+    expect(offloadArtifact).toHaveBeenCalledTimes(1)
+    expect(seen[0].field).toBe('output')
+    expect(seen[0].value).toEqual(bigOutput)
+  })
+
+  it('does not offload an output within the inline cap', async () => {
+    const { em, storeFor } = createFakeEm()
+    const offloadArtifact = jest.fn(async () => 'unused')
+
+    await ingestTrace(em, SCOPE, basePayload(), { offloadArtifact })
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.outputArtifactKey).toBeNull()
+    expect(run.output).toEqual({ kind: 'informative', data: { ok: true } })
+    expect(offloadArtifact).not.toHaveBeenCalled()
+  })
+
+  it('degrades to inline-only and still succeeds when the offloader returns null', async () => {
+    const { em, storeFor } = createFakeEm()
+    const offloadArtifact = jest.fn(async () => null)
+    const payload = { ...basePayload(), output: bigOutput }
+
+    const result = await ingestTrace(em, SCOPE, payload, { offloadArtifact })
+
+    const run = storeFor(AgentRun)[0]
+    expect(result.created).toBe(true)
+    expect(run.outputArtifactKey).toBeNull()
+    expect((run.output as { _truncated?: boolean })._truncated).toBe(true)
+    expect((run.output as { offloaded?: boolean }).offloaded).toBe(false)
+  })
+
+  it('offloads large tool-call request/response under their own encryption fields', async () => {
+    const { em, storeFor } = createFakeEm()
+    let seq = 0
+    const offloadArtifact = jest.fn(async (ref: { field: string }) => `key-${ref.field}-${++seq}`)
+    const payload = {
+      ...basePayload(),
+      spans: [
+        {
+          externalSpanId: 'span-tool',
+          sequence: 0,
+          name: 'search',
+          kind: 'tool' as const,
+          startedAt: '2026-06-23T00:00:00.000Z',
+          toolCalls: [
+            {
+              toolName: 'search',
+              status: 'ok' as const,
+              requestSummary: { q: 'y'.repeat(5000) },
+              responseSummary: { r: 'z'.repeat(5000) },
+            },
+          ],
+        },
+      ],
+    }
+
+    await ingestTrace(em, SCOPE, payload, { offloadArtifact })
+
+    const toolCall = storeFor(AgentToolCall)[0]
+    expect(toolCall.requestArtifactKey).toBe('key-request_summary-1')
+    expect(toolCall.responseArtifactKey).toBe('key-response_summary-2')
+    expect((toolCall.requestSummary as { _truncated?: boolean })._truncated).toBe(true)
+  })
+
+  it('offloads nothing when no offloader is supplied (back-compat path)', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = { ...basePayload(), output: bigOutput }
+
+    await ingestTrace(em, SCOPE, payload)
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.outputArtifactKey).toBeNull()
+    expect((run.output as { _truncated?: boolean })._truncated).toBe(true)
+    expect((run.output as { offloaded?: boolean }).offloaded).toBe(false)
+  })
+})

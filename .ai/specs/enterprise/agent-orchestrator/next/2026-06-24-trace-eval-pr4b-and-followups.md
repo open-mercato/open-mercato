@@ -100,6 +100,16 @@ All under `packages/enterprise/src/modules/agent_orchestrator/`.
 Pick up any item independently. Each lists **why**, **approach**, **files**, **verified building blocks**, and **acceptance**.
 
 ### F1 — Encrypted S3 artifact offload  · effort M · priority-medium · risk-medium
+
+> **✅ Implemented 2026-07-09.** `lib/trace/artifactStore.ts` (`putArtifact`/`getArtifact`/`createArtifactOffloader`)
+> encrypts the full payload through `TenantDataEncryptionService` under the already-declared F5 field maps (no new
+> encryption map) and uploads to `storageService`, degrading fail-open to the inline summary (key `null`) when storage
+> is unconfigured. Wired into `ingestTrace` for run `output` + tool-call `request`/`response` via an injected offloader
+> (keeps the service pure). Read path: `GET /runs/:id/artifact?key=&kind=` validates the key belongs to the run then
+> server-side decrypts (app-encrypted blobs preclude signed URLs); the trace inspector gained an on-demand "load full
+> payload" control. Unit-tested (`artifact-store.test.ts`, `trace-ingestion-service.test.ts`). No migration (columns
+> already existed).
+
 **Why:** ingestion stores only size-capped inline summaries; full prompts/outputs/tool payloads should be offloaded
 to `storage-s3` (encrypted at rest) with the row carrying only the key + a redacted summary (PII minimization, the
 trace spec's § Constraints). The columns already exist (`AgentRun.outputArtifactKey`,
