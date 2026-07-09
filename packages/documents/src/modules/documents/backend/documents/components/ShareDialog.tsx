@@ -34,6 +34,8 @@ type ShareRow = {
   principalType: DocumentSharePrincipalType
   principalId: string
   principalLabel: string
+  principalSecondary: string | null
+  resolved: boolean
   permission: DocumentSharePermission
   updatedAt?: string | null
 }
@@ -83,14 +85,22 @@ function normalizeShare(value: unknown): ShareRow | null {
   if (!id || !principalId) return null
   const principalType = readPrincipalType(readString(record, 'principalType', 'principal_type'))
   const permission = readPermission(readString(record, 'permission', 'tier'))
-  const label =
-    readString(record, 'principalLabel', 'principal_label', 'principalEmail', 'principal_email', 'name', 'email') ??
-    principalId
+  const resolvedLabel = readString(
+    record,
+    'principalLabel',
+    'principal_label',
+    'principalEmail',
+    'principal_email',
+    'name',
+    'email',
+  )
   return {
     id,
     principalId,
     principalType,
-    principalLabel: label,
+    principalLabel: resolvedLabel ?? principalId,
+    principalSecondary: readString(record, 'principalSecondary', 'principal_secondary'),
+    resolved: resolvedLabel !== null,
     permission,
     updatedAt: readString(record, 'updatedAt', 'updated_at'),
   }
@@ -387,12 +397,14 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
                     className="flex flex-col gap-3 rounded-lg border border-border bg-card p-3 md:flex-row md:items-center"
                   >
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{share.principalLabel}</p>
+                      <p className="truncate text-sm font-medium" title={share.principalLabel}>{share.principalLabel}</p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {t(`documents.share.principalTypes.${share.principalType}`)} - {share.principalId}
+                        {share.principalSecondary
+                          ? `${t(`documents.share.principalTypes.${share.principalType}`)} · ${share.principalSecondary}`
+                          : t(`documents.share.principalTypes.${share.principalType}`)}
                       </p>
                     </div>
-                    <div className="md:w-48">
+                    <div className="shrink-0 md:w-48">
                     <Select
                       value={share.permission}
                       onValueChange={(value) => void handlePermissionChange(share, readPermission(value))}
@@ -413,6 +425,7 @@ export function ShareDialog({ documentId, open, onOpenChange, canManage = true }
                     <Button
                       type="button"
                       variant="destructive-outline"
+                      className="shrink-0"
                       onClick={() => void handleRemoveShare(share)}
                       disabled={!canManage}
                     >

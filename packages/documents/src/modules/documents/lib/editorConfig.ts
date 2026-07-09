@@ -54,6 +54,16 @@ export function getDocumentEditorExtensions(options?: { history?: boolean }) {
   ]
 }
 
+// Remote selections default to ~44% opacity (`${color}70`), which reads as a
+// heavy solid block. Google Docs uses a light wash — drop it to ~20% (`33`) so
+// overlapping text stays legible under a collaborator's highlight.
+function collaboratorSelectionAttributes(user: { color: string }) {
+  return {
+    style: `background-color: ${user.color}33`,
+    class: 'ProseMirror-yjs-selection',
+  }
+}
+
 export function getCollaborativeEditorExtensions(args: {
   ydoc: import('yjs').Doc
   provider: unknown
@@ -69,6 +79,7 @@ export function getCollaborativeEditorExtensions(args: {
     CollaborationCaret.configure({
       provider: args.provider,
       user: args.user,
+      selectionRender: collaboratorSelectionAttributes,
     }),
     Placeholder.configure({
       placeholder: args.placeholder ?? 'Start writing…',

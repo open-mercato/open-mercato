@@ -325,8 +325,10 @@ export function PrincipalPicker({
       onKeyDown={handleKeyDown}
     >
       <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
         <Input
           id={inputId}
+          className="w-full"
           value={unavailable ? manualValue : displayValue}
           onChange={unavailable ? handleManualChange : handleSearchChange}
           onFocus={() => {
@@ -341,10 +343,12 @@ export function PrincipalPicker({
           aria-autocomplete={unavailable ? undefined : 'list'}
           aria-activedescendant={!unavailable && activeIndex >= 0 ? `${listId}-option-${activeIndex}` : undefined}
         />
+        </div>
         {hasText ? (
           <IconButton
             type="button"
             variant="ghost"
+            className="shrink-0"
             aria-label={t('documents.share.picker.clear')}
             onClick={clearSelection}
             disabled={disabled}

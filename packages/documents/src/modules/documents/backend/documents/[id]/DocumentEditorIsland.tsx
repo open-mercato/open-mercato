@@ -287,6 +287,63 @@ const DOCUMENT_EDITOR_CONTENT_CLASS = cn(
   '[&_.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]',
 )
 
+// Presence chrome for the yjs collaboration carets. The extension injects bare
+// `collaboration-carets__caret` / `__label` nodes with only an inline color and
+// no structural styling, so without this the caret is an invisible span and the
+// name renders as a plain colored block. This turns them into a Google-Docs-like
+// thin caret bar with a small name flag that pops in on movement and fades out
+// (and stays on hover). Colors come from each collaborator's inline style, so
+// only structure/animation lives here.
+const COLLAB_PRESENCE_STYLE = `
+.om-doc-collab .collaboration-carets__caret {
+  position: relative;
+  margin-left: -1px;
+  margin-right: -1px;
+  border-left-width: 2px;
+  border-left-style: solid;
+  border-right-width: 0;
+  border-radius: 1px;
+  box-sizing: border-box;
+  word-break: normal;
+  pointer-events: none;
+}
+.om-doc-collab .collaboration-carets__label {
+  position: absolute;
+  top: -1.55em;
+  left: -2px;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 1px 6px;
+  border-radius: 4px 4px 4px 1px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  color: #ffffff;
+  user-select: none;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(2, 6, 23, 0.28);
+  opacity: 0;
+  animation: om-doc-caret-flag 2.6s ease forwards;
+}
+.om-doc-collab .collaboration-carets__caret:hover .collaboration-carets__label {
+  animation: none;
+  opacity: 1;
+}
+.om-doc-collab .ProseMirror-yjs-selection {
+  border-radius: 2px;
+}
+@keyframes om-doc-caret-flag {
+  0% { opacity: 0; transform: translateY(3px); }
+  8%, 52% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .om-doc-collab .collaboration-carets__label { animation: none; opacity: 1; }
+}
+`
+
 function ToolbarGroup({ children, className }: { children: React.ReactNode; className?: string }) {
   return <div className={cn('flex items-center gap-1', className)}>{children}</div>
 }
@@ -599,7 +656,10 @@ function DocumentEditorSurface({
       : null
 
   return (
-    <div className="space-y-3">
+    <div className={cn('space-y-3', editorMode === 'collab' ? 'om-doc-collab' : null)}>
+      {editorMode === 'collab' ? (
+        <style dangerouslySetInnerHTML={{ __html: COLLAB_PRESENCE_STYLE }} />
+      ) : null}
       <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
         <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
           <div className="flex flex-wrap items-center gap-2 px-3 py-2">
