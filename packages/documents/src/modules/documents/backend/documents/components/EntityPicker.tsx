@@ -14,6 +14,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import {
@@ -277,8 +278,9 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
                   {t('documents.entityPicker.prompt')}
                 </div>
               ) : isLoading ? (
-                <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-                  {t('documents.entityPicker.loading')}
+                <div className="flex items-center justify-center gap-2 px-3 py-8 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  <span>{t('documents.entityPicker.loading')}</span>
                 </div>
               ) : hasSearched && items.length === 0 ? (
                 <div className="px-3 py-8 text-center text-sm text-muted-foreground">

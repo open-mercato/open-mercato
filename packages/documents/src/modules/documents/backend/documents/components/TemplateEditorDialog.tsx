@@ -9,7 +9,7 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
+import { CheckboxField } from '@open-mercato/ui/primitives/checkbox-field'
 import {
   Dialog,
   DialogContent,
@@ -553,17 +553,15 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
                             </SelectContent>
                           </Select>
                         </div>
-                        <label className="flex items-center gap-2 text-sm">
-                          <Checkbox
-                            checked={slot.required === true}
-                            onCheckedChange={(checked) => {
-                              setContextSlots((current) => current.map((item, itemIndex) =>
-                                itemIndex === index ? { ...item, required: checked === true } : item,
-                              ))
-                            }}
-                          />
-                          <span>{t('documents.templates.slots.required', 'Required')}</span>
-                        </label>
+                        <CheckboxField
+                          label={t('documents.templates.slots.required', 'Required')}
+                          checked={slot.required === true}
+                          onCheckedChange={(checked) => {
+                            setContextSlots((current) => current.map((item, itemIndex) =>
+                              itemIndex === index ? { ...item, required: checked === true } : item,
+                            ))
+                          }}
+                        />
                       </div>
                     )
                   })}

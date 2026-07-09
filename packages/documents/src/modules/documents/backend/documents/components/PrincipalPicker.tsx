@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Search, X } from 'lucide-react'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { Alert } from '@open-mercato/ui/primitives/alert'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -355,19 +356,24 @@ export function PrincipalPicker({
       </div>
 
       {fetchError ? (
-        <div className="flex items-center justify-between gap-2 rounded border border-status-error-border bg-status-error-bg px-3 py-2 text-sm text-status-error-text">
-          <span>{t('documents.share.picker.error')}</span>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onMouseDown={(event) => event.preventDefault()}
-            onClick={handleRetry}
-            disabled={disabled || loading}
-          >
-            {t('documents.share.picker.retry')}
-          </Button>
-        </div>
+        <Alert
+          status="error"
+          size="sm"
+          action={(
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={handleRetry}
+              disabled={disabled || loading}
+            >
+              {t('documents.share.picker.retry')}
+            </Button>
+          )}
+        >
+          {t('documents.share.picker.error')}
+        </Alert>
       ) : null}
 
       {open && !fetchError ? (
