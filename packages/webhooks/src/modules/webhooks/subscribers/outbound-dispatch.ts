@@ -4,9 +4,12 @@ import { WebhookDeliveryEntity, WebhookEntity } from '../data/entities'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { matchAnyWebhookEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createWebhookDelivery } from '../lib/delivery'
 import { enqueueWebhookDelivery } from '../lib/queue'
 import { isWebhookIntegrationEnabled } from '../lib/integration-state'
+
+const logger = createLogger('webhooks')
 
 export const metadata = {
   event: '*',
@@ -129,12 +132,12 @@ export default async function handler(
             await webhookEm.flush()
           }
         }
-        console.error('[webhooks] Failed to enqueue outbound delivery', {
+        logger.error('Failed to enqueue outbound delivery', {
           webhookId: webhook.id,
           eventId,
           tenantId,
           organizationId: organizationId ?? webhook.organizationId,
-          error: error instanceof Error ? error.message : String(error),
+          err: error,
         })
       }
     }),

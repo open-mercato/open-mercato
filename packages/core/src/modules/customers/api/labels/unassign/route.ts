@@ -23,6 +23,9 @@ import {
 } from '../table-errors'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -171,7 +174,7 @@ export async function POST(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/labels/unassign.POST]', err)
+    logger.error('customers/labels/unassign.POST', { err })
     return NextResponse.json({ error: 'Failed to unassign label' }, { status: 500 })
   }
 }

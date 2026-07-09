@@ -1,6 +1,6 @@
 import type { DataSyncAdapter } from '../adapter'
 
-const REGISTRY_KEY = Symbol.for('@open-mercato/core/data_sync/adapter-registry')
+const REGISTRY_KEY = Symbol.for('@open-mercato/data-sync/adapter-registry')
 
 function makeAdapter(providerKey: string): DataSyncAdapter {
   return {

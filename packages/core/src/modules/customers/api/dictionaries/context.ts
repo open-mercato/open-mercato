@@ -8,6 +8,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { CacheStrategy } from '@open-mercato/cache'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const BUILTIN_DICTIONARY_ROUTE_KINDS = [
   'statuses',
@@ -163,7 +166,7 @@ export async function resolveDictionaryRouteContext(
       for (const id of candidateIds) readableOrganizationIds.add(id)
     }
   } catch (err) {
-    console.warn('[customers.dictionaries.context] Failed to resolve ancestor organizations', err)
+    logger.warn('Failed to resolve ancestor organizations', { component: 'dictionaries.context', err })
     for (const id of candidateIds) readableOrganizationIds.add(id)
   }
 

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -13,6 +14,8 @@ import {
   isProviderAllowed,
   modelAllowlistEnvVarName,
 } from '../../../lib/model-allowlist'
+
+const logger = createLogger('ai_assistant')
 
 const allowlistUpsertSchema = z.object({
   allowedProviders: z.array(z.string().min(1).max(64)).nullable().optional(),
@@ -177,7 +180,7 @@ export async function PUT(req: NextRequest) {
       updatedAt: row.updatedAt,
     })
   } catch (error) {
-    console.error('[AI Settings Allowlist] PUT error:', error)
+    logger.error('AI Settings Allowlist — PUT error', { err: error })
     return NextResponse.json(
       { error: 'Failed to save tenant allowlist.' },
       { status: 500 },
@@ -212,7 +215,7 @@ export async function DELETE(req: NextRequest) {
     })
     return NextResponse.json({ cleared })
   } catch (error) {
-    console.error('[AI Settings Allowlist] DELETE error:', error)
+    logger.error('AI Settings Allowlist — DELETE error', { err: error })
     return NextResponse.json(
       { error: 'Failed to clear tenant allowlist.' },
       { status: 500 },

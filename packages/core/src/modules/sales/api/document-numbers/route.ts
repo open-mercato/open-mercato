@@ -11,6 +11,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { documentNumberRequestSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
 import { SalesDocumentNumberGenerator } from '../../services/salesDocumentNumberGenerator'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -105,7 +108,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.document-numbers.generate failed', err)
+    logger.error('sales.document-numbers.generate failed', { err })
     return NextResponse.json(
       { error: translate('sales.documents.errors.number_generate_failed', 'Failed to generate document number.') },
       { status: 400 }

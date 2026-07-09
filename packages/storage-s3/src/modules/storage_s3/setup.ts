@@ -2,6 +2,9 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { createCredentialsService } from '@open-mercato/core/modules/integrations/lib/credentials-service'
 import { createIntegrationLogService } from '@open-mercato/core/modules/integrations/lib/log-service'
 import { applyS3EnvPreset } from './lib/preset'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('storage_s3')
 
 const S3_INTEGRATION_ID = 'storage_s3'
 
@@ -27,10 +30,10 @@ export const setup: ModuleSetupConfig = {
           .error(`Failed to apply S3 env preset during tenant setup: ${message}`)
       } catch (logError) {
         const logMessage = logError instanceof Error ? logError.message : 'Unknown integration log error'
-        console.error(
-          `[storage_s3] Failed to apply env preset during tenant setup: ${message}. ` +
-            `Also failed to persist the error to integration logs: ${logMessage}`,
-        )
+        logger.error('Failed to apply env preset during tenant setup; persisting to integration logs also failed', {
+          presetError: message,
+          logError: logMessage,
+        })
       }
     }
   },

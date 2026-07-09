@@ -7,6 +7,9 @@ import {
 } from '../commands/deliver-outbound-message'
 import { computeBackoffMs } from '../lib/error-classification'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'outbound-delivery' })
 
 /**
  * Worker payload — the subscriber enqueues `{ messageId, scope, attempt? }`.
@@ -92,9 +95,7 @@ export default async function handle(
     // Unexpected error inside the command itself (e.g. DB blip). Re-enqueue
     // up to MAX_ATTEMPTS so we don't lose deliveries due to infrastructure flakes.
     const errorMessage = err instanceof Error ? err.message : String(err)
-    console.warn(
-      `[communication_channels:outbound-delivery] command threw on attempt ${attempt} for message ${messageId}: ${errorMessage}`,
-    )
+    logger.warn('command threw during delivery attempt', { attempt, messageId, reason: errorMessage })
     if (attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS) {
       await reenqueue(job.payload, attempt)
       return
@@ -121,24 +122,18 @@ export default async function handle(
         !forceCredentialRefresh &&
         attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS
       ) {
-        console.warn(
-          `[communication_channels:outbound-delivery] reauth failure on attempt ${attempt} for message ${messageId} (${outcome.providerKey}): ${outcome.error}. Retrying once with a forced credential refresh.`,
-        )
+        logger.warn('reauth failure; retrying once with a forced credential refresh', { attempt, messageId, providerKey: outcome.providerKey, reason: outcome.error })
         await reenqueue({ ...job.payload, forceCredentialRefresh: true }, attempt)
         return
       }
       if (outcome.transient && attempt < OUTBOUND_DELIVERY_MAX_ATTEMPTS) {
-        console.warn(
-          `[communication_channels:outbound-delivery] transient failure on attempt ${attempt} for message ${messageId} (${outcome.providerKey}): ${outcome.error}. Re-enqueueing.`,
-        )
+        logger.warn('transient delivery failure; re-enqueueing', { attempt, messageId, providerKey: outcome.providerKey, reason: outcome.error })
         await reenqueue(job.payload, attempt)
         return
       }
       // Permanent or attempts exhausted — `.delivery_failed` was already emitted
       // by the command, so we stop here.
-      console.error(
-        `[communication_channels:outbound-delivery] giving up on message ${messageId} after attempt ${attempt} (${outcome.providerKey}): ${outcome.error}`,
-      )
+      logger.error('giving up on message delivery', { messageId, attempt, providerKey: outcome.providerKey, reason: outcome.error })
       return
     }
   }

@@ -4,6 +4,9 @@ import { Dictionary, DictionaryEntry } from '@open-mercato/core/modules/dictiona
 import { resolveDictionariesRouteContext } from '@open-mercato/core/modules/dictionaries/api/context'
 import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 const KEY_ALIASES: Record<string, string[]> = {
   currency: ['currency', 'currencies'],
@@ -65,7 +68,7 @@ export async function GET(
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[catalog.dictionaries.GET] Unexpected error', err)
+    logger.error('catalog.dictionaries.GET Unexpected error', { err })
     return NextResponse.json({ error: 'Failed to load dictionary.' }, { status: 500 })
   }
 }
