@@ -1,10 +1,12 @@
-# Standalone portability overrides — `om-auto-continue-pr-loop`
+> **Repo-local override.** This folder is a repo-local override for the external `om-auto-fix-issue` skill installed from `open-mercato/skills` via `yarn install-skills`. The external skill reads this file in place and applies the overrides below **on top of** its built-in workflow — it is never installed as a standalone skill. Everything here adapts the skill from the Open Mercato monorepo to a standalone app scaffolded by `create-mercato-app`.
 
-This skill was authored inside the Open Mercato monorepo. When it runs inside a standalone app scaffolded via `create-mercato-app`, the following overrides apply **before** any rule in `SKILL.md`. They mirror the overrides shipped with the non-loop `om-auto-*` skills; the loop-specific run folder (`.ai/runs/<date>-<slug>/` with `PLAN.md`, `HANDOFF.md`, `NOTIFY.md`, `checkpoint-<N>-checks.md`) is portable and needs no change.
+# Standalone portability overrides — auto-* skills
+
+The auto-* skills (`om-auto-create-pr`, `om-auto-continue-pr`, `om-auto-review-pr`, `om-auto-fix-issue`) were originally authored inside the Open Mercato monorepo. When they run inside a standalone app scaffolded via `create-mercato-app`, the following overrides apply **before** any rule in the external skill.
 
 ## 1. Base branch is discovered, not hard-coded
 
-SKILL.md says the PR targets `develop` / "base branch is always `develop`". In a standalone app, the base branch is whatever your GitHub repo's default branch is. Resolve it with:
+The external skill says "base branch is always `develop`". In a standalone app, the base branch is whatever your GitHub repo's default branch is. Resolve it with:
 
 ```bash
 BASE_BRANCH=$(gh repo view --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || true)
@@ -16,7 +18,7 @@ Use `$BASE_BRANCH` everywhere SKILL.md uses `develop` or `origin/develop`. If yo
 
 ## 2. Pipeline labels are opt-in
 
-SKILL.md requires labels such as `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`, `needs-qa`, `skip-qa`, `in-progress`. A fresh GitHub repo does not have these.
+The external skill requires labels such as `review`, `changes-requested`, `qa`, `qa-failed`, `merge-queue`, `blocked`, `do-not-merge`, `needs-qa`, `skip-qa`, `in-progress`. A fresh GitHub repo does not have these.
 
 Before applying any label, check whether it exists:
 
@@ -29,7 +31,7 @@ apply_label() {
   if label_exists "$1"; then
     gh pr edit "$2" --add-label "$1"
   else
-    echo "[om-auto-continue-pr-loop] Skipping label '$1' (not defined in this repo). To enable the full workflow, run: gh label create '$1'"
+    echo "[$skill-name] Skipping label '$1' (not defined in this repo). To enable the full workflow, run: gh label create '$1'"
   fi
 }
 ```
@@ -53,7 +55,7 @@ gh label create in-progress       --color c5def5 --description "Auto-skill is wo
 
 ## 3. Validation gate probes `package.json` scripts
 
-SKILL.md lists commands like `yarn typecheck`, `yarn test`, `yarn generate`, `yarn build:packages`, `yarn build:app`, `yarn i18n:check-sync`, `yarn i18n:check-usage`, `yarn test:integration`, `yarn test:create-app:integration`. The current standalone template ships `yarn build`, `yarn typecheck`, `yarn test`, `yarn generate`, `yarn db:generate`, and `yarn db:migrate`; monorepo-specific `build:packages`, `build:app`, `i18n:*`, and `test:create-app:integration` scripts usually do not exist.
+The external skill lists commands like `yarn typecheck`, `yarn test`, `yarn generate`, `yarn build:packages`, `yarn build:app`, `yarn i18n:check-sync`, `yarn i18n:check-usage`. The current standalone template ships `yarn build`, `yarn typecheck`, `yarn test`, `yarn generate`, `yarn db:generate`, and `yarn db:migrate`; monorepo-specific `build:packages`, `build:app`, and `i18n:*` scripts usually do not exist.
 
 Before running each step, probe:
 
@@ -77,15 +79,17 @@ Minimum required gate in standalone mode (fail the run if any of these exist and
 - `yarn generate` — if present (expected to exist for Open Mercato apps)
 - `yarn build` — if present
 
-`i18n:*`, `build:packages`, `build:app`, and `test:create-app:integration` checks become no-ops when the script is not defined. Log the skip; do not fail. The per-checkpoint and spec-completion gates in SKILL.md still run — they just run the subset of commands that exist.
+`i18n:*` and `build:packages` / `build:app` checks become no-ops when the script is not defined. Log the skip; do not fail.
 
 ## 4. File layout is `src/modules/…`, not `packages/<pkg>/src/modules/…`
 
-SKILL.md references monorepo paths like `packages/core/src/modules/<module>/`, `apps/mercato/src/modules/<module>/`, etc. In a standalone app:
+The external skill references monorepo paths like `packages/core/src/modules/<module>/`, `apps/mercato/src/modules/<module>/`, etc. In a standalone app:
 
 - Custom modules live at `src/modules/<module>/` (see `AGENTS.md` "Standalone App Structure").
 - Framework source is read-only at `node_modules/@open-mercato/*/dist/` — never edit it; eject instead (`yarn mercato eject <module>`).
-- Agentic metadata lives at `.ai/skills/`, `.ai/specs/`, `.ai/runs/` (same as monorepo — these are copied by `create-mercato-app`). The loop run folder under `.ai/runs/<date>-<slug>/` is resumed in place, unchanged.
+- Agentic metadata lives at `.ai/skills/`, `.ai/specs/`, `.ai/runs/` (same as monorepo — these are copied by `create-mercato-app`).
+
+When The external skill says "grep the generator in `packages/cli/src/lib/generators/...`", remember that in standalone mode the generator lives inside `node_modules/@open-mercato/cli/dist/...` and is read-only. Generator bugs should be reported upstream, not patched locally.
 
 ## 5. Reference-material overrides via `--skill-url`
 

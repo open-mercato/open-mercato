@@ -22,6 +22,7 @@
     "test:integration": "npx playwright test --config .ai/qa/tests/playwright.config.ts",
     "test:integration:ephemeral": "mercato test:integration",
     "generate": "mercato generate",
+    "install-skills": "sh scripts/install-skills.sh",
     "db:generate": "mercato db generate",
     "db:migrate": "mercato db migrate",
     "db:greenfield": "mercato db greenfield",

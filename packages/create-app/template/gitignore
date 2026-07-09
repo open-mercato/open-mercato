@@ -93,4 +93,7 @@ package-lock.json
 .cursor/mcp.json
 .claude/settings.local.json
 .playwright-mcp
-.agents/
+
+# external skills installed by `yarn install-skills` (npx skills add)
+.agents/skills/
+skills-lock.json
