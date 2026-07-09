@@ -74,7 +74,7 @@ What they do:
 
 #### 5. Recognition (ongoing)
 
-- **Changelog mention:** "Module {name} migrated to DS tokens by @{champion}" in RELEASE_NOTES.md
+- **Changelog mention:** "Module {name} migrated to DS tokens by @{champion}" in CHANGELOG.md
 - **CONTRIBUTORS.md:** "Design System Champions" section with a list of people and modules
 - **GitHub label:** `ds-champion` on their contributor profile (if the project has such mechanisms) — in practice a mention in Discussion and changelog is sufficient
 

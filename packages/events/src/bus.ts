@@ -1,6 +1,7 @@
 import { createQueue } from '@open-mercato/queue'
 import type { Queue } from '@open-mercato/queue'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
@@ -22,6 +23,8 @@ import type {
 
 /** Queue name for persistent events */
 const EVENTS_QUEUE_NAME = 'events'
+
+const logger = createLogger('events')
 
 type RegisteredSubscriber = {
   id?: string
@@ -232,7 +235,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
             }),
           )
         } catch (error) {
-          console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
+          logger.error('Handler error', { event, pattern, err: error })
         }
       }
     }
@@ -289,7 +292,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       try {
         await Promise.resolve(tap(event, payload, options))
       } catch (error) {
-        console.error(`[events] Global tap error for "${event}":`, error)
+        logger.error('Global tap error', { event, err: error })
       }
     }
 
@@ -312,7 +315,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       try {
         await publishCrossProcessEvent(event, payload, options)
       } catch (error) {
-        console.error(`[events] Cross-process publish error for "${event}":`, error)
+        logger.error('Cross-process publish error', { event, err: error })
       }
     }
 

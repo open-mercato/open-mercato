@@ -19,6 +19,9 @@ import {
   runStaffMutationGuardAfterSuccess,
   runStaffMutationGuards,
 } from '../../../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 function extractEntryIdFromUrl(request?: Request): string | null {
   if (!request?.url) return null
@@ -169,7 +172,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.timesheets.time-entries.segments.create failed', err)
+    logger.error('staff.timesheets.time-entries.segments.create failed', { err })
     return NextResponse.json(
       { error: translate('staff.timesheets.errors.segmentCreate', 'Failed to create time entry segment.') },
       { status: 400 },

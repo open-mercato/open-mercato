@@ -22,6 +22,9 @@ import {
 import { executeWorkflow } from './workflow-executor'
 import * as stepHandler from './step-handler'
 import * as transitionHandler from './transition-handler'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -244,7 +247,7 @@ export async function completeUserTask(
   )
 
   if (!transitionResult.success) {
-    console.error(`[TaskHandler] Transition failed:`, transitionResult.error)
+    logger.error('Transition failed', { component: 'task-handler', err: transitionResult.error })
     // Don't throw, just leave workflow in current state
     return
   }

@@ -21,7 +21,10 @@ optional screenshot evidence branch, and (opt-in) QA labels.
 
 - `{prNumber}` (required) — the PR number to verify (for example `1234`).
 - `--evidence-only` (default behavior) — post screenshots + report only; do not
-  touch pipeline/meta labels. Stated explicitly so the default is obvious.
+  touch pipeline or verdict labels. The **only** label touched by default is the
+  informational `screenshots` marker, and only when screenshots were actually
+  attached (see step 9); pipeline/verdict labels remain untouched. Stated
+  explicitly so the default is obvious.
 - `--self-qa-signoff` (optional) — when the automated verification is fully
   green AND screenshots were attached AND the PR carries `needs-qa` without
   `skip-qa`, additionally apply `qa-approved` + `qa-self-verified` via the
@@ -319,8 +322,16 @@ comment only — do not open issues unless asked.
 
 **Labels (conservative by default):**
 
-- Default / `--evidence-only`: do **not** change pipeline or meta labels. The
+- Default / `--evidence-only`: do **not** change pipeline or verdict labels. The
   evidence comment is the deliverable; a QA reviewer decides the verdict.
+- `screenshots` (informational marker): when step 7 actually posted screenshots
+  (PASS **or** FAIL — a failing-state screenshot is still evidence), always apply
+  the `screenshots` label via the GraphQL label flow (NOT `gh pr edit
+  --add-label`), regardless of mode. Skip it on PARTIAL / environment-limited runs
+  where no screenshots were attached — the label must reflect real evidence, never
+  a fabricated one. Post a short label comment explaining why, per the
+  every-label-change-gets-a-comment rule. This label is additive and informational
+  only: it does not gate merge and is orthogonal to `needs-qa`/`qa-approved`.
 - `--self-qa-signoff` AND verdict is PASS AND screenshots attached AND the PR
   carries `needs-qa` without `skip-qa`: apply `qa-approved` + `qa-self-verified`
   via the AGENTS.md self-QA exception. Post a label comment linking the evidence
@@ -357,7 +368,7 @@ Verdict: {PASS | FAIL | PARTIAL (env-limited)}
 Env: ephemeral @ {base_url} (started by this run: {yes|no})
 Evidence comment: {url}
 Follow-up test scenario: {posted | skipped — PR already has an integration test}
-Labels: {unchanged | qa-approved+qa-self-verified | qa-failed}
+Labels: {+screenshots when evidence attached} {| qa-approved+qa-self-verified | qa-failed}
 ```
 
 ## Rules
@@ -380,9 +391,11 @@ Labels: {unchanged | qa-approved+qa-self-verified | qa-failed}
 - Post the follow-up integration-test scenario **only when the PR diff defines no
   `**/__integration__/**/*.spec.ts`**; skip it when an integration test already
   exists.
-- Default behavior changes no labels. `qa-approved`/`qa-self-verified` is applied
-  only via `--self-qa-signoff` on a fully-green run with attached screenshots and
-  `needs-qa` (no `skip-qa`); `qa-failed` only via `--apply-failure`. Use the
-  GraphQL label flow and comment every label change.
+- Default behavior changes no pipeline or verdict labels, except the informational
+  `screenshots` marker when visual evidence was actually attached (step 9).
+  `qa-approved`/`qa-self-verified` is applied only via `--self-qa-signoff` on a
+  fully-green run with attached screenshots and `needs-qa` (no `skip-qa`);
+  `qa-failed` only via `--apply-failure`. Use the GraphQL label flow and comment
+  every label change.
 - Never paste secrets, tokens, `.env` content, or non-demo credentials into
   comments; redact sensitive values from screenshots or omit them.

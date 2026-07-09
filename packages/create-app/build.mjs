@@ -1,6 +1,6 @@
 import * as esbuild from 'esbuild'
 import { chmodSync, cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { join, basename } from 'path'
+import { join, basename, resolve } from 'path'
 
 const shebang = '#!/usr/bin/env node\n'
 
@@ -77,15 +77,23 @@ if (guidesFound > 0) {
   console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
 }
 
-// Generate per-module fact-sheets (Layer 2) from core module sources via the
-// reusable ts-morph extractor in @open-mercato/cli. Emits one markdown sheet per
-// allowlisted module plus a combined JSON sidecar. Auth comes from the generated
-// module registry (`apis[].metadata`); a missing registry yields warnings, never a crash.
-const { extractAllModuleFacts, renderModuleFactsJson } = await import(
+// Generate per-module fact-sheets (Layer 2) for every package-provided module via
+// the reusable ts-morph extractor + resolver-routed discovery in @open-mercato/cli.
+// Emits one markdown sheet per discovered module plus a combined JSON sidecar; a
+// scaffold links only its enabled subset (packages/create-app/src/setup/tools/shared.ts).
+// Auth comes from the generated module registry (`apis[].metadata`); a missing registry
+// yields warnings, never a crash. Discovery goes through the resolver, never a hardcoded
+// packages/* path (.ai/lessons.md §161-169).
+const { extractAllModuleFacts, renderModuleFactsJson, MODULE_FACTS_ALLOWLIST } = await import(
   '@open-mercato/cli/lib/generators/module-facts'
 )
-const coreSrcRoot = join(packagesDir, 'core', 'src', 'modules')
-if (existsSync(coreSrcRoot)) {
+const { discoverPackageModuleSources } = await import(
+  '@open-mercato/cli/lib/generators/module-facts-discovery'
+)
+const { createResolver } = await import('@open-mercato/cli/lib/resolver')
+
+const sources = discoverPackageModuleSources(createResolver(resolve(packagesDir, '..')))
+if (sources.length > 0) {
   const registryPath = join(packagesDir, '..', 'apps', 'mercato', '.mercato', 'generated', 'modules.runtime.generated.ts')
   let coreVersion = null
   try {
@@ -95,7 +103,7 @@ if (existsSync(coreSrcRoot)) {
   }
 
   const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
-    coreSrcRoot,
+    sources,
     registryPath: existsSync(registryPath) ? registryPath : null,
     coreVersion,
   })
@@ -110,12 +118,14 @@ if (existsSync(coreSrcRoot)) {
   for (const warning of warnings) console.warn(warning)
   console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
 
-  // BC bridge (spec §7 generated-file contract): for any allowlisted module whose
-  // legacy full guide `core.<module>.md` is no longer bundled (its standalone-guide.md
-  // source was removed), emit a thin redirect stub pointing at the generated fact-sheet.
+  // BC bridge (spec §7 generated-file contract): the legacy hand-written guides existed
+  // only for the historical allowlisted modules, so redirect stubs are emitted for that
+  // set alone — never for auto-discovered modules that never had a `core.<module>.md`.
   // Fresh scaffolds never link these names; they exist only for apps upgrading in place.
+  const bundled = new Set(Object.keys(markdownByModule))
   let stubsWritten = 0
-  for (const moduleId of Object.keys(markdownByModule)) {
+  for (const moduleId of MODULE_FACTS_ALLOWLIST) {
+    if (!bundled.has(moduleId)) continue
     const legacyGuidePath = join(guidesDestDir, `core.${moduleId}.md`)
     if (!existsSync(legacyGuidePath)) {
       writeFileSync(
@@ -131,7 +141,7 @@ if (existsSync(coreSrcRoot)) {
     console.log(`Wrote ${stubsWritten} legacy core.<module>.md redirect stubs → dist/agentic/guides/`)
   }
 } else {
-  console.warn(`[module-facts] core module sources not found at ${coreSrcRoot}; skipping fact-sheet generation`)
+  console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
 }
 
 console.log('Build complete: dist/index.js')
