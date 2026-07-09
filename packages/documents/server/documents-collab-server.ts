@@ -141,6 +141,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       if (isReadOnlyTier(data.context.tier)) return
 
       const materialized = yDocToContent(data.document)
+      if (materialized) materializationWarningRooms.delete(data.documentName)
       if (!materialized && !materializationWarningRooms.has(data.documentName)) {
         materializationWarningRooms.add(data.documentName)
         console.warn(`[documents-collab] materialization failed for room ${data.documentName}; preserving previous html/text`)

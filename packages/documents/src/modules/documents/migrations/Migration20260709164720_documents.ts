@@ -11,6 +11,9 @@ export class Migration20260709164720_documents extends Migration {
 
   override down(): void | Promise<void> {
     this.addSql(`alter table "document_comments" drop column "mentions";`);
+
+    this.addSql(`drop index if exists "document_templates_scope_idx";`);
+    this.addSql(`drop table if exists "document_templates" cascade;`);
   }
 
 }

@@ -110,7 +110,7 @@ async function findUserIdForRole(
 async function resolveTemplateSeedCreatorUserId(
   em: EntityManager,
   scope: Pick<SeedDocumentTemplatesScope, 'tenantId' | 'organizationId'>,
-): Promise<string> {
+): Promise<string | null> {
   const adminUserId = await findUserIdForRole(em, scope, 'admin')
   if (adminUserId) return adminUserId
 
@@ -128,7 +128,7 @@ async function resolveTemplateSeedCreatorUserId(
   )
   if (user) return user.id
 
-  throw new Error('[internal] documents template seeding requires an existing tenant user')
+  return null
 }
 
 export async function seedDefaultDocumentTemplates(
@@ -136,6 +136,10 @@ export async function seedDefaultDocumentTemplates(
   scope: SeedDocumentTemplatesScope,
 ): Promise<void> {
   const createdByUserId = scope.createdByUserId ?? await resolveTemplateSeedCreatorUserId(em, scope)
+  if (!createdByUserId) {
+    console.warn('[documents] template seeding skipped: no tenant user available yet')
+    return
+  }
   let created = 0
 
   for (const seed of DEFAULT_DOCUMENT_TEMPLATES) {
