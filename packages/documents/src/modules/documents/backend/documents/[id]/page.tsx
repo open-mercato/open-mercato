@@ -3,7 +3,7 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { History } from 'lucide-react'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -101,16 +101,20 @@ function normalizeContent(payload: unknown): DocumentContent {
   }
 }
 
-function getParamId(params: ReturnType<typeof useParams>): string | null {
-  const raw = params?.id
-  if (Array.isArray(raw)) return raw[0] ?? null
-  return typeof raw === 'string' && raw.trim().length > 0 ? raw : null
+function resolveDocumentId(paramId: string | undefined, pathname: string | null): string | null {
+  if (typeof paramId === 'string' && paramId.trim().length > 0) return paramId
+  if (pathname) {
+    const segments = pathname.split('/').filter(Boolean)
+    const last = segments[segments.length - 1]
+    if (last && last !== 'documents') return decodeURIComponent(last)
+  }
+  return null
 }
 
-export default function DocumentEditorPage() {
+export default function DocumentEditorPage({ params }: { params?: { id?: string } }) {
   const t = useT()
-  const params = useParams()
-  const documentId = getParamId(params)
+  const pathname = usePathname()
+  const documentId = resolveDocumentId(params?.id, pathname)
   const [state, setState] = React.useState<LoadState>({ status: 'loading' })
   const [shareOpen, setShareOpen] = React.useState(false)
   const [showVersions, setShowVersions] = React.useState(false)
