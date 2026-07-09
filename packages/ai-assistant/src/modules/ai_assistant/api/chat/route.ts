@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -18,6 +19,8 @@ import {
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { checkAiChatRateLimit } from '../../lib/rate-limit'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * System instructions injected at the start of new chat sessions.
@@ -206,7 +209,7 @@ export async function POST(req: NextRequest) {
         await writer.write(encoder.encode(`data: ${jsonStr}\n\n`))
       } catch (err) {
         // Writer may have been closed by client disconnect
-        console.warn('[AI Chat] Failed to write SSE event:', event.type)
+        logger.warn('Failed to write SSE event', { eventType: event.type })
       }
     }
 
@@ -271,7 +274,7 @@ export async function POST(req: NextRequest) {
         // security intent that the answerQuestion short-circuit MUST NOT leak
         // whether the failure was authorization vs backend connectivity vs
         // implementation error. The real reason is captured in server logs.
-        console.error('[AI Chat] Answer error:', error)
+        logger.error('AI Chat — Answer error', { err: error })
         return NextResponse.json({ error: 'Session not available' }, { status: 403 })
       }
     }
@@ -299,9 +302,11 @@ export async function POST(req: NextRequest) {
     if (rateLimited) return rateLimited
 
     const chatStartTime = Date.now()
-    const messagePreview = lastUserMessage.slice(0, 80).replace(/\n/g, ' ')
-    console.error(`[AI Usage] Chat request: user=${auth.sub} session=${sessionId ? sessionId.slice(0, 16) + '...' : 'new'} message="${messagePreview}${lastUserMessage.length > 80 ? '...' : ''}"`)
-
+    logger.info('Chat request', {
+      userId: auth.sub,
+      sessionId: sessionId ? sessionId.slice(0, 16) : 'new',
+      messageChars: lastUserMessage.length,
+    })
 
     // For new sessions, create an ephemeral API key that inherits user permissions
     // The API key secret is encrypted and stored; MCP server recovers it via session token
@@ -321,9 +326,9 @@ export async function POST(req: NextRequest) {
           organizationId: auth.orgId,
           ttlMinutes: 120,
         })
-        console.log('[AI Chat] Created session token:', sessionToken.slice(0, 12) + '...')
+        logger.info('Created session token')
       } catch (error) {
-        console.error('[AI Chat] Failed to create session key:', error)
+        logger.error('AI Chat — Failed to create session key', { err: error })
         // Continue without session key - tools will use static API key auth
       }
     }
@@ -354,7 +359,7 @@ export async function POST(req: NextRequest) {
       try {
         // Emit session-authorized event first (if we have a token)
         if (sessionToken) {
-          console.log('[AI Chat] Emitting session-authorized event')
+          logger.info('AI Chat — Emitting session-authorized event')
           await writeSSE({
             type: 'session-authorized',
             sessionToken: sessionToken.slice(0, 12) + '...',
@@ -389,10 +394,7 @@ export async function POST(req: NextRequest) {
                 } catch (bindErr) {
                   // The response stream is already in-flight — surface the
                   // failure to logs without disturbing the SSE pipeline.
-                  console.error(
-                    '[AI Chat] Failed to bind OpenCode session to api_key:',
-                    bindErr
-                  )
+                  logger.error('AI Chat — Failed to bind OpenCode session to api_key', { err: bindErr })
                 }
               }
             }
@@ -401,14 +403,21 @@ export async function POST(req: NextRequest) {
           }
         )
       } catch (error) {
-        console.error('[AI Chat] OpenCode error:', error)
+        logger.error('AI Chat — OpenCode error', { err: error })
         await writeSSE({
           type: 'error',
           error: error instanceof Error ? error.message : 'OpenCode request failed',
         })
       } finally {
         const durationMs = Date.now() - chatStartTime
-        console.error(`[AI Usage] Chat complete: user=${auth.sub} session=${(resultSessionId || sessionId || 'unknown').slice(0, 16)}... duration=${durationMs}ms toolCalls=${toolCallCount}${lastTokens ? ` tokens={in:${lastTokens.input || 0},out:${lastTokens.output || 0}}` : ''}`)
+        logger.info('Chat complete', {
+          userId: auth.sub,
+          sessionId: (resultSessionId || sessionId || 'unknown').slice(0, 16),
+          durationMs,
+          toolCalls: toolCallCount,
+          inputTokens: lastTokens?.input || 0,
+          outputTokens: lastTokens?.output || 0,
+        })
         await closeWriter()
       }
     })()
@@ -421,7 +430,7 @@ export async function POST(req: NextRequest) {
       },
     })
   } catch (error) {
-    console.error('[AI Chat] Error:', error)
+    logger.error('AI Chat — Error', { err: error })
     return NextResponse.json({ error: 'Chat request failed' }, { status: 500 })
   }
 }

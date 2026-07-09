@@ -10,7 +10,11 @@ import {
   selectModuleFactSheets,
 } from './shared.js'
 
-const D5_MODULES = [
+// A fixture bundle of fact-sheets that build.mjs would have written to
+// dist/agentic/guides/modules/. Post-auto-discovery the real bundle is every
+// package module; these tests exercise the enabled ∩ bundled intersection with a
+// controlled subset so a module can be enabled-but-not-bundled (and vice versa).
+const BUNDLED_FIXTURE = [
   'auth',
   'catalog',
   'currencies',
@@ -68,22 +72,23 @@ test('readEnabledModuleIds reads the static literal and ignores conditional .pus
   assert.ok(!ids.includes('should_not_appear'))
 })
 
-test('selectModuleFactSheets returns enabled ∩ allowlisted only (T6, GAP-D6-E)', () => {
+test('selectModuleFactSheets returns enabled ∩ bundled only (T5)', () => {
   const targetDir = makeTmpDir()
-  // dashboards is enabled but NOT allowlisted (no fact-sheet); auth/etc are allowlisted but NOT enabled.
+  // `dashboards` is enabled but NOT in this fixture's bundle (so no row); auth/etc are
+  // bundled but NOT enabled (so no row either). Only the intersection is selected.
   writeModulesTs(targetDir, ['customers', 'sales', 'dashboards'])
-  const modulesSubdir = makeFactSheetDir(D5_MODULES)
+  const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)
 
   const selected = selectModuleFactSheets(targetDir, modulesSubdir).sort()
   assert.deepEqual(selected, ['customers', 'sales'])
 })
 
-test('selectModuleFactSheets falls back to the full bundled set when the enabled set cannot be read (T6, R5)', () => {
+test('selectModuleFactSheets falls back to the full bundled set when the enabled set cannot be read (T5, R5)', () => {
   const targetDir = makeTmpDir() // no src/modules.ts written
-  const modulesSubdir = makeFactSheetDir(D5_MODULES)
+  const modulesSubdir = makeFactSheetDir(BUNDLED_FIXTURE)
 
   const selected = selectModuleFactSheets(targetDir, modulesSubdir).sort()
-  assert.deepEqual(selected, [...D5_MODULES].sort())
+  assert.deepEqual(selected, [...BUNDLED_FIXTURE].sort())
 })
 
 test('injectModuleGuides writes exactly the selected rows, drops the hedge, and is idempotent (T6)', () => {

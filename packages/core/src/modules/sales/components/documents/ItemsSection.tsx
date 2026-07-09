@@ -27,6 +27,9 @@ import type { SectionAction } from "@open-mercato/ui/backend/detail";
 import { extractCustomFieldValues } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
 import type { SalesLineUomSnapshot } from "../../lib/types";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ResolvedUnitPriceReference = {
   grossPerReference: number;
@@ -164,7 +167,7 @@ export function SalesDocumentItemsSection({
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false });
       setLineStatusMap(createDictionaryMap(entries));
     } catch (err) {
-      console.error("sales.document.line-statuses.load", err);
+      logger.error('sales.document.line-statuses.load', { err });
       setLineStatusMap({});
     }
   }, []);
@@ -315,7 +318,7 @@ export function SalesDocumentItemsSection({
         if (onItemsChange) onItemsChange([]);
       }
     } catch (err) {
-      console.error("sales.document.items.load", err);
+      logger.error('sales.document.items.load', { err });
       setError(t("sales.documents.items.errorLoad", "Failed to load items."));
       if (onItemsChange) onItemsChange([]);
     } finally {
@@ -364,7 +367,7 @@ export function SalesDocumentItemsSection({
         setShippedTotals(new Map());
       }
     } catch (err) {
-      console.error("sales.document.shipments.load", err);
+      logger.error('sales.document.shipments.load', { err });
       setShippedTotals(new Map());
     }
   }, [documentId, kind]);
@@ -476,7 +479,7 @@ export function SalesDocumentItemsSection({
         }
       } catch (err) {
         if (handleSectionMutationError(err, t, () => void loadItems())) return;
-        console.error("sales.document.items.delete", err);
+        logger.error('sales.document.items.delete', { err });
         const normalized = normalizeCrudServerError(err);
         const fallback = t(
           "sales.documents.items.errorDelete",

@@ -1,9 +1,12 @@
 import { createHash } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CommunicationChannel } from './data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES } from './lib/queue'
 import { isTestChannelSeedingEnabled, TEST_SEED_PROVIDER_KEY } from './lib/test-seed'
+
+const logger = createLogger('communication_channels')
 
 type SchedulerServiceLike = {
   register: (registration: {
@@ -177,10 +180,7 @@ export const setup: ModuleSetupConfig = {
         isEnabled: true,
       })
     } catch (error) {
-      console.warn(
-        '[communication_channels] Failed to register module schedules:',
-        error instanceof Error ? error.message : error,
-      )
+      logger.warn('Failed to register module schedules', { err: error })
     }
   },
 }

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -17,6 +18,8 @@ import type {
   AiAgentDefinition,
   AiAgentMutationPolicy,
 } from '../../../../../lib/ai-agent-definition'
+
+const logger = createLogger('ai_assistant')
 
 const agentIdPattern = /^[a-z0-9_]+\.[a-z0-9_]+$/
 
@@ -232,7 +235,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
       override: current ? serializeOverride(current) : null,
     })
   } catch (error) {
-    console.error('[AI Mutation Policy GET] Failure:', error)
+    logger.error('AI Mutation Policy GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to load mutationPolicy override.',
@@ -316,7 +319,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       override: serializeOverride(saved),
     })
   } catch (error) {
-    console.error('[AI Mutation Policy POST] Failure:', error)
+    logger.error('AI Mutation Policy POST — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to save mutationPolicy override.',
@@ -370,7 +373,7 @@ export async function DELETE(req: NextRequest, context: RouteContext): Promise<R
       cleared,
     })
   } catch (error) {
-    console.error('[AI Mutation Policy DELETE] Failure:', error)
+    logger.error('AI Mutation Policy DELETE — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to clear mutationPolicy override.',

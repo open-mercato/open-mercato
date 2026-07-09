@@ -28,33 +28,28 @@ import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
   if (parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)) {
     if (process.env.NODE_ENV === 'production') {
-      console.warn(
-        '[CALL_WEBHOOK] OM_WORKFLOWS_ALLOW_PRIVATE_URLS is set but ignored in production. SSRF protection remains enabled.'
-      )
+      logger.warn('OM_WORKFLOWS_ALLOW_PRIVATE_URLS is set but ignored in production. SSRF protection remains enabled.', { component: 'CALL_WEBHOOK' })
       return false
     }
 
-    console.warn(
-      '[CALL_WEBHOOK] OM_WORKFLOWS_ALLOW_PRIVATE_URLS is enabled. SSRF protection is bypassed for workflow webhooks; use only in development.'
-    )
+    logger.warn('OM_WORKFLOWS_ALLOW_PRIVATE_URLS is enabled. SSRF protection is bypassed for workflow webhooks; use only in development.', { component: 'CALL_WEBHOOK' })
     return true
   }
 
   if (parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)) {
     if (process.env.NODE_ENV === 'production') {
-      console.warn(
-        '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated and ignored in production. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS for development only. SSRF protection remains enabled.'
-      )
+      logger.warn('WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated and ignored in production. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS for development only. SSRF protection remains enabled.', { component: 'CALL_WEBHOOK' })
       return false
     }
 
-    console.warn(
-      '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.'
-    )
+    logger.warn('WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.', { component: 'CALL_WEBHOOK' })
     return true
   }
 
@@ -337,7 +332,14 @@ export async function executeActivity(
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
-        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
+        logger.error('Activity failed; will retry', {
+          activityId: activity.activityId,
+          activityType: activity.activityType,
+          attempt: attempt + 1,
+          maxAttempts: retryPolicy.maxAttempts,
+          instanceId: context.workflowInstance.id,
+          err: error,
+        })
       }
 
       // If not the last attempt, apply backoff and retry
@@ -356,10 +358,13 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
-  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
-  if (lastError instanceof Error && lastError.stack) {
-    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
-  }
+  logger.error('Activity failed after all attempts', {
+    activityId: activity.activityId,
+    activityType: activity.activityType,
+    attempts: retryCount,
+    instanceId: context.workflowInstance.id,
+    err: lastError,
+  })
 
   return {
     activityId: activity.activityId,
@@ -497,7 +502,7 @@ export async function executeSendEmail(
   }
 
   // For MVP: Log the email (actual email service integration can be added later)
-  console.log(`[Workflow Activity] Send email to ${to}: ${subject}`)
+  logger.info('Send email activity invoked', { component: 'SEND_EMAIL', subject })
 
   // Check if email service is available in container
   try {
@@ -685,7 +690,7 @@ async function resolveDictionaryEntryId(
     })
 
     if (!dictionary) {
-      console.warn(`[UPDATE_ENTITY] Dictionary not found: ${dictionaryKey}`)
+      logger.warn('Dictionary not found', { component: 'UPDATE_ENTITY', dictionaryKey })
       return null
     }
 
@@ -699,13 +704,13 @@ async function resolveDictionaryEntryId(
     })
 
     if (!entry) {
-      console.warn(`[UPDATE_ENTITY] Dictionary entry not found: ${dictionaryKey}/${value}`)
+      logger.warn('Dictionary entry not found', { component: 'UPDATE_ENTITY', dictionaryKey, value })
       return null
     }
 
     return entry.id
   } catch (error) {
-    console.error(`[UPDATE_ENTITY] Error resolving dictionary entry:`, error)
+    logger.error('Error resolving dictionary entry', { component: 'UPDATE_ENTITY', err: error })
     return null
   }
 }

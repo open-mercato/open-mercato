@@ -3,6 +3,7 @@
  */
 import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { TimerBar } from '../TimerBar'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 
@@ -37,6 +38,20 @@ const projects = [
   { id: 'project-1', name: 'Build', code: 'BLD', color: null },
 ]
 
+function renderTimerBar() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false },
+    },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />
+    </QueryClientProvider>,
+  )
+}
+
 describe('TimerBar guarded mutations', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -46,7 +61,7 @@ describe('TimerBar guarded mutations', () => {
   })
 
   it('routes the atomic timer start through guarded mutation context', async () => {
-    render(<TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />)
+    renderTimerBar()
 
     fireEvent.click(screen.getByRole('button', { name: 'Project' }))
     fireEvent.click(screen.getByRole('button', { name: /Build/ }))
@@ -87,7 +102,7 @@ describe('TimerBar guarded mutations', () => {
       },
     } as any)
 
-    render(<TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />)
+    renderTimerBar()
 
     // The orphaned overnight timer must be controllable: the Stop affordance appears
     // even though the entry's date is no longer "today".
@@ -113,7 +128,7 @@ describe('TimerBar guarded mutations', () => {
       },
     } as any)
 
-    render(<TimerBar projects={projects} staffMemberId="staff-1" onTimerStopped={jest.fn()} />)
+    renderTimerBar()
 
     fireEvent.click(await screen.findByRole('button', { name: 'Stop timer' }))
 

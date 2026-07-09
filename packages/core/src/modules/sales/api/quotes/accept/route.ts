@@ -19,6 +19,9 @@ import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ConvertToOrderResult = {
   result?: { orderId?: string } | null
@@ -162,7 +165,7 @@ export async function POST(req: Request) {
           organizationId: quote.organizationId,
         })
       } catch (err) {
-        console.error('sales.quotes.accept.adminEmail failed', err)
+        logger.error('sales.quotes.accept.adminEmail failed', { err })
       }
     }
 
@@ -172,7 +175,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.accept failed', err)
+    logger.error('sales.quotes.accept failed', { err })
     return NextResponse.json({ error: translate('sales.quotes.accept.failed', 'Failed to accept quote.') }, { status: 400 })
   }
 }

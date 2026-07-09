@@ -40,6 +40,9 @@ import { INVITE_TOKEN_TTL_MS } from '@open-mercato/core/modules/auth/lib/inviteT
 import { getSecurityEmailBaseUrl } from '@open-mercato/shared/lib/url'
 import { generateAuthToken, hashAuthToken } from '@open-mercato/core/modules/auth/lib/tokenHash'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users-commands' })
 
 type SerializedUser = {
   email: string
@@ -184,7 +187,7 @@ async function notifyRoleChanges(
       }
     }
   } catch (err) {
-    console.error('[auth.users.roles] Failed to create notification:', err)
+    logger.error('Failed to create notification', { err })
   }
 }
 
@@ -487,7 +490,7 @@ async function sendInviteToUser(
       organizationId: user.organizationId ? String(user.organizationId) : null,
     })
   } catch (err) {
-    console.error('[auth.users.invite] Failed to send invitation email:', err)
+    logger.error('Failed to send invitation email', { err })
     emailSent = false
   }
 

@@ -1,6 +1,9 @@
 import type { AwilixContainer } from 'awilix'
 import { runWithCacheTenant, type CacheStrategy } from '@open-mercato/cache'
 import { parseBooleanToken } from '../boolean'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'crud-cache' })
 
 export type CrudCacheIdentifiers = {
   id?: string | null
@@ -25,7 +28,7 @@ export function isCrudCacheDebugEnabled(): boolean {
 export function debugCrudCache(event: string, context: Record<string, unknown>) {
   if (!isCrudCacheDebugEnabled()) return
   try {
-    console.debug('[crud][cache]', event, context)
+    logger.debug(event, context)
   } catch {}
 }
 

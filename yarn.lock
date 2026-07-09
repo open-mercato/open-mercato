@@ -8148,6 +8148,7 @@ __metadata:
     "@types/sanitize-html": "npm:^2.16.1"
     dotenv: "npm:^17.4.2"
     jest: "npm:^30.4.2"
+    pino: "npm:^10.3.1"
     rate-limiter-flexible: "npm:^11.2.0"
     re2js: "npm:2.8.5"
     reflect-metadata: "npm:^0.2.2"
@@ -24888,7 +24889,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pino@npm:10.3.1":
+"pino@npm:10.3.1, pino@npm:^10.3.1":
   version: 10.3.1
   resolution: "pino@npm:10.3.1"
   dependencies:
