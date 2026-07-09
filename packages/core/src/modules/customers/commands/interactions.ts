@@ -39,11 +39,14 @@ import {
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceRecordGoneIsConflict, enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -196,14 +199,14 @@ async function emitLifecycleEvent(
   try {
     bus = ctx.container.resolve('eventBus')
   } catch (err) {
-    console.warn('[customers.commands.interactions] eventBus resolve failed; skipping emit', eventId, err)
+    logger.warn('eventBus resolve failed; skipping emit', { component: 'commands.interactions', eventId, err })
     bus = null
   }
   if (!bus) return
   await bus
     .emitEvent(eventId, payload, { persistent: true })
     .catch((err) => {
-      console.warn('[customers.commands.interactions] emit failed', eventId, err)
+      logger.warn('Event emit failed', { component: 'commands.interactions', eventId, err })
       return undefined
     })
 }
@@ -644,7 +647,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       // when the client opted into optimistic locking, a stale edit fails with the
       // unified 409 instead of silently overwriting (#2055). Strictly additive —
       // no-op when no expected-version header is present.
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -912,7 +915,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -1052,7 +1055,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
 
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: 'customers.interaction',
         resourceId: interaction.id,
         current: interaction.updatedAt,
@@ -1190,7 +1193,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)
 
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: 'customers.interaction',
           resourceId: interaction.id,
           current: interaction.updatedAt,

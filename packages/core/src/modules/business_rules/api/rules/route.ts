@@ -5,7 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { BusinessRule } from '../../data/entities'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -21,6 +21,9 @@ import {
   invalidateBusinessRuleDiscoveryCache,
   resolveBusinessRuleDiscoveryCache,
 } from '../../lib/rule-engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('business_rules').child({ component: 'rules-api' })
 
 const querySchema = z.looseObject({
   id: z.uuid().optional(),
@@ -221,7 +224,7 @@ export async function POST(req: Request) {
     await em.persist(rule).flush()
     await invalidateBusinessRuleDiscoveryCache(cache, rule.tenantId, rule.organizationId)
   } catch (error) {
-    console.error('[business_rules.rules] Failed to persist new rule:', error)
+    logger.error('Failed to persist new rule', { err: error })
     return NextResponse.json(
       { error: t('business_rules.errors.createFailed') },
       { status: 500 },
@@ -280,7 +283,7 @@ export async function PUT(req: Request) {
   }
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'business_rules.rule',
       resourceId: rule.id,
       current: rule.updatedAt ?? null,
@@ -299,7 +302,7 @@ export async function PUT(req: Request) {
     await em.persist(rule).flush()
     await invalidateBusinessRuleDiscoveryCache(cache, rule.tenantId, rule.organizationId)
   } catch (error) {
-    console.error('[business_rules.rules] Failed to persist rule update:', error)
+    logger.error('Failed to persist rule update', { err: error })
     return NextResponse.json(
       { error: t('business_rules.errors.updateFailed') },
       { status: 500 },
@@ -338,7 +341,7 @@ export async function DELETE(req: Request) {
   }
 
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'business_rules.rule',
       resourceId: rule.id,
       current: rule.updatedAt ?? null,

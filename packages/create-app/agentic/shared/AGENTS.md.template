@@ -21,6 +21,7 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 | Task | Load |
 |---|---|
+| Understand the module system (anatomy, auto-discovery, naming, mandatory mechanisms, data integrity, migrations) | `.ai/guides/module-system.md` |
 | Scaffold a new module from scratch | `.ai/skills/om-module-scaffold/SKILL.md` |
 | Design entities and relationships | `.ai/skills/om-data-model-design/SKILL.md` |
 | Build backend UI (forms, tables, pages) | `.ai/skills/om-backend-ui-design/SKILL.md` |
@@ -60,19 +61,10 @@ step, you WILL produce incorrect imports and miss required patterns.
 
 ### Module-Specific Guides
 
-These guides ship automatically when the corresponding module is installed.
+These per-module fact-sheets are **generated from source** and bundled for the modules enabled in this app. The list below is regenerated on scaffold from your enabled module set — do not edit between the markers.
 
-| Task | Load |
-|---|---|
-| Build CRUD modules — reference patterns, commands, custom fields, search | `.ai/guides/core.customers.md` (if available) |
-| Use workflow automation, triggers, user tasks, signals | `.ai/guides/core.workflows.md` (if available) |
-| Use product catalog, pricing engine, variants, offers | `.ai/guides/core.catalog.md` (if available) |
-| Use sales orders, quotes, invoices, shipments, payments | `.ai/guides/core.sales.md` (if available) |
-| Use staff authentication, RBAC, roles, feature guards | `.ai/guides/core.auth.md` (if available) |
-| Use multi-currency, exchange rates, dual recording | `.ai/guides/core.currencies.md` (if available) |
-| Build integration providers, credentials, health checks | `.ai/guides/core.integrations.md` (if available) |
-| Build data sync adapters, import/export connectors | `.ai/guides/core.data_sync.md` (if available) |
-| Use customer portal auth, customer RBAC, portal pages | `.ai/guides/core.customer_accounts.md` (if available) |
+<!-- om:module-guides:start -->
+<!-- om:module-guides:end -->
 
 ### Quality & Process
 
@@ -147,7 +139,7 @@ When the user asks to **create a new application** or a **new module**, do not i
 | **Backend admin pages** | Auto-discovered files under `src/modules/<id>/backend/**`, paired `page.meta.ts` with `requireAuth` + `requireFeatures` + `pageGroup`/`pageGroupKey`/`pageOrder` | `.ai/skills/om-backend-ui-design/SKILL.md`, `.ai/skills/om-module-scaffold/references/navigation-patterns.md`; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | **Frontend public pages** | Auto-discovered files under `src/modules/<id>/frontend/**`. Customer portal pages live under `frontend/[orgSlug]/portal/<path>/page.tsx` with `requireCustomerAuth` / `requireCustomerFeatures` in `page.meta.ts` | `.ai/guides/ui.md` → Portal Extension; <https://docs.open-mercato.dev/framework/modules/routes-and-pages> |
 | **API routes** | Files under `src/modules/<id>/api/**/route.ts` exporting handlers + `metadata` (per-method `requireAuth` / `requireFeatures`) + `openApi`. NEVER write a top-level `export const requireAuth` — the registry no longer recognises it | `.ai/guides/core.md` → API Routes; <https://docs.open-mercato.dev/framework/api/api-development-guide> |
-| **CRUD APIs (factory)** | `makeCrudRoute({ entity, entityId, operations, schema, indexer: { entityType } })` from `@open-mercato/shared/lib/crud/factory`. Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST call `validateCrudMutationGuard` before the mutation and `runCrudMutationGuardAfterSuccess` after success | `.ai/skills/om-module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
+| **CRUD APIs (factory)** | `makeCrudRoute({ metadata, orm, list, create, update, del, indexer })` from `@open-mercato/shared/lib/crud/factory` (`orm` is required; `list`/`create`/`update`/`del` are the per-operation configs). Always set `indexer` so query-index coverage stays correct. Custom (non-`makeCrudRoute`) write routes MUST use the mutation guard registry: map the route to `create`/`update`/`delete` (action endpoints usually `update`), collect registered guards, append `bridgeLegacyGuard(container)` when present, call `runMutationGuards(...)` with `{ userFeatures }` before the mutation, merge `modifiedPayload`, and run returned `afterSuccessCallbacks` after success while catching/logging callback failures | `.ai/skills/om-module-scaffold/SKILL.md` → Create API Routes; <https://docs.open-mercato.dev/framework/api/crud-factory> |
 | **CRUD forms in admin** | `<CrudForm entityId apiPath mode fields />` from `@open-mercato/ui/backend/CrudForm`; helpers `createCrud` / `updateCrud` / `deleteCrud` from `@open-mercato/ui/backend/utils/crud`; `createCrudFormError` from `@open-mercato/ui/backend/utils/serverErrors`. Never raw `<form>`, never raw `fetch` | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/crud-form> |
 | **DataTables in admin** | `<DataTable entityId apiPath title columns />` from `@open-mercato/ui/backend/DataTable`. Keep `entityId` and `extensionTableId` stable so widget injection (columns, row actions, bulk actions, filters, toolbar) keeps working | `.ai/skills/om-backend-ui-design/SKILL.md`; <https://docs.open-mercato.dev/framework/admin-ui/data-grids> |
 | **Authorization (RBAC)** | Declare features in `<module>/acl.ts`, grant them in `<module>/setup.ts` `defaultRoleFeatures`, gate pages and routes with `requireFeatures` in `metadata` / `page.meta.ts`. NEVER use `requireRoles` (role names mutate). Run `yarn mercato auth sync-role-acls` after adding new features | `.ai/guides/core.md` → Access Control; <https://docs.open-mercato.dev/framework/rbac/overview> |

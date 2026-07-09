@@ -82,6 +82,12 @@ export async function deleteCatalogProductsWithProgress(params: {
   let affectedCount = 0
   const deletedIds = new Set<string>()
 
+  // record_locks decision: bulk product delete is EXEMPT from the optimistic-lock
+  // / record-lock guard (Phase 4). It is an explicit destructive operation over a
+  // multi-selection, not a collaborative field edit, and the queued job has no
+  // per-row expected `updated_at` to compare against — mirroring the customers
+  // bulk pattern from Phase 2. Single-product delete on the detail screen still
+  // rides the CRUD mutation-guard decorator with the version header.
   for (const [index, id] of ids.entries()) {
     await commandBus.execute<{ body?: Record<string, unknown> }, { productId: string }>('catalog.products.delete', {
       input: { body: { id } },

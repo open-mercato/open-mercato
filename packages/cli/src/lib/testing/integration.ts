@@ -1,4 +1,3 @@
-import { GenericContainer } from 'testcontainers'
 import type { ChildProcess, StdioOptions } from 'node:child_process'
 import { createServer } from 'node:net'
 import { existsSync, readFileSync } from 'node:fs'
@@ -158,6 +157,31 @@ const EPHEMERAL_ENV_LOCK_POLL_MS = 500
 const DEFAULT_BUILD_CACHE_TTL_SECONDS = 600
 const APP_READY_TIMEOUT_ENV_VAR = 'OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS'
 const BUILD_CACHE_TTL_ENV_VAR = 'OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS'
+const EPHEMERAL_POSTGRES_IMAGE_ENV_VAR = 'OM_INTEGRATION_POSTGRES_IMAGE'
+// Dev/prod and the dev container run pgvector-enabled Postgres (see docker-compose*.yml,
+// docker/postgres-init.sh, .devcontainer/docker-compose.yml). The ephemeral integration DB
+// MUST match so that `CREATE EXTENSION vector` (packages/search/src/vector/drivers/pgvector)
+// and any vector-search code path succeed. A plain `postgres:*` image lacks the extension
+// files. Stay on pg16 to avoid behavioral drift in the existing suite; only add pgvector.
+const DEFAULT_EPHEMERAL_POSTGRES_IMAGE = 'pgvector/pgvector:pg16'
+// Eagerly create the extensions the platform relies on so they are guaranteed present in the
+// fresh database, not merely available in the image. The ephemeral superuser can run these.
+// Mirrors docker/postgres-init.sh (default DB + template1 so any future DB inherits them).
+const EPHEMERAL_POSTGRES_INIT_SQL = `CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+\\connect template1
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+`
+
+export function resolveEphemeralPostgresImage(env: NodeJS.ProcessEnv = process.env): string {
+  const override = env[EPHEMERAL_POSTGRES_IMAGE_ENV_VAR]?.trim()
+  return override && override.length > 0 ? override : DEFAULT_EPHEMERAL_POSTGRES_IMAGE
+}
+
+export function ephemeralPostgresInitSql(): string {
+  return EPHEMERAL_POSTGRES_INIT_SQL
+}
 const PLAYWRIGHT_ENV_UNAVAILABLE_PATTERNS: RegExp[] = [
   /net::ERR_CONNECTION_REFUSED/i,
   /Failed to connect to .* (localhost|127\.0\.0\.1)/i,
@@ -197,6 +221,32 @@ function collectExistingPaths(candidates: Array<string | null | undefined>): str
   return Array.from(collected)
 }
 
+function isLikelyNextAppDirectory(candidate: string): boolean {
+  if (!existsSync(path.join(candidate, 'package.json'))) {
+    return false
+  }
+  return resolveFirstExistingPath(
+    path.join(candidate, 'next.config.ts'),
+    path.join(candidate, 'next.config.js'),
+    path.join(candidate, 'next.config.mjs'),
+    path.join(candidate, 'src', 'modules.ts'),
+  ) !== null
+}
+
+function resolveDefaultPrivateAttachmentsAppDirectory(): string {
+  const candidates = [
+    appDirectory,
+    path.join(projectRootDirectory, 'apps', 'mercato'),
+    path.join(projectRootDirectory, 'apps', 'app'),
+  ]
+  for (const candidate of candidates) {
+    if (isLikelyNextAppDirectory(candidate)) {
+      return candidate
+    }
+  }
+  return appDirectory
+}
+
 function readPackageScripts(packageRoot: string): Record<string, string> {
   try {
     const raw = JSON.parse(readFileSync(path.join(packageRoot, 'package.json'), 'utf8')) as {
@@ -223,6 +273,13 @@ const EPHEMERAL_BUILD_CACHE_STATE_PATH = path.join(projectRootDirectory, '.ai', 
 const EPHEMERAL_CACHE_DB_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'ephemeral-cache.sqlite')
 const EPHEMERAL_EMAIL_CAPTURE_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'email-capture.jsonl')
 const EPHEMERAL_QUEUE_BASE_DIR = path.join(appDirectory, '.mercato', 'queue')
+const PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY = 'ATTACHMENTS_PARTITION_PRIVATE_ATTACHMENTS_ROOT'
+const EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT = path.join(
+  resolveDefaultPrivateAttachmentsAppDirectory(),
+  'storage',
+  'attachments',
+  'privateAttachments',
+)
 const PLAYWRIGHT_INTEGRATION_CONFIG_PATH = '.ai/qa/tests/playwright.config.ts'
 const PLAYWRIGHT_RESULTS_JSON_PATH = path.join(projectRootDirectory, '.ai', 'qa', 'test-results', 'results.json')
 const LEGACY_INTEGRATION_TEST_ROOT = path.join(projectRootDirectory, '.ai', 'qa', 'tests')
@@ -262,6 +319,7 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   api: 'API',
   integration: 'INT',
 }
+const BACKEND_BROWSER_AUTH_REDIRECT_LIMIT = 6
 const BUILD_CACHE_STATE_VERSION = 2
 const BUILD_CACHE_ENV_KEYS = [
   'NODE_ENV',
@@ -337,11 +395,19 @@ type AuthenticatedApiProbeResult = {
   detail: string
 }
 
+type BackendBrowserAuthProbeResult = {
+  loginStatus: number | null
+  backendStatus: number | null
+  healthy: boolean
+  detail: string
+}
+
 type ApplicationReadinessProbeResult = {
   ready: boolean
   frontend: LoginPageProbeResult
   backend: BackendLoginProbeResult
   authenticated: AuthenticatedApiProbeResult
+  backendBrowserAuth: BackendBrowserAuthProbeResult
 }
 
 type PlaywrightFailureHealthCheckOptions = {
@@ -1417,18 +1483,236 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
   }
 }
 
+type HeadersWithSetCookie = Headers & {
+  getSetCookie?: () => string[]
+}
+
+function splitSetCookieHeader(header: string): string[] {
+  return header
+    .split(/,(?=\s*[^;,\s=]+=)/)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+}
+
+function getSetCookieHeaders(headers: Headers | undefined): string[] {
+  if (!headers) {
+    return []
+  }
+
+  const setCookieGetter = (headers as HeadersWithSetCookie).getSetCookie
+  if (typeof setCookieGetter === 'function') {
+    return setCookieGetter.call(headers)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+  }
+
+  const combined = headers.get('set-cookie')
+  return combined ? splitSetCookieHeader(combined) : []
+}
+
+function parseSetCookiePair(header: string): { name: string; value: string } | null {
+  const pair = header.split(';', 1)[0]?.trim()
+  if (!pair) {
+    return null
+  }
+  const equalsIndex = pair.indexOf('=')
+  if (equalsIndex <= 0) {
+    return null
+  }
+  const name = pair.slice(0, equalsIndex).trim()
+  if (!name) {
+    return null
+  }
+  return {
+    name,
+    value: pair.slice(equalsIndex + 1),
+  }
+}
+
+function addSetCookieHeadersToJar(jar: Map<string, string>, headers: Headers | undefined): void {
+  for (const setCookieHeader of getSetCookieHeaders(headers)) {
+    const pair = parseSetCookiePair(setCookieHeader)
+    if (pair) {
+      jar.set(pair.name, pair.value)
+    }
+  }
+}
+
+function serializeCookieJar(jar: Map<string, string>): string {
+  return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ')
+}
+
+function formatCookieNames(jar: Map<string, string>): string {
+  const names = [...jar.keys()].sort((left, right) => left.localeCompare(right))
+  return names.length > 0 ? names.join(', ') : 'none'
+}
+
+function toReadinessPath(url: URL): string {
+  return url.pathname || '/'
+}
+
+function resolveReadinessRedirect(
+  baseUrl: URL,
+  currentUrl: URL,
+  rawLocation: string | null,
+): { url: URL; path: string } | { error: string } {
+  const location = rawLocation?.trim()
+  if (!location) {
+    return { error: 'missing Location header' }
+  }
+  if (location.startsWith('//')) {
+    return { error: 'protocol-relative redirect' }
+  }
+
+  let nextUrl: URL
+  try {
+    nextUrl = new URL(location, currentUrl)
+  } catch {
+    return { error: 'invalid Location header' }
+  }
+
+  if (nextUrl.origin !== baseUrl.origin) {
+    return { error: 'cross-origin redirect' }
+  }
+
+  return {
+    url: nextUrl,
+    path: toReadinessPath(nextUrl),
+  }
+}
+
+async function probeBackendBrowserAuth(baseUrl: string): Promise<BackendBrowserAuthProbeResult> {
+  try {
+    const base = new URL(baseUrl)
+    const form = new URLSearchParams()
+    form.set('email', 'admin@acme.com')
+    form.set('password', 'secret')
+    const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+
+    if (!loginResponse.ok) {
+      return {
+        loginStatus: loginResponse.status,
+        backendStatus: null,
+        healthy: false,
+        detail: `Backend browser auth login returned ${loginResponse.status}`,
+      }
+    }
+
+    const cookieJar = new Map<string, string>()
+    addSetCookieHeadersToJar(cookieJar, loginResponse.headers)
+    if (cookieJar.size === 0) {
+      return {
+        loginStatus: loginResponse.status,
+        backendStatus: null,
+        healthy: false,
+        detail: 'Backend browser auth login returned no cookies',
+      }
+    }
+
+    let currentUrl = new URL('/backend', base)
+    let backendStatus: number | null = null
+    const visitedPaths = new Set<string>()
+    const trace: string[] = []
+
+    for (let redirectCount = 0; redirectCount <= BACKEND_BROWSER_AUTH_REDIRECT_LIMIT; redirectCount += 1) {
+      const currentPath = toReadinessPath(currentUrl)
+      visitedPaths.add(currentPath)
+      const response = await probeFetch(currentUrl.toString(), {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          Cookie: serializeCookieJar(cookieJar),
+        },
+      })
+      backendStatus = response.status
+      addSetCookieHeadersToJar(cookieJar, response.headers)
+
+      const location = response.headers?.get('location') ?? null
+      const traceRedirect = location ? resolveReadinessRedirect(base, currentUrl, location) : null
+      const statusAndLocation = traceRedirect && !('error' in traceRedirect)
+        ? `${currentPath} ${response.status} -> ${traceRedirect.path}`
+        : `${currentPath} ${response.status}${location ? ' -> [unsafe]' : ''}`
+      trace.push(statusAndLocation)
+
+      if (response.status === 200 && currentPath === '/backend') {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: true,
+          detail: `Cookie-backed GET /backend returned 200 (cookies: ${formatCookieNames(cookieJar)})`,
+        }
+      }
+
+      if (response.status < 300 || response.status >= 400) {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Cookie-backed GET ${currentPath} returned ${response.status} (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+        }
+      }
+
+      const redirect = traceRedirect ?? resolveReadinessRedirect(base, currentUrl, location)
+      if ('error' in redirect) {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Backend browser auth probe followed unsafe redirect: ${redirect.error} (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+        }
+      }
+
+      if (visitedPaths.has(redirect.path)) {
+        trace.push(redirect.path)
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Backend browser auth probe detected redirect loop: ${trace.join(' | ')} (cookies: ${formatCookieNames(cookieJar)})`,
+        }
+      }
+
+      currentUrl = redirect.url
+    }
+
+    return {
+      loginStatus: loginResponse.status,
+      backendStatus,
+      healthy: false,
+      detail: `Backend browser auth probe exceeded ${BACKEND_BROWSER_AUTH_REDIRECT_LIMIT} redirects (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      loginStatus: null,
+      backendStatus: null,
+      healthy: false,
+      detail: `Backend browser auth probe failed: ${message}`,
+    }
+  }
+}
+
 async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
-  const [frontend, backend, authenticated] = await Promise.all([
+  const [frontend, backend, authenticated, backendBrowserAuth] = await Promise.all([
     probeLoginPage(baseUrl),
     probeBackendLoginEndpoint(baseUrl),
     probeAuthenticatedApi(baseUrl),
+    probeBackendBrowserAuth(baseUrl),
   ])
 
   return {
-    ready: frontend.healthy && backend.healthy && authenticated.healthy,
+    ready: frontend.healthy && backend.healthy && authenticated.healthy && backendBrowserAuth.healthy,
     frontend,
     backend,
     authenticated,
+    backendBrowserAuth,
   }
 }
 
@@ -1654,6 +1938,7 @@ function buildReusableEnvironment(
   captureScreenshots: boolean,
 ): NodeJS.ProcessEnv {
   const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
+  const privateAttachmentsRoot = resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir)
   return buildEnvironment({
     DATABASE_URL: databaseUrl,
     BASE_URL: baseUrl,
@@ -1663,6 +1948,15 @@ function buildReusableEnvironment(
     NODE_ENV: 'production',
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
+    // Integration probe + tests expect `admin@acme.com / secret` and
+    // `employee@acme.com / secret`. NODE_ENV=production routes derived-user
+    // password resolution through the random-fallback branch unless these
+    // env vars are explicitly set; without the override every fresh
+    // ephemeral run would mint random passwords and the login probe would
+    // never converge. This is the documented production contract: set
+    // OM_INIT_*_PASSWORD to fix the seeded credential.
+    OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+    OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
     OM_INTEGRATION_TEST: 'true',
     OM_ENABLE_ENTERPRISE_MODULES: enterpriseModulesFlag,
     OM_ENABLE_ENTERPRISE_MODULES_SSO: process.env.OM_ENABLE_ENTERPRISE_MODULES_SSO ?? enterpriseModulesFlag,
@@ -1675,9 +1969,15 @@ function buildReusableEnvironment(
     // not have to call flushPendingCrudAccessLogs() explicitly.
     OM_CRUD_ACCESS_LOG_BLOCKING: process.env.OM_CRUD_ACCESS_LOG_BLOCKING ?? '1',
     OM_WEBHOOKS_ALLOW_PRIVATE_URLS: process.env.OM_WEBHOOKS_ALLOW_PRIVATE_URLS ?? '1',
+    // Keep the bus in the Playwright process (used by in-test queue-drain helpers)
+    // on the same delivery mode as the app server it drives: inline persistent
+    // delivery so event side effects are deterministic for assertions. See the
+    // matching OM_EVENTS_SINGLE_DELIVERY note on the app server environment below.
+    OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
     ENABLE_CRUD_API_CACHE: 'true',
     MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
     MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
+    MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
     NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
     NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
     CI: 'true',
@@ -1685,9 +1985,23 @@ function buildReusableEnvironment(
     OM_CLI_QUIET: '1',
     MERCATO_QUIET: '1',
     QUEUE_BASE_DIR: queueBaseDir,
+    [PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]:
+      process.env[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY] ?? privateAttachmentsRoot,
     NODE_NO_WARNINGS: '1',
     PW_CAPTURE_SCREENSHOTS: captureScreenshots ? '1' : '0',
   })
+}
+
+function resolvePrivateAttachmentsRootForQueueBaseDir(queueBaseDir: string): string {
+  const resolvedQueueBaseDir = path.resolve(queueBaseDir)
+  const queueParent = path.dirname(resolvedQueueBaseDir)
+  if (path.basename(resolvedQueueBaseDir) === 'queue' && path.basename(queueParent) === '.mercato') {
+    const queueAppDirectory = path.dirname(queueParent)
+    if (isLikelyNextAppDirectory(queueAppDirectory)) {
+      return path.join(queueAppDirectory, 'storage', 'attachments', 'privateAttachments')
+    }
+  }
+  return EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT
 }
 
 export async function tryReuseExistingEnvironment(options: EphemeralRuntimeOptions): Promise<EphemeralEnvironmentHandle | null> {
@@ -1820,9 +2134,10 @@ export async function waitForApplicationReadiness(
   const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
   const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
   const lastAuthenticatedDetail = lastProbe?.authenticated.detail ?? 'Authenticated API probe was never observed'
+  const lastBackendBrowserAuthDetail = lastProbe?.backendBrowserAuth.detail ?? 'Backend browser auth probe was never observed'
   throw new Error(
     `Application did not become ready within ${options.timeoutMs / 1000} seconds. ` +
-    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}`,
+    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}; ${lastBackendBrowserAuthDetail}`,
   )
 }
 
@@ -2934,12 +3249,22 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseUser = 'mercato'
     const databasePassword = 'secret'
 
-    const databaseContainer = await new GenericContainer('postgres:16')
+    const { GenericContainer } = await import('testcontainers')
+    const databaseContainer = await new GenericContainer(resolveEphemeralPostgresImage())
       .withEnvironment({
         POSTGRES_DB: databaseName,
         POSTGRES_USER: databaseUser,
         POSTGRES_PASSWORD: databasePassword,
       })
+      // Guarantee the pgvector (and pgcrypto) extensions exist in the fresh database before the
+      // app boots, so vector-search code paths and `CREATE EXTENSION vector` succeed. The
+      // Postgres entrypoint runs *.sql files under /docker-entrypoint-initdb.d/ on first init.
+      .withCopyContentToContainer([
+        {
+          content: ephemeralPostgresInitSql(),
+          target: '/docker-entrypoint-initdb.d/00-open-mercato-extensions.sql',
+        },
+      ])
       .withExposedPorts(5432)
       .start()
 
@@ -2960,6 +3285,11 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
       OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
       NODE_ENV: 'production',
+      // See the auth-probe block above: pin derived-user passwords to the
+      // documented 'secret' so the ephemeral login probe converges under
+      // NODE_ENV=production.
+      OM_INIT_ADMIN_PASSWORD: process.env.OM_INIT_ADMIN_PASSWORD ?? 'secret',
+      OM_INIT_EMPLOYEE_PASSWORD: process.env.OM_INIT_EMPLOYEE_PASSWORD ?? 'secret',
       // Pool sizing for the ephemeral integration runtime. Defaults were once
       // very aggressive (max=5, idle=1000) which exposed flaky 'timeout exceeded
       // when trying to connect' errors on `progressService.createJob`-backed
@@ -2992,6 +3322,18 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       CI: 'true',
       TENANT_DATA_ENCRYPTION_FALLBACK_KEY: process.env.TENANT_DATA_ENCRYPTION_FALLBACK_KEY ?? 'om-ephemeral-integration-fallback-key',
       AUTO_SPAWN_WORKERS: process.env.AUTO_SPAWN_WORKERS ?? 'true',
+      // Process persistent event subscribers INLINE in the request that emits
+      // the event (legacy dual-dispatch), rather than the production default of
+      // worker-only single delivery. Integration specs assert event side effects
+      // (sync mappings, workflow-trigger instances, notifications) immediately
+      // after the emitting API call and poll for them on short budgets; routing
+      // those subscribers through the async events worker makes the side effect
+      // race the poll under the 15-shard CI load, which surfaced as flaky
+      // timeouts in TC-CRM-028 (inbound sync mapping) and TC-WF-008 (event-
+      // triggered workflow) once single-delivery became default-ON. Inline
+      // delivery makes the side effects deterministic for tests; production keeps
+      // the single-delivery default. Honor an explicit override if the caller set one.
+      OM_EVENTS_SINGLE_DELIVERY: process.env.OM_EVENTS_SINGLE_DELIVERY ?? 'false',
       AUTO_SPAWN_SCHEDULER: 'false',
       // Hide the demo feedback floating action button — it lives at
       // `fixed bottom-6 right-6 z-banner` and consistently intercepts pointer
@@ -3010,6 +3352,8 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       OM_CLI_QUIET: '1',
       MERCATO_QUIET: '1',
       QUEUE_BASE_DIR: EPHEMERAL_QUEUE_BASE_DIR,
+      [PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY]:
+        process.env[PRIVATE_ATTACHMENTS_PARTITION_ENV_KEY] ?? EPHEMERAL_PRIVATE_ATTACHMENTS_ROOT,
       NODE_NO_WARNINGS: '1',
       PORT: String(applicationPort),
       PW_CAPTURE_SCREENSHOTS: options.captureScreenshots ? '1' : '0',

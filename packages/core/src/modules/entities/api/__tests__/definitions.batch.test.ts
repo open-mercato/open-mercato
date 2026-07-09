@@ -35,6 +35,10 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: async () => ({ tenantId: 'tenant-1', selectedId: 'org-1' }),
+}))
+
 jest.mock('@open-mercato/core/modules/entities/data/entities', () => ({
   CustomFieldDef: 'CustomFieldDef',
   CustomFieldEntityConfig: 'CustomFieldEntityConfig',
@@ -42,6 +46,13 @@ jest.mock('@open-mercato/core/modules/entities/data/entities', () => ({
 
 jest.mock('../definitions.cache', () => ({
   invalidateDefinitionsCache: (...args: unknown[]) => invalidateDefinitionsCacheMock(...args),
+}))
+
+// The aggregate version is exercised in definitions.batch.optimistic-lock.test.ts.
+// Stub it here so these prefetch/bounds tests keep asserting on the mutation-loop
+// query shape without the version reader adding its own em.findOne calls.
+jest.mock('../../lib/definitions-version', () => ({
+  resolveEntityDefinitionsVersion: jest.fn(async () => null),
 }))
 
 const makeRequest = (body: unknown) =>
@@ -107,5 +118,94 @@ describe('entities/definitions.batch POST (issue #1399)', () => {
     expect(mockEm.create).toHaveBeenCalledTimes(1)
     expect(mockEm.create.mock.calls[0][1]).toMatchObject({ key: 'beta' })
     expect(mockEm.flush).toHaveBeenCalledTimes(1)
+  })
+
+  it('creates a scoped tombstone when saving an inherited definition as inactive', async () => {
+    const inherited = {
+      entityId: 'test:entity',
+      key: 'alpha',
+      kind: 'text',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+      configJson: { label: 'Alpha' },
+    }
+    mockEm.find
+      .mockResolvedValueOnce([] as unknown[])
+      .mockResolvedValueOnce([inherited] as unknown[])
+
+    const body = {
+      entityId: 'test:entity',
+      definitions: [
+        { key: 'alpha', kind: 'text', isActive: false, configJson: { label: 'Alpha' } },
+      ],
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.create).toHaveBeenCalledTimes(1)
+    expect(mockEm.create).toHaveBeenCalledWith(
+      'CustomFieldDef',
+      expect.objectContaining({
+        entityId: 'test:entity',
+        key: 'alpha',
+        kind: 'text',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        isActive: false,
+        deletedAt: expect.any(Date),
+      }),
+    )
+    expect(mockEm.persist).toHaveBeenCalledWith(expect.objectContaining({
+      key: 'alpha',
+      isActive: false,
+      deletedAt: expect.any(Date),
+    }))
+    expect(mockEm.flush).toHaveBeenCalledTimes(1)
+    expect(mockEm.commit).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('entities/definitions.batch POST array bounds (issue #2924)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    mockEm.find.mockResolvedValue([] as unknown[])
+  })
+
+  it('rejects an oversized definitions array with 400 before any ORM work', async () => {
+    const body = {
+      entityId: 'test:entity',
+      definitions: Array.from({ length: 1001 }, (_, idx) => ({ key: `field_${idx}`, kind: 'text' })),
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(400)
+    expect(mockEm.begin).not.toHaveBeenCalled()
+    expect(mockEm.find).not.toHaveBeenCalled()
+    expect(mockEm.persist).not.toHaveBeenCalled()
+    expect(mockEm.flush).not.toHaveBeenCalled()
+  })
+
+  it('accepts a batch at the maximum size', async () => {
+    const body = {
+      entityId: 'test:entity',
+      definitions: Array.from({ length: 1000 }, (_, idx) => ({ key: `field_${idx}`, kind: 'text' })),
+    }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist).toHaveBeenCalledTimes(1000)
+  })
+
+  it('still accepts an empty definitions array (fieldset-only save path)', async () => {
+    const body = { entityId: 'test:entity', definitions: [] }
+
+    const response = await POST(makeRequest(body))
+
+    expect(response.status).toBe(200)
+    expect(mockEm.persist).not.toHaveBeenCalled()
   })
 })

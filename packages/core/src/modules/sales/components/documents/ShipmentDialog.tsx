@@ -15,7 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { createCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { handleSectionMutationError, rowOptimisticVersion } from './optimisticLock'
+import { handleSectionMutationError } from './optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
@@ -25,6 +25,9 @@ import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ShippingMethodOption = {
   id: string
@@ -46,6 +49,7 @@ type ShipmentDialogProps = {
   currencyCode?: string | null
   organizationId: string | null
   tenantId: string | null
+  documentUpdatedAt?: string | null
   computeAvailable: (lineId: string, excludeShipmentId?: string | null) => number
   shippingAddressSnapshot?: NormalizedAddressSnapshot | Record<string, unknown> | null
   onClose: () => void
@@ -255,6 +259,20 @@ const extractShipmentAddressSnapshot = (
   return normalizeAddressSnapshot(raw as Record<string, unknown>)
 }
 
+const addressOptionsSignature = (options: ShipmentAddressOption[]): string =>
+  options.map((option) => `${snapshotKey(option.snapshot) ?? ''}::${option.id}`).join('||')
+
+function useStableAddressOptions(options: ShipmentAddressOption[]): ShipmentAddressOption[] {
+  const signature = addressOptionsSignature(options)
+  const stableRef = React.useRef(options)
+  const signatureRef = React.useRef(signature)
+  if (signatureRef.current !== signature) {
+    signatureRef.current = signature
+    stableRef.current = options
+  }
+  return stableRef.current
+}
+
 export function ShipmentDialog({
   open,
   mode,
@@ -264,6 +282,7 @@ export function ShipmentDialog({
   currencyCode,
   organizationId,
   tenantId,
+  documentUpdatedAt,
   computeAvailable,
   shippingAddressSnapshot,
   onClose,
@@ -323,7 +342,7 @@ export function ShipmentDialog({
     [shipmentAddressSnapshot, t],
   )
 
-  const baseAddressOptions = React.useMemo(
+  const computedBaseAddressOptions = React.useMemo(
     () =>
       dedupeAddressOptions(
         [shippingAddressOption, shipmentAddressOption].filter(
@@ -332,6 +351,7 @@ export function ShipmentDialog({
       ),
     [shipmentAddressOption, shippingAddressOption],
   )
+  const baseAddressOptions = useStableAddressOptions(computedBaseAddressOptions)
 
   const preferredAddressId = React.useMemo(() => {
     const shipmentKey = snapshotKey(shipmentAddressSnapshot)
@@ -452,7 +472,10 @@ export function ShipmentDialog({
 
   const mergeAddressOptions = React.useCallback(
     (options: ShipmentAddressOption[]) =>
-      setAddressOptions((prev) => dedupeAddressOptions([...prev, ...options])),
+      setAddressOptions((prev) => {
+        const next = dedupeAddressOptions([...prev, ...options])
+        return next.length === prev.length ? prev : next
+      }),
     [],
   )
 
@@ -478,7 +501,7 @@ export function ShipmentDialog({
       setAddressError(null)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.addresses.load', err)
+      logger.error('sales.shipments.addresses.load', { err })
       setAddressError(
         t('sales.documents.shipments.addressLoadError', 'Failed to load addresses.'),
       )
@@ -563,7 +586,7 @@ export function ShipmentDialog({
         }
         return options
       } catch (err) {
-        console.error('sales.shipments.shipping-methods.load', err)
+        logger.error('sales.shipments.shipping-methods.load', { err })
         return []
       } finally {
         if (applyLoadingState) setShippingMethodLoading(false)
@@ -665,7 +688,7 @@ export function ShipmentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -700,7 +723,7 @@ export function ShipmentDialog({
       setLineStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.line-statuses.load', err)
+      logger.error('sales.shipments.line-statuses.load', { err })
       setLineStatuses([])
       return []
     } finally {
@@ -729,7 +752,7 @@ export function ShipmentDialog({
       )
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setShipmentStatuses([])
       return []
     } finally {
@@ -1071,7 +1094,9 @@ export function ShipmentDialog({
       let result
       try {
         result = await withScopedApiRequestHeaders(
-          buildOptimisticLockHeader(shipment?.id ? rowOptimisticVersion(shipment) : undefined),
+          // The server guards the PARENT order's aggregate version (Gap B) for
+          // both create and update, so send the order's `updated_at`.
+          buildOptimisticLockHeader(documentUpdatedAt ?? undefined),
           () =>
             action(
               'sales/shipments',
@@ -1150,7 +1175,7 @@ export function ShipmentDialog({
               )
               emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
             } catch (err) {
-              console.warn('sales.shipments.adjustment.create', err)
+              logger.warn('sales.shipments.adjustment.create', { err })
               flash(
                 t(
                   'sales.documents.shipments.shippingAdjustmentError',
@@ -1193,7 +1218,7 @@ export function ShipmentDialog({
           try {
             await onAddComment(note)
           } catch (err) {
-            console.warn('sales.shipments.comment', err)
+            logger.warn('sales.shipments.comment', { err })
           }
         }
         await onSaved()
@@ -1201,6 +1226,7 @@ export function ShipmentDialog({
     },
     [
       currencyCode,
+      documentUpdatedAt,
       lines,
       mode,
       onAddComment,
@@ -1208,7 +1234,6 @@ export function ShipmentDialog({
       orderId,
       organizationId,
       shipment?.id,
-      shipment?.updatedAt,
       addressOptions,
       addressOptionsMap,
       shippingMethods,

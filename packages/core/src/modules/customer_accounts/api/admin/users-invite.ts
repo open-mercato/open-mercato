@@ -5,6 +5,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
+import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
 import { inviteUserSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import {
@@ -80,6 +81,15 @@ export async function POST(req: Request) {
     console.error('[customer_accounts.admin.users-invite] invitation email failed', error)
     return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
   }
+
+  void emitCustomerAccountsEvent('customer_accounts.user.invited', {
+    invitationId: invitation.id,
+    email: invitation.email,
+    customerEntityId: invitation.customerEntityId || null,
+    invitedByType: 'staff',
+    tenantId: auth.tenantId!,
+    organizationId: auth.orgId!,
+  }).catch(() => undefined)
 
   return NextResponse.json({
     ok: true,

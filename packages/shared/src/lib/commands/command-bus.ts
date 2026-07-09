@@ -30,6 +30,9 @@ import {
 } from './command-interceptor-runner'
 import type { CommandInterceptorContext } from './command-interceptor'
 import { CommandInterceptorError } from './errors'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'commands' })
 
 const SKIPPED_ACTION_LOG_RESOURCE_KINDS = new Set<string>([
   'audit_logs.access',
@@ -198,7 +201,7 @@ export class CommandBus {
     commandId: string,
     options: CommandExecutionOptions<TInput>
   ): Promise<CommandExecuteResult<TResult>> {
-    const handler = this.resolveHandler<TInput, TResult>(commandId)
+    const handler = await this.resolveHandler<TInput, TResult>(commandId)
 
     // Run beforeExecute command interceptors
     const allInterceptors = getAllCommandInterceptorInstances()
@@ -301,7 +304,7 @@ export class CommandBus {
     const service = (ctx.container.resolve('actionLogService') as ActionLogService)
     const log = await service.findByUndoToken(undoToken)
     if (!log) throw new Error('Undo token expired or not found')
-    const handler = this.resolveHandler(log.commandId)
+    const handler = await this.resolveHandler(log.commandId)
     if (!handler.undo || this.isUndoable(handler) === false) {
       throw new Error(`Command ${log.commandId} is not undoable`)
     }
@@ -422,15 +425,21 @@ export class CommandBus {
     return []
   }
 
-  private resolveHandler<TInput, TResult>(commandId: string): CommandHandler<TInput, TResult> {
-    const handler = commandRegistry.get<TInput, TResult>(commandId)
+  private async resolveHandler<TInput, TResult>(commandId: string): Promise<CommandHandler<TInput, TResult>> {
+    const handler =
+      commandRegistry.get<TInput, TResult>(commandId) ??
+      ((await commandRegistry.load(commandId)) as CommandHandler<TInput, TResult> | null)
     if (!handler) {
       const moduleName = commandId.split('.')[0]
       const registered = commandRegistry.list()
       const sameModule = registered.filter((id) => id.split('.')[0] === moduleName)
+      const registeredLoaders = commandRegistry.listLoaders()
+      const sameModuleLoaders = registeredLoaders.filter((id) => id === commandId || id.startsWith(`${moduleName}:`))
       const hint = sameModule.length > 0
         ? ` Registered commands for module "${moduleName}": [${sameModule.join(', ')}].`
-        : ` No commands registered for module "${moduleName}". Ensure the command file is imported (side-effect) in the module's index.ts.`
+        : sameModuleLoaders.length > 0
+          ? ` Command loaders for module "${moduleName}" were registered but none loaded "${commandId}".`
+          : ` No commands or command loaders registered for module "${moduleName}". Ensure the command file is imported or generated lazy command loaders are registered.`
       throw new Error(`Command handler not registered for id ${commandId}.${hint}`)
     }
     return handler
@@ -618,7 +627,7 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] execute-invalidation failed', { commandId, err })
+          logger.debug('Cache execute-invalidation failed', { commandId, err })
         } catch {}
       }
     }
@@ -650,7 +659,7 @@ export class CommandBus {
     } catch (err) {
       if (isCrudCacheDebugEnabled()) {
         try {
-          console.debug('[crud][cache] undo-invalidation failed', { commandId: log.commandId, err })
+          logger.debug('Cache undo-invalidation failed', { commandId: log.commandId, err })
         } catch {}
       }
     }

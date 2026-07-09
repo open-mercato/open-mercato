@@ -2,7 +2,9 @@ import * as React from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { flash } from '../FlashMessages'
-import { apiCall } from '../utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '../utils/apiCall'
+import { buildOptimisticLockHeader } from '../utils/optimisticLock'
+import { surfaceRecordConflict } from '../conflicts'
 import type {
   AttachmentListResponse,
   MessageComposerProps,
@@ -127,6 +129,7 @@ export function useMessageCompose({
   requiredActionConfig = null,
   contextPreview = null,
   defaultValues,
+  expectedUpdatedAt = null,
   onSuccess,
   onCancel,
 }: UseMessageComposeParams): UseMessageComposeResult {
@@ -614,16 +617,37 @@ export function useMessageCompose({
       if (!shouldReturnFalse) {
         const { endpoint, method, payload } = operation.buildRequest({ attachmentIds: nextAttachmentIds })
 
-        const call = await apiCall<{ id?: string }>(endpoint, {
-          method,
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
+        // Editing an existing draft is a PATCH on the message aggregate, so carry
+        // the OSS optimistic-lock header to reject a stale overwrite. New
+        // compose/reply/forward writes create fresh records and never lock.
+        const lockHeaders = isEditingExistingDraft
+          ? buildOptimisticLockHeader(expectedUpdatedAt)
+          : {}
+
+        const call = await withScopedApiRequestHeaders(lockHeaders, () =>
+          apiCall<{ id?: string }>(endpoint, {
+            method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+          }),
+        )
 
         if (!call.ok) {
-          const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
-          setSubmitError(message)
-          flash(message, 'error')
+          if (surfaceRecordConflict({ status: call.status, body: call.result }, t)) {
+            setSubmitError(
+              t('ui.forms.flash.recordModified', 'This record was modified by someone else. Refresh and try again.'),
+            )
+            // The shared conflict banner renders at page level, so it is hidden
+            // behind the compose modal. Close the dialog to reveal it (with its
+            // Refresh action); the stale draft must be reloaded anyway (#3260 QA).
+            if (!inline) {
+              onOpenChange?.(false)
+            }
+          } else {
+            const message = toErrorMessage(call.result) ?? t('messages.errors.sendFailed', 'Failed to send message.')
+            setSubmitError(message)
+            flash(message, 'error')
+          }
           shouldReturnFalse = true
         } else {
           flash(operation.successMessage, 'success')
@@ -665,6 +689,7 @@ export function useMessageCompose({
     attachmentIds,
     composeDraftOperation,
     composeSendOperation,
+    expectedUpdatedAt,
     forwardOperation,
     inline,
     loadAttachmentIds,

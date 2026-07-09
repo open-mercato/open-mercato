@@ -5,6 +5,9 @@ import type { IntegrationLogService } from '@open-mercato/core/modules/integrati
 import type { PaymentGatewayService } from '@open-mercato/core/modules/payment_gateways/lib/gateway-service'
 import { claimWebhookProcessing, releaseWebhookClaim } from '@open-mercato/core/modules/payment_gateways/lib/webhook-utils'
 import { mapWebhookEventToStatus, mapStripeStatus } from '../lib/status-map'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('gateway_stripe').child({ component: 'webhook-processor' })
 
 type WebhookJobPayload = {
   providerKey: string
@@ -113,9 +116,10 @@ export default async function handle(job: QueuedJob<WebhookJobPayload>, ctx: Han
         },
       }, scope)
     } else {
-      console.error('[gateway-stripe:webhook-processor]', message, {
+      logger.error('Stripe webhook processing failed', {
         eventType: event.eventType,
         transactionId: job.payload.transactionId ?? null,
+        err: error,
       })
     }
     throw error

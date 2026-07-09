@@ -9,6 +9,7 @@ Apply every applicable section based on which files changed. Skip sections that 
 - [ ] No direct imports from other modules' business logic
 - [ ] Cross-module data uses extension entities declared in `data/extensions.ts`
 - [ ] Entity access: optional chaining for cross-module IDs — `(E as any).catalog?.catalog_product`
+- [ ] Optional integration is soft-optional: a module that only sometimes runs alongside a peer resolves the peer's service inside `try/catch` (a `tryResolve` helper) and degrades gracefully when absent — never an unconditional `container.resolve('<peerService>')` or a hard `requires` on an optional peer; the optional consumer owns the glue (subscriber / enricher / widget), not the upstream module
 - [ ] Entity IDs resolved at runtime via `getEntityIds()`, not at import time
 - [ ] All queries on tenant-scoped entities filter by `organization_id` AND `tenant_id`
 - [ ] No cross-tenant data leaks in API responses
@@ -313,7 +314,7 @@ Every item below refers to `BACKWARD_COMPATIBILITY.md` (linked from root `AGENTS
 ### Deprecation Protocol (when changing any of the above)
 - [ ] `@deprecated` JSDoc added with migration guidance and target removal version
 - [ ] Bridge provided (re-export, alias, or dual-emit) for at least one minor version
-- [ ] Documented in RELEASE_NOTES.md
+- [ ] Documented in UPGRADE_NOTES.md
 - [ ] Spec in `.ai/specs/` with "Migration & Backward Compatibility" section
 
 ## 22. Anti-Pattern Checklist

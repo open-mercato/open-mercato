@@ -1,4 +1,5 @@
-import { createAkeneoClient, encodeAkeneoPathParam, normalizeAkeneoDateTime, sanitizeAkeneoProductNextUrl, validateAkeneoApiUrl } from '../lib/client'
+import { FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { createAkeneoClient, encodeAkeneoPathParam, normalizeAkeneoDateTime, sanitizeAkeneoProductNextUrl, validateAkeneoApiUrl, type AkeneoClientDeps } from '../lib/client'
 
 const validCredentials = {
   apiUrl: 'https://tenant.cloud.akeneo.com',
@@ -6,6 +7,18 @@ const validCredentials = {
   clientSecret: 'client-secret',
   username: 'api-user',
   password: 'api-password',
+}
+
+const publicAkeneoLookupHost: AkeneoClientDeps['lookupHost'] = async () => [{ address: '93.184.216.34', family: 4 }]
+
+function createTestAkeneoClient(
+  credentialsInput: Record<string, unknown> = validCredentials,
+  deps: AkeneoClientDeps = {},
+): ReturnType<typeof createAkeneoClient> {
+  return createAkeneoClient(credentialsInput, {
+    lookupHost: publicAkeneoLookupHost,
+    ...deps,
+  })
 }
 
 function jsonResponse(body: unknown, init?: ResponseInit): Response {
@@ -73,7 +86,7 @@ describe('akeneo client security', () => {
 
   it('normalizes allowed Akeneo cloud urls to their origin', () => {
     expect(validateAkeneoApiUrl('https://tenant.cloud.akeneo.com/')).toBe('https://tenant.cloud.akeneo.com')
-    expect(createAkeneoClient(validCredentials).credentials.apiUrl).toBe('https://tenant.cloud.akeneo.com')
+    expect(createTestAkeneoClient(validCredentials).credentials.apiUrl).toBe('https://tenant.cloud.akeneo.com')
   })
 
   it.each([
@@ -94,6 +107,40 @@ describe('akeneo client security', () => {
     })).toBe('https://pim.example.internal')
   })
 
+  it('rejects allowlisted Akeneo hosts that resolve to private IPs before sending credentials', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    const lookupHost = jest.fn(async () => [{ address: '10.0.0.5', family: 4 }])
+    const client = createTestAkeneoClient(validCredentials, {
+      lookupHost,
+    })
+
+    await expect(client.getSystemProbe()).rejects.toMatchObject({ reason: 'private_ip_resolved' })
+    expect(lookupHost).toHaveBeenCalledWith('tenant.cloud.akeneo.com')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('allows private Akeneo DNS resolution only when the operator opts in', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    const lookupHost = jest.fn(async () => [{ address: '10.0.0.5', family: 4 }])
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({
+        access_token: 'token-123',
+        expires_in: 3600,
+      }))
+      .mockResolvedValueOnce(jsonResponse({
+        pim_version: '7.0.0',
+      }))
+
+    const client = createTestAkeneoClient(validCredentials, {
+      lookupHost,
+      allowPrivate: true,
+    })
+
+    await expect(client.getSystemProbe()).resolves.toEqual({ version: '7.0.0' })
+    expect(lookupHost).not.toHaveBeenCalled()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
   it('uses the fixed oauth token endpoint on the validated Akeneo origin', async () => {
     const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
     fetchMock
@@ -105,7 +152,7 @@ describe('akeneo client security', () => {
         pim_version: '7.0.0',
       }))
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient(validCredentials)
     await expect(client.getSystemProbe()).resolves.toEqual({ version: '7.0.0' })
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -126,9 +173,53 @@ describe('akeneo client security', () => {
     }))
   })
 
+  it('falls back to the attributes reachability probe and reports an unknown version (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(jsonResponse({
+        _embedded: { items: [{ code: 'sku' }] },
+        _links: {},
+        items_count: 1,
+      }))
+
+    const client = createTestAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).resolves.toEqual({ version: null })
+
+    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(String(fetchMock.mock.calls[2][0])).toContain('/api/rest/v1/attributes')
+  })
+
+  it('reports an unknown version even when the attributes probe returns no items (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(jsonResponse({
+        _embedded: { items: [] },
+        _links: {},
+        items_count: 0,
+      }))
+
+    const client = createTestAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).resolves.toEqual({ version: null })
+  })
+
+  it('propagates when the attributes reachability probe also fails (issue #3621)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(jsonResponse({ access_token: 'token-123', expires_in: 3600 }))
+      .mockResolvedValueOnce(new Response('system information unavailable', { status: 404 }))
+      .mockResolvedValueOnce(new Response('unreachable', { status: 500 }))
+
+    const client = createTestAkeneoClient(validCredentials)
+    await expect(client.getSystemProbe()).rejects.toThrow('Akeneo request failed (500)')
+  })
+
   it('rejects cross-origin next urls before any authenticated request is sent', async () => {
     const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient(validCredentials)
 
     await expect(client.listProducts({
       nextUrl: 'https://attacker.test/api/rest/v1/products-uuid?search_after=abc',
@@ -157,7 +248,7 @@ describe('akeneo client security', () => {
         items_count: 0,
       }))
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient(validCredentials)
     await expect(client.listCategories(null, 1)).rejects.toThrow('configured host')
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -180,7 +271,7 @@ describe('akeneo client security', () => {
         },
       }))
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient(validCredentials)
     await expect(client.downloadMediaFile('asset-1')).rejects.toThrow('configured host')
 
     expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -206,7 +297,7 @@ describe('akeneo client security', () => {
         items_count: 1,
       }))
 
-    const client = createAkeneoClient(validCredentials)
+    const client = createTestAkeneoClient(validCredentials)
     const page = await client.listProducts({
       nextUrl: 'https://tenant.cloud.akeneo.com/api/rest/v1/products-uuid?search_after=abc',
       batchSize: 1,
@@ -218,5 +309,112 @@ describe('akeneo client security', () => {
         authorization: 'Bearer token-123',
       }),
     }))
+  })
+})
+
+describe('akeneo client resilience (issue #2976)', () => {
+  // Mirrors DEFAULT_AKENEO_REQUEST_TIMEOUT_MS in client.ts: the per-request
+  // timeout `fetchWithTimeout` schedules when no
+  // OM_INTEGRATION_AKENEO_REQUEST_TIMEOUT_MS override is set (none of these tests set it).
+  const AKENEO_DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+  const originalFetch = global.fetch
+  const originalSetTimeout = global.setTimeout
+  const originalMaxRetries = process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES
+  const originalRetryCap = process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS
+  let capturedDelays: number[]
+
+  function tokenResponse(): Response {
+    return jsonResponse({ access_token: 'token-123', expires_in: 3600 })
+  }
+
+  beforeEach(() => {
+    global.fetch = jest.fn() as typeof fetch
+    capturedDelays = []
+    // Fire backoff/retry-after sleeps synchronously so the retry loop runs
+    // without real timers while we assert the requested wait durations. The
+    // shared `fetchWithTimeout` helper also schedules a per-request timeout timer
+    // (`AKENEO_DEFAULT_REQUEST_TIMEOUT_MS`); delegate that one to the real timer —
+    // the helper clears it in its `finally` before the mocked fetch resolves, so
+    // it never fires and never pollutes the recorded backoff delays.
+    global.setTimeout = ((callback: () => void, ms?: number) => {
+      if (ms === AKENEO_DEFAULT_REQUEST_TIMEOUT_MS) {
+        return originalSetTimeout(callback, ms)
+      }
+      capturedDelays.push(typeof ms === 'number' ? ms : 0)
+      callback()
+      return 0 as unknown as ReturnType<typeof setTimeout>
+    }) as unknown as typeof global.setTimeout
+  })
+
+  afterEach(() => {
+    global.fetch = originalFetch
+    global.setTimeout = originalSetTimeout
+    if (originalMaxRetries === undefined) delete process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES
+    else process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES = originalMaxRetries
+    if (originalRetryCap === undefined) delete process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS
+    else process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS = originalRetryCap
+    jest.restoreAllMocks()
+  })
+
+  it('caps 429 retries and surfaces the existing error shape instead of looping forever', async () => {
+    process.env.OM_INTEGRATION_AKENEO_MAX_RATE_LIMIT_RETRIES = '2'
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/oauth/v1/token')) return tokenResponse()
+      return new Response('rate limited', { status: 429, headers: { 'retry-after': '1' } })
+    })
+
+    const client = createTestAkeneoClient(validCredentials)
+    await expect(client.listChannels()).rejects.toThrow('Akeneo request failed (429)')
+
+    // 1 token + (maxRetries + 1) request attempts = 1 + 3 = 4 fetches; 2 sleeps.
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+    expect(capturedDelays).toHaveLength(2)
+  })
+
+  it('clamps a hostile retry-after header to the configured ceiling', async () => {
+    process.env.OM_INTEGRATION_AKENEO_RETRY_AFTER_CAP_MS = '60000'
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    let listCalls = 0
+    fetchMock.mockImplementation(async (input) => {
+      if (String(input).endsWith('/api/oauth/v1/token')) return tokenResponse()
+      listCalls += 1
+      if (listCalls === 1) {
+        // retry-after: ~31 years — must be clamped, not slept verbatim.
+        return new Response('', { status: 429, headers: { 'retry-after': '999999999' } })
+      }
+      return jsonResponse({ _embedded: { items: [{ code: 'web' }] }, _links: {}, items_count: 1 })
+    })
+
+    const client = createTestAkeneoClient(validCredentials)
+    const channels = await client.listChannels()
+
+    expect(channels).toHaveLength(1)
+    expect(capturedDelays).toEqual([60000])
+  })
+
+  it('attaches an AbortSignal timeout to authenticated requests', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockResolvedValueOnce(jsonResponse({ _embedded: { items: [] }, _links: {}, items_count: 0 }))
+
+    const client = createTestAkeneoClient(validCredentials)
+    await client.listChannels()
+
+    const tokenInit = fetchMock.mock.calls[0][1] as RequestInit
+    const requestInit = fetchMock.mock.calls[1][1] as RequestInit
+    expect(tokenInit.signal).toBeInstanceOf(AbortSignal)
+    expect(requestInit.signal).toBeInstanceOf(AbortSignal)
+  })
+
+  it('surfaces the shared-helper FetchTimeoutError when an authenticated request times out (issue #3068)', async () => {
+    const fetchMock = global.fetch as jest.MockedFunction<typeof fetch>
+    fetchMock
+      .mockResolvedValueOnce(tokenResponse())
+      .mockRejectedValueOnce(new FetchTimeoutError('https://tenant.cloud.akeneo.com/api/rest/v1/channels', 30_000))
+
+    const client = createTestAkeneoClient(validCredentials)
+    await expect(client.listChannels()).rejects.toBeInstanceOf(FetchTimeoutError)
   })
 })

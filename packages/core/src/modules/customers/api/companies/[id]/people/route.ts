@@ -18,6 +18,9 @@ import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../../lib/personCompanyLinkTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -202,7 +205,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
-    console.error('[customers.companies.people.GET]', error)
+    logger.error('customers.companies.people.GET', { err: error })
     return NextResponse.json({ error: translate('customers.errors.company_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }
 }

@@ -19,17 +19,21 @@ yarn mercato module enable <packageName> --module <moduleId>
 
 # Copy the installed module source into src/modules/<moduleId>/
 yarn mercato module enable <packageName> --eject
+
+# Enable an already-installed third-party (non-@open-mercato) module package
+yarn mercato module enable <packageName> --allow-third-party
 ```
 
-`<packageName>` is the full npm package name (e.g., `@open-mercato/test-package`), without a version suffix.
+`<packageName>` is the full npm package name (e.g., `@open-mercato/test-package`), without a version suffix. Packages outside the `@open-mercato/*` scope require `--allow-third-party`.
 
 ## Options
 
 | Option | Description |
 | --- | --- |
-| `<packageName>` | Full npm package name of the already-installed official module. Must be scoped under `@open-mercato/*` and present in `node_modules`. |
+| `<packageName>` | Full npm package name of the already-installed module. Scoped under `@open-mercato/*` by default; other scopes require `--allow-third-party`. Must be present in `node_modules`. |
 | `--module <moduleId>` | Select a specific module from a package that contains multiple modules. Required when the package exposes more than one module; omit for single-module packages. |
 | `--eject` | Copy the selected module source into `src/modules/<moduleId>/`, rewrite cross-module imports to the origin package, and register it as `from: '@app'`. Omit this flag to keep loading the module from `node_modules`. |
+| `--allow-third-party` | Allow enabling a package outside the `@open-mercato/*` scope. The package must still pass module-structure validation. Required as an explicit opt-in for supply-chain safety. |
 
 ## When to Use `module enable` vs `module add`
 
@@ -86,7 +90,8 @@ yarn dev
 ## Troubleshooting
 
 - **Package not found in node_modules** — the package must already be installed. Run `yarn mercato module add <packageSpec>` to install and register in one step.
-- **No modules found** — the package has no `src/modules/` or `dist/modules/` directory. Only `@open-mercato/*` packages that expose at least one module directory are supported.
+- **No modules found** — the package has no `src/modules/` or `dist/modules/` directory. Only packages that expose at least one module directory are supported.
+- **Package is outside the @open-mercato/\* scope** — the package belongs to a different npm scope. Rerun with `--allow-third-party` to opt in to enabling third-party module packages.
 - **Multiple modules, --module required** — the package contains more than one module. Rerun with `--module <moduleId>`. The error message lists the available IDs.
 - **Module already registered** — the module is already present in `src/modules.ts` from the same source. Nothing to do — it is already active.
 - **Module registered from a different source** — the module exists in `src/modules.ts` but with a different `from` value. Remove the existing entry first, or use [`mercato module eject`](./eject) if the package-backed module is already enabled and you want to switch it to local ownership.

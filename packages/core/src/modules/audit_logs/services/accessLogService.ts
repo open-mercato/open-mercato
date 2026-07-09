@@ -10,6 +10,9 @@ import {
 import { resolveTenantEncryptionService } from '@open-mercato/shared/lib/encryption/customFieldValues'
 import { parseDecryptedFieldValue } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { E } from '#generated/entities.ids.generated'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'access-log-service' })
 
 const CORE_RESOURCE_KINDS = new Set<string>(['auth.user', 'auth.role'])
 
@@ -20,10 +23,23 @@ function toPositiveNumber(value: string | undefined, fallback: number): number {
   return parsed
 }
 
+function toNonNegativeNumber(value: string | undefined, fallback: number): number {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback
+  return parsed
+}
+
 const CORE_RETENTION_DAYS = toPositiveNumber(process.env.AUDIT_LOGS_CORE_RETENTION_DAYS, 7)
 const NON_CORE_RETENTION_HOURS = toPositiveNumber(process.env.AUDIT_LOGS_NON_CORE_RETENTION_HOURS, 8)
 const CORE_RETENTION_MS = CORE_RETENTION_DAYS * 24 * 60 * 60 * 1000
 const NON_CORE_RETENTION_MS = NON_CORE_RETENTION_HOURS * 60 * 60 * 1000
+// Rotation runs after every successful write; without a gate that means two
+// DELETE statements per CRUD GET. Amortize to one rotation per interval per
+// process — `0` opts back into rotate-on-every-write (test harnesses).
+const ROTATE_INTERVAL_MS = toNonNegativeNumber(process.env.AUDIT_LOGS_ROTATE_INTERVAL_MS, 60_000)
+
+let lastRotatedAt: number | null = null
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/
 // Postgres has a hard limit of 65k bind parameters per statement. Each access
 // log row uses 10 bind values (see INSERT below), so 500 rows × 10 = 5 000
@@ -213,8 +229,7 @@ export class AccessLogService {
       } catch (err) {
         if (!isZodRuntimeMissing(err) && !validationWarningLogged) {
           validationWarningLogged = true
-          // eslint-disable-next-line no-console
-          console.warn('[audit_logs] falling back to permissive access log payload parser', err)
+          logger.warn('Falling back to permissive access log payload parser', { err })
         }
         if (isZodRuntimeMissing(err)) runtimeValidationAvailable = false
         return this.normalizeInput(input)
@@ -380,6 +395,8 @@ export class AccessLogService {
 
   private async rotate(fork: EntityManager) {
     const now = Date.now()
+    if (ROTATE_INTERVAL_MS > 0 && lastRotatedAt !== null && now - lastRotatedAt < ROTATE_INTERVAL_MS) return
+    lastRotatedAt = now
     const coreCutoff = new Date(now - CORE_RETENTION_MS)
     const nonCoreCutoff = new Date(now - NON_CORE_RETENTION_MS)
     try {
@@ -394,8 +411,7 @@ export class AccessLogService {
         createdAt: { $lt: nonCoreCutoff },
       })
     } catch (err) {
-      // eslint-disable-next-line no-console
-      console.warn('[audit_logs] failed to rotate access logs', err)
+      logger.warn('Failed to rotate access logs', { err })
     }
   }
 }

@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -15,6 +15,7 @@ import { createTranslatorWithFallback } from '@open-mercato/shared/lib/i18n/tran
 import { AvailabilityRulesEditor } from '@open-mercato/core/modules/planner/components/AvailabilityRulesEditor'
 import { buildMemberScheduleItems } from '@open-mercato/core/modules/staff/lib/memberSchedule'
 import { TeamMemberForm, buildTeamMemberPayload, type TeamMemberFormValues } from '@open-mercato/core/modules/staff/components/TeamMemberForm'
+import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { NotesSection } from '@open-mercato/ui/backend/detail'
 import { ActivitiesSection, type SectionAction } from '@open-mercato/ui/backend/detail'
 import { AddressesSection as SharedAddressesSection } from '@open-mercato/ui/backend/detail'
@@ -71,6 +72,7 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
   const t = useT()
   const detailTranslator = React.useMemo(() => createTranslatorWithFallback(t), [t])
   const router = useRouter()
+  const pathname = usePathname()
   const searchParams = useSearchParams()
   const [initialValues, setInitialValues] = React.useState<TeamMemberFormValues | null>(null)
   const [memberRecord, setMemberRecord] = React.useState<TeamMemberRecord | null>(null)
@@ -340,6 +342,20 @@ export default function StaffTeamMemberDetailPage({ params }: { params?: { id?: 
     ? memberRecord?.roleNames
     : [t('staff.teamMembers.detail.roles.unassigned', 'No roles assigned')]
   const userEmail = memberRecord?.user?.email ?? null
+
+  // Publish page-load record context to the AppShell-owned `backend:record:current`
+  // mount so the enterprise record_locks widget resolves `staff.teamMember` + id
+  // explicitly. The resourceKind mirrors the TeamMemberForm `versionHistory` so the held
+  // lock matches the save-time conflict surface for the same team member.
+  useSetCurrentRecordInjectionContext(
+    buildRecordInjectionContext({
+      resourceKind: 'staff.teamMember',
+      resourceId: memberId || null,
+      updatedAt: initialValues?.updatedAt ?? null,
+      data: initialValues as Record<string, unknown> | null,
+      path: pathname,
+    }),
+  )
 
   if (isNotFound) {
     return (

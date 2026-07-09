@@ -7,6 +7,7 @@ const mockCreateInvitation = jest.fn()
 const mockUserHasAllFeatures = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn()
+const mockEmitCustomerAccountsEvent = jest.fn(async () => undefined)
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
@@ -34,6 +35,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/rateLimitIdentifier'
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
   sendCustomerInvitationEmail: (...args: unknown[]) => mockSendCustomerInvitationEmail(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
+  emitCustomerAccountsEvent: (...args: unknown[]) => mockEmitCustomerAccountsEvent(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -77,6 +82,7 @@ describe('admin customer account user invite route', () => {
       rawToken: 'raw-invite-token',
     })
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
   })
 
   it('keeps API-key RBAC subject and stores the backing user id as invitedByUserId', async () => {

@@ -7,7 +7,7 @@ import { RbacService } from '@open-mercato/core/modules/auth/services/rbacServic
 import { CustomerRole, CustomerRoleAcl, CustomerUserRole } from '@open-mercato/core/modules/customer_accounts/data/entities'
 import { updateRoleSchema } from '@open-mercato/core/modules/customer_accounts/data/validators'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
 export const metadata = {}
@@ -107,7 +107,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
   // Optimistic lock: refuse a stale overwrite so two admins editing the same role
   // in parallel cannot silently clobber each other (#2055). Strictly additive.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.role',
       resourceId: role.id,
       current: role.updatedAt ?? null,
@@ -163,13 +163,16 @@ export async function DELETE(req: Request, { params }: { params: { id: string } 
     return NextResponse.json({ ok: false, error: 'Role not found' }, { status: 404 })
   }
 
-  if (role.isSystem) {
-    return NextResponse.json({ ok: false, error: 'Cannot delete a system role' }, { status: 400 })
+  // System roles are seed-provided defaults but may still be removed once they are no
+  // longer needed (#3556). Only the default role is hard-protected here because signup
+  // auto-assigns it to new portal users — reassign the default first, then delete.
+  if (role.isDefault) {
+    return NextResponse.json({ ok: false, error: 'Cannot delete the default role. Set another role as default first.' }, { status: 400 })
   }
 
   // Optimistic lock: refuse a stale delete. Strictly additive.
   try {
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(container, {
       resourceKind: 'customer_accounts.role',
       resourceId: role.id,
       current: role.updatedAt ?? null,
@@ -254,11 +257,11 @@ const putMethodDoc: OpenApiMethodDoc = {
 
 const deleteMethodDoc: OpenApiMethodDoc = {
   summary: 'Delete customer role (admin)',
-  description: 'Soft deletes a customer role and its ACL. System roles and roles with assigned users cannot be deleted.',
+  description: 'Soft deletes a customer role and its ACL. The default role (auto-assigned to new portal users) and roles with assigned users cannot be deleted.',
   tags: ['Customer Accounts Admin'],
   responses: [{ status: 200, description: 'Role deleted', schema: successSchema }],
   errors: [
-    { status: 400, description: 'System role or has assigned users', schema: errorSchema },
+    { status: 400, description: 'Default role or has assigned users', schema: errorSchema },
     { status: 401, description: 'Not authenticated', schema: errorSchema },
     { status: 403, description: 'Insufficient permissions', schema: errorSchema },
     { status: 404, description: 'Role not found', schema: errorSchema },

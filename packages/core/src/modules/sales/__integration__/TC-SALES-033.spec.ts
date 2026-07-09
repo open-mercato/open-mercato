@@ -1,6 +1,6 @@
 import { expect, test, type APIRequestContext, type APIResponse } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
-import { deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
+import { createShipmentFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
  * TC-SALES-033: Return creation and returned-quantity tracking via API.
@@ -83,6 +83,7 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
       expect(lineResponse.status()).toBe(201)
       orderLineId = (await readJson(lineResponse)).id as string
       expect(orderLineId).toBeTruthy()
+      await createShipmentFixture(request, token, orderId, [{ orderLineId: orderLineId!, quantity: 5 }])
 
       const returnResponse = await apiRequest(request, 'POST', '/api/sales/returns', {
         token,
@@ -140,6 +141,7 @@ test.describe('TC-SALES-033 return creation + quantity tracking', () => {
         data: { orderId, currencyCode: 'USD', quantity: 2, name: `Over-return ${Date.now()}`, unitPriceNet: 50, unitPriceGross: 50 },
       })
       const orderLineId = (await readJson(lineResponse)).id as string
+      await createShipmentFixture(request, token, orderId, [{ orderLineId, quantity: 2 }])
 
       const response = await apiRequest(request, 'POST', '/api/sales/returns', {
         token,

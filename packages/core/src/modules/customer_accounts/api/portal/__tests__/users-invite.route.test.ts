@@ -6,6 +6,7 @@ const mockGetCustomerAuthFromRequest = jest.fn()
 const mockRequireCustomerFeature = jest.fn()
 const mockFindWithDecryption = jest.fn()
 const mockSendCustomerInvitationEmail = jest.fn()
+const mockEmitCustomerAccountsEvent = jest.fn(async () => undefined)
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
@@ -39,6 +40,10 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
 
 jest.mock('@open-mercato/core/modules/customer_accounts/lib/invitationEmail', () => ({
   sendCustomerInvitationEmail: (...args: unknown[]) => mockSendCustomerInvitationEmail(...args),
+}))
+
+jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
+  emitCustomerAccountsEvent: (...args: unknown[]) => mockEmitCustomerAccountsEvent(...args),
 }))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
@@ -84,6 +89,7 @@ describe('portal customer account user invite route', () => {
       rawToken: 'raw-invite-token',
     })
     mockSendCustomerInvitationEmail.mockResolvedValue(undefined)
+    mockEmitCustomerAccountsEvent.mockResolvedValue(undefined)
   })
 
   it('creates a portal-admin invitation and sends the invitation email', async () => {

@@ -41,8 +41,16 @@ export type SubscriberHandler = (
 export type SubscriberDescriptor = {
   /** Unique identifier for this subscriber */
   id: string
+  /** Owning module id, when the subscriber comes from module discovery */
+  moduleId?: string
   /** Event name to subscribe to */
   event: string
+  /**
+   * Whether this subscriber is dispatched through the persistent events queue
+   * (events worker) rather than inline. Consulted by the `OM_EVENTS_SINGLE_DELIVERY`
+   * single-delivery path to decide which subscribers run inline vs in the worker.
+   */
+  persistent?: boolean
   /** Handler function */
   handler: SubscriberHandler
 }
@@ -55,6 +63,19 @@ export type SubscriberDescriptor = {
 export type EmitOptions = {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
+  /**
+   * Controls inline in-memory delivery on a persistent emit. Defaults to `true`,
+   * which preserves the legacy dual-dispatch behavior (subscribers run inline AND
+   * the event is enqueued for the worker). Set to `false` to ENQUEUE-ONLY: inline
+   * delivery is skipped entirely and the events worker is the sole dispatcher.
+   *
+   * Use this to hand a heavy persistent job (e.g. a full query-index rebuild) to
+   * the durable queue without running it on the caller's request path. Has no
+   * effect unless `persistent: true`. Ephemeral subscribers to the event will not
+   * run inline either, so only use it for events whose subscribers are all
+   * worker-dispatched (`persistent: true`).
+   */
+  deliverInline?: boolean
   /** Trusted tenant scope for subscribers that must not rely on payload scope */
   tenantId?: string | null
   /** Trusted organization scope for subscribers that must not rely on payload scope */
@@ -100,8 +121,15 @@ export interface EventBus {
    *
    * @param event - Event name to listen for
    * @param handler - Handler function
+   * @param options - Optional registration options. `persistent: true` marks the
+   *   handler as worker-dispatched so the single-delivery path skips it inline.
+   *   `moduleId` attributes module-resource-usage telemetry for this handler to
+   *   the given module; without it, telemetry falls back to guessing a module id
+   *   from the event name, which is wrong for cross-module subscribers (e.g. a
+   *   module reacting to another module's event). Pass it whenever the
+   *   subscribing module is known.
    */
-  on(event: string, handler: SubscriberHandler): void
+  on(event: string, handler: SubscriberHandler, options?: { persistent?: boolean; moduleId?: string; id?: string }): void
 
   /**
    * Register multiple module subscribers at once.

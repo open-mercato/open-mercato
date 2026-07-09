@@ -13,6 +13,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildHistoryEntries } from '../../lib/historyHelpers'
 import { SalesNote } from '../../data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 // Spec: SPEC-006-2026-01-23-order-status-history
 
@@ -130,7 +133,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('sales.document-history.get failed', err)
+    logger.error('sales.document-history.get failed', { err })
     const { translate } = await resolveTranslations()
     return NextResponse.json(
       { error: translate('sales.documents.history.error', 'Failed to load history.') },
