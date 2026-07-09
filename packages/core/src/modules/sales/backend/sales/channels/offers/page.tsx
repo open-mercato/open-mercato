@@ -18,6 +18,9 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { mapOfferRow, renderOfferPriceSummary, type OfferRow } from '@open-mercato/core/modules/sales/components/channels/offerTableUtils'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type OffersResponse = {
   items?: Array<Record<string, unknown>>
@@ -113,7 +116,7 @@ export default function SalesChannelOffersListPage() {
       upsertChannelOptions(options)
       return options
     } catch (err) {
-      console.warn('[sales.channels.offers] failed to load channel options', err)
+      logger.warn('sales.channels.offers failed to load channel options', { err })
       return []
     }
   }, [t, upsertChannelOptions])
@@ -153,7 +156,7 @@ export default function SalesChannelOffersListPage() {
         .filter((option) => !!option) as FilterOption[]
       upsertChannelOptions(options)
     } catch (err) {
-      console.warn('[sales.channels.offers] failed to hydrate channel metadata', err)
+      logger.warn('sales.channels.offers failed to hydrate channel metadata', { err })
     }
   }, [t, upsertChannelOptions])
 
@@ -269,7 +272,7 @@ export default function SalesChannelOffersListPage() {
         .filter((value): value is string => typeof value === 'string' && value.length > 0)
       if (ids.length) void ensureChannelMetadata(Array.from(new Set(ids)))
     } catch (err) {
-      console.error('sales.channels.offers.list', err)
+      logger.error('sales.channels.offers.list', { err })
       flash(t('sales.channels.offers.errors.load', 'Failed to load offers.'), 'error')
     } finally {
       setLoading(false)
@@ -316,7 +319,7 @@ export default function SalesChannelOffersListPage() {
       handleRefresh()
     } catch (err) {
       if (surfaceRecordConflict(err, t)) { handleRefresh(); return }
-      console.error('sales.channels.offers.delete', err)
+      logger.error('sales.channels.offers.delete', { err })
     }
   }, [handleRefresh, mutationContext, runMutation, t])
 

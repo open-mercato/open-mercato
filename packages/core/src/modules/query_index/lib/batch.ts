@@ -1,6 +1,10 @@
 import { type Kysely, sql } from 'kysely'
+import { recordIndexerError } from '@open-mercato/shared/lib/indexers/error-log'
 import { buildIndexDocument, type IndexCustomFieldValue } from './document'
 import { replaceSearchTokensForBatch, isSearchDebugEnabled } from './search-tokens'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'reindex-batch' })
 
 export type AnyRow = Record<string, any> & { id: string | number }
 
@@ -198,7 +202,7 @@ export async function upsertIndexBatch(
         brand_name: (tokenDoc as any).brand_name,
         legal_name: (tokenDoc as any).legal_name,
       }
-      console.info('[reindex:batch:doc]', {
+      logger.debug('Reindex batch document', {
         entityType,
         recordId,
         organizationId: scopeOrg ?? null,
@@ -245,9 +249,15 @@ export async function upsertIndexBatch(
       .execute()
     try {
       await replaceSearchTokensForBatch(db, tokenPayloads)
-    } catch {}
+    } catch (searchTokenError) {
+      // Record instead of swallowing: a failed token write leaves fulltext search stale.
+      await recordIndexerError(
+        { db },
+        { source: 'fulltext', handler: 'query_index:reindex-batch', error: searchTokenError, entityType, tenantId: scope.tenantId ?? null, organizationId: scope.orgId ?? null },
+      ).catch(() => undefined)
+    }
     if (debugEnabled) {
-      console.info('[reindex:batch:tokens]', {
+      logger.debug('Reindex batch tokens', {
         entityType,
         records: basePayloads.length,
         scopeOrg: scope.orgId ?? null,
@@ -298,5 +308,11 @@ export async function upsertIndexBatch(
   }
   try {
     await replaceSearchTokensForBatch(db, tokenPayloads)
-  } catch {}
+  } catch (searchTokenError) {
+    // Record instead of swallowing: a failed token write leaves fulltext search stale.
+    await recordIndexerError(
+      { db },
+      { source: 'fulltext', handler: 'query_index:reindex-batch', error: searchTokenError, entityType, tenantId: scope.tenantId ?? null, organizationId: scope.orgId ?? null },
+    ).catch(() => undefined)
+  }
 }

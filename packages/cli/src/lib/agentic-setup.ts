@@ -9,6 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync, readdirSync } from 'node:fs'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { Project, SyntaxKind } from 'ts-morph'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 // In the built output (dist/lib/agentic-setup.js), __dirname is dist/lib/.
@@ -52,14 +53,125 @@ function copyFile(srcDir: string, srcRelative: string, destPath: string): void {
   copyFileSync(srcPath, destPath)
 }
 
+// ─── Module fact-sheet selection (mirrors packages/create-app/src/setup/tools/shared.ts) ──
+
+// AST-parse the static `enabledModules` array literal in the app's src/modules.ts
+// and collect each entry's `id`. Only the static literal is read (conditional
+// .push()/spread entries are intentionally not seen — see spec D6).
+function readEnabledModuleIds(modulesPath: string): string[] {
+  if (!existsSync(modulesPath)) return []
+  try {
+    const project = new Project({ useInMemoryFileSystem: true })
+    const sourceFile = project.createSourceFile('modules.ts', readFileSync(modulesPath, 'utf-8'))
+    const declaration = sourceFile.getVariableDeclaration('enabledModules')
+    const arrayLiteral = declaration?.getInitializerIfKind(SyntaxKind.ArrayLiteralExpression)
+    if (!arrayLiteral) return []
+    const ids: string[] = []
+    for (const element of arrayLiteral.getElements()) {
+      const objectLiteral = element.asKind(SyntaxKind.ObjectLiteralExpression)
+      if (!objectLiteral) continue
+      const idProperty = objectLiteral.getProperty('id')?.asKind(SyntaxKind.PropertyAssignment)
+      const idValue = idProperty?.getInitializerIfKind(SyntaxKind.StringLiteral)?.getLiteralValue()
+      if (idValue) ids.push(idValue)
+    }
+    return ids
+  } catch {
+    return []
+  }
+}
+
+// Resolve which per-module fact-sheets to ship: the intersection of the bundled
+// fact-sheets (the D5 allowlist, materialized by build.mjs) with the app's enabled
+// modules. Falls back to the full bundled set when the enabled set cannot be read
+// (R5 — degraded, never empty).
+function selectModuleFactSheets(targetDir: string, modulesSubdir: string): string[] {
+  const available = existsSync(modulesSubdir)
+    ? readdirSync(modulesSubdir)
+        .filter((file) => file.endsWith('.md'))
+        .map((file) => file.replace(/\.md$/, ''))
+    : []
+  if (available.length === 0) return []
+  const enabled = new Set(readEnabledModuleIds(join(targetDir, 'src', 'modules.ts')))
+  const selected = available.filter((moduleId) => enabled.has(moduleId))
+  return selected.length > 0 ? selected : available
+}
+
+const MODULE_GUIDES_START = '<!-- om:module-guides:start -->'
+const MODULE_GUIDES_END = '<!-- om:module-guides:end -->'
+
+// Read each module's guide label from the bundled `module-facts.json` (emitted by
+// build.mjs from the generator's extraction of each module's own `metadata`). The
+// label falls back description → title → generic, so the CLI never re-declares
+// specific module names or descriptions. A missing/malformed sidecar degrades to an
+// empty map (generic labels), never a throw.
+function readModuleGuideLabels(guidesDir: string): Record<string, string> {
+  const factsPath = join(guidesDir, 'module-facts.json')
+  if (!existsSync(factsPath)) return {}
+  try {
+    const parsed = JSON.parse(readFileSync(factsPath, 'utf-8')) as Record<
+      string,
+      { description?: unknown; title?: unknown }
+    >
+    const labels: Record<string, string> = {}
+    for (const [moduleId, entry] of Object.entries(parsed)) {
+      const label =
+        (entry && typeof entry.description === 'string' && entry.description) ||
+        (entry && typeof entry.title === 'string' && entry.title) ||
+        ''
+      if (label) labels[moduleId] = label
+    }
+    return labels
+  } catch {
+    return {}
+  }
+}
+
+function renderModuleGuidesBlock(selected: string[], labels: Record<string, string>): string {
+  if (selected.length === 0) return '_No module fact-sheets are bundled for this app._'
+  const rows = selected.map((moduleId) => {
+    const label = labels[moduleId] ?? `Use the ${moduleId} module`
+    return `| ${label} | \`.ai/guides/modules/${moduleId}.md\` |`
+  })
+  return ['| Task | Load |', '|---|---|', ...rows].join('\n')
+}
+
+// Regenerate the marker-delimited Module-Specific Guides block in the written
+// AGENTS.md from the selected module set. Replaces strictly between the markers so
+// surrounding prose is untouched and repeat runs are idempotent.
+function injectModuleGuides(
+  agentsMdPath: string,
+  selected: string[],
+  labels: Record<string, string> = {},
+): void {
+  if (!existsSync(agentsMdPath)) return
+  const content = readFileSync(agentsMdPath, 'utf-8')
+  const startIndex = content.indexOf(MODULE_GUIDES_START)
+  const endIndex = content.indexOf(MODULE_GUIDES_END)
+  if (startIndex === -1 || endIndex === -1 || endIndex < startIndex) {
+    console.warn(
+      `[agentic] Module-Specific Guides markers (${MODULE_GUIDES_START} … ${MODULE_GUIDES_END}) not found in ${agentsMdPath}; the per-module guide list was not generated.`,
+    )
+    return
+  }
+  const before = content.slice(0, startIndex + MODULE_GUIDES_START.length)
+  const after = content.slice(endIndex)
+  const next = `${before}\n${renderModuleGuidesBlock(selected, labels)}\n${after}`
+  if (next !== content) writeFileSync(agentsMdPath, next)
+}
+
 // ─── Generators ──────────────────────────────────────────────────────────
 
 function generateShared(config: AgenticConfig): void {
   const { targetDir } = config
   const srcDir = join(AGENTIC_DIR, 'shared')
 
+  // Resolve which per-module fact-sheets this app gets (enabled ∩ bundled allowlist).
+  const selectedModules = selectModuleFactSheets(targetDir, join(GUIDES_DIR, 'modules'))
+  const moduleGuideLabels = readModuleGuideLabels(GUIDES_DIR)
+
   // AGENTS.md
   writeTemplate(srcDir, 'AGENTS.md.template', join(targetDir, 'AGENTS.md'), config)
+  injectModuleGuides(join(targetDir, 'AGENTS.md'), selectedModules, moduleGuideLabels)
 
   // .ai/ structure
   writeTemplate(srcDir, 'ai/specs/README.md', join(targetDir, '.ai', 'specs', 'README.md'), config)
@@ -244,6 +356,9 @@ function generateShared(config: AgenticConfig): void {
 
   copyFile(srcDir, 'ai/qa/tests/playwright.config.ts', join(targetDir, '.ai', 'qa', 'tests', 'playwright.config.ts'))
 
+  // Package & conceptual guides are copied wholesale (framework-wide). Per-module
+  // fact-sheets (.ai/guides/modules/<module>.md) are filtered to the app's enabled
+  // module set; the combined module-facts.json sidecar is copied as-is.
   if (existsSync(GUIDES_DIR)) {
     const guidesDestDir = join(targetDir, '.ai', 'guides')
     for (const file of readdirSync(GUIDES_DIR)) {
@@ -252,6 +367,20 @@ function generateShared(config: AgenticConfig): void {
       const destPath = join(guidesDestDir, file)
       ensureDir(destPath)
       copyFileSync(srcPath, destPath)
+    }
+
+    const moduleFactsPath = join(GUIDES_DIR, 'module-facts.json')
+    if (existsSync(moduleFactsPath)) {
+      const destPath = join(guidesDestDir, 'module-facts.json')
+      ensureDir(destPath)
+      copyFileSync(moduleFactsPath, destPath)
+    }
+
+    const modulesSubdir = join(GUIDES_DIR, 'modules')
+    for (const moduleId of selectedModules) {
+      const destPath = join(guidesDestDir, 'modules', `${moduleId}.md`)
+      ensureDir(destPath)
+      copyFileSync(join(modulesSubdir, `${moduleId}.md`), destPath)
     }
   }
 }

@@ -27,9 +27,17 @@
 import * as esbuild from 'esbuild'
 import { glob } from 'glob'
 import { existsSync, readFileSync, readdirSync, watch as fsWatch, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createAtomicWritePlugin } from './lib/add-js-extension.mjs'
+import {
+  AUTO_EXPAND_INTERVAL_MS,
+  describeWatchMode,
+  detectTouchedPackages,
+  discoverWatchTargets,
+  resolveWatchScope,
+  selectWatchedPackages,
+} from './watch-scope.mjs'
 
 const REBUILD_DEBOUNCE_MS = 100
 const TOUCHABLE_GENERATED_PATTERN = /\.generated(?:\.[a-z0-9]+)?(?:\.ts|\.checksum)$/i
@@ -43,53 +51,9 @@ export function isWatchedSourceFile(filename) {
   return true
 }
 
-function safeReadPackageJson(packageDir) {
-  const pkgPath = join(packageDir, 'package.json')
-  if (!existsSync(pkgPath)) return null
-  try {
-    return JSON.parse(readFileSync(pkgPath, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-export function discoverWorkspacePackages(root) {
-  const roots = [
-    join(root, 'packages'),
-    join(root, 'external', 'official-modules', 'packages'),
-  ]
-  const discovered = []
-
-  for (const parent of roots) {
-    if (!existsSync(parent)) continue
-    let entries
-    try {
-      entries = readdirSync(parent, { withFileTypes: true })
-    } catch {
-      continue
-    }
-
-    for (const entry of entries) {
-      if (!entry.isDirectory()) continue
-      const packageDir = join(parent, entry.name)
-      const pkg = safeReadPackageJson(packageDir)
-      if (!pkg) continue
-      if (!pkg.scripts?.watch) continue
-      const srcDir = join(packageDir, 'src')
-      if (!existsSync(srcDir)) continue
-
-      discovered.push({
-        name: pkg.name ?? basename(packageDir),
-        packageDir,
-        srcDir,
-        shortLabel: basename(packageDir),
-      })
-    }
-  }
-
-  discovered.sort((a, b) => a.shortLabel.localeCompare(b.shortLabel))
-  return discovered
-}
+// Re-exported from `watch-scope.mjs` (the dependency-light shared discovery
+// source) so existing importers and tests keep the same entry point.
+export const discoverWorkspacePackages = discoverWatchTargets
 
 function createBuildOptions(packageDir, entryPoints) {
   return {
@@ -252,9 +216,10 @@ export async function runConsolidatedWatch({
   build,
   watch,
 } = {}) {
-  const packages = discoverWorkspacePackages(root)
+  const { env = process.env, argv = process.argv.slice(2), runGit } = arguments[0] ?? {}
+  const allPackages = discoverWorkspacePackages(root)
   const generatedDirs = discoverAppGeneratedDirs(root)
-  if (packages.length === 0) {
+  if (allPackages.length === 0) {
     log(
       '[watch] no workspace packages with a `watch` script and `src/` directory were found',
       'error',
@@ -262,7 +227,22 @@ export async function runConsolidatedWatch({
     return { packages: [] }
   }
 
-  const states = packages.map(makePackageState)
+  const scopeConfig = resolveWatchScope({ env, argv })
+  const selection = selectWatchedPackages({ packages: allPackages, config: scopeConfig, root, runGit })
+  const selected = selection.selected.length ? selection.selected : allPackages
+
+  const watchMode = describeWatchMode(selection.mode)
+  log(`[watch] watch scope: ${watchMode.emoji} ${watchMode.mode} — ${selection.reason}`)
+  if (selection.mode !== 'all') {
+    const excluded = allPackages.length - selected.length
+    if (excluded > 0) {
+      log(`[watch] watch scope: ${excluded} of ${allPackages.length} package(s) are not watched (set OM_WATCH_SCOPE=all to watch everything)`)
+    }
+  }
+
+  const states = selected.map(makePackageState)
+  const watchedLabels = new Set(states.map((state) => state.shortLabel))
+  let expandTimer = null
   log(
     `[watch] consolidated watcher: tracking ${states.length} package${states.length === 1 ? '' : 's'} (${states
       .map((state) => state.shortLabel)
@@ -285,6 +265,10 @@ export async function runConsolidatedWatch({
 
   const cleanup = () => {
     log('\n[watch] consolidated watcher: stopping...')
+    if (expandTimer) {
+      clearInterval(expandTimer)
+      expandTimer = null
+    }
     for (const state of states) {
       if (state.rebuildTimeout) {
         clearTimeout(state.rebuildTimeout)
@@ -294,6 +278,31 @@ export async function runConsolidatedWatch({
         state.watcher?.close()
       } catch {}
     }
+  }
+
+  // `auto-optimized` keeps re-checking which packages changed and expands the
+  // watch set (it never removes a watcher once started).
+  if (selection.autoExpand) {
+    const expandWatchers = () => {
+      let touched
+      try {
+        touched = detectTouchedPackages({ packages: allPackages, root, config: scopeConfig, runGit })
+      } catch {
+        return
+      }
+      for (const pkg of touched) {
+        if (watchedLabels.has(pkg.shortLabel)) continue
+        const state = makePackageState(pkg)
+        if (startPackageWatcher(state, { log, build, generatedDirs, watch })) {
+          states.push(state)
+          watchedLabels.add(state.shortLabel)
+          log(`[watch] watch scope: expanded to newly-touched package ${state.shortLabel}`)
+          void rebuildPackage(state, { log, build, generatedDirs })
+        }
+      }
+    }
+    expandTimer = setInterval(expandWatchers, AUTO_EXPAND_INTERVAL_MS)
+    if (typeof expandTimer.unref === 'function') expandTimer.unref()
   }
 
   if (signal) {

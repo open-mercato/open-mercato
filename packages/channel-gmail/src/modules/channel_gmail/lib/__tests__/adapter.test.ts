@@ -9,8 +9,23 @@ import {
   setGoogleOAuthClient,
   type GoogleOAuthClient,
 } from '../oauth'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { getGmailChannelAdapter } from '../adapter'
 import { gmailCapabilities } from '../capabilities'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const adapterLoggerWarn = createLogger('channel_gmail').warn as jest.Mock
 
 const userCredentials = {
   accessToken: 'access',
@@ -426,25 +441,21 @@ describe('GmailChannelAdapter OAuth flow', () => {
     })
 
     it('falls back to legacy _client path with a deprecation warning when oauthClient is absent', async () => {
-      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
-      try {
-        setGoogleOAuthClient(
-          stubOAuth({
-            refreshToken: async () => ({ access_token: 'a', expires_in: 1800, token_type: 'Bearer' }),
-          }),
-        )
-        await getGmailChannelAdapter().refreshCredentials!({
-          channelId: 'channel-1',
-          credentials: { ...userCredentials, _client: clientCredentials },
-          scope: { tenantId: 't', organizationId: 'o' },
-        })
-        // Legacy path emits a one-time deprecation warning per process.
-        expect(warn).toHaveBeenCalledWith(
-          expect.stringContaining('reading OAuth client config from credentials._client is deprecated'),
-        )
-      } finally {
-        warn.mockRestore()
-      }
+      adapterLoggerWarn.mockClear()
+      setGoogleOAuthClient(
+        stubOAuth({
+          refreshToken: async () => ({ access_token: 'a', expires_in: 1800, token_type: 'Bearer' }),
+        }),
+      )
+      await getGmailChannelAdapter().refreshCredentials!({
+        channelId: 'channel-1',
+        credentials: { ...userCredentials, _client: clientCredentials },
+        scope: { tenantId: 't', organizationId: 'o' },
+      })
+      // Legacy path emits a one-time deprecation warning per process.
+      expect(adapterLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('reading OAuth client config from credentials._client is deprecated'),
+      )
     })
 
     it('throws a clear error when neither oauthClient nor _client carries client config', async () => {

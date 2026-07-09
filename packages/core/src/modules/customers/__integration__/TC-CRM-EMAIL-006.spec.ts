@@ -34,10 +34,9 @@ import {
  *   - email-admin: same as above PLUS customers.email.view_private — used here to
  *     PROVE the feature grants no write bypass in v1
  *
- * The interaction is created via admin token with authorUserId=userA.id so the
- * author ownership is established without requiring the compose route (which
- * needs a live channel fixture). The interactionCreateSchema accepts authorUserId
- * as an optional field.
+ * The interaction is created via User A's token so author ownership is derived
+ * from the authenticated caller without requiring the compose route (which needs
+ * a live channel fixture).
  */
 test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => {
   test(
@@ -162,9 +161,6 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
         });
         userAdminToken = await getAuthToken(request, userAdminEmail, userAdminPassword);
 
-        // -- Setup: derive User A's actual userId from their token --------------
-        const userAScope = getTokenScope(userAToken);
-
         // -- Setup: create a Person entity as the interaction target ------------
         personId = await createPersonFixture(request, adminToken, {
           firstName: 'CrmEmail006',
@@ -174,23 +170,21 @@ test.describe('TC-CRM-EMAIL-006: Email interaction visibility lifecycle', () => 
 
         // -- Setup: create a PRIVATE email interaction authored by User A ------
         //
-        // The interactionCreateSchema accepts authorUserId as an optional field.
-        // We POST as admin so the interaction is created without needing a live
-        // channel, and we explicitly set authorUserId to userA.id so the author
-        // ownership rule is established correctly.
+        // We POST through the interactions API as User A so the interaction is
+        // created without needing a live channel and the author ownership rule is
+        // established from the authenticated caller.
         const interactionResp = await apiRequest(
           request,
           'POST',
           '/api/customers/interactions',
           {
-            token: adminToken,
+            token: userAToken,
             data: {
               entityId: personId,
               interactionType: 'email',
               title: `TC-CRM-EMAIL-006 private email ${stamp}`,
               body: 'Private content',
               visibility: 'private',
-              authorUserId: userAScope.userId,
               status: 'done',
             },
           },
