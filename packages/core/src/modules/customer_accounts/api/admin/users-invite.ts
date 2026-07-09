@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc, OpenApiMethodDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { CustomerInvitationService } from '@open-mercato/core/modules/customer_accounts/services/customerInvitationService'
 import { emitCustomerAccountsEvent } from '@open-mercato/core/modules/customer_accounts/events'
@@ -17,6 +18,8 @@ import { readNormalizedEmailFromJsonRequest } from '@open-mercato/core/modules/c
 import { sendCustomerInvitationEmail } from '@open-mercato/core/modules/customer_accounts/lib/invitationEmail'
 
 export const metadata = {}
+
+const logger = createLogger('customer_accounts').child({ component: 'admin-users-invite' })
 
 function resolveInvitedByUserId(auth: NonNullable<Awaited<ReturnType<typeof getAuthFromRequest>>>): string | null {
   if (auth.isApiKey) return auth.userId ?? null
@@ -78,7 +81,7 @@ export async function POST(req: Request) {
       rawToken,
     })
   } catch (error) {
-    console.error('[customer_accounts.admin.users-invite] invitation email failed', error)
+    logger.error('Invitation email failed', { err: error })
     return NextResponse.json({ ok: false, error: 'Invitation email could not be sent' }, { status: 502 })
   }
 
