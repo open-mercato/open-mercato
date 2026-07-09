@@ -50,7 +50,6 @@ Opt-in: `yarn install-skills --with automation`
 | `om-auto-continue-pr-loop` | Resume a PR started by `om-auto-create-pr-loop` | — | `om-auto-review-pr` |
 | `om-auto-review-pr` | Automated PR review — runs `om-code-review`, sets labels | `om-auto-create-pr` | `om-merge-buddy` |
 | `om-auto-fix-issue` | Fix a GitHub issue by number end-to-end | — | `om-auto-create-pr` |
-| `om-auto-verify-and-fix-github` | Browser-first issue fix — reproduce in the Browser, record a failing Playwright test, fix, open a PR | — | `om-auto-review-pr` |
 | `om-prepare-issue` | Capture a feature to build later — write the spec, ship a docs-only spec PR, open a tracking issue | `om-spec-writing` | `om-implement-spec` |
 | `om-verify-in-repo` | Verify a change works in the repo (build + smoke check) | `om-implement-spec` | — |
 | `om-root-cause` | Analyze root cause of a bug before fixing | — | `om-fix` |
