@@ -1,6 +1,9 @@
 "use client"
 
 import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 export type BulkDeleteFailure = {
   id: string
@@ -87,8 +90,8 @@ export async function runBulkDelete<T extends { id: string }>(
         err && typeof err === 'object' ? (err as { code?: unknown }).code : undefined
       const code = typeof rawCode === 'string' && rawCode.length > 0 ? rawCode : null
       failures.push({ id: row.id, code, message })
-      if (logTag && typeof console !== 'undefined' && typeof console.warn === 'function') {
-        console.warn(`[${logTag}] bulk delete failed`, { id: row.id, code, message, err })
+      if (logTag) {
+        logger.warn('Bulk delete failed', { logTag, id: row.id, code, message, err })
       }
     }
     if (progress && progressJobId) {

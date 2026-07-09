@@ -10,6 +10,9 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 interface ActivitiesCardProps {
   entityId: string
@@ -150,7 +153,7 @@ export function ActivitiesCard({
         setFetchedEvents(Array.isArray(payload?.items) ? payload.items : [])
       } catch (err) {
         if ((err as { name?: string } | null)?.name !== 'AbortError') {
-          console.warn('[ActivitiesCard] failed to load interactions', err)
+          logger.warn('failed to load interactions', { component: 'ActivitiesCard', err })
           setFetchedEvents(null)
         }
       }

@@ -47,6 +47,7 @@ yarn workspace @open-mercato/shared build
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
 | `indexers/` | When building query index helpers | `@open-mercato/shared/lib/indexers` |
+| `logger/` | When emitting diagnostics — `createLogger(namespace)` instead of raw `console.*` (migrate incrementally, Boy Scout rule). Message-first with structured fields (`logger.warn('Payload too large', { event, maxBytes })`), errors under `err`, `child(bindings)` for context, `getLogLevel()`/`isLevelEnabled()` to gate expensive fields; level via `OM_LOG_LEVEL`. Never log credentials, PII, or payload bodies | `@open-mercato/shared/lib/logger` |
 | `modules/` | When registering or listing modules | `@open-mercato/shared/lib/modules/registry` |
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |

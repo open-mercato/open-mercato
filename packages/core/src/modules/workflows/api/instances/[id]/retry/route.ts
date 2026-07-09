@@ -14,6 +14,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance } from '../../../../data/entities'
 import * as workflowExecutor from '../../../../lib/workflow-executor'
 import { workflowInstanceResponseSchema, workflowExecutionResultSchema } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -130,7 +133,7 @@ export async function POST(
       message: 'Workflow retry initiated successfully',
     })
   } catch (error) {
-    console.error('Error retrying workflow instance:', error)
+    logger.error('Error retrying workflow instance', { err: error })
 
     // Handle specific errors
     if (error instanceof workflowExecutor.WorkflowExecutionError) {

@@ -33,6 +33,23 @@ import {
 } from '../agent-runtime'
 import { AgentPolicyError } from '../agent-tools'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
 ): AiAgentDefinition {
@@ -273,7 +290,8 @@ describe('mergeStepOverrides', () => {
   })
 
   it('drops user tools not present in wrappedRegistry with a warning', () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const consoleSpy = testLogger.warn
+    consoleSpy.mockClear()
     const rawHandler = { execute: jest.fn() }
     const result = mergeStepOverrides(
       {},
@@ -283,7 +301,8 @@ describe('mergeStepOverrides', () => {
     )
     expect((result.tools as Record<string, unknown>)['unknown__tool']).toBeUndefined()
     expect(consoleSpy).toHaveBeenCalledWith(
-      expect.stringContaining('unknown__tool'),
+      expect.any(String),
+      expect.objectContaining({ toolName: 'unknown__tool' }),
     )
     consoleSpy.mockRestore()
   })

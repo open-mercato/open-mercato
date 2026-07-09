@@ -38,6 +38,9 @@ import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const fallbackShipmentLogger = createLogger('sales').child({ component: 'shipments' })
 
 const shipmentCrudEvents: CrudEventsConfig = {
   module: 'sales',
@@ -156,8 +159,7 @@ const logShipmentDeleteScopeRejection = (
     logger.warn(payload, reason)
     return
   }
-  // eslint-disable-next-line no-console
-  console.warn(`[sales.shipments.delete] ${reason}`, payload)
+  fallbackShipmentLogger.warn(reason, payload)
 }
 
 export async function loadShipmentSnapshot(em: EntityManager, id: string): Promise<ShipmentSnapshot | null> {

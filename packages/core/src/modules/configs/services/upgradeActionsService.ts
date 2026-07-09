@@ -5,6 +5,9 @@ import { appVersion } from '@open-mercato/shared/lib/version'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { UpgradeActionRun } from '../data/entities'
 import { actionsUpToVersion, findUpgradeAction, type UpgradeActionDefinition } from '../lib/upgrade-actions'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('configs')
 
 export type UpgradeActionStatus = 'completed' | 'already_completed'
 
@@ -55,7 +58,8 @@ export async function executeUpgradeAction(
   }
   const em = container.resolve<EntityManager>('em')
   const status = await em.transactional(async (tem) => {
-    console.info('[upgrade-actions] executing', {
+    logger.info('Executing upgrade action', {
+      component: 'upgrade-actions',
       actionId: definition.id,
       version: definition.version,
       requestedVersion: version,
@@ -78,10 +82,10 @@ export async function executeUpgradeAction(
     })
     tem.persist(record)
     await tem.flush()
-    console.info('[upgrade-actions] completed', { actionId: definition.id, version, tenantId, organizationId })
+    logger.info('Upgrade action completed', { component: 'upgrade-actions', actionId: definition.id, version, tenantId, organizationId })
     return 'completed' as const
   }).catch((error) => {
-    console.error('[upgrade-actions] failed', { actionId, tenantId, organizationId, version, error })
+    logger.error('Upgrade action failed', { component: 'upgrade-actions', actionId, tenantId, organizationId, version, err: error })
     if (error instanceof UniqueConstraintViolationException) {
       return 'already_completed' as const
     }
