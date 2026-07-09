@@ -154,11 +154,13 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     entitiesModule,
     diModule,
     searchModule,
+    commandLoadersModule,
   ] = await Promise.all([
     compileAndImport(path.join(generatedDir, 'modules.cli.generated.ts')),
     compileAndImport(path.join(generatedDir, 'entities.generated.ts')),
     compileAndImport(path.join(generatedDir, 'di.generated.ts')),
     compileAndImport(path.join(generatedDir, 'search.generated.ts')).catch(() => ({ searchModuleConfigs: [] })),
+    compileAndImport(path.join(generatedDir, 'command-loaders.generated.ts')).catch(() => ({ commandLoaderEntries: [] })),
   ])
 
   return {
@@ -168,6 +170,7 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     entityIds: entityIdsModule.E as BootstrapData['entityIds'],
     // Search configs are needed by workers for indexing
     searchModuleConfigs: (searchModule.searchModuleConfigs ?? []) as BootstrapData['searchModuleConfigs'],
+    commandLoaderEntries: (commandLoadersModule.commandLoaderEntries ?? []) as BootstrapData['commandLoaderEntries'],
     // Empty UI-related data - not needed for CLI
     dashboardWidgetEntries: [],
     injectionWidgetEntries: [],

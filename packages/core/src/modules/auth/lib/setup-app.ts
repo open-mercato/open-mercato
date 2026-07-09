@@ -300,7 +300,7 @@ export async function setupInitialTenant(
 
     await em.transactional(async (tem) => {
       const tenant = tem.create(Tenant, {
-        name: `${options.orgName} Tenant`,
+        name: options.orgName,
         isActive: true,
         createdAt: new Date(),
         updatedAt: new Date(),

@@ -3,12 +3,15 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useCustomFieldDefs } from '@open-mercato/ui/backend/utils/customFieldDefs'
 import { Save, Plus, X } from 'lucide-react'
@@ -192,6 +195,17 @@ export function TranslationManager({
     },
   })
 
+  // Optimistic lock keys off the TRANSLATION ROW'S OWN version (`updatedAt` from
+  // the GET response), not the host entity's: the host's EAV `entityType`
+  // (`module:entity`) has no reliable server-side mapping to a registered
+  // optimistic-lock reader, so the route enforces against the translation row's
+  // own `updated_at`. `null` for a brand-new translation (no existing row → the
+  // header is omitted and the route enforces nothing on insert).
+  const translationRowUpdatedAt = React.useMemo(() => {
+    const value = translationData?.updatedAt
+    return typeof value === 'string' && value.trim().length > 0 ? value : null
+  }, [translationData])
+
   const translationSignature = React.useMemo(() => JSON.stringify(translationData ?? null), [translationData])
   const lastTranslationSignatureRef = React.useRef<string | null>(null)
 
@@ -256,7 +270,7 @@ export function TranslationManager({
       return runMutation({
         operation: async () => {
           const res = await withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(translationData?.updatedAt),
+            buildOptimisticLockHeader(translationRowUpdatedAt),
             () => apiCall(
               `/api/translations/${encodeURIComponent(entityType)}/${encodeURIComponent(recordId)}`,
               {
@@ -290,6 +304,7 @@ export function TranslationManager({
       void refetchTranslation()
     },
     onError: (err: unknown) => {
+      if (surfaceRecordConflict(err, t)) return
       const message = err instanceof Error ? err.message : t('translations.manager.errors.save', 'Failed to save translations')
       flash(message, 'error')
     },
@@ -337,27 +352,15 @@ export function TranslationManager({
   }
 
   const renderLocaleTabs = () => (
-    <div className="flex gap-1 border-b">
-      {locales.map((locale) => {
-        const isActive = activeLocale === locale
-        return (
-          <button
-            key={locale}
-            type="button"
-            data-state={isActive ? 'active' : 'inactive'}
-            data-locale={locale}
-            className={`px-3 py-1.5 text-sm font-medium transition-colors ${
-              isActive
-                ? 'border-b-2 border-accent-indigo text-foreground'
-                : 'text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setActiveLocale(locale)}
-          >
+    <Tabs variant="underline" value={activeLocale} onValueChange={setActiveLocale}>
+      <TabsList>
+        {locales.map((locale) => (
+          <TabsTrigger key={locale} value={locale}>
             {locale.toUpperCase()}
-          </button>
-        )
-      })}
-    </div>
+          </TabsTrigger>
+        ))}
+      </TabsList>
+    </Tabs>
   )
 
   const renderFieldTable = () => {
@@ -647,14 +650,17 @@ export function LocaleManager() {
           >
             {locale.toUpperCase()}{getIso639Label(locale) ? ` — ${getIso639Label(locale)}` : ''}
             {locales.length > 1 && (
-              <button
-                type="button"
-                className="rounded-full p-0.5 text-muted-foreground hover:text-foreground transition-colors"
+              <IconButton
+                variant="ghost"
+                size="xs"
+                fullRadius
+                aria-label={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
+                title={t('translations.locales.remove', 'Remove {{locale}}', { locale: getIso639Label(locale) ?? locale.toUpperCase() })}
                 onClick={() => removeLocale(locale)}
                 disabled={mutation.isPending}
               >
                 <X className="h-3 w-3" />
-              </button>
+              </IconButton>
             )}
           </span>
         ))}

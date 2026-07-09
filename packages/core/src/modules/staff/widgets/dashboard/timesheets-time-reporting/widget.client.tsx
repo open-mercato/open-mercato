@@ -69,52 +69,61 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
     setLoading(true)
     setError(null)
     try {
-      // Load assigned projects
-      const assignmentsRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-        '/api/staff/timesheets/my-projects?pageSize=100',
-        undefined,
-        { errorMessage: '', fallback: { items: [] } },
-      )
+      // Assignments and the current user's staff member are independent — fetch them together.
+      const [assignmentsRes, selfRes] = await Promise.all([
+        readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+          '/api/staff/timesheets/my-projects?pageSize=100',
+          undefined,
+          { errorMessage: '', fallback: { items: [] } },
+        ),
+        readApiResultOrThrow<{ member?: { id: string } | null }>(
+          '/api/staff/team-members/self',
+          undefined,
+          { errorMessage: '', fallback: { member: null } },
+        ),
+      ])
+
       const assignmentItems = Array.isArray(assignmentsRes.items) ? assignmentsRes.items : []
       const projectIds = assignmentItems
         .map((item) => String(item.time_project_id ?? item.timeProjectId ?? ''))
         .filter((id) => id.length > 0)
 
-      if (projectIds.length > 0) {
-        const projectsRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-projects?ids=${projectIds.join(',')}&pageSize=100`,
-          undefined,
-          { errorMessage: '', fallback: { items: [] } },
-        )
-        const items = Array.isArray(projectsRes.items) ? projectsRes.items : []
-        setProjects(items.map((item) => ({
-          id: String(item.id ?? ''),
-          name: String(item.name ?? ''),
-          code: typeof item.code === 'string' ? item.code : null,
-        })))
-      } else {
-        setProjects([])
-      }
-
-      // Check for active timer — look for today's entries with startedAt set and endedAt null
-      const selfRes = await readApiResultOrThrow<{ member?: { id: string } | null }>(
-        '/api/staff/team-members/self',
-        undefined,
-        { errorMessage: '', fallback: { member: null } },
-      )
       const memberId = selfRes.member?.id ?? null
       setStaffMemberId(memberId)
+
+      const today = new Date().toISOString().slice(0, 10)
+
+      // Project details depend on the assignment ids and active entries depend on the staff
+      // member id, but the two requests are independent of each other — fetch them together.
+      const [projectsRes, entriesRes] = await Promise.all([
+        projectIds.length > 0
+          ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+              `/api/staff/timesheets/time-projects?ids=${projectIds.join(',')}&pageSize=100`,
+              undefined,
+              { errorMessage: '', fallback: { items: [] } },
+            )
+          : Promise.resolve<{ items?: Array<Record<string, unknown>> }>({ items: [] }),
+        memberId
+          ? readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
+              `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
+              undefined,
+              { errorMessage: '', fallback: { items: [] } },
+            )
+          : Promise.resolve<{ items?: Array<Record<string, unknown>> }>({ items: [] }),
+      ])
+
+      const projectItems = Array.isArray(projectsRes.items) ? projectsRes.items : []
+      setProjects(projectItems.map((item) => ({
+        id: String(item.id ?? ''),
+        name: String(item.name ?? ''),
+        code: typeof item.code === 'string' ? item.code : null,
+      })))
+
       if (memberId) {
-        const today = new Date().toISOString().slice(0, 10)
-        const entriesRes = await readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-          `/api/staff/timesheets/time-entries?staffMemberId=${memberId}&from=${today}&to=${today}&pageSize=100`,
-          undefined,
-          { errorMessage: '', fallback: { items: [] } },
-        )
         const entries = Array.isArray(entriesRes.items) ? entriesRes.items : []
-        const running = entries.find((e) => {
-          const startedAt = e.started_at ?? e.startedAt
-          const endedAt = e.ended_at ?? e.endedAt
+        const running = entries.find((entry) => {
+          const startedAt = entry.started_at ?? entry.startedAt
+          const endedAt = entry.ended_at ?? entry.endedAt
           return startedAt != null && endedAt == null
         })
         if (running) {

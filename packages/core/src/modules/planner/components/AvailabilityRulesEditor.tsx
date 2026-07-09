@@ -19,6 +19,7 @@ import { createCrud, deleteCrud, updateCrud } from '@open-mercato/ui/backend/uti
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { ComboboxInput, TimePicker } from '@open-mercato/ui/backend/inputs'
 import { DictionaryEntrySelect, type DictionarySelectLabels } from '@open-mercato/core/modules/dictionaries/components/DictionaryEntrySelect'
@@ -30,7 +31,6 @@ import {
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { normalizeCrudServerError } from '@open-mercato/ui/backend/utils/serverErrors'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { parseAvailabilityRuleWindow } from '@open-mercato/core/modules/planner/lib/availabilitySchedule'
 import { deleteAvailabilityRuleSet } from '@open-mercato/core/modules/planner/lib/deleteAvailabilityRuleSet'
 import { CrudForm, type CrudField } from '@open-mercato/ui/backend/CrudForm'
@@ -778,6 +778,12 @@ export function AvailabilityRulesEditor({
     void refreshBookedEvents()
   }, [refreshBookedEvents])
 
+  const refreshAfterRuleSetConflict = React.useCallback(() => {
+    void refreshRuleSets()
+    void refreshRuleSetRules()
+    void refreshAvailability()
+  }, [refreshAvailability, refreshRuleSetRules, refreshRuleSets])
+
   const weeklyDraft = React.useMemo(() => buildWeeklyDraft(activeRules), [activeRules])
   const [weeklyWindows, setWeeklyWindows] = React.useState<WeeklyWindows>(() => cloneWeeklyWindows(weeklyDraft))
   const weeklyWindowsRef = React.useRef<WeeklyWindows>(cloneWeeklyWindows(weeklyDraft))
@@ -857,21 +863,31 @@ export function AvailabilityRulesEditor({
     if (!subjectIdForRules) return
     if (weeklyHasErrors) return
 
+    // Weekly rules of a rule set are a sub-resource of that rule set. Send the
+    // parent's expected version so a concurrent rule-set change/delete is
+    // detected, and refresh it afterwards because the server bumps the rule
+    // set's `updated_at` on a successful replace (#2927).
+    const parentRuleSet = subjectForRules === 'ruleset'
+      ? (ruleSets.find((entry) => entry.id === subjectIdForRules) ?? null)
+      : null
+
     const shouldSkipRefresh = Boolean(options?.skipRefresh)
     setIsWeeklyAutoSaving(options?.silentSuccess === true)
     try {
       const windows = buildWeeklyPayload(normalizeWeeklyWindows(weeklyWindowsRef.current))
       await runMutation({
-        operation: () => apiCallOrThrow('/api/planner/availability-weekly', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subjectType: subjectForRules,
-            subjectId: subjectIdForRules,
-            timezone,
-            windows,
-          }),
-        }, { errorMessage: listLabels.saveWeeklyError }),
+        operation: () => withOptimisticLockForRuleSet(parentRuleSet, () => (
+          apiCallOrThrow('/api/planner/availability-weekly', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subjectType: subjectForRules,
+              subjectId: subjectIdForRules,
+              timezone,
+              windows,
+            }),
+          }, { errorMessage: listLabels.saveWeeklyError })
+        )),
         context: mutationContext,
         mutationPayload: { action: 'save-weekly', subjectType: subjectForRules, subjectId: subjectIdForRules },
       })
@@ -883,8 +899,15 @@ export function AvailabilityRulesEditor({
       if (!shouldSkipRefresh) {
         await refreshAvailability()
         await refreshRuleSetRules()
+        if (usingRuleSet) {
+          await refreshRuleSets()
+        }
+      }
+      if (parentRuleSet) {
+        await refreshRuleSets()
       }
     } catch (error) {
+      if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
       const message = error instanceof Error ? error.message : listLabels.saveWeeklyError
       flash(message, 'error')
     } finally {
@@ -895,9 +918,13 @@ export function AvailabilityRulesEditor({
     listLabels.saveWeeklySuccess,
     refreshAvailability,
     refreshRuleSetRules,
+    refreshRuleSets,
+    refreshAfterRuleSetConflict,
     effectiveRulesetId,
+    ruleSets,
     subjectId,
     subjectType,
+    t,
     timezone,
     usingRuleSet,
     weeklyHasErrors,
@@ -1161,6 +1188,7 @@ export function AvailabilityRulesEditor({
       refreshRuleSets,
       onSuccess: () => flash(listLabels.ruleSetDeleteSuccess, 'success'),
       onError: (error) => {
+        if (surfaceRecordConflict(error, t, { onRefresh: refreshAfterRuleSetConflict })) return
         console.error('planner.availability-rule-sets.delete', error)
         const normalized = normalizeCrudServerError(error)
         flash(normalized.message ?? listLabels.ruleSetDeleteError, 'error')
@@ -1175,9 +1203,11 @@ export function AvailabilityRulesEditor({
     listLabels.ruleSetDeleteSuccess,
     onRulesetChange,
     refreshAvailability,
+    refreshAfterRuleSetConflict,
     refreshRuleSets,
     ruleSets,
     rulesetId,
+    t,
     mutationContext,
     runMutation,
   ])

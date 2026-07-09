@@ -1,7 +1,7 @@
 # 2026-06-23 — PrestaShop Integration Feasibility
 
 > **Status:** Analysis / Feasibility study (not an implementation spec)
-> **Author:** TBD
+> **Author:** Sellision
 > **Date:** 2026-06-23
 > **Related analyses:** ANALYSIS-009 (Magento 2), ANALYSIS-005 (Shopify), ANALYSIS-007 (Akeneo PIM)
 > **Target platform:** PrestaShop **8.x and 9.x** as primary targets; **PrestaShop 1.7.x as best-effort / requires validation** (Webservice API)

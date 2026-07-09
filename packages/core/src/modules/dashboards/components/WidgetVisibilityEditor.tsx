@@ -193,9 +193,12 @@ export const WidgetVisibilityEditor = React.forwardRef<WidgetVisibilityEditorHan
       setLoading(true)
       setError(null)
       try {
-        await loadCatalog()
-        if (kind === 'role') await loadRoleData(tenantIdRef.current, organizationIdRef.current)
-        else await loadUserData(tenantIdRef.current, organizationIdRef.current)
+        await Promise.all([
+          loadCatalog(),
+          kind === 'role'
+            ? loadRoleData(tenantIdRef.current, organizationIdRef.current)
+            : loadUserData(tenantIdRef.current, organizationIdRef.current),
+        ])
       } catch (err) {
         console.error('Failed to load widget visibility data', err)
         if (!cancelled) {

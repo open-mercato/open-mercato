@@ -16,6 +16,7 @@ import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { applicationLifecycleEvents, type ApplicationLifecycleEventId } from '@open-mercato/shared/lib/runtime/events'
+import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resource-usage'
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
@@ -39,6 +40,10 @@ type MethodMetadata = {
   requireRoles?: string[]
   requireFeatures?: string[]
   rateLimit?: RateLimitConfig
+  /** Route-declared opt-out from module-resource-usage tracking (e.g. an endpoint that itself
+   * reads/clears that telemetry, so tracking it would perturb the data it just reported). Set
+   * `skipModuleResourceUsageTracking: true` in the route's `metadata` export for the method. */
+  skipModuleResourceUsageTracking?: boolean
 }
 
 type HandlerContext = {
@@ -121,6 +126,9 @@ function extractMethodMetadata(metadata: unknown, method: HttpMethod): MethodMet
         keyPrefix: typeof rl.keyPrefix === 'string' ? rl.keyPrefix : undefined,
       }
     }
+  }
+  if (typeof source.skipModuleResourceUsageTracking === 'boolean') {
+    normalized.skipModuleResourceUsageTracking = source.skipModuleResourceUsageTracking
   }
   return Object.keys(normalized).length > 0 ? normalized : null
 }
@@ -410,7 +418,18 @@ async function handleRequest(
 
   try {
     const handlerContext: HandlerContext = { params: match.params, auth }
-    const response = await runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+    const runHandler = () => runWithCacheTenant(auth?.tenantId ?? null, () => handler(req, handlerContext))
+    const response = methodMetadata?.skipModuleResourceUsageTracking !== true
+      ? await withModuleResourceUsage(
+        {
+          moduleId: match.route.moduleId,
+          surface: 'api',
+          operation: `${method} ${match.route.path}`,
+          resourceId: `${method} ${match.route.path}`,
+        },
+        runHandler,
+      )
+      : await runHandler()
     const finalResponse = authResolution.status === 'invalid' && response.status === 401
       ? clearStaffAuthCookies(response)
       : response

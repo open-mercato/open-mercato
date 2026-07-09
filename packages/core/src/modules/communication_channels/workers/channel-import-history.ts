@@ -161,7 +161,7 @@ export default async function handle(
     // enforced by the schema, so this only trips on adapter bugs.
     const MAX_PAGES = 100
     for (let pageIndex = 0; pageIndex < MAX_PAGES; pageIndex += 1) {
-      if (await progressService.isCancellationRequested(progressJobId, scope.tenantId)) {
+      if (await progressService.isCancellationRequested(progressJobId, scope.tenantId, scope.organizationId)) {
         await progressService.markCancelled(progressJobId, progressContext)
         return
       }

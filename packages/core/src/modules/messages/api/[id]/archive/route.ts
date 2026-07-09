@@ -15,6 +15,11 @@ export const metadata = {
 
 type ResolvedCtx = Awaited<ReturnType<typeof resolveMessageContext>>['ctx']
 
+const senderArchiveUnsupportedError = {
+  code: 'messages_sender_archive_unsupported',
+  error: 'You cannot archive messages you sent.',
+}
+
 async function resolveRecipientContext(
   req: Request,
   id: string,
@@ -46,6 +51,9 @@ async function resolveRecipientContext(
   })
 
   if (!recipient) {
+    if (message.senderUserId === scope.userId) {
+      return { response: Response.json(senderArchiveUnsupportedError, { status: 403 }) }
+    }
     return { response: Response.json({ error: 'Access denied' }, { status: 403 }) }
   }
 
@@ -183,7 +191,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Message archived', schema: okResponseSchema },
       ],
       errors: [
-        { status: 403, description: 'Access denied', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied or sender-only message cannot be archived', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
       ],
     },
@@ -193,7 +201,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'Message unarchived', schema: okResponseSchema },
       ],
       errors: [
-        { status: 403, description: 'Access denied', schema: errorResponseSchema },
+        { status: 403, description: 'Access denied or sender-only message cannot be unarchived', schema: errorResponseSchema },
         { status: 404, description: 'Message not found', schema: errorResponseSchema },
       ],
     },

@@ -275,6 +275,65 @@ describe('CrudForm custom field loading', () => {
     expect(container.querySelector('[data-crud-field-id="cf_renewal_quarter"]')?.textContent).toContain('Q3')
   })
 
+  it('omits custom fields with formEditable:false from the generated custom-fields section', async () => {
+    buildFormFieldFromCustomFieldDefMock.mockImplementation((definition: any) => ({
+      id: `cf_${definition.key}`,
+      label: definition.label ?? definition.key,
+      type: 'text',
+    }))
+    fetchCustomFieldFormStructureMock.mockResolvedValue({
+      fields: [],
+      definitions: [
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'editable_note',
+          label: 'Editable note',
+          kind: 'text',
+          formEditable: true,
+        },
+        {
+          entityId: 'customers:customer_company_profile',
+          key: 'readonly_note',
+          label: 'Readonly note',
+          kind: 'text',
+          formEditable: false,
+        },
+      ],
+      metadata: {
+        items: [],
+        fieldsetsByEntity: {},
+        entitySettings: {},
+      },
+    })
+
+    const { container } = renderWithProviders(
+      <CrudForm
+        embedded
+        title="Form"
+        entityId="customers:customer_company_profile"
+        fields={fields}
+        groups={groups}
+        initialValues={{ name: 'Acme', editable_note: 'x', readonly_note: 'y' }}
+        onSubmit={() => {}}
+      />,
+      {
+        dict: {
+          'ui.forms.actions.save': 'Save',
+          'entities.customFields.manageFieldset': 'Manage fields',
+        },
+      },
+    )
+
+    await waitFor(() => {
+      expect(container.querySelector('[data-crud-field-id="cf_editable_note"]')).not.toBeNull()
+    })
+    expect(container.querySelector('[data-crud-field-id="cf_readonly_note"]')).toBeNull()
+    expect(buildFormFieldFromCustomFieldDefMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'readonly_note' }),
+      expect.anything(),
+    )
+  })
+
   it('submits custom entity values without loaded record metadata', async () => {
     const handleSubmit = jest.fn().mockResolvedValue(undefined)
 
