@@ -6,6 +6,9 @@ import { SsoConfig, SsoIdentity, SsoRoleGrant, ScimToken } from '../data/entitie
 import { emitSsoEvent } from '../events'
 import { EmailNotVerifiedError } from '../lib/errors'
 import type { SsoIdentityPayload } from '../lib/types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'account-linking' })
 
 export class AccountLinkingService {
   constructor(private em: EntityManager) {}
@@ -127,7 +130,7 @@ export class AccountLinkingService {
       id: identity.id,
       tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return { user, identity }
   }
@@ -174,7 +177,7 @@ export class AccountLinkingService {
         id: identity.id,
         tenantId,
         organizationId: config.organizationId,
-      }).catch((e) => console.error('[SSO Event]', e))
+      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
       return { user, identity }
     })

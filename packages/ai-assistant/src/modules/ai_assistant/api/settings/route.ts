@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -35,6 +36,8 @@ import {
   readAllowlistConfig,
   type TenantAllowlistSnapshot,
 } from '../../lib/model-allowlist'
+
+const logger = createLogger('ai_assistant')
 
 function modelCatalogWithAllowlistFallback(
   models: ReadonlyArray<{ id: string; name: string; contextWindow?: number | null; tags?: readonly string[] }>,
@@ -345,7 +348,7 @@ export async function GET(req: NextRequest) {
       }
     } catch (overrideError) {
       // Phase 4a fields are best-effort — log and continue returning the base response
-      console.warn('[AI Settings] Failed to compute Phase 4a override fields:', overrideError)
+      logger.warn('AI Settings — Failed to compute Phase 4a override fields', { err: overrideError })
     }
 
     // Build availableProviders with Phase 4a defaultModels, then clip to the
@@ -458,7 +461,7 @@ export async function GET(req: NextRequest) {
       agents: agentResolutions,
     })
   } catch (error) {
-    console.error('[AI Settings] GET error:', error)
+    logger.error('AI Settings — GET error', { err: error })
     return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 })
   }
 }
@@ -716,7 +719,7 @@ export async function PUT(req: NextRequest) {
     if (error instanceof AiAgentRuntimeOverrideValidationError) {
       return NextResponse.json({ error: error.message, code: 'provider_unknown' }, { status: 400 })
     }
-    console.error('[AI Settings] PUT error:', error)
+    logger.error('AI Settings — PUT error', { err: error })
     return NextResponse.json({ error: 'Failed to save runtime override.' }, { status: 500 })
   }
 }
@@ -771,7 +774,7 @@ export async function DELETE(req: NextRequest) {
     })
     return NextResponse.json({ cleared })
   } catch (error) {
-    console.error('[AI Settings] DELETE error:', error)
+    logger.error('AI Settings — DELETE error', { err: error })
     return NextResponse.json({ error: 'Failed to clear runtime override.' }, { status: 500 })
   }
 }

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type { SearchService } from '@open-mercato/search/service'
 import { registerMcpTool, getToolRegistry, toolRegistry, unregisterMcpTool } from './tool-registry'
@@ -13,6 +14,8 @@ import {
   compileAndImportGenerated,
   ensureApiRouteManifestsRegistered,
 } from './generated-registry-loader'
+
+const logger = createLogger('ai_assistant').child({ component: 'tools' })
 
 /**
  * Module tool definition as exported from ai-tools.ts files.
@@ -102,9 +105,7 @@ export function registerGeneratedAiToolEntries(entries: AiToolConfigEntry[]): nu
     if (!Array.isArray(entry.tools) || entry.tools.length === 0) continue
     for (const candidate of entry.tools) {
       if (!isModuleAiTool(candidate)) {
-        console.warn(
-          `[MCP Tools] Skipping malformed AI tool in module "${entry.moduleId}"`
-        )
+        logger.warn('Skipping malformed AI tool', { moduleId: entry.moduleId })
         continue
       }
       // Register the full typed tool — see comment on `loadModuleTools`.
@@ -137,14 +138,14 @@ export function applyAiToolOverrideEntries(
   for (const [name, value] of Object.entries(overrideMap)) {
     if (value === null) {
       unregisterMcpTool(name)
-      console.info(`[AI Overrides] Tool "${name}" disabled by override.`)
+      logger.info('Tool disabled by override', { toolName: name })
       continue
     }
     const next = overridden.get(name)
     if (!next) continue
     // Re-register through the public path so moduleMap stays consistent.
     registerMcpTool(next as McpToolDefinition, { moduleId: 'ai_overrides' })
-    console.info(`[AI Overrides] Tool "${name}" replaced by override.`)
+    logger.info('Tool replaced by override', { toolName: name })
   }
 }
 
@@ -221,14 +222,11 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
     try {
       await loadGeneratedAiToolOverrides()
     } catch (error) {
-      console.error('[AI Overrides] Failed to apply tool overrides:', error)
+      logger.error('Failed to apply tool overrides', { err: error })
     }
     return count
   } catch (error) {
-    console.error(
-      '[MCP Tools] Could not load ai-tools.generated.ts (module tools unavailable):',
-      error
-    )
+    logger.error('Could not load ai-tools.generated.ts (module tools unavailable)', { err: error })
     return 0
   }
 }
@@ -240,7 +238,7 @@ export async function loadGeneratedModuleAiTools(): Promise<number> {
 export async function loadAllModuleTools(): Promise<void> {
   // 1. Register built-in tools
   registerMcpTool(contextWhoamiTool, { moduleId: 'context' })
-  console.error('[MCP Tools] Registered built-in context_whoami tool')
+  logger.debug('Registered built-in context_whoami tool')
 
   // 2. Register Code Mode tools (search + execute)
   // These two tools replace the previous api_discover, call_api, discover_schema,
@@ -249,9 +247,9 @@ export async function loadAllModuleTools(): Promise<void> {
   try {
     const { loadCodeModeTools } = await import('./codemode-tools')
     const toolCount = await loadCodeModeTools()
-    console.error(`[MCP Tools] Registered ${toolCount} Code Mode tools`)
+    logger.info('Registered Code Mode tools', { toolCount })
   } catch (error) {
-    console.error('[MCP Tools] Could not load Code Mode tools:', error)
+    logger.error('Could not load Code Mode tools', { err: error })
   }
 
   // 3. Register module-contributed tools from ai-tools.generated.ts.
@@ -259,11 +257,9 @@ export async function loadAllModuleTools(): Promise<void> {
   // generated file is not fatal (pre-generate builds, tests).
   try {
     const moduleToolCount = await loadGeneratedModuleAiTools()
-    console.error(
-      `[MCP Tools] Registered ${moduleToolCount} module-contributed AI tools from ai-tools.generated.ts`
-    )
+    logger.info('Registered module-contributed AI tools', { toolCount: moduleToolCount })
   } catch (error) {
-    console.error('[MCP Tools] Could not load module AI tools:', error)
+    logger.error('Could not load module AI tools', { err: error })
   }
 
   // 4. Register the API route manifest so API-backed module tools can run.
@@ -272,12 +268,10 @@ export async function loadAllModuleTools(): Promise<void> {
   try {
     const routeCount = await ensureApiRouteManifestsRegistered()
     if (routeCount > 0) {
-      console.error(
-        `[MCP Tools] Registered ${routeCount} API route manifests for API-backed tools`
-      )
+      logger.info('Registered API route manifests for API-backed tools', { routeCount })
     }
   } catch (error) {
-    console.error('[MCP Tools] Could not register API route manifests:', error)
+    logger.error('Could not register API route manifests', { err: error })
   }
 }
 
@@ -304,16 +298,16 @@ export async function indexToolsForSearch(
   try {
     const result = await toolSearchService.indexTools(force)
 
-    console.error(`[MCP Tools] Indexed ${result.indexed} tools for search`)
-    console.error(`[MCP Tools] Search strategies available: ${result.strategies.join(', ')}`)
+    logger.info('Indexed tools for search', { indexed: result.indexed })
+    logger.debug('Search strategies available', { strategies: result.strategies.join(',') })
 
     if (result.skipped > 0) {
-      console.error(`[MCP Tools] Skipped ${result.skipped} tools (unchanged)`)
+      logger.debug('Skipped unchanged tools', { skipped: result.skipped })
     }
 
     return result
   } catch (error) {
-    console.error('[MCP Tools] Failed to index tools for search:', error)
+    logger.error('Failed to index tools for search', { err: error })
     throw error
   }
 }

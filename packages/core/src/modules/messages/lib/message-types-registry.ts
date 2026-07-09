@@ -1,5 +1,8 @@
 import type { MessageTypeDefinition } from '@open-mercato/shared/modules/messages/types'
 import defaultTypes from '../message-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages')
 
 const registry = new Map<string, MessageTypeDefinition>()
 
@@ -21,7 +24,7 @@ export function registerMessageTypes(
   }
   for (const type of types) {
     if (registry.has(type.type)) {
-      console.warn(`[messages] Message type "${type.type}" is already registered, overwriting`)
+      logger.warn('Message type already registered, overwriting', { type: type.type })
     }
     registry.set(type.type, type)
   }

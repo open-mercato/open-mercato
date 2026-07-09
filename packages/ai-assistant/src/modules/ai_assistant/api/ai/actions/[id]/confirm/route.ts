@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -23,6 +24,8 @@ import {
 import { AiAgentMutationPolicyOverrideRepository } from '../../../../../data/repositories/AiAgentMutationPolicyOverrideRepository'
 import type { AiAgentMutationPolicy } from '../../../../../lib/ai-agent-definition'
 import { isKnownMutationPolicy } from '../../../../../lib/agent-policy'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * POST `/api/ai/actions/:id/confirm` — mutation approval gate confirm
@@ -219,7 +222,7 @@ export async function POST(req: NextRequest, context: RouteContext): Promise<Res
       mutationResult: executed.executionResult,
     })
   } catch (error) {
-    console.error('[AI Pending Action CONFIRM] Failure:', error)
+    logger.error('AI Pending Action CONFIRM — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to confirm pending action.',

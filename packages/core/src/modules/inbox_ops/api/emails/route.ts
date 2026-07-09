@@ -4,6 +4,9 @@ import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/
 import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['inbox_ops.log.view'] },
@@ -55,7 +58,7 @@ export async function GET(req: Request) {
     if (err instanceof UnauthorizedError) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('[inbox_ops:emails] Error:', err)
+    logger.error('Failed to list emails', { err })
     return NextResponse.json({ error: 'Failed to list emails' }, { status: 500 })
   }
 }

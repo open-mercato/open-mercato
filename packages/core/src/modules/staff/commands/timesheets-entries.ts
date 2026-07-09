@@ -37,6 +37,9 @@ import {
   type StaffSnapshotScope,
 } from './shared'
 import { getStaffMemberByUserId } from '../lib/staffMemberResolver'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 type RbacServiceLike = {
   userHasAllFeatures: (
@@ -415,7 +418,7 @@ const startTimerCommand: CommandHandler<StaffTimeEntryStartTimerInput, { timeEnt
       organizationId: parsed.organizationId,
       startedAt: startedAt.toISOString(),
     }, { persistent: true }).catch((err) => {
-      console.error('[staff.timesheets] emit timer_started failed', err)
+      logger.error('staff.timesheets emit timer_started failed', { err })
     })
 
     return { timeEntryId: entry.id }

@@ -44,6 +44,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -196,14 +199,14 @@ async function emitLifecycleEvent(
   try {
     bus = ctx.container.resolve('eventBus')
   } catch (err) {
-    console.warn('[customers.commands.interactions] eventBus resolve failed; skipping emit', eventId, err)
+    logger.warn('eventBus resolve failed; skipping emit', { component: 'commands.interactions', eventId, err })
     bus = null
   }
   if (!bus) return
   await bus
     .emitEvent(eventId, payload, { persistent: true })
     .catch((err) => {
-      console.warn('[customers.commands.interactions] emit failed', eventId, err)
+      logger.warn('Event emit failed', { component: 'commands.interactions', eventId, err })
       return undefined
     })
 }

@@ -15,6 +15,9 @@ import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -173,7 +176,7 @@ export async function PATCH(req: Request, ctx: { params?: { kind?: string; id?: 
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.dictionaries.update failed', err)
+    logger.error('customers.dictionaries.update failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') }, { status: 400 })
   }
 }
@@ -274,7 +277,7 @@ export async function DELETE(req: Request, ctx: { params?: { kind?: string; id?:
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.dictionaries.delete failed', err)
+    logger.error('customers.dictionaries.delete failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to delete dictionary entry') }, { status: 400 })
   }
 }

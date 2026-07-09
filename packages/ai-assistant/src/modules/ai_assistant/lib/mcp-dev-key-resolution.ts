@@ -1,4 +1,7 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { resolve, dirname } from 'node:path'
+
+const logger = createLogger('ai_assistant')
 
 const MCP_CONFIG_FILENAME = '.mcp.json'
 
@@ -8,7 +11,7 @@ const MCP_CONFIG_FILENAME = '.mcp.json'
 const PROJECT_ROOT_MARKERS = ['.git', 'yarn.lock', 'pnpm-lock.yaml', 'package-lock.json'] as const
 
 const log = (message: string, ...args: unknown[]) => {
-  console.error(`[MCP Dev] ${message}`, ...args)
+  logger.info(message, args.length > 0 ? { details: args.map((arg) => String(arg)).join(' ') } : undefined)
 }
 
 type PermissionStat = { uid: number; mode: number }

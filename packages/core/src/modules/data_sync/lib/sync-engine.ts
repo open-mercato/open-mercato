@@ -9,6 +9,9 @@ import { emitDataSyncEvent } from '../events'
 import type { DataSyncAdapter, DataMapping, ExportBatch, ImportBatch } from './adapter'
 import { getDataSyncAdapter } from './adapter-registry'
 import type { SyncRunService } from './sync-run-service'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'sync-engine' })
 
 type SyncScope = {
   organizationId: string
@@ -379,7 +382,7 @@ export function createSyncEngine(deps: EngineDeps) {
     async runImport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
       if (!run) {
-        console.warn(`[data-sync] Skipping stale import job for missing run ${runId}`)
+        logger.warn('Skipping stale import job for missing run', { runId })
         return
       }
       if (run.status === 'cancelled') {
@@ -524,7 +527,7 @@ export function createSyncEngine(deps: EngineDeps) {
     async runExport(runId: string, batchSize: number, scope: SyncScope): Promise<void> {
       const run = await syncRunService.getRun(runId, scope)
       if (!run) {
-        console.warn(`[data-sync] Skipping stale export job for missing run ${runId}`)
+        logger.warn('Skipping stale export job for missing run', { runId })
         return
       }
       if (run.status === 'cancelled') {

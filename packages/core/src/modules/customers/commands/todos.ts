@@ -22,6 +22,9 @@ import {
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
 } from '../lib/interactionCompatibility'
 import { resolveLegacyTodoDetails } from '../lib/todoCompatibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type InteractionSnapshot = {
   interaction: {
@@ -173,7 +176,7 @@ async function loadLegacyTodoDetail(
   try {
     queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
   } catch (err) {
-    console.warn('[customers.commands.todos] queryEngine resolve failed; returning null legacy detail', err)
+    logger.warn('queryEngine resolve failed; returning null legacy detail', { component: 'commands.todos', err })
     queryEngine = null
   }
   if (!queryEngine) return null
