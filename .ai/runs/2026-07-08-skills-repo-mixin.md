@@ -46,3 +46,21 @@ Goal: stop maintaining two copies of the generalized `om-*` pipeline skills. The
 - [x] 4.1 Tiers validator + `node --test scripts/__tests__/preview-workflows.test.mjs` green
 - [x] 4.2 End-to-end install: 20 external + tier symlinks, sweep keeps external links, `--clean` removes all
 - [x] 4.3 Parity dry-runs old-vs-new for `om-code-review` and `om-auto-review-pr` on PR #3944
+
+### Phase 5: Adopt skills-repo PRs from 2026-07-09 (#13 om-prepare-test-env / tracker-optional verify-pr-ui, #14 attach-image-evidence, #15 self-configure)
+
+- [x] 5.1 `tiers.json`: register `om-auto-verify-pr-ui` + `om-prepare-test-env` as external; drop `om-auto-verify-pr-ui` from the `automation` tier and remove its local full-copy folder — 921c46e67
+- [x] 5.2 `.ai/agentic.config.json`: add `paths.scripts` (`.ai/scripts`) + `paths.qa` (`.ai/qa`); gitignore the generated `.ai/qa/test-env.json` descriptor and `.ai/qa/artifacts_*/` — 921c46e67
+- [x] 5.3 `.ai/trackers/github.md`: add the `attach-image-evidence` operation (now byte-identical to canonical) — 921c46e67
+- [x] 5.4 Rewrite the `om-integration-tests` repo-local override to defer environment boot/reuse to `om-prepare-test-env` (attach to the shared `.ai/qa/test-env.json`) instead of duplicating the logic; keep OM env specifics + test-authoring conventions — 2ff696816
+
+### Phase 6: Installer updates external skills on re-run
+
+- [x] 6.1 `install-skills.sh`: after `npx skills add`, run `npx skills update --project` so re-runs refresh external skills to the latest published versions (non-fatal offline); document in usage/header, `AGENTS.md`, `UPGRADE_NOTES.md`, `.ai/skills/README.md` — 5bd3bf2cf, 44e21387f
+
+### Phase 7: Verification (resume)
+
+- [x] 7.1 `sh -n install-skills.sh`, tiers validator (20 local / 25 external), preview-workflows test green — 44e21387f
+- [x] 7.2 Repo-local `.ai/trackers/github.md` diff-clean vs canonical; docs references updated (verify-pr-ui external, new external skills) — 44e21387f
+
+> Follow-up (separate PR): mirror the mixin (external install + repo-local overrides + `skills update`) into the `packages/create-app/agentic/` standalone-app template.
