@@ -5,6 +5,7 @@
 <!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
 
 ## ✨ Features
+- ✨ Expose a scoped staff member directory service for optional scheduling integrations.
 - ✨ First-class bulk-import side-effect suppression. (#4014) *(@KamilGrocholski)*
 - ✨ Document OM_WATCH_SCOPE dev-memory lever + emoji watch-mode log. (#3962) *(@pkarw)*
 - ✨ Auto-discover module fact-sheets beyond the core allowlist (#3752). (#3798) *(@adeptofvoltron)*

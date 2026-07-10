@@ -17,6 +17,7 @@ See [`.ai/specs/implemented/2026-05-08-staff-decouple-from-core.md`](../../../..
 | Key | Contract |
 |-----|----------|
 | `availabilityAccessResolver` | Resolves an `AvailabilityWriteAccess` shape for the authenticated request, including whether the caller may edit availability for all members vs only themselves. Consumed by `planner/api/access.ts` via `container.resolve(..., { allowUnregistered: true })` — planner gracefully degrades to `403 staff_module_not_loaded` when staff is absent. |
+| `staffMemberDirectory` | Request-scoped `StaffMemberDirectory` that lists active, tenant- and organization-scoped scheduling references for requested users through `listActiveSchedulingRefs()`. Optional consumers MUST resolve it with `allowUnregistered: true` and handle `undefined` when staff is absent. |
 
 Resolver shape (from `lib/availabilityAccess.ts`):
 
@@ -29,6 +30,25 @@ type AvailabilityAccessResolver = {
 ```
 
 `AvailabilityWriteAccess.unregistered?: boolean` is an additive sentinel field (BC surface #2 — STABLE) set to `true` only when staff DI is missing. Existing required fields MUST NOT be removed.
+
+Directory shape (from `services/staffMemberDirectory.ts`):
+
+```ts
+type StaffMemberSchedulingRef = {
+  userId: string
+  staffMemberId: string
+  availabilityRuleSetId: string | null
+  displayName: string
+}
+
+interface StaffMemberDirectory {
+  listActiveSchedulingRefs(params: {
+    userIds: string[]
+    tenantId: string
+    organizationId: string
+  }): Promise<StaffMemberSchedulingRef[]>
+}
+```
 
 ### API routes (BC surface #7 — STABLE)
 

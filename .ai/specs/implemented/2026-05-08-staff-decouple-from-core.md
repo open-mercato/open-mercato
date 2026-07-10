@@ -5,6 +5,7 @@
 **Key Points:**
 - Remove every `import { ... } from '@open-mercato/core/modules/staff/...'` in non-staff core modules so `packages/core` builds without `staff`. Two coupling sites on `upstream/develop`: [`customers/api/assignable-staff/route.ts`](../../packages/core/src/modules/customers/api/assignable-staff/route.ts) and [`planner/api/access.ts`](../../packages/core/src/modules/planner/api/access.ts).
 - Approach: relocate the staff-owned logic into the `staff` module; expose a narrow Awilix-DI service (`availabilityAccessResolver`) for the planner consumer; ship a staff-owned route for the customers consumer with a `308 Permanent Redirect` from the legacy URL. RBAC features on the new staff route are **preserved customer-driven** — identical to the legacy route — so the redirect is invisible to clients and no ACL seeding changes.
+- Additive follow-up: expose a second narrow DI service (`staffMemberDirectory`) for optional modules that need active scheduling references without importing staff entities. The service is request-scoped and preserves tenant and organization isolation.
 - Staff stays at `packages/core/src/modules/staff/` after this spec — the physical extraction to `@open-mercato/staff` in [official-modules](https://github.com/open-mercato/official-modules) is a separate downstream spec.
 
 **Scope:**
@@ -150,6 +151,8 @@ These do not break TypeScript compilation when staff is absent and are deferred:
 | `packages/core/src/modules/staff/api/team-members/assignable/route.ts` | **NEW** — handler moved from customers; preserves Zod schema, RBAC, response shape, OpenAPI doc | staff |
 | `packages/core/src/modules/staff/lib/availabilityAccess.ts` | **NEW** — `resolveAvailabilityWriteAccess` and the two `SELF_*` feature constants moved from planner | staff |
 | `packages/core/src/modules/staff/di.ts` | **NEW** — register `availabilityAccessResolver` (asValue). The file does not exist on `upstream/develop`; staff currently has no `di.ts`. The new file MUST follow the same shape as `customers/di.ts` / `planner/di.ts`: `export function register(container: AppContainer)` typed via `import type { AppContainer } from '@open-mercato/shared/lib/di/container'`. After creation, run `yarn generate` to verify the auto-discovery picks it up; if the generated module index does not include the new registrar, update the relevant generator plugin or the bootstrap wiring under `apps/mercato/src/bootstrap.ts`. | staff |
+| `packages/core/src/modules/staff/services/staffMemberDirectory.ts` | **NEW (2026-07-10 follow-up)** — public interface and default implementation for active, scoped scheduling references; entity classes remain internal to staff | staff |
+| `packages/core/src/modules/staff/services/__tests__/staffMemberDirectory.test.ts` | **NEW (2026-07-10 follow-up)** — scope, active/non-deleted filtering, result mapping, and empty-input short-circuit coverage | staff |
 | `packages/core/src/modules/staff/AGENTS.md` | **NEW** — minimal guide; documents `availabilityAccessResolver` as a public DI contract surface | staff |
 | `packages/core/src/modules/customers/api/assignable-staff/route.ts` | **MODIFY** — replace handler body with `308` redirect; delete staff entity imports; keep page guard `customers.roles.view`; mark `openApi.deprecated: true` | customers |
 | `packages/core/src/modules/customers/api/assignable-staff/__tests__/route.test.ts` | **MODIFY** — assert legacy URL returns `308` with the `Location` header pointing at the new URL and the original query string preserved | customers |
@@ -221,6 +224,33 @@ The wrapper keeps the public function signature identical so `assertAvailability
 `assertAvailabilityWriteAccess` is the only chokepoint that planner write routes use (verified by reading `planner/api/access.ts` on `upstream/develop`). Its body is updated at exactly one branch: when the resolved `access.unregistered === true`, throw `CrudHttpError(403, { error: 'staff_module_not_loaded' })` instead of the generic `buildForbiddenError(translate)` path. All other `assertAvailabilityWriteAccess` branches remain byte-identical. No other route handler needs to change.
 
 The `unregistered?: boolean` field is **additive** to `AvailabilityWriteAccess` and therefore non-breaking under `BACKWARD_COMPATIBILITY.md` surface #2 (type definitions — optional field additions are allowed).
+
+### DI Service Contract — `staffMemberDirectory` (2026-07-10 additive follow-up)
+
+Staff registers `staffMemberDirectory` with Awilix's scoped lifetime. The registrar uses a CLASSIC-compatible factory with an explicit `EntityManager` parameter, so each request scope resolves one directory instance backed by that scope's `em`; separate request scopes receive separate instances.
+
+The public contract is exported from `staff/services/staffMemberDirectory.ts` without exporting any staff entity class:
+
+```ts
+export type StaffMemberSchedulingRef = {
+  userId: string
+  staffMemberId: string
+  availabilityRuleSetId: string | null
+  displayName: string
+}
+
+export interface StaffMemberDirectory {
+  listActiveSchedulingRefs(params: {
+    userIds: string[]
+    tenantId: string
+    organizationId: string
+  }): Promise<StaffMemberSchedulingRef[]>
+}
+```
+
+`listActiveSchedulingRefs()` returns only active, non-deleted staff members that match the requested user ids, tenant, and organization. Results are ordered by display name and id, rows without a linked user are omitted, and an empty `userIds` array returns `[]` without issuing a database query. `availabilityRuleSetId` remains nullable in the result contract.
+
+Optional consumers resolve `staffMemberDirectory` with `{ allowUnregistered: true }` and handle `undefined` when staff is disabled or not installed. They MUST NOT add a hard module dependency solely to consume this service and MUST NOT import `StaffTeamMember` or other internal staff entities.
 
 ### New Staff Route — `/api/staff/team-members/assignable`
 
@@ -347,10 +377,11 @@ Per [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md):
 
 | # | Surface | Rule | Compliance |
 |---|---------|------|------------|
+| 2 | Type definitions and interfaces | STABLE | ✅ — `StaffMemberSchedulingRef` and `StaffMemberDirectory` are new public types; no existing type is removed or narrowed |
 | 3 | Function signatures | STABLE | ✅ — `resolveAvailabilityWriteAccess` exported signature unchanged when planner thin wrapper replaces the body |
 | 4 | Import paths | STABLE — moved modules MUST re-export from old path | ✅ — `planner/api/access.ts` keeps the same export name (`resolveAvailabilityWriteAccess`); internal planner callers do not change. Staff entities now consumed via DI, not direct import. |
 | 7 | API route URLs | STABLE — cannot rename/remove without migration | ✅ — `/api/customers/assignable-staff` retained as `308` redirect for ≥1 minor version |
-| 9 | DI service names | STABLE — cannot rename registration keys | ✅ — new key `availabilityAccessResolver`; no existing keys removed; documented in new `staff/AGENTS.md` as a public contract |
+| 9 | DI service names | STABLE — cannot rename registration keys | ✅ — new keys `availabilityAccessResolver` and `staffMemberDirectory`; no existing keys removed; both are documented in `staff/AGENTS.md` as public contracts |
 | 10 | ACL feature IDs | FROZEN | ✅ — no feature IDs change. `staff.my_availability.*` still exists in `staff/acl.ts`; just stops being referenced as constants by planner code |
 
 ### Compatibility Rules
@@ -360,6 +391,8 @@ Per [`BACKWARD_COMPATIBILITY.md`](../../BACKWARD_COMPATIBILITY.md):
 3. No new `requires` declarations are added to non-staff modules' `index.ts` `ModuleInfo`. Staff remains optional. The DI resolver pattern is the contract.
 4. `RELEASE_NOTES.md` MUST list the customers redirect as a deprecation in the next minor release (Phase 1.C Step 2).
 5. `availabilityAccessResolver` MUST be documented in `staff/AGENTS.md` as a public DI surface so future contributors apply the deprecation protocol before changing it.
+6. `staffMemberDirectory`, `StaffMemberDirectory`, and `StaffMemberSchedulingRef` are additive stable surfaces. Future renames, removals, or narrowing changes require the deprecation protocol; this addition requires no migration, `UPGRADE_NOTES.md` entry, or changeset.
+7. Existing apps need no configuration or data migration. Optional consumers must resolve `staffMemberDirectory` with `allowUnregistered: true` and preserve their own absent-module fallback.
 
 ### Rollout Strategy
 
@@ -473,6 +506,10 @@ MUST return zero matches. Also re-verify that `staff/index.ts` line 12 still dec
 | `TC-PLAN-NNN-availability-fail-soft.spec.ts` | Integration | When `availabilityAccessResolver` is unregistered, planner availability writes return `403 staff_module_not_loaded` with the dedicated log line |
 | `TC-PLAN-003` (existing) | Integration | Continues to pass — uses `staffFixtures` test helper (Phase 3 cleanup target, not this spec) |
 | `module-decoupling.test.ts` (existing) | Unit | Continues to pass with staff registered |
+| `staffMemberDirectory.test.ts` | Unit | Enforces requested-user, tenant, organization, active, and non-deleted filters; maps only public result fields; skips the database for empty `userIds` |
+| `staff/__tests__/di.test.ts` | Unit | Registers the new key, injects `em` in CLASSIC mode, reuses an instance within one scope, isolates instances across scopes, and permits absent-module soft resolution |
+
+The 2026-07-10 directory follow-up exposes no API route or UI path, so additional API/UI integration coverage is N/A. Its executable contract is covered by the focused service and DI unit suites; no integration test is fabricated for an unreachable surface.
 
 ---
 
@@ -510,6 +547,14 @@ No write operations are added or modified. Existing read paths preserve `findWit
 - **Mitigation**: (a) byte-copy approach reduces drift; (b) both Phase 1.A and Phase 1.B verification gates require the existing integration tests (which assert correct tenant scoping) to pass; (c) code review MUST diff scope arguments line-by-line; (d) PR description includes a checklist confirming the diff.
 - **Residual risk**: Low if reviewer follows checklist.
 
+#### Risk: Directory lookup leaks records across a tenant or organization boundary
+
+- **Scenario**: A consumer supplies valid user ids but the directory query omits tenant or organization criteria, returning staff references from another scope.
+- **Severity**: High
+- **Affected area**: Optional modules consuming `staffMemberDirectory`
+- **Mitigation**: The default implementation applies `userId`, `tenantId`, `organizationId`, `isActive: true`, and `deletedAt: null` in the query and repeats tenant/organization scope in `findWithDecryption`; the focused unit test asserts the complete query shape.
+- **Residual risk**: Low while consumers derive scope from authenticated request context.
+
 ### Migration & Deployment Risks
 
 #### Risk: External app consumers hard-code `/api/customers/assignable-staff`
@@ -527,6 +572,14 @@ No write operations are added or modified. Existing read paths preserve `findWit
 - **Affected area**: First few seconds of app boot
 - **Mitigation**: Module registration in `apps/mercato/src/bootstrap.ts` happens synchronously before the HTTP server accepts traffic. The race is impossible by construction. The new fail-soft test is a structural guard — if registration order ever changes, the test surfaces it as a false `staff_module_not_loaded`.
 - **Residual risk**: None.
+
+#### Risk: Optional consumer hard-resolves the staff directory
+
+- **Scenario**: An optional module calls `container.resolve('staffMemberDirectory')` without `allowUnregistered`, causing requests to fail when staff is disabled or not installed.
+- **Severity**: Medium
+- **Affected area**: Optional integrations that enrich scheduling data
+- **Mitigation**: The public contract documentation requires soft resolution and an explicit `undefined` fallback; DI tests verify the absent-module behavior. The service registration remains scoped and CLASSIC-compatible.
+- **Residual risk**: Low; consumer conformance remains review-enforced.
 
 ### Operational Risks
 
@@ -674,6 +727,12 @@ None.
 - **Deprecation note placement deviation**: the spec's Phase 1.C Step 2 said "add `RELEASE_NOTES.md` entry under Deprecations". This repository does not have a `RELEASE_NOTES.md`; the equivalent file is [`UPGRADE_NOTES.md`](../../UPGRADE_NOTES.md) (downstream-facing breaking-change ledger). The deprecation entry was added there under a fresh `0.6.0 → 0.7.0 (unreleased)` section, alongside the existing `0.5.0 → 0.5.1 (unreleased)` window. `CHANGELOG.md` will pick up the entry at release time via the `auto-update-changelog` skill.
 - **`openApi.deprecated` field placement**: the spec's Architecture section (line 260) and Module-File Changes table (line 154) referenced `deprecated: true` as a top-level `OpenApiRouteDoc` field. The actual `OpenApiRouteDoc` shape in `packages/shared/src/lib/openapi/types.ts` only carries `deprecated?: boolean` on the per-method `OpenApiMethodDoc` (line 40). The redirect route therefore declares `methods.GET.deprecated: true` instead of a top-level `deprecated: true`. The OpenAPI generator already wires the method-level `deprecated` into the bundle, so the user-facing effect is identical.
 - **Final verification gate** (run from `upstream/develop` HEAD, Node 24.14.0, Awilix 12.0.5): `yarn generate` ✅, `yarn build:packages` ✅ (18/18 packages), `yarn typecheck` ✅ (18/18 packages), `yarn lint` ✅ (0 errors), full core jest suite ✅ (446/446 suites, 3736/3736 tests). Integration tests (`TC-STAFF-005`) not executed in this session — recommended to run before opening the PR.
+
+### 2026-07-10
+
+- Added the public, request-scoped `staffMemberDirectory` DI contract for optional consumers that need active scheduling references without importing staff entities.
+- Documented the exported interface and result type, strict tenant/organization and active/non-deleted filtering, CLASSIC-compatible scoped registration, absent-module behavior, backward compatibility, and focused unit coverage.
+- Recorded API/UI integration coverage as N/A because this service slice exposes no API or UI path.
 
 ## Implementation Status
 
