@@ -1,6 +1,7 @@
 import type { AwilixContainer } from 'awilix'
 import { asValue } from 'awilix'
-import type { ModuleSubscriber } from '@open-mercato/shared/modules/registry'
+import { getDefaultEncryptionMaps, type ModuleSubscriber } from '@open-mercato/shared/modules/registry'
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { createEventBus } from '@open-mercato/events/index'
 import { setGlobalEventBus } from '@open-mercato/shared/modules/events'
 import { createCacheService } from '@open-mercato/cache'
@@ -184,12 +185,26 @@ export async function bootstrap(container: AwilixContainer) {
   // KMS + tenant encryption
   const kmsService = createKmsService()
   container.register({ kmsService: asValue(kmsService) })
+  let defaultEncryptionMaps: ModuleEncryptionMap[] = []
+  if (isTenantDataEncryptionEnabled()) {
+    try {
+      const { getModules } = await import('@open-mercato/shared/lib/i18n/server')
+      defaultEncryptionMaps = getDefaultEncryptionMaps(getModules())
+    } catch (err) {
+      logger.error('Failed to load default encryption maps', { component: 'encryption', err })
+      throw err
+    }
+  }
   try {
     const em = container.resolve('em') as EntityManager
     const cacheService = (() => {
       try { return container.resolve('cache') as any } catch { return null }
     })()
-    const tenantEncryptionService = new TenantDataEncryptionService(em, { cache: cacheService, kms: kmsService })
+    const tenantEncryptionService = new TenantDataEncryptionService(em, {
+      cache: cacheService,
+      kms: kmsService,
+      defaultEncryptionMaps,
+    })
     container.register({ tenantEncryptionService: asValue(tenantEncryptionService) })
     if (isTenantDataEncryptionEnabled() && kmsService.isHealthy()) {
       try {

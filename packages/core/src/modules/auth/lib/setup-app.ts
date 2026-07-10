@@ -5,7 +5,7 @@ import { Role, RoleAcl, User, UserRole } from '@open-mercato/core/modules/auth/d
 import { Tenant, Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { rebuildHierarchyForTenant } from '@open-mercato/core/modules/directory/lib/hierarchy'
 import { normalizeTenantId } from './tenantAccess'
-import { computeEmailHash } from '@open-mercato/core/modules/auth/lib/emailHash'
+import { computeEmailHash, emailHashLookupValues } from '@open-mercato/core/modules/auth/lib/emailHash'
 import { getDefaultEncryptionMaps, type Module } from '@open-mercato/shared/modules/registry'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { EncryptionMap } from '@open-mercato/core/modules/entities/data/entities'
@@ -190,7 +190,20 @@ export async function setupInitialTenant(
   const defaultEncryptionMaps = getDefaultEncryptionMaps(resolvedModules)
 
   const mainEmail = primaryUser.email
-  const existingUser = await findOneWithDecryption(em, User, { email: mainEmail }, {}, { tenantId: null, organizationId: null })
+  const existingUserByHash = await findOneWithDecryption(
+    em,
+    User,
+    { emailHash: { $in: emailHashLookupValues(mainEmail) }, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
+  const existingUser = existingUserByHash ?? await findOneWithDecryption(
+    em,
+    User,
+    { email: mainEmail, deletedAt: null },
+    {},
+    { tenantId: null, organizationId: null },
+  )
   if (existingUser && failIfUserExists) {
     throw new Error('USER_EXISTS')
   }

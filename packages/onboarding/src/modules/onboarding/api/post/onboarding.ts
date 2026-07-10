@@ -3,6 +3,8 @@ import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getSecurityEmailBaseUrl, mapSecurityEmailUrlError } from '@open-mercato/shared/lib/url'
 import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
 import { defaultLocale, locales, type Locale } from '@open-mercato/shared/lib/i18n/config'
@@ -107,7 +109,13 @@ export async function POST(req: Request) {
     const container = await createRequestContainer()
     const em = (container.resolve('em') as EntityManager)
 
-    const existingUser = await em.findOne(User, { email: parsed.data.email })
+    const existingUser = await findOneWithDecryption(em, User, {
+      deletedAt: null,
+      $or: [
+        { email: parsed.data.email },
+        { emailHash: { $in: lookupHashCandidates(parsed.data.email) } },
+      ],
+    })
     if (existingUser) {
       const message = translate('onboarding.errors.emailExists', 'We already have an account with this email. Try signing in or resetting your password.')
       return NextResponse.json({

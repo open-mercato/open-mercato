@@ -513,6 +513,7 @@ export function getDefaultEncryptionMaps(modules: Module[]): import('./encryptio
         moduleId: mod.id,
         map: {
           entityId: entry.entityId,
+          ...(entry.keyScope ? { keyScope: entry.keyScope } : {}),
           fields: entry.fields.map((field) => ({
             field: field.field,
             hashField: field.hashField ?? null,
