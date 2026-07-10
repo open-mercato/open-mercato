@@ -15,7 +15,7 @@ export class RateLimiterService {
 
   constructor(globalConfig: RateLimitGlobalConfig) {
     this.globalConfig = globalConfig
-    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 1
+    this.trustProxyDepth = globalConfig.trustProxyDepth ?? 0
   }
 
   async initialize(): Promise<void> {

@@ -11,7 +11,7 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getCachedRateLimiterService } from '@open-mercato/core/bootstrap'
 import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
-import { checkRateLimit, getClientIp, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
+import { checkRateLimit, getClientIp, RATE_LIMIT_FALLBACK_KEY, rateLimitErrorSchema } from '@open-mercato/shared/lib/ratelimit/helpers'
 import { validateSameOriginMutationRequest } from './originGuard'
 import { hashAuthToken } from '../../../../auth/lib/tokenHash'
 import { SalesOrder, SalesQuote } from '../../../data/entities'
@@ -52,11 +52,11 @@ export async function POST(req: Request) {
 
     const rateLimiterService = getCachedRateLimiterService()
     const clientIp = rateLimiterService ? getClientIp(req, rateLimiterService.trustProxyDepth) : null
-    if (rateLimiterService && clientIp) {
+    if (rateLimiterService) {
       const rateLimitResponse = await checkRateLimit(
         rateLimiterService,
         quoteAcceptRateLimitConfig,
-        clientIp,
+        clientIp ?? RATE_LIMIT_FALLBACK_KEY,
         translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
       )
       if (rateLimitResponse) return rateLimitResponse

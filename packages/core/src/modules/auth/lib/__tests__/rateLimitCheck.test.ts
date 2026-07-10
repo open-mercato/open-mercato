@@ -17,6 +17,7 @@ const mockGetClientIp = jest.fn()
 jest.mock('@open-mercato/shared/lib/ratelimit/helpers', () => ({
   checkRateLimit: (...args: unknown[]) => mockCheckRateLimit(...args),
   getClientIp: (...args: unknown[]) => mockGetClientIp(...args),
+  RATE_LIMIT_FALLBACK_KEY: 'global',
   RATE_LIMIT_ERROR_KEY: 'api.errors.rateLimit',
   RATE_LIMIT_ERROR_FALLBACK: 'Too many requests. Please try again later.',
 }))
@@ -66,9 +67,10 @@ describe('checkAuthRateLimit', () => {
     expect(mockCheckRateLimit).not.toHaveBeenCalled()
   })
 
-  it('returns { error: null } when getClientIp returns null (fail-open)', async () => {
+  it('uses bounded fallback keys when no trusted client IP is available', async () => {
     mockGetCachedRateLimiterService.mockReturnValue(makeFakeService())
     mockGetClientIp.mockReturnValue(null)
+    mockCheckRateLimit.mockResolvedValue(null)
 
     const result = await checkAuthRateLimit({
       req: makeRequest(),
@@ -78,8 +80,21 @@ describe('checkAuthRateLimit', () => {
     })
 
     expect(result.error).toBeNull()
-    expect(result.compoundKey).toBeNull()
-    expect(mockCheckRateLimit).not.toHaveBeenCalled()
+    expect(result.compoundKey).toBe('global:hash_user@example.com')
+    expect(mockCheckRateLimit).toHaveBeenNthCalledWith(
+      1,
+      expect.anything(),
+      ipConfig,
+      'global',
+      expect.any(String),
+    )
+    expect(mockCheckRateLimit).toHaveBeenNthCalledWith(
+      2,
+      expect.anything(),
+      compoundConfig,
+      'global:hash_user@example.com',
+      expect.any(String),
+    )
   })
 
   it('returns IP-only error when IP rate limit is exceeded', async () => {
