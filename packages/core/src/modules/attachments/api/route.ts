@@ -284,7 +284,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
   }
   if (!isMultipartRequestWithinUploadLimit(req.headers.get('content-length'))) {
-    return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+    return NextResponse.json({
+      error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+    }, { status: 413 })
   }
 
   let form: FormData
@@ -292,7 +294,9 @@ export async function POST(req: Request) {
     form = await parseMultipartFormDataWithinUploadLimit(req)
   } catch (error) {
     if (isMultipartUploadLimitError(error)) {
-      return NextResponse.json({ error: 'Attachment exceeds the maximum upload size.' }, { status: 413 })
+      return NextResponse.json({
+        error: t('attachments.errors.maxUploadSize', 'Attachment exceeds the maximum upload size.'),
+      }, { status: 413 })
     }
     throw error
   }
