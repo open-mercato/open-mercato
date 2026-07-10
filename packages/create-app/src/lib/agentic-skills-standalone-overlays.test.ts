@@ -86,6 +86,36 @@ test('the repo ships no generated test-env shell entrypoints (machine-bound, git
   )
 })
 
+test('the template wires the ephemeral runner scripts and the override keeps the ephemeral-first run-mode contract', () => {
+  const templatePackageJson = JSON.parse(
+    fs.readFileSync(new URL('../../template/package.json.template', import.meta.url), 'utf8'),
+  ) as { scripts?: Record<string, string> }
+  const scripts = templatePackageJson.scripts ?? {}
+  assert.equal(
+    scripts['test:integration:ephemeral'],
+    'mercato test:integration',
+    'test:integration:ephemeral must run the cross-platform mercato CLI suite runner',
+  )
+  assert.equal(
+    scripts['test:integration:ephemeral:start'],
+    'mercato test:ephemeral',
+    'test:integration:ephemeral:start must boot the app-only ephemeral env via the mercato CLI (reused by iterative filtered runs)',
+  )
+  const override = readOverrideSkill('om-prepare-test-env')
+  assert.ok(
+    override.includes('test:integration:ephemeral:start'),
+    'the om-prepare-test-env override must document the boot-once start script for iterative reuse',
+  )
+  assert.ok(
+    /prefer(red)? over plain `yarn test:integration`/i.test(override),
+    'the om-prepare-test-env override must state that test:integration:ephemeral is preferred over plain test:integration',
+  )
+  assert.ok(
+    /ASK before the first run/.test(override),
+    'the om-prepare-test-env override must instruct skills to ask the user which run mode they want',
+  )
+})
+
 test('override folders do not also ship a stale STANDALONE.md', () => {
   const stale = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const url = new URL(`${skill}/STANDALONE.md`, skillsDir)
