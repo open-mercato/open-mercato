@@ -85,10 +85,10 @@ when a human is present.
 
 ### Phase 2: Standalone create-app template
 
-- [ ] 2.1 Re-add test:integration:ephemeral:start aliases to package.json.template
-- [ ] 2.2 Update standalone om-prepare-test-env override (run-mode choice, ephemeral-first)
-- [ ] 2.3 Document start alias in template AGENTS.md + AGENTS.md.template
-- [ ] 2.4 Extend agentic-skills-standalone-overlays guard test
+- [x] 2.1 Re-add test:integration:ephemeral:start aliases to package.json.template — fda2e145c
+- [x] 2.2 Update standalone om-prepare-test-env override (run-mode choice, ephemeral-first) — c01437860
+- [x] 2.3 Document start alias in template AGENTS.md + AGENTS.md.template — 6eb3f9ca6
+- [x] 2.4 Extend agentic-skills-standalone-overlays guard test — ad96cd888
 
 ### Phase 3: Validation gate and PR
 
