@@ -1372,8 +1372,8 @@ function Invoke-Compose {
 }
 
 function Get-ComposeServiceHealth {
-    # Returns @{ service = health } parsed from `compose ps --format json`,
-    # tolerating both NDJSON (compose >= 2.21) and single-array output.
+    # Returns @{ service = @{Health;State;ExitCode} } parsed from `compose ps
+    # --format json`, tolerating NDJSON (compose >= 2.21) and array output.
     $raw = (Invoke-NativeCapture "docker" @("compose", "-f", (Join-Path $script:RepoRoot $script:ComposeFile), "ps", "--format", "json")).Trim()
     $entries = @()
     if ($raw.StartsWith("[")) {
@@ -1383,11 +1383,27 @@ function Get-ComposeServiceHealth {
             try { $entries += ($line | ConvertFrom-Json) } catch {}
         }
     }
-    $health = @{}
+    $info = @{}
     foreach ($entry in $entries) {
-        if ($entry.Service) { $health[$entry.Service] = $entry.Health }
+        if ($entry.Service) {
+            $info[$entry.Service] = @{
+                Health   = $entry.Health
+                State    = $entry.State
+                ExitCode = $entry.ExitCode
+            }
+        }
     }
-    return $health
+    return $info
+}
+
+function Test-ServiceCrashLooping {
+    # A service stuck in restarting (or repeatedly exiting non-zero) will never
+    # become ready - waiting the full budget on it just hides the error.
+    param([hashtable]$Info, [string]$Service)
+    $svc = $Info[$Service]
+    if (-not $svc) { return $false }
+    if ($svc.State -eq "restarting") { return $true }
+    return ($svc.State -eq "exited" -and $svc.ExitCode -ne 0)
 }
 
 function Test-PortConflicts {
@@ -1437,13 +1453,24 @@ function Wait-ForInfra {
     $startedAt = Get-Date
     $deadline = $startedAt.AddSeconds(300)
     $services = @("postgres", "redis", "meilisearch")
+    $crashTicks = @{}
     while ((Get-Date) -lt $deadline) {
-        $health = Get-ComposeServiceHealth
-        $healthyCount = @($services | Where-Object { $health[$_] -eq "healthy" }).Count
+        $info = Get-ComposeServiceHealth
+        $healthyCount = @($services | Where-Object { $info[$_] -and $info[$_].Health -eq "healthy" }).Count
         if ($healthyCount -ge $services.Count) {
             Write-Host ""
             Write-Ok "Infrastructure services healthy"
             return
+        }
+        foreach ($service in $services) {
+            if (Test-ServiceCrashLooping -Info $info -Service $service) { $crashTicks[$service] = 1 + [int]$crashTicks[$service] }
+            else { $crashTicks[$service] = 0 }
+            if ($crashTicks[$service] -ge 3) {
+                Write-Host ""
+                Write-Host "--- last logs: $service ---" -ForegroundColor DarkGray
+                [void](Invoke-Compose @("logs", "--tail", "40", $service))
+                Write-Fail "The '$service' container is crash-looping (it keeps exiting right after start) - the error is in the logs above. A common cause is credentials in .env not matching an existing data volume (use -Reset for a clean slate). Containers keep restarting in the background; stop them with stop-windows.bat, fix the cause, then re-run start-windows.bat."
+            }
         }
         Write-WaitTick -StartedAt $startedAt -Message ("waiting for databases to report healthy ({0}/{1} ready)" -f $healthyCount, $services.Count)
         Start-Sleep -Seconds 5
@@ -1473,6 +1500,7 @@ function Wait-ForApp {
     $deadline = $startedAt.AddMinutes($TimeoutMinutes)
     $splashDownSince = $null
     $lastActivity = ""
+    $appCrashTicks = 0
 
     Write-Host ""
     Write-Host "The FIRST boot installs dependencies, builds every package, and seeds the" -ForegroundColor Cyan
@@ -1509,6 +1537,14 @@ function Wait-ForApp {
             if (-not $splashDownSince) { $splashDownSince = Get-Date }
         }
 
+        $info = Get-ComposeServiceHealth
+        if (Test-ServiceCrashLooping -Info $info -Service "app") { $appCrashTicks++ } else { $appCrashTicks = 0 }
+        if ($appCrashTicks -ge 3) {
+            Write-Host ""
+            [void](Invoke-Compose @("logs", "--tail", "100", "app"))
+            Write-Fail "The app container is crash-looping (it keeps exiting right after start) - the real error is in the logs above (often a failed install/build or a database init error). Containers keep restarting in the background; stop them with stop-windows.bat, fix the cause, then re-run start-windows.bat."
+        }
+
         Write-WaitTick -StartedAt $startedAt -Message $statusLine
         Start-Sleep -Seconds 5
     }
@@ -1528,14 +1564,31 @@ function Wait-ForAgenticServices {
     $deadline = $startedAt.AddMinutes(10)
     $mcpReady = $false
     $opencodeReady = $false
-    while ((Get-Date) -lt $deadline -and -not ($mcpReady -and $opencodeReady)) {
+    $agenticCrashTicks = @{}
+    $gaveUp = @{}
+    while ((Get-Date) -lt $deadline -and -not (($mcpReady -or $gaveUp["mcp"]) -and ($opencodeReady -or $gaveUp["opencode"]))) {
         if (-not $mcpReady) { $mcpReady = Test-HttpOk $mcpHealthUrl }
         if (-not $opencodeReady) { $opencodeReady = Test-HttpOk $opencodeHealthUrl }
         if (-not ($mcpReady -and $opencodeReady)) {
+            $info = Get-ComposeServiceHealth
+            foreach ($service in @("mcp", "opencode")) {
+                if ($gaveUp[$service]) { continue }
+                if (Test-ServiceCrashLooping -Info $info -Service $service) { $agenticCrashTicks[$service] = 1 + [int]$agenticCrashTicks[$service] }
+                else { $agenticCrashTicks[$service] = 0 }
+                if ($agenticCrashTicks[$service] -ge 3) {
+                    Write-Host ""
+                    Write-Host "--- last logs: $service ---" -ForegroundColor DarkGray
+                    [void](Invoke-Compose @("logs", "--tail", "40", $service))
+                    Write-Warn "The '$service' container is crash-looping - see its logs above. The rest of the stack keeps working; fix the cause and run: docker compose -f $script:ComposeFile restart $service"
+                    $gaveUp[$service] = $true
+                }
+            }
             $waitingOn = @()
-            if (-not $mcpReady) { $waitingOn += "MCP" }
-            if (-not $opencodeReady) { $waitingOn += "OpenCode" }
-            Write-WaitTick -StartedAt $startedAt -Message ("waiting for {0} (they start after the app; the MCP key is provisioned automatically)" -f ($waitingOn -join " + "))
+            if (-not $mcpReady -and -not $gaveUp["mcp"]) { $waitingOn += "MCP" }
+            if (-not $opencodeReady -and -not $gaveUp["opencode"]) { $waitingOn += "OpenCode" }
+            if ($waitingOn.Count -gt 0) {
+                Write-WaitTick -StartedAt $startedAt -Message ("waiting for {0} (they start after the app; the MCP key is provisioned automatically)" -f ($waitingOn -join " + "))
+            }
             Start-Sleep -Seconds 5
         }
     }
