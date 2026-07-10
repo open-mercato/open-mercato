@@ -1819,8 +1819,8 @@ const commentClaimCommand: CommandHandler<CommentClaimInput, { claimId: string }
     if (input.visibility === 'customer') {
       await emitCustomerVisibleCommentAdded(ctx, claim, input)
     }
+    await emitClaimCrud(ctx, 'updated', claim)
     if (autoResumed) {
-      await emitClaimCrud(ctx, 'updated', claim)
       await emitClaimStatusChanged(ctx, claim, 'info_requested', 'in_review')
     }
     return { claimId: claim.id }

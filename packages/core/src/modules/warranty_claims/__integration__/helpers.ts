@@ -729,7 +729,8 @@ export async function submitAndExpect(
 ): Promise<ClaimItem> {
   expect(claim.id, 'claim should have id').toBeTruthy()
   const beforeEvents = await readClaimEvents(request, token, claim.id!)
-  const response = await submitClaim(request, token, claim.id!, claim.updatedAt)
+  const current = await readClaim(request, token, claim.id!)
+  const response = await submitClaim(request, token, claim.id!, current.updatedAt)
   expect(response.status(), 'submit should return 200').toBe(200)
   const after = await expectClaimStatus(request, token, claim.id!, 'submitted')
   const afterEvents = await readClaimEvents(request, token, claim.id!)
@@ -839,7 +840,8 @@ export async function cancelThenDeleteClaimIfPossible(
     }
   }
   if (claim.status && ['submitted', 'in_review', 'info_requested', 'approved', 'awaiting_return'].includes(claim.status)) {
-    await transitionClaim(request, token, { id: claimId, toStatus: 'cancelled' }, claim.updatedAt).catch(() => undefined)
+    const fresh = await readClaimMaybe(request, token, claimId).catch(() => null)
+    await transitionClaim(request, token, { id: claimId, toStatus: 'cancelled' }, (fresh ?? claim).updatedAt).catch(() => undefined)
   }
   await cleanupDraftClaimWithLines(request, token, claimId)
 }

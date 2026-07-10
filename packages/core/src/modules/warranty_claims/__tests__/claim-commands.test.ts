@@ -928,6 +928,7 @@ describe('warranty claim commands', () => {
     const { ctx } = makeContext()
     const claim = makeClaim('in_review')
     mockClaims.push(claim)
+    const dataEngine = ctx.container.resolve('dataEngine') as { markOrmEntityChange: jest.Mock }
 
     await commentClaimCommand.execute({
       claimId: CLAIM_ID,
@@ -936,13 +937,16 @@ describe('warranty claim commands', () => {
       actorCustomerId: CUSTOMER_ID,
     }, ctx)
     expect(claim.awaitingStaffReply).toBe(true)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalled()
 
+    dataEngine.markOrmEntityChange.mockClear()
     await commentClaimCommand.execute({
       claimId: CLAIM_ID,
       body: 'We are inspecting the unit today.',
       visibility: 'customer',
     }, ctx)
     expect(claim.awaitingStaffReply).toBe(false)
+    expect(dataEngine.markOrmEntityChange).toHaveBeenCalled()
 
     await commentClaimCommand.execute({
       claimId: CLAIM_ID,
