@@ -37,6 +37,11 @@ param(
     [switch]$IncludeNativeToolchain,
     [switch]$Rebuild,
     [switch]$NoAdmin,
+    # Container runtime: 'auto' uses whatever is already installed (Docker
+    # Desktop or Rancher Desktop) and installs Docker Desktop on clean machines;
+    # 'rancher' prefers/installs Rancher Desktop (common where Docker Desktop
+    # licensing is not permitted); 'docker' forces Docker Desktop.
+    [ValidateSet("auto", "docker", "rancher")][string]$Runtime = "auto",
     [int]$TimeoutMinutes = 30,
     [string]$LogPath = "",
 
@@ -82,9 +87,27 @@ function Write-Section {
 }
 
 function Write-StepHeader {
-    param([string]$Message)
+    # Second argument (optional): a plain-language expectation ("takes ~2 min",
+    # "instant") so users on slow corporate machines know what "long" means
+    # BEFORE a step goes quiet.
+    param([string]$Message, [string]$Expected = "")
     $script:StepNumber++
     Write-Section ("Step {0}: {1}" -f $script:StepNumber, $Message)
+    if ($Expected) {
+        Write-Host ("  Expected: {0}" -f $Expected) -ForegroundColor DarkGray
+    }
+}
+
+$script:SpinnerFrames = @("|", "/", "-", "\")
+$script:SpinnerIndex = 0
+function Write-WaitTick {
+    # One-line animated status for polling loops: spinner + elapsed + message,
+    # redrawn in place so the console shows life instead of a frozen prompt.
+    param([Parameter(Mandatory = $true)][datetime]$StartedAt, [string]$Message)
+    $frame = $script:SpinnerFrames[$script:SpinnerIndex % $script:SpinnerFrames.Count]
+    $script:SpinnerIndex++
+    $elapsed = "{0:mm\:ss}" -f ((Get-Date) - $StartedAt)
+    Write-Host ("`r{0} [{1}] {2}   " -f $frame, $elapsed, $Message) -NoNewline
 }
 
 function Write-Info {
@@ -231,50 +254,159 @@ function Test-WingetAvailable { return (Test-CommandAvailable "winget") }
 
 # ---------------------------------------------------------------------------
 # Direct-download fallbacks (winget / App Installer is missing on Windows LTSC,
-# Server SKUs, and many locked-down corporate images). Git and Docker Desktop
-# both publish stable official installers we can fetch and run silently.
+# Server SKUs, and many locked-down corporate images — and installing winget
+# itself fails there on MSIX framework dependencies, so it is NEVER required).
+# Git and Docker Desktop publish stable official installers we fetch and run
+# silently; on corporate devices where downloads are blocked, IT can pre-seed
+# the official installers into an `installers` folder (see
+# Resolve-LocalInstaller) and no network access is needed at all.
 # ---------------------------------------------------------------------------
+
+$script:MachineArch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
+
+function Test-FileMagic {
+    # Validates that a downloaded/seeded file is what it claims to be. Corporate
+    # proxies commonly answer blocked downloads with an HTML page + HTTP 200 —
+    # feeding that to an installer produces baffling errors, so check the bytes.
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [Parameter(Mandatory = $true)][ValidateSet("exe", "msi", "zip")][string]$FileType
+    )
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            $buffer = New-Object byte[] 8
+            if ($stream.Read($buffer, 0, 8) -lt 4) { return $false }
+            switch ($FileType) {
+                "exe" { return ($buffer[0] -eq 0x4D -and $buffer[1] -eq 0x5A) }                                  # MZ
+                "msi" { return ($buffer[0] -eq 0xD0 -and $buffer[1] -eq 0xCF -and $buffer[2] -eq 0x11 -and $buffer[3] -eq 0xE0) } # OLE2
+                "zip" { return ($buffer[0] -eq 0x50 -and $buffer[1] -eq 0x4B) }                                  # PK
+            }
+        } finally { $stream.Close() }
+    } catch { return $false }
+    return $false
+}
+
+function Resolve-LocalInstaller {
+    # Offline/corporate path: look for a pre-seeded official installer before
+    # downloading. Search order: OM_INSTALLERS_DIR env var, an `installers`
+    # folder in the repo root, next to the launcher .bat, and next to this
+    # script. IT can drop the three official files there and the launcher
+    # never needs to download anything.
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Patterns,
+        [Parameter(Mandatory = $true)][ValidateSet("exe", "msi", "zip")][string]$FileType
+    )
+    $candidateDirs = New-Object System.Collections.Generic.List[string]
+    if ($env:OM_INSTALLERS_DIR) { $candidateDirs.Add($env:OM_INSTALLERS_DIR) }
+    if ($script:RepoRoot) { $candidateDirs.Add((Join-Path $script:RepoRoot "installers")) }
+    if ($LauncherPath) { $candidateDirs.Add((Join-Path (Split-Path -Parent $LauncherPath) "installers")) }
+    if ($PSScriptRoot) {
+        $candidateDirs.Add((Join-Path $PSScriptRoot "installers"))
+        # In-repo layout: scripts\windows -> repo root two levels up.
+        $repoCandidate = Join-Path $PSScriptRoot "..\..\installers"
+        $candidateDirs.Add($repoCandidate)
+    }
+    foreach ($dir in ($candidateDirs | Select-Object -Unique)) {
+        if (-not (Test-Path $dir)) { continue }
+        foreach ($pattern in $Patterns) {
+            # Check every match: a stale/corrupt file must not shadow a valid one.
+            foreach ($candidate in @(Get-ChildItem -Path $dir -Filter $pattern -File -ErrorAction SilentlyContinue)) {
+                if (Test-FileMagic -Path $candidate.FullName -FileType $FileType) {
+                    Write-Ok "Using pre-seeded installer: $($candidate.FullName)"
+                    return $candidate.FullName
+                }
+            }
+        }
+    }
+    return $null
+}
 
 function Get-RemoteFile {
     param(
         [Parameter(Mandatory = $true)][string]$Url,
         [Parameter(Mandatory = $true)][string]$OutFile,
-        [string]$DisplayName = "file"
+        [string]$DisplayName = "file",
+        [ValidateSet("exe", "msi", "zip")][string]$FileType = "exe",
+        [long]$MinBytes = 1MB,
+        [int]$Retries = 3
     )
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    Write-Info "Downloading $DisplayName..."
+    # TLS 1.2 minimum; add TLS 1.3 when the underlying .NET supports it.
     try {
-        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 -bor 12288
     } catch {
-        Write-Fail "Download of $DisplayName failed: $($_.Exception.Message). Behind a corporate proxy, configure the proxy for this session (e.g. netsh winhttp import proxy) or download it manually."
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     }
-    if (-not (Test-Path $OutFile) -or (Get-Item $OutFile).Length -lt 1024) {
-        Write-Fail "Downloaded $DisplayName is missing or too small - the download likely failed or was blocked by a proxy/firewall."
+    $extraArgs = @{}
+    if ($env:HTTPS_PROXY) {
+        $extraArgs.Proxy = $env:HTTPS_PROXY
+        $extraArgs.ProxyUseDefaultCredentials = $true
     }
+
+    $lastError = $null
+    for ($attempt = 1; $attempt -le $Retries; $attempt++) {
+        Write-Info "Downloading $DisplayName (attempt $attempt/$Retries)..."
+        try {
+            Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" } @extraArgs
+            if ((Test-Path $OutFile) -and (Get-Item $OutFile).Length -ge $MinBytes -and (Test-FileMagic -Path $OutFile -FileType $FileType)) {
+                # Remove Mark-of-the-Web so SmartScreen/AV policy cannot block
+                # the silent install of a file we just verified byte-wise.
+                Unblock-File -Path $OutFile -ErrorAction SilentlyContinue
+                return $true
+            }
+            $lastError = "downloaded file failed validation (too small or not a valid $FileType - a proxy may have answered with an HTML block page)"
+        } catch {
+            $lastError = $_.Exception.Message
+        }
+        Remove-Item $OutFile -ErrorAction SilentlyContinue
+        if ($attempt -lt $Retries) { Start-Sleep -Seconds ([Math]::Min(15, 5 * $attempt)) }
+    }
+
+    Write-Warn "Download of $DisplayName failed after $Retries attempts: $lastError"
+    Write-Warn "Corporate network? Options: (a) set HTTPS_PROXY for this session, (b) ask IT to allow the download, or (c) place the official installer in an 'installers' folder next to start-windows.bat (or set OM_INSTALLERS_DIR) and re-run - the launcher uses pre-seeded installers without any network access."
+    return $false
 }
 
 function Install-GitDirect {
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $assetUrl = $null
-    try {
-        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
-        $asset = $release.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
-        if ($asset) { $assetUrl = $asset.browser_download_url }
-    } catch {
-        Write-Fail "Could not resolve the latest Git for Windows installer: $($_.Exception.Message). Install Git manually from https://git-scm.com/download/win and re-run."
+    $archPattern = if ($script:MachineArch -eq "arm64") { "Git-*-arm64.exe" } else { "Git-*-64-bit.exe" }
+    $installer = Resolve-LocalInstaller -Patterns @($archPattern) -FileType exe
+    if (-not $installer) {
+        # Resolve the latest release via the GitHub API; on failure (rate limit,
+        # blocked endpoint) fall back to a pinned known-good release URL.
+        $assetRegex = if ($script:MachineArch -eq "arm64") { '^Git-.*-arm64\.exe$' } else { '^Git-.*-64-bit\.exe$' }
+        $pinnedUrl = if ($script:MachineArch -eq "arm64") {
+            "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/Git-2.47.1-arm64.exe"
+        } else {
+            "https://github.com/git-for-windows/git/releases/download/v2.47.1.windows.1/Git-2.47.1-64-bit.exe"
+        }
+        $assetUrl = $null
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+            $asset = $release.assets | Where-Object { $_.name -match $assetRegex } | Select-Object -First 1
+            if ($asset) { $assetUrl = $asset.browser_download_url }
+        } catch {
+            Write-Warn "Could not query the latest Git release ($($_.Exception.Message)) - using a pinned known-good version instead."
+        }
+        if (-not $assetUrl) { $assetUrl = $pinnedUrl }
+        $installer = Join-Path $env:TEMP "git-for-windows-setup.exe"
+        if (-not (Get-RemoteFile -Url $assetUrl -OutFile $installer -DisplayName "Git for Windows" -FileType exe -MinBytes 20MB)) {
+            Write-Fail "Git could not be downloaded. Install it manually from https://git-scm.com/download/win (or pre-seed the installer, see above) and re-run."
+        }
     }
-    if (-not $assetUrl) { Write-Fail "No 64-bit Git installer found in the latest release. Install Git manually from https://git-scm.com/download/win and re-run." }
-
-    $installer = Join-Path $env:TEMP "git-for-windows-64.exe"
-    Get-RemoteFile -Url $assetUrl -OutFile $installer -DisplayName "Git for Windows"
     Write-Info "Installing Git (silent)..."
     $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/NORESTART', '/SP-', '/SUPPRESSMSGBOXES', '/NOCANCEL', '/CLOSEAPPLICATIONS', '/NORESTARTAPPLICATIONS' -Wait -PassThru
     if ($proc.ExitCode -ne 0) { Write-Fail "Git installer exited with code $($proc.ExitCode). Install Git manually from https://git-scm.com/download/win and re-run." }
 }
 
 function Install-DockerDesktopDirect {
-    $installer = Join-Path $env:TEMP "DockerDesktopInstaller.exe"
-    Get-RemoteFile -Url "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe" -OutFile $installer -DisplayName "Docker Desktop (~500 MB)"
+    $installer = Resolve-LocalInstaller -Patterns @("Docker Desktop Installer.exe", "DockerDesktopInstaller.exe", "Docker*Installer*.exe") -FileType exe
+    if (-not $installer) {
+        $installer = Join-Path $env:TEMP "DockerDesktopInstaller.exe"
+        $url = "https://desktop.docker.com/win/main/$script:MachineArch/Docker%20Desktop%20Installer.exe"
+        if (-not (Get-RemoteFile -Url $url -OutFile $installer -DisplayName "Docker Desktop (~500 MB)" -FileType exe -MinBytes 100MB)) {
+            Write-Fail "Docker Desktop could not be downloaded. Install it manually from https://www.docker.com/products/docker-desktop/ (or pre-seed the installer, see above) and re-run."
+        }
+    }
     Write-Info "Installing Docker Desktop (silent)..."
     $proc = Start-Process -FilePath $installer -ArgumentList 'install', '--quiet', '--accept-license', '--backend=wsl-2' -Wait -PassThru
     # 0 = success; 3010 = success but reboot required.
@@ -310,47 +442,31 @@ function Install-DockerViaBestMethod {
     Install-DockerDesktopDirect
 }
 
-function Test-IsMsiFile {
-    param([Parameter(Mandatory = $true)][string]$Path)
-    try {
-        $stream = [System.IO.File]::OpenRead($Path)
-        try {
-            $buffer = New-Object byte[] 8
-            if ($stream.Read($buffer, 0, 8) -lt 8) { return $false }
-            # OLE2 compound-file (MSI) magic: D0 CF 11 E0 A1 B1 1A E1
-            return ($buffer[0] -eq 0xD0 -and $buffer[1] -eq 0xCF -and $buffer[2] -eq 0x11 -and $buffer[3] -eq 0xE0)
-        } finally { $stream.Close() }
-    } catch { return $false }
-}
-
 function Ensure-Wsl2Kernel {
     # `wsl --update` fetches the kernel on connected machines, but it can fail on
-    # locked-down images (no Store / restricted network) — after which Docker
-    # Desktop's WSL2 backend never starts ("WSL 2 installation is incomplete").
-    # The standalone kernel MSI is a reliable, idempotent fallback. Installing
-    # it pre-reboot just stages the kernel files; the enabled features activate
-    # after the restart. Best-effort throughout (Docker Desktop can also install
-    # the kernel on first launch), so a failure here warns, never aborts.
+    # locked-down images (no Store / restricted network) — after which the WSL2
+    # backend of Docker/Rancher Desktop never starts ("WSL 2 installation is
+    # incomplete"). The standalone kernel MSI is a reliable, idempotent fallback.
+    # Installing it pre-reboot just stages the kernel files; the enabled features
+    # activate after the restart. Best-effort throughout, so a failure here
+    # warns, never aborts.
     if (Test-CommandAvailable "wsl") {
         & wsl --update 2>$null | Out-Null
     }
-    $kernelMsi = Join-Path $env:TEMP "wsl_update_x64.msi"
-    try {
-        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-        Invoke-WebRequest -Uri "https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi" -OutFile $kernelMsi -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
-    } catch {
-        Write-Warn "Could not download the WSL2 kernel: $($_.Exception.Message). Docker Desktop will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
-        return
-    }
-    if (-not (Test-IsMsiFile $kernelMsi)) {
-        Write-Warn "The downloaded WSL2 kernel was not a valid installer (proxy/redirect?). Docker Desktop will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
-        return
+    $kernelName = if ($script:MachineArch -eq "arm64") { "wsl_update_arm64.msi" } else { "wsl_update_x64.msi" }
+    $kernelMsi = Resolve-LocalInstaller -Patterns @($kernelName, "wsl_update*.msi") -FileType msi
+    if (-not $kernelMsi) {
+        $kernelMsi = Join-Path $env:TEMP $kernelName
+        if (-not (Get-RemoteFile -Url "https://wslstorestorage.blob.core.windows.net/wslblob/$kernelName" -OutFile $kernelMsi -DisplayName "WSL2 kernel" -FileType msi -MinBytes 2MB)) {
+            Write-Warn "WSL2 kernel could not be fetched - the container runtime will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
+            return
+        }
     }
     $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList '/i', "`"$kernelMsi`"", '/qn', '/norestart' -Wait -PassThru
     if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
         Write-Ok "WSL2 kernel installed"
     } else {
-        Write-Warn "WSL2 kernel installer exited with code $($proc.ExitCode). Docker Desktop can also install it on first launch; else install it manually from https://aka.ms/wsl2kernel."
+        Write-Warn "WSL2 kernel installer exited with code $($proc.ExitCode). The container runtime can also install it on first launch; else install it manually from https://aka.ms/wsl2kernel."
     }
 }
 
@@ -389,10 +505,72 @@ function Test-DockerDesktopInstalled {
     return (Test-Path (Join-Path ${env:ProgramFiles} "Docker\Docker\Docker Desktop.exe"))
 }
 
+function Get-RancherDesktopExe {
+    # Rancher Desktop installs machine-wide or per-user (the per-user MSI works
+    # WITHOUT admin - relevant where Docker Desktop is not permitted).
+    $candidates = @(
+        (Join-Path ${env:ProgramFiles} "Rancher Desktop\Rancher Desktop.exe"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Rancher Desktop\Rancher Desktop.exe")
+    )
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) { return $candidate }
+    }
+    return $null
+}
+
+function Test-RancherDesktopInstalled {
+    return ($null -ne (Get-RancherDesktopExe))
+}
+
+function Add-RancherBinToPath {
+    # Rancher Desktop puts docker / docker compose / rdctl into ~\.rd\bin; a
+    # fresh shell (or first run before re-logon) may not have it on PATH yet.
+    $rdBin = Join-Path $env:USERPROFILE ".rd\bin"
+    if ((Test-Path $rdBin) -and (($env:Path -split ";") -notcontains $rdBin)) {
+        $env:Path = "$rdBin;$env:Path"
+    }
+}
+
+function Test-ContainerRuntimeInstalled {
+    # Any runtime that gives us a working `docker` CLI + engine is fine: Docker
+    # Desktop, Rancher Desktop (dockerd/moby), or something IT-managed that
+    # already answers `docker info`.
+    if (Test-DockerDesktopInstalled) { return $true }
+    if (Test-RancherDesktopInstalled) { return $true }
+    Add-RancherBinToPath
+    return (Test-CommandAvailable "docker")
+}
+
 function Test-DockerEngineReady {
+    Add-RancherBinToPath
     if (-not (Test-CommandAvailable "docker")) { return $false }
     & docker info 2>$null | Out-Null
     return ($LASTEXITCODE -eq 0)
+}
+
+function Install-RancherDesktopDirect {
+    $installer = Resolve-LocalInstaller -Patterns @("Rancher.Desktop.Setup.*.msi", "Rancher*Desktop*.msi") -FileType msi
+    if (-not $installer) {
+        $assetUrl = $null
+        try {
+            $release = Invoke-RestMethod -Uri "https://api.github.com/repos/rancher-sandbox/rancher-desktop/releases/latest" -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+            $asset = $release.assets | Where-Object { $_.name -match '^Rancher\.Desktop\.Setup\..*\.msi$' } | Select-Object -First 1
+            if ($asset) { $assetUrl = $asset.browser_download_url }
+        } catch {
+            Write-Warn "Could not query the latest Rancher Desktop release ($($_.Exception.Message)) - using a pinned known-good version instead."
+        }
+        if (-not $assetUrl) { $assetUrl = "https://github.com/rancher-sandbox/rancher-desktop/releases/download/v1.16.0/Rancher.Desktop.Setup.1.16.0.msi" }
+        $installer = Join-Path $env:TEMP "RancherDesktopSetup.msi"
+        if (-not (Get-RemoteFile -Url $assetUrl -OutFile $installer -DisplayName "Rancher Desktop (~600 MB)" -FileType msi -MinBytes 100MB)) {
+            Write-Fail "Rancher Desktop could not be downloaded. Install it manually from https://rancherdesktop.io (or pre-seed the installer) and re-run."
+        }
+    }
+    Write-Info "Installing Rancher Desktop (silent)..."
+    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList '/i', "`"$installer`"", '/qn', '/norestart' -Wait -PassThru
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        Write-Fail "Rancher Desktop installer exited with code $($proc.ExitCode). Install manually from https://rancherdesktop.io and re-run."
+    }
+    Write-Info "Rancher Desktop installed. It will be started with the dockerd (moby) engine so `docker compose` works."
 }
 
 function Invoke-ElevatedInstallPhase {
@@ -434,34 +612,42 @@ function Invoke-ElevatedInstallPhase {
     Ensure-Wsl2Kernel
     Write-Ok "WSL2 features ensured"
 
-    if (-not (Test-DockerDesktopInstalled)) {
-        Install-DockerViaBestMethod -HasWinget $hasWinget
+    if (-not (Test-ContainerRuntimeInstalled)) {
+        if ($Runtime -eq "rancher") {
+            Install-RancherDesktopDirect
+        } else {
+            Install-DockerViaBestMethod -HasWinget $hasWinget
+        }
         $script:RestartRequired = $true
     }
-    Write-Ok "Docker Desktop present"
+    Write-Ok "Container runtime present"
 
-    try {
-        $group = Get-LocalGroup -Name "docker-users" -ErrorAction SilentlyContinue
-        if ($group) {
-            $currentUser = "$env:USERDOMAIN\$env:USERNAME"
-            $members = @(Get-LocalGroupMember -Group "docker-users" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
-            if ($members -notcontains $currentUser) {
-                # Only a SUCCESSFUL add warrants a re-logon; enumeration can fail
-                # spuriously (unresolvable SIDs), and re-adding an existing member
-                # errors — neither may trigger the reboot gate on every run.
-                try {
-                    Add-LocalGroupMember -Group "docker-users" -Member $currentUser -ErrorAction Stop
-                    Write-Ok "Added $currentUser to docker-users (re-logon required)"
-                    $script:RestartRequired = $true
-                } catch {
-                    if ($_.Exception.Message -notmatch "already a member") {
-                        Write-Warn "Could not add $currentUser to docker-users: $($_.Exception.Message)"
+    # docker-users membership only applies to Docker Desktop; Rancher Desktop
+    # (WSL2 distro per user) has no equivalent group requirement.
+    if (Test-DockerDesktopInstalled) {
+        try {
+            $group = Get-LocalGroup -Name "docker-users" -ErrorAction SilentlyContinue
+            if ($group) {
+                $currentUser = "$env:USERDOMAIN\$env:USERNAME"
+                $members = @(Get-LocalGroupMember -Group "docker-users" -ErrorAction SilentlyContinue | ForEach-Object { $_.Name })
+                if ($members -notcontains $currentUser) {
+                    # Only a SUCCESSFUL add warrants a re-logon; enumeration can fail
+                    # spuriously (unresolvable SIDs), and re-adding an existing member
+                    # errors — neither may trigger the reboot gate on every run.
+                    try {
+                        Add-LocalGroupMember -Group "docker-users" -Member $currentUser -ErrorAction Stop
+                        Write-Ok "Added $currentUser to docker-users (re-logon required)"
+                        $script:RestartRequired = $true
+                    } catch {
+                        if ($_.Exception.Message -notmatch "already a member") {
+                            Write-Warn "Could not add $currentUser to docker-users: $($_.Exception.Message)"
+                        }
                     }
                 }
             }
+        } catch {
+            Write-Warn "Could not verify docker-users group membership: $($_.Exception.Message)"
         }
-    } catch {
-        Write-Warn "Could not verify docker-users group membership: $($_.Exception.Message)"
     }
 
     if (-not $SkipDefenderExclusion -and $RepoPathForExclusion) {
@@ -484,13 +670,15 @@ function Invoke-ElevatedInstallPhase {
 }
 
 function Invoke-InstallPhaseIfNeeded {
-    Write-StepHeader "Prerequisites (Git, WSL2, Docker Desktop)"
+    Write-StepHeader "Prerequisites (Git, WSL2, container runtime)" "checks are instant; installing anything missing takes 5-15 minutes"
 
     # Detect what's missing first — this drives both the no-admin guidance and
     # the elevation decision.
     $needsGit = -not (Test-GitInstalled)
     $needsWsl = -not (Test-WslFeaturesEnabled)
-    $needsDocker = -not (Test-DockerDesktopInstalled)
+    $hasDockerDesktop = Test-DockerDesktopInstalled
+    $hasRancher = Test-RancherDesktopInstalled
+    $needsRuntime = -not (Test-ContainerRuntimeInstalled)
     $needsExclusion = $false
     if (-not $SkipDefenderExclusion) {
         $exclusionTarget = if ($script:RepoRoot) { $script:RepoRoot } else { Join-Path $CloneRoot $RepoName }
@@ -505,36 +693,47 @@ function Invoke-InstallPhaseIfNeeded {
         }
     }
 
-    if (-not ($needsGit -or $needsWsl -or $needsDocker -or $needsExclusion)) {
+    # Always show what was found, so corporate users know exactly where they
+    # stand even when nothing needs installing.
+    $runtimeLabel = if ($hasDockerDesktop -and $hasRancher) { "Docker Desktop + Rancher Desktop" }
+        elseif ($hasDockerDesktop) { "Docker Desktop" }
+        elseif ($hasRancher) { "Rancher Desktop" }
+        elseif (-not $needsRuntime) { "docker CLI (IT-managed)" }
+        else { "MISSING" }
+    Write-Host ("  Git:               {0}" -f $(if ($needsGit) { "MISSING" } else { "present" }))
+    Write-Host ("  WSL2:              {0}" -f $(if ($needsWsl) { "MISSING" } else { "present" }))
+    Write-Host ("  Container runtime: {0}" -f $runtimeLabel)
+
+    if (-not ($needsGit -or $needsWsl -or $needsRuntime -or $needsExclusion)) {
         Write-Ok "All prerequisites already installed - no administrator rights needed"
         return
     }
 
+    $runtimeToInstall = if ($Runtime -eq "rancher") { "Rancher Desktop" } else { "Docker Desktop" }
     $missingItems = @()
     if ($needsGit) { $missingItems += "Git" }
     if ($needsWsl) { $missingItems += "WSL2 features" }
-    if ($needsDocker) { $missingItems += "Docker Desktop" }
+    if ($needsRuntime) { $missingItems += $runtimeToInstall }
     if ($needsExclusion) { $missingItems += "Defender exclusion" }
 
     # Something is missing, so this is effectively a clean machine that needs the
     # full (admin) install. -NoAdmin / -SkipInstall force the no-admin path for
-    # accounts that cannot elevate (IT-provisioned Docker Desktop + WSL2); any
-    # cancelled UAC prompt below degrades to the same guidance.
+    # accounts that cannot elevate (IT-provisioned runtime + WSL2); any cancelled
+    # UAC prompt below degrades to the same guidance.
     $skipAdmin = $NoAdmin -or $SkipInstall
     if ($skipAdmin) {
-        # Only Docker Desktop + WSL2 are truly required for the containers; the
-        # Defender exclusion is a perf nicety and Git is only needed to clone.
+        # Only the container runtime + WSL2 are truly required; the Defender
+        # exclusion is a perf nicety, and a missing Git falls back to a repo
+        # ZIP download in the clone step.
         $blocking = @()
-        if ($needsDocker) { $blocking += "Docker Desktop" }
+        if ($needsRuntime) { $blocking += "a container runtime (Docker Desktop or Rancher Desktop)" }
         if ($needsWsl) { $blocking += "WSL2 (Windows feature + kernel)" }
         if ($blocking.Count -gt 0) {
-            Write-Fail ("Running without admin, but these are required and not present: {0}. Ask IT (or an admin) to install Docker Desktop with the WSL2 backend and add your account to the 'docker-users' group, then re-run:  start-windows.bat -NoAdmin  . Nothing was changed." -f ($blocking -join ", "))
+            Write-Fail ("Running without admin, but these are required and not present: {0}. Ask IT (or an admin) to install Docker Desktop (WSL2 backend; add your account to 'docker-users') OR Rancher Desktop with the dockerd (moby) engine, then re-run:  start-windows.bat -NoAdmin  . Nothing was changed." -f ($blocking -join ", "))
         }
-        if ($needsGit -and -not $script:RepoRoot) {
-            Write-Fail "Running without admin and Git is not installed, so the repo cannot be cloned. Download the ZIP (https://github.com/open-mercato/open-mercato/archive/refs/heads/main.zip), extract it, and double-click start-windows.bat inside it."
-        }
+        if ($needsGit) { Write-Warn "Git is not installed - the repository will be downloaded as a ZIP instead of cloned (no admin needed)." }
         if ($needsExclusion) { Write-Warn "Skipping the Defender exclusion (needs admin) - the stack still works, just with more antivirus file-scan overhead." }
-        Write-Ok "Skipping admin install - Docker Desktop + WSL2 are present; continuing without elevation"
+        Write-Ok "Skipping admin install - container runtime + WSL2 are present; continuing without elevation"
         return
     }
 
@@ -549,6 +748,7 @@ function Invoke-InstallPhaseIfNeeded {
     $childArgs = @(
         "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"",
         "-Elevated",
+        "-Runtime", $Runtime,
         "-RepoPathForExclusion", "`"$exclusionArg`""
     )
     if ($SkipDefenderExclusion) { $childArgs += "-SkipDefenderExclusion" }
@@ -558,7 +758,7 @@ function Invoke-InstallPhaseIfNeeded {
     try {
         $child = Start-Process -FilePath "powershell" -ArgumentList $childArgs -Verb RunAs -Wait -PassThru
     } catch {
-        Write-Fail "Administrator elevation was cancelled or is unavailable on this account. If you don't have admin, ask IT to install Docker Desktop (WSL2 backend) and add you to 'docker-users', then re-run:  start-windows.bat -NoAdmin  . Otherwise re-run and approve the UAC prompt."
+        Write-Fail "Administrator elevation was cancelled or is unavailable on this account. If you don't have admin, ask IT to install Docker Desktop (WSL2 backend + 'docker-users' membership) or Rancher Desktop (dockerd/moby engine), then re-run:  start-windows.bat -NoAdmin  . Otherwise re-run and approve the UAC prompt."
     }
     switch ($child.ExitCode) {
         0 { Write-Ok "Prerequisites installed" }
@@ -586,7 +786,7 @@ function Clear-RunOnceEntry {
 }
 
 function Invoke-RebootGate {
-    Write-StepHeader "Reboot check"
+    Write-StepHeader "Reboot check" "instant; if a restart is needed, setup resumes automatically after login"
     if (-not $script:RestartRequired) {
         Write-Ok "No reboot required"
         return
@@ -621,30 +821,61 @@ function Invoke-RebootGate {
 # ---------------------------------------------------------------------------
 
 function Start-DockerEngine {
-    Write-StepHeader "Docker engine"
+    Write-StepHeader "Container engine (Docker / Rancher)" "instant when already running; 30-90s to start; up to 5 min on the very first launch"
     if (Test-DockerEngineReady) {
-        Write-Ok "Docker engine is running"
+        Write-Ok "Container engine is running"
         return
     }
-    if ($DryRun) { Write-Info "Would start Docker Desktop and wait for the engine."; return }
+    if ($DryRun) { Write-Info "Would start Docker Desktop / Rancher Desktop and wait for the engine."; return }
 
-    $desktopExe = Join-Path ${env:ProgramFiles} "Docker\Docker\Docker Desktop.exe"
-    $running = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
-    if (-not $running -and (Test-Path $desktopExe)) {
-        Write-Info "Starting Docker Desktop..."
-        Start-Process -FilePath $desktopExe | Out-Null
+    $dockerExe = Join-Path ${env:ProgramFiles} "Docker\Docker\Docker Desktop.exe"
+    $rancherExe = Get-RancherDesktopExe
+    $startingWhat = $null
+
+    if ((Test-Path $dockerExe) -and ($Runtime -ne "rancher" -or -not $rancherExe)) {
+        if (-not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
+            Write-Info "Starting Docker Desktop..."
+            Start-Process -FilePath $dockerExe | Out-Null
+        }
+        $startingWhat = "Docker Desktop"
+    } elseif ($rancherExe) {
+        if (-not (Get-Process -Name "Rancher Desktop" -ErrorAction SilentlyContinue)) {
+            # Prefer rdctl: it can start Rancher headless with the dockerd (moby)
+            # engine (required for `docker compose`) and Kubernetes off (lighter).
+            $rdctlCandidates = @(
+                (Join-Path $env:USERPROFILE ".rd\bin\rdctl.exe"),
+                (Join-Path (Split-Path -Parent $rancherExe) "resources\resources\win32\bin\rdctl.exe")
+            )
+            $rdctl = $rdctlCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+            if ($rdctl) {
+                Write-Info "Starting Rancher Desktop (dockerd/moby engine, Kubernetes off)..."
+                & $rdctl start --container-engine.name=moby --kubernetes.enabled=false --application.start-in-background=true 2>$null | Out-Null
+            } else {
+                Write-Info "Starting Rancher Desktop... (first run: pick the 'dockerd (moby)' engine when asked - required for docker compose)"
+                Start-Process -FilePath $rancherExe | Out-Null
+            }
+        }
+        $startingWhat = "Rancher Desktop"
     }
 
-    $deadline = (Get-Date).AddSeconds(300)
+    if (-not $startingWhat) {
+        Write-Fail "No container runtime found to start (Docker Desktop or Rancher Desktop). Install one (or ask IT to), then re-run start-windows.bat."
+    }
+
+    $startedAt = Get-Date
+    $deadline = $startedAt.AddSeconds(300)
     while ((Get-Date) -lt $deadline) {
         if (Test-DockerEngineReady) {
-            Write-Ok "Docker engine is ready"
+            Write-Host ""
+            Write-Ok "Container engine is ready ($startingWhat)"
             return
         }
+        Write-WaitTick -StartedAt $startedAt -Message "waiting for the $startingWhat engine (VM boot; first-ever launch is the slowest)"
         Start-Sleep -Seconds 5
     }
 
-    Write-Fail "Docker engine did not become ready within 5 minutes. Open Docker Desktop from the Start menu and finish any first-run dialogs (sign-in can be skipped). If it reports 'WSL 2 installation is incomplete', install the kernel from https://aka.ms/wsl2kernel (or run 'wsl --update' in an elevated prompt), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
+    Write-Host ""
+    Write-Fail "The container engine did not become ready within 5 minutes. Open $startingWhat from the Start menu and finish any first-run dialogs (Docker sign-in can be skipped; in Rancher pick the 'dockerd (moby)' engine). If it reports 'WSL 2 installation is incomplete', install the kernel from https://aka.ms/wsl2kernel (or run 'wsl --update' in an elevated prompt), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
 }
 
 # ---------------------------------------------------------------------------
@@ -652,7 +883,7 @@ function Start-DockerEngine {
 # ---------------------------------------------------------------------------
 
 function Invoke-StandaloneClone {
-    Write-StepHeader "Clone repository"
+    Write-StepHeader "Get the repository" "1-3 minutes on a typical connection"
     $targetPath = Join-Path $CloneRoot $RepoName
 
     if (Test-Path (Join-Path $targetPath $script:ComposeFile)) {
@@ -668,15 +899,35 @@ function Invoke-StandaloneClone {
             exit 0
         }
         if (-not $NonInteractive) {
-            $answer = Read-Host "Clone Open Mercato into '$targetPath'? [Y/n]"
-            if ($answer -match "^[Nn]") { Write-Fail "Clone declined. Re-run with -CloneRoot/-RepoName to choose another location." }
+            $answer = Read-Host "Download Open Mercato into '$targetPath'? [Y/n]"
+            if ($answer -match "^[Nn]") { Write-Fail "Download declined. Re-run with -CloneRoot/-RepoName to choose another location." }
         }
-        Write-Info "Cloning $RepoUrl (branch $Branch)..."
-        & git clone --branch $Branch $RepoUrl $targetPath
-        if ($LASTEXITCODE -ne 0) {
-            Write-Fail "git clone failed (exit $LASTEXITCODE). Check network/proxy access to github.com."
+        if (Test-CommandAvailable "git") {
+            Write-Info "Cloning $RepoUrl (branch $Branch)..."
+            & git clone --branch $Branch $RepoUrl $targetPath
+            if ($LASTEXITCODE -ne 0) {
+                Write-Fail "git clone failed (exit $LASTEXITCODE). Check network/proxy access to github.com."
+            }
+            Write-Ok "Cloned into $targetPath"
+        } else {
+            # No Git (e.g. -NoAdmin on a machine where it can't be installed):
+            # fall back to the branch ZIP, which needs no Git at all.
+            Write-Info "Git is not available - downloading the repository as a ZIP instead..."
+            $zipBase = $RepoUrl -replace '\.git$', ''
+            $zipUrl = "$zipBase/archive/refs/heads/$Branch.zip"
+            $zipFile = Join-Path $env:TEMP "open-mercato-$Branch.zip"
+            if (-not (Get-RemoteFile -Url $zipUrl -OutFile $zipFile -DisplayName "repository ZIP" -FileType zip -MinBytes 1MB)) {
+                Write-Fail "The repository ZIP could not be downloaded. Download it manually from $zipUrl, extract it, and double-click start-windows.bat inside it."
+            }
+            $extractDir = Join-Path $env:TEMP ("om-extract-" + [System.IO.Path]::GetRandomFileName())
+            Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
+            $topDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
+            if (-not $topDir) { Write-Fail "The repository ZIP did not contain the expected folder." }
+            New-Item -Path (Split-Path -Parent $targetPath) -ItemType Directory -Force | Out-Null
+            Move-Item -Path $topDir.FullName -Destination $targetPath
+            Remove-Item $zipFile, $extractDir -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Ok "Repository downloaded into $targetPath (no git history - re-download to update)"
         }
-        Write-Ok "Cloned into $targetPath"
     }
 
     # Continue on the cloned tree's own launcher so future logic always runs
@@ -694,6 +945,7 @@ function Invoke-StandaloneClone {
     if ($SkipLlmPrompt) { $forward += "-SkipLlmPrompt" }
     if ($Rebuild) { $forward += "-Rebuild" }
     if ($NoAdmin) { $forward += "-NoAdmin" }
+    if ($Runtime -ne "auto") { $forward += @("-Runtime", $Runtime) }
     if ($SkipDefenderExclusion) { $forward += "-SkipDefenderExclusion" }
     if ($Yes) { $forward += "-Yes" }
     if ($TimeoutMinutes -ne 30) { $forward += @("-TimeoutMinutes", $TimeoutMinutes) }
@@ -768,7 +1020,7 @@ function Resolve-StackPorts {
 }
 
 function Initialize-EnvFiles {
-    Write-StepHeader "Environment files (.env)"
+    Write-StepHeader "Environment files (.env)" "instant; secrets are generated once and never overwritten"
     $rootEnv = Join-Path $script:RepoRoot ".env"
     $appEnvExample = Join-Path $script:RepoRoot "apps\mercato\.env.example"
     $appEnv = Join-Path $script:RepoRoot "apps\mercato\.env"
@@ -888,7 +1140,7 @@ function Set-AiProviderConfig {
 }
 
 function Invoke-LlmProviderPrompt {
-    Write-StepHeader "AI provider (LLM API key)"
+    Write-StepHeader "AI provider (LLM API key)" "waits for your input; have a provider API key ready"
     $rootEnv = Join-Path $script:RepoRoot ".env"
 
     # Already configured, in .env or the ambient environment?
@@ -1054,7 +1306,7 @@ function Test-PortConflicts {
 }
 
 function Start-Stack {
-    Write-StepHeader "Start containers (docker compose up)"
+    Write-StepHeader "Start containers (docker compose up)" "seconds on repeat runs; the FIRST run builds images and can take 10+ minutes"
     # Do NOT force --build on every run: the image is built once (Compose builds
     # it when missing), the source is bind-mounted, and dependencies install at
     # container start — so rebuilding the image each launch just repeats ~10 min
@@ -1078,20 +1330,24 @@ function Start-Stack {
 }
 
 function Wait-ForInfra {
-    Write-StepHeader "Infrastructure health (postgres, redis, meilisearch)"
+    Write-StepHeader "Infrastructure health (postgres, redis, meilisearch)" "usually 30-60 seconds"
     if ($DryRun) { Write-Info "Would wait for postgres/redis/meilisearch healthchecks."; return }
 
-    $deadline = (Get-Date).AddSeconds(300)
+    $startedAt = Get-Date
+    $deadline = $startedAt.AddSeconds(300)
     $services = @("postgres", "redis", "meilisearch")
     while ((Get-Date) -lt $deadline) {
         $health = Get-ComposeServiceHealth
         $healthyCount = @($services | Where-Object { $health[$_] -eq "healthy" }).Count
         if ($healthyCount -ge $services.Count) {
+            Write-Host ""
             Write-Ok "Infrastructure services healthy"
             return
         }
+        Write-WaitTick -StartedAt $startedAt -Message ("waiting for databases to report healthy ({0}/{1} ready)" -f $healthyCount, $services.Count)
         Start-Sleep -Seconds 5
     }
+    Write-Host ""
 
     foreach ($service in $services) {
         Write-Host ""
@@ -1102,7 +1358,7 @@ function Wait-ForInfra {
 }
 
 function Wait-ForApp {
-    Write-StepHeader "Application readiness (first boot installs + builds + seeds)"
+    Write-StepHeader "Application readiness (first boot installs + builds + seeds)" "~10 minutes on first boot (up to ~20 on slow disks); seconds afterwards"
     $appUrl = "http://localhost:$script:AppPort"
     $splashStatusUrl = "http://localhost:$script:SplashPort/status"
     if ($DryRun) { Write-Info "Would wait up to $TimeoutMinutes minutes for $appUrl."; return }
@@ -1152,8 +1408,7 @@ function Wait-ForApp {
             if (-not $splashDownSince) { $splashDownSince = Get-Date }
         }
 
-        $elapsed = "{0:mm\:ss}" -f ((Get-Date) - $startedAt)
-        Write-Host ("`r[{0}] {1}   " -f $elapsed, $statusLine) -NoNewline
+        Write-WaitTick -StartedAt $startedAt -Message $statusLine
         Start-Sleep -Seconds 5
     }
 
@@ -1163,19 +1418,27 @@ function Wait-ForApp {
 }
 
 function Wait-ForAgenticServices {
-    Write-StepHeader "Agentic services (MCP :$script:McpPort, OpenCode :$script:OpencodePort)"
+    Write-StepHeader "Agentic services (MCP :$script:McpPort, OpenCode :$script:OpencodePort)" "1-3 minutes after the app is up"
     if ($DryRun) { Write-Info "Would wait for MCP and OpenCode health endpoints."; return }
 
     $mcpHealthUrl = "http://localhost:$script:McpPort/health"
     $opencodeHealthUrl = "http://localhost:$script:OpencodePort/global/health"
-    $deadline = (Get-Date).AddMinutes(10)
+    $startedAt = Get-Date
+    $deadline = $startedAt.AddMinutes(10)
     $mcpReady = $false
     $opencodeReady = $false
     while ((Get-Date) -lt $deadline -and -not ($mcpReady -and $opencodeReady)) {
         if (-not $mcpReady) { $mcpReady = Test-HttpOk $mcpHealthUrl }
         if (-not $opencodeReady) { $opencodeReady = Test-HttpOk $opencodeHealthUrl }
-        if (-not ($mcpReady -and $opencodeReady)) { Start-Sleep -Seconds 5 }
+        if (-not ($mcpReady -and $opencodeReady)) {
+            $waitingOn = @()
+            if (-not $mcpReady) { $waitingOn += "MCP" }
+            if (-not $opencodeReady) { $waitingOn += "OpenCode" }
+            Write-WaitTick -StartedAt $startedAt -Message ("waiting for {0} (they start after the app; the MCP key is provisioned automatically)" -f ($waitingOn -join " + "))
+            Start-Sleep -Seconds 5
+        }
     }
+    Write-Host ""
 
     if ($mcpReady) { Write-Ok "MCP server healthy ($mcpHealthUrl)" }
     else { Write-Warn "MCP server not healthy yet - check: docker compose -f $script:ComposeFile logs mcp" }
@@ -1347,7 +1610,14 @@ try {
     if ($DryRun) { Write-Info "DRY RUN - nothing will be installed or changed." }
 
     # Step: OS + virtualization preflight
-    Write-StepHeader "Preflight (Windows version, virtualization)"
+    Write-StepHeader "Preflight (Windows version, virtualization)" "instant"
+    # AppLocker/WDAC Constrained Language Mode breaks .NET calls this script
+    # depends on (TLS setup, crypto RNG, file IO) with cryptic mid-run errors -
+    # detect it up-front with an actionable message instead.
+    $languageMode = $ExecutionContext.SessionState.LanguageMode
+    if ("$languageMode" -ne "FullLanguage") {
+        Write-Fail "PowerShell is running in $languageMode mode (an AppLocker/WDAC policy). The launcher needs FullLanguage mode - ask IT to allow this script (or run it from an exempted path), then re-run."
+    }
     $build = [System.Environment]::OSVersion.Version.Build
     if ($build -lt 19041) {
         Write-Fail "Windows build $build is too old. WSL2/Docker Desktop need Windows 10 2004 (build 19041) or Windows 11."
