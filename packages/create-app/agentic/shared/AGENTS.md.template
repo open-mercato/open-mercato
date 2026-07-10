@@ -68,34 +68,34 @@ These per-module fact-sheets are **generated from source** and bundled for the m
 
 ### Skills: local + shared collection
 
-Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed into `.claude/skills/` / `.codex/skills/` by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). After install they live under `.agents/skills/` and `.claude/skills/<name>`. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
+Skills come from two places. Repo-local skills (module scaffolding, UI design, troubleshooting, etc.) ship inside `.ai/skills/` and are installed into your agent harness by tier (see `.ai/skills/tiers.json`). The PR-automation and review skills below are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install the subset this app ships (`npx skills add`, then `npx skills update` on re-runs to refresh). `install-skills.sh` places each skill in whichever harness directory your CLI reads (`.agents/skills/` for Codex, `.claude/skills/<name>` for Claude Code, mirrored into `.codex/skills/`), so the tables below **reference external skills by name, not by a hard-coded harness path** — the directory depends on which agent you scaffolded, and pointing every reader at `.claude/skills/…` would mislead a Codex or Cursor scaffold. A folder under `.ai/skills/<name>/` matching an external skill is a repo-local **override** that the external skill reads on top of its built-in workflow (default-branch discovery, opt-in labels, `src/modules/…` layout). Repo-specific settings live in `.ai/agentic.config.json` and the tracker descriptor `.ai/trackers/github.md`.
 
 ### Quality & Process
 
 | Task | Load |
 |---|---|
 | Debug / fix errors | `.ai/skills/om-troubleshooter/SKILL.md` |
-| Review code changes | `.claude/skills/om-code-review/SKILL.md` (external — `yarn install-skills`) |
-| Write a spec | `.claude/skills/om-spec-writing/SKILL.md` (external), `.ai/specs/SPEC-000-template.md` |
+| Review code changes | `om-code-review` (external — `yarn install-skills`) |
+| Write a spec | `om-spec-writing` (external — `yarn install-skills`), `.ai/specs/SPEC-000-template.md` |
 | Implement a spec (or selected phases) | `.ai/skills/om-implement-spec/SKILL.md` |
-| Create / run integration tests | `.claude/skills/om-integration-tests/SKILL.md` (external — `yarn install-skills`) |
+| Create / run integration tests | `om-integration-tests` (external — `yarn install-skills`) |
 | Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
 
 ### Agent Automation / Auto-Skills
 
-These skills are installed from the shared collection by `yarn install-skills`; the matching `.ai/skills/<name>/` folder holds the standalone override they read on top of their workflow.
+These skills are installed from the shared collection by `yarn install-skills` (referenced by name — your harness loads them from its own skills directory); the matching `.ai/skills/<name>/` folder holds the standalone override they read on top of their workflow.
 
 | Task | Load |
 |---|---|
-| Delegate an arbitrary task end-to-end as a PR | `.claude/skills/om-auto-create-pr/SKILL.md` |
-| Resume an in-progress agent PR | `.claude/skills/om-auto-continue-pr/SKILL.md` |
-| Run a long multi-step spec implementation with resumable checkpoints | `.claude/skills/om-auto-create-pr-loop/SKILL.md` |
-| Resume a checkpointed PR started by `om-auto-create-pr-loop` | `.claude/skills/om-auto-continue-pr-loop/SKILL.md` |
-| Automated code review on a PR (with optional autofix) | `.claude/skills/om-auto-review-pr/SKILL.md` |
-| Fix a GitHub issue by number and open a PR | `.claude/skills/om-auto-fix-issue/SKILL.md` |
+| Delegate an arbitrary task end-to-end as a PR | `om-auto-create-pr` (external) |
+| Resume an in-progress agent PR | `om-auto-continue-pr` (external) |
+| Run a long multi-step spec implementation with resumable checkpoints | `om-auto-create-pr-loop` (external) |
+| Resume a checkpointed PR started by `om-auto-create-pr-loop` | `om-auto-continue-pr-loop` (external) |
+| Automated code review on a PR (with optional autofix) | `om-auto-review-pr` (external) |
+| Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external) |
 | Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/om-trim-unused-modules/SKILL.md` |
 
-Invoke these from the Claude Code CLI as slash commands, for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
+Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
 
 ## Module Anatomy
 

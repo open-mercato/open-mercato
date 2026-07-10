@@ -136,3 +136,45 @@ test('auto-* override SKILL.md redirects the hard-coded base branch to the disco
     `These overrides must resolve the base branch via gh defaultBranchRef instead of assuming develop: ${offenders.join(', ')}`,
   )
 })
+
+// The agent harness is user-selectable at scaffold time (--agents
+// claude-code,codex,cursor). generateShared() writes the same AGENTS.md.template
+// for every harness and only substitutes {{PROJECT_NAME}}, so routing an
+// external skill through a hard-coded `.claude/skills/…` path misleads a
+// Codex/Cursor scaffold (Codex reads .agents/skills/, never .claude/skills). The
+// routing tables must reference external skills by name and let each harness
+// resolve them from its own directory.
+test('AGENTS.md routing tables do not hard-code a harness-specific skills path for external skills', () => {
+  const agentsTemplate = fs.readFileSync(
+    new URL('../../agentic/shared/AGENTS.md.template', import.meta.url),
+    'utf8',
+  )
+  const readyAppAgents = fs.readFileSync(
+    new URL('../../template/AGENTS.md', import.meta.url),
+    'utf8',
+  )
+  const externalSkills = [
+    ...skillsShippingOverrideFolder,
+    'om-code-review',
+    'om-spec-writing',
+    'om-integration-tests',
+  ]
+  const offenders: string[] = []
+  for (const [label, content] of [
+    ['AGENTS.md.template', agentsTemplate],
+    ['template/AGENTS.md', readyAppAgents],
+  ] as const) {
+    for (const skill of externalSkills) {
+      for (const harnessDir of ['.claude/skills', '.codex/skills', '.agents/skills']) {
+        if (content.includes(`${harnessDir}/${skill}/SKILL.md`)) {
+          offenders.push(`${label}: ${harnessDir}/${skill}/SKILL.md`)
+        }
+      }
+    }
+  }
+  assert.deepEqual(
+    offenders,
+    [],
+    `External skills must be referenced by name (harness-agnostic), not via a hard-coded harness path: ${offenders.join(', ')}`,
+  )
+})
