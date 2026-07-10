@@ -1,11 +1,19 @@
 /** @jest-environment node */
 
 const mockAdvisoryLockExecute = jest.fn(async () => undefined)
+const reconcileInsertValues: unknown[][] = []
 
 jest.mock('kysely', () => ({
-  sql: () => ({
+  sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     as: (alias: string) => ({ alias }),
-    execute: mockAdvisoryLockExecute,
+    execute: async () => {
+      const statement = Array.isArray(strings) ? strings.join('?') : String(strings)
+      if (statement.includes('insert into attachment_quota_reservations')) {
+        reconcileInsertValues.push(values)
+        return undefined
+      }
+      return mockAdvisoryLockExecute()
+    },
   }),
 }))
 
@@ -21,9 +29,18 @@ type ReservationRow = {
   status: string
 }
 
-function createSerializedEntityManager() {
+const RECONCILE_INSERT_PATH_INDEX = 6
+
+function reconciledPaths(): string[] {
+  return reconcileInsertValues.map((values) => String(values[RECONCILE_INSERT_PATH_INDEX]))
+}
+
+function createSerializedEntityManager(options: {
+  attachmentPaths?: string[]
+  ledgerRows?: Array<{ storage_path: string; status: string }>
+} = {}) {
   const reservations: ReservationRow[] = []
-  const reconciledPaths: string[] = []
+  const deletedLedgerPaths: string[] = []
   let transactionTail = Promise.resolve()
 
   const db = {
@@ -39,24 +56,20 @@ function createSerializedEntityManager() {
                 0,
               ),
         }),
-        execute: async () => table === 'attachments' ? [{ storage_path: 'attachment.pdf' }] : [],
+        execute: async () =>
+          table === 'attachments'
+            ? (options.attachmentPaths ?? []).map((path) => ({ storage_path: path }))
+            : (options.ledgerRows ?? []),
       }
       return query
     },
-    insertInto: () => {
-      let values: { storage_path: string } | null = null
+    deleteFrom: () => {
       const query = {
-        values: (input: { storage_path: string }) => {
-          values = input
+        where: (column: string, _operator: string, value: unknown) => {
+          if (column === 'storage_path') deletedLedgerPaths.push(...(value as string[]))
           return query
         },
-        onConflict: (configure: (conflict: { columns: () => { doNothing: () => void } }) => unknown) => {
-          configure({ columns: () => ({ doNothing: () => undefined }) })
-          return query
-        },
-        execute: async () => {
-          if (values) reconciledPaths.push(values.storage_path)
-        },
+        execute: async () => undefined,
       }
       return query
     },
@@ -81,12 +94,13 @@ function createSerializedEntityManager() {
     },
   }
 
-  return { em, reservations, reconciledPaths }
+  return { em, reservations, deletedLedgerPaths }
 }
 
 describe('AttachmentQuotaService', () => {
   beforeEach(() => {
     mockAdvisoryLockExecute.mockClear()
+    reconcileInsertValues.length = 0
   })
 
   it('serializes real reserve calls so concurrent admission cannot exceed quota', async () => {
@@ -136,7 +150,7 @@ describe('AttachmentQuotaService', () => {
   })
 
   it('does not reconcile attachment-backed S3 objects into standalone usage', async () => {
-    const { em, reconciledPaths } = createSerializedEntityManager()
+    const { em } = createSerializedEntityManager({ attachmentPaths: ['attachment.pdf'] })
     const service = new AttachmentQuotaService(em as never)
 
     await service.reconcileStandaloneObjects({
@@ -149,6 +163,44 @@ describe('AttachmentQuotaService', () => {
       ],
     })
 
-    expect(reconciledPaths).toEqual(['uploads/standalone.pdf'])
+    expect(reconciledPaths()).toEqual(['uploads/standalone.pdf'])
+  })
+
+  it('skips already-reconciled objects instead of re-inserting them on every admission', async () => {
+    const { em, deletedLedgerPaths } = createSerializedEntityManager({
+      ledgerRows: [{ storage_path: 'uploads/existing.pdf', status: 'committed' }],
+    })
+    const service = new AttachmentQuotaService(em as never)
+
+    await service.reconcileStandaloneObjects({
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      storageDriver: 's3',
+      objects: [
+        { path: 'uploads/existing.pdf', bytes: 2 },
+        { path: 'uploads/new.pdf', bytes: 1 },
+      ],
+    })
+
+    expect(reconciledPaths()).toEqual(['uploads/new.pdf'])
+    expect(deletedLedgerPaths).toEqual([])
+  })
+
+  it('heals committed ledger rows whose path gained an authoritative attachment row', async () => {
+    const { em, deletedLedgerPaths } = createSerializedEntityManager({
+      attachmentPaths: ['double-counted.pdf'],
+      ledgerRows: [{ storage_path: 'double-counted.pdf', status: 'committed' }],
+    })
+    const service = new AttachmentQuotaService(em as never)
+
+    await service.reconcileStandaloneObjects({
+      tenantId: '11111111-1111-4111-8111-111111111111',
+      organizationId: '22222222-2222-4222-8222-222222222222',
+      storageDriver: 's3',
+      objects: [{ path: 'double-counted.pdf', bytes: 2 }],
+    })
+
+    expect(deletedLedgerPaths).toEqual(['double-counted.pdf'])
+    expect(reconciledPaths()).toEqual([])
   })
 })

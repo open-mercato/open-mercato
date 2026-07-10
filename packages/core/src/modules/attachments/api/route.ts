@@ -305,10 +305,17 @@ export async function POST(req: Request) {
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as EntityManager
   const dataEngine = resolve('dataEngine')
-  const attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService | null
-  const attachmentQuotaRecoveryScheduler = resolve('attachmentQuotaRecoveryScheduler') as
-    | ((reservationId: string, delayMs: number) => Promise<void>)
-    | null
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let attachmentQuotaRecoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+    attachmentQuotaRecoveryScheduler = resolve('attachmentQuotaRecoveryScheduler') as (
+      reservationId: string,
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Legacy fallback below when the quota service is not registered in this container.
+  }
   const storageDriverFactory =
     (resolve('storageDriverFactory') as StorageDriverFactory | null) ?? new StorageDriverFactory(em)
   await ensureDefaultPartitions(em)
@@ -361,7 +368,9 @@ export async function POST(req: Request) {
       }
     } catch (error) {
       logger.error('Attachment quota accounting failed', { err: error })
-      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
     }
   }
   const buf = Buffer.from(await file.arrayBuffer())
@@ -413,7 +422,9 @@ export async function POST(req: Request) {
       })
     : undefined
   if (attachmentQuotaService && !preparedStoragePath) {
-    return NextResponse.json({ error: 'Storage driver cannot participate in quota recovery.' }, { status: 500 })
+    return NextResponse.json({
+      error: t('attachments.errors.quotaRecoveryUnsupported', 'Storage driver cannot participate in quota recovery.'),
+    }, { status: 500 })
   }
   let quotaReservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
   if (attachmentQuotaService) {
@@ -448,10 +459,14 @@ export async function POST(req: Request) {
         }, { status: 413 })
       }
       if (code === 'quota_target_exists') {
-        return NextResponse.json({ error: 'The target storage path already exists.' }, { status: 409 })
+        return NextResponse.json({
+          error: t('attachments.errors.storagePathExists', 'The target storage path already exists.'),
+        }, { status: 409 })
       }
       logger.error('Attachment quota reservation failed', { err: error })
-      return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
+      return NextResponse.json({
+        error: t('attachments.errors.quotaUnavailable', 'Storage quota accounting is unavailable.'),
+      }, { status: 500 })
     }
   }
   let storedPath: string

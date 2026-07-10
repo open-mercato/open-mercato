@@ -68,10 +68,17 @@ export async function POST(req: Request) {
 
   if (operation === 'upload') {
     const { resolve } = await createRequestContainer()
-    const attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService | null
-    const recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as
-      | ((reservationId: string, delayMs: number) => Promise<void>)
-      | null
+    let attachmentQuotaService: AttachmentQuotaService | null = null
+    let recoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+    try {
+      attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+      recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
+        reservationId: string,
+        delayMs: number,
+      ) => Promise<void>
+    } catch {
+      // Fail closed below when the attachments quota service is not registered.
+    }
     if (!attachmentQuotaService) {
       return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
     }

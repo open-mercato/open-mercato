@@ -125,10 +125,17 @@ export async function POST(req: Request) {
     `uploads/org_${auth.orgId}/tenant_${auth.tenantId}/${Date.now()}_${randomUUID().slice(0, 8)}_${safeName}`
 
   const { resolve } = await createRequestContainer()
-  const attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService | null
-  const recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as
-    | ((reservationId: string, delayMs: number) => Promise<void>)
-    | null
+  let attachmentQuotaService: AttachmentQuotaService | null = null
+  let recoveryScheduler: ((reservationId: string, delayMs: number) => Promise<void>) | null = null
+  try {
+    attachmentQuotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+    recoveryScheduler = resolve('storageS3QuotaRecoveryScheduler') as (
+      reservationId: string,
+      delayMs: number,
+    ) => Promise<void>
+  } catch {
+    // Backward-compatible fallback below when the attachments quota service is not registered.
+  }
   let reservation: { id: string; leaseToken: string; expiresAt: Date } | null = null
   if (attachmentQuotaService) {
     try {

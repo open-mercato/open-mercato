@@ -49,7 +49,12 @@ export async function PUT(req: Request, ctx: RouteContext) {
   if (!token) return NextResponse.json({ error: 'Upload token is required.' }, { status: 400 })
 
   const { resolve } = await createRequestContainer()
-  const quotaService = resolve('attachmentQuotaService') as AttachmentQuotaService | null
+  let quotaService: AttachmentQuotaService | null = null
+  try {
+    quotaService = resolve('attachmentQuotaService') as AttachmentQuotaService
+  } catch {
+    // Fail closed below when the attachments quota service is not registered.
+  }
   if (!quotaService) return NextResponse.json({ error: 'Storage quota accounting is unavailable.' }, { status: 500 })
 
   const tokenHash = createHash('sha256').update(token).digest('hex')

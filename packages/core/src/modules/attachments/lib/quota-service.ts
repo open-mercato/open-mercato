@@ -309,47 +309,69 @@ export class AttachmentQuotaService {
     objects: Array<{ path: string; bytes: number }>
   }): Promise<void> {
     const uniqueObjects = Array.from(new Map(input.objects.map((object) => [object.path, object])).values())
-    const attachmentPaths = new Set<string>()
+    for (const object of uniqueObjects) {
+      if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) {
+        throw new AttachmentQuotaError('quota_accounting_unavailable', 'Standalone storage accounting returned an invalid size.')
+      }
+    }
     const db = this.em.getKysely<any>() as any
     for (let offset = 0; offset < uniqueObjects.length; offset += 500) {
-      const paths = uniqueObjects.slice(offset, offset + 500).map((object) => object.path)
+      const batch = uniqueObjects.slice(offset, offset + 500)
+      const paths = batch.map((object) => object.path)
       if (paths.length === 0) continue
-      const rows = await db
+
+      const attachmentRows = await db
         .selectFrom('attachments')
         .select('storage_path')
         .where('tenant_id', '=', input.tenantId)
         .where('storage_driver', '=', input.storageDriver)
         .where('storage_path', 'in', paths)
         .execute()
-      for (const row of rows) attachmentPaths.add(String(row.storage_path))
-    }
+      const attachmentPaths = new Set(attachmentRows.map((row: any) => String(row.storage_path)))
 
-    for (const object of uniqueObjects) {
-      if (!Number.isSafeInteger(object.bytes) || object.bytes < 0) {
-        throw new AttachmentQuotaError('quota_accounting_unavailable', 'Standalone storage accounting returned an invalid size.')
-      }
-      if (attachmentPaths.has(object.path)) continue
-      await db
-        .insertInto('attachment_quota_reservations')
-        .values({
-          id: randomUUID(),
-          tenant_id: input.tenantId,
-          organization_id: input.organizationId,
-          reserved_bytes: object.bytes,
-          actual_bytes: object.bytes,
-          status: 'committed',
-          source: 'storage_s3_upload',
-          storage_driver: input.storageDriver,
-          partition_code: null,
-          storage_path: object.path,
-          lease_token: randomUUID(),
-          upload_token_hash: null,
-          expires_at: null,
-          created_at: new Date(),
-          updated_at: new Date(),
-        })
-        .onConflict((conflict: any) => conflict.columns(['tenant_id', 'storage_driver', 'storage_path']).doNothing())
+      const ledgerRows = await db
+        .selectFrom('attachment_quota_reservations')
+        .select(['storage_path', 'status'])
+        .where('tenant_id', '=', input.tenantId)
+        .where('storage_driver', '=', input.storageDriver)
+        .where('storage_path', 'in', paths)
         .execute()
+      const ledgerPaths = new Set(ledgerRows.map((row: any) => String(row.storage_path)))
+
+      const doubleCountedPaths = ledgerRows
+        .filter((row: any) => row.status === 'committed' && attachmentPaths.has(String(row.storage_path)))
+        .map((row: any) => String(row.storage_path))
+      if (doubleCountedPaths.length > 0) {
+        await db
+          .deleteFrom('attachment_quota_reservations')
+          .where('tenant_id', '=', input.tenantId)
+          .where('storage_driver', '=', input.storageDriver)
+          .where('storage_path', 'in', doubleCountedPaths)
+          .where('status', '=', 'committed')
+          .execute()
+      }
+
+      for (const object of batch) {
+        if (attachmentPaths.has(object.path) || ledgerPaths.has(object.path)) continue
+        await sql`
+          insert into attachment_quota_reservations (
+            id, tenant_id, organization_id, reserved_bytes, actual_bytes, status, source,
+            storage_driver, partition_code, storage_path, lease_token, upload_token_hash,
+            expires_at, created_at, updated_at
+          )
+          select ${randomUUID()}::uuid, ${input.tenantId}::uuid, ${input.organizationId}::uuid,
+            ${object.bytes}::bigint, ${object.bytes}::bigint, 'committed', 'storage_s3_upload',
+            ${input.storageDriver}, null, ${object.path}, ${randomUUID()}::uuid, null,
+            null, now(), now()
+          where not exists (
+            select 1 from attachments
+            where tenant_id = ${input.tenantId}::uuid
+              and storage_driver = ${input.storageDriver}
+              and storage_path = ${object.path}
+          )
+          on conflict (tenant_id, storage_driver, storage_path) do nothing
+        `.execute(db)
+      }
     }
   }
 
