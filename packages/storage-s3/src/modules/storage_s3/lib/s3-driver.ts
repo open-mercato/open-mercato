@@ -11,6 +11,11 @@ import {
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
+import {
+  assertSafeS3Endpoint,
+  assertStaticallySafeS3Endpoint,
+  createSafeS3RequestHandler,
+} from './endpoint-safety'
 
 export type S3DriverConfig = {
   bucket: string
@@ -62,11 +67,13 @@ export class S3StorageDriver implements StorageDriver {
   readonly key = 's3'
   private readonly client: S3Client
   private readonly bucket: string
+  private readonly endpoint?: string
   private readonly pathPrefix: string
 
   constructor(config: Record<string, unknown>) {
     const cfg = config as S3DriverConfig
     this.bucket = cfg.bucket
+    this.endpoint = cfg.endpoint
     this.pathPrefix = cfg.pathPrefix ?? ''
 
     const authMode = cfg.authMode
@@ -96,15 +103,20 @@ export class S3StorageDriver implements StorageDriver {
       }
     }
 
+    assertStaticallySafeS3Endpoint(cfg.endpoint)
+    const requestHandler = createSafeS3RequestHandler(cfg.endpoint)
+
     this.client = new S3Client({
       region: cfg.region ?? 'us-east-1',
       endpoint: cfg.endpoint,
       forcePathStyle: cfg.forcePathStyle ?? false,
       credentials,
+      ...(requestHandler ? { requestHandler } : {}),
     })
   }
 
   async store(payload: StoreFilePayload): Promise<StoredFile> {
+    await this.assertEndpointSafe()
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
     const tenantSegment = resolveTenantSegment(payload.tenantId ?? null)
     const safeName = sanitizeFileName(payload.fileName || 'file')
@@ -125,6 +137,7 @@ export class S3StorageDriver implements StorageDriver {
   }
 
   async read(_partitionCode: string, storagePath: string): Promise<ReadFileResult> {
+    await this.assertEndpointSafe()
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
     )
@@ -137,6 +150,7 @@ export class S3StorageDriver implements StorageDriver {
 
   async delete(_partitionCode: string, storagePath: string): Promise<void> {
     try {
+      await this.assertEndpointSafe()
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }),
       )
@@ -167,6 +181,7 @@ export class S3StorageDriver implements StorageDriver {
    * Put an object directly at a specific S3 key (for standalone usage).
    */
   async putObject(key: string, buffer: Buffer, contentType?: string): Promise<void> {
+    await this.assertEndpointSafe()
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
@@ -191,6 +206,7 @@ export class S3StorageDriver implements StorageDriver {
     truncated: boolean
     nextContinuationToken?: string
   }> {
+    await this.assertEndpointSafe()
     const response = await this.client.send(
       new ListObjectsV2Command({
         Bucket: this.bucket,
@@ -219,6 +235,7 @@ export class S3StorageDriver implements StorageDriver {
     expiresIn = 3600,
     contentType?: string,
   ): Promise<string> {
+    await this.assertEndpointSafe()
     if (operation === 'upload') {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
@@ -229,5 +246,9 @@ export class S3StorageDriver implements StorageDriver {
     }
     const command = new GetObjectCommand({ Bucket: this.bucket, Key: storagePath })
     return getSignedUrl(this.client, command, { expiresIn })
+  }
+
+  private async assertEndpointSafe(): Promise<void> {
+    await assertSafeS3Endpoint(this.endpoint)
   }
 }
