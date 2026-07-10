@@ -97,3 +97,11 @@ package-lock.json
 # external skills installed by `yarn install-skills` (npx skills add)
 .agents/skills/
 skills-lock.json
+
+# QA runtime state written by the om-prepare-test-env / om-integration-tests /
+# om-auto-verify-pr-ui skills (generated per run, never source)
+.ai/qa/test-env.json
+.ai/qa/test-env.lock/
+.ai/qa/test-env-boot.log
+.ai/qa/artifacts_*/
+.ai/qa/ephemeral*
