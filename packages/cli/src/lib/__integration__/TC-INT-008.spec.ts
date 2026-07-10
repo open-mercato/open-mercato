@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MODULE_FACTS_ALLOWLIST } from '../generators/module-facts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..')
@@ -205,18 +204,12 @@ function expectedGuideOutputNames(): string[] {
   }
 
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
-  // the module-facts.json sidecar is copied as-is, fact-sheets are filtered to the
-  // fixture's enabled modules, and every allowlisted module whose hand-written
-  // core.<module>.md guide no longer exists gets a legacy redirect stub.
+  // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
+  // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
+  // emitted (#3754).
   collected.add('module-facts.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
     collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
-  }
-  for (const moduleId of MODULE_FACTS_ALLOWLIST) {
-    const legacyGuideSource = path.join(packagesRoot, 'core', 'src', 'modules', moduleId, 'agentic', 'standalone-guide.md')
-    if (!fs.existsSync(legacyGuideSource)) {
-      collected.add(`core.${moduleId}.md`)
-    }
   }
 
   return Array.from(collected).sort()
