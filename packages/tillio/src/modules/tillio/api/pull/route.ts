@@ -16,13 +16,18 @@ import {
 import { TILLIO_INTEGRATION_ID } from '../../lib/environment'
 import { TillioApiError } from '../../lib/errors'
 import { tillioAdapter } from '../../lib/adapter'
-import { classifyTillioError, resolveEnvironment } from '../../lib/operators'
+import { classifyTillioError, resolveEnvironment, type TillioResolvedEnvironment } from '../../lib/operators'
 import {
-  computeEnvFingerprint,
   readOperatorsBlob,
   type TillioCredentialsService,
   type TillioOperatorRecord,
 } from '../../lib/operators-store'
+import {
+  blockerSection,
+  evaluatePullReadiness,
+  PULL_BLOCKER_MESSAGES,
+  type PullReadiness,
+} from '../../lib/pull-readiness'
 import { zonedDayEnd, zonedDayStart } from '../../lib/tz'
 
 const PHONE_CALL_RESOURCE_KIND = 'phone_calls.phone_call'
@@ -40,12 +45,19 @@ const pullBodySchema = z
   .refine((body) => body.from <= body.to, { message: 'The start day must not be after the end day.' })
 
 export const metadata = {
+  GET: { requireAuth: true, requireFeatures: ['phone_calls.manage', 'integrations.manage'] },
   POST: { requireAuth: true, requireFeatures: ['phone_calls.manage', 'integrations.manage'] },
 }
 
 export const openApi = {
-  tags: ['Tillio'],
-  summary: 'Pull phone calls from Tillio into the phone_calls hub',
+  GET: {
+    tags: ['Tillio'],
+    summary: 'Report whether Tillio is ready to pull phone calls',
+  },
+  POST: {
+    tags: ['Tillio'],
+    summary: 'Pull phone calls from Tillio into the phone_calls hub',
+  },
 }
 
 async function isEnvironmentHealthy(em: EntityManager, scope: IntegrationScope): Promise<boolean> {
@@ -56,6 +68,30 @@ async function isEnvironmentHealthy(em: EntityManager, scope: IntegrationScope):
     deletedAt: null,
   })
   return state?.lastHealthStatus === 'healthy'
+}
+
+type PullContext = {
+  readiness: PullReadiness
+  environment: TillioResolvedEnvironment | null
+  operator: TillioOperatorRecord | null
+}
+
+async function resolvePullContext(
+  credentialsService: TillioCredentialsService,
+  em: EntityManager,
+  scope: IntegrationScope,
+): Promise<PullContext> {
+  const environment = await resolveEnvironment(credentialsService, scope)
+  const environmentHealthy = environment ? await isEnvironmentHealthy(em, scope) : false
+  const blob = await readOperatorsBlob(credentialsService, scope)
+  const operator =
+    blob.operators.find((entry) => entry.id === blob.defaultOperatorId) ?? blob.operators[0] ?? null
+
+  return {
+    readiness: evaluatePullReadiness({ environment, environmentHealthy, operator }),
+    environment,
+    operator,
+  }
 }
 
 function buildIngestInput(call: NormalizedPhoneCall, scope: IntegrationScope): Record<string, unknown> {
@@ -79,6 +115,27 @@ function buildIngestInput(call: NormalizedPhoneCall, scope: IntegrationScope): R
   }
 }
 
+export async function GET(req: Request) {
+  const auth = await getAuthFromRequest(req)
+  if (!auth?.tenantId || !auth.orgId) {
+    return NextResponse.json({ ok: false, message: 'Unauthorized' }, { status: 401 })
+  }
+
+  const container = await createRequestContainer()
+  const credentialsService = container.resolve('integrationCredentialsService') as TillioCredentialsService
+  const em = container.resolve('em') as EntityManager
+  const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
+
+  const { readiness, operator } = await resolvePullContext(credentialsService, em, scope)
+
+  return NextResponse.json({
+    ok: true,
+    ...readiness,
+    operatorId: operator?.id ?? null,
+    plugin: operator?.plugin ?? null,
+  })
+}
+
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -97,26 +154,11 @@ export async function POST(req: Request) {
   const em = container.resolve('em') as EntityManager
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
-  const environment = await resolveEnvironment(credentialsService, scope)
-  if (!environment || !(await isEnvironmentHealthy(em, scope))) {
+  const { readiness, environment, operator } = await resolvePullContext(credentialsService, em, scope)
+  if (readiness.blocker || !environment || !operator) {
+    const blocker = readiness.blocker ?? 'environment_not_ready'
     return NextResponse.json(
-      { ok: false, code: 'environment_not_ready', section: 'environment', message: 'Configure the Tillio environment and run the health check first.' },
-      { status: 409 },
-    )
-  }
-
-  const blob = await readOperatorsBlob(credentialsService, scope)
-  const operator: TillioOperatorRecord | undefined =
-    blob.operators.find((entry) => entry.id === blob.defaultOperatorId) ?? blob.operators[0]
-  if (!operator) {
-    return NextResponse.json(
-      { ok: false, code: 'operator_missing', section: 'operator', message: 'Attach a Tillio operator before pulling calls.' },
-      { status: 409 },
-    )
-  }
-  if (operator.envFingerprint !== computeEnvFingerprint(environment)) {
-    return NextResponse.json(
-      { ok: false, code: 'environment_drift', section: 'operator', message: 'The environment changed after this operator was attached. Detach and attach it again before pulling calls.' },
+      { ok: false, code: blocker, section: blockerSection(blocker), message: PULL_BLOCKER_MESSAGES[blocker] },
       { status: 409 },
     )
   }
