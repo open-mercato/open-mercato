@@ -309,6 +309,50 @@ function Install-DockerViaBestMethod {
     Install-DockerDesktopDirect
 }
 
+function Test-IsMsiFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            $buffer = New-Object byte[] 8
+            if ($stream.Read($buffer, 0, 8) -lt 8) { return $false }
+            # OLE2 compound-file (MSI) magic: D0 CF 11 E0 A1 B1 1A E1
+            return ($buffer[0] -eq 0xD0 -and $buffer[1] -eq 0xCF -and $buffer[2] -eq 0x11 -and $buffer[3] -eq 0xE0)
+        } finally { $stream.Close() }
+    } catch { return $false }
+}
+
+function Ensure-Wsl2Kernel {
+    # `wsl --update` fetches the kernel on connected machines, but it can fail on
+    # locked-down images (no Store / restricted network) — after which Docker
+    # Desktop's WSL2 backend never starts ("WSL 2 installation is incomplete").
+    # The standalone kernel MSI is a reliable, idempotent fallback. Installing
+    # it pre-reboot just stages the kernel files; the enabled features activate
+    # after the restart. Best-effort throughout (Docker Desktop can also install
+    # the kernel on first launch), so a failure here warns, never aborts.
+    if (Test-CommandAvailable "wsl") {
+        & wsl --update 2>$null | Out-Null
+    }
+    $kernelMsi = Join-Path $env:TEMP "wsl_update_x64.msi"
+    try {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri "https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi" -OutFile $kernelMsi -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+    } catch {
+        Write-Warn "Could not download the WSL2 kernel: $($_.Exception.Message). Docker Desktop will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
+        return
+    }
+    if (-not (Test-IsMsiFile $kernelMsi)) {
+        Write-Warn "The downloaded WSL2 kernel was not a valid installer (proxy/redirect?). Docker Desktop will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
+        return
+    }
+    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList '/i', "`"$kernelMsi`"", '/qn', '/norestart' -Wait -PassThru
+    if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
+        Write-Ok "WSL2 kernel installed"
+    } else {
+        Write-Warn "WSL2 kernel installer exited with code $($proc.ExitCode). Docker Desktop can also install it on first launch; else install it manually from https://aka.ms/wsl2kernel."
+    }
+}
+
 function Test-GitInstalled {
     if (Test-CommandAvailable "git") { return $true }
     $candidates = @(
@@ -385,8 +429,8 @@ function Invoke-ElevatedInstallPhase {
     }
     if (Test-CommandAvailable "wsl") {
         & wsl --set-default-version 2 2>$null | Out-Null
-        & wsl --update 2>$null | Out-Null
     }
+    Ensure-Wsl2Kernel
     Write-Ok "WSL2 features ensured"
 
     if (-not (Test-DockerDesktopInstalled)) {
@@ -578,7 +622,7 @@ function Start-DockerEngine {
         Start-Sleep -Seconds 5
     }
 
-    Write-Fail "Docker engine did not become ready within 5 minutes. Open Docker Desktop from the Start menu, finish any first-run dialogs (sign-in can be skipped), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
+    Write-Fail "Docker engine did not become ready within 5 minutes. Open Docker Desktop from the Start menu and finish any first-run dialogs (sign-in can be skipped). If it reports 'WSL 2 installation is incomplete', install the kernel from https://aka.ms/wsl2kernel (or run 'wsl --update' in an elevated prompt), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
 }
 
 # ---------------------------------------------------------------------------
