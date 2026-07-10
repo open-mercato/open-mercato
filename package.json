@@ -82,6 +82,8 @@
     "i18n:check-values": "node scripts/i18n-check-values.mjs",
     "i18n:check": "tsx scripts/i18n-check-sync.ts && tsx scripts/i18n-check-usage.ts && tsx scripts/i18n-check-hardcoded.ts && node scripts/i18n-check-values.mjs",
     "i18n:fix": "tsx scripts/i18n-check-sync.ts --fix",
+    "logger:check-console": "node scripts/logger-check-console.mjs",
+    "logger:check-console:ci": "node scripts/logger-check-console.mjs --strict",
     "check:dep-versions": "tsx scripts/check-dep-versions.ts",
     "template:sync": "tsx scripts/template-sync.ts",
     "template:sync:fix": "tsx scripts/template-sync.ts --fix",

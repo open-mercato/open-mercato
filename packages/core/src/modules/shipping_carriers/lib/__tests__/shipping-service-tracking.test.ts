@@ -1,5 +1,6 @@
 import Chance from 'chance'
 import { createShippingCarrierService } from '../shipping-service'
+import { CarrierShipment } from '../../data/entities'
 
 const chance = new Chance()
 
@@ -68,7 +69,7 @@ const makeInput = (overrides: Record<string, unknown> = {}) => ({
 })
 
 describe('ShippingCarrierService.getTracking is read-only', () => {
-  afterEach(() => jest.clearAllMocks())
+  afterEach(() => jest.resetAllMocks())
 
   it('does not flush, mutate the shipment, or emit events on a read', async () => {
     const scope = makeScope()
@@ -92,10 +93,13 @@ describe('ShippingCarrierService.getTracking is read-only', () => {
     expect(tracking.status).toBe('in_transit')
   })
 
-  it('still returns provider tracking when no shipment row exists (tracking-number lookup)', async () => {
+  it('requires tracking-number lookup to resolve a scoped shipment before calling the adapter', async () => {
     const scope = makeScope()
-    // No shipmentId, so the service never queries the shipment row.
-    mockGetAdapter.mockReturnValueOnce(makeAdapter(makeTracking('delivered')) as any)
+    const providerKey = chance.word()
+    const trackingNumber = chance.string()
+    const adapter = makeAdapter(makeTracking('delivered'))
+    mockFindOne.mockResolvedValueOnce(null as any)
+    mockGetAdapter.mockReturnValueOnce(adapter as any)
 
     const em = makeEm()
     const service = createShippingCarrierService({
@@ -103,19 +107,62 @@ describe('ShippingCarrierService.getTracking is read-only', () => {
       integrationCredentialsService: makeCredentialsService() as any,
     })
 
-    const tracking = await service.getTracking({
-      providerKey: chance.word(),
-      trackingNumber: chance.string(),
+    await expect(service.getTracking({
+      providerKey,
+      trackingNumber,
+      ...scope,
+    })).rejects.toThrow('Shipment not found')
+
+    expect(mockFindOne).toHaveBeenCalledWith(
+      em,
+      CarrierShipment,
+      {
+        providerKey,
+        trackingNumber,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    expect(adapter.getTracking).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+  })
+
+  it('uses the scoped shipment row for tracking-number lookups', async () => {
+    const scope = makeScope()
+    const providerKey = chance.word()
+    const shipment = makeShipment({ providerKey, ...scope })
+    const tracking = makeTracking('delivered')
+    const adapter = makeAdapter(tracking)
+    mockFindOne.mockResolvedValueOnce(shipment as any)
+    mockGetAdapter.mockReturnValueOnce(adapter as any)
+
+    const em = makeEm()
+    const service = createShippingCarrierService({
+      em: em as any,
+      integrationCredentialsService: makeCredentialsService() as any,
+    })
+
+    const result = await service.getTracking({
+      providerKey,
+      trackingNumber: shipment.trackingNumber,
       ...scope,
     })
 
+    expect(result).toBe(tracking)
+    expect(adapter.getTracking).toHaveBeenCalledWith({
+      shipmentId: shipment.carrierShipmentId,
+      trackingNumber: shipment.trackingNumber,
+      credentials: {},
+    })
     expect(em.flush).not.toHaveBeenCalled()
-    expect(tracking.status).toBe('delivered')
   })
 })
 
 describe('ShippingCarrierService.refreshTracking is the guarded write path', () => {
-  afterEach(() => jest.clearAllMocks())
+  afterEach(() => jest.resetAllMocks())
 
   it('persists polling metadata, advances a valid status, and emits status_changed', async () => {
     const scope = makeScope()

@@ -10,6 +10,9 @@ import type { AccountLinkingService } from './accountLinkingService'
 import { encryptStateCookie, decryptStateCookie, createFlowState } from '../lib/state-cookie'
 import { emitSsoEvent } from '../events'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'service' })
 
 export class SsoService {
   constructor(
@@ -60,7 +63,7 @@ export class SsoService {
     void emitSsoEvent('sso.login.initiated', {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     const authUrl = await provider.buildAuthUrl(config, {
       state: state.state,
@@ -144,7 +147,7 @@ export class SsoService {
       id: String(user.id),
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return {
       token,

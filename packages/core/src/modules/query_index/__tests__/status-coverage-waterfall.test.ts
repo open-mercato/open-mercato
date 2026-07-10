@@ -50,6 +50,13 @@ function staleSnapshot() {
   }
 }
 
+function snapshotWithRefreshedAt(refreshedAt: Date) {
+  return {
+    ...staleSnapshot(),
+    refreshed_at: refreshedAt,
+  }
+}
+
 function makeFakeDb(tableRows: Record<string, unknown[]>) {
   const build = (table: string) => {
     const rows = tableRows[String(table)] ?? []
@@ -136,12 +143,56 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
   })
 
-  it('still blocks on a refresh when an explicit ?refresh action is requested', async () => {
-    const res = await GET(makeRequest('?refresh=1'))
-    expect(res.status).toBe(200)
-    expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
-    const refreshedScopes = mockRefreshCoverageSnapshot.mock.calls.map(([, scope]) => (scope as { entityType: string }).entityType)
-    expect(refreshedScopes).toEqual(expect.arrayContaining([ENTITY_A, ENTITY_B]))
+  it('throttles repeated explicit refresh recomputes within the same tenant scope', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    let persistedRefreshedAt: Date | null = null
+    mockReadCoverageSnapshots.mockImplementation(async (_db: unknown, batch: { entityTypes: string[] }) => {
+      const map = new Map<string, unknown>()
+      for (const entityType of batch.entityTypes) {
+        map.set(entityType, persistedRefreshedAt ? snapshotWithRefreshedAt(persistedRefreshedAt) : staleSnapshot())
+      }
+      return map
+    })
+    try {
+      const first = await GET(makeRequest('?refresh=1'))
+      expect(first.status).toBe(200)
+      expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
+      const refreshedScopes = mockRefreshCoverageSnapshot.mock.calls.map(([, scope]) => (scope as { entityType: string }).entityType)
+      expect(refreshedScopes).toEqual(expect.arrayContaining([ENTITY_A, ENTITY_B]))
+
+      mockRefreshCoverageSnapshot.mockClear()
+      persistedRefreshedAt = new Date(1_000_000)
+      nowSpy.mockReturnValue(1_001_000)
+      const immediateSecond = await GET(makeRequest('?refresh=1'))
+      expect(immediateSecond.status).toBe(200)
+      expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
+
+      nowSpy.mockReturnValue(1_061_000)
+      const afterCooldown = await GET(makeRequest('?refresh=1'))
+      expect(afterCooldown.status).toBe(200)
+      expect(mockRefreshCoverageSnapshot).toHaveBeenCalledTimes(2)
+    } finally {
+      nowSpy.mockRestore()
+    }
+  })
+
+  it('uses fresh persisted coverage snapshots instead of recomputing explicit refreshes', async () => {
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(2_000_000)
+    try {
+      mockReadCoverageSnapshots.mockImplementation(async (_db: unknown, batch: { entityTypes: string[] }) => {
+        const map = new Map<string, unknown>()
+        for (const entityType of batch.entityTypes) {
+          map.set(entityType, snapshotWithRefreshedAt(new Date(1_999_000)))
+        }
+        return map
+      })
+
+      const res = await GET(makeRequest('?refresh=1'))
+      expect(res.status).toBe(200)
+      expect(mockRefreshCoverageSnapshot).not.toHaveBeenCalled()
+    } finally {
+      nowSpy.mockRestore()
+    }
   })
 
   it('does not raise a partial-index warning when coverage is not yet computed', async () => {

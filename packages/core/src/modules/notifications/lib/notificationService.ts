@@ -16,13 +16,12 @@ import {
 import { toNotificationDto } from './notificationMapper'
 import { getRecipientUserIdsForFeature, getRecipientUserIdsForRole } from './notificationRecipients'
 import { assertSafeNotificationHref, sanitizeNotificationActions } from './safeHref'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 
-const DEBUG = process.env.NOTIFICATIONS_DEBUG === 'true'
+const logger = createLogger('notifications').child({ component: 'service' })
 
-function debug(...args: unknown[]): void {
-  if (DEBUG) {
-    console.log('[notifications]', ...args)
-  }
+function debug(message: string, ...details: unknown[]): void {
+  logger.debug(message, details.length ? { details } : undefined)
 }
 
 function getDb(em: EntityManager): Kysely<any> {

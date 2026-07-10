@@ -10,6 +10,21 @@ import {
   OPTIMISTIC_LOCK_HEADER_NAME,
 } from '../optimistic-lock-headers'
 import type { CrudMutationGuardValidateInput } from '../mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+
 
 describe('parseOptimisticLockEnv', () => {
   it('returns mode=all when unset (default ON)', () => {
@@ -476,7 +491,7 @@ describe('createGenericOptimisticLockReader', () => {
         throw new Error('column "deleted_at" does not exist')
       },
     } as never
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    loggerError.mockClear()
     try {
       const result = await reader(em, {
         resourceKind: 'customers.tag',
@@ -487,12 +502,12 @@ describe('createGenericOptimisticLockReader', () => {
       // Fail-open control flow preserved: a query error must never 500 the mutation.
       expect(result).toBeNull()
       // ...but a misconfig must be visible, naming the affected resourceKind.
-      expect(errorSpy).toHaveBeenCalledTimes(1)
-      const [message] = errorSpy.mock.calls[0]
-      expect(String(message)).toContain('customers.tag')
-      expect(String(message)).toContain('[optimistic-lock]')
+      expect(loggerError).toHaveBeenCalledTimes(1)
+      const [message, fields] = loggerError.mock.calls[0]
+      expect(String(message)).toContain('optimistic locking is DISABLED')
+      expect(fields).toEqual(expect.objectContaining({ resourceKind: 'customers.tag' }))
     } finally {
-      errorSpy.mockRestore()
+      loggerError.mockClear()
     }
   })
 

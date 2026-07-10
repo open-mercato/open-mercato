@@ -30,6 +30,9 @@ import {
   getSelectedTenantFromRequest,
   resolveOrganizationScopeForRequest,
 } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users' })
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
@@ -190,7 +193,7 @@ export async function GET(req: Request) {
       isSuperAdmin = isSuperAdmin || !!acl?.isSuperAdmin
     }
   } catch (err) {
-    console.error('users: failed to resolve rbac', err)
+    logger.error('Failed to resolve rbac', { err })
   }
   const { id, page, pageSize, search, name, organizationId, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]

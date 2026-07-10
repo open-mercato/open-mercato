@@ -1,0 +1,198 @@
+---
+title: Structured Logging
+description: Using the @open-mercato/shared/lib/logger facade for leveled, structured, isomorphic logging instead of raw console calls.
+---
+
+# Structured Logging
+
+Open Mercato provides a thin logging facade at `@open-mercato/shared/lib/logger`. It gives every module leveled, structured, context-aware logging behind one stable import — backed by [pino](https://getpino.io) (structured JSON) on the Node server and a lightweight console transport in the browser and on the edge runtime.
+
+Use it instead of raw `console.log` / `console.warn` / `console.error` in module code.
+
+## Quick Start
+
+```typescript
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('events')
+
+logger.debug('Delivering to subscriber', { event, subscriberId })
+logger.info('Reindex completed', { entityId, count })
+logger.warn('Event payload exceeds size limit, skipping', { event: eventName, maxBytes })
+logger.error('Handler error', { event, pattern, err: error })
+```
+
+- `createLogger(namespace)` creates (or reuses — instances are cached per namespace) a logger whose lines carry the namespace: as the `name` field in server JSON, or as a `[namespace]` prefix in console output.
+- Four levels: `debug`, `info`, `warn`, `error`.
+- The **message is a stable, un-interpolated string**; dynamic values go into the optional `fields` object so they land as queryable JSON keys instead of being baked into the message text.
+- Pass an `Error` under the `err` key. The server transport routes it through pino's `err` serializer (type, message, stack); the console transport prints its stack.
+
+On the server, the line above emits structured JSON:
+
+```json
+{"level":50,"time":1751966400000,"name":"events","event":"pos.cart.completed","pattern":"pos.*","err":{"type":"Error","message":"boom","stack":"..."},"msg":"Handler error"}
+```
+
+In the browser or on the edge it emits a compact readable line:
+
+```
+[events] Handler error event=pos.cart.completed pattern=pos.*  Error: boom
+    at ...
+```
+
+## Context Propagation with `child()`
+
+`child(bindings)` returns a logger with the bindings merged into every subsequent line, so shared context is attached once instead of repeated per call. Children can be chained; later bindings override earlier ones on key collision.
+
+A real example from the events SSE stream route, which previously hand-rolled an `[events:stream]` prefix:
+
+```typescript
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('events').child({ component: 'stream' })
+
+logger.warn('Event payload exceeds size limit, skipping', { event: eventName, maxBytes: MAX_PAYLOAD_BYTES })
+```
+
+Or attaching per-delivery context for a span of related lines:
+
+```typescript
+const log = logger.child({ event, subscriberId: sub.id })
+log.debug('Delivering to subscriber')
+log.error('Subscriber failed for event', { err: result.reason })
+```
+
+## Configuring the Level: `OM_LOG_LEVEL`
+
+One global environment variable controls the level everywhere — no per-feature debug flags needed:
+
+| Source | Value | Effective level |
+|---|---|---|
+| `OM_LOG_LEVEL` set | `debug` \| `info` \| `warn` \| `error` (case-insensitive) | that level |
+| `OM_LOG_LEVEL` unset or blank, `NODE_ENV=production` | — | `info` |
+| `OM_LOG_LEVEL` unset or blank, otherwise (dev/test) | — | `debug` |
+| `OM_LOG_LEVEL` set to an unrecognized value | — | the `NODE_ENV` default, plus one warning line |
+
+Levels are ordered `debug < info < warn < error`; a line is emitted when its level is at or above the effective level. The value is read once and memoized for the process lifetime.
+
+```bash
+OM_LOG_LEVEL=debug yarn dev      # verbose diagnostics
+OM_LOG_LEVEL=warn yarn start     # quiet: warnings and errors only
+```
+
+For expensive field construction, gate the work instead of relying on the logger to drop the line:
+
+```typescript
+import { isLevelEnabled } from '@open-mercato/shared/lib/logger'
+
+if (isLevelEnabled('debug')) {
+  logger.debug('Match trace', { candidates: computeExpensiveTrace() })
+}
+```
+
+`getLogLevel()` returns the resolved level directly when you need it.
+
+## Pretty Mode in Development: `OM_LOG_PRETTY`
+
+Raw pino JSON is right for production aggregation but noisy to read in a terminal. In **pretty mode** the Node server transport writes one human-friendly line per call instead:
+
+```
+12:05:20.613 INFO  [queue] Job completed queue=events jobId=d3e13935-0ccb-4794-ba0a-030872b27fc0
+12:05:21.004 ERROR [events:stream] Payload skipped tenantId=t-9 maxBytes=4096
+```
+
+Timestamp, padded level (colored when the output is a TTY), `[namespace]` (a `component` binding folds into `[namespace:component]`), the message, and compact `key=value` fields; an `err` Error prints its stack on the following lines.
+
+| Source | Value | Effective mode |
+|---|---|---|
+| `OM_LOG_PRETTY` set | truthy token (`1`/`true`/`yes`/`on`) | pretty |
+| `OM_LOG_PRETTY` set | falsy token (`0`/`false`/`off`) | raw pino JSON |
+| unset or unrecognized, `NODE_ENV=production` | — | raw pino JSON |
+| unset or unrecognized, otherwise (dev/test) | — | pretty |
+
+So `yarn dev` is pretty by default and production stays structured JSON. Set `OM_LOG_PRETTY=0` in dev when you want raw JSON — for example when piping local output to Loki/Grafana.
+
+Note for the dev runtime: `mercato server dev` spawns the Next.js, worker, and scheduler child processes with `NODE_ENV=production`, so the facade's `NODE_ENV`-based dev defaults would not apply there on their own. The dev command therefore injects `OM_LOG_PRETTY=1` and `OM_LOG_LEVEL=debug` into those children unless you set either variable yourself.
+
+Two caveats: pretty mode is a plain formatter, so pino's **redaction does not apply** — it is a dev convenience, and the "never log credentials/PII" rule is what actually protects you; and it honors `OM_LOG_DESTINATION=stderr`, so stdout-protocol processes stay safe in dev too.
+
+## Routing Logs to stderr: `OM_LOG_DESTINATION`
+
+By default the server transport writes JSON to stdout. Processes whose stdout **is a protocol channel** — most notably the MCP stdio server (`mercato ai_assistant mcp:serve`, which speaks JSON-RPC over stdout) — must not interleave log lines with protocol frames. Set `OM_LOG_DESTINATION=stderr` (case-insensitive) to make the pino root write to `process.stderr` instead; any other value (or unset) keeps the stdout default.
+
+The value is read when the pino root is lazily created on the first log call. If your entrypoint sets it programmatically after other code may already have logged, call `resetServerLoggerCache()` from `@open-mercato/shared/lib/logger` right after setting the env var — existing loggers re-resolve their transport on the next call. The `mcp:serve` CLI entrypoint does exactly this.
+
+## Isomorphic Behavior
+
+`@open-mercato/shared` is consumed by server, browser, and edge bundles, so the facade selects its transport at runtime:
+
+- **Node server** — pino, emitting one JSON object per line to stdout (or the compact pretty transport when [pretty mode](#pretty-mode-in-development-om_log_pretty) resolves on). Correct for production log aggregation; ops wires the collector.
+- **Browser** (`window` defined) and **edge** (`NEXT_RUNTIME=edge`) — a console shim mapping the four levels to `console.debug/info/warn/error`, printing `[namespace]`, the message, and a compact `key=value` rendering of the merged bindings.
+
+pino never leaks into client bundles: the facade and console transport have zero static dependency on pino, and the server transport loads it lazily at the first server-side log call via a runtime `require` — never a static import. Merely importing the facade touches nothing pino-related, and any load failure falls back to the console transport. Because the shared package builds unbundled per-file, importing `@open-mercato/shared/lib/logger` pulls in only the logger files.
+
+## Why a Facade (and Not pino Directly)
+
+1. **Isomorphism.** pino is a Node library (`worker_threads`, `process.stdout`). Importing it directly from shared code would break browser and edge bundles. The facade picks a console transport client-side and pino server-side behind one import.
+2. **Swappability.** Call sites must never import `pino` directly. If the backend is later swapped, or OpenTelemetry bridging, sampling, or richer redaction is added, one file changes — not thousands of call sites. This is the same rationale as `apiCall` wrapping `fetch` and the DI-resolved cache wrapping Redis.
+3. **Contract stability.** The four-method `Logger` surface is small and frozen under the backward-compatibility contract; pino's full API is not something modules should couple to.
+
+## Redaction — a Safety Net, Not a Guarantee
+
+The server transport configures pino's built-in `redact` for the obvious sensitive keys, censoring values to `[Redacted]`:
+
+```
+password, *.password, token, *.token, secret, *.secret,
+authorization, *.authorization, headers.authorization, req.headers.authorization
+```
+
+Treat this strictly as a safety net:
+
+- Wildcards are **single-level** — `*.token` catches `user.token` but not `payload.user.token`.
+- The **console transport performs no redaction** at all, so a sensitive binding prints verbatim in the browser and on the edge.
+
+The standing rule is unchanged: **never log credentials, PII, or payload bodies**. Log IDs, event names, counts, and error objects. The events reference migration logs only `event`, `pattern`, `subscriberId`, `maxBytes`, and `err` — never payloads.
+
+## Migrating from `console.*`
+
+Existing raw `console.*` calls are migrated incrementally under the Boy Scout rule: when you touch a file, migrate the logging lines you touch. No big-bang rewrite.
+
+The pattern, taken from the events package migration:
+
+```typescript
+// before
+console.error(`[events] Handler error for "${event}" (pattern: "${pattern}"):`, error)
+
+// after
+import { createLogger } from '@open-mercato/shared/lib/logger'
+const logger = createLogger('events')
+
+logger.error('Handler error', { event, pattern, err: error })
+```
+
+When migrating:
+
+- **Preserve severity** — `console.warn` becomes `logger.warn`, `console.error` becomes `logger.error`. Don't downgrade existing warnings or errors to `debug`.
+- **Stabilize the message** — move interpolated values into `fields` so the message becomes a constant, queryable string.
+- **Replace hand-built prefixes** — `[module]`/`[module:part]` prefixes become the namespace, or a `child({ component: '...' })` binding.
+- **Errors under `err`** — pass the caught error as `fields.err`, not concatenated into the message.
+
+### Collapsing per-feature debug flags
+
+Bespoke env flags that exist only to gate diagnostic output (the `OM_WORKFLOW_TRIGGER_DEBUG` pattern) collapse into `logger.debug(...)`:
+
+```typescript
+// before: a bespoke flag reinventing level gating
+if (process.env.MY_FEATURE_DEBUG === '1') {
+  console.log(`[my-feature] matched ${count} subscribers for ${event}`)
+}
+
+// after: gated globally by OM_LOG_LEVEL
+logger.debug('Matched subscribers', { event, count })
+```
+
+Run with `OM_LOG_LEVEL=debug` to see the output; the flag and its documentation disappear.
+
+### Console checker (CI-enforced)
+
+`yarn logger:check-console` reports raw `console.*` usage in `packages/*/src` (excluding tests) and exits 0 for local inspection. Since the application-wide migration brought the count to zero, CI runs the blocking variant — `yarn logger:check-console:ci` (`--strict`), which **fails the lint job on any new raw `console.*` call**. Intentional program output belongs on the allowlist (`scripts/logger-console-allowlist.json`) with a reason: whole packages under `packages` (CLI user output) or glob patterns under `files` (module `cli.ts` command output). Everything else should use the facade.

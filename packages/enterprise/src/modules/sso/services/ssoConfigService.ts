@@ -8,6 +8,9 @@ import type { SsoConfigAdminCreateInput, SsoConfigAdminUpdateInput, SsoConfigLis
 import { emitSsoEvent } from '../events'
 import { validateDomain, normalizeDomain, uniqueDomains, checkDomainLimit } from '../lib/domains'
 import type { SsoProviderRegistry } from '../lib/registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'config' })
 
 export interface SsoAdminScope {
   isSuperAdmin: boolean
@@ -138,7 +141,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }
@@ -178,7 +181,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }
@@ -197,7 +200,7 @@ export class SsoConfigService {
       id: config.id,
       tenantId: config.tenantId,
       organizationId: config.organizationId,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
   }
 
   async activate(scope: SsoAdminScope, id: string, active: boolean): Promise<SsoConfigPublic> {
@@ -229,13 +232,13 @@ export class SsoConfigService {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch((e) => console.error('[SSO Event]', e))
+        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
       } else if (!active && wasActive) {
         void emitSsoEvent('sso.config.deactivated', {
           id: config.id,
           tenantId: config.tenantId,
           organizationId: config.organizationId,
-        }).catch((e) => console.error('[SSO Event]', e))
+        }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
       }
 
       return this.toPublic(config)
@@ -276,7 +279,7 @@ export class SsoConfigService {
         tenantId: config.tenantId,
         organizationId: config.organizationId,
         domain: normalized,
-      }).catch((e) => console.error('[SSO Event]', e))
+      }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
       return this.toPublic(config)
     })
@@ -294,7 +297,7 @@ export class SsoConfigService {
       tenantId: config.tenantId,
       organizationId: config.organizationId,
       domain: normalized,
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
 
     return this.toPublic(config)
   }

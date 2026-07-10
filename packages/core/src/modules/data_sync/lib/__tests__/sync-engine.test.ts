@@ -5,6 +5,26 @@ import type { ProgressService } from '../../../progress/lib/progressService'
 import { createSyncEngine } from '../sync-engine'
 import type { SyncRunService } from '../sync-run-service'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 describe('data sync engine stale jobs', () => {
   it('skips stale import jobs when run record is missing', async () => {
     const syncRunService = {
@@ -20,7 +40,8 @@ describe('data sync engine stale jobs', () => {
       progressService: {} as ProgressService,
     })
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await expect(
       engine.runImport('11111111-1111-1111-1111-111111111111', 100, {
@@ -31,7 +52,8 @@ describe('data sync engine stale jobs', () => {
     ).resolves.toBeUndefined()
 
     expect(warnSpy).toHaveBeenCalledWith(
-      '[data-sync] Skipping stale import job for missing run 11111111-1111-1111-1111-111111111111',
+      'Skipping stale import job for missing run',
+      { runId: '11111111-1111-1111-1111-111111111111' },
     )
 
     warnSpy.mockRestore()
@@ -51,7 +73,8 @@ describe('data sync engine stale jobs', () => {
       progressService: {} as ProgressService,
     })
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockLogger.warn.mockClear()
+    const warnSpy = mockLogger.warn
 
     await expect(
       engine.runExport('22222222-2222-2222-2222-222222222222', 100, {
@@ -62,7 +85,8 @@ describe('data sync engine stale jobs', () => {
     ).resolves.toBeUndefined()
 
     expect(warnSpy).toHaveBeenCalledWith(
-      '[data-sync] Skipping stale export job for missing run 22222222-2222-2222-2222-222222222222',
+      'Skipping stale export job for missing run',
+      { runId: '22222222-2222-2222-2222-222222222222' },
     )
 
     warnSpy.mockRestore()

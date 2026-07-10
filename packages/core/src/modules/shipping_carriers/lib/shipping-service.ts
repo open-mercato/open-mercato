@@ -22,6 +22,13 @@ import {
   TERMINAL_SHIPPING_STATUSES,
 } from './status-sync'
 
+export class CarrierShipmentNotFoundError extends Error {
+  constructor() {
+    super('Shipment not found')
+    this.name = 'CarrierShipmentNotFoundError'
+  }
+}
+
 export function createShippingCarrierService(deps: {
   em: EntityManager
   integrationCredentialsService: CredentialsService
@@ -45,7 +52,31 @@ export function createShippingCarrierService(deps: {
       scope,
     )
     if (!shipment) {
-      throw new Error('Shipment not found')
+      throw new CarrierShipmentNotFoundError()
+    }
+    return shipment
+  }
+
+  async function findShipmentByTrackingNumberOrThrow(
+    providerKey: string,
+    trackingNumber: string,
+    scope: { organizationId: string; tenantId: string },
+  ): Promise<CarrierShipment> {
+    const shipment = await findOneWithDecryption(
+      em,
+      CarrierShipment,
+      {
+        providerKey,
+        trackingNumber,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
+    if (!shipment) {
+      throw new CarrierShipmentNotFoundError()
     }
     return shipment
   }
@@ -189,30 +220,24 @@ export function createShippingCarrierService(deps: {
       organizationId: string
       tenantId: string
     }) {
-      const { adapter, credentials } = await resolveAdapter(input.providerKey, {
+      const scope = {
         organizationId: input.organizationId,
         tenantId: input.tenantId,
-      })
-      const shipment = input.shipmentId
-        ? await findOneWithDecryption(
-          em,
-          CarrierShipment,
-          {
-            id: input.shipmentId,
-            organizationId: input.organizationId,
-            tenantId: input.tenantId,
-            deletedAt: null,
-          },
-          undefined,
-          {
-            organizationId: input.organizationId,
-            tenantId: input.tenantId,
-          },
-        )
-        : null
+      }
+      const { adapter, credentials } = await resolveAdapter(input.providerKey, scope)
+      let shipment: CarrierShipment
+      if (input.shipmentId) {
+        shipment = await findShipmentOrThrow(input.shipmentId, scope)
+      } else {
+        const trackingNumber = input.trackingNumber
+        if (!trackingNumber) {
+          throw new CarrierShipmentNotFoundError()
+        }
+        shipment = await findShipmentByTrackingNumberOrThrow(input.providerKey, trackingNumber, scope)
+      }
       return adapter.getTracking({
-        shipmentId: shipment?.carrierShipmentId ?? input.shipmentId,
-        trackingNumber: input.trackingNumber ?? shipment?.trackingNumber,
+        shipmentId: shipment.carrierShipmentId,
+        trackingNumber: shipment.trackingNumber,
         credentials,
       })
     },

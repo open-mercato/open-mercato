@@ -18,6 +18,9 @@ import {
   userTaskCompleteResponseSchema,
   workflowErrorSchema,
 } from '../../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -123,7 +126,7 @@ export async function POST(
       message: 'Task completed successfully. Workflow resumed.',
     })
   } catch (error) {
-    console.error('Error completing user task:', error)
+    logger.error('Error completing user task', { err: error })
 
     // Handle specific error codes from task-handler
     if (error instanceof Error) {

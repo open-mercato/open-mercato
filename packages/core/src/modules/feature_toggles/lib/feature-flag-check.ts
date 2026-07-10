@@ -1,6 +1,9 @@
 import { FeatureToggle, FeatureToggleOverride } from "../data/entities"
 import { EntityManager } from "@mikro-orm/core"
 import { CacheService, runWithCacheTenant } from "@open-mercato/cache"
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('feature_toggles').child({ component: 'flag-check' })
 
 type ToggleValueType = "boolean" | "string" | "number" | "json"
 
@@ -145,7 +148,7 @@ export class FeatureTogglesService {
     const resolution = await this.resolveToggle(identifier, ctx.tenantId)
 
     if (resolution.source === "missing") {
-      console.warn(`[feature_toggles] Toggle "${identifier}" not found (missing).`)
+      logger.warn('Toggle not found', { identifier })
       return {
         ok: false,
         error: {
@@ -163,10 +166,7 @@ export class FeatureTogglesService {
 
 
     if (resolution.valueType !== ctx.valueType) {
-      console.error(
-        `[feature_toggles] Toggle "${identifier}" has type "${resolution.valueType}" but "${ctx.valueType}" was requested.`,
-        { resolution }
-      )
+      logger.error('Toggle type mismatch', { identifier, expectedType: ctx.valueType, actualType: resolution.valueType, resolution })
       return {
         ok: false,
         error: {
@@ -188,10 +188,7 @@ export class FeatureTogglesService {
       (ctx.valueType === "json")
 
     if (!isValueValid) {
-      console.error(
-        `[feature_toggles] Toggle "${identifier}" has invalid value for type "${resolution.valueType}".`,
-        { resolution }
-      )
+      logger.error('Toggle has invalid value for type', { identifier, valueType: resolution.valueType, resolution })
       return {
         ok: false,
         error: {

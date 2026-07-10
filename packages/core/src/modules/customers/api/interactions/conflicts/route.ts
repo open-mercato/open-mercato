@@ -10,6 +10,9 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerInteraction } from '../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const querySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
@@ -193,7 +196,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/interactions/conflicts] GET failed', err)
+    logger.error('GET failed', { component: 'interactions/conflicts', err })
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }
