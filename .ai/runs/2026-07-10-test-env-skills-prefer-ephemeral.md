@@ -82,6 +82,8 @@ when a human is present.
 
 ## Progress
 
+PR: #4095
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Monorepo skill overrides
@@ -99,4 +101,4 @@ when a human is present.
 ### Phase 3: Validation gate and PR
 
 - [x] 3.1 Full validation gate green (build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test 22/22, build:app)
-- [ ] 3.2 Self-review, PR, labels, autofix pass
+- [x] 3.2 Self-review, PR #4095, labels, om-auto-review-pr pass (APPROVED — no findings; self-approval blocked by GitHub, report posted as comment review)
