@@ -51,4 +51,7 @@ om-auto-create-pr, om-auto-continue-pr, om-auto-create-pr-loop, om-auto-continue
 - [x] 5.2 `cd packages/cli && yarn typecheck` green
 - [ ] 5.3 build.mjs runs; a scaffold smoke (bare, offline, --skip-agentic-setup off) produces per-skill symlinks + tiers.json + install-skills, no npx run during scaffold
 - [ ] 5.4 (deferred/needs Verdaccio) `yarn test:create-app` — document if not run
+
+### Phase 6: Post-review fixes
+- [x] Post-review fix: reference external skills by name in AGENTS.md routing tables instead of hard-coded `.claude/skills/…` paths (harness is user-selectable via `--agents`; addresses @adeptofvoltron review comment on AGENTS.md.template:78) + guard test — 1dd86bc52
 </content>
