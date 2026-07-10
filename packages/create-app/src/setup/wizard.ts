@@ -1,4 +1,6 @@
-import { basename } from 'node:path'
+import { spawnSync } from 'node:child_process'
+import { existsSync } from 'node:fs'
+import { basename, join } from 'node:path'
 import { generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
@@ -148,7 +150,19 @@ export async function runAgenticSetup(
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  installSkills(targetDir)
   printSummary(selectedIds)
+}
+
+function installSkills(targetDir: string): void {
+  const installScript = join(targetDir, 'scripts', 'install-skills.sh')
+  if (!existsSync(installScript)) return
+  console.log('')
+  console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
+  const result = spawnSync('sh', [installScript], { cwd: targetDir, stdio: 'inherit' })
+  if (result.error || result.status !== 0) {
+    console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
+  }
 }
 
 function printSummary(selectedIds: string[]): void {
@@ -168,16 +182,17 @@ function printSummary(selectedIds: string[]): void {
   if (selectedIds.includes('claude-code')) {
     console.log('')
     console.log('   ⚡ Autonomous skills (repo-local overrides under .ai/skills/,')
-    console.log('      workflow bodies fetched with `yarn install-skills`):')
+    console.log('      external workflow bodies installed above):')
     console.log('      /om-auto-create-pr  <task>    — delegate a whole task end-to-end as a PR')
     console.log('      /om-auto-continue-pr <PR#>    — resume an in-progress agent PR')
     console.log('      /om-auto-review-pr   <PR#>    — automated code review (optional autofix)')
     console.log('      /om-auto-fix-issue   <issue#> — fix a tracker issue and open a PR')
     console.log('      /om-prepare-issue    <idea>   — spec out deferred work + open a tracking issue (no build)')
     console.log('      /om-trim-unused-modules       — slim classic-mode defaults after adding your own module')
-    console.log('      Run `yarn install-skills` to fetch the external open-mercato/skills')
-    console.log('      subset; the local override SKILL.md files adjust them for your app')
-    console.log('      (base-branch discovery, opt-in pipeline labels, script probing).')
+    console.log('      The external open-mercato/skills subset installs automatically;')
+    console.log('      re-run anytime with `yarn install-skills`. The local override')
+    console.log('      SKILL.md files adjust them for your app (base-branch discovery,')
+    console.log('      opt-in pipeline labels, script probing).')
   }
 
   console.log('')

@@ -433,14 +433,19 @@ install_into_harness "${repo_root}/.codex/skills"
 # .claude/skills/<name> because that directory exists.
 external_source=$(jq -r '.external.source // empty' "${manifest}")
 external_status="none"
-external_csv=$(printf '%s\n' "${external_skills_list}" | dedup_lines | tr '\n' ',' | sed 's/,$//')
-if [ -n "${external_source}" ] && [ -n "${external_csv}" ]; then
+# The skills CLI matches each --skill value against skill names verbatim (no
+# comma splitting), so the subset must be passed as repeated --skill flags.
+external_skill_args=""
+for external_skill in $(printf '%s\n' "${external_skills_list}" | dedup_lines); do
+  external_skill_args="${external_skill_args} --skill ${external_skill}"
+done
+if [ -n "${external_source}" ] && [ -n "${external_skill_args}" ]; then
   if [ "${no_external}" = "1" ]; then
     external_status="skipped (--no-external)"
   elif ! command -v npx >/dev/null 2>&1; then
     external_status="skipped (npx not found)"
     echo "install-skills: warning: npx not found; skipping external skills from ${external_source}." >&2
-  elif (cd "${repo_root}" && npx -y skills add "${external_source}" --skill "${external_csv}" --agent claude-code --agent codex -y); then
+  elif (cd "${repo_root}" && npx -y skills add "${external_source}" ${external_skill_args} --agent claude-code --agent codex -y); then
     external_status="installed from ${external_source}"
     # `add` seeds the subset; a follow-up `update` bumps already-installed skills
     # to the latest published versions on a re-run. Non-fatal when offline mid-run.

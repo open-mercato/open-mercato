@@ -655,7 +655,7 @@ Grab the `d="..."` path values from the lucide icon you want — for example by 
 
 ## Agent Automation / Auto-Skills
 
-These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — run **`yarn install-skills`** once to install them (`npx skills add`; re-runs refresh via `npx skills update`). After install they are available by name from whichever harness directory your CLI reads (`.claude/skills/<name>` for Claude Code, `.agents/skills/` for Codex, mirrored into `.codex/skills/`); the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
+These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — `create-mercato-app` installs them automatically during agentic setup; run **`yarn install-skills`** to refresh them or to install them later if scaffolding skipped the step (`npx skills add`; re-runs refresh via `npx skills update`). After install they are available by name from whichever harness directory your CLI reads (`.claude/skills/<name>` for Claude Code, `.agents/skills/` for Codex, mirrored into `.codex/skills/`); the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
 
 | Skill | When to use | Invocation |
 |-------|-------------|------------|
@@ -667,7 +667,7 @@ These auto-* agent skills let you delegate whole units of work to an autonomous 
 
 Notes:
 
-- Run `yarn install-skills` first to install the external skills (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
+- The external skills install automatically when the app is scaffolded; run `yarn install-skills` to refresh them or if that step was skipped (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
 - The skills probe `gh repo view --json defaultBranchRef` for your repo's default branch; no assumption that it's `main` or `develop`.
 - Pipeline labels (`review`, `qa`, `merge-queue`, etc.) are opt-in — the skills detect which labels exist in your repo via `gh label list` and skip gracefully when they're missing. If you want the full workflow, the skill README in each skill folder has a `gh label create` snippet you can paste in once.
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.
