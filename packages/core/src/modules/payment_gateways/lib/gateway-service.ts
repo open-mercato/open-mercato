@@ -27,6 +27,12 @@ function assertManualActionAllowed(action: ManualGatewayAction, transaction: Gat
   }
 }
 
+function assertCaptureAmountAllowed(amount: number | undefined, transaction: GatewayTransaction): void {
+  if (amount !== undefined && amount > Number(transaction.amount)) {
+    throw conflict(`Capture amount ${amount} exceeds authorized transaction amount ${transaction.amount}`)
+  }
+}
+
 function applyAdapterResultStatus(
   action: ManualGatewayAction,
   transaction: GatewayTransaction,
@@ -223,6 +229,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     async capturePayment(transactionId: string, amount: number | undefined, scope: { organizationId: string; tenantId: string }): Promise<CaptureResult> {
       const transaction = await findTransactionOrThrow(transactionId, scope)
       assertManualActionAllowed('capture', transaction)
+      assertCaptureAmountAllowed(amount, transaction)
       const { adapter, credentials } = await resolveAdapterAndCredentials(
         transaction.providerKey,
         { organizationId: transaction.organizationId, tenantId: transaction.tenantId },
