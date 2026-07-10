@@ -650,6 +650,8 @@ const quoteTotalsSchema = z.object({
   lineItemCount: z.coerce.number().int().min(0).optional(),
 })
 
+export const SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY = 'sales.orders.linesRequired'
+
 export const orderCreateSchema = scoped.extend({
   orderNumber: z.string().trim().min(1).max(191).optional(),
   externalReference: z.string().trim().max(191).optional(),
@@ -686,7 +688,11 @@ export const orderCreateSchema = scoped.extend({
   paymentMethodSnapshot: jsonRecord.optional(),
   metadata,
   customFieldSetId: uuid().optional(),
-  lines: z.array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
+  lines: z
+    .array(orderLineCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true }), {
+      error: SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY,
+    })
+    .min(1, SALES_ORDER_LINES_REQUIRED_MESSAGE_KEY),
   adjustments: z.array(orderAdjustmentCreateSchema.omit({ organizationId: true, tenantId: true, orderId: true })).optional(),
   tags: z.array(uuid()).optional(),
   ...orderTotalsSchema.shape,

@@ -50,7 +50,7 @@ test.describe('TC-SALES-031 credit memo create/read/delete', () => {
     try {
       const orderResponse = await apiRequest(request, 'POST', '/api/sales/orders', {
         token,
-        data: { currencyCode: 'USD' },
+        data: { currencyCode: 'USD' , lines: [{ currencyCode: 'USD', quantity: 1, name: 'QA seed line', unitPriceNet: 0, unitPriceGross: 0 }] },
       })
       expect(orderResponse.status()).toBe(201)
       orderId = (await readJson(orderResponse)).id as string
