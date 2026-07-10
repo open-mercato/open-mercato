@@ -10,6 +10,10 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 100,
     },
   ],
+  'data-table:phone_calls.calls:toolbar': {
+    widgetId: 'tillio.injection.pull-calls',
+    priority: 20,
+  },
 }
 
 export default injectionTable

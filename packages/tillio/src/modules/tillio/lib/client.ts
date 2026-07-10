@@ -23,6 +23,37 @@ const errorResponseSchema = z.object({
   message: z.string().optional(),
 })
 
+// Tillio serializes pagination counters as strings ("52", "1"); tolerate numbers too.
+const counterSchema = z.union([z.string(), z.number()]).transform((value, ctx) => {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    ctx.addIssue({ code: 'custom', message: 'Tillio returned an unusable pagination counter' })
+    return z.NEVER
+  }
+  return Math.trunc(parsed)
+})
+
+// Calls stay raw records here: mapping is the normalizer's job, and `raw_snapshot`
+// must keep every field Tillio sent, including operator-specific `extraFields`.
+const getCallsResponseSchema = z.object({
+  calls: z.array(z.record(z.string(), z.unknown())).default([]),
+  pagination: z.object({
+    total: counterSchema,
+    page: counterSchema,
+    pages: counterSchema,
+  }),
+})
+
+export type TillioCallsPage = z.infer<typeof getCallsResponseSchema>
+
+export type GetCallsParams = {
+  tenantDomain: string
+  token: string
+  from?: string
+  to?: string
+  page?: number
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
@@ -145,6 +176,18 @@ export function createTillioClient(environment: TillioClientEnvironment) {
   return {
     async getPlugins(tenantDomain: string): Promise<unknown> {
       return requestJson('GET', '/api/plugins', { headers: buildHeaders(tenantDomain), schema: z.unknown() })
+    },
+
+    async getCalls(params: GetCallsParams): Promise<TillioCallsPage> {
+      const query: Record<string, string> = {}
+      if (params.from) query.from = params.from
+      if (params.to) query.to = params.to
+      if (params.page !== undefined) query.page = String(params.page)
+      return requestJson('GET', '/api/call', {
+        headers: buildHeaders(params.tenantDomain, params.token),
+        query,
+        schema: getCallsResponseSchema,
+      })
     },
 
     async validateConfig(plugin: TillioPlugin, config: Record<string, unknown>, tenantDomain: string): Promise<void> {

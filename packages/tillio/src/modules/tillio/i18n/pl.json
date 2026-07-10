@@ -31,5 +31,17 @@
   "tillio.operators.attach": "Podepnij operatora",
   "tillio.operators.attaching": "Podpinanie...",
   "tillio.operators.attached": "Operator podpiety.",
-  "tillio.operators.attachFailed": "Nie udalo sie podpiac operatora."
+  "tillio.operators.attachFailed": "Nie udalo sie podpiac operatora.",
+  "tillio.pull.action": "Pobierz polaczenia",
+  "tillio.pull.title": "Pobierz polaczenia z Tillio",
+  "tillio.pull.description": "Polaczenia z wybranego zakresu zostana zaciagniete od podpietego operatora. Ponowne pobranie tego samego zakresu aktualizuje istniejace polaczenia, zamiast je duplikowac.",
+  "tillio.pull.timezoneHint": "Dni sa interpretowane w strefie Europe/Warsaw, ktorej uzywa Tillio.",
+  "tillio.pull.rangeRequired": "Najpierw wybierz zakres dat.",
+  "tillio.pull.confirm": "Pobierz polaczenia",
+  "tillio.pull.cancel": "Anuluj",
+  "tillio.pull.pulling": "Pobieranie...",
+  "tillio.pull.blocked": "Pobieranie zablokowane przez walidacje.",
+  "tillio.pull.succeeded": "Pobrano {created} nowych i {updated} zaktualizowanych polaczen.",
+  "tillio.pull.partial": "Pobrano {created} nowych i {updated} zaktualizowanych polaczen, {failed} nieudanych.",
+  "tillio.pull.failed": "Nie udalo sie pobrac polaczen z Tillio."
 }

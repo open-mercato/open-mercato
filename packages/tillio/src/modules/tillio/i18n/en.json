@@ -31,5 +31,17 @@
   "tillio.operators.attach": "Attach operator",
   "tillio.operators.attaching": "Attaching...",
   "tillio.operators.attached": "Operator attached.",
-  "tillio.operators.attachFailed": "Could not attach the operator."
+  "tillio.operators.attachFailed": "Could not attach the operator.",
+  "tillio.pull.action": "Pull calls",
+  "tillio.pull.title": "Pull calls from Tillio",
+  "tillio.pull.description": "Calls in the selected range are ingested from the attached operator. Pulling the same range again updates existing calls instead of duplicating them.",
+  "tillio.pull.timezoneHint": "Days are interpreted in the Europe/Warsaw timezone that Tillio uses.",
+  "tillio.pull.rangeRequired": "Pick a date range first.",
+  "tillio.pull.confirm": "Pull calls",
+  "tillio.pull.cancel": "Cancel",
+  "tillio.pull.pulling": "Pulling...",
+  "tillio.pull.blocked": "Pull blocked by validation.",
+  "tillio.pull.succeeded": "Pulled {created} new and {updated} updated calls.",
+  "tillio.pull.partial": "Pulled {created} new and {updated} updated calls, {failed} failed.",
+  "tillio.pull.failed": "Could not pull calls from Tillio."
 }
