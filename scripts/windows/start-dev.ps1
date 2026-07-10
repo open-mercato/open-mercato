@@ -603,8 +603,11 @@ function Test-RancherDesktopInstalled {
 function Add-RancherBinToPath {
     # Rancher Desktop puts docker / docker compose / rdctl into ~\.rd\bin; a
     # fresh shell (or first run before re-logon) may not have it on PATH yet.
+    # Only prepend when no docker CLI is available: on dual-install machines
+    # (Docker Desktop + Rancher) shadowing Docker Desktop's CLI with Rancher's
+    # would silently change which binary every later call uses.
     $rdBin = Join-Path $env:USERPROFILE ".rd\bin"
-    if ((Test-Path $rdBin) -and (($env:Path -split ";") -notcontains $rdBin)) {
+    if ((Test-Path $rdBin) -and -not (Test-CommandAvailable "docker") -and (($env:Path -split ";") -notcontains $rdBin)) {
         $env:Path = "$rdBin;$env:Path"
     }
 }
@@ -909,7 +912,21 @@ function Start-DockerEngine {
     $rancherExe = Get-RancherDesktopExe
     $startingWhat = $null
 
-    if ((Test-Path $dockerExe) -and ($Runtime -ne "rancher" -or -not $rancherExe)) {
+    # Dual-install machines: both runtimes register a docker CLI context, so
+    # probing the wrong one makes a running engine look dead. Prefer whichever
+    # is ALREADY running; else honor -Runtime; else default to Docker Desktop.
+    if ((Test-Path $dockerExe) -and $rancherExe) {
+        $dockerRunning = $null -ne (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)
+        $rancherRunning = $null -ne (Get-Process -Name "Rancher Desktop" -ErrorAction SilentlyContinue)
+        $preferRancher = if ($Runtime -eq "rancher") { $true }
+            elseif ($Runtime -eq "docker") { $false }
+            elseif ($rancherRunning -and -not $dockerRunning) { $true }
+            else { $false }
+        Write-Info ("Both Docker Desktop and Rancher Desktop are installed - using {0} (override with -Runtime docker|rancher)." -f $(if ($preferRancher) { "Rancher Desktop" } else { "Docker Desktop" }))
+        if ($preferRancher) { $dockerExe = $null } else { $rancherExe = $null }
+    }
+
+    if ($dockerExe -and (Test-Path $dockerExe)) {
         if (-not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
             Write-Info "Starting Docker Desktop..."
             Start-Process -FilePath $dockerExe | Out-Null
@@ -939,9 +956,16 @@ function Start-DockerEngine {
         Write-Fail "No container runtime found to start (Docker Desktop or Rancher Desktop). Install one (or ask IT to), then re-run start-windows.bat."
     }
 
+    # Keep the docker CLI context pointed at the runtime we chose: each runtime
+    # registers its own context (desktop-linux / rancher-desktop), and a stale
+    # selection makes `docker info` poll the engine that is NOT starting. The
+    # context only exists after the runtime's first start, so retry quietly.
+    $targetContext = if ($startingWhat -eq "Rancher Desktop") { "rancher-desktop" } else { "desktop-linux" }
+
     $startedAt = Get-Date
     $deadline = $startedAt.AddSeconds(300)
     while ((Get-Date) -lt $deadline) {
+        [void](Invoke-NativeQuiet "docker" @("context", "use", $targetContext))
         if (Test-DockerEngineReady) {
             Write-Host ""
             Write-Ok "Container engine is ready ($startingWhat)"
