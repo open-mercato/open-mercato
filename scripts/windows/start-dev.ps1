@@ -211,6 +211,25 @@ function Invoke-NativeCapture {
     }
 }
 
+function Invoke-NativeVisible {
+    # Same stderr guard, but streams the command's full output to the console
+    # (installers and git clone report progress on stderr). This also protects
+    # against the second PS 5.1 promotion trigger: when powershell.exe's OWN
+    # stderr is redirected (e.g. `start-windows.bat > log.txt 2>&1`), bare
+    # native stderr becomes terminating even without in-script redirection.
+    param([Parameter(Mandatory = $true)][string]$Command, [string[]]$Arguments = @())
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Command @Arguments 2>&1 | Out-Host
+        return $LASTEXITCODE
+    } catch {
+        return 1
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Repo detection / secrets
 # ---------------------------------------------------------------------------
@@ -455,9 +474,9 @@ function Install-GitViaBestMethod {
     param([bool]$HasWinget)
     if ($HasWinget) {
         Write-Info "Installing Git via winget..."
-        & winget install --id Git.Git --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
-        if ($LASTEXITCODE -eq 0) { [void](Test-GitInstalled); return }
-        Write-Warn "winget could not install Git (exit $LASTEXITCODE) - falling back to a direct download."
+        $wingetExit = Invoke-NativeVisible "winget" @("install", "--id", "Git.Git", "--exact", "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity")
+        if ($wingetExit -eq 0) { [void](Test-GitInstalled); return }
+        Write-Warn "winget could not install Git (exit $wingetExit) - falling back to a direct download."
     } else {
         Write-Info "winget unavailable - installing Git via direct download..."
     }
@@ -469,9 +488,9 @@ function Install-DockerViaBestMethod {
     param([bool]$HasWinget)
     if ($HasWinget) {
         Write-Info "Installing Docker Desktop via winget (this downloads ~500 MB)..."
-        & winget install --id Docker.DockerDesktop --exact --accept-package-agreements --accept-source-agreements --override "install --quiet --accept-license --backend=wsl-2"
-        if ($LASTEXITCODE -eq 0) { return }
-        Write-Warn "winget could not install Docker Desktop (exit $LASTEXITCODE) - falling back to a direct download."
+        $wingetExit = Invoke-NativeVisible "winget" @("install", "--id", "Docker.DockerDesktop", "--exact", "--accept-package-agreements", "--accept-source-agreements", "--override", "install --quiet --accept-license --backend=wsl-2")
+        if ($wingetExit -eq 0) { return }
+        Write-Warn "winget could not install Docker Desktop (exit $wingetExit) - falling back to a direct download."
     } else {
         Write-Info "winget unavailable - installing Docker Desktop via direct download..."
     }
@@ -648,7 +667,7 @@ function Invoke-ElevatedInstallPhase {
         Install-GitViaBestMethod -HasWinget $hasWinget
     }
     if (Test-CommandAvailable "git") {
-        & git config --global core.autocrlf input
+        [void](Invoke-NativeQuiet "git" @("config", "--global", "core.autocrlf", "input"))
         Write-Ok "Git ready"
     }
 
@@ -962,9 +981,9 @@ function Invoke-StandaloneClone {
         }
         if (Test-CommandAvailable "git") {
             Write-Info "Cloning $RepoUrl (branch $Branch)..."
-            & git clone --branch $Branch $RepoUrl $targetPath
-            if ($LASTEXITCODE -ne 0) {
-                Write-Fail "git clone failed (exit $LASTEXITCODE). Check network/proxy access to github.com."
+            $cloneExit = Invoke-NativeVisible "git" @("clone", "--branch", $Branch, $RepoUrl, $targetPath)
+            if ($cloneExit -ne 0) {
+                Write-Fail "git clone failed (exit $cloneExit). Check network/proxy access to github.com."
             }
             Write-Ok "Cloned into $targetPath"
         } else {
