@@ -260,9 +260,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     const schedule = () => {
       timer = setTimeout(() => {
         pendingRefresh = refreshPaymentSessionInitialization(em, ownership, scope, new Date())
-          .then((refreshed) => {
-            if (refreshed && !stopped) schedule()
-          })
+          .then(
+            (refreshed) => {
+              if (refreshed && !stopped) schedule()
+            },
+            () => {
+              if (!stopped) schedule()
+            },
+          )
       }, claimHeartbeatIntervalMs)
     }
     schedule()
