@@ -49,9 +49,10 @@ om-auto-create-pr, om-auto-continue-pr, om-auto-create-pr-loop, om-auto-continue
 ### Phase 5: Validation
 - [x] 5.1 `cd packages/create-app && yarn typecheck` + `node --import tsx --test src/**/*.test.ts` green
 - [x] 5.2 `cd packages/cli && yarn typecheck` green
-- [ ] 5.3 build.mjs runs; a scaffold smoke (bare, offline, --skip-agentic-setup off) produces per-skill symlinks + tiers.json + install-skills, no npx run during scaffold
-- [ ] 5.4 (deferred/needs Verdaccio) `yarn test:create-app` — document if not run
+- [x] 5.3 build.mjs runs; a scaffold smoke (bare, offline, --skip-agentic-setup off) produces per-skill symlinks + tiers.json + install-skills, no npx run during scaffold — verified 2026-07-10: `node build.mjs` green; offline scaffold (`--preset empty --agents claude-code --no-init-git`) produced `.ai/skills/tiers.json`, `.ai/agentic.config.json`, `.ai/trackers/github.md`, `scripts/install-skills.sh`, no `.agents/` (no npx during scaffold); `sh scripts/install-skills.sh --no-external` converted the harness dir symlink into per-skill symlinks (8 core skills) — 739006e01
+- [x] 5.4 (deferred/needs Verdaccio) `yarn test:create-app` — documented as not run: needs the Verdaccio registry environment; covered by `packages/create-app` unit suite (9/9 green 2026-07-10) + the offline scaffold smoke in 5.3. Run before a create-app npm release.
 
 ### Phase 6: Post-review fixes
 - [x] Post-review fix: reference external skills by name in AGENTS.md routing tables instead of hard-coded `.claude/skills/…` paths (harness is user-selectable via `--agents`; addresses @adeptofvoltron review comment on AGENTS.md.template:78) + guard test — 1dd86bc52
+- [x] Post-review fix: mirror the monorepo's QA runtime-state gitignore block (`.ai/qa/test-env.json`, `test-env.lock/`, `test-env-boot.log`, `artifacts_*/`, `ephemeral*`) into `template/gitignore` — required after base-branch commit 83c5408a0 (om-prepare-test-env compile-once entrypoints) so scaffolded apps don't track skill-generated runtime state — 739006e01
 </content>
