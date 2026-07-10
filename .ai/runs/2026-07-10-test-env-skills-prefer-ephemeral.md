@@ -38,6 +38,12 @@ when a human is present.
   must not break the existing contract.
 - Template `package.json.template` has a dependency-pin drift guard (5707c167e);
   script additions do not touch dependency pins.
+- Local gate note: `packages/cli/src/lib/__tests__/dev-env-reload.test.ts`
+  ("watches generated runtime files when explicitly requested") fails with
+  `EMFILE: too many open files, watch` on this machine — reproduced identically
+  on untouched `origin/develop`, so it is a pre-existing machine-level watcher
+  limit, unrelated to this change (which touches no CLI code). CI is the
+  authority for this suite.
 
 ## Implementation Plan
 
@@ -92,5 +98,5 @@ when a human is present.
 
 ### Phase 3: Validation gate and PR
 
-- [ ] 3.1 Full validation gate green
+- [x] 3.1 Full validation gate green (build:packages, generate, build:packages, i18n:check-sync, i18n:check-usage, typecheck, test 22/22, build:app)
 - [ ] 3.2 Self-review, PR, labels, autofix pass
