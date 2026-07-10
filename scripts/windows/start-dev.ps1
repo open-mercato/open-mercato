@@ -36,6 +36,7 @@ param(
     [switch]$SkipDefenderExclusion,
     [switch]$IncludeNativeToolchain,
     [switch]$Rebuild,
+    [switch]$NoAdmin,
     [int]$TimeoutMinutes = 30,
     [string]$LogPath = "",
 
@@ -485,14 +486,8 @@ function Invoke-ElevatedInstallPhase {
 function Invoke-InstallPhaseIfNeeded {
     Write-StepHeader "Prerequisites (Git, WSL2, Docker Desktop)"
 
-    if ($SkipInstall) {
-        Write-Info "Skipping prerequisite installation (-SkipInstall)."
-        if (-not (Test-DockerDesktopInstalled)) {
-            Write-Fail "Docker Desktop is not installed and -SkipInstall was passed."
-        }
-        return
-    }
-
+    # Detect what's missing first — this drives both the no-admin guidance and
+    # the elevation decision.
     $needsGit = -not (Test-GitInstalled)
     $needsWsl = -not (Test-WslFeaturesEnabled)
     $needsDocker = -not (Test-DockerDesktopInstalled)
@@ -511,7 +506,7 @@ function Invoke-InstallPhaseIfNeeded {
     }
 
     if (-not ($needsGit -or $needsWsl -or $needsDocker -or $needsExclusion)) {
-        Write-Ok "All prerequisites already installed"
+        Write-Ok "All prerequisites already installed - no administrator rights needed"
         return
     }
 
@@ -521,12 +516,34 @@ function Invoke-InstallPhaseIfNeeded {
     if ($needsDocker) { $missingItems += "Docker Desktop" }
     if ($needsExclusion) { $missingItems += "Defender exclusion" }
 
+    # Something is missing, so this is effectively a clean machine that needs the
+    # full (admin) install. -NoAdmin / -SkipInstall force the no-admin path for
+    # accounts that cannot elevate (IT-provisioned Docker Desktop + WSL2); any
+    # cancelled UAC prompt below degrades to the same guidance.
+    $skipAdmin = $NoAdmin -or $SkipInstall
+    if ($skipAdmin) {
+        # Only Docker Desktop + WSL2 are truly required for the containers; the
+        # Defender exclusion is a perf nicety and Git is only needed to clone.
+        $blocking = @()
+        if ($needsDocker) { $blocking += "Docker Desktop" }
+        if ($needsWsl) { $blocking += "WSL2 (Windows feature + kernel)" }
+        if ($blocking.Count -gt 0) {
+            Write-Fail ("Running without admin, but these are required and not present: {0}. Ask IT (or an admin) to install Docker Desktop with the WSL2 backend and add your account to the 'docker-users' group, then re-run:  start-windows.bat -NoAdmin  . Nothing was changed." -f ($blocking -join ", "))
+        }
+        if ($needsGit -and -not $script:RepoRoot) {
+            Write-Fail "Running without admin and Git is not installed, so the repo cannot be cloned. Download the ZIP (https://github.com/open-mercato/open-mercato/archive/refs/heads/main.zip), extract it, and double-click start-windows.bat inside it."
+        }
+        if ($needsExclusion) { Write-Warn "Skipping the Defender exclusion (needs admin) - the stack still works, just with more antivirus file-scan overhead." }
+        Write-Ok "Skipping admin install - Docker Desktop + WSL2 are present; continuing without elevation"
+        return
+    }
+
     if ($DryRun) {
         Write-Info ("Would install (elevated): {0}" -f ($missingItems -join ", "))
         return
     }
 
-    Write-Info ("Administrator rights are needed for: {0}. A UAC prompt will appear." -f ($missingItems -join ", "))
+    Write-Info ("Requesting administrator rights to install: {0}. Approve the UAC prompt (or Cancel if you don't have admin - setup will show the no-admin path)." -f ($missingItems -join ", "))
 
     $exclusionArg = if ($script:RepoRoot) { $script:RepoRoot } else { Join-Path $CloneRoot $RepoName }
     $childArgs = @(
@@ -537,7 +554,12 @@ function Invoke-InstallPhaseIfNeeded {
     if ($SkipDefenderExclusion) { $childArgs += "-SkipDefenderExclusion" }
     if ($NonInteractive) { $childArgs += "-NonInteractive" }
 
-    $child = Start-Process -FilePath "powershell" -ArgumentList $childArgs -Verb RunAs -Wait -PassThru
+    $child = $null
+    try {
+        $child = Start-Process -FilePath "powershell" -ArgumentList $childArgs -Verb RunAs -Wait -PassThru
+    } catch {
+        Write-Fail "Administrator elevation was cancelled or is unavailable on this account. If you don't have admin, ask IT to install Docker Desktop (WSL2 backend) and add you to 'docker-users', then re-run:  start-windows.bat -NoAdmin  . Otherwise re-run and approve the UAC prompt."
+    }
     switch ($child.ExitCode) {
         0 { Write-Ok "Prerequisites installed" }
         10 {
@@ -671,6 +693,7 @@ function Invoke-StandaloneClone {
     if ($SkipInstall) { $forward += "-SkipInstall" }
     if ($SkipLlmPrompt) { $forward += "-SkipLlmPrompt" }
     if ($Rebuild) { $forward += "-Rebuild" }
+    if ($NoAdmin) { $forward += "-NoAdmin" }
     if ($SkipDefenderExclusion) { $forward += "-SkipDefenderExclusion" }
     if ($Yes) { $forward += "-Yes" }
     if ($TimeoutMinutes -ne 30) { $forward += @("-TimeoutMinutes", $TimeoutMinutes) }
