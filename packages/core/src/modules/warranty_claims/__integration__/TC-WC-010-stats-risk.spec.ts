@@ -52,9 +52,9 @@ test.describe('TC-WC-010: warranty claim stats and risk', () => {
     const claimIds: string[] = []
 
     try {
-      const anonymousStats = await request.get('/api/warranty_claims/stats')
+      const anonymousStats = await request.get('/api/warranty_claims/stats', { headers: { Cookie: '' } })
       expect(anonymousStats.status(), 'stats should require staff auth').toBe(401)
-      const anonymousRisk = await request.get(`/api/warranty_claims/risk?claimId=${randomUUID()}`)
+      const anonymousRisk = await request.get(`/api/warranty_claims/risk?claimId=${randomUUID()}`, { headers: { Cookie: '' } })
       expect(anonymousRisk.status(), 'risk should require staff auth').toBe(401)
 
       roleId = await createRoleFixture(request, adminToken, { name: `QA WC Stats no feature ${stamp}` })

@@ -10,6 +10,10 @@ import {
 } from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
 import { getTokenContext, readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
 import {
+  deleteAttachmentIfExists,
+  uploadAttachmentFixture,
+} from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
+import {
   cancelThenDeleteClaimIfPossible,
   createClaimFixture,
   listClaimLines,
@@ -52,6 +56,7 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
     let viewOnlyRoleId: string | null = null
     let viewOnlyUserId: string | null = null
     let claimId: string | null = null
+    let attachmentId: string | null = null
 
     try {
       viewOnlyRoleId = await createRoleFixture(request, adminToken, { name: `QA WC AI Assess View ${stamp}` })
@@ -89,10 +94,22 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
       const [line] = await listClaimLines(request, adminToken, claim.id!)
       expect(line?.id, 'created claim should include a line').toBeTruthy()
 
+      const uploaded = await uploadAttachmentFixture(request, adminToken, {
+        entityId: 'warranty_claims:warranty_claim',
+        recordId: claimId!,
+        fileName: `tc-wc-024-${stamp}.png`,
+        mimeType: 'image/png',
+        buffer: Buffer.from(
+          'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+          'base64',
+        ),
+      })
+      attachmentId = uploaded.id
+
       const payload = {
         claimId,
         lineId: line.id,
-        attachmentId: randomUUID(),
+        attachmentId: uploaded.id,
         kind: 'damage',
       }
 
@@ -101,6 +118,14 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
         data: payload,
       })
       expect(forbidden.status(), 'view-only user should not run AI assess').toBe(403)
+
+      const unlinkedResponse = await apiRequest(request, 'POST', '/api/warranty_claims/ai/assess', {
+        token: adminToken,
+        data: { ...payload, attachmentId: randomUUID() },
+      })
+      expect(unlinkedResponse.status(), 'an attachment not linked to the claim should be rejected').toBe(400)
+      const unlinkedBody = await readJsonSafe<{ error?: string }>(unlinkedResponse)
+      expect(unlinkedBody?.error).toBe('warranty_claims.errors.attachmentNotLinked')
 
       const assessResponse = await apiRequest(request, 'POST', '/api/warranty_claims/ai/assess', {
         token: adminToken,
@@ -118,6 +143,7 @@ test.describe('TC-WC-024: warranty claim AI assess API', () => {
         expect(typeof assessBody.assessment?.confidence).toBe('number')
       }
     } finally {
+      await deleteAttachmentIfExists(request, adminToken, attachmentId)
       await cancelThenDeleteClaimIfPossible(request, adminToken, claimId)
       await deleteUserIfExists(request, adminToken, viewOnlyUserId)
       await deleteRoleIfExists(request, adminToken, viewOnlyRoleId)

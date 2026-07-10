@@ -84,10 +84,10 @@ test.describe('TC-WC-005: warranty claims customer portal API', () => {
         autoApproveRequireInWarranty: true,
       }, settingsBefore.updatedAt)
 
-      const anonymousClaims = await request.get('/api/warranty_claims/portal/claims')
+      const anonymousClaims = await request.get('/api/warranty_claims/portal/claims', { headers: { Cookie: '' } })
       expect(anonymousClaims.status(), 'portal claims list should require customer auth').toBe(401)
 
-      const anonymousOptions = await request.get('/api/warranty_claims/portal/options')
+      const anonymousOptions = await request.get('/api/warranty_claims/portal/options', { headers: { Cookie: '' } })
       expect(anonymousOptions.status(), 'portal options should require customer auth').toBe(401)
 
       roleId = (await createCustomerRoleFixture(request, adminToken, {

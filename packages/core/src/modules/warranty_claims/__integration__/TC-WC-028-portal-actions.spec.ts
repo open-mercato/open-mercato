@@ -80,9 +80,9 @@ test.describe('TC-WC-028: warranty claims portal submit and withdraw actions', (
         autoApproveRequireInWarranty: true,
       }, settingsBefore.updatedAt)
 
-      const anonymousSubmit = await request.post(portalActionUrl(randomUUID(), 'submit'))
+      const anonymousSubmit = await request.post(portalActionUrl(randomUUID(), 'submit'), { headers: { Cookie: '' } })
       expect(anonymousSubmit.status(), 'portal submit should require customer auth').toBe(401)
-      const anonymousWithdraw = await request.post(portalActionUrl(randomUUID(), 'withdraw'))
+      const anonymousWithdraw = await request.post(portalActionUrl(randomUUID(), 'withdraw'), { headers: { Cookie: '' } })
       expect(anonymousWithdraw.status(), 'portal withdraw should require customer auth').toBe(401)
 
       roleId = (await createCustomerRoleFixture(request, adminToken, {

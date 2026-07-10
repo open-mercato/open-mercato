@@ -37,7 +37,7 @@ test.describe('TC-WC-001: warranty claims CRUD API', () => {
     let submittedClaimId: string | null = null
 
     try {
-      const unauthenticated = await request.get('/api/warranty_claims')
+      const unauthenticated = await request.get('/api/warranty_claims', { headers: { Cookie: '' } })
       expect(unauthenticated.status(), 'GET /api/warranty_claims should require staff auth').toBe(401)
 
       roleId = await createRoleFixture(request, adminToken, { name: `QA WC no feature ${stamp}` })
