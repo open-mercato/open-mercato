@@ -306,7 +306,11 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 
 | Spot ID | Widget | Purpose |
 |---------|--------|---------|
+| `customers.person` | `account-status` | Shows portal account status on Customers v2 person detail forms |
+| `crud-form:customers.person` | `account-status` | Alias for CrudForm hosts deriving the spot from `customers.person` |
 | `crud-form:customers:customer_person_profile:fields` | `account-status` | Shows portal account status on CRM person detail page |
+| `customers.company` | `company-users` | Shows portal users on Customers v2 company detail forms |
+| `crud-form:customers.company` | `company-users` | Alias for CrudForm hosts deriving the spot from `customers.company` |
 | `crud-form:customers:customer_company_profile:fields` | `company-users` | Shows portal users linked to a CRM company |
 
 Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.

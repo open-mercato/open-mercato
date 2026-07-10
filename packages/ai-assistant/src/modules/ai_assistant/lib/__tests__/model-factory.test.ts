@@ -8,6 +8,23 @@ import {
   type CreateModelFactoryDependencies,
 } from '../model-factory'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 type FakeProvider = {
   id: string
   defaultModel: string
@@ -1001,9 +1018,10 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
   })
 
   describe('Phase 1780-5 — OM_AI_AVAILABLE_PROVIDERS / OM_AI_AVAILABLE_MODELS_<PROVIDER>', () => {
-    let warnSpy: jest.SpyInstance
+    let warnSpy: jest.Mock
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+      warnSpy = testLogger.warn
+    warnSpy.mockClear()
     })
     afterEach(() => {
       warnSpy.mockRestore()
@@ -1040,7 +1058,8 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
         reason: expect.stringContaining('OM_AI_AVAILABLE_MODELS_OPENAI'),
       })
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('[AI Model Factory]'),
+        expect.stringContaining('Allowlist'),
+        expect.anything(),
       )
     })
 
@@ -1096,9 +1115,10 @@ describe('Phase 4a — tenantOverride, requestOverride, allowRuntimeOverride (re
   })
 
   describe('Phase 1780-6 — tenantAllowlist clipping', () => {
-    let warnSpy: jest.SpyInstance
+    let warnSpy: jest.Mock
     beforeEach(() => {
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+      warnSpy = testLogger.warn
+    warnSpy.mockClear()
     })
     afterEach(() => {
       warnSpy.mockRestore()

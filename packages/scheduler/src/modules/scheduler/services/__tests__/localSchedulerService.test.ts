@@ -2,6 +2,25 @@ import { LocalSchedulerService } from '../localSchedulerService'
 import type { EntityManager } from '@mikro-orm/core'
 import type { Queue } from '@open-mercato/queue'
 import { ScheduledJob } from '../../data/entities.js'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockedLogger = createLogger('scheduler')
+const loggerDebug = mockedLogger.debug as jest.Mock
+const loggerInfo = mockedLogger.info as jest.Mock
+const loggerWarn = mockedLogger.warn as jest.Mock
+const loggerError = mockedLogger.error as jest.Mock
 
 // Mock the typed event emitter
 const mockEmitSchedulerEvent = jest.fn()
@@ -88,21 +107,14 @@ describe('LocalSchedulerService', () => {
     it('should start polling engine', async () => {
       mockForkedEm.find.mockResolvedValue([])
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] Starting polling engine...')
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] Poll interval: 1000ms')
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] ✓ Polling engine started')
-
-      consoleLogSpy.mockRestore()
+      expect(loggerInfo).toHaveBeenCalledWith('Starting polling engine', { pollIntervalMs: 1000 })
+      expect(loggerInfo).toHaveBeenCalledWith('Polling engine started')
     })
 
     it('should run initial poll immediately', async () => {
       mockForkedEm.find.mockResolvedValue([])
-
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
 
       await service.start()
 
@@ -114,21 +126,15 @@ describe('LocalSchedulerService', () => {
         limit: 100,
         orderBy: { nextRunAt: 'ASC' },
       })
-
-      consoleLogSpy.mockRestore()
     })
 
     it('should not start if already running', async () => {
       mockForkedEm.find.mockResolvedValue([])
 
-      const consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation()
-
       await service.start()
       await service.start()
 
-      expect(consoleWarnSpy).toHaveBeenCalledWith('[scheduler:local] Already running')
-
-      consoleWarnSpy.mockRestore()
+      expect(loggerWarn).toHaveBeenCalledWith('Polling engine already running')
     })
 
     it('should schedule recurring polls', async () => {
@@ -151,15 +157,11 @@ describe('LocalSchedulerService', () => {
     it('should stop polling engine', async () => {
       mockForkedEm.find.mockResolvedValue([])
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
       await service.stop()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] Stopping polling engine...')
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] ✓ Polling engine stopped')
-
-      consoleLogSpy.mockRestore()
+      expect(loggerInfo).toHaveBeenCalledWith('Stopping polling engine')
+      expect(loggerInfo).toHaveBeenCalledWith('Polling engine stopped')
     })
 
     it('should clear poll timer', async () => {
@@ -201,38 +203,26 @@ describe('LocalSchedulerService', () => {
       })
       mockQueue.enqueue.mockResolvedValue(undefined as any)
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] Found 1 due schedule(s)')
-
-      consoleLogSpy.mockRestore()
+      expect(loggerInfo).toHaveBeenCalledWith('Found due schedules', { count: 1 })
     })
 
     it('should log when no schedules are due', async () => {
       mockForkedEm.find.mockResolvedValue([])
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith('[scheduler:local] No due schedules')
-
-      consoleLogSpy.mockRestore()
+      expect(loggerDebug).toHaveBeenCalledWith('No due schedules')
     })
 
     it('should handle poll errors gracefully', async () => {
       const error = new Error('Database error')
       mockForkedEm.find.mockRejectedValue(error)
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await service.start()
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('[scheduler:local] Poll failed:', error)
-
-      consoleErrorSpy.mockRestore()
+      expect(loggerError).toHaveBeenCalledWith('Poll failed', { err: error })
     })
   })
 
@@ -260,16 +250,10 @@ describe('LocalSchedulerService', () => {
       mockForkedEm.find.mockResolvedValue([schedule])
       mockLockStrategy.runWithLock.mockResolvedValue({ acquired: false })
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[scheduler:local] Schedule Test Schedule is already locked, skipping'
-      )
+      expect(loggerDebug).toHaveBeenCalledWith('Schedule already locked, skipping')
       expect(mockEmitSchedulerEvent).not.toHaveBeenCalled()
-
-      consoleLogSpy.mockRestore()
     })
 
     it('should execute queue target', async () => {
@@ -379,8 +363,6 @@ describe('LocalSchedulerService', () => {
       })
       mockQueue.enqueue.mockRejectedValue(error)
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await service.start()
 
       expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
@@ -391,8 +373,6 @@ describe('LocalSchedulerService', () => {
           error: 'Execution failed',
         })
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should update lastRunAt and nextRunAt', async () => {
@@ -425,8 +405,6 @@ describe('LocalSchedulerService', () => {
         return { acquired: true }
       })
       mockQueue.enqueue.mockRejectedValue(error)
-
-      jest.spyOn(console, 'error').mockImplementation()
 
       await service.start()
 
@@ -475,13 +453,9 @@ describe('LocalSchedulerService', () => {
       })
       mockRbacService.tenantHasFeature.mockResolvedValue(false)
 
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-
       await service.start()
 
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        '[scheduler:local] Schedule Test Schedule skipped: missing feature test.feature'
-      )
+      expect(loggerInfo).toHaveBeenCalledWith('Schedule skipped: missing required feature', { requireFeature: 'test.feature' })
       expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
         'scheduler.job.skipped',
         expect.objectContaining({
@@ -490,8 +464,6 @@ describe('LocalSchedulerService', () => {
         })
       )
       expect(mockQueue.enqueue).not.toHaveBeenCalled()
-
-      consoleLogSpy.mockRestore()
     })
 
     it('should not check feature for system-scoped schedules', async () => {
@@ -527,8 +499,6 @@ describe('LocalSchedulerService', () => {
       })
       mockQueue.enqueue.mockRejectedValue(error)
 
-      jest.spyOn(console, 'error').mockImplementation()
-
       await service.start()
 
       expect(mockForkedEm.flush).toHaveBeenCalled()
@@ -545,8 +515,6 @@ describe('LocalSchedulerService', () => {
         return { acquired: true }
       })
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await service.start()
 
       expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
@@ -555,8 +523,6 @@ describe('LocalSchedulerService', () => {
           error: 'Target queue is required for queue target type',
         })
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should throw if target command is missing for command target', async () => {
@@ -572,8 +538,6 @@ describe('LocalSchedulerService', () => {
         return { acquired: true }
       })
 
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
-
       await service.start()
 
       expect(mockEmitSchedulerEvent).toHaveBeenCalledWith(
@@ -582,8 +546,6 @@ describe('LocalSchedulerService', () => {
           error: 'Target command is required for command target type',
         })
       )
-
-      consoleErrorSpy.mockRestore()
     })
 
     it('should pass payload to queue job', async () => {

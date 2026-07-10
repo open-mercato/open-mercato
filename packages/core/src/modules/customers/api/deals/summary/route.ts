@@ -17,6 +17,9 @@ import {
   type CurrencySum,
   type Delta,
 } from '../../../lib/dealsMetrics'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -366,7 +369,7 @@ export async function GET(req: Request) {
           options: { maxDaysBack: 60, autoFetch: false },
         })
       } catch (err) {
-        console.warn('[customers.deals.summary] exchange-rate lookup failed; falling back to per-currency totals', err)
+        logger.warn('exchange-rate lookup failed; falling back to per-currency totals', { component: 'deals.summary', err })
       }
     }
   }

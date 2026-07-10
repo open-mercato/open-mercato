@@ -20,6 +20,9 @@ import {
   validateImageMagicBytes,
 } from '@open-mercato/core/modules/attachments/lib/imageSafety'
 import { StorageDriverFactory } from '../../../../lib/drivers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('attachments').child({ component: 'image' })
 
 const querySchema = z.object({
   width: z.coerce.number().int().min(1).max(4000).optional(),
@@ -115,7 +118,7 @@ export async function GET(
       buffer = await transformer.toBuffer()
       if (cacheKey) {
         void writeThumbnailCache(attachment.partitionCode, attachment.id, cacheKey, buffer).catch((cacheError) => {
-          console.error('attachments.image.cache.write failed', cacheError)
+          logger.error('Thumbnail cache write failed', { err: cacheError })
         })
       }
     }
@@ -132,7 +135,7 @@ export async function GET(
       },
     })
   } catch (error) {
-    console.error('attachments.image.read failed', error)
+    logger.error('Image read failed', { err: error })
     return NextResponse.json({ error: 'Failed to render image' }, { status: 500 })
   }
 }

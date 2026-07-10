@@ -57,6 +57,7 @@ const moduleEntities: Record<string, string[]> = {
   workflows: ['WorkflowDefinition'],
   warranty_claims: ['WarrantyClaim', 'WarrantyClaimLine'],
   directory: ['Organization', 'Tenant'],
+  messages: ['Message'],
 }
 
 function readEntitySource(moduleId: string): string {

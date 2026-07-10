@@ -52,6 +52,9 @@ import {
   type PersonOverview,
 } from '../../../../components/formConfig'
 import { coerceDisplayName, coerceDisplayNameOrNull } from '../../../../lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function PersonDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -182,7 +185,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[people-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'people-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -191,7 +194,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[people-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'people-v2', err }))
   }, [loadData])
 
   const plannedActivities = React.useMemo(() => {
@@ -514,7 +517,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
             isDirty={isDirty}
             isSaving={isSaving}
             onOpenCompaniesTab={() => setActiveTab('companies')}
-            onDataReload={() => { loadData().catch((err) => console.warn('[people-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'people-v2', err })) }}
             onFocusField={(fieldName) => {
               const selectorMap: Record<string, string> = {
                 primaryEmail: 'input[type="email"]',

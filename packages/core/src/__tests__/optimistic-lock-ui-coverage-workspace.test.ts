@@ -104,10 +104,8 @@ const WORKSPACE_ALLOWLIST: Record<string, string> = {
     'exempt — timeline activity-log adapter; the shared `ActivitiesDataAdapter` interface (packages/ui/src/backend/detail/ActivitiesSection.tsx) does not thread a record `updatedAt` to `update`/`delete` (unlike `NotesDataAdapter`), so no per-record version is available to send. Server routes are `makeCrudRoute` floor-covered. Threading a version into the shared activities section is a separate UI-contract change.',
   'packages/core/src/modules/staff/components/detail/activitiesAdapter.ts':
     'exempt — timeline activity-log adapter; same as the resources activities adapter — the shared `ActivitiesDataAdapter` interface passes no `updatedAt` to `update`/`delete`, so no record version is available. Server routes are `makeCrudRoute` floor-covered.',
-  'packages/core/src/modules/messages/components/message-detail/hooks/useMessageDetailsActions.ts':
-    'exempt — message read/unread + archive are status transitions (exempt category); message/conversation delete is a non-audited single-owner inbox action. Documented in the Phase-7 cross-cutting delete sweep ("messages item/conversation deletes remain exempt").',
   'packages/core/src/modules/messages/components/useMessagesInboxBulkActions.ts':
-    'exempt — inbox bulk markRead/markUnread/archive are status transitions; bulk delete is a non-audited single-owner inbox action. Same decision as useMessageDetailsActions (Phase-7 sweep).',
+    'exempt — inbox bulk markRead/markUnread/archive are status transitions; bulk delete is a non-audited single-owner inbox action (Phase-7 sweep). The per-message detail delete + action paths are now version-locked (#3260), but bulk operates over many rows with no per-record version to send.',
   'packages/enterprise/src/modules/security/components/hooks/useMfaStatus.ts':
     'exempt — removes the caller\'s OWN MFA method (single-owner security action), not a collaborative-edit record surface. Documented in the Phase-7 sweep ("mfa factor reset remain exempt").',
 }

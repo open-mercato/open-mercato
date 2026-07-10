@@ -134,6 +134,11 @@ docker/opencode/opencode.jsonc
 .ai/qa/ephemeral-env.lock/*
 .ai/qa/ephemeral*
 .ai/dev-ephemeral-envs.json
+# om-prepare-test-env shared descriptor + per-run QA artifacts (generated, not source)
+.ai/qa/test-env.json
+.ai/qa/test-env.lock/
+.ai/qa/test-env-boot.log
+.ai/qa/artifacts_*/
 .agents/
 
 apps/mercato/data/
@@ -144,3 +149,7 @@ apps/mercato/data/cache.db
 
 # Official modules submodule — personal activation override
 official-modules.local.json
+apps/mercato/src/module-facts.generated.json
+
+# skills CLI lockfile (external skills are re-resolved on each install)
+skills-lock.json

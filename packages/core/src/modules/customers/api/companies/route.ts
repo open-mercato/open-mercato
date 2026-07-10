@@ -39,6 +39,9 @@ import {
   withScopedCustomerDealLinkWhere,
 } from '../../lib/personCompanyLinkTable'
 import { normalizeCompanyProfilePayload } from './payload'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -242,7 +245,7 @@ const crud = makeCrudRoute({
             if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
           })
         } catch (err) {
-          console.warn('[customers.companies.list] exclusion lookup failed; falling back to base result set', err)
+          logger.warn('exclusion lookup failed; falling back to base result set', { component: 'companies.list', err })
         }
       }
       if (typeof query.excludeLinkedCompanyId === 'string' && query.excludeLinkedCompanyId.length > 0) {
@@ -267,7 +270,7 @@ const crud = makeCrudRoute({
             if (typeof companyId === 'string' && companyId.length > 0) excludedIds.add(companyId)
           })
         } catch (err) {
-          console.warn('[customers.companies.list] exclusion lookup failed; falling back to base result set', err)
+          logger.warn('exclusion lookup failed; falling back to base result set', { component: 'companies.list', err })
         }
       }
       applyEntityIdExclusion(filters, Array.from(excludedIds))
@@ -316,7 +319,7 @@ const crud = makeCrudRoute({
           })
           Object.assign(filters, cfFilters)
         } catch (err) {
-          console.warn('[customers.companies.list] custom field filter resolution failed; falling back to base filters', err)
+          logger.warn('custom field filter resolution failed; falling back to base filters', { component: 'companies.list', err })
         }
       }
       if (ctx && advancedFilterTree) {

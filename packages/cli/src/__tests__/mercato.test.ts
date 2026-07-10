@@ -359,7 +359,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -408,7 +407,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -460,7 +458,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
       dbMigrate: jest.fn().mockResolvedValue(undefined),
@@ -569,7 +566,6 @@ describe('generate post-step structural cache purge', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateOpenApi,
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -619,7 +615,6 @@ describe('generate post-step structural cache purge', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateOpenApi,
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -645,6 +640,7 @@ describe('server dev managed process exits', () => {
   const originalAutoSpawnScheduler = process.env.AUTO_SPAWN_SCHEDULER
   const originalAutoSpawnWorkers = process.env.AUTO_SPAWN_WORKERS
   const originalLazy = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+  const originalLazyMode = process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
   const originalLazyScheduler = process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   const originalGenerateWatchMode = process.env.OM_DEV_GENERATE_WATCH_MODE
   const originalSingleDelivery = process.env.OM_EVENTS_SINGLE_DELIVERY
@@ -656,6 +652,7 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_SCHEDULER = 'false'
     process.env.AUTO_SPAWN_WORKERS = 'true'
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     // These tests toggle AUTO_SPAWN_WORKERS to exercise scheduler/Next exits, not
     // the events single-delivery guard. Acknowledge an external events worker so
@@ -683,6 +680,7 @@ describe('server dev managed process exits', () => {
     if (originalGenerateWatchMode === undefined) delete process.env.OM_DEV_GENERATE_WATCH_MODE
     else process.env.OM_DEV_GENERATE_WATCH_MODE = originalGenerateWatchMode
     delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
     delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
   })
 
@@ -691,6 +689,8 @@ describe('server dev managed process exits', () => {
     process.env.AUTO_SPAWN_WORKERS = originalAutoSpawnWorkers
     if (originalLazy === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY
     else process.env.OM_AUTO_SPAWN_WORKERS_LAZY = originalLazy
+    if (originalLazyMode === undefined) delete process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE
+    else process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = originalLazyMode
     if (originalLazyScheduler === undefined) delete process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY
     else process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY = originalLazyScheduler
     if (originalSingleDelivery === undefined) delete process.env.OM_EVENTS_SINGLE_DELIVERY
@@ -793,6 +793,7 @@ describe('server dev managed process exits', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     process.env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
+    process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
 
     jest.doMock('node:fs', () => {
       const actual = jest.requireActual('node:fs')
@@ -843,7 +844,14 @@ describe('server dev managed process exits', () => {
     expect(supervisorCall.workers.map((worker) => worker.queue)).toEqual(['events'])
     expect(supervisorCall.pollMs).toBe(1000)
     expect(supervisorCall.restartOnUnexpectedExit).toBe(true)
+    expect(supervisorCall.spawnMode).toBe('shared')
     expect(supervisorClose).toHaveBeenCalled()
+
+    const lazyLogLine = consoleLogSpy.mock.calls
+      .map((call) => call[0])
+      .find((line) => typeof line === 'string' && line.startsWith('[server] Lazy worker auto-spawn enabled'))
+    expect(lazyLogLine).toContain('shared worker mode')
+    expect(lazyLogLine).toContain('OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue')
 
     const { spawn } = await import('child_process')
     const allSpawnCalls = (spawn as jest.Mock).mock.calls.map((call) => call[1] as string[])

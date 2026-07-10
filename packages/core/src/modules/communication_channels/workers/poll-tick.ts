@@ -4,6 +4,9 @@ import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../data/entities'
 import { COMMUNICATION_CHANNELS_QUEUES, getCommunicationChannelsQueue } from '../lib/queue'
 import type { PollChannelJobPayload } from './poll-channel'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'poll-tick' })
 
 /**
  * Scheduler tick payload. Fired by the `@open-mercato/scheduler` cron entry
@@ -70,9 +73,8 @@ export default async function handle(
   const organizationId =
     raw.scope?.organizationId ?? raw.organizationId ?? null
   if (!tenantId) {
-    console.warn(
-      '[communication_channels:poll-tick] skipping tick — payload has no tenantId',
-      { payload: raw },
+    logger.warn(
+      'skipping tick — payload has no tenantId',
     )
     return
   }
@@ -197,9 +199,7 @@ export default async function handle(
   if (recovered > 0) await em.flush()
 
   if (enqueued > 0 || recovered > 0) {
-    console.log(
-      `[communication_channels:poll-tick] enqueued ${enqueued} normal + ${recovered} auto-recover poll job(s) for tenant ${scope.tenantId}`,
-    )
+    logger.info('enqueued poll jobs for tenant', { enqueued, recovered, tenantId: scope.tenantId })
   }
 }
 

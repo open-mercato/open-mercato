@@ -44,6 +44,9 @@ import {
   type CompanyEditFormValues,
   type CompanyOverview,
 } from '../../../../components/formConfig'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -149,7 +152,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[companies-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -158,7 +161,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[companies-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   // Planned activities for the activity-log tab
@@ -472,7 +475,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch((err) => console.warn('[companies-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'companies-v2', err })) }}
           />
 
           {/* KPI bar — always visible above zones */}
