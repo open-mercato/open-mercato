@@ -135,6 +135,12 @@ export type ProcessResult = {
   lastJobId?: string
 }
 
+export type QueueJobScope = {
+  tenantId: string
+  organizationId?: string | null
+  jobTypes?: readonly string[]
+}
+
 // ============================================================================
 // Queue Interface
 // ============================================================================
@@ -174,6 +180,13 @@ export interface Queue<T = unknown> {
    * @returns Promise with count of removed jobs
    */
   clear(): Promise<{ removed: number }>
+
+  /**
+   * Remove queued jobs whose payload belongs to the provided tenant/org scope.
+   * Active jobs are not forcibly terminated; callers should rely on their own
+   * cancellation/heartbeat contracts for in-flight work.
+   */
+  removeQueuedJobsByScope?(scope: QueueJobScope): Promise<{ removed: number }>
 
   /**
    * Close the queue and release resources.

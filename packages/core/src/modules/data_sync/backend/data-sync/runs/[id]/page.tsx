@@ -431,7 +431,9 @@ export default function SyncRunDetailPage({ params }: SyncRunDetailPageProps) {
                   message: log.message,
                   body: log.payload ? (
                     <pre className="overflow-x-auto whitespace-pre-wrap rounded-md border bg-card p-3 text-xs">
-                      {JSON.stringify(log.payload, null, 2)}
+                      {log.payload.kind === 'export-item-failure' && typeof log.payload.summary === 'string'
+                        ? log.payload.summary
+                        : JSON.stringify(log.payload, null, 2)}
                     </pre>
                   ) : (
                     <p className="text-sm text-muted-foreground">

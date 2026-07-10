@@ -1,6 +1,18 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import handler from '../outbound-dispatch'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: jest.fn(),
   findOneWithDecryption: jest.fn(),
@@ -22,6 +34,9 @@ jest.mock('../../lib/integration-state', () => ({
 
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { getDeclaredEvents } from '@open-mercato/shared/modules/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const dispatchLoggerError = createLogger('webhooks').error as jest.Mock
 import { createWebhookDelivery } from '../../lib/delivery'
 import { enqueueWebhookDelivery } from '../../lib/queue'
 import { isWebhookIntegrationEnabled } from '../../lib/integration-state'
@@ -189,7 +204,7 @@ describe('webhooks outbound dispatch subscriber', () => {
   })
 
   it('scopes the failed-delivery lookup to webhook tenantId and organizationId when enqueue throws', async () => {
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    dispatchLoggerError.mockClear()
 
     try {
       const { rootEm, webhookEm } = createDispatchEntityManagers()
@@ -234,18 +249,18 @@ describe('webhooks outbound dispatch subscriber', () => {
         expect.objectContaining({ tenantId: 'tenant-1', organizationId: 'org-1' }),
       )
       expect(webhookEm.flush).toHaveBeenCalled()
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        '[webhooks] Failed to enqueue outbound delivery',
+      expect(dispatchLoggerError).toHaveBeenCalledWith(
+        'Failed to enqueue outbound delivery',
         expect.objectContaining({
           webhookId: 'webhook-1',
           eventId: 'catalog.product.created',
           tenantId: 'tenant-1',
           organizationId: 'org-1',
-          error: 'Queue unavailable',
+          err: expect.objectContaining({ message: 'Queue unavailable' }),
         }),
       )
     } finally {
-      consoleErrorSpy.mockRestore()
+      dispatchLoggerError.mockClear()
     }
   })
 

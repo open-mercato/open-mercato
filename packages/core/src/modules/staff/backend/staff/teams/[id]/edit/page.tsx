@@ -23,6 +23,9 @@ import { extractCustomFieldEntries } from '@open-mercato/shared/lib/crud/custom-
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { Plus } from 'lucide-react'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const TEAM_MEMBERS_PAGE_SIZE = 50
 
@@ -265,7 +268,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
           : Math.max(1, Math.ceil(items.length / TEAM_MEMBERS_PAGE_SIZE)),
       )
     } catch (error) {
-      console.error('staff.teams.team-members.list', error)
+      logger.error('staff.teams.team-members.list', { err: error })
       flash(memberLabels.errors.load, 'error')
     } finally {
       setMembersLoading(false)
@@ -296,7 +299,7 @@ export default function StaffTeamEditPage({ params }: { params?: { id?: string }
       flash(memberLabels.messages.unassigned, 'success')
       handleMemberRefresh()
     } catch (error) {
-      console.error('staff.teams.team-members.unassign', error)
+      logger.error('staff.teams.team-members.unassign', { err: error })
       flash(memberLabels.errors.unassign, 'error')
     }
   }, [handleMemberRefresh, memberLabels.errors.unassign, memberLabels.messages.unassigned, teamId])

@@ -31,6 +31,9 @@ import {
   resolveDictionaryEntrySortMode,
   sortDictionaryEntries,
 } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'entries-api' })
 
 const paramsSchema = z.object({ dictionaryId: z.string().uuid() })
 
@@ -157,7 +160,7 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries.GET] Unexpected error', err)
+    logger.error('Failed to load dictionary entries', { err })
     return NextResponse.json({ error: 'Failed to load dictionary entries' }, { status: 500 })
   }
 }
@@ -249,7 +252,7 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[dictionaries/:id/entries.POST] Unexpected error', err)
+    logger.error('Failed to create dictionary entry', { err })
     return NextResponse.json({ error: 'Failed to create dictionary entry' }, { status: 500 })
   }
 }

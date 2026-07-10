@@ -27,6 +27,9 @@ import {
   DictionaryTable,
   type DictionaryTableEntry,
 } from '@open-mercato/core/modules/dictionaries/components/DictionaryTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type SectionDefinition = {
   kind: CustomerDictionaryKind
@@ -247,7 +250,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       }))
       setEntries(mapped)
     } catch (err) {
-      console.error('customers.dictionaries.list failed', err)
+      logger.error('customers.dictionaries.list failed', { err })
       flash(errorLoad, 'error')
     } finally {
       setLoading(false)
@@ -310,7 +313,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       flash(successDelete, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('customers.dictionaries.delete failed', err)
+      logger.error('customers.dictionaries.delete failed', { err })
       if (kind === 'person-company-roles' && (err as DictionaryDeleteError)?.code === 'role_type_in_use') {
         const usageCount = Number((err as DictionaryDeleteError).usageCount ?? 0)
         await confirm({
@@ -389,7 +392,7 @@ function CustomerDictionarySection({ kind, title, description }: CustomerDiction
       closeDialog()
       await loadEntries()
     } catch (err) {
-      console.error('customers.dictionaries.submit failed', err)
+      logger.error('customers.dictionaries.submit failed', { err })
       throw err instanceof Error ? err : new Error(errorSave)
     } finally {
       setSubmitting(false)

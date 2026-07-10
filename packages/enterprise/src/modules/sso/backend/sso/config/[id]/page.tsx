@@ -647,7 +647,7 @@ function RoleMappingsTab({
   return (
     <div>
       <p className="text-sm text-muted-foreground mb-4">
-        {t('sso.admin.roles.description', 'Map IdP app role names to local roles. On each SSO login, SSO-sourced roles are synced — roles no longer sent by the IdP are removed, while manually-assigned roles are preserved.')}
+        {t('sso.admin.roles.description', 'Map IdP app role names to local roles. Only explicitly mapped IdP roles grant local roles; on each SSO login, SSO-sourced roles are synced while manually-assigned roles are preserved.')}
       </p>
       <div className="flex items-end gap-2 mb-4">
         <div className="flex-1">
@@ -696,7 +696,7 @@ function RoleMappingsTab({
         </div>
       ) : (
         <p className="text-sm text-muted-foreground py-4 text-center mb-4">
-          {t('sso.admin.roles.empty', 'No role mappings configured. IdP role names will be matched directly against local role names.')}
+          {t('sso.admin.roles.empty', 'No role mappings configured. Users will not receive SSO-sourced roles until an IdP role is explicitly mapped to a local role.')}
         </p>
       )}
 

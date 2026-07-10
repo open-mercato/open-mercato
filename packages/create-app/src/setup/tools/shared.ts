@@ -154,20 +154,16 @@ export function generateShared(config: AgenticConfig): void {
   copyFile('ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile('ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
 
-  // .ai/skills/
-  writeTemplate(
-    'ai/skills/om-spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-    config,
-  )
-  copyFile(
-    'ai/skills/om-spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
-  )
-  copyFile(
-    'ai/skills/om-spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
-  )
+  // .ai/skills/ — the shared skills-mixin manifest + tracker + external installer.
+  // Skills owned by the external open-mercato/skills collection (code review, spec
+  // writing, integration tests, prepare-issue, the auto-* PR family) are NOT copied
+  // here; the user installs them with `yarn install-skills` (npx skills add). Only
+  // standalone-only + kept-local skills and repo-local override folders are copied.
+  copyFile('ai/skills/tiers.json', join(targetDir, '.ai', 'skills', 'tiers.json'))
+  copyFile('ai/skills/tiers.schema.json', join(targetDir, '.ai', 'skills', 'tiers.schema.json'))
+  copyFile('ai/agentic.config.json', join(targetDir, '.ai', 'agentic.config.json'))
+  copyFile('ai/trackers/github.md', join(targetDir, '.ai', 'trackers', 'github.md'))
+  copyFile('scripts/install-skills.sh', join(targetDir, 'scripts', 'install-skills.sh'))
 
   copyFile(
     'ai/skills/om-backend-ui-design/SKILL.md',
@@ -176,15 +172,6 @@ export function generateShared(config: AgenticConfig): void {
   copyFile(
     'ai/skills/om-backend-ui-design/references/ui-components.md',
     join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
-  )
-
-  copyFile(
-    'ai/skills/om-code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
-  )
-  copyFile(
-    'ai/skills/om-code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
 
   copyFile(
@@ -258,12 +245,6 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-implement-spec', 'SKILL.md'),
   )
 
-  // integration-tests skill
-  copyFile(
-    'ai/skills/om-integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
-  )
-
   // help / workflow navigator skill
   copyFile(
     'ai/skills/om-help/SKILL.md',
@@ -284,18 +265,20 @@ export function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
-  // Agent automation / auto-* skills. Some skills also ship with a
-  // STANDALONE.md portability override that adjusts the workflow for use in
-  // standalone apps (default-branch discovery, opt-in pipeline labels,
-  // probe-before-run validation gate, src/modules/... file layout).
+  // Agent automation / auto-* skills. The workflow bodies now live in the external
+  // open-mercato/skills collection (installed via `yarn install-skills`); what ships
+  // in the scaffold is a slim repo-local OVERRIDE folder per skill (SKILL.md only)
+  // that the external skill reads on top of its built-in workflow to adjust for a
+  // standalone app (default-branch discovery, opt-in pipeline labels, probe-before-run
+  // validation gate, src/modules/... file layout). Autofix is the single
+  // om-auto-fix-issue override (formerly om-auto-fix-github).
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
     'om-auto-create-pr-loop',
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
-    'om-auto-fix-github',
-    'om-prepare-issue',
+    'om-auto-fix-issue',
   ]) {
     if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue
@@ -304,12 +287,6 @@ export function generateShared(config: AgenticConfig): void {
       `ai/skills/${autoSkill}/SKILL.md`,
       join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
     )
-    if (existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
-      copyFile(
-        `ai/skills/${autoSkill}/STANDALONE.md`,
-        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
-      )
-    }
   }
 
   // Classic-mode slimdown skill — offered after the user adds a new module

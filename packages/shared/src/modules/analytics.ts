@@ -1,3 +1,7 @@
+import { createLogger } from '../lib/logger'
+
+const logger = createLogger('shared').child({ component: 'analytics-registry' })
+
 export type AggregateFunction = 'count' | 'sum' | 'avg' | 'min' | 'max'
 
 export type DateGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year'
@@ -38,7 +42,7 @@ let _analyticsModuleConfigs: AnalyticsModuleConfig[] | null = null
 
 export function registerAnalyticsModuleConfigs(configs: AnalyticsModuleConfig[]): void {
   if (_analyticsModuleConfigs !== null && process.env.NODE_ENV === 'development') {
-    console.debug('[Bootstrap] Analytics module configs re-registered (this may occur during HMR)')
+    logger.debug('Analytics module configs re-registered (this may occur during HMR)')
   }
   _analyticsModuleConfigs = configs
 }

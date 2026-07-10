@@ -1048,15 +1048,15 @@ export const syncExcelCustomersAdapter: DataSyncAdapter = {
       const startOffset = cursor?.uploadId === upload.id ? cursor.offset : 0
       const commandContext = buildCommandContext(container, input.scope)
       const customFieldDefinitions = await loadImportCustomFieldDefinitions(em, input.scope)
+      const emailDedupeIndex = await buildEmailDedupeIndex({
+        em,
+        rows: document.rows.slice(startOffset),
+        mapping: input.mapping,
+        scope: input.scope,
+      })
 
       for (let offset = startOffset, batchIndex = 0; offset < document.rows.length; offset += input.batchSize, batchIndex += 1) {
         const batchRows = document.rows.slice(offset, offset + input.batchSize)
-        const emailDedupeIndex = await buildEmailDedupeIndex({
-          em,
-          rows: batchRows,
-          mapping: input.mapping,
-          scope: input.scope,
-        })
         const items: ImportItem[] = []
 
         for (let index = 0; index < batchRows.length; index += 1) {

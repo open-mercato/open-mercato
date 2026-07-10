@@ -178,23 +178,17 @@ function generateShared(config: AgenticConfig): void {
   copyFile(srcDir, 'ai/specs/SPEC-000-template.md', join(targetDir, '.ai', 'specs', 'SPEC-000-template.md'))
   copyFile(srcDir, 'ai/lessons.md', join(targetDir, '.ai', 'lessons.md'))
 
-  // .ai/skills/
-  writeTemplate(
-    srcDir,
-    'ai/skills/om-spec-writing/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-    config,
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-template.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-template.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-spec-writing/references/spec-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-spec-writing', 'references', 'spec-checklist.md'),
-  )
+  // .ai/skills/ — the shared skills-mixin manifest + tracker + external installer.
+  // Skills owned by the external open-mercato/skills collection (code review, spec
+  // writing, integration tests, prepare-issue, the auto-* PR family) are NOT copied
+  // here; the user installs them with `yarn install-skills` (npx skills add). Only
+  // standalone-only + kept-local skills and repo-local override folders are copied.
+  copyFile(srcDir, 'ai/skills/tiers.json', join(targetDir, '.ai', 'skills', 'tiers.json'))
+  copyFile(srcDir, 'ai/skills/tiers.schema.json', join(targetDir, '.ai', 'skills', 'tiers.schema.json'))
+  copyFile(srcDir, 'ai/agentic.config.json', join(targetDir, '.ai', 'agentic.config.json'))
+  copyFile(srcDir, 'ai/trackers/github.md', join(targetDir, '.ai', 'trackers', 'github.md'))
+  copyFile(srcDir, 'scripts/install-skills.sh', join(targetDir, 'scripts', 'install-skills.sh'))
+
   copyFile(
     srcDir,
     'ai/skills/om-backend-ui-design/SKILL.md',
@@ -204,16 +198,6 @@ function generateShared(config: AgenticConfig): void {
     srcDir,
     'ai/skills/om-backend-ui-design/references/ui-components.md',
     join(targetDir, '.ai', 'skills', 'om-backend-ui-design', 'references', 'ui-components.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'SKILL.md'),
-  )
-  copyFile(
-    srcDir,
-    'ai/skills/om-code-review/references/review-checklist.md',
-    join(targetDir, '.ai', 'skills', 'om-code-review', 'references', 'review-checklist.md'),
   )
   copyFile(srcDir, 'ai/skills/om-integration-builder/SKILL.md', join(targetDir, '.ai', 'skills', 'om-integration-builder', 'SKILL.md'))
   if (existsSync(join(srcDir, 'ai', 'skills', 'om-integration-builder', 'STANDALONE.md'))) {
@@ -299,12 +283,6 @@ function generateShared(config: AgenticConfig): void {
 
   copyFile(
     srcDir,
-    'ai/skills/om-integration-tests/SKILL.md',
-    join(targetDir, '.ai', 'skills', 'om-integration-tests', 'SKILL.md'),
-  )
-
-  copyFile(
-    srcDir,
     'ai/skills/om-help/SKILL.md',
     join(targetDir, '.ai', 'skills', 'om-help', 'SKILL.md'),
   )
@@ -325,27 +303,26 @@ function generateShared(config: AgenticConfig): void {
     join(targetDir, '.ai', 'skills', 'om-auto-upgrade-0.4.10-to-0.5.0', 'SKILL.md'),
   )
 
+  // Slim repo-local OVERRIDE folders (SKILL.md only) for the external auto-* PR
+  // family + single autofix skill. The workflow bodies live in open-mercato/skills
+  // (installed via `yarn install-skills`); these overrides adjust them for a
+  // standalone app and are read on top of the external skill's built-in workflow.
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
     'om-auto-create-pr-loop',
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
-    'om-auto-fix-github',
-    'om-prepare-issue',
+    'om-auto-fix-issue',
   ]) {
+    if (!existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
+      continue
+    }
     copyFile(
       srcDir,
       `ai/skills/${autoSkill}/SKILL.md`,
       join(targetDir, '.ai', 'skills', autoSkill, 'SKILL.md'),
     )
-    if (existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'STANDALONE.md'))) {
-      copyFile(
-        srcDir,
-        `ai/skills/${autoSkill}/STANDALONE.md`,
-        join(targetDir, '.ai', 'skills', autoSkill, 'STANDALONE.md'),
-      )
-    }
   }
 
   copyFile(

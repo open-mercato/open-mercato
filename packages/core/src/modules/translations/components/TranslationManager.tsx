@@ -22,6 +22,9 @@ import { ISO_639_1, isValidIso639, getIso639Label } from '@open-mercato/shared/l
 import { formatEntityLabel, buildEntityListUrl, getRecordLabel, resolveBaseValue } from '../lib/helpers'
 import { resolveFieldList } from '../lib/resolve-field-list'
 import type { ResolvedField } from '../lib/resolve-field-list'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('translations').child({ component: 'TranslationManager' })
 
 const TRANSLATION_MUTATION_CONTEXT_ID = 'translations.entity-translations'
 const SUPPORTED_LOCALES_MUTATION_CONTEXT_ID = 'translations.supported-locales'
@@ -264,7 +267,7 @@ export function TranslationManager({
         if (hasValues) body[locale] = localeFields
       }
       if (Object.keys(body).length === 0) {
-        console.warn('[translations] Save skipped: payload is empty — no locale contains any non-empty field')
+        logger.warn('Save skipped: payload is empty — no locale contains any non-empty field')
         throw new Error(t('translations.manager.errors.nothingToSave', 'Nothing to save — enter a translation first'))
       }
       return runMutation({

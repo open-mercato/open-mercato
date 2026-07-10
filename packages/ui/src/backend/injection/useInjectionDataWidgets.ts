@@ -8,6 +8,9 @@ import {
   subscribeToInjectionRegistryChanges,
   type LoadedInjectionDataWidget,
 } from '@open-mercato/shared/modules/widgets/injection-loader'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'useInjectionDataWidgets' })
 
 export function useInjectionDataWidgets(spotId: InjectionSpotId): {
   widgets: LoadedInjectionDataWidget[]
@@ -40,7 +43,7 @@ export function useInjectionDataWidgets(spotId: InjectionSpotId): {
         setWidgets(loaded)
       } catch (loadError) {
         if (!mounted) return
-        console.error(`[useInjectionDataWidgets] Failed to load widgets for spot ${spotId}:`, loadError)
+        logger.error('Failed to load widgets for spot', { spotId, err: loadError })
         setError(loadError instanceof Error ? loadError.message : String(loadError))
         setWidgets([])
       } finally {

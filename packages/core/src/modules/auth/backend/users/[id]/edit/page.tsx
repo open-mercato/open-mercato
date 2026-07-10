@@ -22,6 +22,9 @@ import { UserConsentsPanel } from '@open-mercato/core/modules/auth/components/Us
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { buildRecordInjectionContext, useSetCurrentRecordInjectionContext } from '@open-mercato/ui/backend/injection/recordContext'
 import { normalizeDisplayNameInput } from '@open-mercato/core/modules/auth/lib/displayName'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'users-edit-page' })
 
 type EditUserFormValues = {
   email: string
@@ -160,7 +163,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         }
       }
     } catch (err) {
-      console.error('Failed to resend invite:', err)
+      logger.error('Failed to resend invite', { err })
       flash(tRef.current('auth.users.form.errors.inviteResend', 'Failed to send invitation email'), 'error')
     } finally {
       setResendingInvite(false)
@@ -277,7 +280,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
           }
         }
       } catch (err) {
-        console.error('Failed to load user:', err)
+        logger.error('Failed to load user', { err })
         if (!cancelled) setError(tRef.current('auth.users.form.errors.load', 'Failed to load user data'))
         if (!cancelled) setCustomFieldValues({})
         if (!cancelled) setActorResolved(true)
@@ -295,7 +298,7 @@ export default function EditUserPage({ params }: { params?: { id?: string } }) {
         )
         if (!cancelled) setCanEditOrgs(Boolean(featureCheck.result?.ok))
       } catch (err) {
-        console.error('Failed to check features:', err)
+        logger.error('Failed to check features', { err })
       }
     }
     load()

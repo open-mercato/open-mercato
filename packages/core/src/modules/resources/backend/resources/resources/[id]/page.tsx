@@ -454,12 +454,10 @@ export default function ResourcesResourceDetailPage({ params }: { params?: { id?
   const handleTagsSave = React.useCallback(
     async ({ next, added, removed }: { next: TagOption[]; added: TagOption[]; removed: TagOption[] }) => {
       if (!resourceId) return
-      for (const tag of added) {
-        await assignTag(tag.id)
-      }
-      for (const tag of removed) {
-        await unassignTag(tag.id)
-      }
+      await Promise.all([
+        ...added.map((tag) => assignTag(tag.id)),
+        ...removed.map((tag) => unassignTag(tag.id)),
+      ])
       setTags(next)
       flash(t('resources.resources.tags.success', 'Tags updated.'), 'success')
     },

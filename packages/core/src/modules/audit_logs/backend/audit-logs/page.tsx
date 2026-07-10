@@ -10,6 +10,9 @@ import type { ActionLogItem } from '../../components/AuditLogsActions'
 import { AuditLogsActions } from '../../components/AuditLogsActions'
 import type { AccessLogItem } from '../../components/AccessLogsTable'
 import { AccessLogsTable } from '../../components/AccessLogsTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('audit_logs').child({ component: 'audit-logs-page' })
 
 type ActionLogResponse = {
   items: ActionLogItem[]
@@ -119,7 +122,7 @@ export default function AuditLogsPage() {
     try {
       await loadAll(actionPage, actionPageSize, accessPageNum, accessPageSizeNum)
     } catch (err) {
-      console.error('Failed to load audit logs', err)
+      logger.error('Failed to load audit logs', { err })
       setError(t('audit_logs.error.load'))
     } finally {
       setLoading(false)
