@@ -20,6 +20,9 @@ import {
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
 import { findWorkflowDefinition } from './find-definition'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -430,7 +433,13 @@ export async function executeWorkflow(
 
           if (!transitionResult.success) {
             const rejectionMessage = transitionResult.error || 'Transition failed'
-            console.error(`[WORKFLOW] Transition rejected (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}): ${rejectionMessage}`)
+            logger.error('Transition rejected', {
+              instanceId: currentInstance.id,
+              workflowId: currentInstance.workflowId,
+              fromStepId: currentInstance.currentStepId,
+              toStepId: selectedTransition.toStepId,
+              err: rejectionMessage,
+            })
             errors.push(rejectionMessage)
 
             await completeWorkflow(trx, container, instanceId, 'FAILED', {
@@ -496,8 +505,13 @@ export async function executeWorkflow(
           await trx.flush()
         } catch (error) {
           const errorMessage = error instanceof Error ? error.message : String(error)
-          console.error(`[WORKFLOW] Transition execution failed (instance: ${currentInstance.id}, workflow: ${currentInstance.workflowId}, step: ${currentInstance.currentStepId} → ${selectedTransition.toStepId}):`, error)
-          console.error('[WORKFLOW] Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+          logger.error('Transition execution failed', {
+            instanceId: currentInstance.id,
+            workflowId: currentInstance.workflowId,
+            fromStepId: currentInstance.currentStepId,
+            toStepId: selectedTransition.toStepId,
+            err: error,
+          })
           errors.push(errorMessage)
 
           events.push({
@@ -540,10 +554,7 @@ export async function executeWorkflow(
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
-      console.error(`[WORKFLOW] Execution failed (instance: ${instanceId}):`, error)
-      if (error instanceof Error && error.stack) {
-        console.error('[WORKFLOW] Error stack:', error.stack)
-      }
+      logger.error('Execution failed', { instanceId, err: error })
       errors.push(errorMessage)
 
       try {
@@ -564,7 +575,7 @@ export async function executeWorkflow(
           })
         }
       } catch (updateError) {
-        console.error(`[WORKFLOW] Failed to update instance ${instanceId} with error state:`, updateError)
+        logger.error('Failed to update instance with error state', { instanceId, err: updateError })
       }
 
       throw error
@@ -625,15 +636,17 @@ export async function completeWorkflow(
           }
         )
 
-        console.log(
-          `[Workflow] Compensation ${compensationResult.status}: ${compensationResult.compensatedActivities}/${compensationResult.totalActivities} activities`
-        )
+        logger.info('Compensation finished', {
+          status: compensationResult.status,
+          compensatedActivities: compensationResult.compensatedActivities,
+          totalActivities: compensationResult.totalActivities,
+        })
 
         // Note: instance status already updated by compensateWorkflow
         // It will be COMPENSATED or remain FAILED
         return
       } catch (error: any) {
-        console.error(`[Workflow] Compensation failed with exception:`, error)
+        logger.error('Compensation failed with exception', { err: error })
         // Continue to mark workflow as failed
       }
     }
@@ -800,7 +813,7 @@ export async function resumeWorkflowAfterActivities(
     const pendingTransition = instance.pendingTransition
 
     if (!pendingTransition) {
-      console.warn('[WORKFLOW] No pending transition found during resume')
+      logger.warn('No pending transition found during resume')
       instance.status = 'RUNNING'
       await trx.flush()
 
@@ -818,9 +831,9 @@ export async function resumeWorkflowAfterActivities(
       return { continueExecution: true }
     }
 
-    console.log('[WORKFLOW] Completing pending transition:', {
+    logger.debug('Completing pending transition', {
       toStepId: pendingTransition.toStepId,
-      from: instance.currentStepId,
+      fromStepId: instance.currentStepId,
     })
 
     const definition = await trx.findOneOrFail(WorkflowDefinition, {

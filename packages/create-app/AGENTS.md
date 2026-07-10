@@ -8,7 +8,7 @@ Use `packages/create-app` to scaffold standalone Open Mercato applications via `
 2. **MUST keep `@types/*` in `dependencies`** (not `devDependencies`) — standalone apps need type declarations at runtime
 3. **MUST follow build order** — `yarn build:packages` → `yarn generate` → `yarn build:packages`
 4. **MUST build before publishing** — generators scan `node_modules/@open-mercato/*/dist/modules/` for `.js` files
-5. **MUST sync template equivalents when app shell/layout files change** — when touching `apps/mercato/src/app/**` bootstrap/layout/provider wiring, update matching files in `packages/create-app/template/src/app/**` (and required template components) in the same task
+5. **MUST sync template equivalents** — touching ANY file under `apps/mercato/src/app/**` (layouts, providers, and route/page behavior like a `page.tsx` handoff) or any env var in `apps/mercato/.env.example` means mirroring YOUR change into the template counterpart (`packages/create-app/template/src/app/**`, `packages/create-app/template/.env.example`) in the same task; if genuinely monorepo-only, say so in the PR. Some pairs intentionally diverge (`globals.css`, docs API routes, template-only `api/healthz`, env comments) — mirror your change, don't fix pre-existing drift
 6. **MUST keep template module registrations and package dependencies aligned** — if `packages/create-app/template/src/modules.ts` enables a package-backed module (for example `@open-mercato/webhooks`), `packages/create-app/template/package.json.template` must install that package in the same change, and the template lockfile must be reviewed when dependency shape changes
 7. **MUST preserve imported ready apps as raw source snapshots** — `--app` / `--app-url` imports may add only bootstrap-safe generated artifacts (for example `.mercato/generated/module-package-sources.css`)
 8. **MUST keep standalone agent guidance aligned with generator behavior** — if `yarn generate` gains post-steps such as structural cache purging, update `packages/create-app/template/AGENTS.md` and `packages/create-app/agentic/shared/AGENTS.md.template` in the same task
@@ -46,7 +46,7 @@ yarn test:create-app:integration
 
 ## Template Sync Checklist
 
-When changes affect app shell behavior, verify all relevant template files are reviewed and updated:
+When changes affect app shell behavior, verify all relevant template files are reviewed and updated. The list is a floor, not exhaustive — mirror any `src/app/**` file you touched; pre-existing intentional drift is fine:
 
 1. `apps/mercato/src/app/layout.tsx` ↔ `packages/create-app/template/src/app/layout.tsx`
 2. `apps/mercato/src/app/(backend)/backend/layout.tsx` ↔ `packages/create-app/template/src/app/(backend)/backend/layout.tsx`
@@ -56,6 +56,8 @@ When changes affect app shell behavior, verify all relevant template files are r
 6. `scripts/dev-splash.html` ↔ `packages/create-app/template/scripts/dev-splash.html`
 7. `scripts/dev-splash-helpers.mjs` ↔ `packages/create-app/template/scripts/dev-splash-helpers.mjs`
 8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
+9. `apps/mercato/src/app/page.tsx` ↔ `packages/create-app/template/src/app/page.tsx`
+10. `apps/mercato/.env.example` ↔ `packages/create-app/template/.env.example` (env var names + their doc comments)
 
 ## Dev Runtime Expectations
 

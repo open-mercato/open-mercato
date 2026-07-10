@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { createHash } from 'node:crypto'
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -17,6 +18,8 @@ import type {
   AiPendingActionFieldDiff,
   AiPendingActionRecordDiff,
 } from './pending-action-types'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Structured error raised by {@link prepareMutation}. Callers (today the
@@ -263,9 +266,7 @@ async function buildSingleRecordDiff(
 }> {
   const resolver = tool.loadBeforeRecord
   if (!resolver) {
-    console.warn(
-      `[AI Agents] prepareMutation: tool "${tool.name}" declared isMutation=true but no loadBeforeRecord resolver; shipping empty fieldDiff.`,
-    )
+    logger.warn('prepareMutation: tool declared isMutation=true but no loadBeforeRecord resolver; shipping empty fieldDiff', { toolName: tool.name })
     return {
       fieldDiff: [],
       targetEntityType: null,
@@ -310,9 +311,7 @@ async function buildBatchRecords(
 }> {
   const resolver = tool.loadBeforeRecords
   if (!resolver) {
-    console.warn(
-      `[AI Agents] prepareMutation: bulk tool "${tool.name}" declared isMutation=true but no loadBeforeRecords resolver; shipping empty records[].`,
-    )
+    logger.warn('prepareMutation: bulk tool declared isMutation=true but no loadBeforeRecords resolver; shipping empty records[]', { toolName: tool.name })
     return {
       records: null,
       targetEntityType: null,

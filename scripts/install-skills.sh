@@ -23,7 +23,7 @@ set -eu
 #   install-skills.sh --tiers <csv>             # exactly the listed tiers (replaces default)
 #   install-skills.sh --all                     # every tier
 #   install-skills.sh --no-external             # skip the npx external-skills install/update step (offline)
-#   install-skills.sh --list                    # print tier table and exit
+#   install-skills.sh --list                    # print tier table + external collection and exit
 #   install-skills.sh --clean                   # remove all skill symlinks and exit
 #   install-skills.sh --help | -h               # show usage and exit
 
@@ -41,7 +41,8 @@ Options:
                       collection — `npx skills add` on first run and
                       `npx skills update` on re-runs (also:
                       OM_SKIP_EXTERNAL_SKILLS=1). Use when offline.
-  --list              Print the tier table and exit without installing.
+  --list              Print the tier table, the external shared collection,
+                      and the current install state, then exit.
   --clean             Remove all skill symlinks (local and external) and exit.
   --help, -h          Show this message.
 
@@ -305,11 +306,27 @@ print_list() {
     printf '  %s\n' "${skills}"
   done
 
+  list_external_source=$(jq -r '.external.source // empty' "${manifest}")
+  list_external_skills=$(jq -r '.external.skills[]?' "${manifest}")
+  if [ -n "${list_external_source}" ]; then
+    list_external_count=$(printf '%s\n' "${list_external_skills}" | grep -c '.' || true)
+    printf '%-12s (%s skills, from %s):\n' "external" "${list_external_count}" "${list_external_source}"
+    skills=$(printf '%s\n' "${list_external_skills}" | tr '\n' ',' | sed 's/,$//' | sed 's/,/, /g')
+    printf '  %s\n' "${skills}"
+  fi
+
   installed_dir="${repo_root}/.claude/skills"
   installed_count=0
   installed_tiers=""
   if [ -d "${installed_dir}" ] && [ ! -L "${installed_dir}" ]; then
-    installed_skills=$(ls -1 "${installed_dir}" 2>/dev/null | sort)
+    installed_skills=""
+    for entry in "${installed_dir}"/*; do
+      [ -L "${entry}" ] || continue
+      resolves_into_skills_dir "${entry}" || continue
+      installed_skills="${installed_skills}
+$(basename "${entry}")"
+    done
+    installed_skills=$(printf '%s\n' "${installed_skills}" | dedup_lines | sort)
     if [ -n "${installed_skills}" ]; then
       installed_count=$(printf '%s\n' "${installed_skills}" | grep -c '.' || true)
       for tier in ${all_tier_names}; do
@@ -341,12 +358,26 @@ print_list() {
   fi
   printf '\n'
   if [ "${installed_count}" -eq 0 ]; then
-    printf 'Currently installed: none (0 skills)\n'
+    printf 'Currently installed: none (0 local skills)\n'
   else
     if [ -z "${installed_tiers}" ]; then
       installed_tiers="unknown"
     fi
-    printf 'Currently installed: %s (%s skills)\n' "${installed_tiers}" "${installed_count}"
+    printf 'Currently installed: %s (%s local skills)\n' "${installed_tiers}" "${installed_count}"
+  fi
+  if [ -n "${list_external_source}" ]; then
+    installed_external_count=0
+    if [ -d "${agents_dir}" ]; then
+      for entry in "${agents_dir}"/*; do
+        [ -d "${entry}" ] || continue
+        installed_external_count=$((installed_external_count + 1))
+      done
+    fi
+    if [ "${installed_external_count}" -eq 0 ]; then
+      printf 'External skills installed: none (run `yarn install-skills` to fetch from %s)\n' "${list_external_source}"
+    else
+      printf 'External skills installed: %s from %s (under .agents/skills/)\n' "${installed_external_count}" "${list_external_source}"
+    fi
   fi
 }
 

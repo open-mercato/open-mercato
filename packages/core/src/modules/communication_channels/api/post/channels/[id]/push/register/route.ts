@@ -9,6 +9,9 @@ import { CommunicationChannel } from '../../../../../../data/entities'
 import { ChannelAccessDeniedError, assertCanManageChannel } from '../../../../../../lib/access-control'
 import { pushRegister } from '../../../../../../commands/push-register'
 import { validateRouteMutationGuard } from '../../../../../../lib/route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'push-register' })
 
 type RbacServiceLike = {
   loadAcl: (
@@ -127,7 +130,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
         { status: candidate.status },
       )
     }
-    console.error(`[push-register] failed for channel ${id}:`, err)
+    logger.error('push register failed for channel', { channelId: id, err })
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to register push' },
       { status: 500 },

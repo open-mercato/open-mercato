@@ -9,6 +9,9 @@ import {
 import { isValidIso639 } from '@open-mercato/shared/lib/i18n/iso639'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import type { OpenApiMethodDoc, OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('translations').child({ component: 'locales' })
 
 const bodySchema = z.object({
   locales: z.array(
@@ -68,7 +71,7 @@ async function PUT(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'Invalid request', details: err.issues }, { status: 400 })
     }
-    console.error('[translations/locales.PUT] Unexpected error', err)
+    logger.error('Failed to update locales', { err })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

@@ -25,6 +25,9 @@ import {
   normalizeDictionaryIcon,
 } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type CustomerDictionaryEntrySnapshot = {
   id: string
@@ -116,7 +119,7 @@ async function invalidateCache(
   try {
     cache = (ctx.container.resolve('cache') as CacheStrategy)
   } catch (err) {
-    console.warn('[customers.commands.dictionaries] cache resolve failed; skipping invalidation', err)
+    logger.warn('cache resolve failed; skipping invalidation', { component: 'commands.dictionaries', err })
     cache = undefined
   }
   if (!cache) return

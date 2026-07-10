@@ -42,6 +42,9 @@ import {
   type SidebarGroup,
   type SidebarItem,
 } from './customization-helpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'SidebarCustomizationEditor' })
 
 export type SidebarCustomizationEditorProps = {
   onSaved?: () => void
@@ -358,7 +361,7 @@ export function SidebarCustomizationEditor({
         selectVariantInternal(initial, list)
         setSelectedRoleIds([])
       } catch (err) {
-        console.error('Failed to load sidebar variants', err)
+        logger.error('Failed to load sidebar variants', { err })
         setError(t('appShell.sidebarCustomizationLoadError'))
       } finally {
         setLoading(false)
@@ -437,7 +440,7 @@ export function SidebarCustomizationEditor({
       flash(t('appShell.sidebarCustomizationVariantCreated', 'Variant created.'), 'success')
       return { ok: true }
     } catch (err) {
-      console.error('Failed to create sidebar variant', err)
+      logger.error('Failed to create sidebar variant', { err })
       const message = t('appShell.sidebarCustomizationSaveError')
       if (!options.suppressPageError) setError(message)
       return { ok: false, error: message }
@@ -763,7 +766,7 @@ export function SidebarCustomizationEditor({
       )
       onSaved?.()
     } catch (err) {
-      console.error('Failed to save sidebar variant', err)
+      logger.error('Failed to save sidebar variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setSaving(false)
@@ -794,7 +797,7 @@ export function SidebarCustomizationEditor({
       const fresh = list.find((v) => v.id === selectedVariant.id) ?? selectedVariant
       selectVariantInternal(fresh, list)
     } catch (err) {
-      console.error('Failed to toggle variant active state', err)
+      logger.error('Failed to toggle variant active state', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     }
   }, [selectedVariant, saving, deleting, variantsApiPath, t, loadVariantsList, selectVariantInternal, runMutation, buildMutationContext])
@@ -831,7 +834,7 @@ export function SidebarCustomizationEditor({
       const fallback = list[0] ?? null
       selectVariantInternal(fallback, list)
     } catch (err) {
-      console.error('Failed to delete variant', err)
+      logger.error('Failed to delete variant', { err })
       setError(t('appShell.sidebarCustomizationSaveError'))
     } finally {
       setDeleting(false)

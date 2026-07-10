@@ -11,6 +11,9 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildPasswordSchema, formatPasswordRequirements, getPasswordPolicy } from '@open-mercato/shared/lib/auth/passwordPolicy'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'change-password-page' })
 
 type ProfileResponse = {
   email?: string | null
@@ -58,7 +61,7 @@ export default function ProfileChangePasswordPage() {
         const resolvedEmail = typeof result?.email === 'string' ? result.email : ''
         if (!cancelled) setEmail(resolvedEmail)
       } catch (err) {
-        console.error('Failed to load auth profile', err)
+        logger.error('Failed to load auth profile', { err })
         if (!cancelled) setError(t('auth.profile.form.errors.load', 'Failed to load profile.'))
       } finally {
         if (!cancelled) setLoading(false)

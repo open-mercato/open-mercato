@@ -21,6 +21,9 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const colorSchema = z.string().trim().regex(/^#([0-9A-Fa-f]{6})$/, 'Invalid color hex')
 const iconSchema = z.string().trim().min(1).max(48)
@@ -156,7 +159,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
           tags,
         })
       } catch (err) {
-        console.warn('[customers.dictionaries.cache] Failed to set cache entry', err)
+        logger.warn('Failed to set cache entry', { component: 'dictionaries.cache', err })
       }
     }
 
@@ -166,7 +169,7 @@ export async function GET(req: Request, ctx: { params?: { kind?: string } }) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.dictionaries.list failed', err)
+    logger.error('customers.dictionaries.list failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to load dictionary entries') }, { status: 400 })
   }
 }
@@ -265,7 +268,7 @@ export async function POST(req: Request, ctx: { params?: { kind?: string } }) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('customers.dictionaries.create failed', err)
+    logger.error('customers.dictionaries.create failed', { err })
     return NextResponse.json({ error: translate('customers.errors.lookup_failed', 'Failed to save dictionary entry') }, { status: 400 })
   }
 }

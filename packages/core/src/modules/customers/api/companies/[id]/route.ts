@@ -57,6 +57,9 @@ import {
   isCrudCacheEnabled,
   resolveCrudCache,
 } from '@open-mercato/shared/lib/crud/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.companies.view'] },
@@ -414,7 +417,7 @@ async function resolveTodoDetails(
         })
       }
     } catch (err) {
-      console.warn(`customers.companies.detail: failed to resolve todos for source ${source}`, err)
+      logger.warn('customers.companies.detail: failed to resolve todos', { source, err })
     }
   }
 
@@ -693,7 +696,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         [company.organizationId ?? null, ...(scope?.filterIds ?? [])],
       )
     } catch (err) {
-      console.warn('customers.companies.detail: failed to enrich todo links', err)
+      logger.warn('customers.companies.detail: failed to enrich todo links', { err })
     }
   }
 
@@ -1273,7 +1276,7 @@ export async function GET(_req: Request, ctx: { params?: { id?: string } }) {
         }),
       )
     } catch (err) {
-      console.warn('[customers:companies] Failed to set company detail cache', err)
+      logger.warn('Failed to set company detail cache', { component: 'companies', err })
     }
   }
 

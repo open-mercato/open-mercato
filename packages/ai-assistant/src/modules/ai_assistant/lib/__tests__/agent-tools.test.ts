@@ -8,6 +8,23 @@ import {
 } from '../agent-registry'
 import { toolRegistry, registerMcpTool } from '../tool-registry'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
 ): AiAgentDefinition {
@@ -40,12 +57,13 @@ const baseAuth = {
 }
 
 describe('resolveAiAgentTools', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
 
   beforeEach(() => {
     resetAgentRegistryForTests()
     toolRegistry.clear()
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    warnSpy = testLogger.warn
+    warnSpy.mockClear()
   })
 
   afterEach(() => {
@@ -147,7 +165,8 @@ describe('resolveAiAgentTools', () => {
 
     expect(Object.keys(result.tools)).toEqual(['customers__list_people'])
     expect(warnSpy).toHaveBeenCalledWith(
-      expect.stringContaining('catalog.list_products'),
+      expect.any(String),
+      expect.objectContaining({ toolName: 'catalog.list_products' }),
     )
   })
 
