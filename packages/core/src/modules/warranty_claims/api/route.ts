@@ -231,6 +231,10 @@ function transformClaimItem(item: unknown): unknown {
     orderId: readString(record, 'order_id', 'orderId'),
     orderNumber: readString(record, 'order_number', 'orderNumber'),
     awaitingStaffReply: readBool(record, 'awaiting_staff_reply', 'awaitingStaffReply'),
+    entitlementSource: readString(record, 'entitlement_source', 'entitlementSource'),
+    returnLabelUrl: readString(record, 'return_label_url', 'returnLabelUrl'),
+    returnTrackingNumber: readString(record, 'return_tracking_number', 'returnTrackingNumber'),
+    returnCarrier: readString(record, 'return_carrier', 'returnCarrier'),
     salesReturnId: readString(record, 'sales_return_id', 'salesReturnId'),
     replacementOrderId: readString(record, 'replacement_order_id', 'replacementOrderId'),
     sourceClaimId: readString(record, 'source_claim_id', 'sourceClaimId'),
@@ -256,7 +260,7 @@ function transformClaimItem(item: unknown): unknown {
   }
 }
 
-const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'source_claim_id'] as const
+const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'source_claim_id', 'return_label_url', 'return_tracking_number', 'return_carrier'] as const
 
 const claimDetailFields = [
   'id',
@@ -272,6 +276,10 @@ const claimDetailFields = [
   'order_id',
   'order_number',
   'awaiting_staff_reply',
+  'entitlement_source',
+  'return_label_url',
+  'return_tracking_number',
+  'return_carrier',
   'sales_return_id',
   'replacement_order_id',
   'source_claim_id',

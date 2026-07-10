@@ -1,3 +1,4 @@
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { WarrantyClaimType } from '../data/validators'
 
 export type ClaimTypeUiConfig = {
@@ -26,4 +27,14 @@ export const CLAIM_TYPE_UI_CONFIG: Record<WarrantyClaimType, ClaimTypeUiConfig> 
 
 export function resolveClaimTypeUiConfig(claimType: string | null | undefined): ClaimTypeUiConfig {
   return (CLAIM_TYPE_UI_CONFIG as Record<string, ClaimTypeUiConfig>)[claimType ?? 'warranty'] ?? CLAIM_TYPE_UI_CONFIG.warranty
+}
+
+export function assertDispositionAllowedForType(
+  claimType: string | null | undefined,
+  disposition: string | null | undefined,
+): void {
+  if (!disposition) return
+  if (!resolveClaimTypeUiConfig(claimType).allowedDispositions.includes(disposition)) {
+    throw new CrudHttpError(400, { error: 'warranty_claims.errors.dispositionTypeConflict' })
+  }
 }

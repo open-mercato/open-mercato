@@ -211,6 +211,7 @@
   "warranty_claims.errors.customerOrderMismatch": "Der Kunde stimmt nicht mit der Bestellung überein",
   "warranty_claims.errors.deleteNotAllowed": "Nur Claims mit Status Entwurf oder Storniert können gelöscht werden.",
   "warranty_claims.errors.dispositionGradeConflict": "Wiedereinlagerung ist nur für Artikel mit Bewertung A oder B erlaubt.",
+  "warranty_claims.errors.dispositionTypeConflict": "Diese Disposition ist für diesen Reklamationstyp nicht verfügbar.",
   "warranty_claims.errors.fieldLocked": "Dieses Feld kann im aktuellen Claim-Status nicht bearbeitet werden.",
   "warranty_claims.errors.invalidAssignee": "Die ausgewählte zuständige Person wurde nicht gefunden.",
   "warranty_claims.errors.invalidInput": "Ungültige Eingabe",

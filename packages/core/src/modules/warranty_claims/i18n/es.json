@@ -211,6 +211,7 @@
   "warranty_claims.errors.customerOrderMismatch": "El cliente no coincide con el pedido",
   "warranty_claims.errors.deleteNotAllowed": "Solo se pueden eliminar reclamos en estado borrador o cancelado.",
   "warranty_claims.errors.dispositionGradeConflict": "La reposición de inventario solo está permitida para artículos con grado A o B.",
+  "warranty_claims.errors.dispositionTypeConflict": "Esta disposición no está disponible para este tipo de reclamación.",
   "warranty_claims.errors.fieldLocked": "Este campo no se puede editar en el estado actual del reclamo.",
   "warranty_claims.errors.invalidAssignee": "No se pudo encontrar el responsable seleccionado.",
   "warranty_claims.errors.invalidInput": "Entrada no válida",

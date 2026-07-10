@@ -30,6 +30,7 @@ import {
   suggestedDispositionForGrade,
   type ConditionGrade,
 } from '../lib/grading'
+import { assertDispositionAllowedForType } from '../lib/claimTypeConfig'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { computeHeaderRollups, lineStatusGuards } from '../lib/stateMachine'
 import {
@@ -597,6 +598,7 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
     const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const claim = await requireScopedClaim(em, input.claimId, scope)
+    assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
     await enforceWarrantyClaimOptimisticLock(ctx, claim)
     assertParentMutable(claim)
     if (input.orderLineId) {
@@ -684,6 +686,7 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
       })
     }
     if (hasOwn(input, 'disposition')) {
+      assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
       const grade = hasOwn(input, 'conditionGrade') ? toConditionGrade(input.conditionGrade ?? null) : toConditionGrade(line.conditionGrade)
       assertDispositionAllowedForGrade(grade, input.disposition ?? null)
     }

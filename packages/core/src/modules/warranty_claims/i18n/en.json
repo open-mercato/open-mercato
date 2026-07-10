@@ -211,6 +211,7 @@
   "warranty_claims.errors.customerOrderMismatch": "Customer does not match the order",
   "warranty_claims.errors.deleteNotAllowed": "Only draft or cancelled claims can be deleted.",
   "warranty_claims.errors.dispositionGradeConflict": "Restock is only allowed for grade A or B items.",
+  "warranty_claims.errors.dispositionTypeConflict": "This disposition is not available for this claim type.",
   "warranty_claims.errors.fieldLocked": "This field can't be edited in the current claim status.",
   "warranty_claims.errors.invalidAssignee": "The selected assignee could not be found.",
   "warranty_claims.errors.invalidInput": "Invalid input",

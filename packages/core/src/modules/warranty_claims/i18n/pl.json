@@ -211,6 +211,7 @@
   "warranty_claims.errors.customerOrderMismatch": "Klient nie zgadza się z zamówieniem",
   "warranty_claims.errors.deleteNotAllowed": "Można usuwać tylko reklamacje w statusie roboczym lub anulowane.",
   "warranty_claims.errors.dispositionGradeConflict": "Przyjęcie na stan jest dozwolone tylko dla pozycji z oceną A lub B.",
+  "warranty_claims.errors.dispositionTypeConflict": "Ta dyspozycja nie jest dostępna dla tego typu reklamacji.",
   "warranty_claims.errors.fieldLocked": "Tego pola nie można edytować w bieżącym statusie reklamacji.",
   "warranty_claims.errors.invalidAssignee": "Nie znaleziono wybranej osoby przypisanej.",
   "warranty_claims.errors.invalidInput": "Nieprawidłowe dane wejściowe",
