@@ -175,6 +175,42 @@ function Test-CommandAvailable {
     return $null -ne (Get-Command $CommandName -ErrorAction SilentlyContinue)
 }
 
+function Invoke-NativeQuiet {
+    # PS 5.1 landmine: redirecting a native command's stderr while
+    # $ErrorActionPreference='Stop' promotes the first stderr line to a
+    # TERMINATING error. Probes that should simply return an exit code would
+    # crash the whole setup instead - e.g. `docker info` printing "error during
+    # connect" to stderr while the engine is still starting. This wrapper runs
+    # the command under 'Continue', discards all output, and returns the exit
+    # code (1 when the command cannot start at all).
+    param([Parameter(Mandatory = $true)][string]$Command, [string[]]$Arguments = @())
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        & $Command @Arguments 2>&1 | Out-Null
+        return $LASTEXITCODE
+    } catch {
+        return 1
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
+function Invoke-NativeCapture {
+    # Same stderr guard as Invoke-NativeQuiet, but returns stdout as a string
+    # (empty string when the command fails to start).
+    param([Parameter(Mandatory = $true)][string]$Command, [string[]]$Arguments = @())
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try {
+        return (& $Command @Arguments 2>$null | Out-String)
+    } catch {
+        return ""
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
+
 # ---------------------------------------------------------------------------
 # Repo detection / secrets
 # ---------------------------------------------------------------------------
@@ -451,7 +487,7 @@ function Ensure-Wsl2Kernel {
     # activate after the restart. Best-effort throughout, so a failure here
     # warns, never aborts.
     if (Test-CommandAvailable "wsl") {
-        & wsl --update 2>$null | Out-Null
+        [void](Invoke-NativeQuiet "wsl" @("--update"))
     }
     $kernelName = if ($script:MachineArch -eq "arm64") { "wsl_update_arm64.msi" } else { "wsl_update_x64.msi" }
     $kernelMsi = Resolve-LocalInstaller -Patterns @($kernelName, "wsl_update*.msi") -FileType msi
@@ -497,8 +533,7 @@ function Test-WslFeaturesEnabled {
     # the optional features are disabled, so existence alone is meaningless —
     # `wsl --status` only succeeds on a working WSL installation.
     if (-not (Test-CommandAvailable "wsl")) { return $false }
-    & wsl --status *> $null
-    return ($LASTEXITCODE -eq 0)
+    return ((Invoke-NativeQuiet "wsl" @("--status")) -eq 0)
 }
 
 function Test-DockerDesktopInstalled {
@@ -544,8 +579,7 @@ function Test-ContainerRuntimeInstalled {
 function Test-DockerEngineReady {
     Add-RancherBinToPath
     if (-not (Test-CommandAvailable "docker")) { return $false }
-    & docker info 2>$null | Out-Null
-    return ($LASTEXITCODE -eq 0)
+    return ((Invoke-NativeQuiet "docker" @("info")) -eq 0)
 }
 
 function Install-RancherDesktopDirect {
@@ -607,7 +641,7 @@ function Invoke-ElevatedInstallPhase {
         $script:RestartRequired = $true
     }
     if (Test-CommandAvailable "wsl") {
-        & wsl --set-default-version 2 2>$null | Out-Null
+        [void](Invoke-NativeQuiet "wsl" @("--set-default-version", "2"))
     }
     Ensure-Wsl2Kernel
     Write-Ok "WSL2 features ensured"
@@ -849,7 +883,7 @@ function Start-DockerEngine {
             $rdctl = $rdctlCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
             if ($rdctl) {
                 Write-Info "Starting Rancher Desktop (dockerd/moby engine, Kubernetes off)..."
-                & $rdctl start --container-engine.name=moby --kubernetes.enabled=false --application.start-in-background=true 2>$null | Out-Null
+                [void](Invoke-NativeQuiet $rdctl @("start", "--container-engine.name=moby", "--kubernetes.enabled=false", "--application.start-in-background=true"))
             } else {
                 Write-Info "Starting Rancher Desktop... (first run: pick the 'dockerd (moby)' engine when asked - required for docker compose)"
                 Start-Process -FilePath $rancherExe | Out-Null
@@ -1032,7 +1066,7 @@ function Initialize-EnvFiles {
 
     $postgresVolumeExists = $false
     try {
-        $volumes = & docker volume ls --format "{{.Name}}" 2>$null
+        $volumes = (Invoke-NativeCapture "docker" @("volume", "ls", "--format", "{{.Name}}")) -split "\r?\n" | ForEach-Object { $_.Trim() }
         $postgresVolumeExists = ($volumes -contains "mercato-postgres-data-local")
     } catch {}
 
@@ -1273,7 +1307,7 @@ function Invoke-Compose {
 function Get-ComposeServiceHealth {
     # Returns @{ service = health } parsed from `compose ps --format json`,
     # tolerating both NDJSON (compose >= 2.21) and single-array output.
-    $raw = (& docker compose -f (Join-Path $script:RepoRoot $script:ComposeFile) ps --format json 2>$null | Out-String).Trim()
+    $raw = (Invoke-NativeCapture "docker" @("compose", "-f", (Join-Path $script:RepoRoot $script:ComposeFile), "ps", "--format", "json")).Trim()
     $entries = @()
     if ($raw.StartsWith("[")) {
         try { $entries = @($raw | ConvertFrom-Json) } catch {}
