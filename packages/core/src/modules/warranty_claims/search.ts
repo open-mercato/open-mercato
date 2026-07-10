@@ -7,6 +7,9 @@ import type {
   SearchResultPresenter,
 } from '@open-mercato/shared/modules/search'
 import { E } from '#generated/entities.ids.generated'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type SearchContext = SearchBuildContext & {
   tenantId: string
@@ -75,7 +78,7 @@ async function loadClaimLineRows(ctx: SearchContext, claimId: string): Promise<A
     })
     return result.items
   } catch (err) {
-    console.warn('[search.warranty_claims] Failed to load claim lines', {
+    logger.warn('[search.warranty_claims] Failed to load claim lines', {
       claimId,
       error: err instanceof Error ? err.message : err,
     })

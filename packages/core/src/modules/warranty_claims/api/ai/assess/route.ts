@@ -28,6 +28,9 @@ import {
   requireScopedClaim,
   type WarrantyClaimScope,
 } from '../../../commands/shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const uuid = z.string().uuid()
 const optimisticLockTokenSchema = z.union([z.string().datetime(), z.date()]).nullable().optional()
@@ -375,7 +378,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
     }
-    console.error('warranty_claims.ai.assess.post failed', err)
+    logger.error('warranty_claims.ai.assess.post failed', { err })
     return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 400 })
   }
 }

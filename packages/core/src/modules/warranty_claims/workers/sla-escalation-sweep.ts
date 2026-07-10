@@ -19,6 +19,9 @@ import {
 } from '../lib/escalation'
 import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type SlaEscalationSweepPayload = {
   scope?: {
@@ -193,7 +196,7 @@ async function runEscalationTier(
 }
 
 function logClaimSweepError(claimId: string, error: unknown): void {
-  console.warn('[warranty_claims:sla-escalation-sweep] claim failed', {
+  logger.warn('[warranty_claims:sla-escalation-sweep] claim failed', {
     claimId,
     error: error instanceof Error ? error.message : error,
   })

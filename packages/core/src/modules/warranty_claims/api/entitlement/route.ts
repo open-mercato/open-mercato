@@ -13,6 +13,9 @@ import type {
   WarrantyEntitlementResolver,
   WarrantyEntitlementResult,
 } from '../../services/entitlementResolver'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type EntitlementHistoryDb = {
   warranty_claim_lines: {
@@ -197,7 +200,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.entitlement.get failed', err)
+    logger.error('warranty_claims.entitlement.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

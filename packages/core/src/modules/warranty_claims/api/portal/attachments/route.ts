@@ -35,6 +35,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
 
@@ -389,7 +392,7 @@ export async function POST(req: Request) {
     })
     storedPath = stored.storagePath
   } catch (error) {
-    console.error('[warranty_claims.portal.attachments] failed to persist file', error)
+    logger.error('[warranty_claims.portal.attachments] failed to persist file', { err: error })
     return NextResponse.json({ ok: false, error: 'Failed to persist attachment.' }, { status: 500 })
   }
 
@@ -402,7 +405,7 @@ export async function POST(req: Request) {
     try {
       extractedContent = await extractAttachmentContent({ filePath, mimeType })
     } catch (error) {
-      console.error('[warranty_claims.portal.attachments] failed to extract attachment content', error)
+      logger.error('[warranty_claims.portal.attachments] failed to extract attachment content', { err: error })
     } finally {
       await cleanup().catch(() => undefined)
     }
@@ -435,13 +438,13 @@ export async function POST(req: Request) {
       await tx.persist(attachment).flush()
     })
   } catch (error) {
-    console.error('[warranty_claims.portal.attachments] failed to persist attachment', error)
+    logger.error('[warranty_claims.portal.attachments] failed to persist attachment', { err: error })
     return NextResponse.json({ ok: false, error: 'Failed to save attachment.' }, { status: 500 })
   }
 
   if (useLlmOcr) {
     requestOcrProcessing(context.em, attachment, uploadDriver, storedPath).catch((error) => {
-      console.error('[warranty_claims.portal.attachments] failed to queue OCR processing', error)
+      logger.error('[warranty_claims.portal.attachments] failed to queue OCR processing', { err: error })
     })
   }
 

@@ -30,6 +30,9 @@ import {
 } from '../../../lib/externalIntake'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type ActionRouteContext = {
   ctx: CommandRuntimeContext
@@ -356,7 +359,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.external.claims.post failed', err)
+    logger.error('warranty_claims.external.claims.post failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim') }, { status: 400 })
   }
 }
@@ -384,7 +387,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.external.claims.get failed', err)
+    logger.error('warranty_claims.external.claims.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

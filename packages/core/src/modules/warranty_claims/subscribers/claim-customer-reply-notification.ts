@@ -4,6 +4,9 @@ import { resolveNotificationService } from '../../notifications/lib/notification
 import { buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { WarrantyClaim } from '../data/entities'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 export const metadata = {
   event: 'warranty_claims.claim.comment_added',
@@ -58,6 +61,6 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
       organizationId,
     })
   } catch (err) {
-    console.warn('[warranty_claims:claim-customer-reply-notification] create failed', err)
+    logger.warn('[warranty_claims:claim-customer-reply-notification] create failed', { err })
   }
 }

@@ -9,6 +9,9 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildWarrantyClaimTriageSuggestion } from '../../../lib/triage'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const suggestSchema = z.object({
   claimId: z.string().uuid(),
@@ -71,7 +74,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.ai.suggest.get failed', err)
+    logger.error('warranty_claims.ai.suggest.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.notFound', 'Warranty claim not found.') }, { status: 404 })
   }
 }
@@ -87,7 +90,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.ai.suggest.post failed', err)
+    logger.error('warranty_claims.ai.suggest.post failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.notFound', 'Warranty claim not found.') }, { status: 404 })
   }
 }

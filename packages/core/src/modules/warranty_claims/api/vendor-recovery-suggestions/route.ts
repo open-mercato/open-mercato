@@ -11,6 +11,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaimLine, WarrantyVendorPolicy } from '../../data/entities'
 import { requireScopedClaim, type WarrantyClaimScope } from '../../commands/shared'
 import { findVendorRecoveryMatches } from '../../lib/vendorPolicyRecovery'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const querySchema = z.object({
   claimId: z.string().uuid(),
@@ -140,7 +143,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('[internal] warranty_claims.vendor-recovery-suggestions.get failed', err)
+    logger.error('[internal] warranty_claims.vendor-recovery-suggestions.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

@@ -7,6 +7,9 @@ import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-merc
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { loadWarrantyClaimDictionaryOptions } from '../../../lib/dictionaries'
 import type { WarrantyClaimDictionaryKind } from '../../../data/constants'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type PortalOptionsContext = {
   auth: CustomerAuthContext
@@ -86,7 +89,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.portal.options.get failed', err)
+    logger.error('warranty_claims.portal.options.get failed', { err })
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

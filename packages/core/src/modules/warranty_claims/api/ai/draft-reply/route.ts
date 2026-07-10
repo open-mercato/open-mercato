@@ -12,6 +12,9 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildClaimReplyDraft, isWarrantyAiNotConfiguredError, isWarrantyAiUnavailableError } from '../../../lib/aiAssist'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const draftReplySchema = z
   .object({
@@ -117,7 +120,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.ai.draft-reply.post failed', err)
+    logger.error('warranty_claims.ai.draft-reply.post failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim') }, { status: 400 })
   }
 }

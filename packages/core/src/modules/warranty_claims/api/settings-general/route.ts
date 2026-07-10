@@ -22,6 +22,9 @@ import {
   type WarrantyClaimEffectiveSettings,
 } from '../../lib/settings'
 import { WARRANTY_CLAIM_SETTINGS_RESOURCE_KIND, type SaveWarrantyClaimSettingsResult } from '../../commands/settings'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['warranty_claims.settings.manage'] },
@@ -101,7 +104,7 @@ export async function GET(req: Request) {
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     const { translate } = await resolveTranslations()
-    console.error('warranty_claims.settings-general.get failed', err)
+    logger.error('warranty_claims.settings-general.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data.') }, { status: 500 })
   }
 }
@@ -163,7 +166,7 @@ export async function PUT(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.settings-general.put failed', err)
+    logger.error('warranty_claims.settings-general.put failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim') }, { status: 400 })
   }
 }

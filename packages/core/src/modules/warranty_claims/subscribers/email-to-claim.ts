@@ -3,6 +3,9 @@ import type { AwilixContainer } from 'awilix'
 import type { ModuleConfigService } from '@open-mercato/core/modules/configs/lib/module-config-service'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { createOrGetClaimFromInboundMessage } from '../lib/emailIntake'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 // Chosen over `communication_channels.message.received`: that hub event currently
 // carries only message/channel ids, while `inbox_ops.email.received` includes the
@@ -134,7 +137,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
     ?? null
 
   if (!tenantId || !organizationId) {
-    console.warn('[warranty_claims:email-to-claim] skipped inbound email payload', {
+    logger.warn('[warranty_claims:email-to-claim] skipped inbound email payload', {
       hasTenantId: Boolean(tenantId),
       hasOrganizationId: Boolean(organizationId),
     })
@@ -148,7 +151,7 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
   const contactEmail = readContactEmail(record)
 
   if (!intakeMessageRef || !contactEmail) {
-    console.warn('[warranty_claims:email-to-claim] skipped inbound email payload', {
+    logger.warn('[warranty_claims:email-to-claim] skipped inbound email payload', {
       hasTenantId: true,
       hasOrganizationId: true,
       hasIntakeMessageRef: Boolean(intakeMessageRef),
@@ -171,6 +174,6 @@ export default async function handle(payload: unknown, ctx: SubscriberContext): 
       intakeMessageRef,
     })
   } catch (err) {
-    console.warn('[warranty_claims:email-to-claim] failed to create warranty claim from inbound email', err)
+    logger.warn('[warranty_claims:email-to-claim] failed to create warranty claim from inbound email', { err })
   }
 }

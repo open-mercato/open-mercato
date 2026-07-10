@@ -3,6 +3,9 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { CLAIM_TYPES } from './data/validators'
 import { WarrantyClaimSequence } from './data/entities'
 import { seedWarrantyClaimDictionaries } from './lib/dictionaries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 type SchedulerServiceLike = {
   register: (registration: {
@@ -139,10 +142,9 @@ export const setup: ModuleSetupConfig = {
         isEnabled: true,
       })
     } catch (error) {
-      console.warn(
-        '[warranty_claims] Failed to register SLA sweep schedule:',
-        error instanceof Error ? error.message : error,
-      )
+      logger.warn('[warranty_claims] Failed to register SLA sweep schedule', {
+        error: error instanceof Error ? error.message : error,
+      })
     }
   },
 }

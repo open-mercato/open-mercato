@@ -12,6 +12,9 @@ import {
   selectBestGuide,
   type TroubleshootingNode,
 } from '../../../lib/troubleshooting'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const optionalReasonCodeSchema = z.preprocess((value) => {
   if (typeof value !== 'string') return value
@@ -124,7 +127,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.portal.troubleshooting.get failed', err)
+    logger.error('warranty_claims.portal.troubleshooting.get failed', { err })
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

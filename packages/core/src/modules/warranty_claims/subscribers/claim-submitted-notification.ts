@@ -1,6 +1,9 @@
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 export const metadata = {
   event: 'warranty_claims.claim.submitted',
@@ -43,6 +46,6 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
       organizationId,
     })
   } catch (err) {
-    console.warn('[warranty_claims:claim-submitted-notification] create failed', err)
+    logger.warn('[warranty_claims:claim-submitted-notification] create failed', { err })
   }
 }

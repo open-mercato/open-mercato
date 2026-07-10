@@ -8,6 +8,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveEffectiveWarrantyClaimSettings } from '../../../../lib/settings'
 import { computeWarrantyEntitlementPreview } from '../../../../lib/warrantyPreview'
 import type { WarrantyClaimWarrantyStatus } from '../../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const querySchema = z
   .object({
@@ -224,7 +227,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.portal.order_lines.get failed', err)
+    logger.error('warranty_claims.portal.order_lines.get failed', { err })
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }

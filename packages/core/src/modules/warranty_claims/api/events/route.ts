@@ -14,6 +14,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaimEvent } from '../../data/entities'
 import { commentClaimInputSchema, type CommentClaimInput } from '../../data/validators'
 import { requireScopedClaim, WARRANTY_CLAIM_RESOURCE_KIND, type WarrantyClaimScope } from '../../commands/shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const eventListQuerySchema = z.object({
   claimId: z.string().uuid(),
@@ -142,7 +145,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.events.get failed', err)
+    logger.error('warranty_claims.events.get failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.notFound', 'Warranty claim not found.') }, { status: 404 })
   }
 }
@@ -176,7 +179,7 @@ export async function POST(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.events.post failed', err)
+    logger.error('warranty_claims.events.post failed', { err })
     return NextResponse.json({ error: translate('warranty_claims.errors.save_failed', 'Failed to save warranty claim') }, { status: 400 })
   }
 }

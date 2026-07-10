@@ -7,6 +7,9 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('warranty_claims')
 
 const PAGE_SIZE = 20
 
@@ -179,7 +182,7 @@ export async function GET(req: Request) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.invalidInput', 'Invalid input') }, { status: 400 })
     }
-    console.error('warranty_claims.portal.orders.get failed', err)
+    logger.error('warranty_claims.portal.orders.get failed', { err })
     return NextResponse.json({ ok: false, error: translate('warranty_claims.errors.load_failed', 'Failed to load warranty claim data') }, { status: 500 })
   }
 }
