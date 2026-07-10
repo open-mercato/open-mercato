@@ -6,6 +6,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { checkRateLimit, getClientIp, RATE_LIMIT_ERROR_FALLBACK, RATE_LIMIT_ERROR_KEY } from '@open-mercato/shared/lib/ratelimit/helpers'
 import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
+import { readBoundedRequestBody, WebhookBodyTooLargeError } from '@open-mercato/shared/lib/webhooks'
 import { emitWebhooksEvent } from '../../../events'
 import { getWebhookEndpointAdapter } from '../../../lib/adapter-registry'
 import { isWebhookIntegrationEnabled } from '../../../lib/integration-state'
@@ -51,7 +52,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     if (rateLimitResponse) return rateLimitResponse
   }
 
-  const body = await request.text()
+  let body: string
+  try {
+    body = await readBoundedRequestBody(request)
+  } catch (error) {
+    if (error instanceof WebhookBodyTooLargeError) {
+      return json({ error: 'Webhook payload too large' }, { status: 413 })
+    }
+    throw error
+  }
   const headers = Object.fromEntries(request.headers.entries())
   let verified: Awaited<ReturnType<typeof adapter.verifyWebhook>>
   try {
@@ -120,7 +129,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Receive inbound webhook',
       description: 'Endpoint ids currently resolve to registered adapter provider keys.',
       pathParams: z.object({ endpointId: z.string().min(1) }),
-      responses: [{ status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema }],
+      responses: [
+        { status: 200, description: 'Inbound webhook accepted', schema: inboundResponseSchema },
+        { status: 413, description: 'Webhook payload too large', schema: errorSchema },
+      ],
       errors: [
         { status: 400, description: 'Verification failed', schema: errorSchema },
         { status: 404, description: 'Endpoint not found', schema: errorSchema },

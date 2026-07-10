@@ -63,6 +63,7 @@ JWT_SECRET=your-strong-jwt-secret
 APP_URL=https://your-domain.com
 NODE_ENV=production
 # NODE_OPTIONS=--max-old-space-size=3072  # default; raise for larger hosts — see Troubleshooting
+OM_WEBHOOK_MAX_BODY_BYTES=1048576
 
 # Cache
 CACHE_REDIS_URL=redis://redis:6379
@@ -164,6 +165,15 @@ server {
     ssl_certificate /etc/letsencrypt/live/your-domain.com/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/your-domain.com/privkey.pem;
 
+    location ~ ^/api/(webhooks/inbound/|payment_gateways/webhook/|shipping[-_]carriers/webhook/|communication_channels/webhooks?/|inbox_ops/webhook/inbound$) {
+        client_max_body_size 1m;
+        proxy_pass http://localhost:3000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
     location / {
         proxy_pass http://localhost:3000;
         proxy_set_header Host $host;
@@ -173,6 +183,8 @@ server {
     }
 }
 ```
+
+The webhook-only nginx `client_max_body_size` value matches the configured `OM_WEBHOOK_MAX_BODY_BYTES` application cap without restricting unrelated uploads. If you change the global value or set `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES`, split or update the matching webhook location so each ingress ceiling matches its effective application value.
 
 Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 

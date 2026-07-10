@@ -1377,14 +1377,15 @@ The `webhook_custom` provider enables admin-configurable webhooks without code. 
 | UT-WH-002 | `packages/shared/src/lib/webhooks/__tests__/verify.test.ts` | Signature verification: valid, invalid, expired timestamp, wrong key |
 | UT-WH-003 | `packages/shared/src/lib/webhooks/__tests__/secrets.test.ts` | Secret generation, parsing, validation |
 | UT-WH-004 | `packages/shared/src/lib/webhooks/__tests__/verify.test.ts` | Dual-key verification: both current and rotated key accepted |
+| UT-WH-005 | `packages/shared/src/lib/webhooks/__tests__/body.test.ts` | Declared and streamed byte limits, invalid/lying lengths, cancellation, boundary compatibility, configuration fallbacks |
 
 ---
 
 ## 12. Backward Compatibility Considerations
 
-### No Existing Contracts Modified
+### Initial Rollout Compatibility (2026-03)
 
-This spec introduces only new code:
+The initial rollout introduced only new code:
 - New module: `packages/core/src/modules/webhooks/` (no existing module modified)
 - New shared library: `packages/shared/src/lib/webhooks/` (no existing library modified)
 - New database tables: `webhooks`, `webhook_deliveries` (no existing table modified)
@@ -1406,7 +1407,15 @@ The `webhook_endpoints` hub referenced in SPEC-045e is implemented by this modul
 
 ### SPEC-045e Extraction
 
-The `inbox_ops` module's webhook handler (`packages/core/src/modules/inbox_ops/api/webhook/inbound.ts`) is NOT modified. It continues to function independently. The shared primitives in `packages/shared/src/lib/webhooks/` are offered as an alternative that `inbox_ops` can optionally migrate to in a future PR. No forced migration.
+The initial rollout did not modify the `inbox_ops` webhook handler. The 2026-07-10 security hardening migrates its raw-body read to the shared bounded reader while preserving its 2 MiB fallback when neither the global nor source-specific limit is configured.
+
+### 2026-07-10 Request-Body Hardening
+
+- Existing webhook URLs, methods, signature inputs, success responses, and provider adapter contracts remain unchanged.
+- Oversized generic, payment, shipping, communication-channel, Gmail Pub/Sub, and InboxOps webhook requests add an early `413` response before verification or parsing.
+- `readBoundedRequestBody`, `WebhookBodyTooLargeError`, and limit-resolution exports are additive shared-library contracts.
+- `OM_WEBHOOK_MAX_BODY_BYTES` defaults generic/provider routes to 1 MiB. InboxOps inherits it when configured, supports `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` as a source-specific override, and otherwise preserves its prior 2 MiB ceiling.
+- This is a deliberate additive security response; no deprecation bridge or data migration is required.
 
 ---
 
@@ -1472,6 +1481,7 @@ No existing spec contracts are broken. The updates are additive cross-references
 | 2026-03-18 | Phase 1 implemented: core outbound webhooks |
 | 2026-03-18 | Packaging, queue dispatch, retries, migration, inbound/events/test/retry APIs, and locale coverage completed for shippable rollout |
 | 2026-03-19 | Added pay-links alignment note: outbound webhooks must support checkout lifecycle automation through stable post-commit events |
+| 2026-07-10 | Bounded public webhook request bodies before signature verification with a configurable 1 MiB default and streamed-byte enforcement |
 
 ---
 

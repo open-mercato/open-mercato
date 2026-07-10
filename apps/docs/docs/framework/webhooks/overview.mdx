@@ -213,8 +213,11 @@ interface WebhookEndpointAdapter {
 
 Inbound webhooks are:
 - **Rate limited** per endpoint
+- **Body limited** before signature verification (1 MiB by default)
 - **Deduplicated** by message ID
 - Processed via **fire-and-forget** (return 200 immediately, emit event for async processing)
+
+Set `OM_WEBHOOK_MAX_BODY_BYTES` to a positive byte count when providers legitimately need a different default. InboxOps inherits that value when it is set; `INBOX_OPS_WEBHOOK_MAX_BODY_BYTES` can override only the email-ingress source, whose legacy fallback remains 2 MiB when neither variable is configured. The bounded reader checks a valid declared `Content-Length` before reading and also counts streamed bytes, so missing, invalid, or understated lengths cannot bypass the cap. Requests over the limit return `413` without invoking provider verification. Keep the ingress or reverse-proxy limit scoped to the webhook paths and aligned with the effective application values.
 
 ## Shared Primitives
 
