@@ -87,11 +87,17 @@ yarn test path/to/test.spec.ts
 # Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
 yarn test:integration:ephemeral
 
-# Start ephemeral app only (for manual QA exploration)
-mercato test ephemeral
+# Start ephemeral app only (for manual QA exploration; admin@acme.com / secret)
+yarn test:integration:ephemeral:start
+
+# Boot or reuse the shared QA test environment (writes .ai/qa/test-env.json so
+# om-prepare-test-env / om-integration-tests / om-auto-verify-pr-ui attach to
+# the same instance instead of booting their own)
+yarn test:env:up
+yarn test:env:down
 
 # View HTML integration test report
-mercato test coverage
+yarn test:integration:report
 
 # Generate code from modules
 yarn generate

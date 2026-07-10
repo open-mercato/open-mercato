@@ -294,6 +294,10 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
+| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB |
+| `yarn test:integration:ephemeral:start` | Start the ephemeral app only (manual QA; admin@acme.com / secret) |
+| `yarn test:env:up` / `yarn test:env:down` | Boot/reuse or stop the shared QA test environment (`.ai/scripts/test-env-*.sh`, writes `.ai/qa/test-env.json` so `om-prepare-test-env` / `om-integration-tests` attach to one instance) |
+| `yarn test:integration:report` | Open the HTML integration test report |
 
 ## Architecture Rules
 

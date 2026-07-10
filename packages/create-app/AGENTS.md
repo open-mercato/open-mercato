@@ -58,6 +58,7 @@ When changes affect app shell behavior, verify all relevant template files are r
 8. `apps/mercato/scripts/dev.mjs` ↔ `packages/create-app/template/scripts/dev-runtime.mjs`
 9. `apps/mercato/src/app/page.tsx` ↔ `packages/create-app/template/src/app/page.tsx`
 10. `apps/mercato/.env.example` ↔ `packages/create-app/template/.env.example` (env var names + their doc comments)
+11. `.ai/scripts/test-env-up.sh` / `test-env-down.sh` (repo root, om-prepare-test-env entrypoints) ↔ `packages/create-app/template/.ai/scripts/` — the template copies are standalone-adapted (app root instead of `apps/mercato`, `yarn test:integration:ephemeral:start` as the up command, no monorepo CI-parity env block); mirror behavioral fixes, not monorepo-specific lessons
 
 ## Dev Runtime Expectations
 
