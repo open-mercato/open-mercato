@@ -1,6 +1,6 @@
-> **Repo-local override.** This folder is a repo-local override for the external `om-auto-create-pr` skill installed from `open-mercato/skills` via `yarn install-skills`. The external skill reads this file in place and applies the overrides below **on top of** its built-in workflow — it is never installed as a standalone skill. Everything here adapts the skill from the Open Mercato monorepo to a standalone app scaffolded by `create-mercato-app`.
+> **Repo-local override.** This folder is a repo-local override for the external `om-auto-fix-issue` skill installed from `open-mercato/skills` via `yarn install-skills`. The external skill reads this file in place and applies the overrides below **on top of** its built-in workflow — it is never installed as a standalone skill. Everything here adapts the skill from the Open Mercato monorepo to a standalone app scaffolded by `create-mercato-app`.
 
-# Standalone portability overrides — `om-auto-create-pr`
+# Standalone portability overrides — `om-auto-fix-issue`
 
 This skill was authored inside the Open Mercato monorepo. In a standalone app the differences below apply. Everything tracker-facing (branches, labels, comments, PRs, issues) goes through the tracker abstraction: execute the operations and label guards exactly as `.ai/trackers/github.md` defines them, and never inline raw `gh` commands in place of a descriptor operation.
 
