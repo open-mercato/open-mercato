@@ -10,7 +10,7 @@ import {
   ListObjectsV2Command,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
-import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
+import type { PrepareFilePayload, StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 
 export type S3DriverConfig = {
   bucket: string
@@ -104,13 +104,17 @@ export class S3StorageDriver implements StorageDriver {
     })
   }
 
-  async store(payload: StoreFilePayload): Promise<StoredFile> {
+  prepareStoragePath(payload: PrepareFilePayload): string {
     const orgSegment = resolveOrgSegment(payload.orgId ?? null)
     const tenantSegment = resolveTenantSegment(payload.tenantId ?? null)
     const safeName = sanitizeFileName(payload.fileName || 'file')
     const uniqueSuffix = randomUUID().replace(/-/g, '').slice(0, 12)
     const storedName = `${Date.now()}_${uniqueSuffix}_${safeName}`
-    const key = `${this.pathPrefix}${payload.partitionCode}/${orgSegment}/${tenantSegment}/${storedName}`
+    return `${this.pathPrefix}${payload.partitionCode}/${orgSegment}/${tenantSegment}/${storedName}`
+  }
+
+  async store(payload: StoreFilePayload): Promise<StoredFile> {
+    const key = payload.storagePath ?? this.prepareStoragePath(payload)
 
     await this.client.send(
       new PutObjectCommand({
@@ -118,6 +122,7 @@ export class S3StorageDriver implements StorageDriver {
         Key: key,
         Body: payload.buffer,
         ContentLength: payload.buffer.length,
+        IfNoneMatch: '*',
       }),
     )
 
@@ -137,12 +142,14 @@ export class S3StorageDriver implements StorageDriver {
 
   async delete(_partitionCode: string, storagePath: string): Promise<void> {
     try {
-      await this.client.send(
-        new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }),
-      )
+      await this.deleteStrict(_partitionCode, storagePath)
     } catch {
-      // best-effort removal
+      // Backward-compatible best-effort deletion.
     }
+  }
+
+  async deleteStrict(_partitionCode: string, storagePath: string): Promise<void> {
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }))
   }
 
   async toLocalPath(
@@ -174,6 +181,7 @@ export class S3StorageDriver implements StorageDriver {
         Body: buffer,
         ContentType: contentType,
         ContentLength: buffer.length,
+        IfNoneMatch: '*',
       }),
     )
   }
@@ -218,12 +226,16 @@ export class S3StorageDriver implements StorageDriver {
     operation: 'upload' | 'download',
     expiresIn = 3600,
     contentType?: string,
+    contentLength?: number,
+    createOnly = false,
   ): Promise<string> {
     if (operation === 'upload') {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
         Key: storagePath,
         ContentType: contentType,
+        ContentLength: contentLength,
+        ...(createOnly ? { IfNoneMatch: '*' } : {}),
       })
       return getSignedUrl(this.client, command, { expiresIn })
     }

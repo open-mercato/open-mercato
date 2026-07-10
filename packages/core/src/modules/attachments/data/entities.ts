@@ -99,3 +99,62 @@ export class Attachment {
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
 }
+
+@Entity({ tableName: 'attachment_quota_reservations' })
+@Unique({
+  name: 'attachment_quota_reservations_scope_path_unique',
+  properties: ['tenantId', 'storageDriver', 'storagePath'],
+})
+@Index({
+  name: 'attachment_quota_reservations_tenant_status_idx',
+  properties: ['tenantId', 'status'],
+})
+export class AttachmentQuotaReservation {
+  [OptionalProps]?: 'actualBytes' | 'createdAt' | 'status' | 'updatedAt' | 'uploadTokenHash'
+
+  @PrimaryKey({ type: 'uuid' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'reserved_bytes', type: 'bigint' })
+  reservedBytes!: number
+
+  @Property({ name: 'actual_bytes', type: 'bigint', nullable: true })
+  actualBytes?: number | null
+
+  @Property({ type: 'text', default: 'reserved' })
+  status: 'reserved' | 'storing' | 'stored' | 'recovering' | 'committed' = 'reserved'
+
+  @Property({ type: 'text' })
+  source!: string
+
+  @Property({ name: 'storage_driver', type: 'text' })
+  storageDriver!: string
+
+  @Property({ name: 'partition_code', type: 'text', nullable: true })
+  partitionCode?: string | null
+
+  @Property({ name: 'storage_path', type: 'text' })
+  storagePath!: string
+
+  @Property({ name: 'lease_token', type: 'uuid' })
+  leaseToken!: string
+
+  @Property({ name: 'upload_token_hash', type: 'text', nullable: true })
+  uploadTokenHash?: string | null
+
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  @Index({ name: 'attachment_quota_reservations_expires_idx' })
+  expiresAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
