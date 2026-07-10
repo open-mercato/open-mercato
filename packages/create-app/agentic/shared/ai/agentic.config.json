@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "baseBranch": "main",
+  "baseBranch": "auto",
   "tracker": "github",
   "validation": {
     "commands": [
@@ -13,11 +13,42 @@
   },
   "labels": {
     "enabled": false,
-    "pipeline": ["review", "changes-requested", "qa", "qa-failed", "merge-queue", "blocked", "do-not-merge"],
-    "category": ["bug", "feature", "refactor", "security", "dependencies", "documentation"],
-    "meta": ["needs-qa", "skip-qa", "qa-approved", "qa-self-verified", "in-progress", "screenshots"],
-    "priority": ["priority-low", "priority-medium", "priority-high", "priority-extreme"],
-    "risk": ["risk-low", "risk-medium", "risk-high"]
+    "pipeline": [
+      "review",
+      "changes-requested",
+      "qa",
+      "qa-failed",
+      "merge-queue",
+      "blocked",
+      "do-not-merge"
+    ],
+    "category": [
+      "bug",
+      "feature",
+      "refactor",
+      "security",
+      "dependencies",
+      "documentation"
+    ],
+    "meta": [
+      "needs-qa",
+      "skip-qa",
+      "qa-approved",
+      "qa-self-verified",
+      "in-progress",
+      "screenshots"
+    ],
+    "priority": [
+      "priority-low",
+      "priority-medium",
+      "priority-high",
+      "priority-extreme"
+    ],
+    "risk": [
+      "risk-low",
+      "risk-medium",
+      "risk-high"
+    ]
   },
   "qaGate": false,
   "paths": {

@@ -12,7 +12,7 @@ const scaffolderSource = fs.readFileSync(
 // open-mercato/skills collection (installed via `yarn install-skills`). The
 // scaffold ships a slim repo-local OVERRIDE folder per skill — SKILL.md only,
 // no STANDALONE.md — that the external skill reads on top of its built-in
-// workflow to adjust for a standalone app (discovered default branch, opt-in
+// workflow to adjust for a standalone app (tracker-abstracted base branch, opt-in
 // pipeline labels, probe-before-run gate, src/modules/... layout).
 const skillsShippingOverrideFolder = [
   'om-auto-create-pr',
@@ -27,7 +27,11 @@ const skillsShippingOverrideFolder = [
 // STANDALONE.md portability overlay describing the standalone provider layout.
 const skillsShippingStandaloneOverlay = ['om-integration-builder']
 
-// The auto-* overrides hard-redirect the base branch to the discovered default.
+// The auto-* overrides route everything tracker-facing through the tracker
+// abstraction (.ai/trackers/github.md): base branch via the default-branch
+// operation (config baseBranch: "auto"), labels via the apply_label/label_exists
+// guards. Raw gh commands inside an override bypass the descriptor and break
+// non-GitHub trackers, so they are banned.
 const skillsOverridingBaseBranch = skillsShippingOverrideFolder
 
 function readOverrideSkill(skill: string): string {
@@ -122,18 +126,27 @@ test('portability-sensitive local skills still ship a STANDALONE.md overlay the 
   }
 })
 
-test('auto-* override SKILL.md redirects the hard-coded base branch to the discovered default', () => {
-  const offenders: string[] = []
+test('auto-* override SKILL.md routes tracker-facing behavior through the tracker abstraction', () => {
+  const missingAbstraction: string[] = []
+  const rawTrackerCommands: string[] = []
   for (const skill of skillsOverridingBaseBranch) {
     const overlay = readOverrideSkill(skill)
-    if (!overlay.includes('defaultBranchRef')) {
-      offenders.push(skill)
+    if (!overlay.includes('default-branch') || !overlay.includes('.ai/trackers/github.md')) {
+      missingAbstraction.push(skill)
+    }
+    if (/\bgh (pr|issue|label|repo|api)\b/.test(overlay)) {
+      rawTrackerCommands.push(skill)
     }
   }
   assert.deepEqual(
-    offenders,
+    missingAbstraction,
     [],
-    `These overrides must resolve the base branch via gh defaultBranchRef instead of assuming develop: ${offenders.join(', ')}`,
+    `These overrides must defer to the tracker descriptor (default-branch operation, .ai/trackers/github.md): ${missingAbstraction.join(', ')}`,
+  )
+  assert.deepEqual(
+    rawTrackerCommands,
+    [],
+    `These overrides inline raw gh commands instead of tracker operations: ${rawTrackerCommands.join(', ')}`,
   )
 })
 

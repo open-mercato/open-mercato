@@ -160,7 +160,7 @@ packages/create-app/agentic/
 │   ├── scripts/
 │   │   └── install-skills.sh    # Copied to <app>/scripts/; `yarn install-skills` (per-skill symlinks + npx skills add/update)
 │   └── ai/
-│       ├── agentic.config.json  # Standalone agentic config (baseBranch main, tracker github, validation, labels off)
+│       ├── agentic.config.json  # Standalone agentic config (baseBranch auto → tracker default-branch, tracker github, validation, labels off)
 │       ├── trackers/github.md   # GitHub tracker descriptor (copied verbatim from the monorepo)
 │       ├── skills/
 │       │   ├── tiers.json       # Local tier manifest + external open-mercato/skills subset

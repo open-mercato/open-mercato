@@ -95,7 +95,7 @@ These skills are installed from the shared collection by `yarn install-skills` (
 | Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external) |
 | Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/om-trim-unused-modules/SKILL.md` |
 
-Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills probe your repo's default branch via `gh repo view --json defaultBranchRef`, treat pipeline labels (`review`, `qa`, `merge-queue`, …) as opt-in, and run only those validation-gate commands that exist in your `package.json`.
+Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills read `.ai/agentic.config.json` (base branch `auto`, resolved via the tracker descriptor's **default-branch** operation; pipeline labels off by default; the standalone validation-gate command list) and perform every GitHub interaction through the tracker descriptor `.ai/trackers/github.md` — enable the full label pipeline by setting `labels.enabled: true` and running the tracker's **ensure-label-taxonomy** operation once.
 
 ## Module Anatomy
 
