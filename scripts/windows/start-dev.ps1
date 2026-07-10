@@ -478,6 +478,22 @@ function Install-DockerViaBestMethod {
     Install-DockerDesktopDirect
 }
 
+function Test-Wsl2KernelPresent {
+    # Locale-independent probes only (exit codes / file presence - wsl.exe
+    # output is localized). Three ways a kernel is already there:
+    # 1. Modern WSL (Store / MSI app distribution) bundles + self-manages its
+    #    kernel; only it understands `wsl --version` (legacy inbox wsl.exe
+    #    rejects the flag).
+    # 2. Legacy inbox WSL with the standalone kernel MSI installed: the kernel
+    #    lives at System32\lxss\tools\kernel.
+    # 3. Functional check: `wsl --set-default-version 2` succeeds only when a
+    #    usable WSL2 kernel exists.
+    if (-not (Test-CommandAvailable "wsl")) { return $false }
+    if ((Invoke-NativeQuiet "wsl" @("--version")) -eq 0) { return $true }
+    if (Test-Path (Join-Path $env:SystemRoot "System32\lxss\tools\kernel")) { return $true }
+    return ((Invoke-NativeQuiet "wsl" @("--set-default-version", "2")) -eq 0)
+}
+
 function Ensure-Wsl2Kernel {
     # `wsl --update` fetches the kernel on connected machines, but it can fail on
     # locked-down images (no Store / restricted network) — after which the WSL2
@@ -486,8 +502,16 @@ function Ensure-Wsl2Kernel {
     # Installing it pre-reboot just stages the kernel files; the enabled features
     # activate after the restart. Best-effort throughout, so a failure here
     # warns, never aborts.
+    if (Test-Wsl2KernelPresent) {
+        Write-Ok "WSL2 kernel already present - skipping download"
+        return
+    }
     if (Test-CommandAvailable "wsl") {
         [void](Invoke-NativeQuiet "wsl" @("--update"))
+        if (Test-Wsl2KernelPresent) {
+            Write-Ok "WSL2 kernel installed via wsl --update"
+            return
+        }
     }
     $kernelName = if ($script:MachineArch -eq "arm64") { "wsl_update_arm64.msi" } else { "wsl_update_x64.msi" }
     $kernelMsi = Resolve-LocalInstaller -Patterns @($kernelName, "wsl_update*.msi") -FileType msi
