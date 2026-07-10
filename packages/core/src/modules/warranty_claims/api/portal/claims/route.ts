@@ -5,6 +5,7 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -312,9 +313,10 @@ export async function GET(req: Request) {
   }
   if (status) where.status = status
   if (search) {
+    const pattern = `%${escapeLikePattern(search)}%`
     where.$or = [
-      { claimNumber: { $ilike: `%${search}%` } },
-      { orderNumber: { $ilike: `%${search}%` } },
+      { claimNumber: { $ilike: pattern } },
+      { orderNumber: { $ilike: pattern } },
     ]
   }
   if (serialNumber) {
@@ -444,9 +446,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: 'Claim could not be created' }, { status: 400 })
     }
     try {
-      await commandBus.execute<{ id: string }, { claimId: string }>(
+      await commandBus.execute<{ id: string; actorCustomerId: string }, { claimId: string }>(
         'warranty_claims.claim.submit',
-        { input: { id: claimId }, ctx: context.commandCtx },
+        { input: { id: claimId, actorCustomerId: context.customerId }, ctx: context.commandCtx },
       )
     } catch (submitError) {
       await commandBus.execute<{ id: string }, { claimId: string }>(

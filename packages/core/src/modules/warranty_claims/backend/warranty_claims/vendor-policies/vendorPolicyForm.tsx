@@ -1,9 +1,10 @@
 "use client"
 
 import * as React from 'react'
-import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { CrudField, CrudFieldOption, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
 
 export type VendorPolicyRecord = {
   id: string
@@ -19,7 +20,7 @@ export type VendorPolicyRecord = {
 }
 
 export type VendorPolicyFormValues = Partial<VendorPolicyRecord> & {
-  claimableReasonCodesCsv?: string | null
+  claimableReasonCodesCsv?: string | string[] | null
 } & Record<string, unknown>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -60,10 +61,6 @@ function nullableDecimalString(value: unknown): string | null {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()
   return trimmed ? trimmed : null
-}
-
-function csvFromReasonCodes(value: string[] | null | undefined): string {
-  return Array.isArray(value) ? value.join(', ') : ''
 }
 
 function parseReasonCodes(value: unknown): string[] {
@@ -129,7 +126,7 @@ export function normalizeVendorPolicy(value: unknown): VendorPolicyRecord | null
 export function toVendorPolicyInitialValues(policy: VendorPolicyRecord): VendorPolicyFormValues {
   return {
     ...policy,
-    claimableReasonCodesCsv: csvFromReasonCodes(policy.claimableReasonCodes),
+    claimableReasonCodesCsv: policy.claimableReasonCodes ?? [],
   }
 }
 
@@ -148,6 +145,8 @@ export function buildVendorPolicyPayload(values: VendorPolicyFormValues, id?: st
 }
 
 export function useVendorPolicyFormConfig(t: TranslateFn): { fields: CrudField[]; groups: CrudFormGroup[] } {
+  const loadReasonCodeOptions = React.useCallback(() => fetchClaimReasonOptions(t), [t])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'vendorName',
@@ -173,10 +172,11 @@ export function useVendorPolicyFormConfig(t: TranslateFn): { fields: CrudField[]
     {
       id: 'claimableReasonCodesCsv',
       label: t('warranty_claims.vendorPolicies.form.claimableReasonCodes', 'Claimable reason codes'),
-      type: 'textarea',
-      rows: 3,
+      type: 'tags',
       layout: 'full',
-      description: t('warranty_claims.vendorPolicies.form.claimableReasonCodes.help', 'Separate codes with commas. Leave empty to match any reason.'),
+      loadOptions: loadReasonCodeOptions,
+      placeholder: t('warranty_claims.vendorPolicies.form.claimableReasonCodes.placeholder', 'Add reason code'),
+      description: t('warranty_claims.vendorPolicies.form.claimableReasonCodes.multiHelp', 'Pick claim reasons from the dictionary, or type a custom code and press Enter. Leave empty to match any reason.'),
     },
     {
       id: 'recoveryRatePct',
@@ -196,7 +196,7 @@ export function useVendorPolicyFormConfig(t: TranslateFn): { fields: CrudField[]
       t('warranty_claims.vendorPolicies.form.isActive.enabled', 'Policy active'),
       t('warranty_claims.vendorPolicies.form.isActive.disabled', 'Policy inactive'),
     ),
-  ], [t])
+  ], [loadReasonCodeOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

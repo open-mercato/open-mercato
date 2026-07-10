@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
+import { toHeaderLabel } from '@open-mercato/shared/lib/crud/exporters'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { parseScopedCommandInput, withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
@@ -18,6 +19,14 @@ import {
   type ClaimCreateInput,
   type ClaimUpdateInput,
 } from '../data/validators'
+import {
+  ISO_DATE_PATTERN,
+  buildDateRangeFilter,
+  findSlaAtRiskClaimIds,
+  narrowFiltersToClaimIds,
+} from '../lib/deskFilters'
+import { decorateItemsWithAssigneeNames } from '../lib/assigneeNames'
+import { resolveEffectiveWarrantyClaimSettings } from '../lib/settings'
 import {
   createPagedListResponseSchema,
   createWarrantyClaimsCrudOpenApi,
@@ -50,6 +59,8 @@ const idsSchema = z.preprocess((value) => {
 
 const booleanQuerySchema = z.preprocess((value) => parseBooleanFromUnknown(value) ?? undefined, z.boolean().optional())
 
+const isoDateQuerySchema = z.string().trim().regex(ISO_DATE_PATTERN).optional()
+
 const listSchema = z
   .object({
     id: uuid.optional(),
@@ -60,11 +71,18 @@ const listSchema = z
     priority: claimPrioritySchema.optional(),
     customerId: uuid.optional(),
     orderId: uuid.optional(),
+    sourceClaimId: uuid.optional(),
     assigneeUserId: uuid.optional(),
+    unassignedOnly: booleanQuerySchema,
     ids: idsSchema,
     search: z.string().trim().max(300).optional(),
     overdueOnly: booleanQuerySchema,
+    slaAtRiskOnly: booleanQuerySchema,
     needsAttention: booleanQuerySchema,
+    submittedFrom: isoDateQuerySchema,
+    submittedTo: isoDateQuerySchema,
+    createdFrom: isoDateQuerySchema,
+    createdTo: isoDateQuerySchema,
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
     sortField: z.enum(['slaDueAt', 'createdAt', 'updatedAt']).optional(),
@@ -162,10 +180,38 @@ async function findClaimIdsMatchingLineSearch(ctx: CrudCtx, term: string): Promi
   }
 }
 
+async function findSlaAtRiskClaimIdsForCtx(ctx: CrudCtx): Promise<string[]> {
+  const tenantId = ctx.auth?.tenantId ?? null
+  if (!tenantId) return []
+  const selectedOrganizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
+  const visibleOrganizationIds = Array.isArray(ctx.organizationIds) && ctx.organizationIds.length
+    ? ctx.organizationIds
+    : null
+  try {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const settings = await resolveEffectiveWarrantyClaimSettings(em, {
+      tenantId,
+      organizationId: selectedOrganizationId,
+    })
+    return await findSlaAtRiskClaimIds(
+      em,
+      { tenantId, selectedOrganizationId, visibleOrganizationIds },
+      settings.slaAtRiskThresholdPct,
+    )
+  } catch {
+    return []
+  }
+}
+
 function selectedStatuses(query: ClaimListQuery): string[] {
   const statuses = Array.isArray(query.status) ? query.status : []
   const bracketStatuses = Array.isArray(query['status[]']) ? query['status[]'] : []
   return Array.from(new Set([...statuses, ...bracketStatuses]))
+}
+
+function isSingleRecordProjection(query: ClaimListQuery): boolean {
+  if (typeof query.id === 'string' && query.id.length > 0) return true
+  return Array.isArray(query.ids) && query.ids.length > 0
 }
 
 function transformClaimItem(item: unknown): unknown {
@@ -204,10 +250,94 @@ function transformClaimItem(item: unknown): unknown {
     resolvedAt: toIso(record.resolved_at ?? record.resolvedAt),
     closedAt: toIso(record.closed_at ?? record.closedAt),
     assigneeUserId: readString(record, 'assignee_user_id', 'assigneeUserId'),
+    assigneeName: readString(record, 'assignee_name', 'assigneeName'),
     createdAt: toIso(record.created_at ?? record.createdAt),
     updatedAt: toIso(record.updated_at ?? record.updatedAt),
   }
 }
+
+const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'source_claim_id'] as const
+
+const claimDetailFields = [
+  'id',
+  'claim_number',
+  'claim_type',
+  'status',
+  'channel',
+  'priority',
+  'customer_id',
+  'customer_name',
+  'vendor_name',
+  'vendor_ref',
+  'order_id',
+  'order_number',
+  'awaiting_staff_reply',
+  'sales_return_id',
+  'replacement_order_id',
+  'source_claim_id',
+  'advance_replacement',
+  'advance_shipped_at',
+  'reason_code',
+  'rejection_reason_code',
+  'resolution_summary',
+  'notes',
+  'currency_code',
+  'total_claimed_amount',
+  'total_approved_amount',
+  'total_recovered_amount',
+  'sla_due_at',
+  'sla_paused_at',
+  'submitted_at',
+  'resolved_at',
+  'closed_at',
+  'assignee_user_id',
+  'organization_id',
+  'tenant_id',
+  'created_at',
+  'updated_at',
+]
+
+const claimGridFields = claimDetailFields.filter(
+  (field) => !(CLAIM_DETAIL_ONLY_FIELDS as readonly string[]).includes(field),
+)
+
+// Explicit view-scope export projection: keeps detail-only UUID references
+// (salesReturnId, replacementOrderId, sourceClaimId) out of grid exports while
+// the JSON list response keeps those keys (serialized as null off the trimmed
+// grid projection).
+const CLAIM_EXPORT_COLUMN_FIELDS = [
+  'id',
+  'claimNumber',
+  'claimType',
+  'status',
+  'channel',
+  'priority',
+  'customerId',
+  'customerName',
+  'vendorName',
+  'vendorRef',
+  'orderId',
+  'orderNumber',
+  'awaitingStaffReply',
+  'advanceReplacement',
+  'advanceShippedAt',
+  'reasonCode',
+  'rejectionReasonCode',
+  'resolutionSummary',
+  'notes',
+  'currencyCode',
+  'totalClaimedAmount',
+  'totalApprovedAmount',
+  'totalRecoveredAmount',
+  'slaDueAt',
+  'slaPausedAt',
+  'submittedAt',
+  'resolvedAt',
+  'closedAt',
+  'assigneeUserId',
+  'createdAt',
+  'updatedAt',
+] as const
 
 const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
   metadata: routeMetadata,
@@ -222,44 +352,10 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
   list: {
     schema: listSchema,
     entityId: E.warranty_claims.warranty_claim,
-    fields: [
-      'id',
-      'claim_number',
-      'claim_type',
-      'status',
-      'channel',
-      'priority',
-      'customer_id',
-      'customer_name',
-      'vendor_name',
-      'vendor_ref',
-      'order_id',
-      'order_number',
-      'awaiting_staff_reply',
-      'sales_return_id',
-      'replacement_order_id',
-      'source_claim_id',
-      'advance_replacement',
-      'advance_shipped_at',
-      'reason_code',
-      'rejection_reason_code',
-      'resolution_summary',
-      'notes',
-      'currency_code',
-      'total_claimed_amount',
-      'total_approved_amount',
-      'total_recovered_amount',
-      'sla_due_at',
-      'sla_paused_at',
-      'submitted_at',
-      'resolved_at',
-      'closed_at',
-      'assignee_user_id',
-      'organization_id',
-      'tenant_id',
-      'created_at',
-      'updated_at',
-    ],
+    fields: (query) => (isSingleRecordProjection(query) ? claimDetailFields : claimGridFields),
+    export: {
+      columns: CLAIM_EXPORT_COLUMN_FIELDS.map((field) => ({ field, header: toHeaderLabel(field) })),
+    },
     sortFieldMap: {
       slaDueAt: 'sla_due_at',
       createdAt: 'created_at',
@@ -274,7 +370,7 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       if (query.overdueOnly === true) {
         statusFilter.$nin = [...TERMINAL_STATUSES]
         filters.sla_due_at = { $lt: new Date() }
-        filters.sla_paused_at = { $eq: null }
+        filters.sla_paused_at = { $exists: false }
       }
       if (Object.keys(statusFilter).length) filters.status = statusFilter
       if (query.claimType) filters.claim_type = { $eq: query.claimType }
@@ -282,9 +378,21 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       if (query.priority) filters.priority = { $eq: query.priority }
       if (query.customerId) filters.customer_id = { $eq: query.customerId }
       if (query.orderId) filters.order_id = { $eq: query.orderId }
-      if (query.assigneeUserId) filters.assignee_user_id = { $eq: query.assigneeUserId }
+      if (query.sourceClaimId) filters.source_claim_id = { $eq: query.sourceClaimId }
+      if (query.unassignedOnly === true) {
+        filters.assignee_user_id = { $exists: false }
+      } else if (query.assigneeUserId) {
+        filters.assignee_user_id = { $eq: query.assigneeUserId }
+      }
       if (query.needsAttention === true) filters.awaiting_staff_reply = { $eq: true }
-      if (Array.isArray(query.ids) && query.ids.length) filters.id = { $in: query.ids }
+      const submittedRange = buildDateRangeFilter(query.submittedFrom, query.submittedTo)
+      if (submittedRange) filters.submitted_at = submittedRange
+      const createdRange = buildDateRangeFilter(query.createdFrom, query.createdTo)
+      if (createdRange) filters.created_at = createdRange
+      if (query.slaAtRiskOnly === true) {
+        const atRiskIds = await findSlaAtRiskClaimIdsForCtx(ctx)
+        narrowFiltersToClaimIds(filters, atRiskIds)
+      }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)
         const searchBranches: Record<string, unknown>[] = [
@@ -301,6 +409,18 @@ const crud = makeCrudRoute<ClaimCreateInput, ClaimUpdateInput, ClaimListQuery>({
       return filters
     },
     transformItem: transformClaimItem,
+  },
+  hooks: {
+    afterList: async (payload, ctx) => {
+      const items = payload && typeof payload === 'object' && Array.isArray((payload as { items?: unknown[] }).items)
+        ? (payload as { items: unknown[] }).items
+        : []
+      if (!items.length) return
+      await decorateItemsWithAssigneeNames(items, {
+        container: ctx.container,
+        tenantId: ctx.auth?.tenantId ?? null,
+      })
+    },
   },
   actions: {
     create: {
@@ -364,6 +484,7 @@ const claimListItemSchema = z.object({
   orderNumber: z.string().nullable(),
   awaitingStaffReply: z.boolean(),
   assigneeUserId: z.string().uuid().nullable(),
+  assigneeName: z.string().nullable(),
   totalClaimedAmount: z.string().nullable(),
   totalApprovedAmount: z.string().nullable(),
   totalRecoveredAmount: z.string().nullable(),

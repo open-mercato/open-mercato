@@ -6,6 +6,7 @@ import { buildIlikeTerm } from '@open-mercato/shared/lib/db/buildIlikeTerm'
 import { E } from '#generated/entities.ids.generated'
 import * as F from '#generated/entities/warranty_claim_registration'
 import { WarrantyClaimRegistration } from '../../data/entities'
+import { emitWarrantyClaimsEvent } from '../../events'
 import {
   registrationCreateSchema,
   registrationUpdateSchema,
@@ -24,22 +25,18 @@ import {
 const rawBodySchema = z.object({}).passthrough()
 const uuid = z.string().uuid()
 
-const idsSchema = z.preprocess((value) => {
-  if (typeof value === 'string') {
-    return value
-      .split(',')
-      .map((part) => part.trim())
-      .filter(Boolean)
-  }
-  return value
-}, z.array(uuid).min(1).max(500).optional())
+const expiryWindowSchema = z.enum(['expired', 'expiring_30d', 'active'])
+
+const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 
 const listSchema = z
   .object({
     id: uuid.optional(),
-    ids: idsSchema,
     serialNumber: z.string().trim().max(191).optional(),
     customerId: uuid.optional(),
+    coverageType: registrationCoverageTypeSchema.optional(),
+    source: registrationSourceSchema.optional(),
+    expiry: expiryWindowSchema.optional(),
     search: z.string().trim().max(300).optional(),
     page: z.coerce.number().int().min(1).default(1),
     pageSize: z.coerce.number().int().min(1).max(100).default(20),
@@ -154,6 +151,19 @@ function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+export async function emitRegistrationCreatedEvent(entity: unknown): Promise<void> {
+  const record = toRecord(entity)
+  const registrationId = typeof record.id === 'string' ? record.id : null
+  const tenantId = typeof record.tenantId === 'string' ? record.tenantId : null
+  const organizationId = typeof record.organizationId === 'string' ? record.organizationId : null
+  if (!registrationId || !tenantId || !organizationId) return
+  await emitWarrantyClaimsEvent('warranty_claims.claim.registration_created', {
+    registrationId,
+    tenantId,
+    organizationId,
+  }, { persistent: true })
+}
+
 function readString(record: Record<string, unknown>, snakeKey: string, camelKey: string): string | null {
   const value = record[snakeKey] ?? record[camelKey]
   return typeof value === 'string' ? value : null
@@ -251,9 +261,20 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
-      if (Array.isArray(query.ids) && query.ids.length) filters.id = { $in: query.ids }
       if (query.serialNumber) filters.serial_number = { $eq: query.serialNumber }
       if (query.customerId) filters.customer_id = { $eq: query.customerId }
+      if (query.coverageType) filters.coverage_type = { $eq: query.coverageType }
+      if (query.source) filters.source = { $eq: query.source }
+      if (query.expiry) {
+        const now = new Date()
+        if (query.expiry === 'expired') {
+          filters.warranty_expires_at = { $lt: now }
+        } else if (query.expiry === 'expiring_30d') {
+          filters.warranty_expires_at = { $gte: now, $lte: new Date(now.getTime() + EXPIRING_WINDOW_MS) }
+        } else {
+          filters.warranty_expires_at = { $gte: now }
+        }
+      }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)
         filters.$or = [
@@ -269,6 +290,11 @@ const crud = makeCrudRoute<RawRegistrationInput, RawRegistrationInput, Registrat
   create: {
     schema: rawBodySchema,
     mapToEntity: (input, ctx) => toRegistrationEntityData(parseCreateInput(input, ctx)),
+  },
+  hooks: {
+    afterCreate: async (entity) => {
+      await emitRegistrationCreatedEvent(entity)
+    },
   },
   update: {
     schema: rawBodySchema,

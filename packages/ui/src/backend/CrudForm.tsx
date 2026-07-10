@@ -110,6 +110,12 @@ import MarkdownField from './inputs/MarkdownField'
 
 // Stable empty options array to avoid creating a new [] every render
 const EMPTY_OPTIONS: CrudFieldOption[] = []
+
+function areOptionListsEqual(a: CrudFieldOption[], b: CrudFieldOption[]): boolean {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((option, index) => option.value === b[index].value && option.label === b[index].label)
+}
 // Sentinel for the optional-Select clear affordance. Radix Select forbids
 // empty-string item values, so we use a stable non-empty token that maps to
 // `undefined` in the change handler.
@@ -2933,6 +2939,18 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     Map<string, ((query?: string) => Promise<CrudFieldOption[]>) | undefined>
   >(new Map())
 
+  // Ref mirror of dynamicOptions so loadFieldOptions keeps a stable identity; a state-dep
+  // callback re-created per cache write re-fired every field's init effect and cascaded
+  // refetch loops across loader fields (same loop class as #814).
+  const dynamicOptionsRef = React.useRef<Record<string, CrudFieldOption[]>>({})
+
+  const storeDynamicOptions = React.useCallback((fieldId: string, fetched: CrudFieldOption[]) => {
+    const current = dynamicOptionsRef.current[fieldId]
+    if (current && areOptionListsEqual(current, fetched)) return
+    dynamicOptionsRef.current = { ...dynamicOptionsRef.current, [fieldId]: fetched }
+    setDynamicOptions(dynamicOptionsRef.current)
+  }, [])
+
   // Stable key prevents infinite re-render loop (see #814) — do not depend on allFields directly.
   React.useEffect(() => {
     let cancelled = false
@@ -2946,7 +2964,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
           try {
             dynamicOptionLoadersRef.current.set(f.id, f.loadOptions)
             const opts = await f.loadOptions()
-            if (!cancelled) setDynamicOptions((prev) => ({ ...prev, [f.id]: opts }))
+            if (!cancelled) storeDynamicOptions(f.id, opts)
           } catch {
             // ignore
           }
@@ -2957,7 +2975,7 @@ export function CrudForm<TValues extends Record<string, unknown>>({
     return () => {
       cancelled = true
     }
-  }, [dynamicOptionLoaderKey])
+  }, [dynamicOptionLoaderKey, storeDynamicOptions])
 
   const loadFieldOptions = React.useCallback(async (field: CrudField, query?: string): Promise<CrudFieldOption[]> => {
     if (!('type' in field) || field.type === 'custom') return EMPTY_OPTIONS
@@ -2967,28 +2985,22 @@ export function CrudForm<TValues extends Record<string, unknown>>({
       const previousLoader = dynamicOptionLoadersRef.current.get(field.id)
       const loaderChanged = previousLoader !== loader
       dynamicOptionLoadersRef.current.set(field.id, loader)
-      if (
-        query === undefined &&
-        !loaderChanged &&
-        Array.isArray(dynamicOptions[field.id])
-      ) {
-        return dynamicOptions[field.id]
+      const cached = dynamicOptionsRef.current[field.id]
+      if (query === undefined && !loaderChanged && Array.isArray(cached)) {
+        return cached
       }
       try {
         const fetched = await loader(query)
         if (query === undefined) {
-          setDynamicOptions((prev) => ({
-            ...prev,
-            [field.id]: fetched,
-          }))
+          storeDynamicOptions(field.id, fetched)
         }
         return fetched
       } catch {
         return builtin.options ?? EMPTY_OPTIONS
       }
     }
-    return dynamicOptions[field.id] || builtin.options || EMPTY_OPTIONS
-  }, [dynamicOptions])
+    return dynamicOptionsRef.current[field.id] || builtin.options || EMPTY_OPTIONS
+  }, [storeDynamicOptions])
 
   const fieldOptionsById = React.useMemo(() => {
     const map = new globalThis.Map<string, CrudFieldOption[]>()
@@ -4205,6 +4217,14 @@ const FieldControl = React.memo(function FieldControlImpl({
     loadFieldOptions(field).catch(() => {})
   }, [field, hasLoader, loadFieldOptions])
 
+  const loadFieldSuggestions = React.useMemo(() => {
+    if (!hasLoader) return undefined
+    return async (query?: string) => {
+      const opts = await loadFieldOptions(field, query)
+      return opts.map((opt) => ({ value: opt.value, label: opt.label }))
+    }
+  }, [field, hasLoader, loadFieldOptions])
+
   const placeholder = builtin?.placeholder
   const rootClassName = wrapperClassName ? `space-y-1 ${wrapperClassName}` : 'space-y-1'
   const validateOnWrapperBlur = supportsWrapperBlurValidation(field)
@@ -4365,14 +4385,7 @@ const FieldControl = React.memo(function FieldControlImpl({
           autoFocus={autoFocusField}
           suppressInitialSuggestionsOnFocus={autoFocusField}
           suggestions={options.map((opt) => ({ value: opt.value, label: opt.label }))}
-          loadSuggestions={
-            typeof builtin?.loadOptions === 'function'
-              ? async (query?: string) => {
-                  const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
-                }
-              : undefined
-          }
+          loadSuggestions={loadFieldSuggestions}
         />
       )}
       {field.type === 'combobox' && (
@@ -4392,14 +4405,7 @@ const FieldControl = React.memo(function FieldControlImpl({
               : undefined
           }
           resolveLabel={builtin?.resolveLabel}
-          loadSuggestions={
-            typeof builtin?.loadOptions === 'function'
-              ? async (query?: string) => {
-                  const opts = await loadFieldOptions(field, query)
-                  return opts.map((opt) => ({ value: opt.value, label: opt.label }))
-                }
-              : undefined
-          }
+          loadSuggestions={loadFieldSuggestions}
           allowCustomValues={builtin?.allowCustomValues ?? true}
           clearable={!field.required}
           disabled={disabled}

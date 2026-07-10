@@ -170,6 +170,7 @@ export const searchConfig: SearchModuleConfig = {
           'deleted_at',
           'notes',
           'resolution_summary',
+          'contact_email',
           'fault_description',
           'inspection_notes',
           'rejection_reason_code',

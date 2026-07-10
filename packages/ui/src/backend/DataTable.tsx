@@ -2914,7 +2914,13 @@ export function DataTable<T>({
                       if ((e.target as HTMLElement).closest('[data-actions-cell]')) {
                         return
                       }
-                      
+                      // Don't trigger row click when the click lands on an interactive
+                      // control rendered inside a cell (inline selects, inputs, buttons) —
+                      // otherwise editing a cell also fires the row's default action.
+                      if ((e.target as HTMLElement).closest('button, a, input, select, textarea, [role="combobox"], [role="listbox"], [contenteditable="true"]')) {
+                        return
+                      }
+
                       if (onRowClick) {
                         onRowClick(row.original as T)
                       } else if (defaultRowAction) {

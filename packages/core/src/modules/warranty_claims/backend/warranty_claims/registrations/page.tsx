@@ -5,13 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type BulkAction, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -20,6 +22,7 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { REGISTRATION_COVERAGE_TYPES, REGISTRATION_SOURCES } from '../../../data/validators'
 import { normalizeRegistration, type RegistrationRecord } from './registrationForm'
 
 type RegistrationsResponse = {
@@ -117,6 +120,7 @@ export default function WarrantyClaimRegistrationsPage() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
   const customerIds = React.useMemo(() => rows.map((row) => row.customerId), [rows])
@@ -137,21 +141,47 @@ export default function WarrantyClaimRegistrationsPage() {
     setReloadToken((current) => current + 1)
   }, [])
 
+  const listQueryString = React.useMemo(() => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(PAGE_SIZE),
+      sortField: 'updatedAt',
+      sortDir: 'desc',
+    })
+    if (search.trim()) params.set('search', search.trim())
+    const coverageType = toStringOrNull(filterValues.coverageType)
+    if (coverageType) params.set('coverageType', coverageType)
+    const source = toStringOrNull(filterValues.source)
+    if (source) params.set('source', source)
+    const expiry = toStringOrNull(filterValues.expiry)
+    if (expiry) params.set('expiry', expiry)
+    return params.toString()
+  }, [filterValues, page, search])
+
+  const currentParams = React.useMemo(
+    () => Object.fromEntries(new URLSearchParams(listQueryString)),
+    [listQueryString],
+  )
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('warranty_claims/registrations', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('warranty_claims/registrations', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
+  }), [currentParams])
+
   React.useEffect(() => {
     let cancelled = false
     async function loadRegistrations() {
       setLoading(true)
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(PAGE_SIZE),
-        sortField: 'updatedAt',
-        sortDir: 'desc',
-      })
-      if (search.trim()) params.set('search', search.trim())
       try {
         const fallback: RegistrationsResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<RegistrationsResponse>(
-          `/api/warranty_claims/registrations?${params.toString()}`,
+          `/api/warranty_claims/registrations?${listQueryString}`,
           undefined,
           { fallback },
         )
@@ -180,14 +210,9 @@ export default function WarrantyClaimRegistrationsPage() {
     return () => {
       cancelled = true
     }
-  }, [page, reloadToken, scopeVersion, search, t])
+  }, [listQueryString, reloadToken, scopeVersion, t])
 
-  const handleDelete = React.useCallback(async (registration: RegistrationRecord) => {
-    const confirmed = await confirm({
-      title: t('warranty_claims.registrations.confirm.deleteTitle', 'Delete this warranty registration?'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
+  const executeDelete = React.useCallback(async (registration: RegistrationRecord): Promise<unknown> => {
     try {
       await runMutation({
         operation: () => withScopedApiRequestHeaders(
@@ -204,9 +229,20 @@ export default function WarrantyClaimRegistrationsPage() {
           retryLastMutation,
         },
       })
-      flash(t('warranty_claims.registrations.list.success.delete', 'Warranty registration deleted.'), 'success')
-      reload()
+      return null
     } catch (error) {
+      return error
+    }
+  }, [mutationContextId, retryLastMutation, runMutation, t])
+
+  const handleDelete = React.useCallback(async (registration: RegistrationRecord) => {
+    const confirmed = await confirm({
+      title: t('warranty_claims.registrations.confirm.deleteTitle', 'Delete this warranty registration?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const error = await executeDelete(registration)
+    if (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: reload })) return
       flash(
         error instanceof Error
@@ -214,8 +250,83 @@ export default function WarrantyClaimRegistrationsPage() {
           : t('warranty_claims.registrations.list.error.delete', 'Failed to delete warranty registration.'),
         'error',
       )
+      return
     }
-  }, [confirm, mutationContextId, reload, retryLastMutation, runMutation, t])
+    flash(t('warranty_claims.registrations.list.success.delete', 'Warranty registration deleted.'), 'success')
+    reload()
+  }, [confirm, executeDelete, reload, t])
+
+  const handleBulkDelete = React.useCallback(async (selectedRows: RegistrationRecord[]) => {
+    const { succeeded, failures } = await runBulkDelete(
+      selectedRows,
+      async (registration) => {
+        const error = await executeDelete(registration)
+        if (error) throw error
+      },
+      {
+        fallbackErrorMessage: t('warranty_claims.registrations.list.error.delete', 'Failed to delete warranty registration.'),
+        logTag: 'warranty_claims.registrations.list',
+        progress: {
+          jobType: 'warranty_claims.registrations.bulk_delete',
+          name: t('warranty_claims.registrations.bulk.delete', 'Delete selected'),
+        },
+      },
+    )
+    const summary = t(
+      'warranty_claims.bulk.summary',
+      'Bulk action finished: {succeeded} succeeded, {failed} failed.',
+      { succeeded: succeeded.length, failed: failures.length },
+    )
+    if (failures.length) {
+      flash(`${summary} ${t('warranty_claims.bulk.firstError', 'First error: {message}', { message: failures[0].message })}`, 'warning')
+    } else {
+      flash(summary, 'success')
+    }
+    reload()
+    return { ok: true as const, affectedCount: succeeded.length }
+  }, [executeDelete, reload, t])
+
+  const bulkActions = React.useMemo<BulkAction<RegistrationRecord>[]>(() => [
+    {
+      id: 'bulk-delete',
+      label: t('warranty_claims.registrations.bulk.delete', 'Delete selected'),
+      destructive: true,
+      onExecute: async (selectedRows) => {
+        if (!selectedRows.length) return false
+        const confirmed = await confirm({
+          title: t('warranty_claims.registrations.bulk.deleteTitle', 'Delete selected warranty registrations?'),
+          variant: 'destructive',
+        })
+        if (!confirmed) return false
+        return handleBulkDelete(selectedRows)
+      },
+    },
+  ], [confirm, handleBulkDelete, t])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'coverageType',
+      label: t('warranty_claims.registrations.list.filter.coverageType', 'Coverage'),
+      type: 'select',
+      options: REGISTRATION_COVERAGE_TYPES.map((value) => ({ value, label: coverageLabel(value, t) })),
+    },
+    {
+      id: 'source',
+      label: t('warranty_claims.registrations.list.filter.source', 'Source'),
+      type: 'select',
+      options: REGISTRATION_SOURCES.map((value) => ({ value, label: sourceLabel(value, t) })),
+    },
+    {
+      id: 'expiry',
+      label: t('warranty_claims.registrations.list.filter.expiry', 'Warranty expiry'),
+      type: 'select',
+      options: [
+        { value: 'expired', label: t('warranty_claims.registrations.list.expiry.expired', 'Expired') },
+        { value: 'expiring_30d', label: t('warranty_claims.registrations.list.expiry.expiringSoon', 'Expiring in 30 days') },
+        { value: 'active', label: t('warranty_claims.registrations.list.expiry.active', 'Active') },
+      ],
+    },
+  ], [t])
 
   const columns = React.useMemo<ColumnDef<RegistrationRecord>[]>(() => {
     const noValue = <span className="text-sm text-muted-foreground">{t('warranty_claims.common.noValue', 'Not set')}</span>
@@ -305,15 +416,29 @@ export default function WarrantyClaimRegistrationsPage() {
             </Button>
           )}
           columns={columns}
+          columnChooser={{ auto: true }}
           data={rows}
+          exporter={exportConfig}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value)
             setPage(1)
           }}
           searchPlaceholder={t('warranty_claims.registrations.list.searchPlaceholder', 'Search serial, SKU, or product')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => {
+            setFilterValues(values)
+            setPage(1)
+          }}
+          onFiltersClear={() => {
+            setFilterValues({})
+            setPage(1)
+          }}
+          perspective={{ tableId: 'warranty_claims.registrations.list' }}
           onRowClick={(row) => router.push(`/backend/warranty_claims/registrations/${row.id}/edit`)}
           isLoading={loading}
+          bulkActions={bulkActions}
           rowActions={(row) => (
             <RowActions
               items={[

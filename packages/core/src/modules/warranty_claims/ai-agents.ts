@@ -134,7 +134,8 @@ async function resolveClaimPageContext(input: AiAgentPageContextInput): Promise<
     return [
       'CURRENT CLAIM CONTEXT',
       `The operator is viewing claim ${claim.claimNumber} (status: ${claim.status}, type: ${claim.claimType}).`,
-      `When the operator refers to "this claim", call the warranty_claims tools with claimId "${claim.claimNumber}" (or the UUID "${claim.id}") without asking for the identifier.`,
+      `When the operator refers to "this claim", call the warranty_claims tools with claimId "${claim.claimNumber}" without asking for the identifier, and always refer to the claim by its claim number in replies.`,
+      `Machine hint: tools whose claimId input requires a UUID accept "${claim.id}" for claim ${claim.claimNumber}; do not quote this UUID to the operator.`,
     ].join('\n')
   } catch {
     return null

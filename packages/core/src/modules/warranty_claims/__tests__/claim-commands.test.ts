@@ -440,7 +440,7 @@ describe('warranty claim commands', () => {
       organizationId: ORG_ID,
       claimType: 'warranty',
       customerId: CUSTOMER_ID,
-      lines: [{ sku: 'ABC', productName: 'Pump', qtyClaimed: 2, creditAmount: 25 }],
+      lines: [{ sku: 'ABC', productName: 'Pump', qtyClaimed: 2, creditAmount: 25, vendorName: 'Pump Vendor GmbH' }],
     }, ctx)
 
     expect(result.claimId).toBeTruthy()
@@ -452,7 +452,7 @@ describe('warranty claim commands', () => {
       totalClaimedAmount: '25',
     })
     expect(mockLines).toHaveLength(1)
-    expect(mockLines[0]).toMatchObject({ sku: 'ABC', productName: 'Pump', qtyClaimed: '2' })
+    expect(mockLines[0]).toMatchObject({ sku: 'ABC', productName: 'Pump', qtyClaimed: '2', vendorName: 'Pump Vendor GmbH' })
     expect(mockEvents.some((event) => event.kind === 'system')).toBe(true)
   })
 
@@ -540,6 +540,32 @@ describe('warranty claim commands', () => {
     expect(claim.submittedAt).toBeInstanceOf(Date)
     expect(claim.slaDueAt).toBeInstanceOf(Date)
     expect(claim.slaDueAt!.getTime() - claim.submittedAt!.getTime()).toBe(12 * 60 * 60 * 1000)
+  })
+
+  test('submit with a customer actor attributes the timeline event to the customer, not the auth user', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    await submitClaimCommand.execute({ id: CLAIM_ID, actorCustomerId: CUSTOMER_ID }, ctx)
+
+    expect(claim.status).toBe('submitted')
+    const statusEvent = mockEvents.find((event) => event.kind === 'status_changed')
+    expect(statusEvent?.actorCustomerId).toBe(CUSTOMER_ID)
+    expect(statusEvent?.actorUserId).toBeNull()
+  })
+
+  test('transition to cancelled with a customer actor attributes the timeline event to the customer', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('submitted')
+    mockClaims.push(claim)
+
+    await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'cancelled', actorCustomerId: CUSTOMER_ID }, ctx)
+
+    expect(claim.status).toBe('cancelled')
+    const statusEvent = mockEvents.find((event) => event.kind === 'status_changed')
+    expect(statusEvent?.actorCustomerId).toBe(CUSTOMER_ID)
+    expect(statusEvent?.actorUserId).toBeNull()
   })
 
   test('auto-adjudication stays inactive for incomplete or ineligible settings and approves eligible claims atomically', async () => {

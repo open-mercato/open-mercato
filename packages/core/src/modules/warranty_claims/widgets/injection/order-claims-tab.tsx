@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { ExternalLink, FileText, Plus } from 'lucide-react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -74,8 +74,9 @@ function ClaimStatusBadge({ status }: { status: string | null | undefined }) {
 
 function ClaimRow({ claim }: { claim: ClaimListItem }) {
   const t = useT()
+  const locale = useLocale()
   const href = claim.id ? `/backend/warranty_claims/${claim.id}` : '/backend/warranty_claims'
-  const relativeUpdatedAt = formatRelativeTime(claim.updatedAt)
+  const relativeUpdatedAt = formatRelativeTime(claim.updatedAt, { locale })
   const absoluteUpdatedAt = formatDateTime(claim.updatedAt)
   return (
     <li className="rounded-md border border-border bg-card px-3 py-2">

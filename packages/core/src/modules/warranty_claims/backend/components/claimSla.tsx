@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime, formatRelativeTime } from '@open-mercato/shared/lib/time'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 
@@ -70,6 +70,7 @@ export function ClaimSlaIndicator({
   className?: string
 }) {
   const t = useT()
+  const locale = useLocale()
   const state = computeClaimSlaState({ slaDueAt, slaPausedAt, submittedAt, status, atRiskThresholdPct })
   if (state.tier === 'none') {
     return <span className={className ?? 'text-sm text-muted-foreground'}>{t('warranty_claims.common.noValue')}</span>
@@ -81,7 +82,7 @@ export function ClaimSlaIndicator({
       </StatusBadge>
     )
   }
-  const relative = formatRelativeTime(state.dueAt ? state.dueAt.toISOString() : null)
+  const relative = formatRelativeTime(state.dueAt ? state.dueAt.toISOString() : null, { locale })
   const absolute = formatDateTime(state.dueAt ? state.dueAt.toISOString() : null)
   const prefix =
     state.tier === 'overdue'

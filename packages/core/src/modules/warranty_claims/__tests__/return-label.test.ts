@@ -35,4 +35,25 @@ describe('warranty return labels', () => {
       labelUrl: '   ',
     }).success).toBe(false)
   })
+
+  test('set_return_label schema only accepts http(s) label URLs', () => {
+    const scoped = { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID }
+
+    expect(claimSetReturnLabelSchema.safeParse({
+      ...scoped,
+      labelUrl: 'https://labels.example.com/label.pdf',
+    }).success).toBe(true)
+    expect(claimSetReturnLabelSchema.safeParse({
+      ...scoped,
+      labelUrl: 'javascript:alert(1)',
+    }).success).toBe(false)
+    expect(claimSetReturnLabelSchema.safeParse({
+      ...scoped,
+      labelUrl: 'data:text/html;base64,PGgxPjwvaDE+',
+    }).success).toBe(false)
+    expect(claimSetReturnLabelSchema.safeParse({
+      ...scoped,
+      labelUrl: 'labels.example.com/label.pdf',
+    }).success).toBe(false)
+  })
 })

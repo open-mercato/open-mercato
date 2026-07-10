@@ -3,6 +3,7 @@ import { sql } from 'kysely'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { getCustomerAuthFromRequest, type CustomerAuthContext } from '@open-mercato/core/modules/customer_accounts/lib/customerAuth'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
@@ -53,6 +54,13 @@ export const metadata = {
 function stringField(record: Record<string, unknown>, key: string): string | null {
   const value = record[key]
   return typeof value === 'string' ? value : null
+}
+
+function isMissingTableError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const candidate = err as { code?: unknown; message?: unknown }
+  return candidate.code === '42P01'
+    || (typeof candidate.message === 'string' && candidate.message.includes('does not exist'))
 }
 
 function amountField(record: Record<string, unknown>, key: string): string | number | null {
@@ -141,21 +149,27 @@ export async function GET(req: Request) {
       .where('customer_entity_id', '=', context.customerId)
       .where('deleted_at', 'is', null)
     if (query.search) {
-      const pattern = `%${query.search}%`
+      const pattern = `%${escapeLikePattern(query.search)}%`
       listQuery = listQuery.where('order_number', 'ilike', pattern)
       countQuery = countQuery.where('order_number', 'ilike', pattern)
     }
-    const rows = await listQuery
-      .orderBy('placed_at', 'desc')
-      .limit(PAGE_SIZE)
-      .offset((query.page - 1) * PAGE_SIZE)
-      .execute()
-    const countRow = await countQuery.executeTakeFirst()
-    const total = Number(countRow?.total ?? 0) || 0
+    let rows: Array<Record<string, unknown>> = []
+    let total = 0
+    try {
+      rows = await listQuery
+        .orderBy('placed_at', 'desc')
+        .limit(PAGE_SIZE)
+        .offset((query.page - 1) * PAGE_SIZE)
+        .execute() as Array<Record<string, unknown>>
+      const countRow = await countQuery.executeTakeFirst()
+      total = Number(countRow?.total ?? 0) || 0
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err
+    }
 
     return NextResponse.json({
       ok: true,
-      items: (rows as Array<Record<string, unknown>>).map(serializeOrder).filter((item): item is PortalOrderItem => item !== null),
+      items: rows.map(serializeOrder).filter((item): item is PortalOrderItem => item !== null),
       total,
       page: query.page,
       pageSize: PAGE_SIZE,

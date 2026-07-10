@@ -6,6 +6,7 @@ import type * as React from 'react'
 import type { LucideIcon } from 'lucide-react'
 import {
   Activity,
+  AlarmClock,
   AlertCircle,
   AlertOctagon,
   AlertTriangle,
@@ -158,6 +159,7 @@ import {
 
 export const LUCIDE_ICON_REGISTRY: Record<string, LucideIcon> = {
   'activity': Activity,
+  'alarm-clock': AlarmClock,
   'alert-circle': AlertCircle,
   'alert-octagon': AlertOctagon,
   'alert-triangle': AlertTriangle,

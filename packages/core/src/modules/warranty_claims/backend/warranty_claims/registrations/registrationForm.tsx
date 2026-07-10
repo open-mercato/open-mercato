@@ -58,7 +58,7 @@ function dateToIso(value: unknown): string | null {
   return Number.isNaN(date.getTime()) ? null : date.toISOString()
 }
 
-function normalizeOption(item: unknown): CrudFieldOption | null {
+function normalizeOption(item: unknown, t: TranslateFn): CrudFieldOption | null {
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
@@ -67,12 +67,12 @@ function normalizeOption(item: unknown): CrudFieldOption | null {
     toStringOrNull(item.displayName) ??
     toStringOrNull(item.display_name) ??
     toStringOrNull(item.name) ??
-    id
+    t('warranty_claims.form.customerUnnamed', 'Unnamed customer')
   const email = toStringOrNull(item.primaryEmail) ?? toStringOrNull(item.primary_email)
   return { value: id, label: email ? `${label} (${email})` : label }
 }
 
-async function resolveCustomerLabel(value: string): Promise<string> {
+async function resolveCustomerLabel(value: string, t: TranslateFn): Promise<string> {
   const params = new URLSearchParams({ id: value, page: '1', pageSize: '1' })
   const [people, companies] = await Promise.all([
     apiCall<{ items?: unknown[] }>(`/api/customers/people?${params.toString()}`, undefined, { fallback: { items: [] } }),
@@ -82,8 +82,8 @@ async function resolveCustomerLabel(value: string): Promise<string> {
     ...(Array.isArray(people.result?.items) ? people.result.items : []),
     ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
   ]
-  const option = items.map(normalizeOption).find((item): item is CrudFieldOption => item !== null)
-  return option?.label ?? value
+  const option = items.map((item) => normalizeOption(item, t)).find((item): item is CrudFieldOption => item !== null)
+  return option?.label ?? t('warranty_claims.form.customerUnavailable', 'Customer unavailable')
 }
 
 export function normalizeRegistration(value: unknown): RegistrationRecord | null {
@@ -165,8 +165,8 @@ export function useRegistrationFormConfig(
       ...(Array.isArray(people.result?.items) ? people.result.items : []),
       ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
     ]
-    return items.map(normalizeOption).filter((option): option is CrudFieldOption => option !== null)
-  }, [])
+    return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
+  }, [t])
 
   const coverageOptions = React.useMemo<CrudFieldOption[]>(
     () => COVERAGE_TYPES.map((value) => ({ value, label: coverageLabel(t, value) })),
@@ -200,7 +200,7 @@ export function useRegistrationFormConfig(
       label: t('warranty_claims.registrations.form.customerId', 'Customer'),
       type: 'combobox',
       loadOptions: loadCustomerOptions,
-      resolveLabel: resolveCustomerLabel,
+      resolveLabel: (value: string) => resolveCustomerLabel(value, t),
       seedOptions: [],
       allowCustomValues: false,
       placeholder: t('warranty_claims.registrations.form.customerId.placeholder', 'Search customers'),
@@ -209,8 +209,10 @@ export function useRegistrationFormConfig(
       id: 'orderId',
       label: t('warranty_claims.registrations.form.orderId', 'Order ID'),
       type: 'combobox',
-      loadOptions: loadOrderOptions,
-      resolveLabel: resolveOrderLabel,
+      loadOptions: (query?: string) => loadOrderOptions(query, {
+        fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
+      }),
+      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
       seedOptions: [],
       allowCustomValues: false,
       placeholder: t('warranty_claims.registrations.form.orderId.placeholder', 'Search orders'),

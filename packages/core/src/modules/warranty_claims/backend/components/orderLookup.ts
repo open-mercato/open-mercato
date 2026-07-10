@@ -4,11 +4,15 @@ import type { CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 export type LoadOrderOptionsParams = {
   customerId?: string | null
   onAccessChange?: (accessDenied: boolean) => void
+  fallbackLabel?: string
 }
 
 export type LoadSalesReturnOptionsParams = {
   orderId?: string | null
+  fallbackLabel?: string
 }
+
+const DEFAULT_FALLBACK_LABEL = '—'
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -18,19 +22,19 @@ function toStringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
 }
 
-function normalizeOrderOption(item: unknown): CrudFieldOption | null {
+function normalizeOrderOption(item: unknown, fallbackLabel: string): CrudFieldOption | null {
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
-  return { value: id, label: toStringOrNull(item.orderNumber) ?? id }
+  return { value: id, label: toStringOrNull(item.orderNumber) ?? fallbackLabel }
 }
 
-function normalizeSalesReturnOption(item: unknown): CrudFieldOption | null {
+function normalizeSalesReturnOption(item: unknown, fallbackLabel: string): CrudFieldOption | null {
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
   const returnNumber = toStringOrNull(item.return_number) ?? toStringOrNull(item.returnNumber)
-  return { value: id, label: returnNumber ?? id }
+  return { value: id, label: returnNumber ?? fallbackLabel }
 }
 
 export async function loadOrderOptions(
@@ -51,20 +55,23 @@ export async function loadOrderOptions(
     return []
   }
   params?.onAccessChange?.(false)
+  const fallbackLabel = params?.fallbackLabel ?? DEFAULT_FALLBACK_LABEL
   const items = Array.isArray(response.result?.items) ? response.result.items : []
-  return items.map(normalizeOrderOption).filter((option): option is CrudFieldOption => option !== null)
+  return items
+    .map((item) => normalizeOrderOption(item, fallbackLabel))
+    .filter((option): option is CrudFieldOption => option !== null)
 }
 
-export async function resolveOrderLabel(value: string): Promise<string> {
+export async function resolveOrderLabel(value: string, fallbackLabel: string = DEFAULT_FALLBACK_LABEL): Promise<string> {
   const response = await apiCall<{ items?: unknown[] }>(
     `/api/sales/orders?${new URLSearchParams({ id: value, page: '1', pageSize: '1' }).toString()}`,
     undefined,
     { fallback: { items: [] } },
   )
   const option = (response.result?.items ?? [])
-    .map(normalizeOrderOption)
+    .map((item) => normalizeOrderOption(item, fallbackLabel))
     .find((item): item is CrudFieldOption => item !== null)
-  return option?.label ?? value
+  return option?.label ?? fallbackLabel
 }
 
 export async function loadSalesReturnOptions(
@@ -79,21 +86,24 @@ export async function loadSalesReturnOptions(
     undefined,
     { fallback: { items: [] } },
   )
+  const fallbackLabel = params?.fallbackLabel ?? DEFAULT_FALLBACK_LABEL
   const items = Array.isArray(response.result?.items) ? response.result.items : []
-  const options = items.map(normalizeSalesReturnOption).filter((option): option is CrudFieldOption => option !== null)
+  const options = items
+    .map((item) => normalizeSalesReturnOption(item, fallbackLabel))
+    .filter((option): option is CrudFieldOption => option !== null)
   const needle = query?.trim().toLowerCase()
   if (!needle) return options
   return options.filter((option) => option.label.toLowerCase().includes(needle))
 }
 
-export async function resolveSalesReturnLabel(value: string): Promise<string> {
+export async function resolveSalesReturnLabel(value: string, fallbackLabel: string = DEFAULT_FALLBACK_LABEL): Promise<string> {
   const response = await apiCall<{ items?: unknown[] }>(
     `/api/sales/returns?${new URLSearchParams({ ids: value, page: '1', pageSize: '1' }).toString()}`,
     undefined,
     { fallback: { items: [] } },
   )
   const option = (response.result?.items ?? [])
-    .map(normalizeSalesReturnOption)
+    .map((item) => normalizeSalesReturnOption(item, fallbackLabel))
     .find((item): item is CrudFieldOption => item !== null)
-  return option?.label ?? value
+  return option?.label ?? fallbackLabel
 }

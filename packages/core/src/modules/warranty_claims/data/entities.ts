@@ -161,6 +161,12 @@ export class WarrantyClaim {
   @Property({ name: 'sla_paused_at', type: Date, nullable: true })
   slaPausedAt?: Date | null
 
+  @Property({ name: 'sla_at_risk_notified_at', type: Date, nullable: true })
+  slaAtRiskNotifiedAt?: Date | null
+
+  @Property({ name: 'sla_breached_notified_at', type: Date, nullable: true })
+  slaBreachedNotifiedAt?: Date | null
+
   @Property({ name: 'submitted_at', type: Date, nullable: true })
   submittedAt?: Date | null
 

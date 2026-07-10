@@ -3,7 +3,7 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ArrowRight, Plus, Send, Trash2 } from 'lucide-react'
+import { ArrowLeft, ArrowRight, FileText, Plus, Send, Trash2 } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
@@ -32,6 +32,10 @@ import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
+import {
+  ATTACHMENT_ACCEPT_TYPES,
+  validateAttachmentFile,
+} from '@open-mercato/core/modules/warranty_claims/lib/portalAttachmentValidation'
 import {
   TroubleshootingWalker,
   type TroubleshootingWalkerGuide,
@@ -144,6 +148,16 @@ type PortalClaimSerialLookupResponse = {
   items: PortalClaimSerialMatch[]
 }
 
+type StagedAttachment = {
+  localId: string
+  file: File
+}
+
+type PortalUploadResponse = {
+  ok: boolean
+  error?: string
+}
+
 const WIZARD_STEP_IDS: WizardStepId[] = ['order', 'items', 'details', 'review']
 const EMPTY_SELECT_VALUE = '__empty__'
 
@@ -159,6 +173,13 @@ function createLineDraft(): LineDraft {
     faultDescription: '',
     qtyClaimed: '1',
   }
+}
+
+let stagedAttachmentId = 0
+
+function createStagedAttachment(file: File): StagedAttachment {
+  stagedAttachmentId += 1
+  return { localId: `claim-attachment-${stagedAttachmentId}`, file }
 }
 
 function optionalText(value: string): string | undefined {
@@ -236,13 +257,15 @@ function warrantyStatusLabelKey(status: WarrantyStatus): string {
   return 'warranty_claims.portal.value.notAvailable'
 }
 
+const CREATE_MUTATION_CONTEXT_ID = 'warranty_claims.portal.claim.create'
+
 export default function WarrantyClaimPortalNewPage({ params }: Props) {
   const t = useT()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
   const guardedMutation = useGuardedMutation<Record<string, unknown>>({
-    contextId: 'warranty_claims.portal.claim.create',
+    contextId: CREATE_MUTATION_CONTEXT_ID,
     blockedMessage: t('warranty_claims.portal.new.blocked'),
   })
   const [currentStep, setCurrentStep] = React.useState<WizardStepId>('order')
@@ -269,6 +292,8 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
   const [troubleshootingGuide, setTroubleshootingGuide] = React.useState<TroubleshootingWalkerGuide | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [submitting, setSubmitting] = React.useState(false)
+  const [stagedFiles, setStagedFiles] = React.useState<StagedAttachment[]>([])
+  const [stagedFileInputKey, setStagedFileInputKey] = React.useState(0)
   const [serialDuplicateWarnings, setSerialDuplicateWarnings] = React.useState<Record<string, string[]>>({})
   const serialLookupTimers = React.useRef<Record<string, number>>({})
   const isMountedRef = React.useRef(true)
@@ -667,6 +692,63 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
     setCurrentStep(WIZARD_STEP_IDS[currentStepIndex + 1]!)
   }, [currentStep, currentStepIndex, validateStep])
 
+  const addStagedAttachments = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? [])
+    setStagedFileInputKey((current) => current + 1)
+    if (!files.length) return
+    const accepted: StagedAttachment[] = []
+    for (const file of files) {
+      const validationError = await validateAttachmentFile(file, t)
+      if (validationError) {
+        flash(t('warranty_claims.portal.new.attachmentRejected', '{name}: {reason}', { name: file.name, reason: validationError }), 'error')
+        continue
+      }
+      accepted.push(createStagedAttachment(file))
+    }
+    if (accepted.length) {
+      setStagedFiles((current) => [...current, ...accepted])
+    }
+  }, [t])
+
+  const removeStagedAttachment = React.useCallback((localId: string) => {
+    setStagedFiles((current) => current.filter((staged) => staged.localId !== localId))
+  }, [])
+
+  const uploadStagedAttachments = React.useCallback(async (claimId: string): Promise<string[]> => {
+    const failedFiles: string[] = []
+    for (const staged of stagedFiles) {
+      try {
+        const form = new FormData()
+        form.set('claimId', claimId)
+        form.set('file', staged.file)
+        const result = await guardedMutation.runMutation({
+          operation: () => apiCall<PortalUploadResponse>('/api/warranty_claims/portal/attachments', {
+            method: 'POST',
+            credentials: 'include',
+            body: form,
+          }),
+          context: {
+            moduleId: 'warranty_claims',
+            entityId: 'attachments.attachment',
+            operation: 'portal_attachment_upload',
+            claimId,
+            formId: CREATE_MUTATION_CONTEXT_ID,
+            resourceKind: 'attachments.attachment',
+            resourceId: claimId,
+            retryLastMutation: guardedMutation.retryLastMutation,
+          },
+          mutationPayload: { claimId, fileName: staged.file.name, fileSize: staged.file.size },
+        })
+        if (!result.ok || !result.result?.ok) {
+          failedFiles.push(staged.file.name)
+        }
+      } catch {
+        failedFiles.push(staged.file.name)
+      }
+    }
+    return failedFiles
+  }, [guardedMutation, stagedFiles])
+
   const submitClaim = React.useCallback(async () => {
     if (submitting) return
     setError(null)
@@ -687,6 +769,9 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
           moduleId: 'warranty_claims',
           entityId: 'warranty_claims.claim',
           operation: 'portal_create',
+          formId: CREATE_MUTATION_CONTEXT_ID,
+          resourceKind: 'warranty_claims.claim',
+          retryLastMutation: guardedMutation.retryLastMutation,
         },
         mutationPayload,
       })
@@ -698,6 +783,14 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
         return
       }
 
+      const failedFiles = await uploadStagedAttachments(result.result.claimId)
+      if (failedFiles.length) {
+        flash(
+          t('warranty_claims.portal.new.attachmentsPartialFailure', 'Your claim was created, but these files could not be uploaded: {files}. You can add them again from the claim page.', { files: failedFiles.join(', ') }),
+          'warning',
+        )
+      }
+
       flash(t('warranty_claims.portal.new.success'), 'success')
       router.push(`/${params.orgSlug}/portal/claims/${result.result.claimId}`)
     } catch {
@@ -705,7 +798,7 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
     } finally {
       setSubmitting(false)
     }
-  }, [buildPayload, guardedMutation, params.orgSlug, router, submitting, t])
+  }, [buildPayload, guardedMutation, params.orgSlug, router, submitting, t, uploadStagedAttachments])
 
   const handleSubmit = React.useCallback((event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -1129,9 +1222,47 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                 />
               </FormField>
             </div>
-            <Alert status="information" style="lighter">
-              <AlertDescription>{t('warranty_claims.portal.new.attachmentsDeferred')}</AlertDescription>
-            </Alert>
+            <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+              <div>
+                <h3 className="text-sm font-semibold">{t('warranty_claims.portal.new.attachmentsTitle', 'Photos and documents')}</h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t('warranty_claims.portal.new.attachmentsHelp', 'Optional. Photos of the fault help us review your claim faster. Files are uploaded when you submit the claim.')}
+                </p>
+              </div>
+              <Input
+                key={stagedFileInputKey}
+                type="file"
+                multiple
+                accept={ATTACHMENT_ACCEPT_TYPES}
+                onChange={(event) => { void addStagedAttachments(event) }}
+                disabled={submitting}
+                aria-label={t('warranty_claims.portal.new.attachmentsTitle', 'Photos and documents')}
+              />
+              {stagedFiles.length > 0 ? (
+                <ul className="flex flex-col gap-2">
+                  {stagedFiles.map((staged) => (
+                    <li
+                      key={staged.localId}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2"
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                        <span className="truncate text-sm">{staged.file.name}</span>
+                      </div>
+                      <IconButton
+                        type="button"
+                        variant="ghost"
+                        aria-label={t('warranty_claims.portal.new.removeAttachment', 'Remove file')}
+                        onClick={() => removeStagedAttachment(staged.localId)}
+                        disabled={submitting}
+                      >
+                        <Trash2 className="size-4" aria-hidden="true" />
+                      </IconButton>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+            </div>
           </div>
         </PortalCard>
       ) : null}
@@ -1199,6 +1330,10 @@ export default function WarrantyClaimPortalNewPage({ params }: Props) {
                   <dd className="font-medium">
                     {notes.trim() ? t('warranty_claims.portal.value.yes') : t('warranty_claims.portal.value.no')}
                   </dd>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">{t('warranty_claims.portal.new.reviewAttachments', 'Attachments')}</dt>
+                  <dd className="font-medium">{stagedFiles.length}</dd>
                 </div>
               </dl>
             </div>

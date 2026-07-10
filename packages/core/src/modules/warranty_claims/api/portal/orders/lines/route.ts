@@ -61,6 +61,13 @@ function stringField(record: Record<string, unknown>, key: string): string | nul
   return typeof value === 'string' ? value : null
 }
 
+function isMissingTableError(err: unknown): boolean {
+  if (typeof err !== 'object' || err === null) return false
+  const candidate = err as { code?: unknown; message?: unknown }
+  return candidate.code === '42P01'
+    || (typeof candidate.message === 'string' && candidate.message.includes('does not exist'))
+}
+
 function amountField(record: Record<string, unknown>, key: string): string | number | null {
   const value = record[key]
   if (typeof value === 'string' || typeof value === 'number') return value
@@ -144,8 +151,9 @@ async function loadOwnedOrder(
       .executeTakeFirst()
     if (!row) return null
     return { id: row.id, placedAt: toIso(row.placed_at) }
-  } catch {
-    return null
+  } catch (err) {
+    if (isMissingTableError(err)) return null
+    throw err
   }
 }
 
@@ -189,20 +197,25 @@ export async function GET(req: Request) {
     })
     const estimatedWarrantyStatus = estimateWarrantyStatus(order.placedAt, settings.defaultWarrantyMonths)
     const db = context.em.getKysely<PortalOrderLinesDb>()
-    const rows = await db
-      .selectFrom('sales_order_lines')
-      .select(['id', 'order_id', 'kind', 'product_id', 'product_variant_id', 'catalog_snapshot', 'name', 'quantity'])
-      .where('order_id', '=', order.id)
-      .where('tenant_id', '=', context.tenantId)
-      .where('organization_id', '=', context.organizationId)
-      .where('deleted_at', 'is', null)
-      .limit(100)
-      .execute()
+    let rows: Array<Record<string, unknown>> = []
+    try {
+      rows = await db
+        .selectFrom('sales_order_lines')
+        .select(['id', 'order_id', 'kind', 'product_id', 'product_variant_id', 'catalog_snapshot', 'name', 'quantity'])
+        .where('order_id', '=', order.id)
+        .where('tenant_id', '=', context.tenantId)
+        .where('organization_id', '=', context.organizationId)
+        .where('deleted_at', 'is', null)
+        .limit(100)
+        .execute() as Array<Record<string, unknown>>
+    } catch (err) {
+      if (!isMissingTableError(err)) throw err
+    }
 
     return NextResponse.json({
       ok: true,
       order,
-      items: (rows as Array<Record<string, unknown>>)
+      items: rows
         .map((row) => serializeOrderLine(row, estimatedWarrantyStatus))
         .filter((item): item is PortalOrderLineItem => item !== null),
     })

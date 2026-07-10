@@ -34,6 +34,7 @@ import { E } from '#generated/entities.ids.generated'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim } from '../../../data/entities'
 import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../../commands/shared'
+import { CUSTOMER_VISIBLE_ATTACHMENT_TAG, isCustomerVisibleAttachment } from '../../../lib/attachmentVisibility'
 
 const CLAIM_ATTACHMENT_ENTITY_ID = 'warranty_claims:warranty_claim'
 
@@ -211,6 +212,9 @@ async function streamOwnedAttachment(context: PortalContext, attachmentId: strin
   if (!claim) {
     return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
   }
+  if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) {
+    return NextResponse.json({ ok: false, error: 'Attachment not found' }, { status: 404 })
+  }
   const partition = await context.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
   if (!partition) {
     return NextResponse.json({ ok: false, error: 'Partition misconfigured' }, { status: 500 })
@@ -272,17 +276,13 @@ export async function GET(req: Request) {
     organizationId: context.organizationId,
   }
   const usePaging = typeof parsed.data.page === 'number' && typeof parsed.data.pageSize === 'number'
-  const total = usePaging ? await context.em.count(Attachment, filter) : null
   const page = parsed.data.page ?? 1
   const pageSize = parsed.data.pageSize ?? 100
   const attachments = await findWithDecryption(
     context.em,
     Attachment,
     filter,
-    {
-      orderBy: { createdAt: 'DESC' },
-      ...(usePaging ? { limit: pageSize, offset: (page - 1) * pageSize } : {}),
-    },
+    { orderBy: { createdAt: 'DESC' } },
     { tenantId: context.tenantId, organizationId: context.organizationId },
   )
   const partitionCodes = Array.from(new Set(attachments.map((attachment) => attachment.partitionCode)))
@@ -294,17 +294,20 @@ export async function GET(req: Request) {
   const visible = attachments.filter((attachment) => {
     const partition = partitionsByCode.get(attachment.partitionCode)
     if (!partition) return false
+    if (!isCustomerVisibleAttachment(readAttachmentMetadata(attachment.storageMetadata).tags)) return false
     return checkAttachmentAccess(auth, attachment, partition, { requireAuthForPublic: true }).ok
   })
 
+  const pagedVisible = usePaging ? visible.slice((page - 1) * pageSize, page * pageSize) : visible
+
   return NextResponse.json({
-    items: visible.map(serializeAttachment),
+    items: pagedVisible.map(serializeAttachment),
     ...(usePaging
       ? {
-          total: total ?? visible.length,
+          total: visible.length,
           page,
           pageSize,
-          totalPages: Math.max(1, Math.ceil((total ?? visible.length) / pageSize)),
+          totalPages: Math.max(1, Math.ceil(visible.length / pageSize)),
         }
       : {}),
   })
@@ -407,7 +410,7 @@ export async function POST(req: Request) {
 
   const metadata = mergeAttachmentMetadata(null, {
     assignments: upsertAssignment([], { type: CLAIM_ATTACHMENT_ENTITY_ID, id: claim.id }),
-    tags: [],
+    tags: [CUSTOMER_VISIBLE_ATTACHMENT_TAG],
   })
   const attachmentId = randomUUID()
   assertAttachmentScopeInvariant({ tenantId: context.tenantId, organizationId: context.organizationId })

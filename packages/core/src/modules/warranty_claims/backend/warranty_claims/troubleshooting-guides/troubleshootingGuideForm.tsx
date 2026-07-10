@@ -6,6 +6,8 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { CLAIM_TYPES } from '../../../data/validators'
+import { localizeDictionaryLabel } from '../../../lib/dictionaryLabels'
+import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
 import {
   parseGuideSteps,
   type TroubleshootingNode,
@@ -154,6 +156,8 @@ export function useTroubleshootingGuideFormConfig(t: TranslateFn): { fields: Cru
     ...CLAIM_TYPES.map((value) => ({ value, label: claimTypeLabel(value, t) })),
   ], [t])
 
+  const loadReasonCodeOptions = React.useCallback(() => fetchClaimReasonOptions(t), [t])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'title',
@@ -170,7 +174,10 @@ export function useTroubleshootingGuideFormConfig(t: TranslateFn): { fields: Cru
     {
       id: 'reasonCode',
       label: t('warranty_claims.troubleshootingGuides.form.reasonCode', 'Reason code'),
-      type: 'text',
+      type: 'combobox',
+      loadOptions: loadReasonCodeOptions,
+      allowCustomValues: true,
+      resolveLabel: (value: string) => localizeDictionaryLabel(t, 'reason', value, value),
       description: t('warranty_claims.troubleshootingGuides.form.reasonCode.help', 'Leave empty to match any reason.'),
     },
     createSwitchField(
@@ -186,7 +193,7 @@ export function useTroubleshootingGuideFormConfig(t: TranslateFn): { fields: Cru
       layout: 'full',
       description: t('warranty_claims.troubleshootingGuides.form.stepsJson.help', 'Use a prompt with options. Each option needs a label and either a next node or a resolution/reason code.'),
     },
-  ], [claimTypeOptions, t])
+  ], [claimTypeOptions, loadReasonCodeOptions, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => [
     {

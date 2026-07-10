@@ -4,13 +4,13 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { type TranslateFn, useT } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../../lib/dictionaryLabels'
 import {
   loadOrderOptions,
@@ -82,7 +82,7 @@ function normalizeClaim(value: unknown): ClaimEditRecord | null {
   }
 }
 
-function normalizeOption(item: unknown): CrudFieldOption | null {
+function normalizeOption(item: unknown, t: TranslateFn): CrudFieldOption | null {
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
@@ -91,7 +91,7 @@ function normalizeOption(item: unknown): CrudFieldOption | null {
     toStringOrNull(item.displayName) ??
     toStringOrNull(item.display_name) ??
     toStringOrNull(item.name) ??
-    id
+    t('warranty_claims.form.customerUnnamed', 'Unnamed customer')
   const email = toStringOrNull(item.primaryEmail) ?? toStringOrNull(item.primary_email)
   return { value: id, label: email ? `${label} (${email})` : label }
 }
@@ -114,6 +114,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
   const [claim, setClaim] = React.useState<ClaimEditRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
 
   const loadDictionaryOptions = React.useCallback(async (
     dictionaryKey: string,
@@ -158,14 +159,15 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
       ...(Array.isArray(people.result?.items) ? people.result.items : []),
       ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
     ]
-    return items.map(normalizeOption).filter((option): option is CrudFieldOption => option !== null)
-  }, [])
+    return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
+  }, [t])
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       setLoading(true)
       setError(null)
+      setNotFound(false)
       try {
         const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims?ids=${encodeURIComponent(id)}&page=1&pageSize=1`,
@@ -175,8 +177,8 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
         if (cancelled) return
         const item = (payload.items ?? []).map(normalizeClaim).find((entry): entry is ClaimEditRecord => entry !== null) ?? null
         if (!item) {
-          setError(t('warranty_claims.errors.notFound'))
           setClaim(null)
+          setNotFound(true)
           return
         }
         setClaim(item)
@@ -201,8 +203,11 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
 
   const claimOrderId = claim?.orderId ?? null
   const loadSalesReturnOptionsForClaim = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    return loadSalesReturnOptions(query, { orderId: claimOrderId })
-  }, [claimOrderId])
+    return loadSalesReturnOptions(query, {
+      orderId: claimOrderId,
+      fallbackLabel: t('warranty_claims.form.returnUnavailable', 'Return unavailable'),
+    })
+  }, [claimOrderId, t])
 
   const fields = React.useMemo<CrudField[]>(() => {
     if (editableMode === 'intake') {
@@ -223,10 +228,12 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           id: 'orderId',
           label: t('warranty_claims.form.orderId'),
           type: 'combobox',
-          loadOptions: loadOrderOptions,
+          loadOptions: (query?: string) => loadOrderOptions(query, {
+            fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
+          }),
           allowCustomValues: false,
           placeholder: t('warranty_claims.form.orderId.placeholder'),
-          resolveLabel: resolveOrderLabel,
+          resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
           seedOptions: claim?.orderId && claim.orderNumber
             ? [{ value: claim.orderId, label: claim.orderNumber }]
             : [],
@@ -256,9 +263,11 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           id: 'replacementOrderId',
           label: t('warranty_claims.form.replacementOrderId'),
           type: 'combobox',
-          loadOptions: loadOrderOptions,
+          loadOptions: (query?: string) => loadOrderOptions(query, {
+            fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
+          }),
           allowCustomValues: false,
-          resolveLabel: resolveOrderLabel,
+          resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
           seedOptions: [],
         },
         { id: 'advanceShippedAt', label: t('warranty_claims.form.advanceShippedAt'), type: 'datetime-local' },
@@ -268,7 +277,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           type: 'combobox',
           loadOptions: loadSalesReturnOptionsForClaim,
           allowCustomValues: false,
-          resolveLabel: resolveSalesReturnLabel,
+          resolveLabel: (value: string) => resolveSalesReturnLabel(value, t('warranty_claims.form.returnUnavailable', 'Return unavailable')),
           seedOptions: [],
           description: claimOrderId
             ? undefined
@@ -302,11 +311,25 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     )
   }
 
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('warranty_claims.errors.notFound')}
+            backHref="/backend/warranty_claims"
+            backLabel={t('warranty_claims.detail.actions.backToList')}
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !claim) {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={error ?? t('warranty_claims.errors.notFound')} />
+          <ErrorMessage label={error ?? t('warranty_claims.edit.error.load')} />
         </PageBody>
       </Page>
     )

@@ -122,6 +122,8 @@ export default async function handle(payload: unknown, ctx: ResolverContext): Pr
   for (const request of requests) {
     const input: VendorRecoveryInput = {
       claimId: request.claimId,
+      organizationId,
+      tenantId,
       lineIds: request.lineIds,
       vendorName: request.vendorName,
       vendorRef: request.vendorRef,

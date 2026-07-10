@@ -23,6 +23,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { useCurrentUserId } from '@open-mercato/ui/backend/utils/useCurrentUserId'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
+import { emitProgressUpdate } from '@open-mercato/shared/lib/frontend/progressEvents'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import {
@@ -74,9 +75,11 @@ type AssignFormValues = {
   assigneeUserId?: string | null
 }
 
+type ClaimsStats = WarrantyClaimsStats & { slaAtRisk?: number }
+
 type ClaimsStatsResponse = {
   ok?: boolean
-  result?: WarrantyClaimsStats
+  result?: ClaimsStats
   error?: string
 }
 
@@ -110,6 +113,7 @@ const PAGE_SIZE = 20
 const UNASSIGNED_ASSIGNEE_VALUE = '__unassigned__'
 const DEFAULT_SORTING: SortingState = [{ id: 'slaDueAt', desc: false }]
 const SORTABLE_FIELDS = new Set(['slaDueAt', 'createdAt', 'updatedAt'])
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const STATUS_GROUPS: Array<{ id: string; labelKey: string; fallback: string; statuses: ClaimStatus[] }> = [
   { id: 'submitted', labelKey: 'warranty_claims.list.quickFilters.submitted', fallback: 'Submitted', statuses: ['submitted'] },
   { id: 'in_review', labelKey: 'warranty_claims.list.quickFilters.inReview', fallback: 'In review', statuses: ['in_review'] },
@@ -162,6 +166,16 @@ function valueAsStringArray(value: unknown): string[] {
   return value.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
 }
 
+function toDateOnlyOrNull(value: unknown): string | null {
+  const normalized = toStringOrNull(value)
+  return normalized && DATE_ONLY_PATTERN.test(normalized) ? normalized : null
+}
+
+function valueAsDateRange(value: unknown): { from: string | null; to: string | null } {
+  if (!isRecord(value)) return { from: null, to: null }
+  return { from: toDateOnlyOrNull(value.from), to: toDateOnlyOrNull(value.to) }
+}
+
 function defaultSortingState(): SortingState {
   return DEFAULT_SORTING.map((entry) => ({ ...entry }))
 }
@@ -185,9 +199,24 @@ function parseClaimListUrlState(searchParams: SearchParamsLike): RestoredClaimLi
   if (isOneOf(priority, CLAIM_PRIORITIES)) filterValues.priority = priority
   const channel = params.get('channel')
   if (isOneOf(channel, CLAIM_CHANNELS)) filterValues.channel = channel
-  const assigneeUserId = toStringOrNull(params.get('assigneeUserId'))
-  if (assigneeUserId) filterValues.assigneeUserId = assigneeUserId
+  if (params.get('unassignedOnly') === 'true') {
+    filterValues.assigneeUserId = UNASSIGNED_ASSIGNEE_VALUE
+  } else {
+    const assigneeUserId = toStringOrNull(params.get('assigneeUserId'))
+    if (assigneeUserId) filterValues.assigneeUserId = assigneeUserId
+  }
+  const submittedFrom = toDateOnlyOrNull(params.get('submittedFrom'))
+  const submittedTo = toDateOnlyOrNull(params.get('submittedTo'))
+  if (submittedFrom || submittedTo) {
+    filterValues.submittedRange = { from: submittedFrom ?? undefined, to: submittedTo ?? undefined }
+  }
+  const createdFrom = toDateOnlyOrNull(params.get('createdFrom'))
+  const createdTo = toDateOnlyOrNull(params.get('createdTo'))
+  if (createdFrom || createdTo) {
+    filterValues.createdRange = { from: createdFrom ?? undefined, to: createdTo ?? undefined }
+  }
   if (params.get('overdueOnly') === 'true') filterValues.overdueOnly = true
+  if (params.get('slaAtRiskOnly') === 'true') filterValues.slaAtRiskOnly = true
   if (params.get('needsAttention') === 'true') filterValues.needsAttention = true
   const sortField = params.get('sortField')
   const sorting = sortField && SORTABLE_FIELDS.has(sortField)
@@ -211,8 +240,16 @@ function appendClaimListFilterParams(params: URLSearchParams, filterValues: Filt
   const channel = toStringOrNull(filterValues.channel)
   if (channel) params.set('channel', channel)
   const assigneeUserId = toStringOrNull(filterValues.assigneeUserId)
-  if (assigneeUserId) params.set('assigneeUserId', assigneeUserId)
+  if (assigneeUserId === UNASSIGNED_ASSIGNEE_VALUE) params.set('unassignedOnly', 'true')
+  else if (assigneeUserId) params.set('assigneeUserId', assigneeUserId)
+  const submittedRange = valueAsDateRange(filterValues.submittedRange)
+  if (submittedRange.from) params.set('submittedFrom', submittedRange.from)
+  if (submittedRange.to) params.set('submittedTo', submittedRange.to)
+  const createdRange = valueAsDateRange(filterValues.createdRange)
+  if (createdRange.from) params.set('createdFrom', createdRange.from)
+  if (createdRange.to) params.set('createdTo', createdRange.to)
   if (filterValues.overdueOnly === true) params.set('overdueOnly', 'true')
+  if (filterValues.slaAtRiskOnly === true) params.set('slaAtRiskOnly', 'true')
   if (filterValues.needsAttention === true) params.set('needsAttention', 'true')
 }
 
@@ -266,6 +303,106 @@ function buildConflictError(call: { status: number; result: unknown }, fallbackM
   return Object.assign(new Error(message), { status: call.status }, payload)
 }
 
+type BulkProgressLabels = {
+  jobType: string
+  name: string
+}
+
+function createClientProgressJobId(jobType: string): string {
+  const cryptoRef =
+    typeof globalThis !== 'undefined'
+      ? (globalThis as { crypto?: { randomUUID?: () => string } }).crypto
+      : undefined
+  if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
+    return `client:${cryptoRef.randomUUID()}`
+  }
+  return `client:${jobType}:${Date.now()}:${Math.random().toString(36).slice(2)}`
+}
+
+function calculateBulkProgressPercent(processed: number, total: number): number {
+  if (total <= 0) return 100
+  return Math.max(0, Math.min(100, Math.round((processed / total) * 100)))
+}
+
+function calculateBulkEtaSeconds(startedAtMs: number, processed: number, total: number): number | null {
+  if (processed <= 0 || processed >= total) return null
+  const elapsedSeconds = Math.max(1, Math.round((Date.now() - startedAtMs) / 1000))
+  return Math.ceil((elapsedSeconds / processed) * (total - processed))
+}
+
+async function runBulkClaimActionWithProgress(
+  rows: ClaimRow[],
+  progress: BulkProgressLabels,
+  execute: (claim: ClaimRow) => Promise<unknown>,
+  fallbackErrorMessage: string,
+): Promise<{ succeeded: number; failures: BulkFailure[] }> {
+  let succeeded = 0
+  const failures: BulkFailure[] = []
+  const progressJobId = rows.length > 0 ? createClientProgressJobId(progress.jobType) : null
+  const startedAtMs = Date.now()
+  const startedAt = new Date(startedAtMs).toISOString()
+  if (progressJobId) {
+    emitProgressUpdate({
+      jobId: progressJobId,
+      jobType: progress.jobType,
+      name: progress.name,
+      description: null,
+      meta: null,
+      status: 'running',
+      progressPercent: 0,
+      processedCount: 0,
+      totalCount: rows.length,
+      etaSeconds: null,
+      cancellable: false,
+      startedAt,
+    })
+  }
+  for (const claim of rows) {
+    const error = await execute(claim)
+    if (error) failures.push({ message: error instanceof Error ? error.message : fallbackErrorMessage })
+    else succeeded += 1
+    if (progressJobId) {
+      const processed = succeeded + failures.length
+      emitProgressUpdate({
+        jobId: progressJobId,
+        jobType: progress.jobType,
+        name: progress.name,
+        description: null,
+        meta: null,
+        status: 'running',
+        progressPercent: calculateBulkProgressPercent(processed, rows.length),
+        processedCount: processed,
+        totalCount: rows.length,
+        etaSeconds: calculateBulkEtaSeconds(startedAtMs, processed, rows.length),
+        cancellable: false,
+        startedAt,
+      })
+    }
+  }
+  if (progressJobId) {
+    emitProgressUpdate({
+      jobId: progressJobId,
+      jobType: progress.jobType,
+      name: progress.name,
+      description: null,
+      meta: { succeededCount: succeeded, failedCount: failures.length },
+      status: failures.length === rows.length && rows.length > 0 ? 'failed' : 'completed',
+      progressPercent: 100,
+      processedCount: rows.length,
+      totalCount: rows.length,
+      etaSeconds: 0,
+      cancellable: false,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      errorMessage:
+        failures.length === rows.length && failures[0]?.message
+          ? failures[0].message
+          : null,
+    })
+  }
+  return { succeeded, failures }
+}
+
 export default function WarrantyClaimsPage() {
   const t = useT()
   const router = useRouter()
@@ -287,7 +424,7 @@ export default function WarrantyClaimsPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>(initialUrlState.filterValues)
   const [sorting, setSorting] = React.useState<SortingState>(initialUrlState.sorting)
   const [loading, setLoading] = React.useState(true)
-  const [stats, setStats] = React.useState<WarrantyClaimsStats | null>(null)
+  const [stats, setStats] = React.useState<ClaimsStats | null>(null)
   const [statsLoading, setStatsLoading] = React.useState(true)
   const [statsError, setStatsError] = React.useState(false)
   const [needsAttentionCount, setNeedsAttentionCount] = React.useState(0)
@@ -385,7 +522,12 @@ export default function WarrantyClaimsPage() {
     }
   }, [queryString, reloadToken, scopeVersion, t])
 
-  const assigneeUserIds = React.useMemo(() => rows.map((row) => row.assigneeUserId), [rows])
+  const filterAssigneeUserId = toStringOrNull(filterValues.assigneeUserId)
+  const assigneeUserIds = React.useMemo(() => {
+    const ids: Array<string | null> = rows.map((row) => row.assigneeUserId)
+    if (filterAssigneeUserId && filterAssigneeUserId !== UNASSIGNED_ASSIGNEE_VALUE) ids.push(filterAssigneeUserId)
+    return ids
+  }, [filterAssigneeUserId, rows])
   const assigneeDisplayNames = useUserDisplayNames(assigneeUserIds)
 
   React.useEffect(() => {
@@ -453,6 +595,26 @@ export default function WarrantyClaimsPage() {
     [t],
   )
 
+  const loadAssignableStaffOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
+    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24 })
+    const options = page.items.map((member) => ({
+      value: member.userId,
+      label: staffOptionLabel(member),
+    }))
+    return [
+      {
+        value: UNASSIGNED_ASSIGNEE_VALUE,
+        label: t('warranty_claims.form.assigneeUserId.unassigned', 'Unassigned'),
+      },
+      ...options,
+    ]
+  }, [t])
+
+  const formatAssigneeFilterValue = React.useCallback((value: string) => {
+    if (value === UNASSIGNED_ASSIGNEE_VALUE) return t('warranty_claims.form.assigneeUserId.unassigned', 'Unassigned')
+    return assigneeDisplayNames[value] ?? t('warranty_claims.list.assignee.unknownUser', 'Unknown user')
+  }, [assigneeDisplayNames, t])
+
   const filters = React.useMemo<FilterDef[]>(() => [
     {
       id: 'status',
@@ -480,26 +642,41 @@ export default function WarrantyClaimsPage() {
       options: channelOptions,
     },
     {
+      id: 'assigneeUserId',
+      label: t('warranty_claims.list.filter.assignee'),
+      type: 'select',
+      loadOptions: loadAssignableStaffOptions,
+      formatValue: formatAssigneeFilterValue,
+    },
+    {
+      id: 'submittedRange',
+      label: t('warranty_claims.list.filter.submittedBetween', 'Submitted between'),
+      type: 'dateRange',
+    },
+    {
+      id: 'createdRange',
+      label: t('warranty_claims.list.filter.createdBetween', 'Created between'),
+      type: 'dateRange',
+    },
+    {
       id: 'overdueOnly',
       label: t('warranty_claims.list.filter.overdueOnly'),
       type: 'checkbox',
     },
-  ], [channelOptions, claimTypeOptions, priorityOptions, statusOptions, t])
-
-  const loadAssignableStaffOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
-    const page = await fetchAssignableStaffMembersPage(query ?? '', { pageSize: 24 })
-    const options = page.items.map((member) => ({
-      value: member.userId,
-      label: staffOptionLabel(member),
-    }))
-    return [
-      {
-        value: UNASSIGNED_ASSIGNEE_VALUE,
-        label: t('warranty_claims.form.assigneeUserId.unassigned', 'Unassigned'),
-      },
-      ...options,
-    ]
-  }, [t])
+    {
+      id: 'slaAtRiskOnly',
+      label: t('warranty_claims.list.filter.slaAtRiskOnly', 'SLA at risk only'),
+      type: 'checkbox',
+    },
+  ], [
+    channelOptions,
+    claimTypeOptions,
+    formatAssigneeFilterValue,
+    loadAssignableStaffOptions,
+    priorityOptions,
+    statusOptions,
+    t,
+  ])
 
   const assignSeedOptions = React.useMemo<CrudFieldOption[]>(() => {
     const options = new Map<string, CrudFieldOption>()
@@ -608,59 +785,62 @@ export default function WarrantyClaimsPage() {
   }, [t])
 
   const runBulkAssign = React.useCallback(async (selectedRows: ClaimRow[], assigneeUserId: string | null) => {
-    let succeeded = 0
-    const failures: BulkFailure[] = []
-    for (const claim of selectedRows) {
-      const error = await executeClaimAction(
+    const { succeeded, failures } = await runBulkClaimActionWithProgress(
+      selectedRows,
+      {
+        jobType: 'warranty_claims.claims.bulk_assign',
+        name: t('warranty_claims.bulk.assign', 'Assign selected'),
+      },
+      (claim) => executeClaimAction(
         claim,
         'bulk-assign',
         '/api/warranty_claims/assign',
         { id: claim.id, assigneeUserId },
-      )
-      if (error) failures.push({ message: error instanceof Error ? error.message : t('warranty_claims.list.error.action') })
-      else succeeded += 1
-    }
+      ),
+      t('warranty_claims.list.error.action'),
+    )
     flashBulkSummary(succeeded, failures)
     reload()
     return { ok: true as const, affectedCount: succeeded }
   }, [executeClaimAction, flashBulkSummary, reload, t])
 
   const runBulkCancel = React.useCallback(async (selectedRows: ClaimRow[]) => {
-    let succeeded = 0
-    const failures: BulkFailure[] = []
-    for (const claim of selectedRows) {
-      const error = await executeClaimAction(
+    const { succeeded, failures } = await runBulkClaimActionWithProgress(
+      selectedRows,
+      {
+        jobType: 'warranty_claims.claims.bulk_cancel',
+        name: t('warranty_claims.bulk.cancel', 'Cancel selected'),
+      },
+      (claim) => executeClaimAction(
         claim,
         'bulk-cancel',
         '/api/warranty_claims/transition',
         { id: claim.id, toStatus: 'cancelled' },
-      )
-      if (error) failures.push({ message: error instanceof Error ? error.message : t('warranty_claims.list.error.action') })
-      else succeeded += 1
-    }
+      ),
+      t('warranty_claims.list.error.action'),
+    )
     flashBulkSummary(succeeded, failures)
     reload()
     return { ok: true as const, affectedCount: succeeded }
   }, [executeClaimAction, flashBulkSummary, reload, t])
 
   const runBulkStartReview = React.useCallback(async (selectedRows: ClaimRow[]) => {
-    let succeeded = 0
-    let skipped = 0
-    const failures: BulkFailure[] = []
-    for (const claim of selectedRows) {
-      if (claim.status !== 'submitted') {
-        skipped += 1
-        continue
-      }
-      const error = await executeClaimAction(
+    const eligibleRows = selectedRows.filter((claim) => claim.status === 'submitted')
+    const skipped = selectedRows.length - eligibleRows.length
+    const { succeeded, failures } = await runBulkClaimActionWithProgress(
+      eligibleRows,
+      {
+        jobType: 'warranty_claims.claims.bulk_start_review',
+        name: t('warranty_claims.bulk.startReview', 'Start review for selected'),
+      },
+      (claim) => executeClaimAction(
         claim,
         'bulk-start-review',
         '/api/warranty_claims/transition',
         { id: claim.id, toStatus: 'in_review' },
-      )
-      if (error) failures.push({ message: error instanceof Error ? error.message : t('warranty_claims.list.error.action') })
-      else succeeded += 1
-    }
+      ),
+      t('warranty_claims.list.error.action'),
+    )
     flashBulkSummary(succeeded, failures, skipped)
     reload()
     return { ok: true as const, affectedCount: succeeded }
@@ -742,6 +922,16 @@ export default function WarrantyClaimsPage() {
     setPage(1)
   }, [])
 
+  const applySlaAtRiskFilter = React.useCallback(() => {
+    setFilterValues((current) => {
+      const next: FilterValues = { ...current }
+      if (current.slaAtRiskOnly === true) delete next.slaAtRiskOnly
+      else next.slaAtRiskOnly = true
+      return next
+    })
+    setPage(1)
+  }, [])
+
   const applyNeedsAttentionFilter = React.useCallback(() => {
     setFilterValues((current) => {
       const next: FilterValues = { ...current }
@@ -775,6 +965,7 @@ export default function WarrantyClaimsPage() {
   const currentStatusFilter = valueAsStringArray(filterValues.status)
   const myClaimsActive = Boolean(currentUserId) && toStringOrNull(filterValues.assigneeUserId) === currentUserId
   const overdueActive = filterValues.overdueOnly === true
+  const slaAtRiskActive = filterValues.slaAtRiskOnly === true
   const needsAttentionActive = filterValues.needsAttention === true
   const openByStatus = stats?.openByStatus ?? {}
 
@@ -788,7 +979,7 @@ export default function WarrantyClaimsPage() {
         cell: ({ row }) => (
           <div className="flex items-center gap-2">
             <Link href={`/backend/warranty_claims/${row.original.id}`} className="font-medium hover:underline">
-              {row.original.claimNumber ?? row.original.id}
+              {row.original.claimNumber ?? t('warranty_claims.list.unnumbered', 'Unnumbered claim')}
             </Link>
             {row.original.awaitingStaffReply ? (
               <StatusBadge variant="warning" dot>
@@ -898,6 +1089,7 @@ export default function WarrantyClaimsPage() {
           />
 
           <div
+            role="group"
             className="flex flex-wrap items-center gap-2"
             aria-label={t('warranty_claims.list.quickFilters.label', 'Claim queue filters')}
           >
@@ -920,6 +1112,16 @@ export default function WarrantyClaimsPage() {
             >
               {t('warranty_claims.list.quickFilters.overdue', 'Overdue')}
               <span className="font-mono text-xs tabular-nums">{stats?.overdue ?? 0}</span>
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant={slaAtRiskActive ? 'default' : 'outline'}
+              onClick={applySlaAtRiskFilter}
+            >
+              {t('warranty_claims.list.quickFilters.slaAtRisk', 'SLA at risk')}
+              <span className="font-mono text-xs tabular-nums">{stats?.slaAtRisk ?? 0}</span>
             </Button>
 
             <Button
@@ -981,8 +1183,6 @@ export default function WarrantyClaimsPage() {
             onFiltersApply={(values) => {
               setFilterValues((current) => {
                 const next: FilterValues = { ...values }
-                const assigneeUserId = toStringOrNull(current.assigneeUserId)
-                if (assigneeUserId) next.assigneeUserId = assigneeUserId
                 if (current.needsAttention === true) next.needsAttention = true
                 return next
               })
@@ -1004,6 +1204,11 @@ export default function WarrantyClaimsPage() {
                     id: 'open',
                     label: t('warranty_claims.list.actions.open'),
                     onSelect: () => router.push(`/backend/warranty_claims/${row.id}`),
+                  },
+                  {
+                    id: 'open-new-tab',
+                    label: t('warranty_claims.list.actions.openInNewTab', 'Open in new tab'),
+                    onSelect: () => window.open(`/backend/warranty_claims/${row.id}`, '_blank', 'noopener'),
                   },
                   {
                     id: 'assign',

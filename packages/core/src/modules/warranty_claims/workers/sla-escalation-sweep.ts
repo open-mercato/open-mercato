@@ -108,6 +108,19 @@ async function emitSlaSignal(
   }, { persistent: true })
 }
 
+async function stampSlaSignal(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  stamps: Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>>,
+): Promise<void> {
+  await em.nativeUpdate(
+    WarrantyClaim,
+    { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    stamps,
+  )
+}
+
 function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {
   return {
     container: container as unknown as AwilixContainer,
@@ -216,8 +229,6 @@ export default async function handle(
     scope,
   )
 
-  const atRiskEmitted = new Set<string>()
-  const breachedEmitted = new Set<string>()
   for (const claim of claims) {
     if (!isSlaEscalationCandidate(claim)) continue
     const submittedAt = claim.submittedAt
@@ -229,14 +240,17 @@ export default async function handle(
       if (
         progressPct >= settings.slaAtRiskThresholdPct &&
         progressPct < 100 &&
-        !atRiskEmitted.has(claim.id)
+        !claim.slaAtRiskNotifiedAt
       ) {
         await emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis)
-        atRiskEmitted.add(claim.id)
+        await stampSlaSignal(em, claim, scope, { slaAtRiskNotifiedAt: now })
       }
-      if (progressPct >= 100 && !breachedEmitted.has(claim.id)) {
+      if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
         await emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis)
-        breachedEmitted.add(claim.id)
+        await stampSlaSignal(em, claim, scope, {
+          slaBreachedNotifiedAt: now,
+          slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
+        })
       }
 
       const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)

@@ -61,8 +61,10 @@ function toApiError(status: number, result: unknown, fallbackKey: string, t: Tra
   return Object.assign(new Error(t(key, key)), { status })
 }
 
-function formatLineTitle(line: ReceivingLine): string {
-  const identifier = line.lineNo !== null ? `#${line.lineNo}` : line.id
+function formatLineTitle(line: ReceivingLine, t: TranslateFn): string {
+  const identifier = line.lineNo !== null
+    ? `#${line.lineNo}`
+    : t('warranty_claims.form.lines.unnamed', 'Unnamed line')
   const product = line.productName ?? line.sku ?? line.serialNumber
   return product ? `${identifier} ${product}` : identifier
 }
@@ -196,7 +198,7 @@ export function ReceivingPanel({
         {lines.map((line) => (
           <div key={line.id} className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-border p-3">
             <div className="min-w-0 space-y-2">
-              <div className="text-sm font-medium">{formatLineTitle(line)}</div>
+              <div className="text-sm font-medium">{formatLineTitle(line, t)}</div>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusBadge variant={gradeVariant(line.conditionGrade)}>
                   {line.conditionGrade

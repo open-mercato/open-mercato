@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import Link from 'next/link'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { StatusBadge, type StatusBadgeVariant } from '@open-mercato/ui/primitives/status-badge'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -26,7 +27,10 @@ type EntitlementResult = {
   hasPriorClaims?: boolean
   priorClaimCount?: number
   priorRegistrationCount?: number
+  relatedClaimNumbers?: string[]
 }
+
+const MAX_LINKED_CLAIM_NUMBERS = 3
 
 type EntitlementLookupBadgeProps = {
   claim: EntitlementClaim
@@ -144,6 +148,11 @@ export function EntitlementLookupBadge({ claim, lines }: EntitlementLookupBadgeP
     ? t(`warranty_claims.entitlement.source.${result.source}`, result.source)
     : null
   const priorClaimCount = typeof result.priorClaimCount === 'number' ? result.priorClaimCount : null
+  const relatedClaimNumbers = Array.isArray(result.relatedClaimNumbers)
+    ? result.relatedClaimNumbers.filter((claimNumber): claimNumber is string => typeof claimNumber === 'string' && claimNumber.trim().length > 0)
+    : []
+  const linkedClaimNumbers = relatedClaimNumbers.slice(0, MAX_LINKED_CLAIM_NUMBERS)
+  const hiddenClaimNumberCount = relatedClaimNumbers.length - linkedClaimNumbers.length
 
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
@@ -164,11 +173,30 @@ export function EntitlementLookupBadge({ claim, lines }: EntitlementLookupBadgeP
         </span>
       ) : null}
       {result.hasPriorClaims || priorClaimCount ? (
-        <StatusBadge variant="warning">
-          {t('warranty_claims.entitlement.priorClaims', '{count} prior claims', {
-            count: priorClaimCount ?? 1,
-          })}
-        </StatusBadge>
+        <>
+          <StatusBadge variant="warning">
+            {t('warranty_claims.entitlement.priorClaims', '{count} prior claims', {
+              count: priorClaimCount ?? 1,
+            })}
+          </StatusBadge>
+          {linkedClaimNumbers.map((claimNumber) => (
+            <Link
+              key={claimNumber}
+              href={`/backend/warranty_claims?search=${encodeURIComponent(claimNumber)}`}
+              className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
+              onClick={(event) => event.stopPropagation()}
+            >
+              {claimNumber}
+            </Link>
+          ))}
+          {hiddenClaimNumberCount > 0 ? (
+            <span className="text-xs text-muted-foreground">
+              {t('warranty_claims.entitlement.priorClaims.more', '+{count} more', {
+                count: hiddenClaimNumberCount,
+              })}
+            </span>
+          ) : null}
+        </>
       ) : null}
     </span>
   )

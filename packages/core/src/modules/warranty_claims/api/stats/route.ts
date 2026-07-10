@@ -63,6 +63,7 @@ const recoveredByCurrencySchema = z.object({
 const resultSchema = z.object({
   openByStatus: z.record(z.string(), z.number().int().nonnegative()),
   overdue: z.number().int().nonnegative(),
+  slaAtRisk: z.number().int().nonnegative(),
   assignedToMe: z.number().int().nonnegative(),
   resolvedLast30d: z.number().int().nonnegative(),
   avgResolutionDays: z.number().nullable(),
@@ -140,6 +141,10 @@ export async function GET(req: Request) {
     const db = context.em.getKysely<WarrantyClaimsStatsDb>()
     const now = new Date()
     const thirtyDaysAgo = new Date(now.getTime() - THIRTY_DAYS_MS)
+    const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(context.em, {
+      tenantId: context.tenantId,
+      organizationId: context.organizationIds[0] ?? null,
+    })
 
     const openRows = await baseClaimsQuery(
       db
@@ -164,6 +169,20 @@ export async function GET(req: Request) {
       context,
     ).executeTakeFirst()
     const overdue = Math.trunc(parseNumeric(overdueRow?.count))
+
+    const atRiskRow = await baseClaimsQuery(
+      db
+        .selectFrom('warranty_claims')
+        .select(sql<NumericAggregateValue>`count(*)`.as('count'))
+        .where('sla_due_at', '>', now)
+        .where('sla_paused_at', 'is', null)
+        .where('status', 'not in', OVERDUE_EXCLUDED_STATUSES)
+        .where('submitted_at', 'is not', null)
+        .where(sql<boolean>`sla_due_at > submitted_at`)
+        .where(sql<boolean>`extract(epoch from (${now}::timestamptz - submitted_at)) * 100 >= extract(epoch from (sla_due_at - submitted_at)) * ${effectiveSettings.slaAtRiskThresholdPct}`),
+      context,
+    ).executeTakeFirst()
+    const slaAtRisk = Math.trunc(parseNumeric(atRiskRow?.count))
 
     let assignedToMe = 0
     if (context.userId) {
@@ -232,16 +251,13 @@ export async function GET(req: Request) {
       currencyCode: row.currencyCode ?? null,
       total: Number(parseNumeric(row.total).toFixed(2)),
     }))
-    const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(context.em, {
-      tenantId: context.tenantId,
-      organizationId: context.organizationIds[0] ?? null,
-    })
 
     return NextResponse.json({
       ok: true,
       result: {
         openByStatus,
         overdue,
+        slaAtRisk,
         assignedToMe,
         resolvedLast30d,
         avgResolutionDays,

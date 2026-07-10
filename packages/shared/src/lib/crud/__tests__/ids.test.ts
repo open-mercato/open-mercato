@@ -21,6 +21,13 @@ describe('crud ids helpers', () => {
     expect(parseIdsParam(null)).toEqual([])
   })
 
+  it('parseIdsParam accepts a pre-parsed string array (zod-transformed schema shape)', () => {
+    expect(parseIdsParam([idA, ` ${idB} `, 'invalid', idA])).toEqual([idA, idB])
+    expect(parseIdsParam([idA, idB, idC], 2)).toEqual([idA, idB])
+    expect(parseIdsParam([])).toEqual([])
+    expect(parseIdsParam([42, null, idA])).toEqual([idA])
+  })
+
   it('parseIdsParam uses default max limit', () => {
     const ids = Array.from({ length: MAX_IDS_PER_REQUEST + 5 }, (_, idx) =>
       `550e8400-e29b-41d4-a716-44665544${String(idx).padStart(4, '0')}`,

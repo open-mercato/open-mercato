@@ -24,7 +24,7 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
-const assignableStaffFeatures = ['customers.roles.view']
+const assignableStaffFeatures = ['auth.users.list', 'customers.roles.view']
 const connectedIntakeFeatures = ['sales.orders.view', 'catalog.products.view']
 
 const adminFeatures = [

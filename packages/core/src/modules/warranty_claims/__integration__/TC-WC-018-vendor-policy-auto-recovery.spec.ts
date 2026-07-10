@@ -37,8 +37,12 @@ async function findVendorRecoveryForSource(
   request: Parameters<typeof listClaims>[0],
   sourceClaimId: string,
 ): Promise<ClaimItem | null> {
-  const recoveries = await listClaims(request, token, 'claimType=vendor_recovery&pageSize=100&sortField=createdAt&sortDir=desc')
-  return recoveries.find((claim) => claim.sourceClaimId === sourceClaimId) ?? null
+  const recoveries = await listClaims(
+    request,
+    token,
+    `claimType=vendor_recovery&sourceClaimId=${encodeURIComponent(sourceClaimId)}&pageSize=100&sortField=createdAt&sortDir=desc`,
+  )
+  return recoveries[0] ?? null
 }
 
 async function waitForVendorRecovery(
@@ -133,18 +137,21 @@ test.describe('TC-WC-018: warranty vendor policy and automatic recovery', () => 
       recoveryClaimId = recovery.id
       expect(recovery.claimType).toBe('vendor_recovery')
       expect(recovery.claimNumber, 'auto-generated child should use the VRC- sequence').toContain('VRC-')
-      expect(recovery.sourceClaimId).toBe(sourceClaim.id)
+      const recoveryDetail = await readClaim(request, adminToken, recovery.id!)
+      expect(recoveryDetail.sourceClaimId).toBe(sourceClaim.id)
       expect(recovery.vendorName).toBe(vendorName)
       expect(recovery.vendorRef).toBe(`VENDOR-REF-UPDATED-${stamp}`)
 
-      const refreshedSourceLines = await listClaimLines(request, adminToken, sourceClaim.id!)
-      const refreshedSourceLine = refreshedSourceLines.find((line) => line.id === sourceLine.id)
-      expect(refreshedSourceLine?.vendorClaimLineId, 'source line should link to generated vendor recovery line').toBeTruthy()
-
       const recoveryLines = await listClaimLines(request, adminToken, recovery.id!)
       expect(recoveryLines.length).toBe(1)
-      expect(recoveryLines[0].vendorClaimLineId).toBe(sourceLine.id)
       expect(recoveryLines[0].creditAmount).toBeTruthy()
+
+      const refreshedSourceLines = await listClaimLines(request, adminToken, sourceClaim.id!)
+      const refreshedSourceLine = refreshedSourceLines.find((line) => line.id === sourceLine.id)
+      expect(
+        refreshedSourceLine?.vendorClaimLineId,
+        'source line should link to the generated vendor recovery line',
+      ).toBe(recoveryLines[0].id)
 
       const latestSourceClaim = await readClaim(request, adminToken, sourceClaim.id!)
       const duplicateResponse = await createVendorRecovery(
@@ -155,8 +162,12 @@ test.describe('TC-WC-018: warranty vendor policy and automatic recovery', () => 
       )
       expect(duplicateResponse.status(), 're-running vendor recovery for the same source line should be idempotent').toBe(400)
       await drainIntegrationQueue('events', { appRoot: APP_ROOT })
-      const recoveriesAfterRerun = await listClaims(request, adminToken, 'claimType=vendor_recovery&pageSize=100')
-      expect(recoveriesAfterRerun.filter((claim) => claim.sourceClaimId === sourceClaim.id).length).toBe(1)
+      const recoveriesAfterRerun = await listClaims(
+        request,
+        adminToken,
+        `claimType=vendor_recovery&sourceClaimId=${encodeURIComponent(sourceClaim.id!)}&pageSize=100`,
+      )
+      expect(recoveriesAfterRerun.length).toBe(1)
     } finally {
       await cleanupDraftClaimWithLines(request, adminToken, recoveryClaimId)
       await cancelThenDeleteClaimIfPossible(request, adminToken, sourceClaimId)

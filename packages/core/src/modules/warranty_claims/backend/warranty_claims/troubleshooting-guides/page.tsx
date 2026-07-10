@@ -5,14 +5,15 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { DataTable, type BulkAction, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterBar'
 import { ListEmptyState } from '@open-mercato/ui/backend/filters/ListEmptyState'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { runBulkDelete } from '@open-mercato/ui/backend/utils/bulkDelete'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
@@ -22,6 +23,8 @@ import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/u
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { CLAIM_TYPES } from '../../../data/validators'
+import { localizeDictionaryLabel } from '../../../lib/dictionaryLabels'
+import { fetchClaimReasonOptions } from '../../components/claimReasonOptions'
 import {
   activeLabel,
   claimTypeLabel,
@@ -38,13 +41,9 @@ type TroubleshootingGuidesResponse = {
 
 const PAGE_SIZE = 20
 
-function shortId(value: string | null): string {
-  if (!value) return ''
-  return value.length > 8 ? value.slice(0, 8) : value
-}
-
-function reasonLabel(value: string | null, t: TranslateFn): string {
-  return value ?? t('warranty_claims.troubleshootingGuides.reason.any', 'Any reason')
+function reasonLabel(value: string | null, t: TranslateFn, storedLabels: Record<string, string>): string {
+  if (!value) return t('warranty_claims.troubleshootingGuides.reason.any', 'Any reason')
+  return localizeDictionaryLabel(t, 'reason', value, storedLabels[value] ?? value)
 }
 
 function toFilterString(value: unknown): string | null {
@@ -64,6 +63,18 @@ export default function WarrantyTroubleshootingGuidesPage() {
   const [filterValues, setFilterValues] = React.useState<FilterValues>({})
   const [loading, setLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const [reasonLabels, setReasonLabels] = React.useState<Record<string, string>>({})
+
+  React.useEffect(() => {
+    let cancelled = false
+    void fetchClaimReasonOptions(t)
+      .then((options) => {
+        if (cancelled) return
+        setReasonLabels(Object.fromEntries(options.map((option) => [option.value, option.label])))
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [t])
 
   const mutationContextId = 'warranty-claim-troubleshooting-guides-list'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -80,25 +91,45 @@ export default function WarrantyTroubleshootingGuidesPage() {
     setReloadToken((current) => current + 1)
   }, [])
 
+  const listQueryString = React.useMemo(() => {
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(PAGE_SIZE),
+      sortField: 'updatedAt',
+      sortDir: 'desc',
+    })
+    if (search.trim()) params.set('search', search.trim())
+    const claimType = toFilterString(filterValues.claimType)
+    const isActive = toFilterString(filterValues.isActive)
+    if (claimType) params.set('claimType', claimType)
+    if (isActive) params.set('isActive', isActive)
+    return params.toString()
+  }, [filterValues.claimType, filterValues.isActive, page, search])
+
+  const currentParams = React.useMemo(
+    () => Object.fromEntries(new URLSearchParams(listQueryString)),
+    [listQueryString],
+  )
+
+  const exportConfig = React.useMemo(() => ({
+    view: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('warranty_claims/troubleshooting-guides', { ...currentParams, exportScope: 'view' }, format),
+    },
+    full: {
+      getUrl: (format: DataTableExportFormat) =>
+        buildCrudExportUrl('warranty_claims/troubleshooting-guides', { ...currentParams, exportScope: 'full', all: 'true' }, format),
+    },
+  }), [currentParams])
+
   React.useEffect(() => {
     let cancelled = false
     async function loadGuides() {
       setLoading(true)
-      const params = new URLSearchParams({
-        page: String(page),
-        pageSize: String(PAGE_SIZE),
-        sortField: 'updatedAt',
-        sortDir: 'desc',
-      })
-      if (search.trim()) params.set('search', search.trim())
-      const claimType = toFilterString(filterValues.claimType)
-      const isActive = toFilterString(filterValues.isActive)
-      if (claimType) params.set('claimType', claimType)
-      if (isActive) params.set('isActive', isActive)
       try {
         const fallback: TroubleshootingGuidesResponse = { items: [], total: 0, totalPages: 1 }
         const call = await apiCall<TroubleshootingGuidesResponse>(
-          `/api/warranty_claims/troubleshooting-guides?${params.toString()}`,
+          `/api/warranty_claims/troubleshooting-guides?${listQueryString}`,
           undefined,
           { fallback },
         )
@@ -127,14 +158,9 @@ export default function WarrantyTroubleshootingGuidesPage() {
     return () => {
       cancelled = true
     }
-  }, [filterValues.claimType, filterValues.isActive, page, reloadToken, scopeVersion, search, t])
+  }, [listQueryString, reloadToken, scopeVersion, t])
 
-  const handleDelete = React.useCallback(async (guide: TroubleshootingGuideRecord) => {
-    const confirmed = await confirm({
-      title: t('warranty_claims.troubleshootingGuides.confirm.deleteTitle', 'Delete this troubleshooting guide?'),
-      variant: 'destructive',
-    })
-    if (!confirmed) return
+  const executeDelete = React.useCallback(async (guide: TroubleshootingGuideRecord): Promise<unknown> => {
     try {
       await runMutation({
         operation: () => withScopedApiRequestHeaders(
@@ -151,9 +177,20 @@ export default function WarrantyTroubleshootingGuidesPage() {
           retryLastMutation,
         },
       })
-      flash(t('warranty_claims.troubleshootingGuides.list.success.delete', 'Troubleshooting guide deleted.'), 'success')
-      reload()
+      return null
     } catch (error) {
+      return error
+    }
+  }, [mutationContextId, retryLastMutation, runMutation, t])
+
+  const handleDelete = React.useCallback(async (guide: TroubleshootingGuideRecord) => {
+    const confirmed = await confirm({
+      title: t('warranty_claims.troubleshootingGuides.confirm.deleteTitle', 'Delete this troubleshooting guide?'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    const error = await executeDelete(guide)
+    if (error) {
       if (surfaceRecordConflict(error, t, { onRefresh: reload })) return
       flash(
         error instanceof Error
@@ -161,8 +198,58 @@ export default function WarrantyTroubleshootingGuidesPage() {
           : t('warranty_claims.troubleshootingGuides.list.error.delete', 'Failed to delete troubleshooting guide.'),
         'error',
       )
+      return
     }
-  }, [confirm, mutationContextId, reload, retryLastMutation, runMutation, t])
+    flash(t('warranty_claims.troubleshootingGuides.list.success.delete', 'Troubleshooting guide deleted.'), 'success')
+    reload()
+  }, [confirm, executeDelete, reload, t])
+
+  const handleBulkDelete = React.useCallback(async (selectedRows: TroubleshootingGuideRecord[]) => {
+    const { succeeded, failures } = await runBulkDelete(
+      selectedRows,
+      async (guide) => {
+        const error = await executeDelete(guide)
+        if (error) throw error
+      },
+      {
+        fallbackErrorMessage: t('warranty_claims.troubleshootingGuides.list.error.delete', 'Failed to delete troubleshooting guide.'),
+        logTag: 'warranty_claims.troubleshooting_guides.list',
+        progress: {
+          jobType: 'warranty_claims.troubleshooting_guides.bulk_delete',
+          name: t('warranty_claims.troubleshootingGuides.bulk.delete', 'Delete selected'),
+        },
+      },
+    )
+    const summary = t(
+      'warranty_claims.bulk.summary',
+      'Bulk action finished: {succeeded} succeeded, {failed} failed.',
+      { succeeded: succeeded.length, failed: failures.length },
+    )
+    if (failures.length) {
+      flash(`${summary} ${t('warranty_claims.bulk.firstError', 'First error: {message}', { message: failures[0].message })}`, 'warning')
+    } else {
+      flash(summary, 'success')
+    }
+    reload()
+    return { ok: true as const, affectedCount: succeeded.length }
+  }, [executeDelete, reload, t])
+
+  const bulkActions = React.useMemo<BulkAction<TroubleshootingGuideRecord>[]>(() => [
+    {
+      id: 'bulk-delete',
+      label: t('warranty_claims.troubleshootingGuides.bulk.delete', 'Delete selected'),
+      destructive: true,
+      onExecute: async (selectedRows) => {
+        if (!selectedRows.length) return false
+        const confirmed = await confirm({
+          title: t('warranty_claims.troubleshootingGuides.bulk.deleteTitle', 'Delete selected troubleshooting guides?'),
+          variant: 'destructive',
+        })
+        if (!confirmed) return false
+        return handleBulkDelete(selectedRows)
+      },
+    },
+  ], [confirm, handleBulkDelete, t])
 
   const filters = React.useMemo<FilterDef[]>(() => [
     {
@@ -192,7 +279,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
           href={`/backend/warranty_claims/troubleshooting-guides/${row.original.id}/edit`}
           className="font-medium hover:underline"
         >
-          {row.original.title ?? shortId(row.original.id)}
+          {row.original.title ?? t('warranty_claims.troubleshootingGuides.list.untitled', 'Untitled guide')}
         </Link>
       ),
     },
@@ -211,7 +298,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
       meta: { truncate: true, maxWidth: '220px' },
       cell: ({ row }) => (
         <span className="text-sm text-muted-foreground">
-          {reasonLabel(row.original.reasonCode, t)}
+          {reasonLabel(row.original.reasonCode, t, reasonLabels)}
         </span>
       ),
     },
@@ -233,7 +320,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
         </span>
       ),
     },
-  ], [t])
+  ], [reasonLabels, t])
 
   return (
     <Page>
@@ -256,6 +343,7 @@ export default function WarrantyTroubleshootingGuidesPage() {
           )}
           columns={columns}
           data={rows}
+          exporter={exportConfig}
           searchValue={search}
           onSearchChange={(value) => {
             setSearch(value)
@@ -272,8 +360,10 @@ export default function WarrantyTroubleshootingGuidesPage() {
             setFilterValues({})
             setPage(1)
           }}
+          perspective={{ tableId: 'warranty_claims.troubleshooting_guides.list' }}
           onRowClick={(row) => router.push(`/backend/warranty_claims/troubleshooting-guides/${row.id}/edit`)}
           isLoading={loading}
+          bulkActions={bulkActions}
           rowActions={(row) => (
             <RowActions
               items={[

@@ -223,7 +223,6 @@ const crud = makeCrudRoute<RawTroubleshootingGuideInput, RawTroubleshootingGuide
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
-      if (Array.isArray(query.ids) && query.ids.length) filters.id = { $in: query.ids }
       if (query.claimType) filters[F.claim_type] = { $eq: query.claimType }
       if (query.reasonCode) filters[F.reason_code] = { $eq: query.reasonCode }
       if (query.isActive !== undefined) filters[F.is_active] = { $eq: query.isActive }

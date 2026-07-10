@@ -46,6 +46,7 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 .env.preview
+.env.bak*
 !.env.example
 
 # vercel

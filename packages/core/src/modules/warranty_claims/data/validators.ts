@@ -18,6 +18,14 @@ const clearableEmail = (max: number) =>
 const optionalString = (max: number) => z.string().trim().max(max).optional()
 const requiredOptionalString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max).optional())
+const httpUrlString = (max: number) =>
+  z.preprocess(
+    emptyStringToNull,
+    z.string().trim().min(1).max(max).url().refine(
+      (value) => value.startsWith('https://') || value.startsWith('http://'),
+      { message: 'Only http(s) URLs are allowed' },
+    ).optional(),
+  )
 const requiredString = (max: number) =>
   z.preprocess(emptyStringToNull, z.string().trim().min(1).max(max))
 const positiveDecimal = () => z.coerce.number().positive().max(999_999_999)
@@ -312,6 +320,7 @@ export const transitionClaimInputSchema = z
     toStatus: claimStatusSchema,
     rejectionReasonCode: clearableString(120),
     resolutionSummary: clearableString(4000),
+    actorCustomerId: uuid().optional(),
   })
   .strict()
 
@@ -334,6 +343,8 @@ export const commentClaimInputSchema = z
 export const vendorRecoveryInputSchema = z
   .object({
     claimId: uuid(),
+    organizationId: uuid().optional(),
+    tenantId: uuid().optional(),
     lineIds: z.array(uuid()).min(1).max(200),
     vendorName: z.string().trim().min(1).max(300),
     vendorRef: clearableString(191),
@@ -343,7 +354,7 @@ export const vendorRecoveryInputSchema = z
 export const claimSetReturnLabelSchema = scopedSchema
   .extend({
     id: uuid(),
-    labelUrl: requiredOptionalString(2048),
+    labelUrl: httpUrlString(2048),
     trackingNumber: requiredOptionalString(191),
     carrier: requiredOptionalString(120),
     updatedAt: optimisticLockTokenSchema,

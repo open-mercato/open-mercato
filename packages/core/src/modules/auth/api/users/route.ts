@@ -33,6 +33,7 @@ import {
 
 const querySchema = z.object({
   id: z.string().uuid().optional(),
+  ids: z.string().optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(50),
   search: z.string().optional(),
@@ -40,6 +41,17 @@ const querySchema = z.object({
   organizationId: z.string().uuid().optional(),
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
+
+const uuidSchema = z.string().uuid()
+
+export function parseRequestedIds(raw: string | undefined): string[] {
+  if (typeof raw !== 'string' || !raw.trim().length) return []
+  return raw
+    .split(',')
+    .map((token) => token.trim())
+    .filter((token) => uuidSchema.safeParse(token).success)
+    .slice(0, 100)
+}
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -172,6 +184,7 @@ export async function GET(req: Request) {
   const rawRoleIds = url.searchParams.getAll('roleId').filter((id): id is string => typeof id === 'string' && id.trim().length > 0)
   const parsed = querySchema.safeParse({
     id: url.searchParams.get('id') || undefined,
+    ids: url.searchParams.get('ids') || undefined,
     page: url.searchParams.get('page') || undefined,
     pageSize: url.searchParams.get('pageSize') || undefined,
     search: url.searchParams.get('search') || undefined,
@@ -192,7 +205,7 @@ export async function GET(req: Request) {
   } catch (err) {
     console.error('users: failed to resolve rbac', err)
   }
-  const { id, page, pageSize, search, name, organizationId, roleIds } = parsed.data
+  const { id, ids, page, pageSize, search, name, organizationId, roleIds } = parsed.data
   const filters: any[] = [{ deletedAt: null }]
   const actorTenantId = auth.tenantId ? String(auth.tenantId) : null
   let effectiveTenantId: string | null = null
@@ -344,6 +357,10 @@ export async function GET(req: Request) {
     filters.push({ id: { $in: Array.from(idFilter) as any } })
   } else if (id) {
     filters.push({ id })
+  }
+  const requestedIds = parseRequestedIds(ids)
+  if (requestedIds.length) {
+    filters.push({ id: { $in: requestedIds as any } })
   }
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })

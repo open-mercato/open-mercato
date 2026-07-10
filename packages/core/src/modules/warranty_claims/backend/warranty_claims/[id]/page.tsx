@@ -4,7 +4,7 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Copy, Info, MessageSquare, RefreshCw, UserRound } from 'lucide-react'
+import { Copy, Hash, Info, MessageSquare, RefreshCw, UserRound } from 'lucide-react'
 import { hasFeature } from '@open-mercato/shared/security/features'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import type { TranslateFn, TranslateParams } from '@open-mercato/shared/lib/i18n/context'
@@ -13,7 +13,7 @@ import { formatDateTime } from '@open-mercato/shared/lib/time'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -21,6 +21,7 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { AiChat } from '@open-mercato/ui/ai/AiChat'
@@ -56,11 +57,19 @@ import {
 } from '../../components/productLookup'
 import { AiAssessButtons } from '../../components/AiAssessButtons'
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
+import { useUserDisplayNames } from '../../components/useUserDisplayNames'
 import { ReceivingPanel } from '../../components/ReceivingPanel'
 import { ReturnLabelPanel } from '../../components/ReturnLabelPanel'
 import { VendorRecoverySuggestionsPanel } from '../../components/VendorRecoverySuggestionsPanel'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
+import { formatQuantity, parseQuantity, quantityInputValue } from '../../../lib/quantity'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../lib/dictionaryLabels'
+import {
+  TIMELINE_FILTERS,
+  filterTimelineEvents,
+  isTimelineFilterId,
+  type TimelineFilterId,
+} from '../../../lib/timelineFilters'
 
 type ClaimType = 'warranty' | 'return' | 'core_return' | 'vendor_recovery'
 type ClaimChannel = 'staff' | 'portal' | 'api'
@@ -349,12 +358,6 @@ function normalizeRiskResponse(value: unknown): ClaimRiskAssessment {
   return normalizeRiskAssessment(value)
 }
 
-function getUserDisplayName(record: Record<string, unknown>): string | null {
-  const displayName = toStringOrNull(record.display_name) ?? toStringOrNull(record.displayName)
-  if (displayName) return displayName
-  return toStringOrNull(record.email)
-}
-
 function isClaimLineStatusValue(value: string | null | undefined): value is ClaimLineStatus {
   return typeof value === 'string' && CLAIM_LINE_STATUSES.includes(value as ClaimLineStatus)
 }
@@ -385,6 +388,19 @@ function formatTriageMessage(value: TriageMessageValue, t: TranslateFn): string 
   return t(value.messageKey, value.params)
 }
 
+function triageLineHeading(
+  suggestedLine: ClaimTriageSuggestion['lines'][number],
+  lines: ClaimLine[],
+  t: TranslateFn,
+): string {
+  const name = suggestedLine.productName ?? suggestedLine.sku ?? suggestedLine.serialNumber ?? null
+  const lineNo = toNumberOrNull(suggestedLine.lineNo)
+    ?? lines.find((line) => line.id === suggestedLine.lineId)?.lineNo
+    ?? null
+  const label = name ?? t('warranty_claims.detail.lines.unnamed', 'Unnamed line')
+  return lineNo !== null ? `#${lineNo} ${label}` : label
+}
+
 function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record<string, string>): string | null {
   if (event.body) return event.body
   const payload = event.payload
@@ -395,7 +411,7 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
   if (event.kind === 'assignment') {
     const assigneeUserId = payload ? toStringOrNull(payload.assigneeUserId) : null
     if (!assigneeUserId) return t('warranty_claims.timeline.unassigned')
-    return t('warranty_claims.timeline.assignedTo', { name: userNames[assigneeUserId] ?? assigneeUserId })
+    return t('warranty_claims.timeline.assignedTo', { name: userNames[assigneeUserId] ?? t('warranty_claims.detail.unknownUser') })
   }
   const from = payload ? toStringOrNull(payload.from) ?? toStringOrNull(payload.fromStatus) : null
   const to = payload ? toStringOrNull(payload.to) ?? toStringOrNull(payload.toStatus) : null
@@ -406,7 +422,7 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
 }
 
 function resolveTimelineActor(event: ClaimEvent, claim: ClaimRecord, userNames: Record<string, string>, t: TranslateFn): string {
-  if (event.actorUserId) return userNames[event.actorUserId] ?? event.actorUserId
+  if (event.actorUserId) return userNames[event.actorUserId] ?? t('warranty_claims.detail.unknownUser')
   if (event.actorCustomerId) return claim.customerName ?? t('warranty_claims.detail.customerActor')
   return t('warranty_claims.detail.systemActor')
 }
@@ -572,6 +588,13 @@ function eventIcon(kind: string) {
   return Info
 }
 
+const TIMELINE_FILTER_LABELS: Record<TimelineFilterId, { key: string; fallback: string }> = {
+  all: { key: 'warranty_claims.detail.timeline.filter.all', fallback: 'All' },
+  comments: { key: 'warranty_claims.detail.timeline.filter.comments', fallback: 'Comments' },
+  status_changes: { key: 'warranty_claims.detail.timeline.filter.statusChanges', fallback: 'Status changes' },
+  customer_visible: { key: 'warranty_claims.detail.timeline.filter.customerVisible', fallback: 'Customer-visible' },
+}
+
 function RiskSignalChips({ signals, t }: { signals: ClaimRiskSignal[]; t: TranslateFn }) {
   if (!signals.length) return null
   return (
@@ -598,7 +621,7 @@ function InlineQtyApprovedCell({
   label: string
   onSave: InlineLineSaveHandler
 }) {
-  const currentValue = line.qtyApproved ?? ''
+  const currentValue = quantityInputValue(line.qtyApproved)
   const [draft, setDraft] = React.useState(currentValue)
 
   React.useEffect(() => {
@@ -607,8 +630,7 @@ function InlineQtyApprovedCell({
 
   const save = React.useCallback(() => {
     const nextValue = draft.trim().length ? draft.trim() : null
-    const previousValue = line.qtyApproved ?? null
-    if (nextValue === previousValue) return
+    if (parseQuantity(nextValue) === parseQuantity(line.qtyApproved)) return
     void onSave(line, 'qtyApproved', nextValue)
   }, [draft, line, onSave])
 
@@ -619,7 +641,7 @@ function InlineQtyApprovedCell({
       value={draft}
       disabled={disabled}
       aria-label={label}
-      className="w-28"
+      className="w-24"
       onChange={(event) => setDraft(event.target.value)}
       onBlur={save}
       onKeyDown={(event) => {
@@ -669,7 +691,7 @@ function InlineLineSelectCell({
         void onSave(line, field, normalizedValue)
       }}
     >
-      <SelectTrigger aria-label={label} className="w-40">
+      <SelectTrigger aria-label={label} className="w-36">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -695,7 +717,10 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [events, setEvents] = React.useState<ClaimEvent[]>([])
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
   const [activeTab, setActiveTab] = React.useState<TabId>('lines')
+  const [timelineFilter, setTimelineFilter] = React.useState<TimelineFilterId>('all')
+  const [customerLink, setCustomerLink] = React.useState<{ customerId: string; href: string } | null>(null)
   const [lineDialog, setLineDialog] = React.useState<{ mode: 'create' } | { mode: 'edit'; line: ClaimLine } | null>(null)
   const [defaultWarrantyMonths, setDefaultWarrantyMonths] = React.useState<number | null>(null)
   const [featureAccess, setFeatureAccess] = React.useState({
@@ -759,8 +784,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [draftReplyHidden, setDraftReplyHidden] = React.useState(false)
   const [riskAssessment, setRiskAssessment] = React.useState<ClaimRiskAssessment>(EMPTY_RISK_ASSESSMENT)
   const [slaAtRiskThresholdPct, setSlaAtRiskThresholdPct] = React.useState<number | undefined>(undefined)
-  const [userNames, setUserNames] = React.useState<Record<string, string>>({})
-  const resolvedUserIdsRef = React.useRef<Set<string>>(new Set())
   const [assignDialogOpen, setAssignDialogOpen] = React.useState(false)
   const [assignSearch, setAssignSearch] = React.useState('')
   const [assignOptions, setAssignOptions] = React.useState<AssignableStaffMember[]>([])
@@ -826,6 +849,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     if (!id) return
     setLoading(true)
     setError(null)
+    setNotFound(false)
     try {
       const [claimPayload, linesPayload, eventsPayload, riskPayload, statsPayload] = await Promise.all([
         readApiResultOrThrow<{ items?: unknown[] }>(
@@ -863,7 +887,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         setLines([])
         setEvents([])
         setRiskAssessment(EMPTY_RISK_ASSESSMENT)
-        setError(t('warranty_claims.errors.notFound'))
+        setNotFound(true)
         return
       }
       setClaim(nextClaim)
@@ -888,49 +912,19 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     if (eventClaimId === id) void loadData()
   }, [id, loadData])
 
-  React.useEffect(() => {
-    const unresolvedIds = new Set<string>()
-    if (claim?.assigneeUserId && !resolvedUserIdsRef.current.has(claim.assigneeUserId)) {
-      unresolvedIds.add(claim.assigneeUserId)
-    }
+  const referencedUserIds = React.useMemo(() => {
+    const collected = new Set<string>()
+    if (claim?.assigneeUserId) collected.add(claim.assigneeUserId)
     for (const event of events) {
-      if (event.actorUserId && !resolvedUserIdsRef.current.has(event.actorUserId)) {
-        unresolvedIds.add(event.actorUserId)
-      }
+      if (event.actorUserId) collected.add(event.actorUserId)
       if (event.kind === 'assignment') {
         const assigneeUserId = toStringOrNull(event.payload?.assigneeUserId)
-        if (assigneeUserId && !resolvedUserIdsRef.current.has(assigneeUserId)) {
-          unresolvedIds.add(assigneeUserId)
-        }
+        if (assigneeUserId) collected.add(assigneeUserId)
       }
     }
-    if (!unresolvedIds.size) return
-
-    for (const userId of unresolvedIds) resolvedUserIdsRef.current.add(userId)
-
-    const controller = new AbortController()
-    readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/auth/users?ids=${[...unresolvedIds].map(encodeURIComponent).join(',')}`,
-      { signal: controller.signal },
-      {
-        fallback: { items: [] },
-        errorMessage: t('warranty_claims.detail.error.loadUsers'),
-      },
-    )
-      .then((data) => {
-        const nextNames: Record<string, string> = {}
-        for (const user of data.items ?? []) {
-          const userId = toStringOrNull(user.id)
-          const displayName = getUserDisplayName(user)
-          if (userId && displayName) nextNames[userId] = displayName
-        }
-        if (Object.keys(nextNames).length) {
-          setUserNames((current) => ({ ...current, ...nextNames }))
-        }
-      })
-      .catch(() => {})
-    return () => controller.abort()
-  }, [claim?.assigneeUserId, events, t])
+    return [...collected]
+  }, [claim?.assigneeUserId, events])
+  const userNames = useUserDisplayNames(referencedUserIds)
 
   React.useEffect(() => {
     if (!assignDialogOpen) return
@@ -944,6 +938,42 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       })
     return () => controller.abort()
   }, [assignDialogOpen, assignSearch])
+
+  const claimCustomerId = claim?.customerId ?? null
+  React.useEffect(() => {
+    if (!claimCustomerId || customerLink?.customerId === claimCustomerId) return
+    const controller = new AbortController()
+    const idsParam = encodeURIComponent(claimCustomerId)
+    const hasMatch = (payload: { items?: unknown[] } | null) =>
+      (payload?.items ?? []).some((item) => isRecord(item) && toStringOrNull(item.id) === claimCustomerId)
+    const resolveCustomerHref = async (): Promise<string | null> => {
+      const people = await apiCall<{ items?: unknown[] }>(
+        `/api/customers/people?ids=${idsParam}&pageSize=1`,
+        { signal: controller.signal },
+        { fallback: { items: [] } },
+      )
+      if (people.ok && hasMatch(people.result)) return `/backend/customers/people/${claimCustomerId}`
+      const companies = await apiCall<{ items?: unknown[] }>(
+        `/api/customers/companies?ids=${idsParam}&pageSize=1`,
+        { signal: controller.signal },
+        { fallback: { items: [] } },
+      )
+      if (companies.ok && hasMatch(companies.result)) return `/backend/customers/companies/${claimCustomerId}`
+      return null
+    }
+    resolveCustomerHref()
+      .then((href) => {
+        if (controller.signal.aborted || !href) return
+        setCustomerLink({ customerId: claimCustomerId, href })
+      })
+      .catch(() => {})
+    return () => controller.abort()
+  }, [claimCustomerId, customerLink])
+
+  const filteredTimelineEvents = React.useMemo(
+    () => filterTimelineEvents(events, timelineFilter),
+    [events, timelineFilter],
+  )
 
   const currentStatus = typeof claim?.status === 'string' ? claim.status : 'draft'
   const nextStatuses = React.useMemo(() => {
@@ -973,13 +1003,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       byUserId.set(claim.assigneeUserId, {
         teamMemberId: claim.assigneeUserId,
         userId: claim.assigneeUserId,
-        displayName: userNames[claim.assigneeUserId] ?? claim.assigneeUserId,
+        displayName: userNames[claim.assigneeUserId] ?? t('warranty_claims.detail.unknownUser'),
         email: null,
         teamName: null,
       })
     }
     return Array.from(byUserId.values())
-  }, [assignOptions, claim?.assigneeUserId, userNames])
+  }, [assignOptions, claim?.assigneeUserId, userNames, t])
 
   const openAssignDialog = React.useCallback(() => {
     setSelectedAssigneeUserId(claim?.assigneeUserId ?? UNASSIGNED_SELECT_VALUE)
@@ -993,7 +1023,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     successKey: string,
   ) => {
     if (!claim) return
-    let conflictSurfaced = false
     try {
       await runMutation({
         operation: async () => {
@@ -1005,20 +1034,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               body: JSON.stringify(body),
             }),
           )
-          if (!call.ok) {
-            const errorObject = buildConflictError(call, t('warranty_claims.detail.error.action'), t)
-            if (surfaceRecordConflict(errorObject, t, { onRefresh: loadData })) {
-              conflictSurfaced = true
-              return call
-            }
-            throw errorObject
-          }
+          if (!call.ok) throw buildConflictError(call, t('warranty_claims.detail.error.action'), t)
           return call
         },
         context: mutationContext,
         mutationPayload: body,
       })
-      if (conflictSurfaced) return
       flash(t(successKey), 'success')
       await loadData()
     } catch (err) {
@@ -1031,7 +1052,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const performAssignment = React.useCallback(async (assigneeUserId: string | null) => {
     if (!claim) return false
     const payload = { id: claim.id, assigneeUserId }
-    let conflictSurfaced = false
     try {
       await runMutation({
         operation: async () => {
@@ -1043,20 +1063,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               body: JSON.stringify(payload),
             }),
           )
-          if (!call.ok) {
-            const errorObject = buildConflictError(call, t('warranty_claims.detail.error.action'), t)
-            if (surfaceRecordConflict(errorObject, t, { onRefresh: loadData })) {
-              conflictSurfaced = true
-              return call
-            }
-            throw errorObject
-          }
+          if (!call.ok) throw buildConflictError(call, t('warranty_claims.detail.error.action'), t)
           return call
         },
         context: mutationContext,
         mutationPayload: payload,
       })
-      if (conflictSurfaced) return false
       flash(t('warranty_claims.list.flash.assigned'), 'success')
       await loadData()
       return true
@@ -1226,17 +1238,22 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     if (!claim) return
     setDraftReplyLoading(true)
     try {
-      const call = await apiCall('/api/warranty_claims/ai/draft-reply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ claimId: claim.id }),
+      const call = await runMutation({
+        operation: async () => {
+          const draftCall = await apiCall('/api/warranty_claims/ai/draft-reply', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ claimId: claim.id }),
+          })
+          if (isDraftReplyNotConfigured(draftCall.result)) return draftCall
+          if (!draftCall.ok) throw new Error(readErrorKey(draftCall.result) ?? 'warranty_claims.ai.draftError')
+          return draftCall
+        },
+        context: mutationContext,
+        mutationPayload: { claimId: claim.id },
       })
-      if (isDraftReplyNotConfigured(call.result) || (call.status === 422 && isDraftReplyNotConfigured(call.result))) {
+      if (isDraftReplyNotConfigured(call.result)) {
         setDraftReplyHidden(true)
-        return
-      }
-      if (!call.ok) {
-        flash(t(readErrorKey(call.result) ?? 'warranty_claims.ai.draftError'), 'error')
         return
       }
       const draft = readDraftReply(call.result)
@@ -1251,7 +1268,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     } finally {
       setDraftReplyLoading(false)
     }
-  }, [claim, t])
+  }, [claim, mutationContext, runMutation, t])
 
   const saveLineInlineField = React.useCallback<InlineLineSaveHandler>(async (line, field, value) => {
     if (!claim) return
@@ -1412,9 +1429,9 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       accessorKey: 'productName',
       header: t('warranty_claims.form.productName'),
       cell: ({ row }) => (
-        <div className="space-y-1">
-          <div className="font-medium">{row.original.productName ?? noValue}</div>
-          <div className="text-xs text-muted-foreground">{row.original.sku ?? noValue}</div>
+        <div className="max-w-56 space-y-1">
+          <div className="truncate font-medium" title={row.original.productName ?? undefined}>{row.original.productName ?? noValue}</div>
+          <div className="truncate text-xs text-muted-foreground">{row.original.sku ?? noValue}</div>
           <AiAssessButtons
             claimId={claim?.id ?? ''}
             line={row.original}
@@ -1431,12 +1448,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     },
     {
       accessorKey: 'qtyClaimed',
-      header: t('warranty_claims.form.qtyClaimed'),
-      cell: ({ row }) => row.original.qtyClaimed ?? noValue,
+      header: t('warranty_claims.lines.header.qtyClaimed'),
+      cell: ({ row }) => formatQuantity(row.original.qtyClaimed, noValue),
     },
     {
       accessorKey: 'qtyApproved',
-      header: t('warranty_claims.form.qtyApproved'),
+      header: t('warranty_claims.lines.header.qtyApproved'),
       cell: ({ row }) => (
         <InlineQtyApprovedCell
           line={row.original}
@@ -1448,8 +1465,8 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     },
     {
       accessorKey: 'qtyReceived',
-      header: t('warranty_claims.form.qtyReceived'),
-      cell: ({ row }) => row.original.qtyReceived ?? noValue,
+      header: t('warranty_claims.lines.header.qtyReceived'),
+      cell: ({ row }) => formatQuantity(row.original.qtyReceived, noValue),
     },
     {
       accessorKey: 'disposition',
@@ -1500,7 +1517,10 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       required: true,
       options: eligibleVendorLines.map((line) => ({
         value: line.id,
-        label: `${line.lineNo ?? line.id} - ${line.productName ?? line.sku ?? line.id}`,
+        label: [
+          t('warranty_claims.form.lines.lineLabel', 'Line {number}', { number: line.lineNo ?? '?' }),
+          line.productName ?? line.sku,
+        ].filter(Boolean).join(' — '),
       })),
     },
     { id: 'vendorName', label: t('warranty_claims.form.vendorName'), type: 'text', required: true },
@@ -1512,6 +1532,20 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       <Page>
         <PageBody>
           <LoadingMessage label={t('warranty_claims.detail.loading')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('warranty_claims.errors.notFound')}
+            backHref="/backend/warranty_claims"
+            backLabel={t('warranty_claims.detail.actions.backToList')}
+          />
         </PageBody>
       </Page>
     )
@@ -1550,13 +1584,32 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold tracking-tight">{claim.claimNumber ?? claim.id}</h1>
+                  <h1 className="text-2xl font-bold tracking-tight">
+                    {claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
+                  </h1>
+                  {claim.claimNumber ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      aria-label={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
+                      title={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
+                      onClick={() => {
+                        void navigator.clipboard.writeText(claim.claimNumber ?? '')
+                        flash(t('warranty_claims.detail.claimNumberCopied', 'Claim number copied.'), 'success')
+                      }}
+                    >
+                      <Hash className="size-4" aria-hidden />
+                    </Button>
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon"
                     className="h-8 w-8"
                     aria-label={t('warranty_claims.detail.copyLink')}
+                    title={t('warranty_claims.detail.copyLink')}
                     onClick={() => {
                       void navigator.clipboard.writeText(window.location.href)
                       flash(t('warranty_claims.detail.linkCopied'), 'success')
@@ -1573,7 +1626,23 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   ) : null}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                  <span>{t('warranty_claims.detail.customer')}: {claim.customerName ?? noValue}</span>
+                  <span>
+                    {t('warranty_claims.detail.customer')}:{' '}
+                    {claim.customerName ? (
+                      customerLink && customerLink.customerId === claim.customerId ? (
+                        <Link
+                          href={customerLink.href}
+                          className="text-foreground underline-offset-4 hover:underline"
+                        >
+                          {claim.customerName}
+                        </Link>
+                      ) : (
+                        claim.customerName
+                      )
+                    ) : (
+                      noValue
+                    )}
+                  </span>
                   <span>
                     {t('warranty_claims.list.column.order')}:{' '}
                     {claim.orderId ? (
@@ -1722,6 +1791,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   )}
                   columns={lineColumns}
                   data={lines}
+                  stickyActionsColumn
                   emptyState={(
                     <EmptyState
                       title={t('warranty_claims.detail.lines.empty.title')}
@@ -1792,7 +1862,21 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   </div>
                 </div>
                 <div className="space-y-3">
-                  {events.length ? events.map((event) => {
+                  {events.length ? (
+                    <SegmentedControl
+                      size="sm"
+                      value={timelineFilter}
+                      onValueChange={(next) => setTimelineFilter(isTimelineFilterId(next) ? next : 'all')}
+                      aria-label={t('warranty_claims.detail.timeline.filter.label', 'Filter timeline')}
+                    >
+                      {TIMELINE_FILTERS.map((filter) => (
+                        <SegmentedControlItem key={filter} value={filter}>
+                          {t(TIMELINE_FILTER_LABELS[filter].key, TIMELINE_FILTER_LABELS[filter].fallback)}
+                        </SegmentedControlItem>
+                      ))}
+                    </SegmentedControl>
+                  ) : null}
+                  {filteredTimelineEvents.length ? filteredTimelineEvents.map((event) => {
                     const Icon = eventIcon(event.kind)
                     const body = formatTimelineBody(event, t, userNames)
                     const actor = resolveTimelineActor(event, claim, userNames, t)
@@ -1816,7 +1900,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                         </div>
                       </div>
                     )
-                  }) : (
+                  }) : events.length ? (
+                    <EmptyState
+                      title={t('warranty_claims.detail.timeline.filterEmpty.title', 'No matching events')}
+                      description={t('warranty_claims.detail.timeline.filterEmpty.description', 'No timeline events match the selected filter.')}
+                      variant="subtle"
+                    />
+                  ) : (
                     <EmptyState
                       title={t('warranty_claims.detail.timeline.empty.title')}
                       description={t('warranty_claims.detail.timeline.empty.description')}
@@ -1868,9 +1958,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                             >
                               <div className="min-w-0">
                                 <div className="text-sm font-medium">
-                                  #{suggestedLine.lineNo}
-                                  {' '}
-                                  {suggestedLine.productName ?? suggestedLine.sku ?? suggestedLine.serialNumber ?? suggestedLine.lineId}
+                                  {triageLineHeading(suggestedLine, lines, t)}
                                 </div>
                                 <div className="mt-1 flex flex-wrap items-center gap-2">
                                   <StatusBadge variant={eligibilityBadgeVariant(suggestedLine.eligibility.status)}>
@@ -2016,7 +2104,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
               ? lineGroups
               : lineGroups.map((group) => ({ ...group, fields: (group.fields ?? []).filter((fieldId) => fieldId !== 'lineStatus') }))}
             initialValues={lineDialog?.mode === 'edit'
-              ? { ...lineDialog.line }
+              ? {
+                  ...lineDialog.line,
+                  qtyClaimed: quantityInputValue(lineDialog.line.qtyClaimed),
+                  qtyApproved: quantityInputValue(lineDialog.line.qtyApproved),
+                  qtyReceived: quantityInputValue(lineDialog.line.qtyReceived),
+                }
               : { claimId: claim.id, qtyClaimed: '1', lineStatus: 'pending', warrantyMonths: defaultWarrantyMonths ?? undefined }}
             submitLabel={t('warranty_claims.form.submit')}
             onSubmit={async (values) => {

@@ -98,7 +98,7 @@ export function createAnthropicAdapter(): LlmProvider {
         // `api.anthropic.com/messages` → 404 instead of `/v1/messages`), so pin
         // the canonical Messages API base explicitly. A caller-provided baseURL
         // (Messages-protocol relay) still wins.
-        baseURL: options.baseURL || 'https://api.anthropic.com/v1',
+        baseURL: options.baseURL || process.env.ANTHROPIC_BASE_URL || 'https://api.anthropic.com/v1',
       })
       return anthropic(options.modelId)
     },

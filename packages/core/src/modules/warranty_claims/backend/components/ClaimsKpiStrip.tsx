@@ -20,6 +20,7 @@ export type WarrantyClaimsStats = {
   approvalRatePct: number | null
   recoveredLast30dByCurrency: WarrantyClaimsRecoveredCurrency[]
   slaAtRiskThresholdPct?: number
+  slaAtRisk?: number
 }
 
 type ClaimsKpiStripProps = {

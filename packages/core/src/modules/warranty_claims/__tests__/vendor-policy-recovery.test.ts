@@ -135,6 +135,8 @@ describe('warranty vendor policy recovery', () => {
       expect.objectContaining({
         input: {
           claimId: CLAIM_ID,
+          organizationId: ORG_ID,
+          tenantId: TENANT_ID,
           lineIds: [LINE_ID],
           vendorName: 'Acme Supply',
           vendorRef: 'SUP-ACME',

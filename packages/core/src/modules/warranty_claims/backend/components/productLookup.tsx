@@ -66,7 +66,7 @@ function mapProductOption(item: Record<string, unknown>): ProductOption | null {
   const id = readString(item.id)
   if (!id) return null
   const product = item as ApiProductItem
-  const title = readString(item.title) ?? readString(product.name) ?? id
+  const title = readString(item.title) ?? readString(product.name) ?? readString(product.sku) ?? '—'
   return {
     id,
     title,
@@ -80,7 +80,7 @@ function mapVariantOption(item: Record<string, unknown>, fallbackThumbnail: stri
   const id = readString(item.id)
   if (!id) return null
   const variant = item as ApiVariantItem
-  const title = readString(variant.name) ?? readString(item.title) ?? id
+  const title = readString(variant.name) ?? readString(item.title) ?? readString(variant.sku) ?? '—'
   return {
     id,
     title,
@@ -101,13 +101,26 @@ function buildPlaceholder(label?: string | null): JSX.Element {
   )
 }
 
+function ProductThumbnail({ src, alt }: { src: string; alt: string }) {
+  const [failed, setFailed] = React.useState(false)
+  if (failed) return buildPlaceholder(alt)
+  return (
+    <img
+      src={src}
+      alt={alt}
+      className="h-8 w-8 rounded object-cover"
+      onError={() => setFailed(true)}
+    />
+  )
+}
+
 function productToLookupItem(option: ProductOption): LookupItemWithOption<ProductOption> {
   return {
     id: option.id,
     title: option.title,
     subtitle: option.sku ?? undefined,
     icon: option.thumbnailUrl ? (
-      <img src={option.thumbnailUrl} alt={option.title} className="h-8 w-8 rounded object-cover" />
+      <ProductThumbnail src={option.thumbnailUrl} alt={option.title} />
     ) : (
       buildPlaceholder(option.title)
     ),
@@ -121,7 +134,7 @@ function variantToLookupItem(option: VariantOption): LookupItemWithOption<Varian
     title: option.title,
     subtitle: option.sku ?? undefined,
     icon: option.thumbnailUrl ? (
-      <img src={option.thumbnailUrl} alt={option.title} className="h-8 w-8 rounded object-cover" />
+      <ProductThumbnail src={option.thumbnailUrl} alt={option.title} />
     ) : (
       buildPlaceholder(option.title)
     ),
@@ -246,7 +259,7 @@ export function ClaimLineProductPicker(props: {
         if (cancelled) return
         const resolved = option ?? {
           id: productId,
-          title: fallbackProductName ?? productId,
+          title: fallbackProductName ?? fallbackSku ?? t('warranty_claims.form.productUnknown'),
           sku: fallbackSku,
           thumbnailUrl: null,
           isConfigurable: false,
@@ -258,7 +271,7 @@ export function ClaimLineProductPicker(props: {
         if (!cancelled) {
           const fallback = {
             id: productId,
-            title: fallbackProductName ?? productId,
+            title: fallbackProductName ?? fallbackSku ?? t('warranty_claims.form.productUnknown'),
             sku: fallbackSku,
             thumbnailUrl: null,
             isConfigurable: false,
@@ -270,7 +283,7 @@ export function ClaimLineProductPicker(props: {
     return () => {
       cancelled = true
     }
-  }, [fallbackProductName, fallbackSku, productId])
+  }, [fallbackProductName, fallbackSku, productId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -337,7 +350,7 @@ export function ClaimLineProductPicker(props: {
     : productId
       ? [productToLookupItem({
         id: productId,
-        title: fallbackProductName ?? productId,
+        title: fallbackProductName ?? fallbackSku ?? t('warranty_claims.form.productUnknown'),
         sku: fallbackSku,
         thumbnailUrl: null,
         isConfigurable: false,

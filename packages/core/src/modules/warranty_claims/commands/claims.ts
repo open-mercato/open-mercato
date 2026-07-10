@@ -84,7 +84,9 @@ const claimDeleteSchema = z
   })
   .strict()
 
-const submitClaimSchema = claimDeleteSchema
+const submitClaimSchema = claimDeleteSchema.extend({
+  actorCustomerId: z.string().uuid().optional(),
+})
 const escalateClaimInputSchema = z
   .object({
     id: z.string().uuid(),
@@ -396,6 +398,7 @@ function buildInitialLineData(
     conditionOnReceipt: input.conditionOnReceipt ?? null,
     inspectionNotes: input.inspectionNotes ?? null,
     disposition: input.disposition ?? null,
+    vendorName: input.vendorName ?? null,
     lineStatus: 'pending',
     creditAmount: nullableAmountString(input.creditAmount),
     restockingFee: nullableAmountString(input.restockingFee),
@@ -982,6 +985,8 @@ function applySlaResume(
     claim.slaDueAt = new Date(claim.slaDueAt.getTime() + Math.max(0, now.getTime() - claim.slaPausedAt.getTime()))
   }
   claim.slaPausedAt = null
+  claim.slaAtRiskNotifiedAt = null
+  claim.slaBreachedNotifiedAt = null
   appendClaimEvent(em, claim, 'system', {
     visibility: 'customer',
     payload: { action: 'sla_resumed' },
@@ -1458,11 +1463,14 @@ const submitClaimCommand: CommandHandler<SubmitClaimInput, { claimId: string }> 
         claim.status = 'submitted'
         claim.submittedAt = submittedAt
         claim.slaDueAt = new Date(submittedAt.getTime() + effectiveSettings.slaHours * 60 * 60 * 1000)
+        claim.slaAtRiskNotifiedAt = null
+        claim.slaBreachedNotifiedAt = null
         claim.updatedAt = submittedAt
         appendClaimEvent(em, claim, 'status_changed', {
           visibility: 'customer',
           payload: { from: fromStatus, to: 'submitted' },
-          actorUserId: ctx.auth?.sub ?? null,
+          actorUserId: input.actorCustomerId ? null : (ctx.auth?.sub ?? null),
+          actorCustomerId: input.actorCustomerId ?? null,
         })
       },
       async () => {
@@ -1500,7 +1508,7 @@ const submitClaimCommand: CommandHandler<SubmitClaimInput, { claimId: string }> 
             actorUserId: null,
           })
           appendClaimEvent(em, claim, 'system', {
-            visibility: 'customer',
+            visibility: 'internal',
             payload: {
               action: 'auto_approved',
               maxAmount: settings.autoApproveMaxAmount,
@@ -1575,7 +1583,8 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
         appendClaimEvent(em, claim, 'status_changed', {
           visibility: 'customer',
           payload: { from: fromStatus, to: input.toStatus },
-          actorUserId: ctx.auth?.sub ?? null,
+          actorUserId: input.actorCustomerId ? null : (ctx.auth?.sub ?? null),
+          actorCustomerId: input.actorCustomerId ?? null,
         })
       },
     ], { transaction: true, label: 'warranty_claims.claim.transition' })
@@ -1822,7 +1831,7 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
   id: 'warranty_claims.claim.create_vendor_recovery',
   async execute(rawInput, ctx) {
     const input = parseCommandInput(vendorRecoveryInputSchema, rawInput)
-    const scope = resolveScope(ctx, {})
+    const scope = resolveScope(ctx, input)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const sourceClaim = await requireScopedClaim(em, input.claimId, scope)
     await enforceWarrantyClaimOptimisticLock(ctx, sourceClaim)

@@ -269,7 +269,6 @@ const crud = makeCrudRoute<RawVendorPolicyInput, RawVendorPolicyInput, VendorPol
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
-      if (Array.isArray(query.ids) && query.ids.length) filters.id = { $in: query.ids }
       if (query.isActive !== undefined) filters[F.is_active] = { $eq: query.isActive }
       if (query.search) {
         const pattern = buildIlikeTerm(query.search)

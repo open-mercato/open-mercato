@@ -39,6 +39,7 @@ import {
 import { EntitlementLookupBadge } from '../../components/EntitlementLookupBadge'
 import { TroubleshootingWalker, type TroubleshootingWalkerGuide } from '../../components/TroubleshootingWalker'
 import { resolveClaimTypeUiConfig } from '../../../lib/claimTypeConfig'
+import { formatQuantity, parseQuantity } from '../../../lib/quantity'
 import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../lib/dictionaryLabels'
 import {
   parseGuideSteps,
@@ -140,7 +141,7 @@ function toStringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
 }
 
-function normalizeOption(item: unknown): CrudFieldOption | null {
+function normalizeOption(item: unknown, t: TranslateFn): CrudFieldOption | null {
   if (!isRecord(item)) return null
   const id = toStringOrNull(item.id)
   if (!id) return null
@@ -149,7 +150,7 @@ function normalizeOption(item: unknown): CrudFieldOption | null {
     toStringOrNull(item.displayName) ??
     toStringOrNull(item.display_name) ??
     toStringOrNull(item.name) ??
-    id
+    t('warranty_claims.form.customerUnnamed', 'Unnamed customer')
   const email = toStringOrNull(item.primaryEmail) ?? toStringOrNull(item.primary_email)
   return { value: id, label: email ? `${label} (${email})` : label }
 }
@@ -626,7 +627,7 @@ function LineItemsEditor({
       variantId: line.variantId,
       sku: line.sku ?? '',
       productName: line.name ?? '',
-      qtyClaimed: line.quantity ?? 1,
+      qtyClaimed: parseQuantity(line.quantity) ?? 1,
       orderLineId: line.id,
       purchaseDate: orderPurchaseDate ?? '',
       warrantyMonths: orderPurchaseDate && defaultWarrantyMonths !== null ? defaultWarrantyMonths : '',
@@ -830,7 +831,7 @@ function LineItemsEditor({
             ) : null}
             {orderLines.map((line) => {
               const checked = selectedOrderLineIds.has(line.id)
-              const label = line.name ?? line.sku ?? line.id
+              const label = line.name ?? line.sku ?? t('warranty_claims.form.lines.unnamed', 'Unnamed line')
               return (
                 <div key={line.id} className="flex items-start gap-3 rounded-md border border-border p-3">
                   <Checkbox
@@ -842,7 +843,7 @@ function LineItemsEditor({
                     <div className="text-sm font-medium">{label}</div>
                     <div className="flex flex-wrap gap-3 text-xs text-muted-foreground">
                       <span>{line.sku ?? t('warranty_claims.common.noValue')}</span>
-                      <span>{t('warranty_claims.form.addFromOrder.quantity', undefined, { quantity: String(line.quantity ?? '') })}</span>
+                      <span>{t('warranty_claims.form.addFromOrder.quantity', undefined, { quantity: formatQuantity(line.quantity, t('warranty_claims.common.noValue')) })}</span>
                     </div>
                   </div>
                 </div>
@@ -914,15 +915,16 @@ export default function CreateWarrantyClaimPage() {
       ...(Array.isArray(people.result?.items) ? people.result.items : []),
       ...(Array.isArray(companies.result?.items) ? companies.result.items : []),
     ]
-    return items.map(normalizeOption).filter((option): option is CrudFieldOption => option !== null)
-  }, [])
+    return items.map((item) => normalizeOption(item, t)).filter((option): option is CrudFieldOption => option !== null)
+  }, [t])
 
   const loadOrderOptions = React.useCallback(async (query?: string): Promise<CrudFieldOption[]> => {
     return loadOrderOptionsShared(query, {
       customerId: selectedCustomerId,
       onAccessChange: setOrderAccessDenied,
+      fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
     })
-  }, [selectedCustomerId])
+  }, [selectedCustomerId, t])
 
   React.useEffect(() => {
     let cancelled = false
@@ -995,7 +997,7 @@ export default function CreateWarrantyClaimPage() {
       placeholder: t('warranty_claims.form.orderId.placeholder'),
       description: orderAccessDenied ? t('warranty_claims.form.orderId.noAccess') : undefined,
       seedOptions: [],
-      resolveLabel: resolveOrderLabel,
+      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
     },
     {
       id: 'priority',

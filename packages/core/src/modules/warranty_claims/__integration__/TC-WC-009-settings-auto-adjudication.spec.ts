@@ -262,4 +262,46 @@ test.describe('TC-WC-009: warranty claim settings and auto-adjudication', () => 
       await deleteOrganizationIfExists(request, superadminToken, orgBId)
     }
   })
+
+  test('persists the business hours JSON verbatim, including 24:00 windows, holidays, timezone, and unknown extras', async ({ request }) => {
+    const adminToken = await getAuthToken(request, 'admin')
+    const stamp = uniqueLabel('tc-wc-009-bh')
+    const settingsBefore = await readWarrantyClaimSettings(request, adminToken)
+
+    try {
+      const holiday = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      const businessHours = {
+        timezone: 'Europe/Warsaw',
+        week: {
+          mon: [{ start: '09:00', end: '17:00' }],
+          sat: [{ start: '00:00', end: '24:00' }],
+        },
+        holidays: [holiday],
+        vendorPortalNote: `extra-${stamp}`,
+        nested: { flag: true, level: 2 },
+      }
+
+      const saved = await saveWarrantyClaimSettings(
+        request,
+        adminToken,
+        { businessHours },
+        settingsBefore.updatedAt,
+      )
+      expect(saved.businessHours, 'settings save should echo the business hours JSON verbatim').toEqual(businessHours)
+
+      const readBack = await readWarrantyClaimSettings(request, adminToken)
+      expect(readBack.businessHours, 'settings read should return the persisted business hours verbatim').toEqual(businessHours)
+
+      const cleared = await saveWarrantyClaimSettings(
+        request,
+        adminToken,
+        { businessHours: null },
+        readBack.updatedAt,
+      )
+      expect(cleared.businessHours, 'clearing business hours should persist null').toBeNull()
+      expect((await readWarrantyClaimSettings(request, adminToken)).businessHours).toBeNull()
+    } finally {
+      await restoreWarrantyClaimSettings(request, adminToken, settingsBefore)
+    }
+  })
 })

@@ -3,10 +3,23 @@
 import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ExternalLink, FileText, MessageSquare, Send, ShieldCheck, Upload } from 'lucide-react'
+import { ArrowLeft, Ban, ExternalLink, FileText, MessageSquare, Send, ShieldCheck, Upload } from 'lucide-react'
 import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { localizeDictionaryLabel } from '@open-mercato/core/modules/warranty_claims/lib/dictionaryLabels'
+import { formatQuantity } from '@open-mercato/core/modules/warranty_claims/lib/quantity'
+import {
+  ATTACHMENT_ACCEPT_TYPES,
+  validateAttachmentFile,
+} from '@open-mercato/core/modules/warranty_claims/lib/portalAttachmentValidation'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
@@ -17,7 +30,8 @@ import { StepIndicator, type StepIndicatorStep } from '@open-mercato/ui/primitiv
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { usePortalContext } from '@open-mercato/ui/portal/PortalContext'
 import { PortalPageHeader } from '@open-mercato/ui/portal/components/PortalPageHeader'
 import { PortalCard, PortalCardHeader } from '@open-mercato/ui/portal/components/PortalCard'
@@ -88,6 +102,9 @@ type EventResponse = { items: PortalClaimEvent[] }
 type AttachmentResponse = { items: PortalAttachment[] }
 type MutationOkResponse = { ok: boolean; error?: string }
 type UploadResponse = MutationOkResponse & { item?: PortalAttachment }
+type ClaimActionResponse = MutationOkResponse & { claimId?: string; status?: string }
+
+type PortalClaimAction = 'submit' | 'withdraw'
 
 const CLAIM_STATUS_ORDER = [
   'submitted',
@@ -99,85 +116,6 @@ const CLAIM_STATUS_ORDER = [
   'resolved',
   'closed',
 ] as const
-
-const DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-const ATTACHMENT_ACCEPT_TYPES = [
-  '.avif',
-  '.bmp',
-  '.csv',
-  '.docx',
-  '.gif',
-  '.jpeg',
-  '.jpg',
-  '.json',
-  '.md',
-  '.pdf',
-  '.png',
-  '.pptx',
-  '.txt',
-  '.webp',
-  '.xlsx',
-  '.zip',
-  'application/json',
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'application/zip',
-  'image/avif',
-  'image/bmp',
-  'image/gif',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'text/csv',
-  'text/markdown',
-  'text/plain',
-].join(',')
-
-const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
-  'application/xhtml+xml',
-  'application/xml',
-  'image/svg+xml',
-  'text/html',
-  'text/xml',
-])
-
-const ACTIVE_CONTENT_ATTACHMENT_EXTENSIONS = new Set([
-  'htm',
-  'html',
-  'svg',
-  'xhtml',
-  'xml',
-])
-
-const DANGEROUS_EXECUTABLE_EXTENSIONS = new Set([
-  'app',
-  'apk',
-  'bat',
-  'cmd',
-  'com',
-  'dll',
-  'exe',
-  'hta',
-  'htm',
-  'html',
-  'jar',
-  'js',
-  'jse',
-  'lnk',
-  'msi',
-  'pif',
-  'ps1',
-  'psm1',
-  'reg',
-  'scr',
-  'sh',
-  'vbe',
-  'vbs',
-  'wsf',
-  'wsh',
-])
 
 function hasClaimStatus(status: string): status is keyof typeof CLAIM_STATUS_BADGE_VARIANTS {
   return Object.prototype.hasOwnProperty.call(CLAIM_STATUS_BADGE_VARIANTS, status)
@@ -213,40 +151,6 @@ function formatFileSize(bytes: number, t: TranslateFn): string {
   const kilobytes = bytes / 1024
   if (kilobytes < 1024) return t('warranty_claims.portal.file.kilobytes', { size: kilobytes.toFixed(1) })
   return t('warranty_claims.portal.file.megabytes', { size: (kilobytes / 1024).toFixed(1) })
-}
-
-function getFileExtensionSegments(fileName: string): string[] {
-  const parts = fileName.trim().split('.').filter(Boolean)
-  if (parts.length < 2) return []
-  return parts.slice(1).map((part) => part.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean)
-}
-
-async function fileLooksLikeActiveContent(file: File): Promise<boolean> {
-  try {
-    const sniff = (await file.slice(0, 512).text()).trimStart().toLowerCase()
-    return sniff.startsWith('<svg') || sniff.startsWith('<?xml') || sniff.startsWith('<!doctype html') || sniff.startsWith('<html')
-  } catch {
-    return false
-  }
-}
-
-async function validateAttachmentFile(file: File, t: TranslateFn): Promise<string | null> {
-  if (file.size > DEFAULT_ATTACHMENT_MAX_UPLOAD_BYTES) {
-    return t('attachments.errors.maxUploadSize')
-  }
-  const extensionSegments = getFileExtensionSegments(file.name)
-  const mimeType = file.type.trim().toLowerCase()
-  if (extensionSegments.some((extension) => DANGEROUS_EXECUTABLE_EXTENSIONS.has(extension))) {
-    return t('attachments.errors.dangerousExecutable')
-  }
-  if (
-    extensionSegments.some((extension) => ACTIVE_CONTENT_ATTACHMENT_EXTENSIONS.has(extension)) ||
-    (mimeType && BLOCKED_ATTACHMENT_MIME_TYPES.has(mimeType)) ||
-    await fileLooksLikeActiveContent(file)
-  ) {
-    return t('attachments.errors.activeContentBlocked')
-  }
-  return null
 }
 
 function buildClaimProgressSteps(status: string, t: TranslateFn): StepIndicatorStep[] {
@@ -295,13 +199,15 @@ function formatEventBody(event: PortalClaimEvent, t: TranslateFn): string {
   return t('warranty_claims.portal.event.noDetails')
 }
 
+const DETAIL_MUTATION_CONTEXT_ID = 'warranty_claims.portal.claim.detail'
+
 export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const t = useT()
   const router = useRouter()
   const { auth } = usePortalContext()
   const { user, loading } = auth
   const guardedMutation = useGuardedMutation<Record<string, unknown>>({
-    contextId: 'warranty_claims.portal.claim.detail',
+    contextId: DETAIL_MUTATION_CONTEXT_ID,
     blockedMessage: t('warranty_claims.portal.detail.blocked'),
   })
   const [claim, setClaim] = React.useState<PortalClaim | null>(null)
@@ -315,6 +221,8 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
   const [selectedFile, setSelectedFile] = React.useState<File | null>(null)
   const [fileInputKey, setFileInputKey] = React.useState(0)
   const [uploading, setUploading] = React.useState(false)
+  const [claimAction, setClaimAction] = React.useState<PortalClaimAction | null>(null)
+  const [actionSubmitting, setActionSubmitting] = React.useState(false)
 
   React.useEffect(() => {
     if (!loading && !user) {
@@ -382,6 +290,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           entityId: 'warranty_claims.claim_event',
           operation: 'portal_comment',
           claimId: claim.id,
+          formId: DETAIL_MUTATION_CONTEXT_ID,
+          resourceKind: 'warranty_claims.claim_event',
+          resourceId: claim.id,
+          retryLastMutation: guardedMutation.retryLastMutation,
         },
         mutationPayload: { claimId: claim.id, body },
       })
@@ -428,6 +340,10 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           entityId: 'attachments.attachment',
           operation: 'portal_attachment_upload',
           claimId: claim.id,
+          formId: DETAIL_MUTATION_CONTEXT_ID,
+          resourceKind: 'attachments.attachment',
+          resourceId: claim.id,
+          retryLastMutation: guardedMutation.retryLastMutation,
         },
         mutationPayload: { claimId: claim.id, fileName: selectedFile.name, fileSize: selectedFile.size },
       })
@@ -445,6 +361,67 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
       setUploading(false)
     }
   }, [claim, guardedMutation, refreshAttachments, selectedFile, t, uploading])
+
+  const runClaimAction = React.useCallback(async (action: PortalClaimAction) => {
+    if (!claim || actionSubmitting) return
+    setActionSubmitting(true)
+    setError(null)
+    try {
+      const endpoint = `/api/warranty_claims/portal/claims/${encodeURIComponent(claim.id)}/${action}`
+      const result = await guardedMutation.runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(claim.updatedAt),
+          () => apiCall<ClaimActionResponse>(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({}),
+          }),
+        ),
+        context: {
+          moduleId: 'warranty_claims',
+          entityId: 'warranty_claims.claim',
+          operation: action === 'submit' ? 'portal_submit' : 'portal_withdraw',
+          claimId: claim.id,
+          formId: DETAIL_MUTATION_CONTEXT_ID,
+          resourceKind: 'warranty_claims.claim',
+          resourceId: claim.id,
+          retryLastMutation: guardedMutation.retryLastMutation,
+        },
+        mutationPayload: { claimId: claim.id, action },
+      })
+      if (!result.ok || !result.result?.ok) {
+        const message = result.status === 409
+          ? t('warranty_claims.portal.detail.actionConflict', 'This claim changed in the meantime. It has been reloaded — please try again.')
+          : action === 'submit'
+            ? t('warranty_claims.portal.detail.submitError', 'The claim could not be submitted.')
+            : t('warranty_claims.portal.detail.withdrawError', 'The claim could not be withdrawn.')
+        setError(message)
+        flash(message, 'error')
+        if (result.status === 409) {
+          setClaimAction(null)
+          await loadClaim()
+        }
+        return
+      }
+      setClaimAction(null)
+      flash(
+        action === 'submit'
+          ? t('warranty_claims.portal.detail.submitSuccess', 'Your claim has been submitted.')
+          : t('warranty_claims.portal.detail.withdrawSuccess', 'Your claim has been withdrawn.'),
+        'success',
+      )
+      await loadClaim()
+    } catch {
+      const message = action === 'submit'
+        ? t('warranty_claims.portal.detail.submitError', 'The claim could not be submitted.')
+        : t('warranty_claims.portal.detail.withdrawError', 'The claim could not be withdrawn.')
+      setError(message)
+      flash(message, 'error')
+    } finally {
+      setActionSubmitting(false)
+    }
+  }, [actionSubmitting, claim, guardedMutation, loadClaim, t])
 
   const handleSelectedFileChange = React.useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null
@@ -515,6 +492,7 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
 
   const claimProgressSteps = buildClaimProgressSteps(claim.status, t)
   const isDraft = claim.status === 'draft'
+  const canWithdraw = claim.status === 'draft' || claim.status === 'submitted'
   const needsCustomerAction = claim.status === 'info_requested'
   const isTerminalException = claim.status === 'rejected' || claim.status === 'cancelled'
 
@@ -559,8 +537,38 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
         {isDraft ? (
           <Alert status="information" style="lighter" className="mt-4">
             <AlertTitle>{t('warranty_claims.status.draft')}</AlertTitle>
-            <AlertDescription>{t('warranty_claims.portal.detail.notSubmitted')}</AlertDescription>
+            <AlertDescription className="flex flex-col gap-3">
+              <span>{t('warranty_claims.portal.detail.notSubmitted')}</span>
+              <div>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => setClaimAction('submit')}
+                  disabled={actionSubmitting}
+                >
+                  <Send className="size-4" aria-hidden="true" />
+                  {t('warranty_claims.portal.submit')}
+                </Button>
+              </div>
+            </AlertDescription>
           </Alert>
+        ) : null}
+        {canWithdraw ? (
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-muted/30 p-4">
+            <p className="text-sm text-muted-foreground">
+              {t('warranty_claims.portal.detail.withdrawHint', 'No longer need this claim? You can withdraw it while it is a draft or awaiting review.')}
+            </p>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() => setClaimAction('withdraw')}
+              disabled={actionSubmitting}
+            >
+              <Ban className="size-4" aria-hidden="true" />
+              {t('warranty_claims.portal.detail.withdraw', 'Withdraw claim')}
+            </Button>
+          </div>
         ) : null}
         {needsCustomerAction ? (
           <Alert status="warning" style="lighter" className="mt-4">
@@ -653,11 +661,11 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
                 <dl className="mt-4 grid gap-3 text-sm md:grid-cols-3">
                   <div>
                     <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.qtyClaimed')}</dt>
-                    <dd className="mt-1 font-medium">{line.qtyClaimed}</dd>
+                    <dd className="mt-1 font-medium">{formatQuantity(line.qtyClaimed, t('warranty_claims.portal.value.notAvailable'))}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.qtyApproved')}</dt>
-                    <dd className="mt-1 font-medium">{line.qtyApproved ?? t('warranty_claims.portal.value.notAvailable')}</dd>
+                    <dd className="mt-1 font-medium">{formatQuantity(line.qtyApproved, t('warranty_claims.portal.value.notAvailable'))}</dd>
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">{t('warranty_claims.form.disposition')}</dt>
@@ -791,6 +799,65 @@ export default function WarrantyClaimPortalDetailPage({ params }: Props) {
           </div>
         </div>
       </PortalCard>
+
+      <Dialog
+        open={claimAction !== null}
+        onOpenChange={(open) => {
+          if (!open && !actionSubmitting) setClaimAction(null)
+        }}
+      >
+        <DialogContent
+          className="max-w-lg"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              if (claimAction && !actionSubmitting) void runClaimAction(claimAction)
+            }
+            if (event.key === 'Escape' && !actionSubmitting) {
+              setClaimAction(null)
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {claimAction === 'withdraw'
+                ? t('warranty_claims.portal.detail.withdrawDialog.title', 'Withdraw this claim?')
+                : t('warranty_claims.portal.detail.submitDialog.title', 'Submit this claim?')}
+            </DialogTitle>
+            <DialogDescription>
+              {claimAction === 'withdraw'
+                ? t('warranty_claims.portal.detail.withdrawDialog.description', 'The claim will be cancelled and cannot be reopened. This cannot be undone.')
+                : t('warranty_claims.portal.detail.submitDialog.description', 'Your claim will be sent to our support team for review. You can still add comments and photos afterwards.')}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setClaimAction(null)}
+              disabled={actionSubmitting}
+            >
+              {t('warranty_claims.portal.detail.dialogCancel', 'Cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant={claimAction === 'withdraw' ? 'destructive' : 'default'}
+              onClick={() => {
+                if (claimAction) void runClaimAction(claimAction)
+              }}
+              disabled={actionSubmitting}
+            >
+              {claimAction === 'withdraw'
+                ? (actionSubmitting
+                  ? t('warranty_claims.portal.detail.withdrawing', 'Withdrawing...')
+                  : t('warranty_claims.portal.detail.withdrawConfirm', 'Withdraw claim'))
+                : (actionSubmitting
+                  ? t('warranty_claims.portal.detail.submitting', 'Submitting...')
+                  : t('warranty_claims.portal.detail.submitConfirm', 'Submit claim'))}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

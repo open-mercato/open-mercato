@@ -25,6 +25,12 @@ export const injectionTable: ModuleInjectionTable = {
       priority: 40,
     },
   ],
+  'data-table:warranty_claims.claims.list:search-trailing': [
+    {
+      widgetId: 'warranty_claims.injection.claims-ai-trigger',
+      priority: 100,
+    },
+  ],
 }
 
 export default injectionTable

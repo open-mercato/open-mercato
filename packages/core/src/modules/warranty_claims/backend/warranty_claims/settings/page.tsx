@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Plus, RefreshCw, Save, Trash2 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -37,6 +37,17 @@ import {
   type AssignableStaffMember,
 } from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
 import { parseEscalationTiers, type EscalationTier } from '../../../lib/escalation'
+import type { BusinessWeekday } from '../../../lib/businessHours'
+import {
+  buildBusinessHoursFormValue,
+  createBusinessHoursIntervalRow,
+  nextBusinessHoursRowKey,
+  serializeBusinessHoursRecord,
+  stringifyJsonValue,
+  validateBusinessHoursValue,
+  type BusinessHoursFormValue,
+  type BusinessHoursIntervalRow,
+} from '../../../lib/businessHoursForm'
 
 type WarrantyDictionaryKind =
   | 'warranty-claim-fault-code'
@@ -98,7 +109,7 @@ type GeneralSettingsFormValues = {
   autoApproveCurrencyCode: string
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: string
-  businessHours: string
+  businessHours: BusinessHoursFormValue
   escalationTiers: EscalationTierRow[]
   adjudicationUseRules: boolean
   quarantineGrades: string[]
@@ -119,6 +130,31 @@ type EscalationTiersFieldTranslations = {
   error: {
     atPct: string
     toUserId: string
+  }
+}
+
+type BusinessHoursFieldTranslations = {
+  dayLabels: Record<BusinessWeekday, string>
+  timezoneLabel: string
+  timezonePlaceholder: string
+  timezoneHelp: string
+  startLabel: string
+  endLabel: string
+  addWindow: string
+  removeWindow: string
+  closed: string
+  holidaysLabel: string
+  holidaysHelp: string
+  addHoliday: string
+  removeHoliday: string
+  holidayDateLabel: string
+  advancedToggle: string
+  advancedLabel: string
+  advancedHelp: string
+  error: {
+    window: string
+    holiday: string
+    rows: string
   }
 }
 
@@ -144,6 +180,7 @@ type GeneralSettingsTranslations = {
     escalationTiers: string
   }
   escalationTiers: EscalationTiersFieldTranslations
+  businessHours: BusinessHoursFieldTranslations
   fields: {
     slaHours: string
     slaHoursHelp: string
@@ -176,6 +213,7 @@ type GeneralSettingsTranslations = {
 
 type GeneralFieldErrors = {
   businessHours?: string
+  businessHoursRowErrors?: Record<string, string>
   escalationTiers?: string
   escalationTierRowErrors?: Record<string, { atPct?: string; toUserId?: string }>
 }
@@ -235,12 +273,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function toStringOrNull(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length ? value.trim() : null
-}
-
-function stringifyJsonValue(value: Record<string, unknown> | unknown[] | null): string {
-  if (value === null) return ''
-  const serialized = JSON.stringify(value, null, 2)
-  return typeof serialized === 'string' ? serialized : ''
 }
 
 type JsonParseResult<T> =
@@ -341,7 +373,7 @@ function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSetting
     autoApproveCurrencyCode: settings.autoApproveCurrencyCode ?? '',
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
-    businessHours: stringifyJsonValue(settings.businessHours),
+    businessHours: buildBusinessHoursFormValue(settings.businessHours),
     escalationTiers: buildEscalationTierRows(settings.escalationTiers),
     adjudicationUseRules: settings.adjudicationUseRules,
     quarantineGrades: settings.quarantineGrades ?? [],
@@ -485,35 +517,266 @@ function GeneralSwitchField({
   )
 }
 
-function GeneralJsonTextareaField({
+function BusinessHoursField({
   id,
   label,
   description,
   value,
+  rowErrors,
   error,
   disabled,
+  translations,
   onChange,
 }: {
   id: string
   label: string
   description: string
-  value: string
+  value: BusinessHoursFormValue
+  rowErrors?: Record<string, string>
   error?: string
   disabled?: boolean
-  onChange: (value: string) => void
+  translations: BusinessHoursFieldTranslations
+  onChange: (next: BusinessHoursFormValue) => void
 }) {
+  const [advancedOpen, setAdvancedOpen] = React.useState(false)
+  const advancedVisible = advancedOpen || value.rawDirty
+  const controlsDisabled = disabled || value.rawDirty
+  const advancedRegionId = `${id}-advanced`
+
+  const timezoneOptions = React.useMemo<ComboboxOption[]>(() => {
+    const zones = typeof Intl.supportedValuesOf === 'function' ? Intl.supportedValuesOf('timeZone') : []
+    return Array.from(new Set<string>(['UTC', ...zones])).map((zone) => ({ value: zone, label: zone }))
+  }, [])
+
+  const applyStructuredChange = React.useCallback((patch: Partial<BusinessHoursFormValue>) => {
+    const next = { ...value, ...patch }
+    onChange({ ...next, raw: stringifyJsonValue(serializeBusinessHoursRecord(next)), rawDirty: false })
+  }, [onChange, value])
+
+  const handleRawChange = React.useCallback((text: string) => {
+    const parsed = parseNullableJsonObject(text)
+    if (!parsed.ok) {
+      onChange({ ...value, raw: text, rawDirty: true })
+      return
+    }
+    onChange({ ...buildBusinessHoursFormValue(parsed.value), raw: text })
+  }, [onChange, value])
+
+  const toggleDay = React.useCallback((weekday: BusinessWeekday, enabled: boolean) => {
+    applyStructuredChange({
+      days: value.days.map((day) => (day.weekday === weekday ? { ...day, enabled } : day)),
+    })
+  }, [applyStructuredChange, value.days])
+
+  const updateInterval = React.useCallback((weekday: BusinessWeekday, key: string, patch: Partial<Pick<BusinessHoursIntervalRow, 'start' | 'end'>>) => {
+    applyStructuredChange({
+      days: value.days.map((day) => (day.weekday === weekday
+        ? { ...day, intervals: day.intervals.map((interval) => (interval.key === key ? { ...interval, ...patch } : interval)) }
+        : day)),
+    })
+  }, [applyStructuredChange, value.days])
+
+  const addInterval = React.useCallback((weekday: BusinessWeekday) => {
+    applyStructuredChange({
+      days: value.days.map((day) => (day.weekday === weekday
+        ? { ...day, intervals: [...day.intervals, createBusinessHoursIntervalRow('', '')] }
+        : day)),
+    })
+  }, [applyStructuredChange, value.days])
+
+  const removeInterval = React.useCallback((weekday: BusinessWeekday, key: string) => {
+    applyStructuredChange({
+      days: value.days.map((day) => (day.weekday === weekday
+        ? { ...day, intervals: day.intervals.filter((interval) => interval.key !== key) }
+        : day)),
+    })
+  }, [applyStructuredChange, value.days])
+
+  const addHoliday = React.useCallback(() => {
+    applyStructuredChange({
+      holidays: [...value.holidays, { key: nextBusinessHoursRowKey(), date: '' }],
+    })
+  }, [applyStructuredChange, value.holidays])
+
+  const updateHoliday = React.useCallback((key: string, date: string) => {
+    applyStructuredChange({
+      holidays: value.holidays.map((row) => (row.key === key ? { ...row, date } : row)),
+    })
+  }, [applyStructuredChange, value.holidays])
+
+  const removeHoliday = React.useCallback((key: string) => {
+    applyStructuredChange({
+      holidays: value.holidays.filter((row) => row.key !== key),
+    })
+  }, [applyStructuredChange, value.holidays])
+
   return (
-    <div className="space-y-2">
-      <Label htmlFor={id}>{label}</Label>
-      <Textarea
-        id={id}
-        rows={6}
-        value={value}
-        disabled={disabled}
-        aria-invalid={error ? true : undefined}
-        onChange={(event) => onChange(event.target.value)}
-      />
-      <p className="text-xs text-muted-foreground">{description}</p>
+    <div className="space-y-3">
+      <div className="space-y-1">
+        <h4 className="text-sm font-medium">{label}</h4>
+        <p className="text-xs text-muted-foreground">{description}</p>
+      </div>
+      <div className="space-y-2 sm:max-w-sm">
+        <Label htmlFor={`${id}-timezone`}>{translations.timezoneLabel}</Label>
+        <ComboboxInput
+          value={value.timezone}
+          onChange={(timezone) => applyStructuredChange({ timezone })}
+          placeholder={translations.timezonePlaceholder}
+          suggestions={timezoneOptions}
+          allowCustomValues
+          clearable
+          disabled={controlsDisabled}
+        />
+        <p className="text-xs text-muted-foreground">{translations.timezoneHelp}</p>
+      </div>
+      <div className="space-y-2">
+        {value.days.map((day) => {
+          const dayCheckboxId = `${id}-${day.weekday}-enabled`
+          return (
+            <div key={day.weekday} className="rounded-md border border-border bg-background p-3">
+              <div className="flex flex-wrap items-start gap-4">
+                <div className="flex w-28 items-center gap-2 pt-1.5">
+                  <Checkbox
+                    id={dayCheckboxId}
+                    checked={day.enabled}
+                    disabled={controlsDisabled}
+                    onCheckedChange={(checked) => toggleDay(day.weekday, checked === true)}
+                  />
+                  <Label htmlFor={dayCheckboxId} className="text-sm font-normal">
+                    {translations.dayLabels[day.weekday]}
+                  </Label>
+                </div>
+                {day.enabled ? (
+                  <div className="flex-1 space-y-2">
+                    {day.intervals.map((interval) => {
+                      const intervalError = rowErrors?.[interval.key]
+                      return (
+                        <div key={interval.key} className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={interval.start}
+                              disabled={controlsDisabled}
+                              aria-label={translations.startLabel}
+                              aria-invalid={intervalError ? true : undefined}
+                              onChange={(event) => updateInterval(day.weekday, interval.key, { start: event.target.value })}
+                            />
+                            <span className="text-sm text-muted-foreground" aria-hidden="true">–</span>
+                            <Input
+                              type="time"
+                              className="w-32"
+                              value={interval.end}
+                              disabled={controlsDisabled}
+                              aria-label={translations.endLabel}
+                              aria-invalid={intervalError ? true : undefined}
+                              onChange={(event) => updateInterval(day.weekday, interval.key, { end: event.target.value })}
+                            />
+                            {day.intervals.length > 1 ? (
+                              <IconButton
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                aria-label={translations.removeWindow}
+                                disabled={controlsDisabled}
+                                onClick={() => removeInterval(day.weekday, interval.key)}
+                              >
+                                <Trash2 className="size-4" aria-hidden="true" />
+                              </IconButton>
+                            ) : null}
+                          </div>
+                          {intervalError ? <p className="text-sm text-status-error-text">{intervalError}</p> : null}
+                        </div>
+                      )
+                    })}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={controlsDisabled}
+                      onClick={() => addInterval(day.weekday)}
+                    >
+                      <Plus className="size-4" aria-hidden="true" />
+                      {translations.addWindow}
+                    </Button>
+                  </div>
+                ) : (
+                  <p className="pt-1.5 text-sm text-muted-foreground">{translations.closed}</p>
+                )}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+      <div className="space-y-2">
+        <div className="space-y-1">
+          <Label>{translations.holidaysLabel}</Label>
+          <p className="text-xs text-muted-foreground">{translations.holidaysHelp}</p>
+        </div>
+        {value.holidays.map((row) => {
+          const holidayError = rowErrors?.[row.key]
+          return (
+            <div key={row.key} className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Input
+                  type="date"
+                  className="w-44"
+                  value={row.date}
+                  disabled={controlsDisabled}
+                  aria-label={translations.holidayDateLabel}
+                  aria-invalid={holidayError ? true : undefined}
+                  onChange={(event) => updateHoliday(row.key, event.target.value)}
+                />
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  aria-label={translations.removeHoliday}
+                  disabled={controlsDisabled}
+                  onClick={() => removeHoliday(row.key)}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </IconButton>
+              </div>
+              {holidayError ? <p className="text-sm text-status-error-text">{holidayError}</p> : null}
+            </div>
+          )
+        })}
+        <Button type="button" variant="outline" size="sm" disabled={controlsDisabled} onClick={addHoliday}>
+          <Plus className="size-4" aria-hidden="true" />
+          {translations.addHoliday}
+        </Button>
+      </div>
+      <div className="space-y-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          aria-expanded={advancedVisible}
+          aria-controls={advancedRegionId}
+          disabled={disabled}
+          onClick={() => setAdvancedOpen((open) => !open)}
+        >
+          {advancedVisible
+            ? <ChevronDown className="size-4" aria-hidden="true" />
+            : <ChevronRight className="size-4" aria-hidden="true" />}
+          {translations.advancedToggle}
+        </Button>
+        {advancedVisible ? (
+          <div id={advancedRegionId} className="space-y-2">
+            <Label htmlFor={`${id}-raw`}>{translations.advancedLabel}</Label>
+            <Textarea
+              id={`${id}-raw`}
+              rows={6}
+              value={value.raw}
+              disabled={disabled}
+              aria-invalid={error ? true : undefined}
+              onChange={(event) => handleRawChange(event.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">{translations.advancedHelp}</p>
+          </div>
+        ) : null}
+      </div>
       {error ? <ErrorMessage label={error} /> : null}
     </div>
   )
@@ -797,8 +1060,8 @@ export default function WarrantyClaimSettingsPage() {
       autoApproveCurrencyCodeHelp: t('warranty_claims.settings.general.fields.autoApproveCurrencyCode.help', 'Three-letter uppercase currency code used by the auto-approval limit.'),
       autoApproveRequireInWarranty: t('warranty_claims.settings.general.fields.autoApproveRequireInWarranty.label', 'Require in-warranty lines'),
       autoApproveRequireInWarrantyHelp: t('warranty_claims.settings.general.fields.autoApproveRequireInWarranty.help', 'Only auto-approve when every line is still in warranty.'),
-      businessHours: t('warranty_claims.settings.general.fields.businessHours.label', 'Business hours JSON'),
-      businessHoursHelp: t('warranty_claims.settings.general.fields.businessHours.help', 'Shape: { timezone, week: { mon:[{start,end}], ... }, holidays:[...] }. Leave empty to disable.'),
+      businessHours: t('warranty_claims.settings.general.fields.businessHoursEditor.label', 'Business hours'),
+      businessHoursHelp: t('warranty_claims.settings.general.fields.businessHoursEditor.help', 'Working windows per weekday used by SLA timing. Leave every day unchecked to count wall-clock time.'),
       escalationTiers: t('warranty_claims.settings.general.fields.escalationTiersEditor.label', 'Escalation tiers'),
       escalationTiersHelp: t('warranty_claims.settings.general.fields.escalationTiersEditor.help', 'Notify or reassign a claim once its SLA has elapsed past a percentage threshold. Tiers apply in ascending order. Leave empty to disable.'),
       adjudicationUseRules: t('warranty_claims.settings.general.fields.adjudicationUseRules.label', 'Use business rules for adjudication'),
@@ -822,6 +1085,38 @@ export default function WarrantyClaimSettingsPage() {
       error: {
         atPct: t('warranty_claims.settings.general.escalationTiers.error.atPct', 'Enter a whole number between 1 and 1000.'),
         toUserId: t('warranty_claims.settings.general.escalationTiers.error.toUserId', 'Select a staff member to reassign to.'),
+      },
+    },
+    businessHours: {
+      dayLabels: {
+        mon: t('warranty_claims.settings.general.businessHours.day.mon', 'Monday'),
+        tue: t('warranty_claims.settings.general.businessHours.day.tue', 'Tuesday'),
+        wed: t('warranty_claims.settings.general.businessHours.day.wed', 'Wednesday'),
+        thu: t('warranty_claims.settings.general.businessHours.day.thu', 'Thursday'),
+        fri: t('warranty_claims.settings.general.businessHours.day.fri', 'Friday'),
+        sat: t('warranty_claims.settings.general.businessHours.day.sat', 'Saturday'),
+        sun: t('warranty_claims.settings.general.businessHours.day.sun', 'Sunday'),
+      },
+      timezoneLabel: t('warranty_claims.settings.general.businessHours.timezoneLabel', 'Timezone'),
+      timezonePlaceholder: t('warranty_claims.settings.general.businessHours.timezonePlaceholder', 'UTC'),
+      timezoneHelp: t('warranty_claims.settings.general.businessHours.timezoneHelp', 'IANA timezone the weekly windows are evaluated in. Leave empty for UTC.'),
+      startLabel: t('warranty_claims.settings.general.businessHours.startLabel', 'Opens at'),
+      endLabel: t('warranty_claims.settings.general.businessHours.endLabel', 'Closes at'),
+      addWindow: t('warranty_claims.settings.general.businessHours.addWindow', 'Add window'),
+      removeWindow: t('warranty_claims.settings.general.businessHours.removeWindow', 'Remove window'),
+      closed: t('warranty_claims.settings.general.businessHours.closed', 'Closed'),
+      holidaysLabel: t('warranty_claims.settings.general.businessHours.holidaysLabel', 'Holidays'),
+      holidaysHelp: t('warranty_claims.settings.general.businessHours.holidaysHelp', 'Dates skipped entirely when counting SLA business hours.'),
+      addHoliday: t('warranty_claims.settings.general.businessHours.addHoliday', 'Add holiday'),
+      removeHoliday: t('warranty_claims.settings.general.businessHours.removeHoliday', 'Remove holiday'),
+      holidayDateLabel: t('warranty_claims.settings.general.businessHours.holidayDateLabel', 'Holiday date'),
+      advancedToggle: t('warranty_claims.settings.general.businessHours.advancedToggle', 'Advanced: edit raw JSON'),
+      advancedLabel: t('warranty_claims.settings.general.fields.businessHours.label', 'Business hours JSON'),
+      advancedHelp: t('warranty_claims.settings.general.fields.businessHours.help', 'Shape: { timezone, week: { mon:[{start,end}], ... }, holidays:[...] }. Leave empty to disable.'),
+      error: {
+        window: t('warranty_claims.settings.general.businessHours.error.window', 'Enter a start time earlier than the end time.'),
+        holiday: t('warranty_claims.settings.general.businessHours.error.holiday', 'Pick a holiday date.'),
+        rows: t('warranty_claims.settings.general.businessHours.error.rows', 'Fix the highlighted business hours entries.'),
       },
     },
   }), [t])
@@ -856,6 +1151,14 @@ export default function WarrantyClaimSettingsPage() {
     setGeneralForm((prev) => ({ ...prev, ...patch }))
   }, [])
 
+  const updateBusinessHours = React.useCallback((next: BusinessHoursFormValue) => {
+    setGeneralForm((prev) => ({ ...prev, businessHours: next }))
+    setGeneralFieldErrors((prev) => {
+      if (!prev.businessHours && !prev.businessHoursRowErrors) return prev
+      return { ...prev, businessHours: undefined, businessHoursRowErrors: undefined }
+    })
+  }, [])
+
   const staffOptionLabel = React.useCallback((member: AssignableStaffMember): string => (
     member.email && member.email !== member.displayName
       ? `${member.displayName} (${member.email})`
@@ -868,15 +1171,18 @@ export default function WarrantyClaimSettingsPage() {
   }, [staffOptionLabel])
 
   const resolveStaffUserLabel = React.useCallback(async (userId: string): Promise<string> => {
+    const unknownUserLabel = t('warranty_claims.detail.unknownUser')
     const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
       `/api/auth/users?ids=${encodeURIComponent(userId)}`,
     )
-    if (!response.ok || !response.result) return userId
+    if (!response.ok || !response.result) return unknownUserLabel
     const user = (response.result.items ?? [])[0]
-    if (!user) return userId
-    const displayName = toStringOrNull(user.display_name) ?? toStringOrNull(user.displayName)
-    return displayName ?? toStringOrNull(user.email) ?? userId
-  }, [])
+    if (!user) return unknownUserLabel
+    const displayName = toStringOrNull(user.display_name)
+      ?? toStringOrNull(user.displayName)
+      ?? toStringOrNull(user.name)
+    return displayName ?? toStringOrNull(user.email) ?? unknownUserLabel
+  }, [t])
 
   const addEscalationTierRow = React.useCallback(() => {
     setGeneralForm((prev) => ({
@@ -947,7 +1253,7 @@ export default function WarrantyClaimSettingsPage() {
     const warrantyMonthsText = generalForm.defaultWarrantyMonths.trim()
     const defaultWarrantyMonths = warrantyMonthsText.length ? Number(warrantyMonthsText) : null
     const currencyCode = toStringOrNull(generalForm.autoApproveCurrencyCode)?.toUpperCase() ?? null
-    const businessHoursResult = parseNullableJsonObject(generalForm.businessHours)
+    const businessHoursResult = validateBusinessHoursValue(generalForm.businessHours, generalTranslations.businessHours)
     const escalationTiersResult = validateEscalationTierRows(generalForm.escalationTiers, generalTranslations.escalationTiers)
     const returnLabelProvider = toStringOrNull(generalForm.returnLabelProvider)
     const quarantineGrades = Array.from(new Set(
@@ -958,7 +1264,14 @@ export default function WarrantyClaimSettingsPage() {
 
     if (!businessHoursResult.ok || !escalationTiersResult.ok) {
       setGeneralFieldErrors({
-        businessHours: businessHoursResult.ok ? undefined : generalTranslations.jsonErrors.businessHours,
+        businessHours: businessHoursResult.ok
+          ? undefined
+          : businessHoursResult.reason === 'json'
+            ? generalTranslations.jsonErrors.businessHours
+            : generalTranslations.businessHours.error.rows,
+        businessHoursRowErrors: !businessHoursResult.ok && businessHoursResult.reason === 'rows'
+          ? businessHoursResult.rowErrors
+          : undefined,
         escalationTiers: escalationTiersResult.ok ? undefined : generalTranslations.jsonErrors.escalationTiers,
         escalationTierRowErrors: escalationTiersResult.ok ? undefined : escalationTiersResult.rowErrors,
       })
@@ -1031,6 +1344,7 @@ export default function WarrantyClaimSettingsPage() {
     generalForm,
     generalMutationContext,
     generalSettings?.updatedAt,
+    generalTranslations.businessHours,
     generalTranslations.escalationTiers,
     generalTranslations.invalidError,
     generalTranslations.jsonErrors.businessHours,
@@ -1338,19 +1652,16 @@ export default function WarrantyClaimSettingsPage() {
 
                   <GeneralSettingsSubsection title={generalTranslations.sections.slaEscalation}>
                     <div className="space-y-4">
-                      <GeneralJsonTextareaField
+                      <BusinessHoursField
                         id="warranty-claims-business-hours"
                         label={generalTranslations.fields.businessHours}
                         description={generalTranslations.fields.businessHoursHelp}
                         value={generalForm.businessHours}
+                        rowErrors={generalFieldErrors.businessHoursRowErrors}
                         error={generalFieldErrors.businessHours}
                         disabled={generalSaving}
-                        onChange={(value) => {
-                          updateGeneralForm({ businessHours: value })
-                          if (generalFieldErrors.businessHours) {
-                            setGeneralFieldErrors((prev) => ({ ...prev, businessHours: undefined }))
-                          }
-                        }}
+                        translations={generalTranslations.businessHours}
+                        onChange={updateBusinessHours}
                       />
                       <EscalationTiersField
                         id="warranty-claims-escalation-tiers"

@@ -4,7 +4,7 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud, updateCrud } from '@open-mercato/ui/backend/utils/crud'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -25,6 +25,7 @@ export default function EditWarrantyTroubleshootingGuidePage({ params }: { param
   const [guide, setGuide] = React.useState<TroubleshootingGuideRecord | null>(null)
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [notFound, setNotFound] = React.useState(false)
   const { fields, groups } = useTroubleshootingGuideFormConfig(t)
 
   React.useEffect(() => {
@@ -32,6 +33,7 @@ export default function EditWarrantyTroubleshootingGuidePage({ params }: { param
     async function loadGuide() {
       setLoading(true)
       setError(null)
+      setNotFound(false)
       try {
         const payload = await readApiResultOrThrow<{ items?: unknown[] }>(
           `/api/warranty_claims/troubleshooting-guides?ids=${encodeURIComponent(id)}&page=1&pageSize=1`,
@@ -47,7 +49,7 @@ export default function EditWarrantyTroubleshootingGuidePage({ params }: { param
           .find((entry): entry is TroubleshootingGuideRecord => entry !== null) ?? null
         if (!item) {
           setGuide(null)
-          setError(t('warranty_claims.troubleshootingGuides.edit.notFound', 'Troubleshooting guide not found.'))
+          setNotFound(true)
           return
         }
         setGuide(item)
@@ -79,11 +81,24 @@ export default function EditWarrantyTroubleshootingGuidePage({ params }: { param
     )
   }
 
+  if (notFound) {
+    return (
+      <Page>
+        <PageBody>
+          <RecordNotFoundState
+            label={t('warranty_claims.troubleshootingGuides.edit.notFound', 'Troubleshooting guide not found.')}
+            backHref="/backend/warranty_claims/troubleshooting-guides"
+          />
+        </PageBody>
+      </Page>
+    )
+  }
+
   if (error || !guide) {
     return (
       <Page>
         <PageBody>
-          <ErrorMessage label={error ?? t('warranty_claims.troubleshootingGuides.edit.notFound', 'Troubleshooting guide not found.')} />
+          <ErrorMessage label={error ?? t('warranty_claims.troubleshootingGuides.edit.error.load', 'Failed to load troubleshooting guide.')} />
         </PageBody>
       </Page>
     )

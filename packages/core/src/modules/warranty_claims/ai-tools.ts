@@ -519,7 +519,7 @@ const extractProofOfPurchaseTool: WarrantyClaimsAiToolDefinition = {
     const em = resolveEm(ctx)
     const claim = await loadClaim(em, scope, input.claimId)
     if (!claim) {
-      throw new Error(`Warranty claim "${input.claimId}" is not accessible to the caller.`)
+      throw new Error('[internal] Warranty claim not accessible to the caller')
     }
     try {
       return await extractProofOfPurchase({
@@ -625,7 +625,7 @@ const transitionClaimTool: WarrantyClaimsAiToolDefinition = {
     const em = resolveEm(ctx)
     const before = await loadClaim(em, scope, input.id)
     if (!before) {
-      throw new Error(`Warranty claim "${input.id}" is not accessible to the caller.`)
+      throw new Error('[internal] Warranty claim not accessible to the caller')
     }
     const commandBus = ctx.container.resolve<CommandBus>('commandBus')
     const commandCtx = buildCommandContext(ctx, scope)

@@ -960,6 +960,7 @@
   "ui.inputs.cardInput.placeholder": "0000 0000 0000 0000",
   "ui.inputs.comboboxInput.clear": "Clear value",
   "ui.inputs.comboboxInput.loading": "Loading suggestions…",
+  "ui.inputs.comboboxInput.noMatches": "No matches found",
   "ui.inputs.comboboxInput.placeholder": "Type to search...",
   "ui.inputs.emailInput.placeholder": "name@example.com",
   "ui.inputs.eventPatternInput.placeholder": "sales.orders.created",

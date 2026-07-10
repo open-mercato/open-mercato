@@ -309,7 +309,7 @@ export default function PersonDetailV2Page({ params }: { params?: { id?: string 
         .map((widget) => {
           const tabId = widget.placement?.groupId ?? widget.widgetId
           const label = widget.placement?.groupLabel
-            ? t(widget.placement.groupLabel, widget.module.metadata.title ?? tabId)
+            ? t(widget.placement.groupLabel, widget.placement.groupLabel)
             : widget.module.metadata.title ?? tabId
           const priority = typeof widget.placement?.priority === 'number' ? widget.placement.priority : 0
           const render = () => (

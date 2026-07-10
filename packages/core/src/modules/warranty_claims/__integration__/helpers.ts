@@ -39,6 +39,7 @@ export type ClaimItem = {
   escalationLevel?: number | null
   escalatedAt?: string | null
   assigneeUserId: string | null
+  assigneeName?: string | null
   createdAt: string | null
   updatedAt: string | null
 }
