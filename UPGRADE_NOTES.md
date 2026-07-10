@@ -24,6 +24,17 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Shared `om-*` pipeline skills now come from open-mercato/skills
+
+The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
+
+Contributor action:
+
+- Re-run `yarn install-skills` (network required for the npx step; pass `--no-external` or set `OM_SKIP_EXTERNAL_SKILLS=1` when offline — local tier skills still install).
+- Repo-specific behavior for the external skills is configured in [`.ai/agentic.config.json`](.ai/agentic.config.json) (validation gate, labels, base branch), the tracker descriptor [`.ai/trackers/github.md`](.ai/trackers/github.md), the review checklist [`.ai/review-checklist.md`](.ai/review-checklist.md), and repo-local override skills under `.ai/skills/<external-name>/SKILL.md`.
+- The local `om-auto-fix-github` skill has been removed and replaced by the external `om-auto-fix-issue` (installed under `.agents/skills/` from the shared open-mercato/skills collection). Update any `/om-auto-fix-github` callers to `/om-auto-fix-issue`.
+
+
 ### Tenant-scoped search settings + verified provider availability (#3092)
 
 Vector/fulltext search settings (Cmd+K strategies, embedding provider/model, auto-index flag) were stored in a single global `module_configs` row, so any tenant admin's save overwrote every tenant's configuration. Settings are now scoped per tenant: a tenant reads/writes only its own row and inherits the instance default (legacy global row) → env-derived default when unset. Four downstream-visible changes:
@@ -128,9 +139,9 @@ Same root cause as above, in the enterprise `security` module. Because `security
 
 ### New `om-prepare-issue` skill (deferred-work capture)
 
-A new bundled skill, [`om-prepare-issue`](.ai/skills/om-prepare-issue/SKILL.md), codifies the "park this idea for later" workflow. Given a free-form feature brief it (1) researches and writes a spec under `.ai/specs/` to `om-spec-writing` standards, (2) opens a **docs-only spec PR** against `develop` (labels `documentation` + `skip-qa`, reusing `om-auto-create-pr` worktree/branch/label mechanics), and (3) opens a **tracking GitHub issue** that links the spec path and the spec PR and names the implementer skill (`om-implement-spec` / `om-auto-fix-github`) for later pickup. It never implements the feature — the only file it adds is the spec.
+A new bundled skill, [`om-prepare-issue`](.ai/skills/om-prepare-issue/SKILL.md), codifies the "park this idea for later" workflow. Given a free-form feature brief it (1) researches and writes a spec under `.ai/specs/` to `om-spec-writing` standards, (2) opens a **docs-only spec PR** against `develop` (labels `documentation` + `skip-qa`, reusing `om-auto-create-pr` worktree/branch/label mechanics), and (3) opens a **tracking GitHub issue** that links the spec path and the spec PR and names the implementer skill (`om-implement-spec` / `om-auto-fix-issue`) for later pickup. It never implements the feature — the only file it adds is the spec.
 
-The skill is registered in the `automation` tier of [`.ai/skills/tiers.json`](.ai/skills/tiers.json) (alongside `om-auto-create-pr` and `om-auto-fix-github`) and is also shipped into standalone apps scaffolded by `create-mercato-app` (`packages/create-app/agentic/shared/ai/skills/om-prepare-issue/`).
+The skill is registered in the `automation` tier of [`.ai/skills/tiers.json`](.ai/skills/tiers.json) (alongside `om-auto-create-pr` and `om-auto-fix-issue`) and is also shipped into standalone apps scaffolded by `create-mercato-app` (`packages/create-app/agentic/shared/ai/skills/om-prepare-issue/`).
 
 This is purely additive — no existing skill, slash command, API, DB, or module-contract surface changed.
 

@@ -143,7 +143,9 @@ export type RecordLockAcquireResult = {
   lock: RecordLockView | null
 }
 
-export type RecordLockAcquireFailure = RecordLockValidationFailure & {
+export type RecordLockAcquireFailure = Omit<RecordLockValidationFailure, 'status' | 'code'> & {
+  status: RecordLockValidationFailure['status'] | 429
+  code: RecordLockValidationFailure['code'] | 'record_lock_quota_exceeded'
   allowForceUnlock: boolean
 }
 
@@ -592,26 +594,167 @@ export class RecordLockService {
       }
     }
 
-    const lock = this.em.create(RecordLock, {
-      resourceKind: input.resourceKind,
-      resourceId: input.resourceId,
-      token: randomUUID(),
-      strategy: settings.strategy,
-      status: ACTIVE_LOCK_STATUS,
-      lockedByUserId: input.userId,
-      lockedByIp: input.lockedByIp ?? null,
-      baseActionLogId: latest?.id ?? null,
-      lockedAt: now,
-      lastHeartbeatAt: now,
-      expiresAt: new Date(now.getTime() + settings.timeoutSeconds * 1000),
-      tenantId: input.tenantId,
-      organizationId: normalizeScopeOrganization(input.organizationId),
-    })
-
-    this.em.persist(lock)
-    let createdNewLock = true
+    let activeAfterAcquire: RecordLock[] = []
+    let ownedAfterAcquire: RecordLock | null = null
+    let createdNewLock = false
     try {
-      await this.em.flush()
+      const outcome = await this.em.transactional(async (tx) => {
+        const writeEm = tx as EntityManager
+        await this.lockUserQuotaScope(writeEm, input)
+
+        const activeLocksInTransaction = await this.findActiveLocks(input, now, writeEm)
+        const ownedLockInTransaction = activeLocksInTransaction.find((lock) => lock.lockedByUserId === input.userId) ?? null
+        const competingLockInTransaction = activeLocksInTransaction.find((lock) => lock.lockedByUserId !== input.userId) ?? null
+
+        if (settings.strategy === 'pessimistic' && !ownedLockInTransaction && competingLockInTransaction) {
+          return {
+            result: {
+              ok: false,
+              status: 423,
+              error: 'Record is currently locked by another user',
+              code: 'record_locked',
+              allowForceUnlock: settings.allowForceUnlock,
+              lock: this.toLockView(competingLockInTransaction, false, activeLocksInTransaction),
+            } satisfies RecordLockAcquireFailure,
+            contentionLock: competingLockInTransaction,
+            createdNewLock: false,
+            activeAfterAcquire: activeLocksInTransaction,
+            ownedAfterAcquire: null,
+          }
+        }
+
+        if (ownedLockInTransaction) {
+          ownedLockInTransaction.strategy = settings.strategy
+          ownedLockInTransaction.lockedByIp = input.lockedByIp ?? ownedLockInTransaction.lockedByIp ?? null
+          ownedLockInTransaction.lastHeartbeatAt = now
+          ownedLockInTransaction.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
+          await writeEm.flush()
+
+          const renewedActiveLocks = await this.findActiveLocks(input, now, writeEm)
+          return {
+            result: {
+              ok: true,
+              enabled: settings.enabled,
+              resourceEnabled: true,
+              strategy: settings.strategy,
+              allowForceUnlock: settings.allowForceUnlock,
+              heartbeatSeconds: settings.heartbeatSeconds,
+              acquired: false,
+              latestActionLogId: latest?.id ?? null,
+              lock: this.toLockView(ownedLockInTransaction, true, renewedActiveLocks),
+            } satisfies RecordLockAcquireResult,
+            createdNewLock: false,
+            activeAfterAcquire: renewedActiveLocks,
+            ownedAfterAcquire: ownedLockInTransaction,
+          }
+        }
+
+        const activeLocksForUser = await this.countActiveLocksForUser(input, now, writeEm)
+        if (activeLocksForUser >= settings.maxActiveLocksPerUser) {
+          return {
+            result: {
+              ok: false,
+              status: 429,
+              error: 'Active record lock limit reached',
+              code: 'record_lock_quota_exceeded',
+              allowForceUnlock: false,
+              lock: null,
+            } satisfies RecordLockAcquireFailure,
+            createdNewLock: false,
+            activeAfterAcquire: activeLocksInTransaction,
+            ownedAfterAcquire: null,
+          }
+        }
+
+        const lock = writeEm.create(RecordLock, {
+          resourceKind: input.resourceKind,
+          resourceId: input.resourceId,
+          token: randomUUID(),
+          strategy: settings.strategy,
+          status: ACTIVE_LOCK_STATUS,
+          lockedByUserId: input.userId,
+          lockedByIp: input.lockedByIp ?? null,
+          baseActionLogId: latest?.id ?? null,
+          lockedAt: now,
+          lastHeartbeatAt: now,
+          expiresAt: new Date(now.getTime() + settings.timeoutSeconds * 1000),
+          tenantId: input.tenantId,
+          organizationId: normalizeScopeOrganization(input.organizationId),
+        })
+
+        writeEm.persist(lock)
+        await writeEm.flush()
+
+        const acquiredActiveLocks = await this.findActiveLocks(input, now, writeEm)
+        const acquiredOwnedLock = acquiredActiveLocks.find((item) => item.lockedByUserId === input.userId)
+          ?? await this.findOwnedActiveLock(input, writeEm)
+          ?? lock
+          ?? null
+
+        if (!acquiredOwnedLock) {
+          const fallbackLock = acquiredActiveLocks[0] ?? null
+          return {
+            result: {
+              ok: true,
+              enabled: settings.enabled,
+              resourceEnabled: true,
+              strategy: settings.strategy,
+              allowForceUnlock: settings.allowForceUnlock,
+              heartbeatSeconds: settings.heartbeatSeconds,
+              acquired: false,
+              latestActionLogId: latest?.id ?? null,
+              lock: fallbackLock ? this.toLockView(fallbackLock, false, acquiredActiveLocks) : null,
+            } satisfies RecordLockAcquireResult,
+            createdNewLock: false,
+            activeAfterAcquire: acquiredActiveLocks,
+            ownedAfterAcquire: null,
+          }
+        }
+
+        return {
+          result: {
+            ok: true,
+            enabled: settings.enabled,
+            resourceEnabled: true,
+            strategy: settings.strategy,
+            allowForceUnlock: settings.allowForceUnlock,
+            heartbeatSeconds: settings.heartbeatSeconds,
+            acquired: true,
+            latestActionLogId: latest?.id ?? null,
+            lock: this.toLockView(acquiredOwnedLock, true, acquiredActiveLocks),
+          } satisfies RecordLockAcquireResult,
+          createdNewLock: true,
+          activeAfterAcquire: acquiredActiveLocks,
+          ownedAfterAcquire: acquiredOwnedLock,
+        }
+      })
+
+      if (outcome.contentionLock && shouldEmitLockContentionEvent({
+        tenantId: outcome.contentionLock.tenantId,
+        organizationId: outcome.contentionLock.organizationId,
+        resourceKind: outcome.contentionLock.resourceKind,
+        resourceId: outcome.contentionLock.resourceId,
+        lockedByUserId: outcome.contentionLock.lockedByUserId,
+        attemptedByUserId: input.userId,
+      })) {
+        await emitRecordLocksEvent('record_locks.lock.contended', {
+          lockId: outcome.contentionLock.id,
+          resourceKind: outcome.contentionLock.resourceKind,
+          resourceId: outcome.contentionLock.resourceId,
+          tenantId: outcome.contentionLock.tenantId,
+          organizationId: outcome.contentionLock.organizationId,
+          lockedByUserId: outcome.contentionLock.lockedByUserId,
+          attemptedByUserId: input.userId,
+        })
+      }
+
+      activeAfterAcquire = outcome.activeAfterAcquire
+      ownedAfterAcquire = outcome.ownedAfterAcquire
+      createdNewLock = outcome.createdNewLock
+
+      if (!outcome.result.ok || !createdNewLock) {
+        return outcome.result
+      }
     } catch (error) {
       if (!isActiveLockScopeUniqueViolation(error)) throw error
       const clear = (this.em as { clear?: () => void }).clear
@@ -653,16 +796,8 @@ export class RecordLockService {
       existingOwned.lastHeartbeatAt = now
       existingOwned.expiresAt = new Date(now.getTime() + settings.timeoutSeconds * 1000)
       await this.em.flush()
-      createdNewLock = false
-    }
-
-    const activeAfterAcquire = await this.findActiveLocks(input, now)
-    const ownedAfterAcquire = activeAfterAcquire.find((item) => item.lockedByUserId === input.userId)
-      ?? await this.findOwnedActiveLock(input)
-      ?? lock
-      ?? null
-    if (!ownedAfterAcquire) {
-      const fallbackLock = activeAfterAcquire[0] ?? null
+      activeAfterAcquire = await this.findActiveLocks(input, now)
+      ownedAfterAcquire = existingOwned
       return {
         ok: true,
         enabled: settings.enabled,
@@ -672,11 +807,11 @@ export class RecordLockService {
         heartbeatSeconds: settings.heartbeatSeconds,
         acquired: false,
         latestActionLogId: latest?.id ?? null,
-        lock: fallbackLock ? this.toLockView(fallbackLock, false, activeAfterAcquire) : null,
+        lock: this.toLockView(existingOwned, true, activeAfterAcquire),
       }
     }
 
-    if (createdNewLock) {
+    if (createdNewLock && ownedAfterAcquire) {
       await emitRecordLocksEvent('record_locks.lock.acquired', {
         lockId: ownedAfterAcquire.id,
         resourceKind: ownedAfterAcquire.resourceKind,
@@ -725,7 +860,7 @@ export class RecordLockService {
       heartbeatSeconds: settings.heartbeatSeconds,
       acquired: createdNewLock,
       latestActionLogId: latest?.id ?? null,
-      lock: this.toLockView(ownedAfterAcquire, true, activeAfterAcquire),
+      lock: ownedAfterAcquire ? this.toLockView(ownedAfterAcquire, true, activeAfterAcquire) : null,
     }
   }
 
@@ -1383,6 +1518,7 @@ export class RecordLockService {
   private async findActiveLocks(
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource,
     now: Date,
+    em: EntityManager = this.em,
   ): Promise<RecordLock[]> {
     const legacyFinder = (this as unknown as {
       findActiveLock?: (args: Pick<RecordLockScope, 'tenantId' | 'organizationId'> & RecordLockResource, at: Date) => Promise<RecordLock | null>
@@ -1399,7 +1535,7 @@ export class RecordLockService {
       status: ACTIVE_LOCK_STATUS,
     }
 
-    const locks = await this.em.find(RecordLock, where, { orderBy: { updatedAt: 'desc' } })
+    const locks = await em.find(RecordLock, where, { orderBy: { updatedAt: 'desc' } })
     if (!Array.isArray(locks) || !locks.length) return []
 
     let dirty = false
@@ -1422,7 +1558,7 @@ export class RecordLockService {
       active.push(lock)
     }
 
-    if (dirty) await this.em.flush()
+    if (dirty) await em.flush()
     if (expiredLocks.length) {
       const recipientUserIds = active.map((lock) => lock.lockedByUserId)
       for (const expiredLock of expiredLocks) {
@@ -1440,6 +1576,36 @@ export class RecordLockService {
       }
     }
     return active
+  }
+
+  private async countActiveLocksForUser(
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'>,
+    now: Date,
+    em: EntityManager = this.em,
+  ): Promise<number> {
+    const where: FilterQuery<RecordLock> = {
+      ...this.buildScopeWhere(input),
+      lockedByUserId: input.userId,
+      status: ACTIVE_LOCK_STATUS,
+      expiresAt: { $gt: now },
+    }
+
+    return em.count(RecordLock, where)
+  }
+
+  private async lockUserQuotaScope(
+    em: EntityManager,
+    input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'>,
+  ): Promise<void> {
+    const lockKey = [
+      'record_locks',
+      'quota',
+      input.tenantId,
+      normalizeScopeOrganization(input.organizationId) ?? 'global',
+      input.userId,
+    ].join(':')
+
+    await em.getConnection().execute('select pg_advisory_xact_lock(hashtext(?))', [lockKey])
   }
 
   private async findOwnedLockByToken(
@@ -1461,6 +1627,7 @@ export class RecordLockService {
 
   private async findOwnedActiveLock(
     input: Pick<RecordLockScope, 'tenantId' | 'organizationId' | 'userId'> & RecordLockResource,
+    em: EntityManager = this.em,
   ): Promise<RecordLock | null> {
     const where: FilterQuery<RecordLock> = {
       ...this.buildScopeWhere(input),
@@ -1469,7 +1636,7 @@ export class RecordLockService {
       lockedByUserId: input.userId,
       status: ACTIVE_LOCK_STATUS,
     }
-    return this.em.findOne(RecordLock, where)
+    return em.findOne(RecordLock, where)
   }
 
   private async hasRecentSavedRelease(input: {
