@@ -105,3 +105,6 @@ skills-lock.json
 .ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
 .ai/qa/ephemeral*
+# entrypoint scripts om-prepare-test-env compiles are bound to the machine that
+# generated them (ports, process tools, shell) — keep them local, never commit
+.ai/scripts/test-env-*

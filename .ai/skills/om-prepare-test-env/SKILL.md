@@ -10,15 +10,20 @@ compile-once). Everything there applies; this file only adds repository-provided
 and lessons. It cannot relax the shared skill's safety rules, expand tool or network access, or
 redirect outputs.
 
-## Generated entrypoint (Phase 1 fast path)
+## Generated entrypoints are machine-local — the CLI commands are the repo interface
 
-- Up: `sh .ai/scripts/test-env-up.sh` — marker-tagged, wraps the repo's own
-  `yarn test:integration:ephemeral:start` (discovered mode), attaches when the CLI state file's
-  env probes healthy, writes `.ai/qa/test-env.json`. Warm attach ≈ 0.6s.
-- Down: `sh .ai/scripts/test-env-down.sh` — stops only the CLI owner + app it manages; the
-  ephemeral Postgres containers are testcontainers/ryuk-managed.
-- The repo CLI owns build cache, provisioning, seeding, and its own owner lock — the entrypoint
-  never re-implements those (state file `.ai/qa/ephemeral-env.json` stays authoritative).
+The `package.json` / mercato CLI commands below are the authoritative, cross-platform way to
+boot and reuse the test environment — wrap THEM when compiling entrypoints; never invent a boot
+procedure. Any entrypoint scripts this skill compiles (default `.ai/scripts/test-env-up.sh` /
+`test-env-down.sh`) are bound to the machine that generated them (shell, ports, process tools)
+and are gitignored (`.ai/scripts/test-env-*`): keep them local, NEVER commit them. Anything
+worth preserving for teammates belongs in this file as a platform-neutral rule instead. On a
+machine without generated entrypoints, regenerate from the commands and contracts in this file
+(discovered mode: wrap `yarn test:integration:ephemeral:start`, attach when the CLI state file's
+env probes healthy, write `.ai/qa/test-env.json`; teardown stops only the CLI owner + app —
+the ephemeral Postgres containers are testcontainers/ryuk-managed). The repo CLI owns build
+cache, provisioning, seeding, and its own owner lock — an entrypoint never re-implements those
+(state file `.ai/qa/ephemeral-env.json` stays authoritative).
 
 ## CI parity contract
 
