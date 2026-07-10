@@ -136,6 +136,7 @@ docker/opencode/opencode.jsonc
 # om-prepare-test-env shared descriptor + per-run QA artifacts (generated, not source)
 .ai/qa/test-env.json
 .ai/qa/test-env.lock/
+.ai/qa/test-env-boot.log
 .ai/qa/artifacts_*/
 .agents/
 

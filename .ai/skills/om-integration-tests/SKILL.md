@@ -15,6 +15,7 @@ This skill generates executable Playwright tests in module-local `__integration_
 |--------|---------|
 | Run all tests | `yarn test:integration` |
 | Run single test | `npx playwright test --config .ai/qa/tests/playwright.config.ts <path>` |
+| Run tests matching a path substring with the managed env | `yarn mercato test:integration <substring>` (no `--retries` support) |
 | Run in ephemeral containers | `yarn test:integration:ephemeral` |
 | Run interactive ephemeral mode | `yarn test:integration:ephemeral:interactive` |
 | Start ephemeral app only (for MCP exploration, tests development, and debugging) | `yarn test:integration:ephemeral:start` |
@@ -57,7 +58,7 @@ If performance evidence is not feasible in the environment, state the blocker an
 Do not re-implement environment discovery, boot, reuse, PID/freshness checks, or locking here — that is `om-prepare-test-env`'s job (`.agents/skills/om-prepare-test-env/SKILL.md`). This section only names the repo tooling that skill honors under its "Honor repo tooling" rule:
 
 - Ephemeral bring-up/reuse commands: `yarn test:integration:ephemeral` (full suite in ephemeral containers), `yarn test:integration:ephemeral:start` (app only — for MCP exploration, test development, debugging), `yarn test:integration:ephemeral:interactive` (reused ephemeral app + DB for short local loops).
-- Plain suite against an already-running app: `yarn test:integration`.
+- Plain suite against an already-running app: `yarn test:integration`. **Caution:** this only works when the caller exports the full runner env block (at minimum `BASE_URL`, `DATABASE_URL` of the ephemeral DB, and `QUEUE_BASE_DIR`); with `BASE_URL` alone, DB-fixture helpers fall back to `apps/mercato/.env`'s dev `DATABASE_URL` and fail with cross-database FK violations. Prefer `yarn mercato test:integration [filter]`, which injects the env block itself. See the repo-local `om-prepare-test-env` skill (`.ai/skills/om-prepare-test-env/SKILL.md`) for the full env contract, reuse-TTL semantics, and owner-lock teardown.
 - Default ephemeral app port is `5001` when available; the actual bound port is recorded in the repo state file.
 - Repo state file: `.ai/qa/ephemeral-env.json` (managed by `om-prepare-test-env`, not written by hand).
 
