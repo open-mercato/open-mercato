@@ -80,8 +80,8 @@ when a human is present.
 
 ### Phase 1: Monorepo skill overrides
 
-- [ ] 1.1 Update .ai/skills/om-prepare-test-env/SKILL.md (run-mode choice, ephemeral-first)
-- [ ] 1.2 Update .ai/skills/om-integration-tests/SKILL.md (ephemeral-first quick ref, rules, ask step)
+- [x] 1.1 Update .ai/skills/om-prepare-test-env/SKILL.md (run-mode choice, ephemeral-first) — 62157f9f7
+- [x] 1.2 Update .ai/skills/om-integration-tests/SKILL.md (ephemeral-first quick ref, rules, ask step) — d7a47e2b3
 
 ### Phase 2: Standalone create-app template
 
