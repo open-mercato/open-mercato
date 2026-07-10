@@ -7,6 +7,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, symlinkSync, lstatSync, unlinkSync, readdirSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { join, dirname, basename } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Project, SyntaxKind } from 'ts-morph'
@@ -514,6 +515,8 @@ export async function runAgenticSetup(
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  installSkills(targetDir)
+
   console.log('')
   console.log('   Agentic setup complete:')
   if (selectedIds.includes('claude-code')) {
@@ -526,4 +529,20 @@ export async function runAgenticSetup(
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
   }
   console.log('')
+  console.log('   .ai/agentic.config.json ships preconfigured (GitHub tracker, labels off);')
+  console.log('   run /om-setup-agent-pipeline in your agent CLI to tailor labels, QA gate,')
+  console.log('   tracker, or validation commands. Re-run `yarn install-skills` anytime to')
+  console.log('   refresh the external open-mercato/skills subset.')
+  console.log('')
+}
+
+function installSkills(targetDir: string): void {
+  const installScript = join(targetDir, 'scripts', 'install-skills.sh')
+  if (!existsSync(installScript)) return
+  console.log('')
+  console.log('   Installing agent skills (local tiers + external open-mercato/skills subset)...')
+  const result = spawnSync('sh', [installScript], { cwd: targetDir, stdio: 'inherit' })
+  if (result.error || result.status !== 0) {
+    console.log('   ⚠ Skill installation did not complete; run `yarn install-skills` inside the app when online.')
+  }
 }

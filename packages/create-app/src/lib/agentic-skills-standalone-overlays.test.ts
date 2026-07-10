@@ -68,16 +68,69 @@ test('the deleted duplicate full-copy skill folders are gone', () => {
   // standalone-specific behavior, so the scaffold no longer ships a copy.
   const shouldNotExist = [
     'om-auto-fix-github',
+    'om-apply-upgrade-notes',
     'om-code-review',
+    'om-fix',
     'om-integration-tests',
+    'om-open-pr',
     'om-prepare-issue',
+    'om-prepare-test-env',
+    'om-root-cause',
+    'om-setup-agent-pipeline',
     'om-spec-writing',
+    'om-verify-in-repo',
   ]
   const leftover = shouldNotExist.filter((skill) => fs.existsSync(new URL(`${skill}/`, skillsDir)))
   assert.deepEqual(
     leftover,
     [],
     `These duplicate folders should have been removed (now external): ${leftover.join(', ')}`,
+  )
+})
+
+// Some external skills invoke other external skills at runtime. Installing a
+// skill without its chain steps produces a scaffold where the skill stops
+// mid-run pointing at a missing dependency, so the subset must always contain
+// the dependency closure. Soft "see also" references are intentionally not
+// listed here — only skills another skill actually executes.
+const EXTERNAL_SKILL_HARD_DEPS: Record<string, string[]> = {
+  'om-integration-tests': ['om-prepare-test-env'],
+  'om-auto-fix-issue': [
+    'om-verify-in-repo',
+    'om-root-cause',
+    'om-fix',
+    'om-open-pr',
+    'om-auto-review-pr',
+  ],
+  'om-auto-review-pr': ['om-code-review'],
+  // Every external skill loads its config via the om-setup-agent-pipeline
+  // snippet and points there when the config is missing; install-skills.sh
+  // runs `npx skills update` on every re-run, after which om-apply-upgrade-notes
+  // re-syncs the installed artifacts (tracker descriptor, config).
+  'om-code-review': ['om-setup-agent-pipeline'],
+  'om-apply-upgrade-notes': ['om-setup-agent-pipeline'],
+}
+
+test('the external subset in tiers.json includes the dependency closure of every installed skill', () => {
+  const manifest = JSON.parse(
+    fs.readFileSync(new URL('tiers.json', skillsDir), 'utf8'),
+  ) as { external?: { skills?: string[] } }
+  const externalSkills = new Set(manifest.external?.skills ?? [])
+  assert.ok(externalSkills.has('om-apply-upgrade-notes'), 'om-apply-upgrade-notes must be installed')
+  assert.ok(externalSkills.has('om-setup-agent-pipeline'), 'om-setup-agent-pipeline must be installed')
+  const missing: string[] = []
+  for (const [skill, deps] of Object.entries(EXTERNAL_SKILL_HARD_DEPS)) {
+    if (!externalSkills.has(skill)) continue
+    for (const dep of deps) {
+      if (!externalSkills.has(dep)) {
+        missing.push(`${skill} requires ${dep}`)
+      }
+    }
+  }
+  assert.deepEqual(
+    missing,
+    [],
+    `tiers.json external.skills is missing hard dependencies: ${missing.join('; ')}`,
   )
 })
 

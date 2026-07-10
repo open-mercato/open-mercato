@@ -662,12 +662,14 @@ These auto-* agent skills let you delegate whole units of work to an autonomous 
 | `om-auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/om-auto-create-pr <task description>"` |
 | `om-auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/om-auto-continue-pr <PR#>"` |
 | `om-auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/om-auto-review-pr <PR#>"` |
-| `om-auto-fix-issue` | Fix a GitHub issue by number and open a PR linked to it | `claude "/om-auto-fix-issue <issue#>"` |
+| `om-auto-fix-issue` | Fix a GitHub issue by number and open a PR linked to it (drives the installed chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`) | `claude "/om-auto-fix-issue <issue#>"` |
+| `om-setup-agent-pipeline` | Tailor the agent PR pipeline — the scaffold ships a working `.ai/agentic.config.json` (GitHub tracker, labels off), so run this only to enable the label pipeline + QA gate, switch tracker, or change validation commands | `claude "/om-setup-agent-pipeline"` |
+| `om-apply-upgrade-notes` | Re-sync the installed pipeline artifacts (tracker descriptor, config) after `yarn install-skills` refreshed the external collection | `claude "/om-apply-upgrade-notes"` |
 | `om-trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) — ships locally, installed by tier | `claude "/om-trim-unused-modules"` |
 
 Notes:
 
-- The external skills install automatically when the app is scaffolded; run `yarn install-skills` to refresh them or if that step was skipped (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
+- The external skills install automatically when the app is scaffolded, including the chain steps the skills above invoke (`om-prepare-test-env` for integration tests, the autofix chain steps); run `yarn install-skills` to refresh them or if that step was skipped (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
 - The skills probe `gh repo view --json defaultBranchRef` for your repo's default branch; no assumption that it's `main` or `develop`.
 - Pipeline labels (`review`, `qa`, `merge-queue`, etc.) are opt-in — the skills detect which labels exist in your repo via `gh label list` and skip gracefully when they're missing. If you want the full workflow, the skill README in each skill folder has a `gh label create` snippet you can paste in once.
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.

@@ -123,7 +123,7 @@ export async function runAgenticSetup(
   targetDir: string,
   ask: AskFn,
   options?: AgenticSetupOptions,
-): Promise<void> {
+): Promise<boolean> {
   let selectedIds: string[]
 
   if (options?.tool) {
@@ -136,7 +136,7 @@ export async function runAgenticSetup(
     console.log('')
     console.log('   Skipped agentic setup. Run `yarn mercato agentic:init` later to configure.')
     console.log('')
-    return
+    return false
   }
 
   const config: AgenticConfig = {
@@ -152,6 +152,7 @@ export async function runAgenticSetup(
 
   installSkills(targetDir)
   printSummary(selectedIds)
+  return true
 }
 
 function installSkills(targetDir: string): void {
@@ -189,7 +190,9 @@ function printSummary(selectedIds: string[]): void {
     console.log('      /om-auto-fix-issue   <issue#> — fix a tracker issue and open a PR')
     console.log('      /om-prepare-issue    <idea>   — spec out deferred work + open a tracking issue (no build)')
     console.log('      /om-trim-unused-modules       — slim classic-mode defaults after adding your own module')
-    console.log('      The external open-mercato/skills subset installs automatically;')
+    console.log('      The external open-mercato/skills subset installs automatically')
+    console.log('      (including chain steps like om-prepare-test-env and the autofix')
+    console.log('      chain om-verify-in-repo → om-root-cause → om-fix → om-open-pr);')
     console.log('      re-run anytime with `yarn install-skills`. The local override')
     console.log('      SKILL.md files adjust them for your app (base-branch discovery,')
     console.log('      opt-in pipeline labels, script probing).')
