@@ -172,7 +172,8 @@
     "tsconfig-paths": "^4.2.0",
     "tsx": "^4.22.4",
     "turbo": "^2.10.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "yaml": "2.8.3"
   },
   "resolutions": {
     "@xmldom/xmldom": "0.8.13",
