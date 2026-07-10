@@ -228,6 +228,87 @@ function Test-VirtualizationEnabled {
 
 function Test-WingetAvailable { return (Test-CommandAvailable "winget") }
 
+# ---------------------------------------------------------------------------
+# Direct-download fallbacks (winget / App Installer is missing on Windows LTSC,
+# Server SKUs, and many locked-down corporate images). Git and Docker Desktop
+# both publish stable official installers we can fetch and run silently.
+# ---------------------------------------------------------------------------
+
+function Get-RemoteFile {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [Parameter(Mandatory = $true)][string]$OutFile,
+        [string]$DisplayName = "file"
+    )
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Write-Info "Downloading $DisplayName..."
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $OutFile -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+    } catch {
+        Write-Fail "Download of $DisplayName failed: $($_.Exception.Message). Behind a corporate proxy, configure the proxy for this session (e.g. netsh winhttp import proxy) or download it manually."
+    }
+    if (-not (Test-Path $OutFile) -or (Get-Item $OutFile).Length -lt 1024) {
+        Write-Fail "Downloaded $DisplayName is missing or too small - the download likely failed or was blocked by a proxy/firewall."
+    }
+}
+
+function Install-GitDirect {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $assetUrl = $null
+    try {
+        $release = Invoke-RestMethod -Uri "https://api.github.com/repos/git-for-windows/git/releases/latest" -UseBasicParsing -Headers @{ "User-Agent" = "open-mercato-setup" }
+        $asset = $release.assets | Where-Object { $_.name -match '^Git-.*-64-bit\.exe$' } | Select-Object -First 1
+        if ($asset) { $assetUrl = $asset.browser_download_url }
+    } catch {
+        Write-Fail "Could not resolve the latest Git for Windows installer: $($_.Exception.Message). Install Git manually from https://git-scm.com/download/win and re-run."
+    }
+    if (-not $assetUrl) { Write-Fail "No 64-bit Git installer found in the latest release. Install Git manually from https://git-scm.com/download/win and re-run." }
+
+    $installer = Join-Path $env:TEMP "git-for-windows-64.exe"
+    Get-RemoteFile -Url $assetUrl -OutFile $installer -DisplayName "Git for Windows"
+    Write-Info "Installing Git (silent)..."
+    $proc = Start-Process -FilePath $installer -ArgumentList '/VERYSILENT', '/NORESTART', '/SP-', '/SUPPRESSMSGBOXES', '/NOCANCEL', '/CLOSEAPPLICATIONS', '/NORESTARTAPPLICATIONS' -Wait -PassThru
+    if ($proc.ExitCode -ne 0) { Write-Fail "Git installer exited with code $($proc.ExitCode). Install Git manually from https://git-scm.com/download/win and re-run." }
+}
+
+function Install-DockerDesktopDirect {
+    $installer = Join-Path $env:TEMP "DockerDesktopInstaller.exe"
+    Get-RemoteFile -Url "https://desktop.docker.com/win/main/amd64/Docker%20Desktop%20Installer.exe" -OutFile $installer -DisplayName "Docker Desktop (~500 MB)"
+    Write-Info "Installing Docker Desktop (silent)..."
+    $proc = Start-Process -FilePath $installer -ArgumentList 'install', '--quiet', '--accept-license', '--backend=wsl-2' -Wait -PassThru
+    # 0 = success; 3010 = success but reboot required.
+    if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
+        Write-Fail "Docker Desktop installer exited with code $($proc.ExitCode). Install manually from https://www.docker.com/products/docker-desktop/ and re-run."
+    }
+}
+
+function Install-GitViaBestMethod {
+    param([bool]$HasWinget)
+    if ($HasWinget) {
+        Write-Info "Installing Git via winget..."
+        & winget install --id Git.Git --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
+        if ($LASTEXITCODE -eq 0) { [void](Test-GitInstalled); return }
+        Write-Warn "winget could not install Git (exit $LASTEXITCODE) - falling back to a direct download."
+    } else {
+        Write-Info "winget unavailable - installing Git via direct download..."
+    }
+    Install-GitDirect
+    [void](Test-GitInstalled)
+}
+
+function Install-DockerViaBestMethod {
+    param([bool]$HasWinget)
+    if ($HasWinget) {
+        Write-Info "Installing Docker Desktop via winget (this downloads ~500 MB)..."
+        & winget install --id Docker.DockerDesktop --exact --accept-package-agreements --accept-source-agreements --override "install --quiet --accept-license --backend=wsl-2"
+        if ($LASTEXITCODE -eq 0) { return }
+        Write-Warn "winget could not install Docker Desktop (exit $LASTEXITCODE) - falling back to a direct download."
+    } else {
+        Write-Info "winget unavailable - installing Docker Desktop via direct download..."
+    }
+    Install-DockerDesktopDirect
+}
+
 function Test-GitInstalled {
     if (Test-CommandAvailable "git") { return $true }
     $candidates = @(
@@ -274,17 +355,16 @@ function Invoke-ElevatedInstallPhase {
     # admin-required work, then exits: 0 = done, 10 = reboot required.
     Write-Section "Elevated install phase"
 
-    if (-not (Test-WingetAvailable)) {
-        Write-Fail "Winget is not available. Install 'App Installer' from the Microsoft Store (on LTSC/Server: download the msixbundle from https://github.com/microsoft/winget-cli/releases), then re-run."
+    # winget is a fast path when present; when it is not (LTSC / Server /
+    # locked-down images) we fall back to direct downloads of the official
+    # installers, so the App Installer is no longer a hard requirement.
+    $hasWinget = Test-WingetAvailable
+    if (-not $hasWinget) {
+        Write-Warn "winget / App Installer is not available - Git and Docker Desktop will be installed via direct download instead."
     }
 
     if (-not (Test-GitInstalled)) {
-        Write-Info "Installing Git via winget..."
-        & winget install --id Git.Git --exact --accept-package-agreements --accept-source-agreements --disable-interactivity
-        if ($LASTEXITCODE -ne 0) {
-            Write-Fail "Git installation failed (winget exit $LASTEXITCODE). Behind a corporate proxy, configure 'netsh winhttp set proxy' or install Git manually from https://git-scm.com."
-        }
-        [void](Test-GitInstalled)
+        Install-GitViaBestMethod -HasWinget $hasWinget
     }
     if (Test-CommandAvailable "git") {
         & git config --global core.autocrlf input
@@ -310,11 +390,7 @@ function Invoke-ElevatedInstallPhase {
     Write-Ok "WSL2 features ensured"
 
     if (-not (Test-DockerDesktopInstalled)) {
-        Write-Info "Installing Docker Desktop via winget (this downloads ~500 MB)..."
-        & winget install --id Docker.DockerDesktop --exact --accept-package-agreements --accept-source-agreements --override "install --quiet --accept-license --backend=wsl-2"
-        if ($LASTEXITCODE -ne 0) {
-            Write-Fail "Docker Desktop installation failed (winget exit $LASTEXITCODE). Install manually from https://www.docker.com/products/docker-desktop/ and re-run."
-        }
+        Install-DockerViaBestMethod -HasWinget $hasWinget
         $script:RestartRequired = $true
     }
     Write-Ok "Docker Desktop present"
@@ -1212,10 +1288,12 @@ try {
     if (-not (Test-VirtualizationEnabled)) {
         Write-Fail "CPU virtualization appears disabled. Enable Intel VT-x / AMD-V (SVM) in your BIOS/UEFI settings, then re-run."
     }
-    if (-not (Test-WingetAvailable)) {
-        Write-Fail "Winget is not available. Install 'App Installer' from the Microsoft Store (on LTSC/Server: download from https://github.com/microsoft/winget-cli/releases), then re-run."
+    if (Test-WingetAvailable) {
+        Write-Ok "Windows build $build, virtualization available, winget present"
+    } else {
+        Write-Warn "winget / App Installer is not available - Git and Docker Desktop will be installed via direct download (no App Installer needed)."
+        Write-Ok "Windows build $build, virtualization available"
     }
-    Write-Ok "Windows build $build, virtualization available, winget present"
 
     # Step: prerequisites (elevated only when something is missing)
     Invoke-InstallPhaseIfNeeded
