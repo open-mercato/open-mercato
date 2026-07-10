@@ -3,7 +3,7 @@ import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
 import { ENV_PROBE_TENANT_DOMAIN, TILLIO_INTEGRATION_ID, environmentSchema, generateTenantSystemId } from './environment'
 
-type CredentialsServiceLike = {
+export type CredentialsServiceLike = {
   save: (integrationId: string, credentials: Record<string, unknown>, scope: IntegrationScope) => Promise<void>
 }
 
