@@ -23,6 +23,14 @@ const skillsShippingOverrideFolder = [
   'om-auto-fix-issue',
 ]
 
+// Knowledge-only override folders: they configure an external skill with repo
+// facts (environment commands, probe contracts) rather than tracker behavior,
+// so they are exempt from the tracker-abstraction assertions below. The
+// om-prepare-test-env override points the skill at the app's own cross-platform
+// mercato CLI ephemeral runner — the repo must never ship generated shell
+// entrypoints (they are machine-bound and gitignored).
+const skillsShippingKnowledgeOverrideFolder = ['om-prepare-test-env']
+
 // om-integration-builder stays a repo-local skill (never external) and keeps its
 // STANDALONE.md portability overlay describing the standalone provider layout.
 const skillsShippingStandaloneOverlay = ['om-integration-builder']
@@ -40,10 +48,12 @@ function readOverrideSkill(skill: string): string {
 }
 
 test('every external-owned auto-* skill ships a repo-local override folder with a SKILL.md', () => {
-  const missing = skillsShippingOverrideFolder.filter((skill) => {
-    const url = new URL(`${skill}/SKILL.md`, skillsDir)
-    return !fs.existsSync(url)
-  })
+  const missing = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter(
+    (skill) => {
+      const url = new URL(`${skill}/SKILL.md`, skillsDir)
+      return !fs.existsSync(url)
+    },
+  )
   assert.deepEqual(
     missing,
     [],
@@ -51,8 +61,33 @@ test('every external-owned auto-* skill ships a repo-local override folder with 
   )
 })
 
+test('the repo ships no generated test-env shell entrypoints (machine-bound, gitignored)', () => {
+  const templateScriptsDir = new URL('../../template/.ai/scripts/', import.meta.url)
+  const offenders = ['test-env-up.sh', 'test-env-down.sh'].filter((script) =>
+    fs.existsSync(new URL(script, templateScriptsDir)),
+  )
+  assert.deepEqual(
+    offenders,
+    [],
+    `Generated test-env entrypoints are machine-bound and must not ship with the template (om-prepare-test-env compiles them locally): ${offenders.join(', ')}`,
+  )
+  const templateGitignore = fs.readFileSync(new URL('../../template/gitignore', import.meta.url), 'utf8')
+  assert.ok(
+    templateGitignore.includes('.ai/scripts/test-env-'),
+    'template gitignore must exclude locally generated .ai/scripts/test-env-* entrypoints',
+  )
+  const templatePackageJson = fs.readFileSync(
+    new URL('../../template/package.json.template', import.meta.url),
+    'utf8',
+  )
+  assert.ok(
+    !templatePackageJson.includes('test-env-up.sh') && !templatePackageJson.includes('test-env-down.sh'),
+    'template package.json must not wire sh-based test-env scripts (not multiplatform); the mercato CLI commands are the supported interface',
+  )
+})
+
 test('override folders do not also ship a stale STANDALONE.md', () => {
-  const stale = skillsShippingOverrideFolder.filter((skill) => {
+  const stale = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const url = new URL(`${skill}/STANDALONE.md`, skillsDir)
     return fs.existsSync(url)
   })
@@ -74,7 +109,6 @@ test('the deleted duplicate full-copy skill folders are gone', () => {
     'om-integration-tests',
     'om-open-pr',
     'om-prepare-issue',
-    'om-prepare-test-env',
     'om-root-cause',
     'om-setup-agent-pipeline',
     'om-spec-writing',
@@ -137,7 +171,7 @@ test('the external subset in tiers.json includes the dependency closure of every
 test('the scaffolder copies each auto-* override SKILL.md into scaffolded apps', () => {
   // The auto-* family is copied via a loop over an array literal of skill names;
   // each entry copies just `ai/skills/${autoSkill}/SKILL.md`.
-  const notWired = skillsShippingOverrideFolder.filter((skill) => {
+  const notWired = [...skillsShippingOverrideFolder, ...skillsShippingKnowledgeOverrideFolder].filter((skill) => {
     const listedInLoop = scaffolderSource.includes(`'${skill}',`)
     const copiesSkillMd = scaffolderSource.includes('ai/skills/${autoSkill}/SKILL.md')
     return !(listedInLoop && copiesSkillMd)

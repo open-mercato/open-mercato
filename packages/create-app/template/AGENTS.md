@@ -88,16 +88,10 @@ yarn test path/to/test.spec.ts
 yarn test:integration:ephemeral
 
 # Start ephemeral app only (for manual QA exploration; admin@acme.com / secret)
-yarn test:integration:ephemeral:start
-
-# Boot or reuse the shared QA test environment (writes .ai/qa/test-env.json so
-# om-prepare-test-env / om-integration-tests / om-auto-verify-pr-ui attach to
-# the same instance instead of booting their own)
-yarn test:env:up
-yarn test:env:down
+yarn mercato test:ephemeral
 
 # View HTML integration test report
-yarn test:integration:report
+npx playwright show-report .ai/qa/test-results/html
 
 # Generate code from modules
 yarn generate

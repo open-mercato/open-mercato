@@ -272,6 +272,10 @@ export function generateShared(config: AgenticConfig): void {
   // standalone app (default-branch discovery, opt-in pipeline labels, probe-before-run
   // validation gate, src/modules/... file layout). Autofix is the single
   // om-auto-fix-issue override (formerly om-auto-fix-github).
+  // om-prepare-test-env's override carries environment knowledge instead of
+  // tracker adjustments: it points the external skill at the app's own
+  // cross-platform mercato CLI ephemeral runner (any entrypoint scripts the
+  // skill compiles are machine-local and gitignored, never shipped).
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
@@ -279,6 +283,7 @@ export function generateShared(config: AgenticConfig): void {
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
     'om-auto-fix-issue',
+    'om-prepare-test-env',
   ]) {
     if (!existsSync(join(AGENTIC_DIR, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue

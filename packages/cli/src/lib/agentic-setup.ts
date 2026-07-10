@@ -308,6 +308,8 @@ function generateShared(config: AgenticConfig): void {
   // family + single autofix skill. The workflow bodies live in open-mercato/skills
   // (installed via `yarn install-skills`); these overrides adjust them for a
   // standalone app and are read on top of the external skill's built-in workflow.
+  // om-prepare-test-env's override carries environment knowledge (cross-platform
+  // mercato CLI runner commands) rather than tracker adjustments.
   for (const autoSkill of [
     'om-auto-create-pr',
     'om-auto-continue-pr',
@@ -315,6 +317,7 @@ function generateShared(config: AgenticConfig): void {
     'om-auto-continue-pr-loop',
     'om-auto-review-pr',
     'om-auto-fix-issue',
+    'om-prepare-test-env',
   ]) {
     if (!existsSync(join(srcDir, 'ai', 'skills', autoSkill, 'SKILL.md'))) {
       continue
