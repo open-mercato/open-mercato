@@ -245,7 +245,10 @@ jobs:
           # in separate child processes, and a per-process memory cache leaves the
           # server serving stale ENABLE_CRUD_API_CACHE entries after those jobs
           # mutate records (TC-CRM-079, TC-SX-001). Mirrors the ephemeral runner.
+          # The sqlite path is pinned absolute so the server and every drain
+          # child open the same store regardless of process cwd.
           CACHE_STRATEGY=sqlite
+          CACHE_SQLITE_PATH=/tmp/standalone-app/.mercato/cache/cache.db
           OM_OPTIMISTIC_LOCK=all
           EOF
 
@@ -326,6 +329,13 @@ jobs:
           # app's .env) — keep the strategy aligned with the app so their cache
           # invalidations land in the same shared sqlite store the server reads.
           CACHE_STRATEGY: sqlite
+          CACHE_SQLITE_PATH: /tmp/standalone-app/.mercato/cache/cache.db
+          # Surface drain-child stdout/stderr in the Playwright output. Without
+          # this, per-job failures and cache-fallback warnings inside the drain
+          # children are silently discarded, making standalone-only failures
+          # (like the TC-CRM-079 / TC-SX-001 stale-read investigation)
+          # undiagnosable from CI logs.
+          OM_DRAIN_DEBUG: '1'
         run: yarn test:integration
 
       - name: Print standalone app log on test failure

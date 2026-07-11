@@ -86,7 +86,9 @@ function writeStandaloneEnv(appDir: string): void {
     'AUTO_SPAWN_SCHEDULER=false',
     // Cross-process strategy required: queue jobs drain in child processes, so a
     // per-process memory cache would leave the server serving stale CRUD entries.
+    // The path is pinned absolute so every process opens the same store.
     'CACHE_STRATEGY=sqlite',
+    `CACHE_SQLITE_PATH=${path.join(appDir, '.mercato', 'cache', 'cache.db')}`,
   ].filter(Boolean)
 
   fs.writeFileSync(envPath, `${envLines.join('\n')}\n`)
@@ -205,6 +207,8 @@ async function main(): Promise<void> {
     AUTO_SPAWN_WORKERS: 'false',
     AUTO_SPAWN_SCHEDULER: 'false',
     CACHE_STRATEGY: 'sqlite',
+    CACHE_SQLITE_PATH: path.join(appDir, '.mercato', 'cache', 'cache.db'),
+    OM_DRAIN_DEBUG: '1',
     OM_INTEGRATION_APP_READY_TIMEOUT_SECONDS: '180',
     OM_TEST_APP_ROOT: appDir,
     NODE_OPTIONS: withStandaloneBuildNodeOptions(process.env.NODE_OPTIONS),
