@@ -4,6 +4,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -63,6 +64,28 @@ const returnCrudEvents: CrudEventsConfig = {
     organizationId: ctx.identifiers.organizationId,
     tenantId: ctx.identifiers.tenantId,
   }),
+}
+
+type OrderCacheRecord = Pick<SalesOrder, 'id' | 'organizationId' | 'tenantId'>
+
+/**
+ * Return mutations update the order aggregate, which is also the cache resource
+ * used by the order-lines and order-adjustments routes. Invalidate it after
+ * each committed return lifecycle change so reloads receive its fresh
+ * `updatedAt` optimistic-lock token.
+ */
+async function invalidateOrderCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  order: OrderCacheRecord,
+  fallbackTenant: string | null,
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    SALES_RESOURCE_KIND_ORDER,
+    { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+    fallbackTenant,
+    'updated',
+  )
 }
 
 function toNumeric(value: unknown): number {
@@ -618,7 +641,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     }
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
-    const { header, createdLines } = await em.transactional(async (tx) => {
+    const { header, createdLines, order } = await em.transactional(async (tx) => {
       const order = await findOneWithDecryption(
         tx,
         SalesOrder,
@@ -769,8 +792,10 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
       await tx.flush()
 
-      return { header: entity, createdLines: createdReturnLines }
+      return { header: entity, createdLines: createdReturnLines, order }
     })
+
+    await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -827,6 +852,11 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
     await reverseReturnEffects(em, salesCalculationService, after)
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
   },
   redo: async ({ ctx, logEntry }) => {
     const after = resolveRedoSnapshot<ReturnSnapshot>(logEntry)
@@ -848,6 +878,12 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     if (!header) {
       throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
     }
+
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -1047,6 +1083,11 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
 
     await reverseReturnEffects(em, salesCalculationService, snapshot)
+    await invalidateOrderCache(ctx.container, {
+      id: snapshot.orderId,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -1109,6 +1150,12 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
       { tenantId: before.tenantId, organizationId: before.organizationId },
     )
     if (!header) return
+
+    await invalidateOrderCache(ctx.container, {
+      id: before.orderId,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
