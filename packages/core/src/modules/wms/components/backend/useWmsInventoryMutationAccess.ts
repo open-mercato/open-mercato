@@ -35,6 +35,7 @@ export function useWmsInventoryMutationAccess() {
               'wms.cycle_count',
               'wms.import',
               'wms.manage_reservations',
+              'wms.manage_locations',
             ],
           }),
         })

@@ -32,6 +32,7 @@ import {
   formatInventoryQuantity,
   inventoryRotationStrategyLabel,
 } from '../../lib/inventoryDisplayUi'
+import { LocationEditDialog } from './LocationEditDialog'
 
 type PagedResponse<T> = {
   items: T[]
@@ -101,15 +102,6 @@ type WarehouseFormValues = {
   isPrimary: boolean
 }
 
-type LocationFormValues = {
-  warehouseId: string
-  code: string
-  type: 'zone' | 'aisle' | 'rack' | 'bin' | 'slot' | 'dock' | 'staging'
-  capacityUnits?: number
-  capacityWeight?: number
-  isActive: boolean
-}
-
 type ZoneFormValues = {
   warehouseId: string
   code: string
@@ -141,15 +133,6 @@ const warehouseFormSchema = z.object({
   timezone: z.string().trim().optional(),
   isActive: z.boolean().default(true),
   isPrimary: z.boolean().default(false),
-})
-
-const locationFormSchema = z.object({
-  warehouseId: z.string().uuid(),
-  code: z.string().trim().min(1),
-  type: z.enum(['zone', 'aisle', 'rack', 'bin', 'slot', 'dock', 'staging']),
-  capacityUnits: z.coerce.number().min(0).optional(),
-  capacityWeight: z.coerce.number().min(0).optional(),
-  isActive: z.boolean().default(true),
 })
 
 const zoneFormSchema = z.object({
@@ -827,7 +810,6 @@ export function LocationSection() {
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
-  const [submitting, setSubmitting] = React.useState(false)
   const [dialog, setDialog] = React.useState<DialogMode<LocationRow> | null>(null)
 
   const handleSortingChange = React.useCallback((nextSorting: SortingState) => {
@@ -856,36 +838,6 @@ export function LocationSection() {
       return call.result ?? { items: [], total: 0, totalPages: 1 }
     },
   })
-
-  const fields = React.useMemo<CrudField[]>(() => [
-    {
-      id: 'warehouseId',
-      type: 'combobox',
-      label: t('wms.backend.config.locations.form.warehouse', 'Warehouse'),
-      required: true,
-      loadOptions: loadWarehouseOptions,
-      allowCustomValues: false,
-    },
-    { id: 'code', type: 'text', label: t('wms.backend.config.locations.form.code', 'Code'), required: true },
-    {
-      id: 'type',
-      type: 'select',
-      label: t('wms.backend.config.locations.form.type', 'Type'),
-      required: true,
-      options: [
-        { value: 'zone', label: t('wms.backend.config.locations.type.zone', 'Zone') },
-        { value: 'aisle', label: t('wms.backend.config.locations.type.aisle', 'Aisle') },
-        { value: 'rack', label: t('wms.backend.config.locations.type.rack', 'Rack') },
-        { value: 'bin', label: t('wms.backend.config.locations.type.bin', 'Bin') },
-        { value: 'slot', label: t('wms.backend.config.locations.type.slot', 'Slot') },
-        { value: 'dock', label: t('wms.backend.config.locations.type.dock', 'Dock') },
-        { value: 'staging', label: t('wms.backend.config.locations.type.staging', 'Staging') },
-      ],
-    },
-    { id: 'capacityUnits', type: 'number', label: t('wms.backend.config.locations.form.capacityUnits', 'Capacity units') },
-    { id: 'capacityWeight', type: 'number', label: t('wms.backend.config.locations.form.capacityWeight', 'Capacity weight') },
-    { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.locations.form.active', 'Active') },
-  ], [t])
 
   const columns = React.useMemo<ColumnDef<LocationRow>[]>(() => [
     {
@@ -928,69 +880,13 @@ export function LocationSection() {
     },
   ], [t])
 
-  const initialValues = React.useMemo<LocationFormValues>(() => {
-    if (dialog?.mode === 'edit') {
-      return {
-        warehouseId: dialog.row.warehouse_id || '',
-        code: dialog.row.code || '',
-        type: (dialog.row.type as LocationFormValues['type']) || 'bin',
-        capacityUnits: dialog.row.capacity_units == null ? undefined : Number(dialog.row.capacity_units),
-        capacityWeight: dialog.row.capacity_weight == null ? undefined : Number(dialog.row.capacity_weight),
-        isActive: dialog.row.is_active !== false,
-      }
-    }
-    return {
-      warehouseId: '',
-      code: '',
-      type: 'bin',
-      capacityUnits: undefined,
-      capacityWeight: undefined,
-      isActive: true,
-    }
-  }, [dialog])
-
   const closeDialog = React.useCallback(() => {
     setDialog(null)
-    setSubmitting(false)
   }, [])
 
   const refresh = React.useCallback(async () => {
     await queryClient.invalidateQueries({ queryKey: ['wms-config', 'locations'] })
   }, [queryClient])
-
-  const handleSubmit = React.useCallback(async (values: LocationFormValues) => {
-    setSubmitting(true)
-    try {
-      await runMutation({
-        operation: async () => {
-          const call = await apiCall(
-            '/api/wms/locations',
-            {
-              method: dialog?.mode === 'edit' ? 'PUT' : 'POST',
-              body: JSON.stringify(dialog?.mode === 'edit' ? { id: dialog.row.id, ...values } : values),
-            },
-          )
-          if (!call.ok) {
-            await raiseCrudError(call.response, t('wms.backend.config.locations.errors.save', 'Failed to save location.'))
-          }
-          return call
-        },
-        context: {},
-        mutationPayload: dialog?.mode === 'edit' ? { id: dialog.row.id, ...values } : values,
-      })
-      flash(
-        dialog?.mode === 'edit'
-          ? t('wms.backend.config.locations.flash.updated', 'Location updated')
-          : t('wms.backend.config.locations.flash.created', 'Location created'),
-        'success',
-      )
-      closeDialog()
-      await refresh()
-    } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.locations.errors.save', 'Failed to save location.'), 'error')
-      setSubmitting(false)
-    }
-  }, [closeDialog, dialog, refresh, runMutation, t])
 
   const handleDelete = React.useCallback(async (row: LocationRow) => {
     const confirmed = await confirm({
@@ -1078,28 +974,13 @@ export function LocationSection() {
         />
       </SectionCard>
 
-      <Dialog open={dialog !== null} onOpenChange={(next) => !next && closeDialog()}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              {dialog?.mode === 'edit'
-                ? t('wms.backend.config.locations.dialog.edit', 'Edit location')
-                : t('wms.backend.config.locations.dialog.create', 'Create location')}
-            </DialogTitle>
-          </DialogHeader>
-          <CrudForm<LocationFormValues>
-            schema={locationFormSchema}
-            fields={fields}
-            entityId={E.wms.warehouse_location}
-            initialValues={initialValues}
-            submitLabel={t('common.save', 'Save')}
-            onSubmit={handleSubmit}
-            embedded
-            isLoading={submitting}
-            twoColumn
-          />
-        </DialogContent>
-      </Dialog>
+      <LocationEditDialog
+        open={dialog !== null}
+        onOpenChange={(next) => !next && closeDialog()}
+        mode={dialog?.mode ?? 'create'}
+        row={dialog?.mode === 'edit' ? dialog.row : null}
+        onSaved={refresh}
+      />
       {ConfirmDialogElement}
     </>
   )

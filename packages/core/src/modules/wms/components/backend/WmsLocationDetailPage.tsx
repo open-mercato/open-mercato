@@ -38,6 +38,7 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { E } from '#generated/entities.ids.generated'
 import { AdjustInventoryDialog } from './AdjustInventoryDialog'
 import { CycleCountWizardDialog } from './CycleCountWizardDialog'
+import { LocationEditDialog } from './LocationEditDialog'
 import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
 
 const locationIdSchema = z.string().uuid()
@@ -58,6 +59,7 @@ type LocationRow = {
   warehouse_code?: string | null
   is_active?: boolean | null
   capacity_units?: string | number | null
+  capacity_weight?: string | number | null
   updated_at?: string | null
 }
 
@@ -361,7 +363,8 @@ type LocationKpiCardProps = {
   badgeLabel: string | null
   badgeVariant: StatusBadgeVariant
   ctaLabel: string
-  ctaHref: string
+  ctaHref?: string
+  onCtaClick?: () => void
   progress?: number | null
 }
 
@@ -373,6 +376,7 @@ function LocationKpiCard({
   badgeVariant,
   ctaLabel,
   ctaHref,
+  onCtaClick,
   progress,
 }: LocationKpiCardProps) {
   return (
@@ -396,9 +400,15 @@ function LocationKpiCard({
           className="mt-3"
         />
       ) : null}
-      <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
-        <Link href={ctaHref}>{ctaLabel}</Link>
-      </LinkButton>
+      {onCtaClick ? (
+        <LinkButton variant="primary" size="sm" className="mt-auto pt-4 w-fit" onClick={onCtaClick}>
+          {ctaLabel}
+        </LinkButton>
+      ) : ctaHref ? (
+        <LinkButton asChild variant="primary" size="sm" className="mt-auto pt-4 w-fit">
+          <Link href={ctaHref}>{ctaLabel}</Link>
+        </LinkButton>
+      ) : null}
     </section>
   )
 }
@@ -422,6 +432,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
   const [adjustPreset, setAdjustPreset] = React.useState<InventoryMutationPreset>({})
   const [cycleOpen, setCycleOpen] = React.useState(false)
   const [cyclePreset, setCyclePreset] = React.useState<Pick<InventoryMutationPreset, 'warehouseId' | 'locationId'>>({})
+  const [editOpen, setEditOpen] = React.useState(false)
 
   const itemsPageSize = 20
 
@@ -1021,7 +1032,7 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
                 }
                 badgeVariant={capacityUsedPercent !== null && capacityUsedPercent >= 80 ? 'warning' : 'success'}
                 ctaLabel={t('wms.backend.location.kpis.capacityUsed.cta', 'Edit location')}
-                ctaHref="/backend/config/wms"
+                onCtaClick={access.canManageLocations ? () => setEditOpen(true) : undefined}
                 progress={capacityUsedPercent}
               />
               <LocationKpiCard
@@ -1265,6 +1276,17 @@ export default function WmsLocationDetailPage({ locationId }: WmsLocationDetailP
           access={access}
           initialWarehouseId={cyclePreset.warehouseId ?? warehouseId}
           initialLocationId={cyclePreset.locationId ?? scopedLocationId ?? undefined}
+        />
+      ) : null}
+      {access.canManageLocations && locationQuery.data ? (
+        <LocationEditDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          mode="edit"
+          row={locationQuery.data}
+          onSaved={async () => {
+            await locationQuery.refetch()
+          }}
         />
       ) : null}
     </Page>
