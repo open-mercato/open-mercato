@@ -180,7 +180,7 @@ export function buildInventoryImportTemplateCsv(): string {
     '# warehouse_code   [REQUIRED] Code of the warehouse (e.g. WH-MAIN)',
     '# location_code    [REQUIRED] Storage location code within the warehouse (e.g. BIN-A01)',
     '# sku              [REQUIRED] Product variant SKU',
-    '# quantity         [REQUIRED] On-hand quantity (positive integer)',
+    '# quantity         [REQUIRED] Quantity to add to existing on-hand stock (positive integer)',
     '# lot_number       [optional] Lot or batch identifier (leave blank if not tracked)',
     '# serial_number    [optional] Serial number (leave blank for non-serialised items)',
     '# Lines starting with # are comments and are ignored when uploading.',

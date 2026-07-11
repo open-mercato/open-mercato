@@ -23,7 +23,8 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'Download inventory import CSV template',
-      description: 'Returns a CSV template for WMS inventory opening-balance imports.',
+      description:
+        'Returns a CSV template for WMS inventory receipt imports. The quantity column is added to existing on-hand stock, not a target balance.',
       responses: [{ status: 200, description: 'CSV template file' }],
     },
   },

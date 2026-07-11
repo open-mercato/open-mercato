@@ -420,7 +420,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                 organizationId: access.organizationId,
                 tenantId: access.tenantId,
                 importBatchId: validation.importBatchId,
-                reason: t('wms.backend.inventory.import.defaultReason', 'CSV import opening balance'),
+                reason: t('wms.backend.inventory.import.defaultReason', 'CSV import inventory receipt'),
                 continueOnError: true,
                 rows: applyRows,
               }),
@@ -680,6 +680,12 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                   {t(
                     'wms.backend.inventory.import.upload.skuHint',
                     'The sku column must match an existing catalog product variant in your organization. Warehouse and location codes must already exist in WMS.',
+                  )}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {t(
+                    'wms.backend.inventory.import.upload.quantityHint',
+                    'The quantity column is added to whatever stock already exists at that warehouse/location — it is not a target balance.',
                   )}
                 </p>
               </div>

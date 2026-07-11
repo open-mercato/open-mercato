@@ -389,7 +389,7 @@ export const inventoryImportApplyRowSchema = z.object({
 
 export const inventoryImportApplySchema = scopedSchema.extend({
   importBatchId: uuid(),
-  reason: z.string().trim().min(1).max(500).default('CSV import opening balance'),
+  reason: z.string().trim().min(1).max(500).default('CSV import inventory receipt'),
   continueOnError: z.boolean().optional(),
   rows: z.array(inventoryImportApplyRowSchema).min(1).max(5000),
 })

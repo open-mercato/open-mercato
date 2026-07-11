@@ -533,7 +533,7 @@ Other modules MUST NOT create or depend on tenant roles named `operator` or `sup
 
 **Rationale:** The WMS roadmap treats CSV bootstrap as a hard blocker for large catalogs (10k+ SKUs) and a must-have for first merchants above ~2k SKUs. A thin MVP unblocks opening balances without waiting for ERP-grade integration.
 
-**Scope (MVP):** CSV upload, column mapping, validation report, apply via adjustment ledger. Full ERP sync adapters remain out of scope for Phase 1.
+**Scope (MVP):** CSV upload, column mapping, validation report, apply via adjustment ledger. Full ERP sync adapters remain out of scope for Phase 1. The `quantity` column is **additive**: it is the amount received into that warehouse/location bucket, added to whatever on-hand quantity already exists there — it is never treated as an absolute target balance to reconcile down to (issue #4105).
 
 **Alternative considered:** API-only bulk bootstrap — rejected for Month 1 because operations teams expect spreadsheet-based cutover for initial stock loads.
 
@@ -671,6 +671,7 @@ None.
 ## Changelog
 
 ### 2026-07-11
+- Fixed issue #4105: the CSV inventory import computed `delta = quantity - currentOnHand`, so importing a `quantity` smaller than what was already on hand silently reduced stock and posted it as a plain `adjust` (Korekta) movement — indistinguishable from a manual correction, with no warning anywhere in the 3-step wizard. `quantity` is now additive (`delta = quantity`, independent of the current balance); the now-impossible `overwriting_existing_balance` / `insufficient_available_for_negative_delta` warnings were removed, the default reason and CSV template/column docs were reworded from "opening balance" to "inventory receipt", and the Step 1 upload screen now states explicitly that quantity adds to existing stock rather than replacing it.
 - Fixed issue #4102: `WMS_OPERATOR_FEATURES` in `packages/core/src/modules/wms/lib/roleFeatures.ts` incorrectly included `wms.manage_warehouses`/`wms.manage_locations`, letting the floor-staff `operator` role create/edit warehouses and locations — a supervisor-only privilege per the Default role matrix. Removed both from `operator`'s defaults (still granted to `supervisor` via `WMS_MANAGE_FEATURES`); clarified that `wms.receive_inventory` staying on `operator` is intentional (Phase 2 receiving task) and updated the role matrix table accordingly. Existing tenants whose `operator` role already drifted must have the boxes unchecked manually, since `sync-role-acls` only merges additive grants.
 - Fixed issue #4096: `wms.warehouses.create` inserted the new row with `isPrimary=true` before demoting the sibling primary, racing the `wms_warehouses_org_primary_unique_idx` partial unique index and failing with a raw 500 instead of demoting the sibling (WMS-P1-INT-11). Create now inserts as non-primary, demotes siblings, then promotes inside a single `withAtomicFlush({ transaction: true })` sequence; update was hardened the same way as defense against the identity-map query-before-flush footgun. A residual concurrent-race unique-violation is now translated to a `409` (`wms.validation.warehouse.primaryConflict`) instead of a generic 500.
 

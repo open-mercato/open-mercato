@@ -44,7 +44,7 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Validate inventory CSV import',
       description:
-        'Dry-run validation for inventory opening-balance CSV rows. Accepts JSON rows, JSON csv text, or multipart file upload.',
+        'Dry-run validation for additive inventory receipt CSV rows (quantity is added to existing on-hand stock). Accepts JSON rows, JSON csv text, or multipart file upload.',
       requestBody: { contentType: 'application/json', schema: inventoryImportValidateSchema },
       responses: [{ status: 200, description: 'Validation report', schema: successSchema }],
       errors: [

@@ -193,6 +193,52 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
       const balance = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balance?.quantity_on_hand)).toBe(25)
 
+      // Regression check for #4105: importing a smaller quantity on top of an
+      // existing balance must add to it, not reconcile the balance down to it.
+      const secondValidateResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/validate', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          rows: [
+            {
+              warehouseCode: `TCW25W${suffix}`,
+              locationCode: `BIN-${suffix}`,
+              sku: `TCW25-V-${suffix}`,
+              quantity: '5',
+            },
+          ],
+        },
+      })
+      expect(secondValidateResponse.ok(), `second validate failed: ${secondValidateResponse.status()}`).toBeTruthy()
+      const secondValidation = (await readJsonSafe<ImportValidationResponse>(secondValidateResponse)) ?? {}
+      const secondResolved = secondValidation.rows?.[0]?.resolved
+      expect(secondResolved?.delta).toBe(5)
+
+      const secondApplyResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          importBatchId: secondValidation.importBatchId,
+          continueOnError: true,
+          rows: [
+            {
+              rowNumber: 1,
+              warehouseId: secondResolved?.warehouseId,
+              locationId: secondResolved?.locationId,
+              catalogVariantId: secondResolved?.catalogVariantId,
+              quantity: secondResolved?.quantity,
+              delta: secondResolved?.delta,
+            },
+          ],
+        },
+      })
+      expect(secondApplyResponse.ok(), `second apply failed: ${secondApplyResponse.status()}`).toBeTruthy()
+
+      const balanceAfterSecondImport = await fetchBalance(request, adminToken, warehouseId!, variantId)
+      expect(toNumber(balanceAfterSecondImport?.quantity_on_hand)).toBe(30)
+
       const tamperedResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
         token: adminToken,
         data: {

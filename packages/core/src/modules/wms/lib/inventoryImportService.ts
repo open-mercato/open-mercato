@@ -285,32 +285,20 @@ async function loadCurrentOnHand(
   return balance ? toNumber(balance.quantityOnHand) : 0
 }
 
-async function recalculateApplyRowDeltas(
-  em: EntityManager,
-  scope: ImportScope,
-  rows: InventoryImportApplyRowInput[],
-): Promise<InventoryImportApplyRowInput[]> {
-  const recalculated: InventoryImportApplyRowInput[] = []
-  for (const row of rows) {
-    const currentOnHand = await loadCurrentOnHand(em, scope, {
-      warehouseId: row.warehouseId,
-      locationId: row.locationId,
-      catalogVariantId: row.catalogVariantId,
-      lotId: row.lotId,
-      serialNumber: row.serialNumber,
-    })
-    const serverDelta = row.quantity - currentOnHand
-    if (Math.abs(serverDelta - row.delta) > 0.000001) {
+function verifyApplyRowDeltas(rows: InventoryImportApplyRowInput[]): InventoryImportApplyRowInput[] {
+  // Import quantity is additive: the delta posted to the ledger always equals the
+  // row's quantity (the amount received), regardless of the current on-hand balance.
+  return rows.map((row) => {
+    if (Math.abs(row.quantity - row.delta) > 0.000001) {
       throw new CrudHttpError(400, {
         error: 'import_delta_tampering',
         rowNumber: row.rowNumber,
-        expectedDelta: serverDelta,
+        expectedDelta: row.quantity,
         providedDelta: row.delta,
       })
     }
-    recalculated.push({ ...row, delta: serverDelta })
-  }
-  return recalculated
+    return row
+  })
 }
 
 export async function validateInventoryImport(
@@ -438,11 +426,9 @@ export async function validateInventoryImport(
     }
     seenBuckets.set(bucketKey, rowNumber)
 
-    const delta = quantity - currentOnHand
-
-    if (delta < 0 && currentOnHand - toNumber(0) < Math.abs(delta) - 0.000001) {
-      warnings.push('insufficient_available_for_negative_delta')
-    }
+    // Import quantity is additive: it is the amount to receive into this bucket,
+    // not the target on-hand balance, so the delta never depends on currentOnHand.
+    const delta = quantity
 
     if (Math.abs(delta) < 0.000001) {
       rows.push({
@@ -468,10 +454,6 @@ export async function validateInventoryImport(
         },
       })
       continue
-    }
-
-    if (currentOnHand > 0 && Math.sign(delta) !== 0) {
-      warnings.push('overwriting_existing_balance')
     }
 
     rows.push({
@@ -523,13 +505,8 @@ export async function applyInventoryImport(
 ): Promise<InventoryImportApplyResult> {
   ensureTenantScope(ctx, input.tenantId)
   ensureOrganizationScope(ctx, input.organizationId)
-  const em = ctx.container.resolve('em') as EntityManager
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const scope: ImportScope = {
-    tenantId: input.tenantId,
-    organizationId: input.organizationId,
-  }
-  const applyRows = await recalculateApplyRowDeltas(em, scope, input.rows)
+  const applyRows = verifyApplyRowDeltas(input.rows)
   const resultRows: InventoryImportApplyResult['rows'] = []
   let applied = 0
   let skipped = 0
@@ -561,7 +538,6 @@ export async function applyInventoryImport(
             importBatchId: input.importBatchId,
             importRowNumber: row.rowNumber,
             source: 'csv_import',
-            targetQuantity: row.quantity,
           },
         },
         ctx,
