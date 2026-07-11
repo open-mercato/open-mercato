@@ -45,6 +45,7 @@ import {
 import { WarrantyClaimNumberGenerator } from '../services/claimNumberGenerator'
 import { emitWarrantyClaimsEvent } from '../events'
 import { assertTransition, canResolveWithLineStatuses, computeHeaderRollups } from '../lib/stateMachine'
+import { addBusinessMillis, businessMillisBetween } from '../lib/businessHours'
 import { resolveEffectiveWarrantyClaimSettings, type WarrantyClaimEffectiveSettings } from '../lib/settings'
 import { evaluateClaimRisk } from '../lib/risk'
 import type { WarrantyAdjudicationEvaluator } from '../services/adjudicationEvaluator'
@@ -979,10 +980,14 @@ function applySlaResume(
   fromStatus: WarrantyClaimStatus,
   toStatus: WarrantyClaimStatus,
   now: Date,
+  effectiveSettings: WarrantyClaimEffectiveSettings,
 ): void {
   if (fromStatus !== 'info_requested' || toStatus === 'info_requested' || !claim.slaPausedAt) return
-  if (claim.slaDueAt) {
-    claim.slaDueAt = new Date(claim.slaDueAt.getTime() + Math.max(0, now.getTime() - claim.slaPausedAt.getTime()))
+  // Preserve the business time that was still remaining when the clock stopped;
+  // a claim already past due when paused stays past due.
+  if (claim.slaDueAt && claim.slaDueAt.getTime() > claim.slaPausedAt.getTime()) {
+    const remainingBusinessMillis = businessMillisBetween(claim.slaPausedAt, claim.slaDueAt, effectiveSettings.businessHours)
+    claim.slaDueAt = addBusinessMillis(now, remainingBusinessMillis, effectiveSettings.businessHours)
   }
   claim.slaPausedAt = null
   claim.slaAtRiskNotifiedAt = null
@@ -1462,7 +1467,7 @@ const submitClaimCommand: CommandHandler<SubmitClaimInput, { claimId: string }> 
         const submittedAt = new Date()
         claim.status = 'submitted'
         claim.submittedAt = submittedAt
-        claim.slaDueAt = new Date(submittedAt.getTime() + effectiveSettings.slaHours * 60 * 60 * 1000)
+        claim.slaDueAt = addBusinessMillis(submittedAt, effectiveSettings.slaHours * 60 * 60 * 1000, effectiveSettings.businessHours)
         claim.slaAtRiskNotifiedAt = null
         claim.slaBreachedNotifiedAt = null
         claim.updatedAt = submittedAt
@@ -1576,7 +1581,7 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
           if (hasOwn(input, 'resolutionSummary')) claim.resolutionSummary = input.resolutionSummary ?? null
         }
         if (input.toStatus === 'closed') claim.closedAt = now
-        applySlaResume(em, claim, fromStatus, input.toStatus, now)
+        applySlaResume(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         applySlaPause(em, claim, fromStatus, input.toStatus, now, effectiveSettings)
         claim.awaitingStaffReply = false
         claim.updatedAt = now
@@ -1790,9 +1795,10 @@ const commentClaimCommand: CommandHandler<CommentClaimInput, { claimId: string }
     const scope = resolveScope(ctx, {})
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const claim = await requireScopedClaim(em, input.claimId, scope)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim)
     let autoResumed = false
     await withAtomicFlush(em, [
-      () => {
+      async () => {
         const fromStatus = claim.status
         appendClaimEvent(em, claim, 'comment', {
           visibility: input.visibility,
@@ -1804,8 +1810,9 @@ const commentClaimCommand: CommandHandler<CommentClaimInput, { claimId: string }
         claim.updatedAt = new Date()
         if (input.actorCustomerId && fromStatus === 'info_requested') {
           const now = new Date()
+          const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(em, scope)
           claim.status = 'in_review'
-          applySlaResume(em, claim, fromStatus, 'in_review', now)
+          applySlaResume(em, claim, fromStatus, 'in_review', now, effectiveSettings)
           claim.updatedAt = now
           autoResumed = true
           appendClaimEvent(em, claim, 'status_changed', {

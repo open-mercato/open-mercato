@@ -1,8 +1,10 @@
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import {
+  addBusinessMillis,
   businessMillisBetween,
   slaProgressPct,
+  slaProgressPctFromDue,
   type BusinessHoursConfig,
 } from '../lib/businessHours'
 import {
@@ -111,6 +113,41 @@ describe('warranty claim SLA escalation helpers', () => {
       8,
       utcWorkweek,
     )).toBe(150)
+  })
+
+  test('addBusinessMillis falls back to wall-clock addition without a config', () => {
+    expect(addBusinessMillis(
+      new Date('2026-01-01T00:00:00.000Z'),
+      2.5 * HOUR_MS,
+      null,
+    ).toISOString()).toBe('2026-01-01T02:30:00.000Z')
+  })
+
+  test('addBusinessMillis walks weekends and holidays forward', () => {
+    const fridayAfternoon = new Date('2026-01-02T16:00:00.000Z')
+
+    expect(addBusinessMillis(fridayAfternoon, 2 * HOUR_MS, utcWorkweek).toISOString())
+      .toBe('2026-01-05T10:00:00.000Z')
+    expect(addBusinessMillis(fridayAfternoon, 2 * HOUR_MS, {
+      ...utcWorkweek,
+      holidays: ['2026-01-05'],
+    }).toISOString()).toBe('2026-01-06T10:00:00.000Z')
+  })
+
+  test('addBusinessMillis is the inverse of businessMillisBetween', () => {
+    const start = new Date('2026-01-02T11:00:00.000Z')
+    const dueAt = addBusinessMillis(start, 8 * HOUR_MS, utcWorkweek)
+
+    expect(businessMillisBetween(start, dueAt, utcWorkweek)).toBe(8 * HOUR_MS)
+  })
+
+  test('slaProgressPctFromDue anchors on the due date in the configured time base', () => {
+    const dueAt = new Date('2026-01-05T13:00:00.000Z')
+
+    expect(slaProgressPctFromDue(new Date('2026-01-05T11:00:00.000Z'), dueAt, 8, null)).toBe(75)
+    expect(slaProgressPctFromDue(dueAt, dueAt, 8, null)).toBe(100)
+    expect(slaProgressPctFromDue(new Date('2026-01-05T17:00:00.000Z'), dueAt, 8, null)).toBe(150)
+    expect(slaProgressPctFromDue(new Date('2026-01-05T09:00:00.000Z'), dueAt, 8, utcWorkweek)).toBe(50)
   })
 
   test('parseEscalationTiers sorts valid tiers and drops malformed tiers', () => {
@@ -277,6 +314,57 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
 
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
   })
+
+  test('sweep honors the pause-shifted due date instead of elapsed-since-submission', async () => {
+    mockClaims = [makeSweepClaim({
+      submittedAt: new Date(Date.now() - 5 * 24 * HOUR_MS),
+      slaDueAt: new Date(Date.now() + 6 * HOUR_MS),
+    })]
+    const { ctx } = makeSweepContext()
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(emittedEventIds()).toEqual([])
+  })
+
+  test('applies every crossed escalation tier in one sweep, not only the highest', async () => {
+    mockClaims = [makeSweepClaim({
+      submittedAt: new Date(Date.now() - 10 * HOUR_MS),
+      slaDueAt: new Date(Date.now() - 2 * HOUR_MS),
+      slaAtRiskNotifiedAt: new Date(Date.now() - HOUR_MS),
+      slaBreachedNotifiedAt: new Date(Date.now() - HOUR_MS),
+    })]
+    resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({
+      ...sweepSettings,
+      escalationTiers: [
+        { atPct: 50, action: 'reassign', toUserId: USER_ID },
+        { atPct: 80, action: 'notify' },
+      ],
+    })
+    const executeMock = jest.fn(async (
+      _commandId: string,
+      { input }: { input: { id: string; toLevel: number; reassignToUserId?: string } },
+    ) => ({
+      result: { claimId: input.id, escalationLevel: input.toLevel, escalated: true },
+    }))
+    const nativeUpdate = jest.fn(async () => 1)
+    const em = { nativeUpdate } as unknown as EntityManager
+    const ctx = {
+      resolve: <T = unknown>(name: string): T => {
+        if (name === 'em') return em as T
+        if (name === 'commandBus') return { execute: executeMock } as T
+        throw new Error(`[internal] unexpected sweep dependency ${name}`)
+      },
+    } as unknown as SweepHandlerArgs[1]
+
+    await handleSlaEscalationSweep(makeSweepJob(), ctx)
+
+    expect(executeMock).toHaveBeenCalledTimes(2)
+    expect(executeMock.mock.calls[0][1].input).toMatchObject({ toLevel: 1, reassignToUserId: USER_ID })
+    expect(executeMock.mock.calls[1][1].input).toMatchObject({ toLevel: 2 })
+    expect(executeMock.mock.calls[1][1].input.reassignToUserId).toBeUndefined()
+    expect(mockClaims[0].assigneeUserId).toBe(USER_ID)
+  })
 })
 
 function makeCommandFork(): EntityManager {
@@ -341,5 +429,40 @@ describe('warranty claim SLA resume re-arms notification stamps', () => {
     expect(claim.slaPausedAt).toBeNull()
     expect(claim.slaAtRiskNotifiedAt).toBeNull()
     expect(claim.slaBreachedNotifiedAt).toBeNull()
+  })
+
+  test('resume preserves the business time remaining when the clock stopped', async () => {
+    jest.useFakeTimers({ now: new Date('2026-01-07T09:00:00.000Z') })
+    try {
+      resolveEffectiveWarrantyClaimSettingsMock.mockResolvedValue({ ...sweepSettings, businessHours: utcWorkweek })
+      const claim = makeSweepClaim({
+        status: 'info_requested',
+        slaPausedAt: new Date('2026-01-02T16:00:00.000Z'),
+        slaDueAt: new Date('2026-01-05T10:00:00.000Z'),
+      })
+      mockClaims = [claim]
+
+      await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'in_review' }, makeCommandContext())
+
+      expect(claim.slaPausedAt).toBeNull()
+      expect(claim.slaDueAt?.toISOString()).toBe('2026-01-07T11:00:00.000Z')
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
+  test('resume keeps a claim that was already past due when paused past due', async () => {
+    const pastDue = new Date(Date.now() - 2 * HOUR_MS)
+    const claim = makeSweepClaim({
+      status: 'info_requested',
+      slaPausedAt: new Date(Date.now() - HOUR_MS),
+      slaDueAt: pastDue,
+    })
+    mockClaims = [claim]
+
+    await transitionClaimCommand.execute({ id: CLAIM_ID, toStatus: 'in_review' }, makeCommandContext())
+
+    expect(claim.slaPausedAt).toBeNull()
+    expect(claim.slaDueAt?.getTime()).toBe(pastDue.getTime())
   })
 })

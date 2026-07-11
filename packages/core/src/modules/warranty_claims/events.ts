@@ -50,13 +50,13 @@ const events = [
     clientBroadcast: true,
   },
   {
-    id: 'warranty_claims.claim.registration_created',
+    id: 'warranty_claims.registration.created',
     label: 'Warranty Registration Created',
     entity: 'registration',
     category: 'crud',
   },
   {
-    id: 'warranty_claims.claim.line_quarantined',
+    id: 'warranty_claims.claim_line.quarantined',
     label: 'Warranty Claim Line Quarantined',
     entity: 'claim_line',
     category: 'lifecycle',

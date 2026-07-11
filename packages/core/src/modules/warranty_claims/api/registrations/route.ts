@@ -157,7 +157,7 @@ export async function emitRegistrationCreatedEvent(entity: unknown): Promise<voi
   const tenantId = typeof record.tenantId === 'string' ? record.tenantId : null
   const organizationId = typeof record.organizationId === 'string' ? record.organizationId : null
   if (!registrationId || !tenantId || !organizationId) return
-  await emitWarrantyClaimsEvent('warranty_claims.claim.registration_created', {
+  await emitWarrantyClaimsEvent('warranty_claims.registration.created', {
     registrationId,
     tenantId,
     organizationId,

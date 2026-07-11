@@ -40,7 +40,7 @@ import { AttachmentInput } from '@open-mercato/core/modules/attachments/fields/a
 import {
   fetchAssignableStaffMembersPage,
   type AssignableStaffMember,
-} from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
+} from '@open-mercato/core/modules/customers/lib/assignableStaff'
 import { CLAIM_STATUS_TRANSITIONS } from '../../../data/constants'
 import {
   ClaimPriorityBadge,

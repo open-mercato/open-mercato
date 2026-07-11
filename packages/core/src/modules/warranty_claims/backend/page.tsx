@@ -29,7 +29,7 @@ import { formatDateTime } from '@open-mercato/shared/lib/time'
 import {
   fetchAssignableStaffMembersPage,
   type AssignableStaffMember,
-} from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
+} from '@open-mercato/core/modules/customers/lib/assignableStaff'
 import {
   ClaimPriorityBadge,
   ClaimStatusBadge,

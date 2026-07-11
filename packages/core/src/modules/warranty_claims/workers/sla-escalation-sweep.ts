@@ -9,7 +9,7 @@ import { resolveNotificationService } from '../../notifications/lib/notification
 import { CLAIM_STATUSES, type WarrantyClaimStatus } from '../data/validators'
 import { WarrantyClaim } from '../data/entities'
 import { emitWarrantyClaimsEvent } from '../events'
-import { businessMillisBetween, slaProgressPct } from '../lib/businessHours'
+import { businessMillisBetween, slaProgressPctFromDue } from '../lib/businessHours'
 import {
   isSlaEscalationCandidate,
   isSlaEscalationTerminalStatus,
@@ -191,8 +191,13 @@ async function runEscalationTier(
     'warranty_claims.claim.escalate',
     { input, ctx: buildCommandContext(container, scope) },
   )
-  if (!result.escalated || tier.action !== 'notify') return
-  await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+  if (!result.escalated) return
+  if (tier.action === 'reassign' && tier.toUserId) {
+    claim.assigneeUserId = tier.toUserId
+  }
+  if (tier.action === 'notify') {
+    await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
+  }
 }
 
 function logClaimSweepError(claimId: string, error: unknown): void {
@@ -235,10 +240,13 @@ export default async function handle(
   for (const claim of claims) {
     if (!isSlaEscalationCandidate(claim)) continue
     const submittedAt = claim.submittedAt
-    if (!submittedAt) continue
+    const slaDueAt = claim.slaDueAt
+    if (!submittedAt || !slaDueAt) continue
     try {
       const elapsedBusinessMillis = businessMillisBetween(submittedAt, now, settings.businessHours)
-      const progressPct = slaProgressPct(submittedAt, now, settings.slaHours, settings.businessHours)
+      // Anchor progress on `slaDueAt` — the pause-shifted deadline the stats
+      // endpoint reads — so pause/resume and escalation share one time base.
+      const progressPct = slaProgressPctFromDue(now, slaDueAt, settings.slaHours, settings.businessHours)
 
       if (
         progressPct >= settings.slaAtRiskThresholdPct &&
@@ -257,9 +265,8 @@ export default async function handle(
       }
 
       const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)
-      const highest = fire[fire.length - 1]
-      if (highest) {
-        await runEscalationTier(container, scope, claim, highest.tierIndex, highest.tier, progressPct)
+      for (const entry of fire) {
+        await runEscalationTier(container, scope, claim, entry.tierIndex, entry.tier, progressPct)
       }
     } catch (error) {
       logClaimSweepError(claim.id, error)

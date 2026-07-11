@@ -92,4 +92,15 @@ describe('warranty claim state machine', () => {
       totalApprovedAmount: 50,
     })
   })
+
+  test('clamps negative approved line contributions and rounds float artifacts', () => {
+    expect(computeHeaderRollups([
+      { lineStatus: 'approved', credit_amount: '5', restocking_fee: '8' },
+      { lineStatus: 'approved', credit_amount: '0.1' },
+      { lineStatus: 'approved', credit_amount: '0.2' },
+    ])).toEqual({
+      totalClaimedAmount: 5.3,
+      totalApprovedAmount: 0.3,
+    })
+  })
 })

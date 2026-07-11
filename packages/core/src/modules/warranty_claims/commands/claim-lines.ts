@@ -857,7 +857,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     await emitClaimUpdated(ctx, claim)
     await emitLineCrud(ctx, 'updated', line)
     if (shouldQuarantine) {
-      await emitWarrantyClaimsEvent('warranty_claims.claim.line_quarantined', {
+      await emitWarrantyClaimsEvent('warranty_claims.claim_line.quarantined', {
         id: line.id,
         claimId: claim.id,
         lineId: line.id,

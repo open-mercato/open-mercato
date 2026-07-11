@@ -145,7 +145,7 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
       expect(heldLine.quarantineStatus).toBe('held')
       const queuedEvents = await readQueuedEventJobs()
       expect(
-        hasQueuedLineEvent(queuedEvents, 'warranty_claims.claim.line_quarantined', line.id!),
+        hasQueuedLineEvent(queuedEvents, 'warranty_claims.claim_line.quarantined', line.id!),
         'receiving a configured quarantine grade should emit line_quarantined',
       ).toBe(true)
 

@@ -35,7 +35,7 @@ import {
 import {
   fetchAssignableStaffMembersPage,
   type AssignableStaffMember,
-} from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
+} from '@open-mercato/core/modules/customers/lib/assignableStaff'
 import { parseEscalationTiers, type EscalationTier } from '../../../lib/escalation'
 import type { BusinessWeekday } from '../../../lib/businessHours'
 import {

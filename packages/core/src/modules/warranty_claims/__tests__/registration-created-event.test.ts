@@ -27,7 +27,7 @@ describe('warranty registration created event hook', () => {
 
     expect(emitWarrantyClaimsEventMock).toHaveBeenCalledTimes(1)
     expect(emitWarrantyClaimsEventMock).toHaveBeenCalledWith(
-      'warranty_claims.claim.registration_created',
+      'warranty_claims.registration.created',
       { registrationId: REGISTRATION_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { persistent: true },
     )

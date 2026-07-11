@@ -83,6 +83,14 @@ export function canResolveWithLineStatuses(lines: readonly ClaimLineRollupInput[
   })
 }
 
+// Matches the numeric(18,4) scale of the warranty_claims total columns so the
+// float sums serialize without artifacts like "0.30000000000000004".
+const ROLLUP_AMOUNT_SCALE = 10_000
+
+function roundRollupAmount(value: number): number {
+  return Math.round((value + Number.EPSILON) * ROLLUP_AMOUNT_SCALE) / ROLLUP_AMOUNT_SCALE
+}
+
 export function computeHeaderRollups(lines: readonly ClaimLineRollupInput[]): {
   totalClaimedAmount: number
   totalApprovedAmount: number
@@ -97,9 +105,14 @@ export function computeHeaderRollups(lines: readonly ClaimLineRollupInput[]): {
 
     const status = lineStatus(line)
     if (status && approvedRollupStatuses.has(status)) {
-      totalApprovedAmount += creditAmount - lineRestockingFee(line) + lineCoreCreditAmount(line)
+      // A restocking fee larger than the line's credit must not drag the
+      // approved header total negative — clamp the line contribution at zero.
+      totalApprovedAmount += Math.max(0, creditAmount - lineRestockingFee(line) + lineCoreCreditAmount(line))
     }
   }
 
-  return { totalClaimedAmount, totalApprovedAmount }
+  return {
+    totalClaimedAmount: roundRollupAmount(totalClaimedAmount),
+    totalApprovedAmount: roundRollupAmount(totalApprovedAmount),
+  }
 }

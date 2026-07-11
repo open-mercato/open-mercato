@@ -269,3 +269,55 @@ export function slaProgressPct(
   const elapsed = businessMillisBetween(submittedAt, now, config)
   return (elapsed / (slaHours * 60 * 60 * 1000)) * 100
 }
+
+const ADD_BUSINESS_MILLIS_HORIZON_DAYS = 3660
+
+export function addBusinessMillis(
+  start: Date,
+  durationMillis: number,
+  config: BusinessHoursConfig | null | undefined,
+): Date {
+  if (!(start instanceof Date) || !Number.isFinite(start.getTime())) return start
+  if (!Number.isFinite(durationMillis) || durationMillis <= 0) return new Date(start.getTime())
+
+  const calendar = normalizeCalendar(config)
+  if (!calendar) return new Date(start.getTime() + durationMillis)
+
+  let remaining = durationMillis
+  let dayStamp = localDayStamp(start, calendar.timezone)
+  const startMs = start.getTime()
+
+  for (let dayIndex = 0; dayIndex < ADD_BUSINESS_MILLIS_HORIZON_DAYS; dayIndex += 1, dayStamp += DAY_MS) {
+    const dateKey = dateKeyFromDayStamp(dayStamp)
+    if (calendar.holidays.has(dateKey)) continue
+
+    const intervals = calendar.week.get(weekdayFromDayStamp(dayStamp)) ?? []
+    for (const interval of intervals) {
+      const intervalStart = localDateTimeForDay(dayStamp, interval.startMinutes, calendar.timezone).getTime()
+      const intervalEnd = localDateTimeForDay(dayStamp, interval.endMinutes, calendar.timezone).getTime()
+      const usableStart = Math.max(startMs, intervalStart)
+      if (intervalEnd <= usableStart) continue
+      const available = intervalEnd - usableStart
+      if (available >= remaining) return new Date(usableStart + remaining)
+      remaining -= available
+    }
+  }
+
+  // Degenerate calendar (e.g. every future day marked as a holiday) — fall back
+  // to wall clock past the horizon instead of looping forever.
+  return new Date(startMs + durationMillis)
+}
+
+export function slaProgressPctFromDue(
+  now: Date,
+  slaDueAt: Date,
+  slaHours: number,
+  config: BusinessHoursConfig | null | undefined,
+): number {
+  if (!Number.isFinite(slaHours) || slaHours <= 0) return 0
+  const totalMillis = slaHours * 60 * 60 * 1000
+  if (now.getTime() >= slaDueAt.getTime()) {
+    return 100 + (businessMillisBetween(slaDueAt, now, config) / totalMillis) * 100
+  }
+  return Math.max(0, 100 - (businessMillisBetween(now, slaDueAt, config) / totalMillis) * 100)
+}
