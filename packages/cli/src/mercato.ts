@@ -42,6 +42,7 @@ import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
+import { quotePostgresIdentifier } from './lib/db/identifiers'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -913,7 +914,7 @@ export async function run(argv = process.argv) {
             await client.query('BEGIN')
             try {
               for (const t of dropTargets) {
-                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
                 dropped += 1
               }
               await client.query('COMMIT')
