@@ -12,8 +12,6 @@ export const WMS_OPERATOR_FEATURES = [
   'wms.adjust_inventory',
   'wms.receive_inventory',
   'wms.cycle_count',
-  'wms.manage_warehouses',
-  'wms.manage_locations',
 ] as const
 
 export const WMS_MANAGE_FEATURES = [

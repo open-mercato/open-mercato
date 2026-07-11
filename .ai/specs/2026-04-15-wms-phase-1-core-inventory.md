@@ -512,12 +512,14 @@ UI patterns:
 
 | Role | Intended user | WMS features |
 |------|---------------|--------------|
-| `operator` | Floor staff — adjust stock, run simple cycle counts, read operational views | `wms.view`, `wms.adjust_inventory`, `wms.cycle_count` |
+| `operator` | Floor staff — adjust stock, run simple cycle counts, read operational views | `wms.view`, `wms.adjust_inventory`, `wms.receive_inventory`, `wms.cycle_count` |
 | `supervisor` | Warehouse lead — operator flows plus master-data maintenance and CSV import | operator features + `wms.import` + all `wms.manage_*` (`manage_warehouses`, `manage_zones`, `manage_locations`, `manage_inventory`, `manage_reservations`) |
 | `employee` | General back-office user (built-in) | `wms.view` only |
 | `admin` | Tenant administrator (built-in) | `wms.*` |
 
-**Existing tenants:** run `yarn mercato seed:defaults` (creates missing `operator`/`supervisor` roles) then `yarn mercato auth sync-role-acls` to merge new default grants without removing custom ACL edits.
+`wms.receive_inventory` (Phase 2 addition, see `.ai/specs/2026-04-15-wms-phase-2-inbound-putaway.md`) is an operator-level, day-to-day receiving task and is granted to `operator` alongside the Month-1 features above; `wms.manage_warehouses` and `wms.manage_locations` are master-data changes reserved for `supervisor` only (issue #4102).
+
+**Existing tenants:** run `yarn mercato seed:defaults` (creates missing `operator`/`supervisor` roles) then `yarn mercato auth sync-role-acls` to merge new default grants without removing custom ACL edits. Because the sync is additive-only, a tenant whose `operator` role already drifted to include `wms.manage_warehouses`/`wms.manage_locations` (e.g. from before this fix) must have those boxes unchecked manually on the role edit page — the sync command will not revoke previously granted features.
 
 #### Reserved role names
 
@@ -669,6 +671,7 @@ None.
 ## Changelog
 
 ### 2026-07-11
+- Fixed issue #4102: `WMS_OPERATOR_FEATURES` in `packages/core/src/modules/wms/lib/roleFeatures.ts` incorrectly included `wms.manage_warehouses`/`wms.manage_locations`, letting the floor-staff `operator` role create/edit warehouses and locations — a supervisor-only privilege per the Default role matrix. Removed both from `operator`'s defaults (still granted to `supervisor` via `WMS_MANAGE_FEATURES`); clarified that `wms.receive_inventory` staying on `operator` is intentional (Phase 2 receiving task) and updated the role matrix table accordingly. Existing tenants whose `operator` role already drifted must have the boxes unchecked manually, since `sync-role-acls` only merges additive grants.
 - Fixed issue #4096: `wms.warehouses.create` inserted the new row with `isPrimary=true` before demoting the sibling primary, racing the `wms_warehouses_org_primary_unique_idx` partial unique index and failing with a raw 500 instead of demoting the sibling (WMS-P1-INT-11). Create now inserts as non-primary, demotes siblings, then promotes inside a single `withAtomicFlush({ transaction: true })` sequence; update was hardened the same way as defense against the identity-map query-before-flush footgun. A residual concurrent-race unique-violation is now translated to a `409` (`wms.validation.warehouse.primaryConflict`) instead of a generic 500.
 
 ### 2026-06-01

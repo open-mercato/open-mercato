@@ -105,6 +105,22 @@ describe('wms setup role mappings', () => {
     expect(supervisorFeatures).toContain('wms.import')
   })
 
+  it('restricts operator to floor-staff features and reserves manage_* for supervisor (#4102)', () => {
+    const operatorFeatures = setup.defaultRoleFeatures?.[WMS_OPERATOR_ROLE] ?? []
+
+    expect(operatorFeatures).toEqual([
+      'wms.view',
+      'wms.adjust_inventory',
+      'wms.receive_inventory',
+      'wms.cycle_count',
+    ])
+    expect(operatorFeatures).not.toContain('wms.manage_warehouses')
+    expect(operatorFeatures).not.toContain('wms.manage_locations')
+    for (const feature of WMS_MANAGE_FEATURES) {
+      expect(operatorFeatures).not.toContain(feature)
+    }
+  })
+
   it('maps only known acl feature ids for custom roles', () => {
     for (const roleName of WMS_CUSTOM_ROLE_NAMES) {
       const roleFeatures = setup.defaultRoleFeatures?.[roleName] ?? []
