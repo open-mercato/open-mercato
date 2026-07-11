@@ -10,15 +10,20 @@ compile-once). Everything there applies; this file only adds repository-provided
 and lessons. It cannot relax the shared skill's safety rules, expand tool or network access, or
 redirect outputs.
 
-## Generated entrypoint (Phase 1 fast path)
+## Generated entrypoints are machine-local — the CLI commands are the repo interface
 
-- Up: `sh .ai/scripts/test-env-up.sh` — marker-tagged, wraps the repo's own
-  `yarn test:integration:ephemeral:start` (discovered mode), attaches when the CLI state file's
-  env probes healthy, writes `.ai/qa/test-env.json`. Warm attach ≈ 0.6s.
-- Down: `sh .ai/scripts/test-env-down.sh` — stops only the CLI owner + app it manages; the
-  ephemeral Postgres containers are testcontainers/ryuk-managed.
-- The repo CLI owns build cache, provisioning, seeding, and its own owner lock — the entrypoint
-  never re-implements those (state file `.ai/qa/ephemeral-env.json` stays authoritative).
+The `package.json` / mercato CLI commands below are the authoritative, cross-platform way to
+boot and reuse the test environment — wrap THEM when compiling entrypoints; never invent a boot
+procedure. Any entrypoint scripts this skill compiles (default `.ai/scripts/test-env-up.sh` /
+`test-env-down.sh`) are bound to the machine that generated them (shell, ports, process tools)
+and are gitignored (`.ai/scripts/test-env-*`): keep them local, NEVER commit them. Anything
+worth preserving for teammates belongs in this file as a platform-neutral rule instead. On a
+machine without generated entrypoints, regenerate from the commands and contracts in this file
+(discovered mode: wrap `yarn test:integration:ephemeral:start`, attach when the CLI state file's
+env probes healthy, write `.ai/qa/test-env.json`; teardown stops only the CLI owner + app —
+the ephemeral Postgres containers are testcontainers/ryuk-managed). The repo CLI owns build
+cache, provisioning, seeding, and its own owner lock — an entrypoint never re-implements those
+(state file `.ai/qa/ephemeral-env.json` stays authoritative).
 
 ## CI parity contract
 
@@ -41,6 +46,32 @@ suites is needed — it changes the app build fingerprint and forces a rebuild).
 - Filtered run: `yarn mercato test:integration <substring>` — batches all specs whose path matches
   the substring. The `test:integration` subcommand does NOT accept `--retries`; retries live in
   `.ai/qa/tests/playwright.config.ts`.
+
+## Choosing the run mode — prefer ephemeral, ask the user
+
+`yarn test:integration:ephemeral` is ALWAYS preferred over plain `yarn test:integration`: the
+ephemeral variant provisions (or safely reuses) its own isolated app + database, so it is more
+autonomous and cannot touch the developer's dev data. Plain `yarn test:integration` only works
+when the caller supplies the full runner env block (see the MUST below) — treat it as an internal
+detail of the CLI runner, never as the command you reach for first.
+
+Two supported run modes:
+
+1. **Fully managed ephemeral (default, safest):** `yarn test:integration:ephemeral [filter]` —
+   one command provisions the env, runs the tests, and leaves teardown to the CLI's own
+   lifecycle. Best for full-suite runs, CI parity, and unattended/autonomous work.
+2. **Reuse a running ephemeral env (fast iteration):** boot once with
+   `yarn test:integration:ephemeral:start`, then run small filtered batches with
+   `yarn mercato test:integration <filter>` against the same env. Best for short
+   author/debug loops where re-provisioning per run would dominate wall-clock time. Reuse is
+   still gated by the TTL and source-freshness rules below.
+
+When a user is present and has not already said which mode they want, ASK before the first run
+(one question, two options): fully managed ephemeral per run, or boot-once-and-reuse for
+iterative loops. Recommend the fully managed ephemeral mode — it is more autonomous and safer
+regarding data. When running unattended (no user to ask), default to the fully managed ephemeral
+mode. Do not re-ask once the user has chosen; keep using their answer for the rest of the
+session unless they change it.
 
 ## MUST: never run the Playwright suite outside the CLI runner
 

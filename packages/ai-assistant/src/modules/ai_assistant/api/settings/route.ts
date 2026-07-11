@@ -7,6 +7,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
+import { joinProviderModel } from '@open-mercato/shared/lib/ai/model-id'
 import {
   OPEN_CODE_PROVIDER_IDS,
   OPEN_CODE_PROVIDERS,
@@ -157,7 +158,7 @@ export async function GET(req: NextRequest) {
     const providerName = registryProvider?.name ?? fallbackOpenCodeProvider?.name ?? providerId
     const defaultProviderModel = registryProvider?.defaultModel ?? fallbackOpenCodeProvider?.defaultModel ?? ''
     const configuredModelHint = env.OM_AI_MODEL?.trim() || env.OPENCODE_MODEL?.trim() || defaultProviderModel
-    const fallbackModelWithProvider = `${providerId}/${configuredModelHint}`
+    const fallbackModelWithProvider = joinProviderModel(providerId, configuredModelHint)
     const apiKeyConfigured = registryProvider
       ? registryProvider.isConfigured(env)
       : fallbackOpenCodeProvider
@@ -434,7 +435,7 @@ export async function GET(req: NextRequest) {
         id: providerId,
         name: providerName,
         model: resolvedDefault
-          ? `${resolvedDefault.providerId}/${resolvedDefault.modelId}`
+          ? joinProviderModel(resolvedDefault.providerId, resolvedDefault.modelId)
           : fallbackModelWithProvider,
         defaultModel: defaultProviderModel,
         envKey: displayEnvKey,

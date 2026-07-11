@@ -1,6 +1,6 @@
 import { createQueue } from '../../factory'
 import type { Queue } from '../../types'
-import { runWorker } from '../runner'
+import { registerWorkerShutdownHook, runWorker } from '../runner'
 
 jest.mock('../../factory', () => ({
   createQueue: jest.fn(),
@@ -31,6 +31,7 @@ describe('runWorker', () => {
     createQueueMock.mockReturnValueOnce(queueA).mockReturnValueOnce(queueB)
 
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    const shutdownHook = jest.fn(async () => {})
     const initialSigtermListeners = process.listenerCount('SIGTERM')
     const initialSigintListeners = process.listenerCount('SIGINT')
 
@@ -47,6 +48,7 @@ describe('runWorker', () => {
       background: true,
       gracefulShutdown: true,
     })
+    registerWorkerShutdownHook(shutdownHook)
 
     expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners + 1)
     expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners + 1)
@@ -57,6 +59,7 @@ describe('runWorker', () => {
 
     expect(queueA.close).toHaveBeenCalledTimes(1)
     expect(queueB.close).toHaveBeenCalledTimes(1)
+    expect(shutdownHook).toHaveBeenCalledTimes(1)
     expect(exitSpy).toHaveBeenCalledWith(0)
     expect(process.listenerCount('SIGTERM')).toBe(initialSigtermListeners)
     expect(process.listenerCount('SIGINT')).toBe(initialSigintListeners)
