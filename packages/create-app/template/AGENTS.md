@@ -84,11 +84,14 @@ yarn test
 # Run a single unit test
 yarn test path/to/test.spec.ts
 
-# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+# Run integration tests (preferred: provisions/reuses an ephemeral app + DB, runs Playwright)
 yarn test:integration:ephemeral
 
-# Start ephemeral app only (for manual QA exploration; admin@acme.com / secret)
-yarn mercato test:ephemeral
+# Start ephemeral app only (manual QA exploration or iterative test loops; admin@acme.com / secret)
+yarn test:integration:ephemeral:start
+
+# Iterate against the running ephemeral env with small filtered batches
+yarn mercato test:integration <filter>
 
 # View HTML integration test report
 npx playwright show-report .ai/qa/test-results/html
