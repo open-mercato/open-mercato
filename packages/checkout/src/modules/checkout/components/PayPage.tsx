@@ -1350,6 +1350,7 @@ export function PayPageFooter({ payload, themeTokens }: PayPageFooterProps) {
     pl: t('common.languages.polish', 'Polski'),
     es: t('common.languages.spanish', 'Español'),
     de: t('common.languages.german', 'Deutsch'),
+    ko: t('common.languages.korean', '한국어'),
   }), [t])
 
   const setLocale = React.useCallback(async (nextLocale: Locale) => {
