@@ -25,6 +25,7 @@ export type WorkerRunnerOptions<T = unknown> = {
 }
 
 const managedQueues = new Set<Queue<unknown>>()
+const managedShutdownHooks = new Set<() => Promise<void> | void>()
 let shutdownHandlersRegistered = false
 let shutdownInProgress = false
 
@@ -54,6 +55,15 @@ function registerShutdownHandlers(): void {
     }
 
     managedQueues.clear()
+    for (const hook of managedShutdownHooks) {
+      try {
+        await hook()
+      } catch (error) {
+        hasError = true
+        console.error('[worker] Error during shutdown hook:', error)
+      }
+    }
+    managedShutdownHooks.clear()
     unregisterShutdownHandlers(sigtermHandler, sigintHandler)
     shutdownInProgress = false
 
@@ -75,6 +85,15 @@ function registerShutdownHandlers(): void {
   process.on('SIGTERM', sigtermHandler)
   process.on('SIGINT', sigintHandler)
   shutdownHandlersRegistered = true
+}
+
+/**
+ * Register a process-local service that must stop before a worker exits.
+ * The returned callback removes the hook when the service is stopped early.
+ */
+export function registerWorkerShutdownHook(hook: () => Promise<void> | void): () => void {
+  managedShutdownHooks.add(hook)
+  return () => managedShutdownHooks.delete(hook)
 }
 
 /**

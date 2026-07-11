@@ -170,6 +170,48 @@ describe('startLazyWorkerSupervisor', () => {
     expect((child as any).kill).toHaveBeenCalledWith('SIGTERM')
   })
 
+  it('starts the shared worker with extra arguments when an embedded scheduler needs it', async () => {
+    const child = createFakeChild()
+    const spawnFn = jest.fn(() => child) as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
+    const probeFn = jest.fn(async (queueName, strategy) =>
+      emptyProbe(queueName, strategy),
+    ) as jest.MockedFunction<LazySupervisorProbeFn>
+    const shouldStartSharedWorker = jest.fn(async () => true)
+
+    const handle = startLazyWorkerSupervisor({
+      mercatoBin: '/tmp/mercato',
+      appDir: '/tmp/app',
+      runtimeEnv: { ...process.env },
+      workers: [makeWorker('events')],
+      pollMs: 250,
+      restartOnUnexpectedExit: false,
+      strategy: 'local',
+      spawnMode: 'shared',
+      sharedWorkerArgs: ['--with-scheduler'],
+      shouldStartSharedWorker,
+      spawnFn,
+      probeFn,
+      logger: silentLogger,
+    })
+
+    await flushAsync(20)
+
+    expect(shouldStartSharedWorker).toHaveBeenCalled()
+    expect(spawnFn).toHaveBeenCalledTimes(1)
+    expect(spawnFn.mock.calls[0][1]).toEqual([
+      '/tmp/mercato',
+      'queue',
+      'worker',
+      '--all',
+      '--with-scheduler',
+    ])
+    expect(silentLogger.log).toHaveBeenCalledWith(
+      '[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues',
+    )
+
+    await handle.close()
+  })
+
   it('does not spawn when probe reports an error', async () => {
     const spawnFn = jest.fn() as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
     const probeFn = jest.fn(async (queueName, strategy) => ({

@@ -52,6 +52,10 @@ export type LazyWorkerSupervisorOptions = {
   restartOnUnexpectedExit: boolean
   spawnMode?: LazyWorkerSpawnMode
   strategy?: QueueStrategyType
+  /** Start the shared worker even with no ready queue jobs (for an embedded scheduler). */
+  shouldStartSharedWorker?: () => Promise<boolean>
+  /** Extra arguments for the shared worker command only. */
+  sharedWorkerArgs?: readonly string[]
   /** Override for tests. Defaults to `child_process.spawn`. */
   spawnFn?: LazySupervisorSpawnFn
   /** Override for tests. Defaults to `getQueuePendingProbe`. */
@@ -236,21 +240,25 @@ export function startLazyWorkerSupervisor(
     })
   }
 
-  function spawnSharedWorker(triggerQueueNames: string[]): void {
+  function spawnSharedWorker(triggerQueueNames: string[], schedulerTriggered = false): void {
     if (stopping) return
     if (activeSharedChild) return
     if (startingSharedWorker) return
     startingSharedWorker = true
 
-    const triggerSummary = triggerQueueNames.length > 0
-      ? ` after pending job(s) on ${triggerQueueNames.join(', ')}`
-      : ''
-    logger.log(`[lazy-supervisor] Pending job detected${triggerSummary} — starting shared worker for all queues`)
+    if (schedulerTriggered) {
+      logger.log('[lazy-supervisor] Enabled schedule detected — starting shared worker for all queues')
+    } else {
+      const triggerSummary = triggerQueueNames.length > 0
+        ? ` in ${triggerQueueNames.join(', ')}`
+        : ''
+      logger.log(`[lazy-supervisor] Pending job detected${triggerSummary} — starting shared worker for all queues`)
+    }
     let child: ChildProcess
     try {
       child = spawnFn(
         'node',
-        [options.mercatoBin, 'queue', 'worker', '--all'],
+        [options.mercatoBin, 'queue', 'worker', '--all', ...(options.sharedWorkerArgs ?? [])],
         {
           stdio: 'inherit',
           env: options.runtimeEnv,
@@ -355,8 +363,21 @@ export function startLazyWorkerSupervisor(
         spawnQueueWorker(group.queueName)
       }
     }
-    if (spawnMode === 'shared' && readySharedQueues.length > 0) {
-      spawnSharedWorker(readySharedQueues)
+    if (spawnMode === 'shared') {
+      if (readySharedQueues.length > 0) {
+        spawnSharedWorker(readySharedQueues)
+        return
+      }
+      if (options.shouldStartSharedWorker) {
+        try {
+          if (await options.shouldStartSharedWorker()) {
+            spawnSharedWorker([], true)
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err)
+          logger.warn(`[lazy-supervisor] Shared-worker start condition failed: ${message}`)
+        }
+      }
     }
   }
 

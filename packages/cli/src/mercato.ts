@@ -1,7 +1,7 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { runWorker } from '@open-mercato/queue/worker'
+import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -28,7 +28,7 @@ import {
   resolveLazySchedulerPollMs,
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
-import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import { probeEnabledSchedules, startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
 import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
@@ -75,6 +75,10 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
     }
   }
   return allWorkers
+}
+
+function shouldEmbedLocalSchedulerInSharedWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanToken(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) === true
 }
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
@@ -1548,6 +1552,7 @@ export async function run(argv = process.argv) {
         command: 'worker',
         run: async (args: string[]) => {
           const isAllQueues = args.includes('--all')
+          const runSchedulerInWorker = isAllQueues && args.includes('--with-scheduler')
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
@@ -1615,6 +1620,26 @@ export async function run(argv = process.argv) {
             })
 
             await Promise.all(workerPromises)
+
+            if (runSchedulerInWorker) {
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              if (queueStrategy !== 'local') {
+                throw new Error('[worker] --with-scheduler is supported only with QUEUE_STRATEGY=local.')
+              }
+              const schedulerContainer = await createRequestContainer()
+              const localScheduler = schedulerContainer.resolve('localSchedulerService') as {
+                start?: () => Promise<void>
+                stop?: () => Promise<void>
+              } | undefined
+              if (!localScheduler?.start || !localScheduler.stop) {
+                throw new Error('[worker] Local scheduler service is unavailable.')
+              }
+              await localScheduler.start()
+              registerWorkerShutdownHook(async () => {
+                await localScheduler.stop?.()
+              })
+              console.log('[worker] Local scheduler started in the shared worker process.')
+            }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')
 
@@ -2088,6 +2113,13 @@ export async function run(argv = process.argv) {
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const embedSchedulerInSharedWorker =
+                shouldEmbedLocalSchedulerInSharedWorker(process.env)
+                && queueStrategy === 'local'
+                && autoSpawnWorkersMode === 'lazy'
+                && resolveLazySpawnMode(process.env) === 'shared'
+                && autoSpawnSchedulerMode !== 'off'
+                && schedulerCommand.status === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2139,6 +2171,15 @@ export async function run(argv = process.argv) {
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
                       spawnMode: lazySpawnMode,
+                      ...(embedSchedulerInSharedWorker
+                        ? {
+                            sharedWorkerArgs: ['--with-scheduler'],
+                            shouldStartSharedWorker: async () => {
+                              const schedules = await probeEnabledSchedules(runtimeEnv)
+                              return !schedules.error && schedules.enabledSchedules > 0
+                            },
+                          }
+                        : {}),
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2152,7 +2193,9 @@ export async function run(argv = process.argv) {
                   }
                 }
 
-                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                if (embedSchedulerInSharedWorker) {
+                  console.log('[server] Local scheduler will run inside the lazy shared worker process.')
+                } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
                   if (schedulerCommand.status !== 'ok') {
                     console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
