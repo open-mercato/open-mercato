@@ -1,6 +1,7 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { hasAllFeatures } from '@open-mercato/shared/security/features'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { getModules } from '@open-mercato/shared/lib/i18n/server'
 
 export type EntityAclRequirement = {
   view: string[]
@@ -64,8 +65,46 @@ const ENTITY_ACL_REQUIREMENTS: Record<string, EntityAclRequirement> = {
   },
 }
 
+let declaredCustomEntityIds: Set<string> | null = null
+
+export function isDeclaredCustomEntity(entityId: string): boolean {
+  if (declaredCustomEntityIds === null) {
+    try {
+      const modules = getModules() as Array<{ customEntities?: Array<{ id?: string }> }>
+      if (Array.isArray(modules) && modules.length) {
+        declaredCustomEntityIds = new Set(
+          modules.flatMap((module) => (module.customEntities ?? []).flatMap((spec) => spec.id ? [spec.id] : [])),
+        )
+      }
+    } catch {}
+  }
+  return declaredCustomEntityIds?.has(entityId) ?? false
+}
+
 export function resolveEntityAclRequirement(entityId: string): EntityAclRequirement | null {
   return ENTITY_ACL_REQUIREMENTS[entityId] ?? null
+}
+
+export function canReadAllEntityMetadata(acl: {
+  isSuperAdmin?: boolean
+  features?: readonly string[]
+}): boolean {
+  return Boolean(acl.isSuperAdmin) || hasAllFeatures(acl.features, ['entities.definitions.view'])
+}
+
+export function canReadEntityMetadata(args: {
+  entityId: string
+  isCustomEntity: boolean
+  acl: { isSuperAdmin?: boolean; features?: readonly string[] }
+}): boolean {
+  if (args.acl.isSuperAdmin) return true
+
+  const requirement = resolveEntityAclRequirement(args.entityId)
+  if (requirement?.platformOnly) return false
+  if (canReadAllEntityMetadata(args.acl)) return true
+  if (args.isCustomEntity) return hasAllFeatures(args.acl.features, ['entities.records.view'])
+  if (!requirement) return false
+  return hasAllFeatures(args.acl.features, requirement.view)
 }
 
 type EntityAclActor = {

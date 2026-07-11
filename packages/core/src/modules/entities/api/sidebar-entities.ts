@@ -7,7 +7,7 @@ import { CustomEntity } from '@open-mercato/core/modules/entities/data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['entities.records.view'] },
 }
 
 export async function GET(req: Request) {

@@ -10,6 +10,8 @@ import { isSystemEntitySelectable } from '@open-mercato/shared/lib/entities/syst
 import { SYSTEM_ENTITY_RECORDS_BLOCKED_CODE, isOrmBackedSystemEntityId } from '@open-mercato/shared/lib/data/engine'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { canReadEntityMetadata, isDeclaredCustomEntity } from '../lib/entityAcl'
 import {
   beginEntitiesMutationGuard,
   ENTITY_DEFINITION_RESOURCE_KIND,
@@ -29,6 +31,11 @@ export async function GET(req: Request) {
 
   const { resolve } = await createRequestContainer()
   const em = resolve('em') as any
+  const rbac = resolve('rbacService') as RbacService
+  const acl = await rbac.loadAcl(auth.sub ?? '', {
+    tenantId: auth.tenantId,
+    organizationId: auth.orgId ?? null,
+  })
 
   // Generated entities from code
   const AllEntities = getEntityIds()
@@ -78,8 +85,20 @@ export async function GET(req: Request) {
     byId.set(cu.entityId, { ...existing, ...cu, source: existing?.source ?? cu.source })
   }
 
+  const visibleEntityIds = new Set(
+    Array.from(byId.values())
+      .filter((item: any) => canReadEntityMetadata({
+        entityId: item.entityId,
+        isCustomEntity: !isOrmBackedSystemEntityId(em, item.entityId)
+          && (item.source === 'custom' || isDeclaredCustomEntity(item.entityId)),
+        acl,
+      }))
+      .map((item: any) => item.entityId),
+  )
+  if (!visibleEntityIds.size) return NextResponse.json({ items: [] })
+
   // Count field definitions scoped to current tenant/org (same scoping as custom entities)
-  const defsWhere: any = { isActive: true }
+  const defsWhere: any = { isActive: true, entityId: { $in: Array.from(visibleEntityIds) } }
   defsWhere.$and = [
     //{ $or: [ { organizationId: auth.orgId ?? undefined as any }, { organizationId: null } ] }, // the entities and custom fields are defined per tenant
     { tenantId: auth.tenantId ?? undefined as any },
@@ -98,7 +117,9 @@ export async function GET(req: Request) {
   const counts: Record<string, number> = {}
   for (const [eid, set] of keySets.entries()) counts[eid] = set.size
 
-  const items = Array.from(byId.values()).map((it: any) => ({ ...it, count: counts[it.entityId] || 0 }))
+  const items = Array.from(byId.values())
+    .filter((item: any) => visibleEntityIds.has(item.entityId))
+    .map((item: any) => ({ ...item, count: counts[item.entityId] || 0 }))
   return NextResponse.json({ items })
 }
 

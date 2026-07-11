@@ -13,30 +13,10 @@ import { CustomFieldValue } from '../data/entities'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { getModules } from '@open-mercato/shared/lib/i18n/server'
-import { assertEntityAclForRequest } from '../lib/entityAcl'
+import { assertEntityAclForRequest, isDeclaredCustomEntity } from '../lib/entityAcl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('entities').child({ component: 'records' })
-
-let declaredCustomEntityIds: Set<string> | null = null
-function isDeclaredCustomEntity(entityId: string): boolean {
-  if (declaredCustomEntityIds === null) {
-    try {
-      const mods = getModules() as Array<{ customEntities?: Array<{ id?: string }> }>
-      if (Array.isArray(mods) && mods.length) {
-        const ids = new Set<string>()
-        for (const mod of mods) {
-          for (const spec of mod?.customEntities ?? []) {
-            if (spec?.id) ids.add(spec.id)
-          }
-        }
-        declaredCustomEntityIds = ids
-      }
-    } catch {}
-  }
-  return declaredCustomEntityIds?.has(entityId) ?? false
-}
 
 const CUSTOM_ENTITY_RECORD_RESOURCE_KIND = 'entities.record'
 
