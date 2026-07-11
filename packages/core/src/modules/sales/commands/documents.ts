@@ -2242,6 +2242,13 @@ function convertLineUnitPricesOnUnitChange(params: {
   };
 }
 
+function hasUnitPriceChanged(
+  previous: number,
+  next: number | null,
+): boolean {
+  return next === null || Math.abs(previous - next) >= 0.000001;
+}
+
 function resolveReferenceUnit(
   value: unknown,
 ): "kg" | "l" | "m2" | "m3" | "pc" | null {
@@ -6657,6 +6664,29 @@ const orderLineUpsertCommand: CommandHandler<
           unitPriceNet: unitPriceNet ?? 0,
           unitPriceGross: unitPriceGross ?? unitPriceNet ?? 0,
         },
+      });
+    }
+    const existingLine = parsed.id
+      ? (existingLines.find((line) => line.id === parsed.id) ?? null)
+      : null;
+    if (
+      existingLine &&
+      toNumeric(existingLine.fulfilledQuantity) > 0 &&
+      (hasUnitPriceChanged(
+        toNumeric(existingLine.unitPriceNet),
+        unitPriceNet,
+      ) ||
+        hasUnitPriceChanged(
+          toNumeric(existingLine.unitPriceGross),
+          unitPriceGross,
+        ))
+    ) {
+      const { translate } = await resolveTranslations();
+      throw new CrudHttpError(400, {
+        error: translate(
+          "sales.orders.lines.price_locked_after_shipment",
+          "Unit prices cannot be changed after a quantity has been shipped.",
+        ),
       });
     }
     const updatedSnapshot: SalesLineSnapshot & {
