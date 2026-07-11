@@ -240,7 +240,12 @@ jobs:
           OM_ENABLE_ENTERPRISE_MODULES_SECURITY=true
           AUTO_SPAWN_WORKERS=false
           AUTO_SPAWN_SCHEDULER=false
-          CACHE_STRATEGY=memory
+          # MUST be a cross-process strategy (sqlite/redis), never `memory`:
+          # with AUTO_SPAWN_WORKERS=false the integration tests drain queue jobs
+          # in separate child processes, and a per-process memory cache leaves the
+          # server serving stale ENABLE_CRUD_API_CACHE entries after those jobs
+          # mutate records (TC-CRM-079, TC-SX-001). Mirrors the ephemeral runner.
+          CACHE_STRATEGY=sqlite
           OM_OPTIMISTIC_LOCK=all
           EOF
 
@@ -317,6 +322,10 @@ jobs:
           MOCK_GATEWAY_WEBHOOK_SECRET: open-mercato-mock-dev-webhook-secret
           MOCK_CARRIER_WEBHOOK_SECRET: open-mercato-mock-dev-carrier-webhook-secret
           MOCK_INBOUND_WEBHOOK_SECRET: open-mercato-mock-dev-inbound-webhook-secret
+          # Queue-drain child processes inherit this env (they do NOT read the
+          # app's .env) — keep the strategy aligned with the app so their cache
+          # invalidations land in the same shared sqlite store the server reads.
+          CACHE_STRATEGY: sqlite
         run: yarn test:integration
 
       - name: Print standalone app log on test failure
