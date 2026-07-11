@@ -91,7 +91,9 @@ test.describe('TC-SALES-4057: main address selected after order creation', () =>
       await page.goto(`/backend/sales/orders/${encodeURIComponent(orderId)}?kind=order`, { waitUntil: 'domcontentloaded' })
       await page.getByRole('button', { name: 'Addresses' }).click()
 
-      const shippingCard = page.getByText('Shipping address', { exact: true }).locator('..').locator('..').locator('..')
+      const shippingCard = page
+        .getByText('Shipping address', { exact: true })
+        .locator('xpath=ancestor::div[contains(@class,"rounded")][1]')
       const shippingSelect = shippingCard.getByRole('combobox')
       await expect(shippingSelect).toBeEnabled()
       await shippingSelect.click()
@@ -107,6 +109,7 @@ test.describe('TC-SALES-4057: main address selected after order creation', () =>
       const updateBody = updateResponse.request().postDataJSON() as Record<string, unknown>
       expect(updateBody.shippingAddressId).toBe(customerAddressId)
       expect(Object.prototype.hasOwnProperty.call(updateBody, 'shippingAddressSnapshot')).toBe(false)
+      await expect(page.getByRole('button', { name: 'Update addresses' })).toBeEnabled()
 
       await page.getByRole('button', { name: 'Shipments' }).click()
       await page.getByRole('button', { name: 'Add shipment' }).first().click()
