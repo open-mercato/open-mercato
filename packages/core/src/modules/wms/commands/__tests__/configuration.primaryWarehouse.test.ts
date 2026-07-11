@@ -98,7 +98,31 @@ function createWarehouseStore(initial: WarehouseRecord[] = []) {
       records.set(record.id, record)
       return em
     }),
-    flush: jest.fn(async () => undefined),
+    // Mirrors the DB-level partial unique index `wms_warehouses_org_primary_unique_idx`
+    // (organization_id) WHERE deleted_at IS NULL AND is_primary = true: Postgres checks
+    // partial unique indexes per-statement, so any flush that would leave two live
+    // primaries for the same organization must fail with a unique-violation, exactly
+    // like the real database would. This is what makes issue #4096's ordering bug
+    // (insert new primary before demoting the sibling) reproducible at the unit level.
+    flush: jest.fn(async () => {
+      const primaryCountByOrg = new Map<string, number>()
+      for (const record of records.values()) {
+        if (record.deletedAt || !record.isPrimary) continue
+        primaryCountByOrg.set(record.organizationId, (primaryCountByOrg.get(record.organizationId) ?? 0) + 1)
+      }
+      for (const count of primaryCountByOrg.values()) {
+        if (count > 1) {
+          const error = new Error(
+            'duplicate key value violates unique constraint "wms_warehouses_org_primary_unique_idx"',
+          )
+          ;(error as { code?: string }).code = '23505'
+          throw error
+        }
+      }
+    }),
+    begin: jest.fn(async () => undefined),
+    commit: jest.fn(async () => undefined),
+    rollback: jest.fn(async () => undefined),
   }
 
   return { em, records }
@@ -307,6 +331,54 @@ describe('WMS warehouse primary enforcement', () => {
     expect(
       store.em.nativeUpdate.mock.calls.some((call) => Object.prototype.hasOwnProperty.call(call[1], 'tenantId')),
     ).toBe(false)
+  })
+
+  it('translates a residual primary-conflict race into a 409 instead of a raw 500', async () => {
+    // Simulates a concurrent request winning the demotion race: the demotion
+    // nativeUpdate runs but does not actually clear the sibling (e.g. another
+    // transaction already re-primaried it), so the final flush still sees two
+    // live primaries and the real partial unique index would reject it.
+    const store = createWarehouseStore([
+      {
+        id: PRIMARY_ID,
+        organizationId: ORG,
+        tenantId: TENANT,
+        name: 'Primary DC',
+        code: 'PRIMARY',
+        isActive: true,
+        isPrimary: true,
+        deletedAt: null,
+        addressLine1: null,
+        city: null,
+        postalCode: null,
+        country: null,
+        timezone: null,
+        metadata: null,
+        createdAt: new Date('2026-04-15T00:00:00.000Z'),
+        updatedAt: new Date('2026-04-15T00:00:00.000Z'),
+      },
+    ])
+    store.em.nativeUpdate.mockImplementation(async () => undefined)
+    const handler = commandRegistry.get('wms.warehouses.create')!
+    const ctx = createCtx(store.em)
+
+    await expect(
+      handler.execute!(
+        {
+          tenantId: TENANT,
+          organizationId: ORG,
+          name: 'Secondary DC',
+          code: 'SECONDARY',
+          isPrimary: true,
+        },
+        ctx as never,
+      ),
+    ).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({
+        fieldErrors: { isPrimary: expect.stringMatching(/retry/i) },
+      }),
+    })
   })
 
   it('rejects create when isPrimary is true and isActive is false', async () => {

@@ -980,6 +980,7 @@
   "wms.search.profile.productScoped": "Zakres produktu",
   "wms.search.profile.variantScoped": "Zakres wariantu",
   "wms.validation.warehouse.inactivePrimary": "Nieaktywne magazyny nie mogą być oznaczone jako główne.",
+  "wms.validation.warehouse.primaryConflict": "Inny magazyn został właśnie oznaczony jako główny dla tej organizacji. Spróbuj ponownie.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "Strategia rotacji",
   "wms.widgets.catalog.inventoryProfile.defaultUom": "Domyslna JM",
   "wms.widgets.catalog.inventoryProfile.errors.defaultUomRequired": "Podaj domyslna JM dla profilu zapasu WMS.",

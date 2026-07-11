@@ -980,6 +980,7 @@
   "wms.search.profile.productScoped": "Product-scoped",
   "wms.search.profile.variantScoped": "Variant-scoped",
   "wms.validation.warehouse.inactivePrimary": "Inaktive Lager können nicht als Hauptlager markiert werden.",
+  "wms.validation.warehouse.primaryConflict": "Ein anderes Lager wurde soeben als Hauptlager für diese Organisation festgelegt. Bitte versuchen Sie es erneut.",
   "wms.widgets.catalog.inventoryProfile.defaultStrategy": "Rotation strategy",
   "wms.widgets.catalog.inventoryProfile.defaultUom": "Default UOM",
   "wms.widgets.catalog.inventoryProfile.errors.defaultUomRequired": "Provide a default UOM for the WMS inventory profile.",

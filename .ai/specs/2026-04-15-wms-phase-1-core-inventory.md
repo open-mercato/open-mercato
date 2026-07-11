@@ -668,6 +668,9 @@ None.
 
 ## Changelog
 
+### 2026-07-11
+- Fixed issue #4096: `wms.warehouses.create` inserted the new row with `isPrimary=true` before demoting the sibling primary, racing the `wms_warehouses_org_primary_unique_idx` partial unique index and failing with a raw 500 instead of demoting the sibling (WMS-P1-INT-11). Create now inserts as non-primary, demotes siblings, then promotes inside a single `withAtomicFlush({ transaction: true })` sequence; update was hardened the same way as defense against the identity-map query-before-flush footgun. A residual concurrent-race unique-violation is now translated to a `409` (`wms.validation.warehouse.primaryConflict`) instead of a generic 500.
+
 ### 2026-06-01
 - Added **Expiry watch** section on the operational dashboard: compact expiring-soon and past-due lot lists sourced from `GET /api/wms/dashboard/operational` (`expiryLots` payload field)
 - Documented **CSV MVP import** as the Month 1 inventory bootstrap decision (validate → report → apply; active deliverable, not waived)

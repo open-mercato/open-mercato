@@ -32,7 +32,8 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { registerCommand } from '@open-mercato/shared/lib/commands'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
+import { CrudHttpError, isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -493,15 +494,22 @@ async function rejectInactivePrimaryWarehouse(ctx: CommandRuntimeContext): Promi
   throw new CrudHttpError(422, { error: message, fieldErrors: { isPrimary: message } })
 }
 
-function applyWarehouseActivePrimaryState(
-  warehouse: Warehouse,
-  parsed: { isActive?: boolean; isPrimary?: boolean },
-): void {
-  if (parsed.isActive !== undefined) warehouse.isActive = parsed.isActive
-  if (parsed.isPrimary !== undefined) warehouse.isPrimary = parsed.isPrimary
-  if (parsed.isActive === false && warehouse.isPrimary) {
-    warehouse.isPrimary = false
-  }
+const WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT = 'wms_warehouses_org_primary_unique_idx'
+
+/**
+ * Defense in depth: a concurrent request can still win the race against the
+ * `wms_warehouses_org_primary_unique_idx` partial unique index between this
+ * request's demotion step and its own promote-to-primary flush. Translate
+ * that residual DB-level conflict into an actionable 409 instead of letting a
+ * raw Postgres unique-violation surface as a generic 500 (#4096).
+ */
+async function rejectPrimaryWarehouseConflict(): Promise<never> {
+  const { translate } = await resolveTranslations()
+  const message = translate(
+    'wms.validation.warehouse.primaryConflict',
+    'Another warehouse was just set as primary for this organization. Please retry.',
+  )
+  throw new CrudHttpError(409, { error: message, fieldErrors: { isPrimary: message } })
 }
 
 async function restoreDemotedPrimaryWarehouses(
@@ -655,7 +663,12 @@ const createWarehouseCommand: CommandHandler<
       name: parsed.name,
       code: parsed.code,
       isActive,
-      isPrimary,
+      // Always insert as non-primary first: inserting with isPrimary=true would
+      // race the `wms_warehouses_org_primary_unique_idx` partial unique index
+      // against an existing sibling primary before that sibling gets demoted
+      // below (Postgres checks partial unique indexes per-statement, not at
+      // commit time).
+      isPrimary: false,
       addressLine1: normalizeOptionalString(parsed.addressLine1),
       city: normalizeOptionalString(parsed.city),
       postalCode: normalizeOptionalString(parsed.postalCode),
@@ -663,16 +676,34 @@ const createWarehouseCommand: CommandHandler<
       timezone: normalizeOptionalString(parsed.timezone),
       metadata: toJsonValue(parsed.metadata),
     })
-    await em.persist(warehouse).flush()
     let demotedPrimariesBefore: PrimaryDemotionSnapshot[] = []
-    if (warehouse.isPrimary) {
-      demotedPrimariesBefore = await enforcePrimaryWarehouse(
+    try {
+      await withAtomicFlush(
         em,
-        warehouse.organizationId,
-        warehouse.tenantId,
-        warehouse.id,
+        [
+          () => {
+            em.persist(warehouse)
+          },
+          async () => {
+            if (!isPrimary) return
+            demotedPrimariesBefore = await enforcePrimaryWarehouse(
+              em,
+              warehouse.organizationId,
+              warehouse.tenantId,
+              warehouse.id,
+            )
+          },
+          () => {
+            if (isPrimary) warehouse.isPrimary = true
+          },
+        ],
+        { transaction: true, label: 'wms.warehouses.create' },
       )
-      await em.flush()
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
     }
     void emitWmsEvent('wms.warehouse.created', {
       id: warehouse.id,
@@ -745,29 +776,61 @@ const updateWarehouseCommand: CommandHandler<
     const warehouse = await loadWarehouse(em, ctx, parsed.id)
     if (parsed.code !== undefined && parsed.code !== warehouse.code) {
       await ensureWarehouseCodeUnique(em, warehouse.tenantId, warehouse.organizationId, parsed.code, warehouse.id)
-      warehouse.code = parsed.code
     }
-    if (parsed.name !== undefined) warehouse.name = parsed.name
-    applyWarehouseActivePrimaryState(warehouse, parsed)
-    if (warehouse.isPrimary && !warehouse.isActive) {
+    // Resolve the intended isActive/isPrimary state before mutating anything so
+    // validation can run before any write. Deactivating (isActive explicitly
+    // false in this request) silently auto-clears isPrimary; otherwise ending up
+    // primary while inactive is rejected.
+    let nextIsActive = warehouse.isActive
+    let nextIsPrimary = warehouse.isPrimary
+    if (parsed.isActive !== undefined) nextIsActive = parsed.isActive
+    if (parsed.isPrimary !== undefined) nextIsPrimary = parsed.isPrimary
+    if (parsed.isActive === false && nextIsPrimary) {
+      nextIsPrimary = false
+    } else if (nextIsPrimary && !nextIsActive) {
       await rejectInactivePrimaryWarehouse(ctx)
     }
-    if (parsed.addressLine1 !== undefined) warehouse.addressLine1 = normalizeOptionalString(parsed.addressLine1)
-    if (parsed.city !== undefined) warehouse.city = normalizeOptionalString(parsed.city)
-    if (parsed.postalCode !== undefined) warehouse.postalCode = normalizeOptionalString(parsed.postalCode)
-    if (parsed.country !== undefined) warehouse.country = normalizeOptionalString(parsed.country)
-    if (parsed.timezone !== undefined) warehouse.timezone = normalizeOptionalString(parsed.timezone)
-    if (parsed.metadata !== undefined) warehouse.metadata = toJsonValue(parsed.metadata)
     let demotedPrimariesBefore: PrimaryDemotionSnapshot[] = []
-    if (warehouse.isPrimary) {
-      demotedPrimariesBefore = await enforcePrimaryWarehouse(
+    try {
+      await withAtomicFlush(
         em,
-        warehouse.organizationId,
-        warehouse.tenantId,
-        warehouse.id,
+        [
+          () => {
+            if (parsed.code !== undefined) warehouse.code = parsed.code
+            if (parsed.name !== undefined) warehouse.name = parsed.name
+            if (parsed.addressLine1 !== undefined) warehouse.addressLine1 = normalizeOptionalString(parsed.addressLine1)
+            if (parsed.city !== undefined) warehouse.city = normalizeOptionalString(parsed.city)
+            if (parsed.postalCode !== undefined) warehouse.postalCode = normalizeOptionalString(parsed.postalCode)
+            if (parsed.country !== undefined) warehouse.country = normalizeOptionalString(parsed.country)
+            if (parsed.timezone !== undefined) warehouse.timezone = normalizeOptionalString(parsed.timezone)
+            if (parsed.metadata !== undefined) warehouse.metadata = toJsonValue(parsed.metadata)
+            warehouse.isActive = nextIsActive
+            // Hold this row's own primary flag at false until siblings are demoted
+            // (next phase) so the at-most-one-primary partial unique index never
+            // sees two primary rows for the org within the same SQL statement.
+            warehouse.isPrimary = false
+          },
+          async () => {
+            if (!nextIsPrimary) return
+            demotedPrimariesBefore = await enforcePrimaryWarehouse(
+              em,
+              warehouse.organizationId,
+              warehouse.tenantId,
+              warehouse.id,
+            )
+          },
+          () => {
+            warehouse.isPrimary = nextIsPrimary
+          },
+        ],
+        { transaction: true, label: 'wms.warehouses.update' },
       )
+    } catch (err) {
+      if (isUniqueViolation(err, WMS_WAREHOUSE_PRIMARY_UNIQUE_CONSTRAINT)) {
+        await rejectPrimaryWarehouseConflict()
+      }
+      throw err
     }
-    await em.flush()
     void emitWmsEvent('wms.warehouse.updated', {
       id: warehouse.id,
       warehouseId: warehouse.id,
