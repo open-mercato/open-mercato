@@ -6,6 +6,7 @@
   "translations.locales.flash.error": "로케일 업데이트에 실패했습니다",
   "translations.locales.flash.saved": "로케일이 업데이트되었습니다",
   "translations.locales.loading": "로케일을 불러오는 중...",
+  "translations.locales.remove": "{{locale}} 제거",
   "translations.locales.title": "지원되는 로케일",
   "translations.manager.actions.retry": "재시도",
   "translations.manager.actions.save": "번역 저장",

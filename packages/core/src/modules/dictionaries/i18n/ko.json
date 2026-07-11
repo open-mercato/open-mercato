@@ -80,6 +80,7 @@
   "dictionaries.config.success.delete": "사전이 삭제되었습니다.",
   "dictionaries.config.success.update": "사전이 수정되었습니다.",
   "dictionaries.customFields.allowInlineCreate": "양식 내 인라인 생성 허용",
+  "dictionaries.customFields.allowMultiple": "여러 항목 선택 허용",
   "dictionaries.customFields.defaultValue": "기본값",
   "dictionaries.customFields.defaultValueNone": "기본값 없음",
   "dictionaries.customFields.defaultValueStale": "기본 항목을 찾을 수 없습니다 — 삭제되었거나 이름이 변경되었을 수 있습니다.",

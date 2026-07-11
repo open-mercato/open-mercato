@@ -5,6 +5,7 @@
   "attachments.errors.maxUploadSize": "첨부 파일이 최대 업로드 크기를 초과합니다.",
   "attachments.errors.publicPartitionBlocked": "이 업로드에는 공개 저장소 파티션을 명시적으로 선택할 수 없습니다.",
   "attachments.errors.quotaExceeded": "이 테넌트의 첨부 파일 저장소 할당량을 초과했습니다.",
+  "attachments.errors.selectOrganization": "첨부파일을 업로드하기 전에 특정 조직을 선택하세요.",
   "attachments.library.actions.copied": "링크가 복사되었습니다.",
   "attachments.library.actions.copyError": "링크를 복사할 수 없습니다.",
   "attachments.library.actions.copyUrl": "URL 복사",

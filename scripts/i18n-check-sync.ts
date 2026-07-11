@@ -22,7 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { globSync } from 'glob'
 
 const REFERENCE_LOCALE = 'en'
-const TARGET_LOCALES = ['pl', 'es', 'de']
+const TARGET_LOCALES = ['pl', 'es', 'de', 'ko']
 const MAX_KEYS_TO_SHOW = 10
 
 const __filename_ = typeof __filename !== 'undefined' ? __filename : fileURLToPath(import.meta.url)

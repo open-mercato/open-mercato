@@ -47,6 +47,7 @@
   "data_sync.dashboard.schedule.timezone": "표준 시간대",
   "data_sync.dashboard.schedule.title": "반복 일정",
   "data_sync.dashboard.schedule.type": "일정 유형",
+  "data_sync.dashboard.searchPlaceholder": "통합, 엔터티 유형, 상태 또는 실행 ID로 검색",
   "data_sync.dashboard.start.batchSize": "배치 크기",
   "data_sync.dashboard.start.description": "이 페이지에서 동기화 대상을 선택하고, 임시 실행을 시작하거나, 동일한 엔터티와 방향에 대한 반복 일정을 저장하세요.",
   "data_sync.dashboard.start.error": "동기화 실행을 시작하지 못했습니다",

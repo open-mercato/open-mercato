@@ -14,6 +14,7 @@
   "shipping_carriers.create.error.create": "배송 생성에 실패했습니다.",
   "shipping_carriers.create.error.fetchDropOffPoints": "접수처를 가져오지 못했습니다.",
   "shipping_carriers.create.error.fetchRates": "배송 요금을 가져오지 못했습니다.",
+  "shipping_carriers.create.error.idempotencyConflict": "이 배송 건은 이미 제출되었습니다. 다시 시도하기 전에 페이지를 새로고침하세요.",
   "shipping_carriers.create.error.invalidEmail": "잘못된 이메일 주소입니다.",
   "shipping_carriers.create.error.invalidPhone": "잘못된 전화번호입니다.",
   "shipping_carriers.create.error.loadProviders": "배송 제공업체를 불러오지 못했습니다.",
@@ -68,6 +69,17 @@
   "shipping_carriers.create.summary.targetPoint": "택배함",
   "shipping_carriers.create.summary.to": "도착",
   "shipping_carriers.create.title": "배송사 배송 생성",
+  "shipping_carriers.errors.upstreamFailed": "배송사 요청에 실패했습니다. 나중에 다시 시도하세요.",
   "shipping_carriers.feature.manage": "배송사 운영 관리",
-  "shipping_carriers.feature.view": "배송사 배송 보기"
+  "shipping_carriers.feature.view": "배송사 배송 보기",
+  "shipping_carriers.status.cancelled": "취소됨",
+  "shipping_carriers.status.delivered": "배송 완료",
+  "shipping_carriers.status.failed_delivery": "배송 실패",
+  "shipping_carriers.status.in_transit": "배송 중",
+  "shipping_carriers.status.label_created": "라벨 생성됨",
+  "shipping_carriers.status.out_for_delivery": "배송 출발",
+  "shipping_carriers.status.pending": "대기 중",
+  "shipping_carriers.status.picked_up": "수거됨",
+  "shipping_carriers.status.returned": "반송됨",
+  "shipping_carriers.status.unknown": "알 수 없음"
 }
