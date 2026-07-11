@@ -60,7 +60,7 @@ function registerShutdownHandlers(): void {
         await hook()
       } catch (error) {
         hasError = true
-        console.error('[worker] Error during shutdown hook:', error)
+        logger.error('Error during shutdown hook', { err: error })
       }
     }
     managedShutdownHooks.clear()
