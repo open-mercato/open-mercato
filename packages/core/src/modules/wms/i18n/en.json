@@ -368,6 +368,7 @@
   "wms.backend.inventory.errors.movements": "Failed to load movements.",
   "wms.backend.inventory.errors.reservations": "Failed to load reservations.",
   "wms.backend.inventory.import.actions.apply": "Apply import",
+  "wms.backend.inventory.import.actions.applying": "Importing…",
   "wms.backend.inventory.import.actions.autoMap": "Auto-map",
   "wms.backend.inventory.import.actions.back": "Back",
   "wms.backend.inventory.import.actions.cancel": "Cancel",

@@ -2,8 +2,9 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { ReserveInventoryDialog } from '../ReserveInventoryDialog'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
@@ -215,6 +216,34 @@ describe('ReserveInventoryDialog', () => {
       sourceType: 'manual',
       sourceId: 'ref-uuid-001',
     })
+  })
+
+  // Regression coverage for #4103: reserving more than the available quantity
+  // (409 insufficient_stock) must surface a visible error, not fail silently.
+  it('shows a flash error when the reservation mutation rejects', async () => {
+    mockRunMutation.mockRejectedValue(
+      new Error('Not enough available stock to fulfil this reservation.'),
+    )
+
+    render(<ReserveInventoryDialog open onOpenChange={jest.fn()} access={buildAccess()} />)
+
+    fireEvent.change(screen.getByPlaceholderText('Select warehouse…'), {
+      target: { value: 'wh-uuid-1' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Search SKU or name…'), {
+      target: { value: 'var-uuid-1' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /Reserve/ }))
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(flash).toHaveBeenCalledWith(
+        'Not enough available stock to fulfil this reservation.',
+        'error',
+      ),
+    )
+    // Dialog stays open and re-enables the submit button so the user can retry.
+    expect(screen.getByText('Reserve inventory')).toBeTruthy()
   })
 
   it('does not include lotId in payload when lot is not selected', async () => {

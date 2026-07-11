@@ -457,6 +457,13 @@ export function AdjustInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
         await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
         closeDialog()
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'),
+          'error',
+        )
       } finally {
         setSubmitting(false)
       }

@@ -240,6 +240,13 @@ export function ReleaseReservationDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
         onSuccess?.()
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'),
+          'error',
+        )
       } finally {
         setSubmitting(false)
       }

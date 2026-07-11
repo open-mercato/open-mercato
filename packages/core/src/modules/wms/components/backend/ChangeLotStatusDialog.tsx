@@ -173,6 +173,13 @@ export function ChangeLotStatusDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
         onSuccess?.()
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'),
+          'error',
+        )
       } finally {
         setSubmitting(false)
       }

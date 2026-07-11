@@ -173,6 +173,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
   const [columnMappings, setColumnMappings] = React.useState<DetectedColumnMapping[]>([])
   const [validation, setValidation] = React.useState<ValidationResponse | null>(null)
   const [validating, setValidating] = React.useState(false)
+  const [applying, setApplying] = React.useState(false)
   const [showIssueDetails, setShowIssueDetails] = React.useState(false)
   const [skipDuplicates, setSkipDuplicates] = React.useState(true)
   const [isDragging, setIsDragging] = React.useState(false)
@@ -189,6 +190,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     setColumnMappings([])
     setValidation(null)
     setValidating(false)
+    setApplying(false)
     setShowIssueDetails(false)
     setSkipDuplicates(true)
     setIsDragging(false)
@@ -402,62 +404,74 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       rows: applyRows,
     }
 
-    const result = await runMutation({
-      operation: async () => {
-        const call = await apiCall<{
-          ok?: boolean
-          summary?: { applied?: number; skipped?: number; failed?: number }
-        }>(
-          '/api/wms/inventory/import/apply',
-          {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              organizationId: access.organizationId,
-              tenantId: access.tenantId,
-              importBatchId: validation.importBatchId,
-              reason: t('wms.backend.inventory.import.defaultReason', 'CSV import opening balance'),
-              continueOnError: true,
-              rows: applyRows,
-            }),
-          },
-        )
-        if (!call.ok) {
-          await raiseCrudError(
-            call.response,
-            t('wms.backend.inventory.import.errors.apply', 'Import failed.'),
+    setApplying(true)
+    try {
+      const result = await runMutation({
+        operation: async () => {
+          const call = await apiCall<{
+            ok?: boolean
+            summary?: { applied?: number; skipped?: number; failed?: number }
+          }>(
+            '/api/wms/inventory/import/apply',
+            {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({
+                organizationId: access.organizationId,
+                tenantId: access.tenantId,
+                importBatchId: validation.importBatchId,
+                reason: t('wms.backend.inventory.import.defaultReason', 'CSV import opening balance'),
+                continueOnError: true,
+                rows: applyRows,
+              }),
+            },
           )
-        }
-        return call.result ?? {}
-      },
-      context: mutationContext,
-      mutationPayload,
-    })
+          if (!call.ok) {
+            await raiseCrudError(
+              call.response,
+              t('wms.backend.inventory.import.errors.apply', 'Import failed.'),
+            )
+          }
+          return call.result ?? {}
+        },
+        context: mutationContext,
+        mutationPayload,
+      })
 
-    const applied = result?.summary?.applied ?? 0
-    const skipped = result?.summary?.skipped ?? 0
-    const failed = result?.summary?.failed ?? 0
-    if (failed > 0) {
+      const applied = result?.summary?.applied ?? 0
+      const skipped = result?.summary?.skipped ?? 0
+      const failed = result?.summary?.failed ?? 0
+      if (failed > 0) {
+        flash(
+          t(
+            'wms.backend.inventory.import.flash.appliedPartial',
+            'Import finished with errors ({applied} applied, {skipped} skipped, {failed} failed).',
+            { applied, skipped, failed },
+          ),
+          'warning',
+        )
+      } else {
+        flash(
+          t('wms.backend.inventory.import.flash.applied', 'Import finished ({applied} applied, {skipped} skipped).', {
+            applied,
+            skipped,
+          }),
+          'success',
+        )
+      }
+      await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
+      await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
+      closeDialog()
+    } catch (error) {
       flash(
-        t(
-          'wms.backend.inventory.import.flash.appliedPartial',
-          'Import finished with errors ({applied} applied, {skipped} skipped, {failed} failed).',
-          { applied, skipped, failed },
-        ),
-        'warning',
+        error instanceof Error
+          ? error.message
+          : t('wms.backend.inventory.import.errors.apply', 'Import failed.'),
+        'error',
       )
-    } else {
-      flash(
-        t('wms.backend.inventory.import.flash.applied', 'Import finished ({applied} applied, {skipped} skipped).', {
-          applied,
-          skipped,
-        }),
-        'success',
-      )
+    } finally {
+      setApplying(false)
     }
-    await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
-    await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
-    closeDialog()
   }, [
     access.organizationId,
     access.scopeReady,
@@ -497,12 +511,12 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       }
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
         event.preventDefault()
-        if (validating) return
+        if (validating || applying) return
         if (step === 3 && !canApply) return
         void handlePrimaryAction()
       }
     },
-    [canApply, closeDialog, handlePrimaryAction, step, validating],
+    [applying, canApply, closeDialog, handlePrimaryAction, step, validating],
   )
 
   const stepSubtitle = React.useMemo(() => {
@@ -527,6 +541,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
 
   const primaryDisabled =
     validating ||
+    applying ||
     (step === 1 && !selectedFile) ||
     (step === 3 && !canApply)
 
@@ -536,10 +551,12 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
         ? t('wms.backend.inventory.import.actions.validating', 'Validating…')
         : t('wms.backend.inventory.import.actions.next', 'Next')
     }
-    return t('wms.backend.inventory.import.actions.importRows', 'Import {count} rows', {
-      count: formatRowCount(importableRowCount),
-    })
-  }, [importableRowCount, step, t, validating])
+    return applying
+      ? t('wms.backend.inventory.import.actions.applying', 'Importing…')
+      : t('wms.backend.inventory.import.actions.importRows', 'Import {count} rows', {
+          count: formatRowCount(importableRowCount),
+        })
+  }, [applying, importableRowCount, step, t, validating])
 
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
@@ -887,7 +904,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
           </p>
           <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
             {step === 1 ? (
-              <Button type="button" variant="outline" onClick={closeDialog} disabled={validating}>
+              <Button type="button" variant="outline" onClick={closeDialog} disabled={validating || applying}>
                 {t('wms.backend.inventory.import.actions.cancel', 'Cancel')}
               </Button>
             ) : (
@@ -895,7 +912,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                 type="button"
                 variant="outline"
                 onClick={() => setStep((current) => (current === 3 ? 2 : 1))}
-                disabled={validating}
+                disabled={validating || applying}
               >
                 {t('wms.backend.inventory.import.actions.back', 'Back')}
               </Button>

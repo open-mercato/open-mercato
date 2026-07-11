@@ -2,9 +2,10 @@
  * @jest-environment jsdom
  */
 import * as React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ReceiveInventoryDialog } from '../ReceiveInventoryDialog'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
@@ -18,9 +19,11 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: jest.fn(),
 }))
 
+const mockRunMutation = jest.fn()
+
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: jest.fn(),
+    runMutation: mockRunMutation,
     retryLastMutation: jest.fn(),
   }),
 }))
@@ -34,8 +37,21 @@ jest.mock('@tanstack/react-query', () => ({
 }))
 
 jest.mock('@open-mercato/ui/backend/inputs/ComboboxInput', () => ({
-  ComboboxInput: ({ placeholder }: { placeholder: string }) => (
-    <input placeholder={placeholder} data-testid="combobox" readOnly />
+  ComboboxInput: ({
+    placeholder,
+    value,
+    onChange,
+  }: {
+    placeholder: string
+    value: string
+    onChange: (v: string) => void
+  }) => (
+    <input
+      placeholder={placeholder}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      data-testid={`combobox-${placeholder}`}
+    />
   ),
 }))
 
@@ -146,5 +162,37 @@ describe('ReceiveInventoryDialog', () => {
       />,
     )
     expect(container).toBeTruthy()
+  })
+
+  // Regression coverage for #4103: a failed save must surface a visible
+  // flash error instead of failing silently.
+  it('shows a flash error when the receive mutation rejects', async () => {
+    mockRunMutation.mockRejectedValue(new Error('Failed to receive inventory.'))
+
+    render(
+      <ReceiveInventoryDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+      />,
+    )
+
+    fireEvent.change(screen.getByPlaceholderText('Search variant or SKU'), {
+      target: { value: '11111111-1111-4111-8111-111111111111' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Select warehouse'), {
+      target: { value: '22222222-2222-4222-8222-222222222222' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Select location'), {
+      target: { value: '33333333-3333-4333-8333-333333333333' },
+    })
+    const form = document.querySelector('form')
+    expect(form).toBeTruthy()
+    fireEvent.submit(form!)
+
+    await waitFor(() => expect(mockRunMutation).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(flash).toHaveBeenCalledWith('Failed to receive inventory.', 'error'),
+    )
   })
 })

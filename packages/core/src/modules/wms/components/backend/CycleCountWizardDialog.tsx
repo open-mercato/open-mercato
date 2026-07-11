@@ -902,6 +902,13 @@ export function CycleCountWizardDialog({
       await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
       setLinesPosted((n) => n + 1)
       resetToStep2()
+    } catch (error) {
+      flash(
+        error instanceof Error
+          ? error.message
+          : t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'),
+        'error',
+      )
     } finally {
       setSubmitting(false)
     }

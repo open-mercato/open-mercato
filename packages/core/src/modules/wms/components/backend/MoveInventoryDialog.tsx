@@ -544,6 +544,13 @@ export function MoveInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-location-detail'] })
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('wms.backend.inventory.move.errors.submit', 'Failed to move inventory.'),
+          'error',
+        )
       } finally {
         setSubmitting(false)
       }

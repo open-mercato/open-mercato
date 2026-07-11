@@ -368,6 +368,7 @@
   "wms.backend.inventory.errors.movements": "Nie udało się załadować ruchów magazynowych.",
   "wms.backend.inventory.errors.reservations": "Nie udało się załadować rezerwacji.",
   "wms.backend.inventory.import.actions.apply": "Zastosuj import",
+  "wms.backend.inventory.import.actions.applying": "Importowanie…",
   "wms.backend.inventory.import.actions.autoMap": "Automatyczne mapowanie",
   "wms.backend.inventory.import.actions.back": "Wstecz",
   "wms.backend.inventory.import.actions.cancel": "Anuluj",

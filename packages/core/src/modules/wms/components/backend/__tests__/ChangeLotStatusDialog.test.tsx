@@ -5,6 +5,8 @@ import * as React from 'react'
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { ChangeLotStatusDialog } from '../ChangeLotStatusDialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => (_key: string, fallback: string) => fallback ?? _key,
@@ -174,6 +176,42 @@ describe('ChangeLotStatusDialog', () => {
           body: expect.stringContaining('"id":"cdf758fc-fc4d-4399-ba25-3ec1bd5a17a9"'),
         }),
       )
+    })
+  })
+
+  // Regression coverage for #4103: a failed save must surface a visible
+  // flash error instead of failing silently.
+  it('shows a flash error when the server rejects the status update', async () => {
+    const mockedApiCall = apiCall as jest.MockedFunction<typeof apiCall>
+    const failedResponse = new Response(JSON.stringify({ error: 'Lot is already expired.' }), {
+      status: 409,
+    })
+    mockedApiCall.mockResolvedValue({
+      ok: false,
+      status: 409,
+      response: failedResponse,
+      result: { error: 'Lot is already expired.' },
+    })
+    ;(raiseCrudError as jest.Mock).mockImplementation(async () => {
+      throw new Error('Lot is already expired.')
+    })
+
+    render(
+      <ChangeLotStatusDialog
+        open
+        onOpenChange={jest.fn()}
+        access={buildAccess()}
+        lotId="cdf758fc-fc4d-4399-ba25-3ec1bd5a17a9"
+        currentStatus="hold"
+        lotUpdatedAt="2026-06-17T10:00:00.000Z"
+      />,
+    )
+
+    const form = document.querySelector('form')
+    fireEvent.submit(form!)
+
+    await waitFor(() => {
+      expect(flash).toHaveBeenCalledWith('Lot is already expired.', 'error')
     })
   })
 })

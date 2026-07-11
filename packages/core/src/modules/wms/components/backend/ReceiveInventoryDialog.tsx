@@ -371,6 +371,13 @@ export function ReceiveInventoryDialog({
           quantity: parsed.data.quantity,
         })
         closeDialog()
+      } catch (error) {
+        flash(
+          error instanceof Error
+            ? error.message
+            : t('wms.backend.inventory.receive.errors.submit', 'Failed to receive inventory.'),
+          'error',
+        )
       } finally {
         setSubmitting(false)
       }
