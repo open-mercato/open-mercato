@@ -370,9 +370,12 @@ export const inventoryImportRawRowSchema = z.object({
   serialNumber: z.string().trim().optional(),
 })
 
+export const inventoryImportModeSchema = z.enum(['additive', 'reconcile']).default('additive')
+
 export const inventoryImportValidateSchema = scopedSchema.extend({
   importBatchId: uuid().optional(),
   skipDuplicates: z.boolean().optional(),
+  mode: inventoryImportModeSchema,
   rows: z.array(inventoryImportRawRowSchema).min(1).max(5000),
 })
 
@@ -391,6 +394,7 @@ export const inventoryImportApplySchema = scopedSchema.extend({
   importBatchId: uuid(),
   reason: z.string().trim().min(1).max(500).default('CSV import inventory receipt'),
   continueOnError: z.boolean().optional(),
+  mode: inventoryImportModeSchema,
   rows: z.array(inventoryImportApplyRowSchema).min(1).max(5000),
 })
 
@@ -398,6 +402,7 @@ export type InventoryImportApplyServerInput = z.infer<typeof inventoryImportAppl
   performedBy: string
 }
 
+export type InventoryImportMode = z.infer<typeof inventoryImportModeSchema>
 export type InventoryImportValidateInput = z.infer<typeof inventoryImportValidateSchema>
 export type InventoryImportApplyInput = InventoryImportApplyServerInput
 export type InventoryImportApplyRowInput = z.infer<typeof inventoryImportApplyRowSchema>

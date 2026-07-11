@@ -14,6 +14,7 @@ import {
 import type {
   InventoryImportApplyInput,
   InventoryImportApplyRowInput,
+  InventoryImportMode,
   InventoryImportValidateInput,
 } from '../data/validators'
 import { ensureOrganizationScope, ensureTenantScope } from '../commands/shared'
@@ -285,20 +286,51 @@ async function loadCurrentOnHand(
   return balance ? toNumber(balance.quantityOnHand) : 0
 }
 
-function verifyApplyRowDeltas(rows: InventoryImportApplyRowInput[]): InventoryImportApplyRowInput[] {
-  // Import quantity is additive: the delta posted to the ledger always equals the
-  // row's quantity (the amount received), regardless of the current on-hand balance.
-  return rows.map((row) => {
-    if (Math.abs(row.quantity - row.delta) > 0.000001) {
+async function verifyApplyRowDeltas(
+  em: EntityManager,
+  scope: ImportScope,
+  mode: InventoryImportMode,
+  rows: InventoryImportApplyRowInput[],
+): Promise<InventoryImportApplyRowInput[]> {
+  if (mode === 'additive') {
+    // Additive mode: the delta posted to the ledger always equals the row's
+    // quantity (the amount received), regardless of the current on-hand balance.
+    return rows.map((row) => {
+      if (Math.abs(row.quantity - row.delta) > 0.000001) {
+        throw new CrudHttpError(400, {
+          error: 'import_delta_tampering',
+          rowNumber: row.rowNumber,
+          expectedDelta: row.quantity,
+          providedDelta: row.delta,
+        })
+      }
+      return row
+    })
+  }
+  // Reconcile mode (opt-in, requires the "reconcile to exact balance" checkbox):
+  // quantity is the target on-hand balance, so the delta must be recalculated
+  // against the current balance to guard against staleness between validate/apply.
+  const recalculated: InventoryImportApplyRowInput[] = []
+  for (const row of rows) {
+    const currentOnHand = await loadCurrentOnHand(em, scope, {
+      warehouseId: row.warehouseId,
+      locationId: row.locationId,
+      catalogVariantId: row.catalogVariantId,
+      lotId: row.lotId,
+      serialNumber: row.serialNumber,
+    })
+    const serverDelta = row.quantity - currentOnHand
+    if (Math.abs(serverDelta - row.delta) > 0.000001) {
       throw new CrudHttpError(400, {
         error: 'import_delta_tampering',
         rowNumber: row.rowNumber,
-        expectedDelta: row.quantity,
+        expectedDelta: serverDelta,
         providedDelta: row.delta,
       })
     }
-    return row
-  })
+    recalculated.push({ ...row, delta: serverDelta })
+  }
+  return recalculated
 }
 
 export async function validateInventoryImport(
@@ -307,6 +339,7 @@ export async function validateInventoryImport(
 ): Promise<InventoryImportValidationResult> {
   ensureTenantScope(ctx, input.tenantId)
   ensureOrganizationScope(ctx, input.organizationId)
+  const mode: InventoryImportMode = input.mode ?? 'additive'
   const scope: ImportScope = {
     tenantId: input.tenantId,
     organizationId: input.organizationId,
@@ -426,9 +459,19 @@ export async function validateInventoryImport(
     }
     seenBuckets.set(bucketKey, rowNumber)
 
-    // Import quantity is additive: it is the amount to receive into this bucket,
-    // not the target on-hand balance, so the delta never depends on currentOnHand.
-    const delta = quantity
+    // Additive mode (default): quantity is the amount to receive into this bucket,
+    // so the delta never depends on currentOnHand. Reconcile mode (opt-in) treats
+    // quantity as the target on-hand balance instead, so it can also reduce stock.
+    const delta = mode === 'additive' ? quantity : quantity - currentOnHand
+
+    if (mode === 'reconcile') {
+      if (delta < 0 && currentOnHand < Math.abs(delta) - 0.000001) {
+        warnings.push('insufficient_available_for_negative_delta')
+      }
+      if (currentOnHand > 0 && Math.sign(delta) !== 0) {
+        warnings.push('overwriting_existing_balance')
+      }
+    }
 
     if (Math.abs(delta) < 0.000001) {
       rows.push({
@@ -505,8 +548,14 @@ export async function applyInventoryImport(
 ): Promise<InventoryImportApplyResult> {
   ensureTenantScope(ctx, input.tenantId)
   ensureOrganizationScope(ctx, input.organizationId)
+  const mode: InventoryImportMode = input.mode ?? 'additive'
   const commandBus = ctx.container.resolve('commandBus') as CommandBus
-  const applyRows = verifyApplyRowDeltas(input.rows)
+  const em = ctx.container.resolve('em') as EntityManager
+  const scope: ImportScope = {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+  }
+  const applyRows = await verifyApplyRowDeltas(em, scope, mode, input.rows)
   const resultRows: InventoryImportApplyResult['rows'] = []
   let applied = 0
   let skipped = 0
@@ -538,6 +587,7 @@ export async function applyInventoryImport(
             importBatchId: input.importBatchId,
             importRowNumber: row.rowNumber,
             source: 'csv_import',
+            ...(mode === 'reconcile' ? { targetQuantity: row.quantity } : {}),
           },
         },
         ctx,

@@ -57,6 +57,7 @@ type ValidationRow = {
     catalogVariantId: string
     quantity: number
     delta: number
+    currentOnHand?: number
     lotId?: string
     serialNumber?: string
     sku?: string
@@ -176,6 +177,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
   const [applying, setApplying] = React.useState(false)
   const [showIssueDetails, setShowIssueDetails] = React.useState(false)
   const [skipDuplicates, setSkipDuplicates] = React.useState(true)
+  const [reconcileMode, setReconcileMode] = React.useState(false)
   const [isDragging, setIsDragging] = React.useState(false)
   const { runMutation, retryLastMutation } = useGuardedMutation({ contextId: 'wms-inventory-import' })
   const mutationContext = React.useMemo(
@@ -193,6 +195,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     setApplying(false)
     setShowIssueDetails(false)
     setSkipDuplicates(true)
+    setReconcileMode(false)
     setIsDragging(false)
   }, [])
 
@@ -266,6 +269,11 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     setColumnMappings(detectColumnMappings(parsedFile.headers))
   }, [parsedFile])
 
+  const handleReconcileModeChange = React.useCallback((checked: boolean) => {
+    setReconcileMode(checked)
+    setValidation(null)
+  }, [])
+
   const handleMappingChange = React.useCallback(
     (csvColumn: string, value: string) => {
       setColumnMappings((current) =>
@@ -331,6 +339,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
           organizationId: access.organizationId,
           tenantId: access.tenantId,
           skipDuplicates,
+          mode: reconcileMode ? 'reconcile' : 'additive',
           rows,
         }),
       })
@@ -354,7 +363,16 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     } finally {
       setValidating(false)
     }
-  }, [access.organizationId, access.scopeReady, access.tenantId, columnMappings, selectedFile, skipDuplicates, t])
+  }, [
+    access.organizationId,
+    access.scopeReady,
+    access.tenantId,
+    columnMappings,
+    reconcileMode,
+    selectedFile,
+    skipDuplicates,
+    t,
+  ])
 
   const applyRows = React.useMemo(() => {
     return (validation?.rows ?? [])
@@ -369,6 +387,12 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
         lotId: row.resolved!.lotId,
         serialNumber: row.resolved!.serialNumber,
       }))
+  }, [validation?.rows])
+
+  const overwriteWarningRows = React.useMemo(() => {
+    return (validation?.rows ?? []).filter(
+      (row) => row.status === 'warning' && row.warnings.includes('overwriting_existing_balance'),
+    )
   }, [validation?.rows])
 
   const importableRowCount = React.useMemo(() => {
@@ -420,8 +444,11 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                 organizationId: access.organizationId,
                 tenantId: access.tenantId,
                 importBatchId: validation.importBatchId,
-                reason: t('wms.backend.inventory.import.defaultReason', 'CSV import inventory receipt'),
+                reason: reconcileMode
+                  ? t('wms.backend.inventory.import.defaultReasonReconcile', 'CSV import opening balance')
+                  : t('wms.backend.inventory.import.defaultReason', 'CSV import inventory receipt'),
                 continueOnError: true,
+                mode: reconcileMode ? 'reconcile' : 'additive',
                 rows: applyRows,
               }),
             },
@@ -480,6 +507,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
     closeDialog,
     queryClient,
     mutationContext,
+    reconcileMode,
     runMutation,
     t,
     validation?.importBatchId,
@@ -689,6 +717,21 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                   )}
                 </p>
               </div>
+
+              <div className="flex items-start gap-3 rounded-lg border border-status-warning-border bg-status-warning-bg px-3 py-3">
+                <Switch checked={reconcileMode} onCheckedChange={handleReconcileModeChange} />
+                <div className="space-y-0.5">
+                  <p className="text-sm font-semibold text-status-warning-text">
+                    {t('wms.backend.inventory.import.upload.reconcileMode', 'Reconcile to exact balance')}
+                  </p>
+                  <p className="text-xs text-status-warning-text">
+                    {t(
+                      'wms.backend.inventory.import.upload.reconcileModeHint',
+                      'Existing stock at each location is overwritten to match the file exactly — including reducing it. Use this for a full stocktake or opening-balance import. Leave off to add quantities to existing stock instead.',
+                    )}
+                  </p>
+                </div>
+              </div>
             </>
           ) : null}
 
@@ -853,6 +896,43 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
                           : t('wms.backend.inventory.import.actions.viewDetails', 'View details →')}
                       </Button>
                     ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {overwriteWarningRows.length > 0 ? (
+                <div className="rounded-lg border border-status-warning-border bg-status-warning-bg px-4 py-3.5">
+                  <div className="space-y-1">
+                    <p className="text-sm font-semibold text-status-warning-text">
+                      {t(
+                        'wms.backend.inventory.import.review.overwriteBanner.title',
+                        '{count} rows will change existing stock levels',
+                        { count: overwriteWarningRows.length },
+                      )}
+                    </p>
+                    <div className="space-y-0.5 text-xs text-muted-foreground">
+                      {overwriteWarningRows.map((row) => {
+                        const current = row.resolved?.currentOnHand ?? 0
+                        const quantity = row.resolved?.quantity ?? 0
+                        const delta = row.resolved?.delta ?? 0
+                        const signedDelta = delta > 0 ? `+${delta}` : `${delta}`
+                        return (
+                          <p key={row.rowNumber}>
+                            {t(
+                              'wms.backend.inventory.import.review.overwriteBanner.rowDetail',
+                              'Row {row}: {location} — {current} → {quantity} ({delta})',
+                              {
+                                row: row.rowNumber,
+                                location: row.resolved?.locationCode ?? '—',
+                                current,
+                                quantity,
+                                delta: signedDelta,
+                              },
+                            )}
+                          </p>
+                        )
+                      })}
+                    </div>
                   </div>
                 </div>
               ) : null}

@@ -239,6 +239,58 @@ test.describe('TC-WMS-025: Inventory CSV import API', () => {
       const balanceAfterSecondImport = await fetchBalance(request, adminToken, warehouseId!, variantId)
       expect(toNumber(balanceAfterSecondImport?.quantity_on_hand)).toBe(30)
 
+      // Reconcile mode (opt-in checkbox) restores the pre-#4105 opening-balance semantics:
+      // quantity is the absolute target balance, so it can reduce existing stock and warns.
+      const reconcileValidateResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/validate', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          mode: 'reconcile',
+          rows: [
+            {
+              warehouseCode: `TCW25W${suffix}`,
+              locationCode: `BIN-${suffix}`,
+              sku: `TCW25-V-${suffix}`,
+              quantity: '12',
+            },
+          ],
+        },
+      })
+      expect(
+        reconcileValidateResponse.ok(),
+        `reconcile validate failed: ${reconcileValidateResponse.status()}`,
+      ).toBeTruthy()
+      const reconcileValidation = (await readJsonSafe<ImportValidationResponse>(reconcileValidateResponse)) ?? {}
+      const reconcileRow = reconcileValidation.rows?.[0]
+      expect(reconcileRow?.status).toBe('warning')
+      expect(reconcileRow?.resolved?.delta).toBe(-18)
+
+      const reconcileApplyResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
+        token: adminToken,
+        data: {
+          organizationId: scope.organizationId,
+          tenantId: scope.tenantId,
+          importBatchId: reconcileValidation.importBatchId,
+          continueOnError: true,
+          mode: 'reconcile',
+          rows: [
+            {
+              rowNumber: 1,
+              warehouseId: reconcileRow?.resolved?.warehouseId,
+              locationId: reconcileRow?.resolved?.locationId,
+              catalogVariantId: reconcileRow?.resolved?.catalogVariantId,
+              quantity: reconcileRow?.resolved?.quantity,
+              delta: reconcileRow?.resolved?.delta,
+            },
+          ],
+        },
+      })
+      expect(reconcileApplyResponse.ok(), `reconcile apply failed: ${reconcileApplyResponse.status()}`).toBeTruthy()
+
+      const balanceAfterReconcile = await fetchBalance(request, adminToken, warehouseId!, variantId)
+      expect(toNumber(balanceAfterReconcile?.quantity_on_hand)).toBe(12)
+
       const tamperedResponse = await apiRequest(request, 'POST', '/api/wms/inventory/import/apply', {
         token: adminToken,
         data: {

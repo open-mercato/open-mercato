@@ -89,6 +89,7 @@ async function parseValidatePayload(request: Request): Promise<z.infer<typeof in
     const tenantId = String(formData.get('tenantId') ?? '').trim()
     const importBatchIdRaw = String(formData.get('importBatchId') ?? '').trim()
     const skipDuplicatesRaw = String(formData.get('skipDuplicates') ?? '').trim()
+    const modeRaw = String(formData.get('mode') ?? '').trim()
     const file = formData.get('file')
     if (!(file instanceof File)) {
       throw new CrudHttpError(400, {
@@ -102,6 +103,7 @@ async function parseValidatePayload(request: Request): Promise<z.infer<typeof in
       tenantId,
       ...(importBatchIdRaw ? { importBatchId: importBatchIdRaw } : {}),
       ...(skipDuplicatesRaw ? { skipDuplicates: skipDuplicatesRaw === 'true' } : {}),
+      ...(modeRaw ? { mode: modeRaw } : {}),
       rows,
     })
   }

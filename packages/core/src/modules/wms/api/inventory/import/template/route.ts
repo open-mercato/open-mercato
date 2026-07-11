@@ -24,7 +24,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Download inventory import CSV template',
       description:
-        'Returns a CSV template for WMS inventory receipt imports. The quantity column is added to existing on-hand stock, not a target balance.',
+        'Returns a CSV template for WMS inventory imports. By default the quantity column is added to existing on-hand stock; the "Reconcile to exact balance" import option treats it as the absolute target balance instead.',
       responses: [{ status: 200, description: 'CSV template file' }],
     },
   },
