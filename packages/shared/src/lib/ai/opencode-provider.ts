@@ -1,3 +1,5 @@
+import { joinProviderModel } from './model-id'
+
 type EnvLookup = Record<string, string | undefined>
 
 export type OpenCodeProviderId = 'anthropic' | 'openai' | 'google'
@@ -221,7 +223,7 @@ export function resolveOpenCodeModel(
 
   return {
     modelId,
-    modelWithProvider: `${providerId}/${modelId}`,
+    modelWithProvider: joinProviderModel(providerId, modelId),
     source,
   }
 }
