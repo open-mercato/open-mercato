@@ -212,6 +212,55 @@ describe('startLazyWorkerSupervisor', () => {
     await handle.close()
   })
 
+  it('restarts the shared worker when an embedded scheduler remains enabled', async () => {
+    const firstChild = createFakeChild()
+    const secondChild = createFakeChild()
+    const spawnFn = jest
+      .fn()
+      .mockImplementationOnce(() => firstChild)
+      .mockImplementationOnce(() => secondChild) as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
+    const probeFn = jest.fn(async (queueName, strategy) =>
+      emptyProbe(queueName, strategy),
+    ) as jest.MockedFunction<LazySupervisorProbeFn>
+    const shouldStartSharedWorker = jest.fn(async () => true)
+    const shouldRestartSharedWorker = jest.fn(async () => true)
+
+    const handle = startLazyWorkerSupervisor({
+      mercatoBin: '/tmp/mercato',
+      appDir: '/tmp/app',
+      runtimeEnv: { ...process.env },
+      workers: [makeWorker('events')],
+      pollMs: 250,
+      restartOnUnexpectedExit: true,
+      strategy: 'local',
+      spawnMode: 'shared',
+      sharedWorkerArgs: ['--with-scheduler'],
+      shouldStartSharedWorker,
+      shouldRestartSharedWorker,
+      spawnFn,
+      probeFn,
+      logger: silentLogger,
+    })
+
+    await flushAsync(20)
+    expect(spawnFn).toHaveBeenCalledTimes(1)
+
+    firstChild.triggerExit(1)
+    await flushAsync(40)
+
+    expect(shouldRestartSharedWorker).toHaveBeenCalled()
+    expect(spawnFn).toHaveBeenCalledTimes(2)
+    expect(spawnFn.mock.calls[1][1]).toEqual([
+      '/tmp/mercato',
+      'queue',
+      'worker',
+      '--all',
+      '--with-scheduler',
+    ])
+
+    await handle.close()
+  })
+
   it('does not spawn when probe reports an error', async () => {
     const spawnFn = jest.fn() as unknown as jest.MockedFunction<LazySupervisorSpawnFn>
     const probeFn = jest.fn(async (queueName, strategy) => ({

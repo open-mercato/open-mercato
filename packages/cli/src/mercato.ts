@@ -2178,6 +2178,14 @@ export async function run(argv = process.argv) {
                               const schedules = await probeEnabledSchedules(runtimeEnv)
                               return !schedules.error && schedules.enabledSchedules > 0
                             },
+                            ...(resolveLazySchedulerRestart(process.env)
+                              ? {
+                                  shouldRestartSharedWorker: async () => {
+                                    const schedules = await probeEnabledSchedules(runtimeEnv)
+                                    return !schedules.error && schedules.enabledSchedules > 0
+                                  },
+                                }
+                              : {}),
                           }
                         : {}),
                     })
@@ -2193,7 +2201,7 @@ export async function run(argv = process.argv) {
                   }
                 }
 
-                if (embedSchedulerInSharedWorker) {
+                if (embedSchedulerInSharedWorker && activeLazySupervisor) {
                   console.log('[server] Local scheduler will run inside the lazy shared worker process.')
                 } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
                   if (schedulerCommand.status !== 'ok') {

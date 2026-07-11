@@ -54,6 +54,8 @@ export type LazyWorkerSupervisorOptions = {
   strategy?: QueueStrategyType
   /** Start the shared worker even with no ready queue jobs (for an embedded scheduler). */
   shouldStartSharedWorker?: () => Promise<boolean>
+  /** Restart the shared worker with no ready queue jobs after an unexpected exit. */
+  shouldRestartSharedWorker?: () => Promise<boolean>
   /** Extra arguments for the shared worker command only. */
   sharedWorkerArgs?: readonly string[]
   /** Override for tests. Defaults to `child_process.spawn`. */
@@ -314,6 +316,18 @@ export function startLazyWorkerSupervisor(
         if (readyQueues.length > 0) {
           logger.warn('[lazy-supervisor] Restarting shared worker because jobs remain pending.')
           spawnSharedWorker(readyQueues)
+          return
+        }
+        if (options.shouldRestartSharedWorker) {
+          try {
+            if (await options.shouldRestartSharedWorker()) {
+              logger.warn('[lazy-supervisor] Restarting shared worker because an enabled schedule remains.')
+              spawnSharedWorker([], true)
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err)
+            logger.warn(`[lazy-supervisor] Shared-worker restart condition failed: ${message}`)
+          }
         }
       })()
     })
