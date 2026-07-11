@@ -47,6 +47,32 @@ suites is needed — it changes the app build fingerprint and forces a rebuild).
   the substring. The `test:integration` subcommand does NOT accept `--retries`; retries live in
   `.ai/qa/tests/playwright.config.ts`.
 
+## Choosing the run mode — prefer ephemeral, ask the user
+
+`yarn test:integration:ephemeral` is ALWAYS preferred over plain `yarn test:integration`: the
+ephemeral variant provisions (or safely reuses) its own isolated app + database, so it is more
+autonomous and cannot touch the developer's dev data. Plain `yarn test:integration` only works
+when the caller supplies the full runner env block (see the MUST below) — treat it as an internal
+detail of the CLI runner, never as the command you reach for first.
+
+Two supported run modes:
+
+1. **Fully managed ephemeral (default, safest):** `yarn test:integration:ephemeral [filter]` —
+   one command provisions the env, runs the tests, and leaves teardown to the CLI's own
+   lifecycle. Best for full-suite runs, CI parity, and unattended/autonomous work.
+2. **Reuse a running ephemeral env (fast iteration):** boot once with
+   `yarn test:integration:ephemeral:start`, then run small filtered batches with
+   `yarn mercato test:integration <filter>` against the same env. Best for short
+   author/debug loops where re-provisioning per run would dominate wall-clock time. Reuse is
+   still gated by the TTL and source-freshness rules below.
+
+When a user is present and has not already said which mode they want, ASK before the first run
+(one question, two options): fully managed ephemeral per run, or boot-once-and-reuse for
+iterative loops. Recommend the fully managed ephemeral mode — it is more autonomous and safer
+regarding data. When running unattended (no user to ask), default to the fully managed ephemeral
+mode. Do not re-ask once the user has chosen; keep using their answer for the rest of the
+session unless they change it.
+
 ## MUST: never run the Playwright suite outside the CLI runner
 
 `yarn test:integration` with only `BASE_URL` exported is a trap: the CLI runner
