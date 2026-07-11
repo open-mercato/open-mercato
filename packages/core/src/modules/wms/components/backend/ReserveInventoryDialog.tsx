@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { ShieldCheck } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -286,12 +287,7 @@ export function ReserveInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
         closeDialog()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.inventory.reserve.errors.failed', 'Failed to reserve inventory.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.inventory.reserve.errors.failed', 'Failed to reserve inventory.'))
       } finally {
         setSubmitting(false)
       }

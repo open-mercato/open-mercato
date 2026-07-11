@@ -43,4 +43,27 @@ describe('useWmsInventoryMutationAccess', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.canManageLocations).toBe(false)
   })
+
+  it('requests wms.manage_warehouses so canManageWarehouses can ever be true', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { granted: ['wms.manage_warehouses'], userId: 'user-1' } })
+    const { result } = renderHook(() => useWmsInventoryMutationAccess())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const [, options] = mockApiCall.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.features).toContain('wms.manage_warehouses')
+
+    // canManageWarehouses had the same latent bug as #4106's canManageLocations:
+    // it was always false because the feature was never requested above.
+    expect(result.current.canManageWarehouses).toBe(true)
+  })
+
+  it('resolves canManageWarehouses to false when the feature is not granted', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { granted: [], userId: 'user-1' } })
+    const { result } = renderHook(() => useWmsInventoryMutationAccess())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.canManageWarehouses).toBe(false)
+  })
 })

@@ -10,6 +10,7 @@ import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { E } from '#generated/entities.ids.generated'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { loadWarehouseOptions } from './wmsLookupLoaders'
 
 export type LocationDialogRow = {
@@ -20,6 +21,8 @@ export type LocationDialogRow = {
   capacity_units?: string | number | null
   capacity_weight?: string | number | null
   is_active?: boolean | null
+  updated_at?: string | null
+  updatedAt?: string | null
 }
 
 export type LocationFormValues = {
@@ -133,7 +136,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
       onOpenChange(false)
       await onSaved?.()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.locations.errors.save', 'Failed to save location.'), 'error')
+      flashMutationError(error, t('wms.backend.config.locations.errors.save', 'Failed to save location.'))
     } finally {
       setSubmitting(false)
     }
@@ -159,6 +162,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
           embedded
           isLoading={submitting}
           twoColumn
+          optimisticLockUpdatedAt={mode === 'edit' ? (row?.updatedAt ?? row?.updated_at ?? null) : undefined}
         />
       </DialogContent>
     </Dialog>

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowRight, Check, FileText } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -490,12 +491,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
       closeDialog()
     } catch (error) {
-      flash(
-        error instanceof Error
-          ? error.message
-          : t('wms.backend.inventory.import.errors.apply', 'Import failed.'),
-        'error',
-      )
+      flashMutationError(error, t('wms.backend.inventory.import.errors.apply', 'Import failed.'))
     } finally {
       setApplying(false)
     }

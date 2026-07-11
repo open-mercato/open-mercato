@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowLeftRight, Package } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -545,12 +546,7 @@ export function MoveInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.inventory.move.errors.submit', 'Failed to move inventory.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.inventory.move.errors.submit', 'Failed to move inventory.'))
       } finally {
         setSubmitting(false)
       }

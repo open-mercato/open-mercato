@@ -36,6 +36,7 @@ export function useWmsInventoryMutationAccess() {
               'wms.import',
               'wms.manage_reservations',
               'wms.manage_locations',
+              'wms.manage_warehouses',
             ],
           }),
         })

@@ -4,6 +4,7 @@ import * as React from 'react'
 import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
@@ -174,12 +175,7 @@ export function ChangeLotStatusDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'))
       } finally {
         setSubmitting(false)
       }

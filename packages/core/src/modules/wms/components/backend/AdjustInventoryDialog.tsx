@@ -6,6 +6,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { Minus, Package, Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -458,12 +459,7 @@ export function AdjustInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
         closeDialog()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'))
       } finally {
         setSubmitting(false)
       }

@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { ArrowDown, Minus, Package, Plus } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -372,12 +373,7 @@ export function ReceiveInventoryDialog({
         })
         closeDialog()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.inventory.receive.errors.submit', 'Failed to receive inventory.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.inventory.receive.errors.submit', 'Failed to receive inventory.'))
       } finally {
         setSubmitting(false)
       }

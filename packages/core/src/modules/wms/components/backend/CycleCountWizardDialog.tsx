@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { Check, Minus, PackageSearch, Plus, Warehouse } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { ComboboxInput } from '@open-mercato/ui/backend/inputs/ComboboxInput'
 import { DateTimePicker } from '@open-mercato/ui/backend/inputs/DateTimePicker'
@@ -903,12 +904,7 @@ export function CycleCountWizardDialog({
       setLinesPosted((n) => n + 1)
       resetToStep2()
     } catch (error) {
-      flash(
-        error instanceof Error
-          ? error.message
-          : t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'),
-        'error',
-      )
+      flashMutationError(error, t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'))
     } finally {
       setSubmitting(false)
     }

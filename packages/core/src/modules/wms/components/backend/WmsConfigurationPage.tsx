@@ -63,6 +63,7 @@ type LocationRow = {
   capacity_units?: string | number | null
   capacity_weight?: string | number | null
   is_active?: boolean | null
+  updated_at?: string | null
 }
 
 type ZoneRow = {

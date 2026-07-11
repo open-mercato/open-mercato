@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { useQueryClient } from '@tanstack/react-query'
 import { ShieldOff } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { flashMutationError } from '../../lib/flashMutationError'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { raiseCrudError } from '@open-mercato/ui/backend/utils/serverErrors'
@@ -241,12 +242,7 @@ export function ReleaseReservationDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
-        flash(
-          error instanceof Error
-            ? error.message
-            : t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'),
-          'error',
-        )
+        flashMutationError(error, t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'))
       } finally {
         setSubmitting(false)
       }
