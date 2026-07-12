@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { RotateCw, Smile, Meh, Frown, Clock, ArrowUpDown, ChevronDown, CheckCircle2, Gauge, TriangleAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -23,6 +23,14 @@ import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, formatDateTime, formatDurationMs, formatRelativeAge, type RunView, type TracesKpiView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
+import {
+  TRACES_DEFAULT_SORT,
+  TRACES_HEADER_SORT_FIELDS,
+  serverSortToSorting,
+  sortingToServerSort,
+  type ServerSort,
+} from '../../components/serverSort'
+import { normalizeRunIdPrefix } from '../../data/validators'
 
 type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number }
 type WindowKey = '24h' | '7d' | '30d'
@@ -79,11 +87,14 @@ function ranAtValue(createdAt: string | null): number {
   const parsed = Date.parse(createdAt)
   return Number.isNaN(parsed) ? 0 : parsed
 }
-// Page-scoped quick filter — narrows only the rows currently loaded from the
-// server (run-id search across the full history is the consistency pass's item).
+// Quick filter over the loaded page. Run-id prefixes additionally search the
+// FULL history server-side (`idPrefix`, debounced below) — this client pass
+// only keeps the interim rows consistent while the debounce settles.
 function matchesSearch(run: RunView, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
+  const hex = normalizeRunIdPrefix(q)
+  if (hex && run.id.replace(/-/g, '').toLowerCase().startsWith(hex)) return true
   return [run.agentId, run.model, run.runtime, run.externalRunId]
     .some((field) => typeof field === 'string' && field.toLowerCase().includes(q))
 }
@@ -103,13 +114,26 @@ export default function AgentTracesPage() {
   const [window, setWindow] = React.useState<WindowKey>('7d')
   const [facet, setFacet] = React.useState<FacetKey>('all')
   const [search, setSearch] = React.useState('')
+  // Debounced run-id prefix pushed down to the server (full-history search).
+  const [idPrefix, setIdPrefix] = React.useState<string | null>(null)
   const [agentFilters, setAgentFilters] = React.useState<string[]>([])
-  const [sortKey, setSortKey] = React.useState<SortKey>('recentDesc')
+  // One canonical sort state — the toolbar Select and the column headers both
+  // read and write it, so the two controls can never diverge.
+  const [sort, setSort] = React.useState<ServerSort>(TRACES_DEFAULT_SORT)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
   const [reloadToken, setReloadToken] = React.useState(0)
 
   const agentFilter = agentFilters[0] ?? null
+
+  // 300 ms debounce before the id-prefix search hits the server; non-id text
+  // stays a client-side quick filter over the loaded page.
+  React.useEffect(() => {
+    const handle = setTimeout(() => {
+      setIdPrefix(normalizeRunIdPrefix(search) ? search.trim() : null)
+    }, 300)
+    return () => clearTimeout(handle)
+  }, [search])
 
   React.useEffect(() => {
     let cancelled = false
@@ -118,14 +142,14 @@ export default function AgentTracesPage() {
       setError(null)
       const scoped: Record<string, string> = { window }
       if (agentFilter) scoped.agentId = agentFilter
-      const sort = SORT_PARAMS[sortKey]
+      if (idPrefix) scoped.idPrefix = idPrefix
       const listParams = new URLSearchParams({
         ...scoped,
         ...facetParams(facet),
         page: String(page),
         pageSize: String(pageSize),
-        sortField: sort.sortField,
-        sortDir: sort.sortDir,
+        sortField: sort.field,
+        sortDir: sort.dir,
       })
       const countProbe = (probeFacet: FacetKey) =>
         apiCall<RunsResponse>(
@@ -183,7 +207,7 @@ export default function AgentTracesPage() {
     }
     void load()
     return () => { cancelled = true }
-  }, [t, window, facet, agentFilter, sortKey, page, pageSize, reloadToken])
+  }, [t, window, facet, agentFilter, idPrefix, sort, page, pageSize, reloadToken])
 
   // Live refresh: run completions and trace ingests refetch the current page
   // (DOM Event Bridge, org-scoped server-side), coalesced so an event burst
@@ -204,7 +228,24 @@ export default function AgentTracesPage() {
   )
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  React.useEffect(() => { setPage(1) }, [window, facet, agentFilter, sortKey])
+  React.useEffect(() => { setPage(1) }, [window, facet, agentFilter, idPrefix, sort])
+
+  // Toolbar Select ↔ header sort sync: derive the Select value from the
+  // canonical sort; header-only sorts (e.g. status) show the custom placeholder.
+  const activeSortKey = React.useMemo(
+    () =>
+      (Object.keys(SORT_PARAMS) as SortKey[]).find(
+        (key) => SORT_PARAMS[key].sortField === sort.field && SORT_PARAMS[key].sortDir === sort.dir,
+      ) ?? null,
+    [sort],
+  )
+  const tableSorting = React.useMemo(
+    () => serverSortToSorting(sort, TRACES_HEADER_SORT_FIELDS),
+    [sort],
+  )
+  const handleSortingChange = React.useCallback((next: SortingState) => {
+    setSort(sortingToServerSort(next, TRACES_HEADER_SORT_FIELDS) ?? TRACES_DEFAULT_SORT)
+  }, [])
 
   const columns = React.useMemo<ColumnDef<RunView>[]>(() => [
     {
@@ -228,6 +269,10 @@ export default function AgentTracesPage() {
     {
       id: 'eval',
       accessorFn: (row) => (row.evalPassed === true ? 2 : row.evalPassed === false ? 0 : 1),
+      // Not header-sortable: the badge shows eval_passed while the server's only
+      // eval sort key is eval_score — a header sort would advertise an ordering
+      // the column doesn't display.
+      enableSorting: false,
       header: t('agent_orchestrator.traces.col.eval', 'Eval'),
       cell: ({ row }) => {
         if (row.original.evalPassed === true) return <StatusBadge variant="success" dot>{t('agent_orchestrator.traces.eval.pass')}</StatusBadge>
@@ -285,8 +330,9 @@ export default function AgentTracesPage() {
     },
   ], [t, locale])
 
-  // Empty only when the whole window is empty (not just a filtered facet/page).
-  const showEmpty = !isLoading && !error && counts.all === 0 && facet === 'all' && !agentFilter
+  // Empty only when the whole window is empty (not just a filtered facet/page
+  // or an active run-id search — those get the table's own empty state).
+  const showEmpty = !isLoading && !error && counts.all === 0 && facet === 'all' && !agentFilter && !idPrefix
 
   return (
     <Page>
@@ -333,10 +379,13 @@ export default function AgentTracesPage() {
                     onChange={(next) => setAgentFilters(next.length > 0 ? [next[next.length - 1]] : [])}
                   />
                 ) : null}
-                <Select value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)}>
+                <Select
+                  value={activeSortKey ?? ''}
+                  onValueChange={(value) => setSort(SORT_PARAMS[value as SortKey] ? { field: SORT_PARAMS[value as SortKey].sortField, dir: SORT_PARAMS[value as SortKey].sortDir } : TRACES_DEFAULT_SORT)}
+                >
                   <SelectTrigger className="h-9 w-auto min-w-40">
                     <ArrowUpDown className="size-4 shrink-0 opacity-70" />
-                    <SelectValue />
+                    <SelectValue placeholder={t('agent_orchestrator.traces.sort.custom')} />
                   </SelectTrigger>
                   <SelectContent>
                     {SORT_OPTIONS.map((option) => (
@@ -358,6 +407,9 @@ export default function AgentTracesPage() {
               columns={columns}
               data={pagedRows}
               sortable
+              manualSorting
+              sorting={tableSorting}
+              onSortingChange={handleSortingChange}
               columnChooser={{ auto: true }}
               onRowClick={(row) => router.push(`/backend/traces/${row.id}`)}
               pagination={{

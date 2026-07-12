@@ -45,12 +45,48 @@ export type RunFilterFacet = z.infer<typeof runFilterFacet>
 export const runWindow = z.enum(['24h', '7d', '30d', '90d'])
 export type RunWindow = z.infer<typeof runWindow>
 
+/**
+ * Case-insensitive run-id prefix search (engineers paste id prefixes from
+ * logs). Accepts hex with optional dashes; normalization strips the dashes.
+ * Minimum 4 hex chars keeps the range selective.
+ */
+export const runIdPrefixSchema = z
+  .string()
+  .trim()
+  .regex(/^[0-9a-fA-F-]{4,36}$/)
+
+/** Strips dashes + lowercases; null when the result is not 4–32 hex chars. */
+export function normalizeRunIdPrefix(raw: string): string | null {
+  const hex = raw.trim().toLowerCase().replace(/-/g, '')
+  if (!/^[0-9a-f]{4,32}$/.test(hex)) return null
+  return hex
+}
+
+/**
+ * Translates a normalized hex prefix into inclusive uuid bounds
+ * (`9f3c` → `9f3c0000-…-000000` / `9f3cffff-…-ffffff`). Postgres orders uuids
+ * bytewise — identical to hex-string order — so a `$gte`/`$lte` pair is exact
+ * prefix semantics without the uuid-vs-`ilike` cast problem.
+ */
+export function runIdPrefixRange(raw: string): { from: string; to: string } | null {
+  const hex = normalizeRunIdPrefix(raw)
+  if (!hex) return null
+  const dashed = (filled: string) =>
+    `${filled.slice(0, 8)}-${filled.slice(8, 12)}-${filled.slice(12, 16)}-${filled.slice(16, 20)}-${filled.slice(20, 32)}`
+  return {
+    from: dashed(hex.padEnd(32, '0')),
+    to: dashed(hex.padEnd(32, 'f')),
+  }
+}
+
 /** Query schema for GET /runs (list + ?id= detail). */
 export const runListQuerySchema = z
   .object({
     page: z.coerce.number().min(1).default(1),
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
+    /** Run-id prefix search (see `runIdPrefixRange`); ignored when `id` is set. */
+    idPrefix: runIdPrefixSchema.optional(),
     agentId: z.string().optional(),
     status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
     resultKind: z.enum(['informative', 'actionable']).optional(),

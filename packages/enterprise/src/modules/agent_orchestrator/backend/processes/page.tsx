@@ -2,18 +2,25 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import type { ColumnDef } from '@tanstack/react-table'
+import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatCostMinor, formatRelativeAge } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
+import {
+  PROCESS_HEADER_SORT_FIELDS,
+  serverSortToSorting,
+  sortingToServerSort,
+  type ServerSort,
+} from '../../components/serverSort'
 import {
   mapProcessListRow,
   PROCESS_STATUS_LABEL_KEY,
@@ -39,9 +46,20 @@ type ListResponse = {
   totalPages?: number
 }
 
-function listPath(facet: Facet, page: number, pageSize: number): string {
+function listPath(
+  facet: Facet,
+  page: number,
+  pageSize: number,
+  q: string,
+  sort: ServerSort | null,
+): string {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
   if (facet !== 'all') params.set('scope', FACET_SCOPE[facet])
+  if (q) params.set('q', q)
+  if (sort) {
+    params.set('sortField', sort.field)
+    params.set('sortDir', sort.dir)
+  }
   return `/api/agent_orchestrator/processes?${params.toString()}`
 }
 
@@ -57,13 +75,27 @@ export default function ProcessesListPage() {
   const [facetCounts, setFacetCounts] = React.useState<Partial<Record<Facet, number>>>({})
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [search, setSearch] = React.useState('')
+  // Debounced 300 ms before hitting the server `q` (subject reference/label).
+  const [q, setQ] = React.useState('')
+  // Header sort → server sortField/sortDir; null = the route's default order.
+  const [sort, setSort] = React.useState<ServerSort | null>(null)
+
+  React.useEffect(() => {
+    const handle = setTimeout(() => setQ(search.trim()), 300)
+    return () => clearTimeout(handle)
+  }, [search])
+
+  React.useEffect(() => { setPage(1) }, [q, sort])
 
   const reload = React.useCallback(async () => {
     setError(null)
     const [listCall, ...countCalls] = await Promise.all([
-      apiCall<ListResponse>(listPath(facet, page, pageSize), undefined, { fallback: {} }),
+      apiCall<ListResponse>(listPath(facet, page, pageSize, q, sort), undefined, { fallback: {} }),
+      // Facet counts share the search filter so the tab badges always describe
+      // the same result set the table shows.
       ...FACETS.map((tab) =>
-        apiCall<ListResponse>(listPath(tab, 1, 1), undefined, { fallback: {} }),
+        apiCall<ListResponse>(listPath(tab, 1, 1, q, null), undefined, { fallback: {} }),
       ),
     ])
     if (!listCall.ok) {
@@ -82,7 +114,7 @@ export default function ProcessesListPage() {
     })
     setFacetCounts(counts)
     setIsLoading(false)
-  }, [facet, page, pageSize, t])
+  }, [facet, page, pageSize, q, sort, t])
 
   React.useEffect(() => {
     setIsLoading(true)
@@ -99,6 +131,9 @@ export default function ProcessesListPage() {
       {
         accessorKey: 'subjectLabel',
         header: t('agent_orchestrator.process.list.col.claim'),
+        // No entry in the route's sortFieldMap — a header sort would only
+        // reorder the visible page, which the audit flagged as a lying sort.
+        enableSorting: false,
         cell: ({ row }) => (
           <div className="min-w-0">
             <div className="font-mono text-sm font-medium text-foreground">{row.original.subjectLabel}</div>
@@ -109,11 +144,13 @@ export default function ProcessesListPage() {
       {
         accessorKey: 'subjectType',
         header: t('agent_orchestrator.process.list.col.type'),
+        enableSorting: false,
         cell: ({ row }) => <span className="text-sm text-foreground">{row.original.subjectType}</span>,
       },
       {
         accessorKey: 'currentStage',
         header: t('agent_orchestrator.process.list.col.stage'),
+        enableSorting: false,
         cell: ({ row }) => <span className="text-sm text-muted-foreground">{row.original.currentStage}</span>,
       },
       {
@@ -170,6 +207,19 @@ export default function ProcessesListPage() {
           <p className="text-sm text-muted-foreground">{t('agent_orchestrator.process.list.subtitle')}</p>
         </div>
 
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="w-full sm:w-72 lg:w-80">
+            <SearchInput
+              value={search}
+              onChange={setSearch}
+              placeholder={t('agent_orchestrator.process.list.searchPlaceholder')}
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {t('agent_orchestrator.process.list.searchHint')}
+          </p>
+        </div>
+
         <div className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
           {FACETS.map((tab) => {
             const active = facet === tab
@@ -215,13 +265,20 @@ export default function ProcessesListPage() {
           <ErrorMessage label={error} />
         ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
-            {t('agent_orchestrator.process.list.empty')}
+            {q
+              ? t('agent_orchestrator.process.list.searchEmpty')
+              : t('agent_orchestrator.process.list.empty')}
           </p>
         ) : (
           <DataTable<ProcessListRow>
             columns={columns}
             data={rows}
             sortable
+            manualSorting
+            sorting={serverSortToSorting(sort, PROCESS_HEADER_SORT_FIELDS)}
+            onSortingChange={(next: SortingState) =>
+              setSort(sortingToServerSort(next, PROCESS_HEADER_SORT_FIELDS))
+            }
             onRowClick={(row) => router.push(`/backend/processes/${encodeURIComponent(row.id)}`)}
             pagination={{
               page,

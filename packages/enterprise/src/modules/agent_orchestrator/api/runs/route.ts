@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
 import { AgentRun } from '../../data/entities'
-import { runListQuerySchema } from '../../data/validators'
+import { runIdPrefixRange, runListQuerySchema } from '../../data/validators'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -77,6 +77,12 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
     buildFilters: async (query) => {
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
+      else if (query.idPrefix) {
+        // Prefix search as an inclusive uuid range — `ilike` on a uuid column
+        // errors in Postgres, while uuid ordering is bytewise (= hex order).
+        const range = runIdPrefixRange(query.idPrefix)
+        if (range) filters.id = { $gte: range.from, $lte: range.to }
+      }
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.status) filters.status = { $eq: query.status }
       if (query.resultKind) filters.result_kind = { $eq: query.resultKind }
