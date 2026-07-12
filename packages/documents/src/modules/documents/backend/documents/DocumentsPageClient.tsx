@@ -3,6 +3,9 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ShareDialog } from './components/ShareDialog'
 import { DocumentsTable } from './DocumentsTable'
@@ -12,9 +15,24 @@ import { MoveDocumentDialog } from './MoveDocumentDialog'
 import type { DocumentRow } from './documentsListTypes'
 import { useDocumentsList } from './useDocumentsList'
 
+function NewFromTemplateDialogLoading() {
+  const t = useT()
+  return (
+    <Dialog open>
+      <DialogContent size="xl" dismissible={false}>
+        <DialogHeader>
+          <DialogTitle>{t('documents.templates.instantiate.title')}</DialogTitle>
+          <DialogDescription>{t('documents.templates.instantiate.description')}</DialogDescription>
+        </DialogHeader>
+        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.instantiate.loading')} /></div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const NewFromTemplateDialog = dynamic(
   () => import('./components/NewFromTemplateDialog').then((module) => module.NewFromTemplateDialog),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: NewFromTemplateDialogLoading },
 )
 
 export function DocumentsPageClient() {
@@ -34,7 +52,13 @@ export function DocumentsPageClient() {
   return (
     <Page>
       <PageBody>
-        <div className="grid gap-4 lg:grid-cols-4">
+        {documents.loadError ? (
+          <ErrorMessage
+            label={documents.loadError}
+            action={<Button type="button" size="sm" variant="outline" onClick={documents.refresh}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : (
+          <div className="grid gap-4 lg:grid-cols-4">
           <FolderTree
             folders={documents.folders}
             selectedFolderId={documents.selectedFolderId}
@@ -69,7 +93,8 @@ export function DocumentsPageClient() {
               onDelete={(row) => void documents.deleteDocument(row)}
             />
           </div>
-        </div>
+          </div>
+        )}
         <FolderDialog
           state={folderDialog}
           onOpenChange={(open) => { if (!open) setFolderDialog(null) }}

@@ -209,7 +209,7 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Delete document',
-      description: 'Permanently releases every document-owned attachment and schedules reference-checked provider cleanup before soft-deleting the document record. Because attachment bytes are removed, this operation is intentionally not undoable.',
+      description: 'Transactionally releases every document-owned attachment row and its quota usage, soft-deletes the document record, then runs reference-checked provider cleanup after commit. Because attachment bytes cannot be restored, this operation is intentionally not undoable.',
       responses: [{ status: 200, description: 'Document deleted', schema: deleteResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },

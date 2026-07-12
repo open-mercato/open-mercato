@@ -21,18 +21,28 @@ type GlobalEventTap = (
 
 let mockGlobalEventTap: GlobalEventTap | undefined
 
+const registerGlobalEventTapMock = jest.fn((handler: GlobalEventTap) => {
+  mockGlobalEventTap = handler
+})
+const registerCrossProcessEventListenerMock = jest.fn()
+
 jest.mock('../../../../../bus', () => ({
-  registerGlobalEventTap: jest.fn((handler: GlobalEventTap) => {
-    mockGlobalEventTap = handler
-  }),
-  registerCrossProcessEventListener: jest.fn(),
+  registerGlobalEventTap: (handler: GlobalEventTap) => registerGlobalEventTapMock(handler),
+  registerCrossProcessEventListener: (...args: unknown[]) => registerCrossProcessEventListenerMock(...args),
+  CROSS_PROCESS_EVENT_INSTANCE_ID: 'web-instance',
 }))
 
-jest.mock('@open-mercato/shared/modules/events', () => ({
-  isBroadcastEvent: jest.fn(() => true),
-}))
-
+import { createModuleEvents } from '@open-mercato/shared/modules/events'
 import { GET } from '@open-mercato/events/modules/events/api/stream/route'
+
+createModuleEvents({
+  moduleId: 'stream_privacy_test',
+  events: [{
+    id: 'stream_privacy_test.private',
+    label: 'Private cross-process invalidation',
+    crossProcessBroadcast: true,
+  }] as const,
+})
 
 // req.signal is a linked/derived signal in Node, so we spy AFTER the
 // Request is constructed to intercept the handler's real calls.
@@ -127,6 +137,38 @@ describe('SSE event stream — abort listener hygiene', () => {
     const { value, done } = await reader.read()
     expect(done).toBe(false)
     expect(new TextDecoder().decode(value)).toContain('"marker":"expected"')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('does not deliver a private cross-process event to a same-organization browser', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+    expect(listener).toBeDefined()
+
+    await listener?.({
+      event: 'stream_privacy_test.private',
+      payload: {
+        id: 'private-record',
+        tenantId: 't1',
+        organizationId: 'o1',
+      },
+      originPid: process.pid + 1,
+      originInstanceId: 'other-instance',
+    })
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
 
     try { await reader.cancel() } catch {}
   })

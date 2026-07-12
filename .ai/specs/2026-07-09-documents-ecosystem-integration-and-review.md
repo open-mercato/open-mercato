@@ -110,8 +110,8 @@ The v2 collaboration token uses a dedicated secret of at least 32 UTF-8 bytes. P
 - Cross-module records are referenced by typed IDs and label snapshots, never ORM relationships.
 - Peer reads use existing authenticated APIs or existing module services; credentials and storage details never cross into Documents.
 - Global document search remains disabled until the platform provides record-level result ACL filtering.
-- Existing M1-M5 attachment behavior is preserved. This milestone does not add generic attachment policies, provider namespace rules, storage migrations, or Core attachment commands.
-- This milestone does not change AI Assistant pending actions, audit-log identity contracts, Search presentation, S3 behavior, generic API body handling, or shared event definitions.
+- Existing M1-M5 attachment behavior is preserved except for the reviewed permanent-detach lifecycle: the narrow attachment service owns bounded multipart decoding and reference-checked release, while Documents owns the command and link version. This milestone does not add generic provider namespace rules, storage migrations, or Core attachment commands.
+- This milestone does not change AI Assistant pending actions, audit-log identity contracts, Search presentation, or S3 behavior. Shared event definitions gain the additive `crossProcessBroadcast` flag so private sidecar coordination does not require browser SSE exposure.
 
 ## Data changes
 
@@ -150,9 +150,11 @@ All routes are authenticated, tenant/organization scoped, feature checked, per-d
 - The links response extension is additive; existing fields, URLs, stored HTML, and Yjs schema remain unchanged.
 - Pagination is presentation-only and never enters Yjs state, versions, exports, comments, undo history, or event payloads.
 - The reviewed attachment remediation adds the `attachmentService` DI key and
-  public `AttachmentService` type additively. Existing attachment APIs, entity
-  shapes, driver registrations, routes, ACL IDs, and storage layouts are
-  unchanged; existing consumers may continue using their current contracts.
+  public `AttachmentService` type additively. Its optional bounded-upload and
+  reference-checked release methods preserve structural compatibility. Existing
+  attachment APIs, entity shapes, driver registrations, routes, ACL IDs, and
+  storage layouts are unchanged; existing consumers may continue using their
+  current contracts.
 - Documents resolves the new service fail-closed. No data migration or stored
   attachment backfill is required.
 - The Auth, API Keys, and Directory modules expose additive, request-scoped DI
@@ -162,6 +164,10 @@ All routes are authenticated, tenant/organization scoped, feature checked, per-d
 - Trusted event emit options add optional tenant and organization fields. This
   is source- and runtime-compatible with existing emitters; Documents requires
   those fields only for its own projections.
+- `EventDefinition.crossProcessBroadcast` is additive. Existing
+  `clientBroadcast` events retain their cross-process behavior; Documents uses
+  the private flag for sidecar invalidation so record-scoped payloads are not
+  delivered through organization-level browser SSE.
 - Operational upgrade path: all documents env vars are OPTIONAL with `:-`
   defaults in every compose file (`APP_URL` keeps its `http://localhost:3000`
   default; a regression test forbids `:?` interpolation, which would break
@@ -376,3 +382,4 @@ Notifications dependency continues to use its existing DI service.
   migration `down()` + reversibility test over all five migrations, new
   partial list-sort index, share-count aggregation extracted to
   `lib/shareCounts.ts`, and the package version aligned to 0.6.5.
+- **2026-07-12:** Final fresh-review fixes separated private server-to-server document invalidations from browser SSE, bounded chunked multipart uploads before buffering, made attachment release command-backed and optimistic-locked with post-commit provider cleanup, synchronized the new migration/snapshot and API contracts, and closed the Documents loading/error/keyboard/editor-lifecycle UI gaps with focused regressions.

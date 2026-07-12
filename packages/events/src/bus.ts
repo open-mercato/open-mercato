@@ -5,7 +5,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
-import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
+import { isCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
@@ -311,7 +311,7 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       await deliver(event, payload, options, skipPersistentInline)
     }
 
-    if (isBroadcastEvent(event) && hasTenantScope(payload)) {
+    if (isCrossProcessBroadcastEvent(event) && hasTenantScope(payload)) {
       try {
         await publishCrossProcessEvent(event, payload, options)
       } catch (error) {

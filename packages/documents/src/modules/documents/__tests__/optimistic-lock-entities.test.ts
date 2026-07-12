@@ -9,11 +9,11 @@ const editableEntities = [
   'DocumentComment',
   'DocumentTemplate',
   'DocumentEntityLink',
+  'DocumentAttachment',
 ] as const
 
 const appendOnlyEntities = [
   'DocumentVersion',
-  'DocumentAttachment',
 ] as const
 
 function readEntitySource(): string {
@@ -41,8 +41,7 @@ describe('documents optimistic locking entity coverage', () => {
 
   it('keeps append-only entities intentionally excluded from editable coverage', () => {
     expect(editableEntities).not.toContain('DocumentVersion')
-    expect(editableEntities).not.toContain('DocumentAttachment')
-    expect(appendOnlyEntities).toEqual(['DocumentVersion', 'DocumentAttachment'])
+    expect(appendOnlyEntities).toEqual(['DocumentVersion'])
   })
 
   for (const className of appendOnlyEntities) {

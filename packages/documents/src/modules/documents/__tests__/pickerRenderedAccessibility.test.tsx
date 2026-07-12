@@ -124,7 +124,6 @@ describe('rendered Documents pickers', () => {
     const { container } = render(
       <EntityPicker open onOpenChange={onOpenChange} onPick={onPick} typeFilter={['customer-person']} />,
     )
-    const dialog = screen.getByRole('dialog')
     const input = screen.getByRole('combobox', { name: 'Search' })
 
     fireEvent.change(input, { target: { value: 'Ada' } })
@@ -141,7 +140,7 @@ describe('rendered Documents pickers', () => {
 
     fireEvent.change(input, { target: { value: 'Grace' } })
     expect(screen.queryByText('Ada Lovelace')).toBeNull()
-    fireEvent.keyDown(dialog, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
     expect(onPick).not.toHaveBeenCalled()
 
     await act(async () => {
@@ -151,7 +150,7 @@ describe('rendered Documents pickers', () => {
       await flushPromises()
     })
     expect(screen.getByRole('option', { name: /Grace Hopper/ })).toBeTruthy()
-    fireEvent.keyDown(dialog, { key: 'Enter' })
+    fireEvent.keyDown(input, { key: 'Enter' })
 
     expect(onPick).toHaveBeenCalledWith({
       type: 'customer-person',
@@ -162,6 +161,28 @@ describe('rendered Documents pickers', () => {
     })
     expect(onOpenChange).toHaveBeenCalledWith(false)
     expectNoGuidInReadableSurface(container)
+  })
+
+  it('does not select the active EntityPicker result when Enter comes from a tab or cancel action', async () => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      result: { items: [{ id: ADA_ID, displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' }] },
+    })
+    const onPick = jest.fn()
+    render(<EntityPicker open onOpenChange={jest.fn()} onPick={onPick} typeFilter={['customer-person']} />)
+    const input = screen.getByRole('combobox', { name: 'Search' })
+
+    fireEvent.change(input, { target: { value: 'Ada' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(screen.getByRole('option', { name: /Ada Lovelace/ })).toBeTruthy()
+
+    fireEvent.keyDown(screen.getByRole('tab', { name: 'Customer' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter' })
+
+    expect(onPick).not.toHaveBeenCalled()
   })
 
   it('renders PrincipalPicker as a label-first combobox and supports keyboard choice without an ID field', async () => {

@@ -7,6 +7,7 @@ import './shares'
 import './comments'
 import './templates'
 import './content'
+import './attachments'
 
 export { createLinkCommand, deleteLinkCommand } from './links'
 export { instantiateDocumentCommand } from './documents'
@@ -21,3 +22,4 @@ export { createShareCommand, updateShareCommand, deleteShareCommand } from './sh
 export { createCommentCommand, resolveCommentCommand } from './comments'
 export { createTemplateCommand, updateTemplateCommand, deleteTemplateCommand } from './templates'
 export { replaceDocumentContentCommand } from './content'
+export { deleteDocumentAttachmentCommand } from './attachments'

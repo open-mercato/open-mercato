@@ -45,6 +45,11 @@ import {
   nextDocumentVersion,
   readCommandRedoInput,
 } from './mutation-helpers'
+import {
+  releaseAllDocumentAttachments,
+  runAttachmentProviderCleanups,
+} from './attachments'
+import type { AttachmentProviderCleanupPort } from '../lib/attachmentServicePort'
 
 const documentStateSnapshotSchema = z.object({
   id: z.string().uuid(),
@@ -550,6 +555,7 @@ const deleteDocumentCommand: CommandHandler<DocumentDeleteCommandInput, Document
     let document!: Document
     let content: DocumentContent | null = null
     let before!: DocumentMutationSnapshot
+    let attachmentCleanups: AttachmentProviderCleanupPort[] = []
     await withAtomicFlush(em, [async () => {
       document = await lockDocumentAggregateRoot(em, input.id, scope)
       await assertDocumentCommandCapability(ctx, em, input.id, scope, 'canDelete')
@@ -561,6 +567,7 @@ const deleteDocumentCommand: CommandHandler<DocumentDeleteCommandInput, Document
       })
       content = await loadLockedDocumentContent(em, input.id, scope)
       before = mutationSnapshot(document, content)
+      attachmentCleanups = await releaseAllDocumentAttachments(ctx, em, scope, input.id)
       const now = nextDocumentVersion(document.updatedAt)
       document.deletedAt = now
       document.updatedAt = now
@@ -572,6 +579,7 @@ const deleteDocumentCommand: CommandHandler<DocumentDeleteCommandInput, Document
         content.updatedAt = contentNow
       }
     }], { transaction: true, label: 'documents.document.delete' })
+    await runAttachmentProviderCleanups(attachmentCleanups)
     const after = mutationSnapshot(document, content)
     await bufferDocumentSideEffect(ctx, 'deleted', document)
     return { id: document.id, updatedAt: document.updatedAt.toISOString(), before, after }

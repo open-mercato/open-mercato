@@ -30,8 +30,9 @@ type AttachmentDetailRoute = typeof import('../api/[id]/attachments/[attachmentI
 
 let DELETE: AttachmentDetailRoute['DELETE']
 let features: string[]
-let attachmentRecord: { id: string; deletedAt: Date | null } | null
+let attachmentRecord: { id: string; updatedAt: Date; deletedAt: Date | null } | null
 let em: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock }
+const executeCommand = jest.fn(async () => ({ result: { id: ATTACHMENT_ID }, logEntry: null }))
 
 const rbacService = {
   loadAcl: jest.fn(async () => ({
@@ -45,6 +46,7 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return rbacService
+    if (name === 'commandBus') return { execute: executeCommand }
     return undefined
   }),
 }
@@ -57,7 +59,7 @@ beforeAll(async () => {
 beforeEach(() => {
   jest.clearAllMocks()
   features = ['documents.view', 'documents.edit']
-  attachmentRecord = { id: ATTACHMENT_ID, deletedAt: null }
+  attachmentRecord = { id: ATTACHMENT_ID, updatedAt: new Date('2026-07-12T10:00:00.000Z'), deletedAt: null }
   em = {
     findOne: jest.fn(async (entity: unknown) => {
       if (entity === DocumentAttachment) return attachmentRecord
@@ -100,13 +102,20 @@ function context() {
 }
 
 describe('document attachment detach', () => {
-  it('soft-deletes the association and flushes', async () => {
+  it('routes permanent deletion through the audited command', async () => {
     const response = await DELETE(request(), context())
 
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({ ok: true })
-    expect(attachmentRecord?.deletedAt).toBeInstanceOf(Date)
-    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(executeCommand).toHaveBeenCalledWith('documents.attachment.delete', expect.objectContaining({
+      input: {
+        documentId: DOCUMENT_ID,
+        attachmentId: ATTACHMENT_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+      },
+    }))
+    expect(em.flush).not.toHaveBeenCalled()
   })
 
   it('returns 404 when the association is already detached', async () => {

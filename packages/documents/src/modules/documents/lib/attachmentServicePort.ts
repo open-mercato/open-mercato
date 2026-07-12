@@ -15,6 +15,7 @@ export interface AttachmentServicePort {
     fileName?: string
     fileSize?: number
   }): void
+  readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: {
     tenantId: string
     organizationId: string
@@ -40,7 +41,17 @@ export interface AttachmentServicePort {
     contentType: string
     contentDisposition: string
   }>
+  releaseScoped?(input: {
+    attachmentId: string
+    tenantId: string
+    organizationId: string
+    expectedOwner: { entityId: string; recordId: string }
+    expectedAssignment?: AttachmentAssignmentPort
+    expectedPartitionCode?: string
+  }, options?: { em?: EntityManager; flush?: boolean }): Promise<AttachmentProviderCleanupPort | void>
 }
+
+export type AttachmentProviderCleanupPort = () => Promise<void>
 
 export function resolveAttachmentServicePort(container: {
   resolve: (name: string) => unknown
@@ -59,4 +70,25 @@ export function resolveAttachmentServicePort(container: {
     throw new CrudHttpError(503, { error: 'Attachment service is unavailable' })
   }
   throw new CrudHttpError(503, { error: 'Attachment service is unavailable' })
+}
+
+export async function readAttachmentUploadForm(
+  service: AttachmentServicePort,
+  request: Request,
+): Promise<FormData> {
+  if (typeof service.readUploadForm !== 'function') {
+    throw new CrudHttpError(503, { error: 'Attachment service is unavailable' })
+  }
+  return service.readUploadForm(request)
+}
+
+export async function releaseScopedAttachment(
+  service: AttachmentServicePort,
+  input: Parameters<NonNullable<AttachmentServicePort['releaseScoped']>>[0],
+  options?: Parameters<NonNullable<AttachmentServicePort['releaseScoped']>>[1],
+): Promise<AttachmentProviderCleanupPort | void> {
+  if (typeof service.releaseScoped !== 'function') {
+    throw new CrudHttpError(503, { error: 'Attachment service is unavailable' })
+  }
+  return service.releaseScoped(input, options)
 }

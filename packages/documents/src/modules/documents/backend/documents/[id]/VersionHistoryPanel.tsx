@@ -11,6 +11,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -23,9 +24,24 @@ import { restoreVersionWithObservedContentToken } from './restoreVersion'
 import type { VersionPreview } from './VersionPreviewDialog'
 import { normalizeVersion, type DocumentVersion } from './versionHistoryModel'
 
+function VersionPreviewDialogLoading() {
+  const t = useT()
+  return (
+    <Dialog open>
+      <DialogContent size="lg" dismissible={false}>
+        <DialogHeader>
+          <DialogTitle>{t('documents.versions.actions.preview')}</DialogTitle>
+          <DialogDescription>{t('documents.versions.preview.loading')}</DialogDescription>
+        </DialogHeader>
+        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.versions.preview.loading')} /></div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const VersionPreviewDialog = dynamic(
   () => import('./VersionPreviewDialog').then((module) => module.VersionPreviewDialog),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: VersionPreviewDialogLoading },
 )
 
 type VersionsState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; versions: DocumentVersion[] }

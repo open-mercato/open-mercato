@@ -1,4 +1,5 @@
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { Attachment, AttachmentPartition } from '../../data/entities'
 import { DefaultAttachmentService } from '../attachment-service'
 
@@ -83,6 +84,7 @@ function createHarness(options: {
       }),
     })),
   }
+  let inTransaction = false
   const em: any = {
     findOne: jest.fn(async (entity: unknown) => {
       if (entity === AttachmentPartition) return selectedPartition
@@ -92,7 +94,12 @@ function createHarness(options: {
     getKysely: () => db,
     create: jest.fn((_entity: unknown, data: unknown) => data),
     persist: jest.fn(),
+    remove: jest.fn(),
     flush: jest.fn(async () => undefined),
+    begin: jest.fn(async () => { inTransaction = true }),
+    commit: jest.fn(async () => { inTransaction = false }),
+    rollback: jest.fn(async () => { inTransaction = false }),
+    isInTransaction: jest.fn(() => inTransaction),
   }
   em.transactional = jest.fn(async (callback: (tx: typeof em) => unknown) => callback(em))
   const factory: any = { resolveForPartition: jest.fn(async () => driver) }
@@ -120,6 +127,7 @@ async function expectStatus(promise: Promise<unknown>, status: number) {
 
 describe('DefaultAttachmentService', () => {
   afterEach(() => {
+    delete process.env.OM_ATTACHMENT_MAX_UPLOAD_MB
     delete process.env.OM_ATTACHMENT_TENANT_QUOTA_MB
   })
 
@@ -217,5 +225,141 @@ describe('DefaultAttachmentService', () => {
       expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
       expectedAssignment: { type: 'documents:document', id: 'document-1' },
     }), 404)
+  })
+
+  it('rejects a chunked multipart body once the bounded stream exceeds the cap', async () => {
+    process.env.OM_ATTACHMENT_MAX_UPLOAD_MB = '0.001'
+    const { service } = createHarness()
+    const boundary = 'bounded-upload'
+    const chunk = new Uint8Array(600_000)
+    const request = new Request('http://localhost/upload', {
+      method: 'POST',
+      headers: { 'content-type': `multipart/form-data; boundary=${boundary}` },
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(chunk)
+          controller.enqueue(chunk)
+          controller.close()
+        },
+      }),
+      duplex: 'half',
+    } as RequestInit & { duplex: 'half' })
+
+    await expectStatus(service.readUploadForm(request), 413)
+  })
+
+  it('rejects malformed content-length before reading multipart bytes', async () => {
+    const { service } = createHarness()
+    const request = new Request('http://localhost/upload', {
+      method: 'POST',
+      headers: {
+        'content-type': 'multipart/form-data; boundary=bad-length',
+        'content-length': 'invalid',
+      },
+      body: 'ignored',
+    })
+
+    await expectStatus(service.readUploadForm(request), 413)
+  })
+
+  it('releases an exactly-owned attachment from storage and quota accounting', async () => {
+    const { service, driver, em } = createHarness()
+
+    await service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      expectedPartitionCode: 'privateAttachments',
+    })
+
+    expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/file.txt')
+    expect(em.remove).toHaveBeenCalledWith(expect.objectContaining({ id: 'attachment-1' }))
+    expect(em.flush).toHaveBeenCalledTimes(1)
+    expect(em.flush.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+  })
+
+  it('does not release an attachment carrying another assignment', async () => {
+    const { service, driver, em } = createHarness({
+      attachment: attachment({
+        storageMetadata: {
+          assignments: [
+            { type: 'documents:document', id: 'document-1' },
+            { type: 'messages:message', id: 'message-1' },
+          ],
+        },
+      }),
+    })
+
+    await expectStatus(service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    }), 409)
+
+    expect(driver.delete).not.toHaveBeenCalled()
+    expect(em.remove).not.toHaveBeenCalled()
+  })
+
+  it('defers provider deletion until the owning transaction commits', async () => {
+    const { service, driver, em } = createHarness()
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await withAtomicFlush(em, [async () => {
+      cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false })
+      expect(driver.delete).not.toHaveBeenCalled()
+    }], { transaction: true, label: 'attachments.release' })
+
+    expect(em.commit).toHaveBeenCalledTimes(1)
+    expect(driver.delete).not.toHaveBeenCalled()
+    expect(cleanup).toEqual(expect.any(Function))
+    await cleanup!()
+    expect(driver.delete).toHaveBeenCalledTimes(1)
+    expect(em.commit.mock.invocationCallOrder[0]).toBeLessThan(driver.delete.mock.invocationCallOrder[0])
+  })
+
+  it('never deletes provider bytes when a later transaction phase rolls back', async () => {
+    const { service, driver, em } = createHarness()
+    let cleanup: (() => Promise<void>) | void = undefined
+
+    await expect(withAtomicFlush(em, [
+      async () => { cleanup = await service.releaseScoped({
+        attachmentId: 'attachment-1',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+        expectedAssignment: { type: 'documents:document', id: 'document-1' },
+      }, { em, flush: false }) },
+      () => { throw new Error('later document mutation failed') },
+    ], { transaction: true, label: 'attachments.release' })).rejects.toThrow('later document mutation failed')
+
+    expect(em.rollback).toHaveBeenCalledTimes(1)
+    expect(cleanup).toEqual(expect.any(Function))
+    expect(driver.delete).not.toHaveBeenCalled()
+  })
+
+  it('rejects immediate release inside an ambient transaction', async () => {
+    const { service, driver, em } = createHarness()
+    await em.begin()
+
+    await expectStatus(service.releaseScoped({
+      attachmentId: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+      expectedAssignment: { type: 'documents:document', id: 'document-1' },
+    }), 500)
+
+    expect(em.remove).not.toHaveBeenCalled()
+    expect(driver.delete).not.toHaveBeenCalled()
   })
 })

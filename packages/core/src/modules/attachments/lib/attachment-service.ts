@@ -21,6 +21,7 @@ import {
 import {
   isMultipartRequestWithinUploadLimit,
   resolveAttachmentMaxBytes,
+  resolveAttachmentMultipartMaxBytes,
   willExceedAttachmentTenantQuota,
 } from './upload-limits'
 
@@ -80,14 +81,58 @@ export type ReadScopedAttachmentResult = {
   mimeType: string
 }
 
+export type ReleaseScopedAttachmentInput = {
+  attachmentId: string
+  tenantId: string
+  organizationId: string
+  expectedOwner: AttachmentOwner
+  expectedAssignment?: AttachmentAssignment
+  expectedPartitionCode?: string
+}
+
+export type AttachmentProviderCleanup = () => Promise<void>
+
 export interface AttachmentService {
   validateUpload(input: {
     contentLength?: string | null
     fileName?: string
     fileSize?: number
   }): void
+  readUploadForm?(request: Request): Promise<FormData>
   createScoped(input: CreateScopedAttachmentInput): Promise<CreatedScopedAttachment>
   readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult>
+  releaseScoped?(
+    input: ReleaseScopedAttachmentInput,
+    options?: { em?: EntityManager; flush?: boolean },
+  ): Promise<AttachmentProviderCleanup | void>
+}
+
+async function readRequestBodyWithinLimit(request: Request, maxBytes: number): Promise<Uint8Array> {
+  const reader = request.body?.getReader()
+  if (!reader) throw new CrudHttpError(400, { error: 'File is required' })
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      totalBytes += value.byteLength
+      if (totalBytes > maxBytes) {
+        await reader.cancel()
+        throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.' })
+      }
+      chunks.push(value)
+    }
+  } finally {
+    reader.releaseLock()
+  }
+  const body = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    body.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return body
 }
 
 async function readTenantUsageBytes(em: EntityManager, tenantId: string): Promise<number> {
@@ -141,6 +186,21 @@ export class DefaultAttachmentService implements AttachmentService {
     }
     if (typeof input.fileSize === 'number' && input.fileSize > resolveAttachmentMaxBytes(null)) {
       throw new CrudHttpError(413, { error: 'Attachment exceeds the maximum upload size.' })
+    }
+  }
+
+  async readUploadForm(request: Request): Promise<FormData> {
+    this.validateUpload({ contentLength: request.headers.get('content-length') })
+    const contentType = request.headers.get('content-type') ?? ''
+    if (!contentType.toLowerCase().includes('multipart/form-data')) {
+      throw new CrudHttpError(400, { error: 'Expected multipart/form-data' })
+    }
+    const body = await readRequestBodyWithinLimit(request, resolveAttachmentMultipartMaxBytes())
+    const responseBody = body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as ArrayBuffer
+    try {
+      return await new Response(responseBody, { headers: { 'content-type': contentType } }).formData()
+    } catch {
+      throw new CrudHttpError(400, { error: 'Invalid multipart/form-data' })
     }
   }
 
@@ -311,5 +371,60 @@ export class DefaultAttachmentService implements AttachmentService {
       fileName: attachment.fileName,
       mimeType,
     }
+  }
+
+  async releaseScoped(
+    input: ReleaseScopedAttachmentInput,
+    options: { em?: EntityManager; flush?: boolean } = {},
+  ): Promise<AttachmentProviderCleanup | void> {
+    const em = options.em ?? this.em
+    const isInTransaction = (em as { isInTransaction?: () => boolean }).isInTransaction
+    if (
+      options.flush !== false
+      && typeof isInTransaction === 'function'
+      && isInTransaction.call(em)
+    ) {
+      throw new CrudHttpError(500, {
+        error: 'Attachment release inside an ambient transaction requires flush: false and deferred provider cleanup',
+      })
+    }
+    const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
+    const attachment = await findOneWithDecryption(
+      em,
+      Attachment,
+      {
+        id: input.attachmentId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      undefined,
+      scope,
+    )
+    if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
+    if (
+      attachment.entityId !== input.expectedOwner.entityId
+      || attachment.recordId !== input.expectedOwner.recordId
+      || (input.expectedPartitionCode && attachment.partitionCode !== input.expectedPartitionCode)
+    ) {
+      throw new CrudHttpError(404, { error: 'Attachment not found' })
+    }
+    if (input.expectedAssignment) {
+      const assignments = readAttachmentMetadata(attachment.storageMetadata).assignments ?? []
+      if (!assignments.some((candidate) => assignmentMatches(candidate, input.expectedAssignment!))) {
+        throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
+      }
+      if (assignments.some((candidate) => !assignmentMatches(candidate, input.expectedAssignment!))) {
+        throw new CrudHttpError(409, { error: 'Attachment is still referenced by another record' })
+      }
+    }
+
+    const driver = await this.storageDriverFactory.resolveForPartition(attachment.partitionCode, scope)
+    const deleteProviderBytes = () => driver.delete(attachment.partitionCode, attachment.storagePath)
+    em.remove(attachment)
+    if (options.flush === false) {
+      return deleteProviderBytes
+    }
+    await em.flush()
+    await deleteProviderBytes()
   }
 }

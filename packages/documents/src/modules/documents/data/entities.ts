@@ -282,7 +282,7 @@ export class DocumentVersion {
 @Index({ name: 'document_attachments_document_idx', properties: ['documentId'] })
 @Index({ name: 'document_attachments_attachment_idx', properties: ['attachmentId'] })
 export class DocumentAttachment {
-  [OptionalProps]?: 'createdAt' | 'deletedAt'
+  [OptionalProps]?: 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -304,6 +304,9 @@ export class DocumentAttachment {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
+  updatedAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null

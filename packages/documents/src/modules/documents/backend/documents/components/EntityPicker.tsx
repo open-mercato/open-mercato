@@ -58,6 +58,23 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
     if (item) selectItem(item)
   }, [search.activeIndex, search.items, selectItem])
 
+  const handleSearchKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      search.setActiveIndex((index) => Math.min(index + 1, search.items.length - 1))
+      return
+    }
+    if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      search.setActiveIndex((index) => Math.max(index - 1, 0))
+      return
+    }
+    if (event.key === 'Enter') {
+      event.preventDefault()
+      pickActiveItem()
+    }
+  }, [pickActiveItem, search.items.length, search.setActiveIndex])
+
   if (!open) return null
   const hasQuery = search.searchValue.trim().length > 0
   return (
@@ -65,9 +82,6 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
       <DialogContent size="lg" onKeyDown={(event) => {
         if (event.key === 'Escape') { event.preventDefault(); onOpenChange(false); return }
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); pickActiveItem(); return }
-        if (event.key === 'ArrowDown') { event.preventDefault(); search.setActiveIndex((index) => Math.min(index + 1, search.items.length - 1)) }
-        if (event.key === 'ArrowUp') { event.preventDefault(); search.setActiveIndex((index) => Math.max(index - 1, 0)) }
-        if (event.key === 'Enter') { event.preventDefault(); pickActiveItem() }
       }}>
         <DialogHeader>
           <DialogTitle>{t('documents.entityPicker.title')}</DialogTitle>
@@ -103,6 +117,7 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
                 aria-controls={listId}
                 aria-autocomplete="list"
                 aria-activedescendant={search.activeIndex >= 0 ? `${listId}-option-${search.activeIndex}` : undefined}
+                onKeyDown={handleSearchKeyDown}
               />
             </div>
             <EntityPickerResults

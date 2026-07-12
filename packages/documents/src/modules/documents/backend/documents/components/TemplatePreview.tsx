@@ -14,7 +14,7 @@ function PreviewSurface({ html, fallbackLabel }: { html: string; fallbackLabel: 
     content: html,
     editable: false,
     editorProps: { attributes: { class: 'min-h-48 text-base leading-7 text-foreground focus-visible:outline-none' } },
-  }, [html])
+  }, [fallbackLabel])
   React.useEffect(() => { editor?.commands.setContent(html) }, [editor, html])
   return <EditorContent editor={editor} className="max-w-none rounded-md border border-border bg-card p-4" />
 }

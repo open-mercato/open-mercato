@@ -14,6 +14,11 @@ import {
   runMutationGuardAfterSuccess,
   validateMutationGuard,
 } from '../../../_shared'
+import {
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../../../_commands'
+import type { DocumentAttachmentDeleteCommandInput } from '../../../../commands/attachments'
 
 type RouteContext = {
   params: Promise<{ id: string; attachmentId: string }> | { id: string; attachmentId: string }
@@ -87,11 +92,6 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   }
 }
 
-// Detach soft-deletes only the documents-owned association row. The
-// underlying attachments-module record and blob stay untouched: older
-// document versions may still embed the file, and blob lifecycle belongs to
-// the attachments module. Detached attachments stop blocking undo of
-// document create/instantiate (commands/aggregate.ts filters deletedAt: null).
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
   try {
     const { documentId, attachmentId } = await resolveParams(context)
@@ -104,8 +104,16 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
       operation: 'delete',
       mutationPayload: { documentId, attachmentId },
     })
-    documentAttachment.deletedAt = new Date()
-    await ctx.em.flush()
+    const input: DocumentAttachmentDeleteCommandInput = {
+      documentId,
+      attachmentId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    }
+    await resolveDocumentsCommandBus(ctx).execute('documents.attachment.delete', {
+      input,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
+    })
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
       resourceId: documentAttachment.id,
@@ -138,11 +146,13 @@ export const openApi: OpenApiRouteDoc = {
     },
     DELETE: {
       summary: 'Detach a document-scoped attachment',
-      responses: [{ status: 200, description: 'Attachment detached', schema: attachmentDeleteResponseSchema }],
+      description: 'Transactionally removes the document attachment row and quota usage, then runs reference-checked provider cleanup after commit. This operation is audited and intentionally not undoable.',
+      responses: [{ status: 200, description: 'Attachment deletion committed', schema: attachmentDeleteResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 404, description: 'Attachment not found', schema: routeErrorSchema },
+        { status: 409, description: 'Optimistic lock conflict or attachment still referenced', schema: routeErrorSchema },
       ],
     },
   },

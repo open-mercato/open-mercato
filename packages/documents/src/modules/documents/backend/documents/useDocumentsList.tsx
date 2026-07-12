@@ -37,6 +37,7 @@ export function useDocumentsList() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [hasTemplates, setHasTemplates] = React.useState(false)
   const [collectionCapabilities, setCollectionCapabilities] = React.useState<CollectionCapabilities>(EMPTY_COLLECTION_CAPABILITIES)
   const [reloadToken, setReloadToken] = React.useState(0)
@@ -52,6 +53,7 @@ export function useDocumentsList() {
   React.useEffect(() => {
     const currentRequestId = ++requestId.current
     setIsLoading(true)
+    setLoadError(null)
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
     if (search.trim()) params.set('search', search.trim())
     if (selectedFolderId) params.set('folderId', selectedFolderId)
@@ -66,7 +68,7 @@ export function useDocumentsList() {
         setTotal(0)
         setTotalPages(1)
         setCollectionCapabilities(EMPTY_COLLECTION_CAPABILITIES)
-        flash(t('documents.list.error.load'), 'error')
+        setLoadError(t('documents.list.error.load'))
         return
       }
       const nextFolders = normalizeFolders(foldersCall.result)
@@ -85,7 +87,7 @@ export function useDocumentsList() {
       setTotal(0)
       setTotalPages(1)
       setCollectionCapabilities(EMPTY_COLLECTION_CAPABILITIES)
-      flash(t('documents.list.error.load'), 'error')
+      setLoadError(t('documents.list.error.load'))
     }).finally(() => {
       if (requestId.current === currentRequestId) setIsLoading(false)
     })
@@ -208,7 +210,7 @@ export function useDocumentsList() {
 
   return {
     rows, folders, selectedFolderId, setSelectedFolderId, page, setPage, pageSize, setPageSize,
-    total, totalPages, search, setSearch, isLoading, hasTemplates, collectionCapabilities, refresh,
+    total, totalPages, search, setSearch, isLoading, loadError, hasTemplates, collectionCapabilities, refresh,
     createDocument, deleteDocument, moveDocument, saveFolder, deleteFolder, ConfirmDialogElement,
   }
 }

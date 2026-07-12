@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { DocumentAttachment } from '../../../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
-import { resolveAttachmentServicePort } from '../../../lib/attachmentServicePort'
+import { readAttachmentUploadForm, resolveAttachmentServicePort } from '../../../lib/attachmentServicePort'
 import { assertTier } from '../../../lib/permissions'
 import {
   handleDocumentsRouteError,
@@ -30,6 +30,7 @@ const attachmentUploadBodySchema = z.object({
 const attachmentUploadResponseSchema = z.object({
   id: z.string().uuid(),
   attachmentId: z.string().uuid(),
+  updatedAt: z.string().datetime(),
   url: z.string(),
 })
 
@@ -63,10 +64,9 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, documentId, ctx.auth, 'editor')
     await loadScopedDocument(ctx, documentId)
-    assertMultipartUpload(request)
     const attachmentService = resolveAttachmentServicePort(ctx.container)
-    attachmentService.validateUpload({ contentLength: request.headers.get('content-length') })
-    const form = await request.formData()
+    assertMultipartUpload(request)
+    const form = await readAttachmentUploadForm(attachmentService, request)
     const file = readUploadFile(form)
     attachmentService.validateUpload({ fileName: file.name, fileSize: file.size })
     const guardResult = await validateMutationGuard(ctx, {
@@ -82,6 +82,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 
     const buffer = Buffer.from(await file.arrayBuffer())
     const userId = resolveActorUserId(ctx.auth)
+    const linkState: { updatedAt: string | null } = { updatedAt: null }
     const created = await attachmentService.createScoped({
       entityId: DOCUMENTS_ENTITY_IDS.document,
       recordId: documentId,
@@ -93,14 +94,16 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       buffer,
       assignments: [{ type: DOCUMENTS_ENTITY_IDS.document, id: documentId }],
       persistLink: async (tx, attachmentId) => {
-        tx.persist(tx.create(DocumentAttachment, {
+        const link = tx.create(DocumentAttachment, {
           id: randomUUID(),
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           documentId,
           attachmentId,
           createdByUserId: userId,
-        }))
+        })
+        linkState.updatedAt = link.updatedAt.toISOString()
+        tx.persist(link)
       },
     })
 
@@ -111,7 +114,13 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     })
 
     const url = `/api/documents/${encodeURIComponent(documentId)}/attachments/${encodeURIComponent(created.id)}`
-    return NextResponse.json({ id: created.id, attachmentId: created.id, url }, { status: 201 })
+    if (!linkState.updatedAt) throw new Error('[internal] document attachment link was not persisted')
+    return NextResponse.json({
+      id: created.id,
+      attachmentId: created.id,
+      updatedAt: linkState.updatedAt,
+      url,
+    }, { status: 201 })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.attachments.create')
   }

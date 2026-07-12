@@ -113,6 +113,16 @@ export function isBroadcastEvent(eventId: string): boolean {
 }
 
 /**
+ * Check if an event should be published over the server-to-server event bridge.
+ * Browser-broadcast events remain eligible for backward compatibility, while
+ * crossProcessBroadcast supports private process coordination without SSE.
+ */
+export function isCrossProcessBroadcastEvent(eventId: string): boolean {
+  const event = allDeclaredEvents.find(e => e.id === eventId)
+  return event?.clientBroadcast === true || event?.crossProcessBroadcast === true
+}
+
+/**
  * Check if an event has portalBroadcast enabled.
  * Used by the portal SSE endpoint to filter events for the Portal Event Bridge.
  */

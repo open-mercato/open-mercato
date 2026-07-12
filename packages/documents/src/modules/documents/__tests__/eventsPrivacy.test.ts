@@ -1,6 +1,7 @@
 import {
   getDeclaredEvents,
   isBroadcastEvent,
+  isCrossProcessBroadcastEvent,
   isEventDeclared,
   setGlobalEventBus,
 } from '@open-mercato/shared/modules/events'
@@ -11,18 +12,18 @@ describe('Documents events privacy contract', () => {
     setGlobalEventBus({ emit: async () => undefined })
   })
 
-  it('broadcasts only document lifecycle changes needed by live clients', () => {
+  it('bridges private document invalidations between processes without browser broadcast', () => {
     expect(eventsConfig.moduleId).toBe('documents')
     expect(eventsConfig.events).not.toHaveLength(0)
 
     for (const event of eventsConfig.events) {
       expect(event.id).toMatch(/^documents\./)
     }
-    const broadcastIds = eventsConfig.events
-      .filter((event) => event.clientBroadcast === true)
+    const crossProcessIds = eventsConfig.events
+      .filter((event) => event.crossProcessBroadcast === true)
       .map((event) => event.id)
 
-    expect(broadcastIds).toEqual([
+    expect(crossProcessIds).toEqual([
       'documents.document.updated',
       'documents.document.deleted',
       'documents.document.shared',
@@ -30,7 +31,8 @@ describe('Documents events privacy contract', () => {
       'documents.version.restored',
     ])
     for (const event of eventsConfig.events) {
-      expect(isBroadcastEvent(event.id)).toBe(broadcastIds.includes(event.id))
+      expect(isBroadcastEvent(event.id)).toBe(false)
+      expect(isCrossProcessBroadcastEvent(event.id)).toBe(crossProcessIds.includes(event.id))
     }
   })
 

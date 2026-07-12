@@ -29,6 +29,7 @@ export function useTemplatesPage() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
   const [canManageTemplates, setCanManageTemplates] = React.useState(false)
   const [reloadToken, setReloadToken] = React.useState(0)
   const mutationContextId = 'documents-templates-list:mutation'
@@ -55,6 +56,7 @@ export function useTemplatesPage() {
   React.useEffect(() => {
     const currentRequestId = ++requestId.current
     setIsLoading(true)
+    setLoadError(null)
     setCanManageTemplates(false)
     const params = new URLSearchParams({
       page: String(page),
@@ -70,7 +72,7 @@ export function useTemplatesPage() {
           setTotal(0)
           setTotalPages(1)
           setCanManageTemplates(false)
-          flash(t('documents.templates.error.load'), 'error')
+          setLoadError(t('documents.templates.error.load'))
           return
         }
         const nextRows = normalizeTemplates(call.result)
@@ -93,7 +95,7 @@ export function useTemplatesPage() {
         setTotal(0)
         setTotalPages(1)
         setCanManageTemplates(false)
-        flash(t('documents.templates.error.load'), 'error')
+        setLoadError(t('documents.templates.error.load'))
       })
       .finally(() => { if (requestId.current === currentRequestId) setIsLoading(false) })
   }, [page, pageSize, reloadToken, search, t])
@@ -134,6 +136,7 @@ export function useTemplatesPage() {
     search,
     setSearch: changeSearch,
     isLoading,
+    loadError,
     canManageTemplates,
     refresh,
     refreshFromFirstPage,

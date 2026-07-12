@@ -25,7 +25,12 @@ import { RelatedRecordsPanel } from './RelatedRecordsPanel'
 import { DocumentNavigator } from './DocumentNavigator'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
 
-const DocumentEditorIsland = dynamic(() => import('./DocumentEditorIsland'), { ssr: false, loading: () => null })
+function DocumentEditorLoading() {
+  const t = useT()
+  return <div role="status" aria-live="polite"><LoadingMessage label={t('documents.editor.loading')} /></div>
+}
+
+const DocumentEditorIsland = dynamic(() => import('./DocumentEditorIsland'), { ssr: false, loading: DocumentEditorLoading })
 
 type CommentFocusRequest = { anchor: CommentAnchor; requestId: number }
 type LoadState =

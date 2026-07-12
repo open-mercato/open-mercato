@@ -3,16 +3,36 @@
 import * as React from 'react'
 import dynamic from 'next/dynamic'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { TemplateRow } from '../components/templateUi'
 import { TemplatesTable } from './TemplatesTable'
 import { useTemplatesPage } from './useTemplatesPage'
 
+function TemplateEditorDialogLoading() {
+  const t = useT()
+  return (
+    <Dialog open>
+      <DialogContent size="xl" dismissible={false}>
+        <DialogHeader>
+          <DialogTitle>{t('documents.templates.actions.manage')}</DialogTitle>
+          <DialogDescription>{t('documents.templates.preview.loading')}</DialogDescription>
+        </DialogHeader>
+        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.preview.loading')} /></div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 const TemplateEditorDialog = dynamic(
   () => import('../components/TemplateEditorDialog').then((module) => module.TemplateEditorDialog),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: TemplateEditorDialogLoading },
 )
 
 export function TemplatesPageClient() {
+  const t = useT()
   const templates = useTemplatesPage()
   const [editing, setEditing] = React.useState<TemplateRow | null>(null)
   const [editorOpen, setEditorOpen] = React.useState(false)
@@ -23,7 +43,13 @@ export function TemplatesPageClient() {
   return (
     <Page>
       <PageBody>
-        <TemplatesTable
+        {templates.loadError ? (
+          <ErrorMessage
+            label={templates.loadError}
+            action={<Button type="button" size="sm" variant="outline" onClick={templates.refresh}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : (
+          <TemplatesTable
           rows={templates.rows}
           page={templates.page}
           pageSize={templates.pageSize}
@@ -38,7 +64,8 @@ export function TemplatesPageClient() {
           onRefresh={templates.refresh}
           onEdit={openEditor}
           onDelete={(template) => void templates.deleteTemplate(template)}
-        />
+          />
+        )}
         {templates.canManageTemplates && editorOpen ? <TemplateEditorDialog
           open
           template={editing}
