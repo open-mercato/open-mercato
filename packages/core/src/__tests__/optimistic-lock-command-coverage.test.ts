@@ -73,6 +73,8 @@ const COMMAND_GUARD_ALLOWLIST: Record<string, string> = {
     'Exempt — proposal dispose guards the HUMAN dispose path on updated_at only (the auto/threshold path holds no client token and cannot race a stale modal); pending→terminal is a one-shot transition with an idempotent same-verdict re-dispose. record_locks seam migration deferred.',
   'packages/enterprise/src/modules/agent_orchestrator/commands/grants.ts':
     'Exempt — delegation-grant revoke guards updated_at against the caller-supplied expectedUpdatedAt (re-revoke is idempotent, gone-record maps to structured 409); a one-shot revocation, not a collaborative edit surface. record_locks seam migration deferred.',
+  'packages/enterprise/src/modules/agent_orchestrator/api/tasks/[id]/event-triggers/[triggerId]/route.ts':
+    'Exempt — agentic-task event-trigger PUT/DELETE guards the trigger row on its own updated_at (child version, not the parent task header); an admin config sub-resource, not a collaborative merge-dialog surface, so the sync floor covers the stale-form race. record_locks seam migration deferred.',
 }
 
 // `enforceCommandOptimisticLock(` but NOT `enforceCommandOptimisticLockWithGuards(`.
