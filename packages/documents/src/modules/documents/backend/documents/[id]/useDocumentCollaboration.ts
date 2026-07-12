@@ -113,7 +113,7 @@ export function createCollaborationStatusController(options: {
   }
 
   return {
-    synced() {
+    connected() {
       if (disposed) return
       hasSynced = true
       outageActive = false
@@ -137,6 +137,24 @@ export function createCollaborationStatusController(options: {
       clearOutageTimers()
     },
   }
+}
+
+export function applyCollaborationProviderStatus(
+  controller: Pick<ReturnType<typeof createCollaborationStatusController>, 'connected' | 'disconnected'>,
+  payload: unknown,
+): void {
+  const record = readRecord(payload)
+  if (readString(record ?? {}, 'status') === 'connected') controller.connected()
+  else controller.disconnected()
+}
+
+export function restartConnectedCollaborationSocket(websocket: {
+  status: string
+  webSocket?: { close: () => void } | null
+}): boolean {
+  if (websocket.status !== 'connected' || !websocket.webSocket) return false
+  websocket.webSocket.close()
+  return true
 }
 
 export function normalizeCollabTokenPayload(
@@ -285,14 +303,13 @@ export function useDocumentCollaboration(documentId: string): CollabState {
       })
       const updatePresence = () => setState((current) => current.mode === 'collab' && current.resources === resources ? { ...current, presenceUsers: readCollaborationPresence(provider, fallbackUserLabel) } : current)
       provider.on('status', (payload: unknown) => {
-        const record = readRecord(payload)
-        if (readString(record ?? {}, 'status') !== 'connected') statusController?.disconnected()
+        if (statusController) applyCollaborationProviderStatus(statusController, payload)
       })
       provider.on('synced', () => {
         lastTokenFailure = null
         clearInitialTimers()
         clearTokenRetryTimer()
-        statusController?.synced()
+        statusController?.connected()
       })
       provider.on('authenticationFailed', () => {
         const tokenFailure = lastTokenFailure
@@ -308,7 +325,10 @@ export function useDocumentCollaboration(documentId: string): CollabState {
         }, COLLABORATION_PROVIDER_RETRY.delay)
       })
       provider.on('disconnect', () => statusController?.disconnected())
-      provider.on('close', () => statusController?.disconnected())
+      provider.on('close', () => {
+        statusController?.disconnected()
+        restartConnectedCollaborationSocket(provider.configuration.websocketProvider)
+      })
       provider.awareness?.on('change', updatePresence)
       setState({
         mode: 'collab',

@@ -1,10 +1,12 @@
 import {
+  applyCollaborationProviderStatus,
   classifyCollabTokenResponse,
   COLLABORATION_OFFLINE_AFTER_MS,
   COLLABORATION_PROVIDER_RETRY,
   COLLABORATION_RECONNECT_GRACE_MS,
   createCollaborationStatusController,
   fetchCollabTokenAttempt,
+  restartConnectedCollaborationSocket,
 } from '../backend/documents/[id]/useDocumentCollaboration'
 
 const VALID_TOKEN = {
@@ -35,7 +37,7 @@ describe('collaboration reconnect behavior', () => {
       onStatus: (status) => statuses.push(status),
     })
 
-    controller.synced()
+    controller.connected()
     controller.disconnected()
     expect(statuses).toEqual(['connected'])
 
@@ -60,10 +62,10 @@ describe('collaboration reconnect behavior', () => {
       onStatus: (status) => statuses.push(status),
     })
 
-    controller.synced()
+    controller.connected()
     controller.disconnected()
     jest.advanceTimersByTime(COLLABORATION_RECONNECT_GRACE_MS - 1)
-    controller.synced()
+    controller.connected()
     jest.advanceTimersByTime(COLLABORATION_OFFLINE_AFTER_MS)
     expect(statuses).toEqual(['connected', 'connected'])
 
@@ -79,12 +81,36 @@ describe('collaboration reconnect behavior', () => {
       onStatus: (status) => statuses.push(status),
     })
 
-    controller.synced()
+    controller.connected()
     controller.disconnected()
     jest.advanceTimersByTime(COLLABORATION_RECONNECT_GRACE_MS - 1)
     controller.disconnected()
     jest.advanceTimersByTime(1)
     expect(statuses).toEqual(['connected', 'reconnecting'])
+  })
+
+  it('returns to Live as soon as the idle transport reconnects without waiting for an edit', () => {
+    const statuses: string[] = []
+    const controller = createCollaborationStatusController({
+      onStatus: (status) => statuses.push(status),
+    })
+
+    controller.connected()
+    controller.disconnected()
+    jest.advanceTimersByTime(COLLABORATION_OFFLINE_AFTER_MS)
+    expect(statuses).toEqual(['connected', 'reconnecting', 'offline'])
+
+    applyCollaborationProviderStatus(controller, { status: 'connected' })
+    expect(statuses).toEqual(['connected', 'reconnecting', 'offline', 'connected'])
+  })
+
+  it('restarts a still-open physical socket after the logical document channel expires', () => {
+    const close = jest.fn()
+
+    expect(restartConnectedCollaborationSocket({ status: 'connected', webSocket: { close } })).toBe(true)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(restartConnectedCollaborationSocket({ status: 'disconnected', webSocket: { close } })).toBe(false)
+    expect(close).toHaveBeenCalledTimes(1)
   })
 
   it('uses fast bounded retries without limiting genuine network recovery', () => {
