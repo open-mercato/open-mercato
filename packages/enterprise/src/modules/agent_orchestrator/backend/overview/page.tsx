@@ -1,16 +1,16 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
-import { CheckCircle2, ClipboardList, Users, Clock, Zap, Bell, BookOpen, ArrowRight, ChevronDown, Calendar, RotateCw, Info, Check, FileSearch, Workflow } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { CheckCircle2, ClipboardList, Users, Clock, Zap, Bell, BookOpen, ArrowRight, RotateCw, Info, Check, FileSearch, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -36,8 +36,24 @@ type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disp
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 const slaVariant: StatusMap<Sla> = { breach: 'error', risk: 'warning', ok: 'success' }
-const OVERVIEW_WINDOW = '7d'
 const NEEDS_ATTENTION_PAGE_SIZE = 20
+
+// Rolling windows supported by /metrics/overview and /metrics/agents.
+type OverviewWindowKey = '24h' | '7d' | '30d'
+const WINDOW_KEYS: readonly OverviewWindowKey[] = ['24h', '7d', '30d'] as const
+const WINDOW_LABEL_KEY: Record<OverviewWindowKey, string> = {
+  '24h': 'agent_orchestrator.overview.window.h24',
+  '7d': 'agent_orchestrator.overview.window.d7',
+  '30d': 'agent_orchestrator.overview.window.d30',
+}
+function windowKeyFrom(raw: string | null): OverviewWindowKey {
+  return (WINDOW_KEYS as readonly string[]).includes(raw ?? '') ? (raw as OverviewWindowKey) : '7d'
+}
+
+// Per-panel fetch outcome: forbidden and error must never masquerade as empty
+// data — the SLA panel rendering "nothing stuck" on a failed fetch is a false
+// all-clear.
+type PanelState = 'ok' | 'forbidden' | 'error'
 
 // SLA is derived from how long the proposal has been waiting (real, from created_at).
 function slaOf(waitingMin: number | null): Sla {
@@ -73,23 +89,38 @@ function formatWait(min: number | null): string {
   return rest ? `${hours}h ${rest}m` : `${hours}h`
 }
 
-async function fetchList(path: string): Promise<{ items: Array<Record<string, unknown>>; total: number }> {
+type ListFetch =
+  | { ok: true; items: Array<Record<string, unknown>>; total: number }
+  | { ok: false; status: number }
+
+async function fetchList(path: string): Promise<ListFetch> {
   const call = await apiCall<ListResponse>(path, undefined, { fallback: { items: [] } })
-  const items = call.ok && Array.isArray(call.result?.items) ? call.result!.items : []
-  const total = call.ok && typeof call.result?.total === 'number' ? call.result!.total : items.length
-  return { items, total }
+  if (!call.ok) return { ok: false, status: call.status }
+  const items = Array.isArray(call.result?.items) ? call.result!.items : []
+  const total = typeof call.result?.total === 'number' ? call.result!.total : items.length
+  return { ok: true, items, total }
+}
+
+function panelStateOf(res: ListFetch): PanelState {
+  if (res.ok) return 'ok'
+  return res.status === 403 ? 'forbidden' : 'error'
 }
 
 export default function AgentFleetOverviewPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const [windowKey, setWindowKey] = React.useState<OverviewWindowKey>(() => windowKeyFrom(searchParams?.get('window') ?? null))
   const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
   const [pendingProposals, setPendingProposals] = React.useState<ProposalView[]>([])
+  const [pendingState, setPendingState] = React.useState<PanelState>('ok')
   const [pendingRuns, setPendingRuns] = React.useState<Map<string, RunView>>(new Map())
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [agentKinds, setAgentKinds] = React.useState<Map<string, string>>(new Map())
   const [agentIds, setAgentIds] = React.useState<string[]>([])
   const [agentMetrics, setAgentMetrics] = React.useState<Map<string, AgentWindowMetrics>>(new Map())
+  const [trustState, setTrustState] = React.useState<PanelState>('ok')
+  const [lastLoadedAt, setLastLoadedAt] = React.useState<number | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [refreshKey, setRefreshKey] = React.useState(0)
@@ -101,7 +132,7 @@ export default function AgentFleetOverviewPage() {
       setError(null)
       try {
         const [overviewCall, pendingRes, agentsRes] = await Promise.all([
-          apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${OVERVIEW_WINDOW}`),
+          apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${windowKey}`),
           fetchList(
             `/api/agent_orchestrator/proposals?disposition=pending&sortField=createdAt&sortDir=asc&pageSize=${NEEDS_ATTENTION_PAGE_SIZE}`,
           ),
@@ -113,16 +144,20 @@ export default function AgentFleetOverviewPage() {
           setError(t('agent_orchestrator.overview.error'))
           return
         }
-        const pending = pendingRes.items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row)
+        const pending = pendingRes.ok
+          ? pendingRes.items.map((item) => mapProposal(item)).filter((row): row is ProposalView => !!row)
+          : []
         const labels = new Map<string, string>()
         const kinds = new Map<string, string>()
         const ids: string[] = []
-        for (const item of agentsRes.items) {
-          const agent = mapAgent(item)
-          if (agent) {
-            labels.set(agent.id, agent.label || agent.id)
-            kinds.set(agent.id, agent.resultKind)
-            ids.push(agent.id)
+        if (agentsRes.ok) {
+          for (const item of agentsRes.items) {
+            const agent = mapAgent(item)
+            if (agent) {
+              labels.set(agent.id, agent.label || agent.id)
+              kinds.set(agent.id, agent.resultKind)
+              ids.push(agent.id)
+            }
           }
         }
         const runIds = Array.from(new Set(pending.map((row) => row.runId)))
@@ -136,11 +171,11 @@ export default function AgentFleetOverviewPage() {
             ? fetchList(
                 `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
               )
-            : Promise.resolve({ items: [] as Array<Record<string, unknown>>, total: 0 }),
+            : Promise.resolve<ListFetch>({ ok: true, items: [], total: 0 }),
           Promise.all(
             metricsChunks.map((chunk) =>
               apiCall<{ items?: Array<Record<string, unknown>> }>(
-                `/api/agent_orchestrator/metrics/agents?window=${OVERVIEW_WINDOW}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
+                `/api/agent_orchestrator/metrics/agents?window=${windowKey}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
                 undefined,
                 { fallback: { items: [] } },
               ),
@@ -148,14 +183,23 @@ export default function AgentFleetOverviewPage() {
           ),
         ])
         if (cancelled) return
+        // Run enrichment is cosmetic (claim labels) — its failure degrades to
+        // run-id prefixes and never flips a panel into an error state.
         const runs = new Map<string, RunView>()
-        for (const item of runsRes.items) {
-          const run = mapRun(item)
-          if (run) runs.set(run.id, run)
+        if (runsRes.ok) {
+          for (const item of runsRes.items) {
+            const run = mapRun(item)
+            if (run) runs.set(run.id, run)
+          }
         }
         const perAgent = new Map<string, AgentWindowMetrics>()
+        let metricsFailure: PanelState = 'ok'
         for (const call of batchedMetrics) {
-          if (!call.ok || !Array.isArray(call.result?.items)) continue
+          if (!call.ok) {
+            metricsFailure = call.status === 403 ? 'forbidden' : metricsFailure === 'forbidden' ? 'forbidden' : 'error'
+            continue
+          }
+          if (!Array.isArray(call.result?.items)) continue
           for (const item of call.result.items) {
             const mapped = mapAgentWindowMetrics(item as Record<string, unknown>)
             if (!mapped) continue
@@ -168,11 +212,16 @@ export default function AgentFleetOverviewPage() {
         }
         setMetrics(overview)
         setPendingProposals(pending)
+        setPendingState(panelStateOf(pendingRes))
         setPendingRuns(runs)
         setAgentLabels(labels)
         setAgentKinds(kinds)
         setAgentIds(ids)
         setAgentMetrics(perAgent)
+        // The trust panel needs both the registry and its metrics; surface the
+        // stronger signal (forbidden beats error) when either fails.
+        setTrustState(!agentsRes.ok ? panelStateOf(agentsRes) : metricsFailure)
+        setLastLoadedAt(Date.now())
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : t('agent_orchestrator.overview.error'))
       } finally {
@@ -181,7 +230,7 @@ export default function AgentFleetOverviewPage() {
     }
     load()
     return () => { cancelled = true }
-  }, [t, refreshKey])
+  }, [t, refreshKey, windowKey])
 
   // Live-refresh KPIs + needs-attention queue on any proposal lifecycle change
   // (DOM Event Bridge, tenant/org-scoped server-side), coalesced so an event
@@ -191,6 +240,24 @@ export default function AgentFleetOverviewPage() {
   useAppEvent('agent_orchestrator.proposal.*', () => {
     coalescedReload()
   })
+
+  const changeWindow = React.useCallback(
+    (value: string) => {
+      const next = windowKeyFrom(value)
+      setWindowKey(next)
+      router.replace(`/backend/overview?window=${next}`, { scroll: false })
+    },
+    [router],
+  )
+
+  // Re-render every 30s so the "refreshed X ago" text stays honest without a reload.
+  const [, setClockTick] = React.useState(0)
+  React.useEffect(() => {
+    const id = setInterval(() => setClockTick((value) => value + 1), 30_000)
+    return () => clearInterval(id)
+  }, [])
+  const refreshedMin = lastLoadedAt == null ? null : Math.floor((Date.now() - lastLoadedAt) / 60_000)
+  const windowLabel = t(WINDOW_LABEL_KEY[windowKey])
 
   const kpi = React.useMemo(() => {
     if (!metrics) return { autoPct: null as number | null, pendingCount: 0, oldestMin: null as number | null }
@@ -266,23 +333,38 @@ export default function AgentFleetOverviewPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.overview.title', 'Fleet overview')}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <ContextChip>{t('agent_orchestrator.overview.period.week', 'last 7 days')}</ContextChip>
-              <ContextChip>{t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: (metrics?.runsTotal ?? 0).toLocaleString('en-US') })}</ContextChip>
+              <ContextChip>
+                {t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: (metrics?.runsTotal ?? 0).toLocaleString('en-US') })}
+                <span className="ml-1 text-muted-foreground/70">· {windowLabel}</span>
+              </ContextChip>
             </div>
           </div>
           <div className="flex items-center gap-2">
             {metrics?.source === 'live' ? (
               <span className="hidden text-xs text-muted-foreground sm:inline">{t('agent_orchestrator.overview.liveSource', 'Live figures — rollups not computed yet')}</span>
             ) : null}
-            <span className="hidden text-xs text-muted-foreground sm:inline">{t('agent_orchestrator.overview.refreshed', 'Data refreshed just now')}</span>
+            {refreshedMin != null ? (
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                {refreshedMin < 1
+                  ? t('agent_orchestrator.overview.refreshedJustNow', 'Updated just now')
+                  : t('agent_orchestrator.overview.refreshedAt', 'Updated {time} ago', { time: formatWait(refreshedMin) })}
+              </span>
+            ) : null}
             <Button variant="outline" size="sm" aria-label={t('agent_orchestrator.overview.refresh', 'Refresh')} onClick={() => setRefreshKey((value) => value + 1)}>
               <RotateCw className="size-4" />
             </Button>
-            <Button variant="outline" size="sm" onClick={() => flash(t('agent_orchestrator.agents.list.pending.backend', 'Needs backend'), 'info')}>
-              <Calendar className="mr-1.5 size-4" />
-              {t('agent_orchestrator.overview.period.thisWeek', 'This week')}
-              <ChevronDown className="ml-1.5 size-4" />
-            </Button>
+            <Select value={windowKey} onValueChange={changeWindow}>
+              <SelectTrigger className="h-9 w-auto min-w-36" aria-label={t('agent_orchestrator.overview.window.select', 'Time window')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {WINDOW_KEYS.map((key) => (
+                  <SelectItem key={key} value={key}>
+                    {t(WINDOW_LABEL_KEY[key])}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -300,10 +382,12 @@ export default function AgentFleetOverviewPage() {
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <KpiTile icon={CheckCircle2}
                 label={t('agent_orchestrator.overview.kpi.autoCompleted', 'Auto-completed')}
+                caption={windowLabel}
                 value={kpi.autoPct == null ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} /> : `${kpi.autoPct}%`}
                 sub={t('agent_orchestrator.overview.kpi.autoCompletedSub', 'Cleared with no human touch')} />
               <KpiTile icon={ClipboardList}
                 label={t('agent_orchestrator.overview.kpi.needsDecision', 'Needs a decision')}
+                caption={t('agent_orchestrator.overview.window.now', 'now')}
                 value={kpi.pendingCount.toLocaleString('en-US')}
                 chip={kpi.oldestMin == null ? null : <OldestChip>{t('agent_orchestrator.overview.kpi.oldest', 'oldest {time}', { time: formatWait(kpi.oldestMin) })}</OldestChip>}
                 sub={t('agent_orchestrator.overview.kpi.needsDecisionSub', 'Waiting in the inbox now')} />
@@ -318,8 +402,10 @@ export default function AgentFleetOverviewPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-5">
-              <Panel className="lg:col-span-3" title={t('agent_orchestrator.overview.stuck.title', 'Stuck & breaching')} viewAll={t('agent_orchestrator.overview.viewAll', 'View all')} onViewAll={() => router.push('/backend/caseload')}>
-                {stuck.length === 0 ? (
+              <Panel className="lg:col-span-3" title={t('agent_orchestrator.overview.stuck.title', 'Stuck & breaching')} caption={t('agent_orchestrator.overview.window.now', 'now')} viewAll={t('agent_orchestrator.overview.viewAll', 'View all')} onViewAll={() => router.push('/backend/caseload')}>
+                {pendingState !== 'ok' ? (
+                  <PanelNote state={pendingState} onRetry={triggerReload} />
+                ) : stuck.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.stuck.empty', 'Nothing stuck right now')}</p>
                 ) : (
                   <table className="w-full text-sm">
@@ -369,8 +455,10 @@ export default function AgentFleetOverviewPage() {
                 )}
               </Panel>
 
-              <Panel className="lg:col-span-2" title={t('agent_orchestrator.overview.trust.title', 'Agent trust')} viewAll={t('agent_orchestrator.overview.viewAll', 'View all')} onViewAll={() => router.push('/backend/agents')}>
-                {trust.length === 0 ? (
+              <Panel className="lg:col-span-2" title={t('agent_orchestrator.overview.trust.title', 'Agent trust')} caption={windowLabel} viewAll={t('agent_orchestrator.overview.viewAll', 'View all')} onViewAll={() => router.push('/backend/agents')}>
+                {trustState !== 'ok' ? (
+                  <PanelNote state={trustState} onRetry={triggerReload} />
+                ) : trust.length === 0 ? (
                   <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t('agent_orchestrator.overview.trust.empty', 'No agents yet')}</p>
                 ) : (
                   <table className="w-full table-fixed text-sm">
@@ -463,11 +551,14 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-function KpiTile({ icon: Icon, label, value, chip, sub }: { icon: React.ComponentType<{ className?: string }>; label: string; value: React.ReactNode; chip?: React.ReactNode; sub: string }) {
+function KpiTile({ icon: Icon, label, caption, value, chip, sub }: { icon: React.ComponentType<{ className?: string }>; label: string; caption?: string; value: React.ReactNode; chip?: React.ReactNode; sub: string }) {
   return (
     <div className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm text-muted-foreground">{label}</p>
+        <p className="text-sm text-muted-foreground">
+          {label}
+          {caption ? <span className="ml-1.5 text-xs text-muted-foreground/70">· {caption}</span> : null}
+        </p>
         <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
           <Icon className="size-4" />
         </span>
@@ -498,17 +589,43 @@ function OldestChip({ children }: { children: React.ReactNode }) {
   )
 }
 
-function Panel({ title, viewAll, onViewAll, children, className }: { title: string; viewAll: string; onViewAll: () => void; children: React.ReactNode; className?: string }) {
+function Panel({ title, caption, viewAll, onViewAll, children, className }: { title: string; caption?: string; viewAll: string; onViewAll: () => void; children: React.ReactNode; className?: string }) {
   return (
     <div className={`overflow-hidden rounded-xl border border-border bg-card${className ? ` ${className}` : ''}`}>
       <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="text-sm font-semibold text-foreground">{title}</div>
+        <div className="text-sm font-semibold text-foreground">
+          {title}
+          {caption ? <span className="ml-1.5 text-xs font-normal text-muted-foreground/70">· {caption}</span> : null}
+        </div>
         <button type="button" onClick={onViewAll} className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80">
           {viewAll}
           <ArrowRight className="size-3.5" />
         </button>
       </div>
       <div className="p-2">{children}</div>
+    </div>
+  )
+}
+
+/**
+ * Honest panel failure states: a 403 must read as "no access", a fetch failure
+ * as an error with retry — never as an empty (all-clear) dataset.
+ */
+function PanelNote({ state, onRetry }: { state: Exclude<PanelState, 'ok'>; onRetry: () => void }) {
+  const t = useT()
+  if (state === 'forbidden') {
+    return (
+      <p className="px-2 py-6 text-center text-sm text-muted-foreground">
+        {t('agent_orchestrator.overview.panel.forbidden', "You don't have access to this data.")}
+      </p>
+    )
+  }
+  return (
+    <div className="flex flex-col items-center gap-2 px-2 py-6 text-center">
+      <p className="text-sm text-status-error-text">{t('agent_orchestrator.overview.panel.error', "Couldn't load this panel.")}</p>
+      <Button variant="outline" size="sm" onClick={onRetry}>
+        {t('agent_orchestrator.overview.panel.retry', 'Retry')}
+      </Button>
     </div>
   )
 }
