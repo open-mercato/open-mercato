@@ -38,6 +38,8 @@ export type AgentProposalSeed = {
   confidence?: number | null
   processId?: string | null
   stepId?: string | null
+  /** Guardrail verdicts (`guard_results` jsonb) — drives the row risk chip + undo window. */
+  guardResults?: Array<{ kind: string; result: 'pass' | 'warn' | 'block' }> | null
   createdAt: Date
 }
 
@@ -89,7 +91,7 @@ export async function insertAgentProposalFixtures(rows: AgentProposalSeed[]): Pr
       chunk.forEach((row, index) => {
         const base = params.length
         tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}, $${base + 11})`,
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11}::jsonb, $${base + 12}, $${base + 12})`,
         )
         params.push(
           ids[start + index],
@@ -102,11 +104,12 @@ export async function insertAgentProposalFixtures(rows: AgentProposalSeed[]): Pr
           row.disposition ?? 'pending',
           row.processId ?? null,
           row.stepId ?? null,
+          row.guardResults ? JSON.stringify(row.guardResults) : null,
           row.createdAt,
         )
       })
       await client.query(
-        `insert into agent_proposals (id, tenant_id, organization_id, agent_id, run_id, payload, confidence, disposition, process_id, step_id, created_at, updated_at)
+        `insert into agent_proposals (id, tenant_id, organization_id, agent_id, run_id, payload, confidence, disposition, process_id, step_id, guard_results, created_at, updated_at)
          values ${tuples.join(', ')}`,
         params,
       )

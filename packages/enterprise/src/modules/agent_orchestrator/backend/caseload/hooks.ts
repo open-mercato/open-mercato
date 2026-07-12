@@ -289,3 +289,188 @@ export function useCaseloadHotkeys(enabled: boolean, onAction: (action: Caseload
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [enabled])
 }
+
+/**
+ * Risk-aware approve (UX remediation spec 4, Phase 3).
+ *
+ * Approving a warn-flagged proposal is deferred behind a short undo window
+ * instead of a confirm dialog: a dialog on every risky row trains click-through
+ * (the rubber-stamping failure mode the module exists to avoid) while a
+ * deferred commit keeps one-keystroke throughput and makes a slip of the
+ * finger recoverable. The manager below owns the exactly-once contract: each
+ * deferred id commits exactly once (timer, flush) or not at all (undo, hard
+ * crash — the fail-safe direction: the proposal simply stays pending).
+ */
+
+/** Any non-`pass` guardrail verdict marks the row as risk-flagged. */
+export function hasGuardRisk(guardResults: ReadonlyArray<{ result: string }>): boolean {
+  return guardResults.some((check) => check.result !== 'pass')
+}
+
+export const DEFAULT_UNDO_WINDOW_MS = 8000
+
+/**
+ * Undo-window duration. Integration tests shorten it via
+ * `window.__omCaseloadUndoWindowMs` (set in `addInitScript` before the page
+ * boots) — an env var cannot reach a client bundle at test time.
+ */
+export function resolveUndoWindowMs(): number {
+  const override = (globalThis as { __omCaseloadUndoWindowMs?: unknown }).__omCaseloadUndoWindowMs
+  return typeof override === 'number' && Number.isFinite(override) && override > 0
+    ? override
+    : DEFAULT_UNDO_WINDOW_MS
+}
+
+export type DeferredDisposeManager<T> = {
+  /** Start (or restart-safely ignore) the undo window for an id. */
+  defer: (id: string, payload: T) => void
+  /** Cancel locally — the commit never fires for this id. Returns the payload. */
+  undo: (id: string) => T | null
+  /** Commit one id immediately (no-op when unknown). */
+  flush: (id: string) => void
+  /** Commit everything still pending (navigate-away / tab hidden / unmount). */
+  flushAll: () => void
+  has: (id: string) => boolean
+  ids: () => string[]
+}
+
+/**
+ * Pure timer bookkeeping for the undo window. `onCommit` is invoked at most
+ * once per deferred id — `defer` on an already-pending id is a no-op (the
+ * first window keeps running), and `undo`/`flush` race safely because the
+ * entry is deleted before any callback runs.
+ */
+export function createDeferredDisposeManager<T>(
+  windowMs: number,
+  onCommit: (id: string, payload: T) => void,
+  onSettled?: (id: string) => void,
+): DeferredDisposeManager<T> {
+  const pending = new Map<string, { payload: T; timer: ReturnType<typeof setTimeout> }>()
+
+  const settle = (id: string): { payload: T } | null => {
+    const entry = pending.get(id)
+    if (!entry) return null
+    pending.delete(id)
+    clearTimeout(entry.timer)
+    onSettled?.(id)
+    return entry
+  }
+
+  const commit = (id: string) => {
+    const entry = settle(id)
+    if (entry) onCommit(id, entry.payload)
+  }
+
+  return {
+    defer(id, payload) {
+      if (pending.has(id)) return
+      const timer = setTimeout(() => commit(id), windowMs)
+      pending.set(id, { payload, timer })
+    },
+    undo(id) {
+      const entry = settle(id)
+      return entry ? entry.payload : null
+    },
+    flush(id) {
+      commit(id)
+    },
+    flushAll() {
+      for (const id of Array.from(pending.keys())) commit(id)
+    },
+    has: (id) => pending.has(id),
+    ids: () => Array.from(pending.keys()),
+  }
+}
+
+type FlushTriggerTarget = {
+  addEventListener: (type: string, listener: () => void) => void
+  removeEventListener: (type: string, listener: () => void) => void
+  visibilityState?: string
+}
+
+/**
+ * Early-commit triggers for the undo window: `visibilitychange` → hidden is
+ * the PRIMARY trigger (fires reliably on tab switch, minimize, and most close
+ * paths); `beforeunload` is best-effort only — an async authenticated fetch is
+ * not reliably delivered during unload and `sendBeacon` cannot carry the
+ * guarded-mutation path. A hard crash inside the window means NO dispose
+ * (fail-safe: the item stays pending). Returns an unbind function.
+ */
+export function bindFlushTriggers(
+  documentTarget: FlushTriggerTarget,
+  windowTarget: Pick<FlushTriggerTarget, 'addEventListener' | 'removeEventListener'>,
+  flushAll: () => void,
+): () => void {
+  const onVisibility = () => {
+    if (documentTarget.visibilityState === 'hidden') flushAll()
+  }
+  documentTarget.addEventListener('visibilitychange', onVisibility)
+  windowTarget.addEventListener('beforeunload', flushAll)
+  return () => {
+    documentTarget.removeEventListener('visibilitychange', onVisibility)
+    windowTarget.removeEventListener('beforeunload', flushAll)
+  }
+}
+
+export type DeferredApprove<T> = {
+  /** Ids currently inside their undo window (drives the row overlay + bar). */
+  pendingUndo: ReadonlyMap<string, T>
+  defer: (id: string, payload: T) => void
+  undo: (id: string) => T | null
+  /** Synchronous commit of everything pending — call before navigating away. */
+  flushAll: () => void
+}
+
+/**
+ * React binding: keeps a render-visible mirror of the manager's pending set,
+ * wires the visibilitychange/beforeunload triggers, and flushes on unmount so
+ * an in-app navigation can never silently drop an approval the operator saw
+ * confirmed.
+ */
+export function useDeferredApprove<T>(onCommit: (id: string, payload: T) => void): DeferredApprove<T> {
+  const [pendingUndo, setPendingUndo] = React.useState<ReadonlyMap<string, T>>(new Map())
+  const commitRef = React.useRef(onCommit)
+  commitRef.current = onCommit
+
+  const managerRef = React.useRef<DeferredDisposeManager<T> | null>(null)
+  if (!managerRef.current) {
+    managerRef.current = createDeferredDisposeManager<T>(
+      resolveUndoWindowMs(),
+      (id, payload) => commitRef.current(id, payload),
+      (id) =>
+        setPendingUndo((prev) => {
+          if (!prev.has(id)) return prev
+          const next = new Map(prev)
+          next.delete(id)
+          return next
+        }),
+    )
+  }
+  const manager = managerRef.current
+
+  React.useEffect(() => {
+    const unbind = bindFlushTriggers(document, window, () => manager.flushAll())
+    return () => {
+      unbind()
+      manager.flushAll()
+    }
+  }, [manager])
+
+  const defer = React.useCallback(
+    (id: string, payload: T) => {
+      manager.defer(id, payload)
+      setPendingUndo((prev) => {
+        if (prev.has(id)) return prev
+        const next = new Map(prev)
+        next.set(id, payload)
+        return next
+      })
+    },
+    [manager],
+  )
+
+  const undo = React.useCallback((id: string) => manager.undo(id), [manager])
+  const flushAll = React.useCallback(() => manager.flushAll(), [manager])
+
+  return { pendingUndo, defer, undo, flushAll }
+}

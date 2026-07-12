@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2, Keyboard } from 'lucide-react'
+import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2, Keyboard, ShieldAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -49,13 +49,25 @@ import {
 } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
-import { useInboxCursor, useCaseloadHotkeys, intersectSelection, type CaseloadHotkeyAction } from './hooks'
+import {
+  useInboxCursor,
+  useCaseloadHotkeys,
+  useDeferredApprove,
+  intersectSelection,
+  hasGuardRisk,
+  type CaseloadHotkeyAction,
+} from './hooks'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
 // Status column so the operator never has to reconcile two vocabularies.
-type CaseStatus = 'actionRequired' | 'approved' | 'rejected'
-type SegmentKey = CaseStatus | 'all'
+// `autoApproved` is a badge-level split of the approved family — the Approved
+// tab still groups all three dispositions, but rubber-stamp review needs to
+// SEE which approvals never had a human in the loop.
+type CaseStatus = 'actionRequired' | 'approved' | 'autoApproved' | 'rejected'
+// Segments stay a three-way split — `autoApproved` is a badge-level status
+// only; the Approved tab keeps grouping approved + auto_approved + edited.
+type SegmentKey = 'actionRequired' | 'approved' | 'rejected' | 'all'
 type ViewKey = 'inbox' | 'list'
 type SortKey = 'waitingDesc' | 'waitingAsc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
 
@@ -95,6 +107,13 @@ type QueueRow = {
   waitingValue: number
   isPending: boolean
   updatedAt: string | null
+  /** Guardrail verdict counts from `guard_results` (already in the list response). */
+  guardWarnCount: number
+  guardBlockCount: number
+  /** Any non-pass guardrail verdict — approve goes through the undo window. */
+  riskFlagged: boolean
+  /** Inside its approve undo window — rendered approved, dispose not yet sent. */
+  pendingUndo: boolean
 }
 
 /** Full data behind one queue row, feeding the DecisionPane's facts/reasoning. */
@@ -108,11 +127,13 @@ type DecisionDetail = {
 const STATUS_VARIANT: Record<CaseStatus, 'info' | 'success' | 'error'> = {
   actionRequired: 'info',
   approved: 'success',
+  autoApproved: 'info',
   rejected: 'error',
 }
 const STATUS_DOT: Record<CaseStatus, string> = {
   actionRequired: 'bg-status-info-icon',
   approved: 'bg-status-success-icon',
+  autoApproved: 'bg-status-info-icon',
   rejected: 'bg-status-error-icon',
 }
 const DECISION_KEYS = ['decision', 'action', 'recommendation', 'outcome', 'verdict', 'resolution', 'status']
@@ -120,6 +141,7 @@ const DECISION_KEYS = ['decision', 'action', 'recommendation', 'outcome', 'verdi
 function statusOf(disposition: string): CaseStatus {
   if (disposition === 'pending') return 'actionRequired'
   if (disposition === 'rejected') return 'rejected'
+  if (disposition === 'auto_approved') return 'autoApproved'
   return 'approved'
 }
 function asString(value: unknown): string | null {
@@ -236,6 +258,12 @@ export default function AgentCaseloadPage() {
     blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
   })
 
+  // Warn-flagged approves defer their dispose behind an undo window (spec 4
+  // Phase 3). The committer is bound via a ref because `disposeRows` closes
+  // over state declared below; the manager guarantees exactly-once per id.
+  const commitDeferredRef = React.useRef<(id: string, row: QueueRow) => void>(() => {})
+  const deferredApprove = useDeferredApprove<QueueRow>((id, row) => commitDeferredRef.current(id, row))
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
@@ -335,6 +363,14 @@ export default function AgentCaseloadPage() {
     return proposals.map((proposal) => {
       const waiting = waitingFrom(proposal.createdAt, now)
       const confidencePct = confidencePctOf(proposal.confidence)
+      const guardWarnCount = proposal.guardResults.filter((check) => check.result === 'warn').length
+      const guardBlockCount = proposal.guardResults.filter(
+        (check) => check.result !== 'pass' && check.result !== 'warn',
+      ).length
+      // Rows inside their undo window render approved and stop being pending
+      // (cursor, hotkeys, and bulk selection all skip them) even though the
+      // dispose has not been sent yet — undo simply restores this overlay.
+      const inUndoWindow = deferredApprove.pendingUndo.has(proposal.id)
       return {
         id: proposal.id,
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
@@ -344,12 +380,16 @@ export default function AgentCaseloadPage() {
         waitingLabel: waiting.label,
         waitingStale: waiting.stale,
         waitingValue: waiting.value,
-        status: statusOf(proposal.disposition),
-        isPending: proposal.disposition === 'pending',
+        status: inUndoWindow ? 'approved' : statusOf(proposal.disposition),
+        isPending: proposal.disposition === 'pending' && !inUndoWindow,
         updatedAt: proposal.updatedAt,
+        guardWarnCount,
+        guardBlockCount,
+        riskFlagged: hasGuardRisk(proposal.guardResults),
+        pendingUndo: inUndoWindow,
       }
     })
-  }, [proposals, agentLabels, runClaims])
+  }, [proposals, agentLabels, runClaims, deferredApprove.pendingUndo])
 
   // Segment + sort are server-applied; text search and the agent/decision
   // pills narrow the LOADED page only, so both views show the same rows while
@@ -384,7 +424,9 @@ export default function AgentCaseloadPage() {
   // Deliberate context switches clear the bulk selection; live refreshes only
   // prune ids that are no longer pending (spec 4 Phase 1 — an org-wide
   // proposal.* event must not wipe an operator's half-built selection).
-  React.useEffect(() => { setSelectedIds(new Set()) }, [segment, page, view])
+  // They also commit any approve still inside its undo window — the operator
+  // saw it confirmed, so leaving the queue must not silently drop it.
+  React.useEffect(() => { setSelectedIds(new Set()); deferredApprove.flushAll() }, [segment, page, view, deferredApprove])
   React.useEffect(() => {
     setSelectedIds((prev) => intersectSelection(prev, pageRows.filter((row) => row.isPending).map((row) => row.id)))
   }, [pageRows])
@@ -393,6 +435,10 @@ export default function AgentCaseloadPage() {
   // resetting to the top.
   const inboxCursor = useInboxCursor(visibleRows)
   const [legendOpen, setLegendOpen] = React.useState(false)
+  const undoEntries = React.useMemo(
+    () => Array.from(deferredApprove.pendingUndo.values()),
+    [deferredApprove.pendingUndo],
+  )
   const cursorRow = React.useMemo(
     () => visibleRows.find((row) => row.id === inboxCursor.cursorId) ?? null,
     [visibleRows, inboxCursor.cursorId],
@@ -454,17 +500,45 @@ export default function AgentCaseloadPage() {
   )
 
   const approveRows = React.useCallback(
-    async (rows: QueueRow[]): Promise<number> => {
+    async (rows: QueueRow[], source: 'single' | 'bulk' = 'single'): Promise<number> => {
+      const pending = rows.filter((row) => row.isPending)
+      // Warn-flagged single approves defer behind the undo window instead of a
+      // confirm dialog (spec 4 Phase 3): one keystroke stays one keystroke,
+      // mistakes stay recoverable. Bulk approve is a deliberate multi-select
+      // act and commits immediately, as do clean rows.
+      if (source === 'single' && pending.length === 1 && pending[0].riskFlagged) {
+        const row = pending[0]
+        deferredApprove.defer(row.id, row)
+        inboxCursor.advanceAfterDispose([row.id])
+        return 1
+      }
       const ok = await disposeRows(rows, 'approved')
       if (ok > 0) {
         flash(t('agent_orchestrator.caseload.flash.approved', undefined, { count: ok }), 'success')
-        inboxCursor.advanceAfterDispose(rows.filter((row) => row.isPending).map((row) => row.id))
+        inboxCursor.advanceAfterDispose(pending.map((row) => row.id))
       }
       setSelectedIds(new Set())
       reload()
       return ok
     },
-    [disposeRows, reload, inboxCursor, t],
+    [disposeRows, reload, inboxCursor, deferredApprove, t],
+  )
+
+  // The deferred committer sends the SAME guarded, lock-headered dispose the
+  // immediate path uses (`isPending` restored — the overlay cleared it), then
+  // refreshes counts. A 409 surfaces via the existing conflict bar.
+  commitDeferredRef.current = (id, row) => {
+    void disposeRows([{ ...row, isPending: true, pendingUndo: false }], 'approved').then((ok) => {
+      if (ok > 0) reload()
+    })
+  }
+
+  const undoApprove = React.useCallback(
+    (id: string) => {
+      const row = deferredApprove.undo(id)
+      if (row) inboxCursor.setCursor(id)
+    },
+    [deferredApprove, inboxCursor],
   )
 
   const openReject = React.useCallback((rows: QueueRow[]) => {
@@ -492,7 +566,15 @@ export default function AgentCaseloadPage() {
     reload()
   }, [reason, busy, rejectDialog.rows, disposeRows, reload, inboxCursor, t])
 
-  const openDetail = React.useCallback((row: QueueRow) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`), [router])
+  const openDetail = React.useCallback(
+    (row: QueueRow) => {
+      // In-app navigation commits synchronously — the undo affordance is gone
+      // once the queue is left behind.
+      deferredApprove.flushAll()
+      router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)
+    },
+    [router, deferredApprove],
+  )
 
   // Keyboard-first triage (spec 4 Phase 2): j/k + A/R/E/X act on the cursor
   // row; the resolver's guards (editable focus, open dialog, modifiers) live
@@ -564,6 +646,18 @@ export default function AgentCaseloadPage() {
             <span className="inline-flex max-w-full items-center truncate rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground" title={row.original.proposes}>
               {row.original.proposes}
             </span>
+          ),
+      },
+      {
+        accessorKey: 'riskFlagged',
+        header: t('agent_orchestrator.caseload.col.risk', 'Risk'),
+        enableSorting: false,
+        meta: { maxWidth: '80px' },
+        cell: ({ row }) =>
+          row.original.riskFlagged ? (
+            <GuardRiskChip warn={row.original.guardWarnCount} block={row.original.guardBlockCount} />
+          ) : (
+            <span className="text-sm text-muted-foreground">—</span>
           ),
       },
       {
@@ -757,6 +851,7 @@ export default function AgentCaseloadPage() {
             onApprove={(row) => approveRows([row])}
             onReject={(row) => openReject([row])}
             onOpenDetail={openDetail}
+            undoBar={<UndoBar entries={undoEntries} onUndo={undoApprove} />}
             footer={
               total > 0 ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5">
@@ -792,12 +887,18 @@ export default function AgentCaseloadPage() {
 
             <StatusTabs segment={segment} counts={counts} total={grandTotal} onSegmentChange={setSegment} />
 
+            {undoEntries.length > 0 ? (
+              <div className="overflow-hidden rounded-lg border border-border">
+                <UndoBar entries={undoEntries} onUndo={undoApprove} />
+              </div>
+            ) : null}
+
             {selectedRows.length > 0 ? (
               <div className="flex items-center gap-2 rounded-lg border border-border bg-muted/50 px-3 py-2">
                 <span className="text-sm font-medium text-foreground">
                   {t('agent_orchestrator.caseload.bulk.selected', undefined, { count: selectedRows.length })}
                 </span>
-                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { void approveRows(selectedRows) }}>
+                <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => { void approveRows(selectedRows, 'bulk') }}>
                   <Check className="mr-1.5 size-4 text-status-success-text" />
                   {t('agent_orchestrator.proposal.actions.approve')}
                 </Button>
@@ -1038,6 +1139,57 @@ function HotkeysHint({
   )
 }
 
+/**
+ * Row-level guardrail signal (spec 4 Phase 3): warn verdicts get the warning
+ * tone, any block/fail escalates the whole chip to the error tone — the first
+ * thing scanned on a row, so speed never means blind approval.
+ */
+function GuardRiskChip({ warn, block, className }: { warn: number; block: number; className?: string }) {
+  const t = useT()
+  const total = warn + block
+  if (total === 0) return null
+  const label = t('agent_orchestrator.caseload.inbox.riskFlagged', undefined, { count: total })
+  return (
+    <span
+      title={label}
+      aria-label={label}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium',
+        block > 0 ? 'bg-status-error-bg text-status-error-text' : 'bg-status-warning-bg text-status-warning-text',
+        className,
+      )}
+    >
+      <ShieldAlert className="size-3 shrink-0" />
+      <span className="tabular-nums">{total}</span>
+    </span>
+  )
+}
+
+/**
+ * Inline undo affordance for deferred (warn-flagged) approves. The flash
+ * primitive carries no action button, so the bar lives inside the queue panel
+ * instead — `role="status"` announces it to screen readers.
+ */
+function UndoBar({ entries, onUndo }: { entries: QueueRow[]; onUndo: (id: string) => void }) {
+  const t = useT()
+  if (entries.length === 0) return null
+  return (
+    <div role="status" className="space-y-1.5 border-t border-border bg-status-warning-bg px-4 py-2">
+      {entries.map((row) => (
+        <div key={row.id} className="flex items-center gap-2 text-sm text-status-warning-text">
+          <Check className="size-4 shrink-0" />
+          <span className="min-w-0 flex-1 truncate">
+            {t('agent_orchestrator.caseload.undo.approved', undefined, { summary: headlineOf(row) })}
+          </span>
+          <Button type="button" size="sm" variant="outline" className="shrink-0" onClick={() => onUndo(row.id)}>
+            {t('agent_orchestrator.caseload.undo.action')}
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // "7d" on its own reads as a mystery number — the clock icon + tooltip make it
 // unmistakably "how long this has been waiting".
 function WaitingLabel({ value, className }: { value: string; className?: string }) {
@@ -1069,6 +1221,7 @@ function ExceptionsInbox({
   onReject,
   onOpenDetail,
   hotkeysBar,
+  undoBar,
   footer,
 }: {
   toolbar: React.ReactNode
@@ -1086,6 +1239,7 @@ function ExceptionsInbox({
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
   hotkeysBar?: React.ReactNode
+  undoBar?: React.ReactNode
   footer?: React.ReactNode
 }) {
   const t = useT()
@@ -1146,7 +1300,11 @@ function ExceptionsInbox({
                     tabIndex={active || (cursorId == null && index === 0) ? 0 : -1}
                     data-inbox-row={row.id}
                     onClick={() => onCursorChange(row.id)}
-                    className={cn('flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:bg-muted/60', active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40')}
+                    className={cn(
+                      'flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:bg-muted/60',
+                      active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40',
+                      row.pendingUndo && 'opacity-60',
+                    )}
                   >
                     <Avatar label={row.agentLabel} size="sm" />
                     <div className="min-w-0 flex-1">
@@ -1156,6 +1314,7 @@ function ExceptionsInbox({
                       </div>
                       <p className="mt-0.5 truncate text-sm font-semibold text-foreground">{headlineOf(row)}</p>
                       <div className="mt-1.5 flex items-center gap-1.5">
+                        <GuardRiskChip warn={row.guardWarnCount} block={row.guardBlockCount} />
                         <span className="inline-flex shrink-0 items-center rounded-md bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">{row.claim}</span>
                         {face ? (
                           <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
@@ -1175,6 +1334,7 @@ function ExceptionsInbox({
             })}
           </ul>
         )}
+        {undoBar}
         {footer}
       </div>
 
