@@ -48,6 +48,7 @@ import {
 } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
+import { useInboxCursor, intersectSelection } from './hooks'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
@@ -379,7 +380,17 @@ export default function AgentCaseloadPage() {
   )
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
   React.useEffect(() => { setPage(1) }, [segment, sortKey, pageSize])
-  React.useEffect(() => { setSelectedIds(new Set()) }, [segment, page, reloadToken, view])
+  // Deliberate context switches clear the bulk selection; live refreshes only
+  // prune ids that are no longer pending (spec 4 Phase 1 — an org-wide
+  // proposal.* event must not wipe an operator's half-built selection).
+  React.useEffect(() => { setSelectedIds(new Set()) }, [segment, page, view])
+  React.useEffect(() => {
+    setSelectedIds((prev) => intersectSelection(prev, pageRows.filter((row) => row.isPending).map((row) => row.id)))
+  }, [pageRows])
+  // Explicit inbox cursor over the loaded, filtered row set — follows the row
+  // id across refreshes and advances to the neighbor on dispose instead of
+  // resetting to the top.
+  const inboxCursor = useInboxCursor(visibleRows)
   const selectableIds = React.useMemo(() => visibleRows.filter((row) => row.isPending).map((row) => row.id), [visibleRows])
   const selectedRows = React.useMemo(() => visibleRows.filter((row) => selectedIds.has(row.id)), [visibleRows, selectedIds])
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id))
@@ -439,12 +450,15 @@ export default function AgentCaseloadPage() {
   const approveRows = React.useCallback(
     async (rows: QueueRow[]): Promise<number> => {
       const ok = await disposeRows(rows, 'approved')
-      if (ok > 0) flash(t('agent_orchestrator.caseload.flash.approved', undefined, { count: ok }), 'success')
+      if (ok > 0) {
+        flash(t('agent_orchestrator.caseload.flash.approved', undefined, { count: ok }), 'success')
+        inboxCursor.advanceAfterDispose(rows.filter((row) => row.isPending).map((row) => row.id))
+      }
       setSelectedIds(new Set())
       reload()
       return ok
     },
-    [disposeRows, reload, t],
+    [disposeRows, reload, inboxCursor, t],
   )
 
   const openReject = React.useCallback((rows: QueueRow[]) => {
@@ -462,12 +476,15 @@ export default function AgentCaseloadPage() {
     if (!trimmed || busy) return
     const rows = rejectDialog.rows
     const ok = await disposeRows(rows, 'rejected', trimmed)
-    if (ok > 0) flash(t('agent_orchestrator.caseload.flash.rejected', undefined, { count: ok }), 'success')
+    if (ok > 0) {
+      flash(t('agent_orchestrator.caseload.flash.rejected', undefined, { count: ok }), 'success')
+      inboxCursor.advanceAfterDispose(rows.filter((row) => row.isPending).map((row) => row.id))
+    }
     setRejectDialog({ open: false, rows: [] })
     setReason('')
     setSelectedIds(new Set())
     reload()
-  }, [reason, busy, rejectDialog.rows, disposeRows, reload, t])
+  }, [reason, busy, rejectDialog.rows, disposeRows, reload, inboxCursor, t])
 
   const openDetail = React.useCallback((row: QueueRow) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`), [router])
 
@@ -684,6 +701,13 @@ export default function AgentCaseloadPage() {
             segment={segment}
             onSegmentChange={setSegment}
             busy={busy}
+            cursorId={inboxCursor.cursorId}
+            onCursorChange={inboxCursor.setCursor}
+            position={
+              inboxCursor.cursorIndex >= 0 && total > 0
+                ? { current: Math.min((page - 1) * pageSize + inboxCursor.cursorIndex + 1, total), total }
+                : null
+            }
             onApprove={(row) => approveRows([row])}
             onReject={(row) => openReject([row])}
             onOpenDetail={openDetail}
@@ -925,6 +949,9 @@ function ExceptionsInbox({
   segment,
   onSegmentChange,
   busy,
+  cursorId,
+  onCursorChange,
+  position,
   onApprove,
   onReject,
   onOpenDetail,
@@ -938,35 +965,47 @@ function ExceptionsInbox({
   segment: SegmentKey
   onSegmentChange: (segment: SegmentKey) => void
   busy: boolean
+  cursorId: string | null
+  onCursorChange: (id: string) => void
+  position: { current: number; total: number } | null
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
   footer?: React.ReactNode
 }) {
   const t = useT()
-  const [selectedId, setSelectedId] = React.useState<string | null>(rows[0]?.id ?? null)
+  const selected = rows.find((row) => row.id === cursorId) ?? null
+  // When the queue empties (last item disposed), return focus to the tab bar
+  // so the operator's next keystroke/tab lands on a segment switch.
+  const tabsRef = React.useRef<HTMLDivElement>(null)
+  const hadRowsRef = React.useRef(rows.length > 0)
   React.useEffect(() => {
-    if (!rows.some((row) => row.id === selectedId)) setSelectedId(rows[0]?.id ?? null)
-  }, [rows, selectedId])
-  const selected = rows.find((row) => row.id === selectedId) ?? null
+    if (rows.length === 0 && hadRowsRef.current) {
+      tabsRef.current?.querySelector('button')?.focus()
+    }
+    hadRowsRef.current = rows.length > 0
+  }, [rows.length])
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(480px,560px)_1fr]">
       <div className="min-w-0 overflow-hidden rounded-xl border border-border bg-card">
         {toolbar}
-        <StatusTabs segment={segment} counts={counts} total={total} onSegmentChange={onSegmentChange} className="px-4" />
+        <div ref={tabsRef}>
+          <StatusTabs segment={segment} counts={counts} total={total} onSegmentChange={onSegmentChange} className="px-4" />
+        </div>
         {rows.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">{t('agent_orchestrator.caseload.empty')}</div>
         ) : (
           <ul className="max-h-[640px] divide-y divide-border overflow-auto">
             {rows.map((row) => {
-              const active = row.id === selectedId
+              const active = row.id === cursorId
               const face = row.confidencePct != null ? confidenceFace(row.confidencePct) : null
               return (
                 <li key={row.id}>
                   <button
                     type="button"
-                    onClick={() => setSelectedId(row.id)}
+                    aria-current={active ? 'true' : undefined}
+                    onClick={() => onCursorChange(row.id)}
                     className={cn('flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none', active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40')}
                   >
                     <Avatar label={row.agentLabel} size="sm" />
@@ -1005,6 +1044,7 @@ function ExceptionsInbox({
             row={selected}
             detail={details.get(selected.id) ?? null}
             busy={busy}
+            position={position}
             onApprove={onApprove}
             onReject={onReject}
             onOpenDetail={onOpenDetail}
@@ -1026,6 +1066,7 @@ function DecisionPane({
   row,
   detail,
   busy,
+  position,
   onApprove,
   onReject,
   onOpenDetail,
@@ -1033,6 +1074,7 @@ function DecisionPane({
   row: QueueRow
   detail: DecisionDetail | null
   busy: boolean
+  position: { current: number; total: number } | null
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
@@ -1046,6 +1088,14 @@ function DecisionPane({
         <div className="flex items-center justify-between gap-2">
           <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{row.claim}</span>
           <div className="flex shrink-0 items-center gap-2">
+            {position ? (
+              <span className="text-xs tabular-nums text-muted-foreground">
+                {t('agent_orchestrator.caseload.inbox.position', undefined, {
+                  position: position.current,
+                  total: position.total,
+                })}
+              </span>
+            ) : null}
             <WaitingLabel value={row.waitingLabel} className="text-xs text-muted-foreground" />
             <StatusBadge variant={STATUS_VARIANT[row.status]} dot>
               {t(`agent_orchestrator.caseload.status.${row.status}`)}

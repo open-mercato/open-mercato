@@ -156,6 +156,7 @@
   "agent_orchestrator.caseload.inbox.guardrailFlagged": "Guardrail {kind}: {result}",
   "agent_orchestrator.caseload.inbox.guardrails": "Todas las protecciones OK",
   "agent_orchestrator.caseload.inbox.openDetail": "Ver detalle",
+  "agent_orchestrator.caseload.inbox.position": "{position} de {total}",
   "agent_orchestrator.caseload.inbox.proposed": "Decisión propuesta",
   "agent_orchestrator.caseload.inbox.queueTitle": "Tu cola",
   "agent_orchestrator.caseload.inbox.range": "{from}–{to} de {total}",
