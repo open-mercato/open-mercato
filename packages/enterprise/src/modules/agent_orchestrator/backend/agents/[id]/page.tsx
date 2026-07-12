@@ -397,7 +397,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         </section>
 
         <SkillDrawer open={!!activeSkill} onOpenChange={(open) => { if (!open) setActiveSkill(null) }} skill={activeSkill} />
-        <AgentConfigDrawer open={configOpen} onOpenChange={setConfigOpen} agent={agent} autonomy={autonomy} onAutonomyChange={setAutonomy} />
+        <AgentConfigDrawer open={configOpen} onOpenChange={setConfigOpen} agent={agent} autonomy={autonomy} />
 
         <section className="space-y-2">
           <div className="flex items-center justify-between gap-2">
@@ -468,10 +468,13 @@ function DashCard({ title, children }: { title: string; children: React.ReactNod
   )
 }
 
-function AutonomySegmented({ value, onChange }: { value: Autonomy; onChange: (next: Autonomy) => void }) {
+// Deliberately disabled (data-honesty spec §3.7): autonomy is a UI heuristic
+// with no persistence — a safety-relevant control must never look live while
+// doing nothing. Persisting autonomy is the deployment-gating spec's scope.
+function AutonomySegmented({ value }: { value: Autonomy }) {
   const t = useT()
   return (
-    <SegmentedControl value={value} onValueChange={(next) => onChange(next as Autonomy)} aria-label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')}>
+    <SegmentedControl value={value} disabled aria-label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')}>
       <SegmentedControlItem value="auto">{t('agent_orchestrator.agents.list.autonomy.auto', 'Auto')}</SegmentedControlItem>
       <SegmentedControlItem value="review">{t('agent_orchestrator.agents.list.autonomy.review', 'Review')}</SegmentedControlItem>
       <SegmentedControlItem value="gated">{t('agent_orchestrator.agents.list.autonomy.gated', 'Gated')}</SegmentedControlItem>
@@ -517,12 +520,11 @@ function ConfigField({ label, pending, children }: { label: string; pending?: bo
   )
 }
 
-function AgentConfigDrawer({ open, onOpenChange, agent, autonomy, onAutonomyChange }: {
+function AgentConfigDrawer({ open, onOpenChange, agent, autonomy }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   agent: AgentDetailView
   autonomy: Autonomy
-  onAutonomyChange: (next: Autonomy) => void
 }) {
   const t = useT()
   const defaultValue = t('agent_orchestrator.agentDetail.defaultValue', 'Default')
@@ -558,8 +560,8 @@ function AgentConfigDrawer({ open, onOpenChange, agent, autonomy, onAutonomyChan
 
           <SectionBand>{t('agent_orchestrator.agentDetail.config.governance', 'Governance')}</SectionBand>
           <div className="space-y-4 px-6 py-4">
-            <ConfigField label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')}>
-              <AutonomySegmented value={autonomy} onChange={onAutonomyChange} />
+            <ConfigField label={t('agent_orchestrator.agents.list.col.autonomy', 'Autonomy')} pending>
+              <AutonomySegmented value={autonomy} />
               <p className="mt-2 text-sm text-muted-foreground">{t(`agent_orchestrator.agentDetail.autonomy.${autonomy}Hint`, autonomyHintFallback(autonomy))}</p>
             </ConfigField>
             <ConfigField label={t('agent_orchestrator.agentDetail.config.spendCap', 'Spend cap / month')} pending>

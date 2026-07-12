@@ -3,35 +3,53 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Info } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatCostMinor } from '../../components/types'
+import { useCoalescedReload } from '../../components/useCoalescedReload'
 import {
-  buildSampleProcessList,
+  mapProcessListRow,
   PROCESS_STATUS_LABEL_KEY,
   PROCESS_STATUS_TONE,
-  type AgentProcessStatus,
   type ProcessListRow,
 } from '../../components/processTypes'
 
 type Facet = 'all' | 'needs_decision' | 'stuck' | 'high_value' | 'fraud'
 
-const HIGH_VALUE_MINOR = 4_000_000
-const STUCK_MS = 24 * 60 * 60 * 1000
-const NEEDS_DECISION: AgentProcessStatus[] = ['waiting_on_you', 'question_open', 'docs_requested']
-
-function ageOf(iso: string): number {
-  const parsed = Date.parse(iso)
-  return Number.isFinite(parsed) ? Math.max(0, Date.now() - parsed) : 0
+/** Facet tab → server-side list scope (spec 2026-06-25 §API Contracts). */
+const FACET_SCOPE: Record<Exclude<Facet, 'all'>, string> = {
+  needs_decision: 'needs_decision',
+  stuck: 'stuck_24h',
+  high_value: 'high_value',
+  fraud: 'fraud_flagged',
 }
 
-function ageShort(iso: string): string {
-  const ms = ageOf(iso)
+const FACETS: Facet[] = ['all', 'needs_decision', 'stuck', 'high_value', 'fraud']
+
+type ListResponse = {
+  items?: Array<Record<string, unknown>>
+  total?: number
+  totalPages?: number
+}
+
+function listPath(facet: Facet, page: number, pageSize: number): string {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
+  if (facet !== 'all') params.set('scope', FACET_SCOPE[facet])
+  return `/api/agent_orchestrator/processes?${params.toString()}`
+}
+
+function ageShort(iso: string | null): string {
+  if (!iso) return '—'
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return '—'
+  const ms = Math.max(0, Date.now() - parsed)
   const days = Math.floor(ms / (24 * 60 * 60 * 1000))
   const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
   const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000))
@@ -40,52 +58,54 @@ function ageShort(iso: string): string {
   return `${minutes}m`
 }
 
-function matchesFacet(row: ProcessListRow, facet: Facet): boolean {
-  switch (facet) {
-    case 'needs_decision':
-      return NEEDS_DECISION.includes(row.status)
-    case 'stuck':
-      return ageOf(row.openedAt) >= STUCK_MS
-    case 'high_value':
-      return row.subjectValueMinor >= HIGH_VALUE_MINOR
-    case 'fraud':
-      return row.subjectFraud
-    default:
-      return true
-  }
-}
-
 export default function ProcessesListPage() {
   const t = useT()
   const router = useRouter()
   const [facet, setFacet] = React.useState<Facet>('all')
+  const [page, setPage] = React.useState(1)
+  const [pageSize, setPageSize] = React.useState(50)
+  const [rows, setRows] = React.useState<ProcessListRow[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [facetCounts, setFacetCounts] = React.useState<Partial<Record<Facet, number>>>({})
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const rows = React.useMemo(() => buildSampleProcessList(), [])
-  const filtered = React.useMemo(() => rows.filter((row) => matchesFacet(row, facet)), [rows, facet])
+  const reload = React.useCallback(async () => {
+    setError(null)
+    const [listCall, ...countCalls] = await Promise.all([
+      apiCall<ListResponse>(listPath(facet, page, pageSize), undefined, { fallback: {} }),
+      ...FACETS.map((tab) =>
+        apiCall<ListResponse>(listPath(tab, 1, 1), undefined, { fallback: {} }),
+      ),
+    ])
+    if (!listCall.ok) {
+      setError(t('agent_orchestrator.process.list.error'))
+      setIsLoading(false)
+      return
+    }
+    const items = Array.isArray(listCall.result?.items) ? listCall.result.items : []
+    setRows(items.map(mapProcessListRow).filter((row): row is ProcessListRow => !!row))
+    setTotal(typeof listCall.result?.total === 'number' ? listCall.result.total : items.length)
+    setTotalPages(typeof listCall.result?.totalPages === 'number' ? listCall.result.totalPages : 1)
+    const counts: Partial<Record<Facet, number>> = {}
+    FACETS.forEach((tab, index) => {
+      const call = countCalls[index]
+      if (call?.ok && typeof call.result?.total === 'number') counts[tab] = call.result.total
+    })
+    setFacetCounts(counts)
+    setIsLoading(false)
+  }, [facet, page, pageSize, t])
 
-  const facetTabs: Array<{ key: Facet; label: string; count: number }> = [
-    { key: 'all', label: t('agent_orchestrator.process.facet.all'), count: rows.length },
-    {
-      key: 'needs_decision',
-      label: t('agent_orchestrator.process.facet.needsDecision'),
-      count: rows.filter((row) => matchesFacet(row, 'needs_decision')).length,
-    },
-    {
-      key: 'stuck',
-      label: t('agent_orchestrator.process.facet.stuck'),
-      count: rows.filter((row) => matchesFacet(row, 'stuck')).length,
-    },
-    {
-      key: 'high_value',
-      label: t('agent_orchestrator.process.facet.highValue'),
-      count: rows.filter((row) => matchesFacet(row, 'high_value')).length,
-    },
-    {
-      key: 'fraud',
-      label: t('agent_orchestrator.process.facet.fraud'),
-      count: rows.filter((row) => matchesFacet(row, 'fraud')).length,
-    },
-  ]
+  React.useEffect(() => {
+    setIsLoading(true)
+    void reload()
+  }, [reload])
+
+  const coalescedReload = useCoalescedReload(reload)
+  useAppEvent('agent_orchestrator.process.updated', () => {
+    coalescedReload()
+  })
 
   const columns = React.useMemo<ColumnDef<ProcessListRow>[]>(
     () => [
@@ -163,24 +183,24 @@ export default function ProcessesListPage() {
           <p className="text-sm text-muted-foreground">{t('agent_orchestrator.process.list.subtitle')}</p>
         </div>
 
-        <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-          <Info className="mt-0.5 size-3.5 shrink-0" />
-          <p>
-            <span className="mr-1.5 rounded-md border border-border bg-card px-1.5 py-0.5 font-medium text-foreground">
-              {t('agent_orchestrator.process.preview')}
-            </span>
-            {t('agent_orchestrator.process.previewNote')}
-          </p>
-        </div>
-
         <div className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
-          {facetTabs.map((tab) => {
-            const active = facet === tab.key
+          {FACETS.map((tab) => {
+            const active = facet === tab
+            const label = t(`agent_orchestrator.process.facet.${
+              tab === 'all' ? 'all'
+                : tab === 'needs_decision' ? 'needsDecision'
+                  : tab === 'stuck' ? 'stuck'
+                    : tab === 'high_value' ? 'highValue'
+                      : 'fraud'
+            }`)
             return (
               <button
-                key={tab.key}
+                key={tab}
                 type="button"
-                onClick={() => setFacet(tab.key)}
+                onClick={() => {
+                  setFacet(tab)
+                  setPage(1)
+                }}
                 className={cn(
                   '-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-2.5 text-sm transition-colors',
                   active
@@ -188,26 +208,48 @@ export default function ProcessesListPage() {
                     : 'border-transparent text-muted-foreground hover:text-foreground',
                 )}
               >
-                {tab.label}
+                {label}
                 <span
                   className={cn(
                     'inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums',
                     active ? 'bg-brand-violet/10 text-brand-violet' : 'bg-muted text-muted-foreground',
                   )}
                 >
-                  {tab.count}
+                  {facetCounts[tab] ?? '—'}
                 </span>
               </button>
             )
           })}
         </div>
 
-        <DataTable<ProcessListRow>
-          columns={columns}
-          data={filtered}
-          sortable
-          onRowClick={(row) => router.push(`/backend/processes/${encodeURIComponent(row.id)}`)}
-        />
+        {isLoading ? (
+          <LoadingMessage label={t('agent_orchestrator.process.list.title')} />
+        ) : error ? (
+          <ErrorMessage label={error} />
+        ) : rows.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            {t('agent_orchestrator.process.list.empty')}
+          </p>
+        ) : (
+          <DataTable<ProcessListRow>
+            columns={columns}
+            data={rows}
+            sortable
+            onRowClick={(row) => router.push(`/backend/processes/${encodeURIComponent(row.id)}`)}
+            pagination={{
+              page,
+              pageSize,
+              total,
+              totalPages,
+              onPageChange: setPage,
+              pageSizeOptions: [20, 50, 100],
+              onPageSizeChange: (next) => {
+                setPageSize(next)
+                setPage(1)
+              },
+            }}
+          />
+        )}
       </PageBody>
     </Page>
   )

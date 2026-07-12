@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Play } from 'lucide-react'
+import { Play, ShieldAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -19,11 +19,12 @@ import {
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { SectionHeader, CollapsibleSection } from '@open-mercato/ui/backend/SectionHeader'
-import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard } from '../../components/ProposalCard'
 import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
+import { runErrorStateFromBody } from '../../components/playgroundRunError'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
@@ -45,6 +46,7 @@ export default function AgentPlaygroundPage() {
   const [proposalId, setProposalId] = React.useState<string | null>(null)
   const [toolPanel, setToolPanel] = React.useState<ToolPanelState>({ mode: 'idle' })
   const [error, setError] = React.useState<string | null>(null)
+  const [guardrailBlock, setGuardrailBlock] = React.useState<{ guardrailKind: string; phase: string } | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -95,20 +97,34 @@ export default function AgentPlaygroundPage() {
       return
     }
     setError(null)
+    setGuardrailBlock(null)
     setRunning(true)
     setResult(null)
     setRunId(null)
     setProposalId(null)
     setToolPanel({ mode: 'idle' })
     try {
-      const data = await readApiResultOrThrow<AgentRunResponse>(
+      const call = await apiCall<AgentRunResponse>(
         `/api/agent_orchestrator/agents/${encodeURIComponent(agentId)}/run`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ input: parsed }),
         },
+        { fallback: null },
       )
+      if (!call.ok || !call.result) {
+        // A guardrail block is a policy verdict with a typed reason — surface
+        // it as its own alert, never the generic run-failed message (§3.6).
+        const errorState = runErrorStateFromBody(call.result)
+        if (errorState.kind === 'guardrail') {
+          setGuardrailBlock({ guardrailKind: errorState.guardrailKind, phase: errorState.phase })
+        } else {
+          setError(errorState.message ?? t('agent_orchestrator.playground.error'))
+        }
+        return
+      }
+      const data = call.result
       setResult(data)
       setRunId(typeof data.runId === 'string' ? data.runId : null)
       setProposalId(typeof data.proposalId === 'string' ? data.proposalId : null)
@@ -225,8 +241,22 @@ export default function AgentPlaygroundPage() {
           </Alert>
         ) : null}
 
+        {guardrailBlock ? (
+          <Alert status="error" style="light">
+            <div className="flex items-start gap-2">
+              <ShieldAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                {t('agent_orchestrator.playground.guardrailBlocked', undefined, {
+                  kind: guardrailBlock.guardrailKind,
+                  phase: guardrailBlock.phase,
+                })}
+              </span>
+            </div>
+          </Alert>
+        ) : null}
+
         {/* Result */}
-        {!result && !running && !error ? (
+        {!result && !running && !error && !guardrailBlock ? (
           <EmptyState
             title={t('agent_orchestrator.playground.noRun')}
             description={t('agent_orchestrator.playground.noRunDescription')}
@@ -324,7 +354,7 @@ export default function AgentPlaygroundPage() {
                     </ul>
                   ) : (
                     <p className="text-sm text-muted-foreground">
-                      {t('agent_orchestrator.playground.result.noTools')}
+                      {t('agent_orchestrator.playground.result.noDeclaredTools')}
                     </p>
                   )}
                 </section>

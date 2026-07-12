@@ -97,10 +97,11 @@ export type ProcessListRow = {
   currentStage: string
   status: AgentProcessStatus
   agentIds: string[]
-  costMinor: number
-  currency: string
-  openedAt: string
-  subjectValueMinor: number
+  /** Nullable by honesty (data-honesty spec §3.7): unknown renders `—`, never a fake 0/epoch. */
+  costMinor: number | null
+  currency: string | null
+  openedAt: string | null
+  subjectValueMinor: number | null
   subjectFraud: boolean
 }
 
@@ -599,10 +600,12 @@ export function mapProcessListRow(item: Record<string, unknown>): ProcessListRow
     currentStage: projection.currentStage ?? '—',
     status: projection.status,
     agentIds: projection.agentIds,
-    costMinor: projection.costMinor ?? 0,
-    currency: projection.currency ?? '',
-    openedAt: projection.openedAt ?? new Date(0).toISOString(),
-    subjectValueMinor: projection.subjectValueMinor ?? 0,
+    // Nulls stay nulls (data-honesty spec §3.7) — a 0-cost or epoch-1970 age
+    // ("20000d") is a polite lie; cells render `—` instead.
+    costMinor: projection.costMinor,
+    currency: projection.currency,
+    openedAt: projection.openedAt,
+    subjectValueMinor: projection.subjectValueMinor,
     subjectFraud: projection.subjectFraud ?? false,
   }
 }
