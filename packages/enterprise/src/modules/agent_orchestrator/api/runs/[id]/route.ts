@@ -5,7 +5,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult } from '../../../data/entities'
+import { AgentRun, AgentSpan, AgentToolCall, AgentEvalResult, AgentContextBundle, AgentGuardrailCheck, AgentProposal } from '../../../data/entities'
 
 /**
  * Full run detail for the trace inspector: the run plus its ordered spans and
@@ -44,7 +44,7 @@ export async function GET(req: Request, ctx: RouteContext) {
   )
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
 
-  const [spans, toolCalls, evalResults] = await Promise.all([
+  const [spans, toolCalls, evalResults, contextBundles, guardrailChecks, proposals] = await Promise.all([
     em.find(AgentSpan, { agentRunId: run.id, ...scope }, { orderBy: { sequence: 'asc' } }),
     findWithDecryption(
       em,
@@ -54,9 +54,26 @@ export async function GET(req: Request, ctx: RouteContext) {
       decryptionScope,
     ),
     em.find(AgentEvalResult, { agentRunId: run.id, ...scope }, { orderBy: { evaluatedAt: 'asc' } }),
+    em.find(AgentContextBundle, { agentRunId: run.id, ...scope }, { orderBy: { createdAt: 'desc' }, limit: 1 }),
+    em.find(AgentGuardrailCheck, { agentRunId: run.id, ...scope }, { orderBy: { createdAt: 'asc' } }),
+    findWithDecryption(
+      em,
+      AgentProposal,
+      { runId: run.id, ...scope, deletedAt: null },
+      { orderBy: { createdAt: 'asc' } },
+      decryptionScope,
+    ),
   ])
 
-  return NextResponse.json({ run, spans, toolCalls, evalResults })
+  return NextResponse.json({
+    run,
+    spans,
+    toolCalls,
+    evalResults,
+    contextBundle: contextBundles[0] ?? null,
+    guardrailChecks,
+    proposals,
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -66,7 +83,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Get a full agent run with its spans and tool calls',
       description:
-        'Returns the run plus its ordered spans and tool-calls for the trace inspector. Org-scoped; gated by agent_orchestrator.trace.view.',
+        'Returns the run plus its ordered spans, tool-calls, eval results, the assembled context bundle (TDCR), guardrail check verdicts, and its proposals (decrypted payloads carrying the persisted rationale) for the trace inspector. Org-scoped; gated by agent_orchestrator.trace.view.',
       responses: [{ status: 200, description: 'Run trace detail' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },

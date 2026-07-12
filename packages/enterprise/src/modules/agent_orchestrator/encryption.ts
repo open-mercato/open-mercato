@@ -37,6 +37,33 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'response_summary' },
     ],
   },
+  {
+    // Agentic-task default input mirrors agent_run.input's treatment — it is
+    // literally the template for that input, so it inherits the same PII risk.
+    entityId: 'agent_orchestrator:agent_task_definition',
+    fields: [
+      { field: 'input_defaults' },
+    ],
+  },
+  {
+    // The resolved input actually used by a task run, plus the failure reason
+    // (which may echo part of a malformed input back on validation failure).
+    entityId: 'agent_orchestrator:agent_task_run',
+    fields: [
+      { field: 'input' },
+      { field: 'failure_reason' },
+    ],
+  },
+  {
+    // The process projection's free-text, person-readable subject title (e.g.
+    // "Motor collision — payout adjudication"). The ONLY encrypted subject
+    // field: the filter-driving facets (subject_type/value/fraud) are deliberate
+    // plaintext typed columns because they must be SQL-queryable.
+    entityId: 'agent_orchestrator:agent_process',
+    fields: [
+      { field: 'subject_title' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps

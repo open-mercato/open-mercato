@@ -68,6 +68,9 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.context.read',
       'agent_orchestrator.identity.read',
+      'agent_orchestrator.tasks.view',
+      'agent_orchestrator.tasks.run',
+      'agent_orchestrator.processes.view',
     ],
     operator: [
       'agent_orchestrator.agents.view',
@@ -78,6 +81,9 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.context.read',
       'agent_orchestrator.identity.read',
+      'agent_orchestrator.tasks.view',
+      'agent_orchestrator.tasks.run',
+      'agent_orchestrator.processes.view',
     ],
     engineer: [
       'agent_orchestrator.agents.view',
@@ -92,6 +98,10 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.context.read',
       'agent_orchestrator.identity.read',
       'agent_orchestrator.identity.manage',
+      'agent_orchestrator.tasks.view',
+      'agent_orchestrator.tasks.manage',
+      'agent_orchestrator.tasks.run',
+      'agent_orchestrator.processes.view',
     ],
   },
 

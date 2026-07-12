@@ -7,7 +7,7 @@ import { ingestTrace, type IngestTraceResult } from '../lib/trace/traceIngestion
 import { createArtifactOffloader } from '../lib/trace/artifactStore'
 import { evaluateRun } from '../lib/eval/evalRuntimeService'
 import { resolveJudgeSampleRate, shouldSampleForJudge } from '../lib/eval/sampling'
-import { AgentEvalAssertion } from '../data/entities'
+import { AgentEvalAssertion, AgentRun } from '../data/entities'
 import { AGENT_ORCHESTRATOR_LLM_JUDGE_QUEUE, getAgentOrchestratorQueue } from '../lib/queue'
 import { emitAgentOrchestratorEvent } from '../events'
 
@@ -37,12 +37,22 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
     // results never block, a failing `gate` marks the run evalPassed = false.
     const evalResult = await evaluateRun(em, scope, result.runId)
 
+    // Additive (process projection spec): make run-cost rollups joinable to a
+    // process. The upserted run row is the source; payload-carried processId
+    // (when the trace POST includes one) was already stamped by ingestTrace.
+    const ingestedRun = await em.findOne(
+      AgentRun,
+      { id: result.runId, ...scope },
+      { fields: ['id', 'processId'] },
+    )
+
     await emitAgentOrchestratorEvent(
       'agent_orchestrator.run.ingested',
       {
         id: result.runId,
         agentId: input.payload.agentId,
         runtime: input.payload.runtime,
+        processId: ingestedRun?.processId ?? null,
         created: result.created,
         spansAppended: result.spansAppended,
         toolCallsAppended: result.toolCallsAppended,

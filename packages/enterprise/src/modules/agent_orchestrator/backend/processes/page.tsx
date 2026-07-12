@@ -220,7 +220,7 @@ export default function ProcessesListPage() {
           </p>
         </div>
 
-        <div className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
+        <div role="tablist" className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
           {FACETS.map((tab) => {
             const active = facet === tab
             const label = t(`agent_orchestrator.process.facet.${
@@ -234,6 +234,8 @@ export default function ProcessesListPage() {
               <button
                 key={tab}
                 type="button"
+                role="tab"
+                aria-selected={active}
                 onClick={() => {
                   setFacet(tab)
                   setPage(1)
@@ -267,7 +269,9 @@ export default function ProcessesListPage() {
           <p className="py-10 text-center text-sm text-muted-foreground">
             {q
               ? t('agent_orchestrator.process.list.searchEmpty')
-              : t('agent_orchestrator.process.list.empty')}
+              : facet !== 'all'
+                ? t('agent_orchestrator.process.list.facetEmpty')
+                : t('agent_orchestrator.process.list.empty')}
           </p>
         ) : (
           <DataTable<ProcessListRow>

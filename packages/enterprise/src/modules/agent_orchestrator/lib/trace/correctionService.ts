@@ -1,5 +1,47 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { AgentCorrection, AgentEvalCase, type CorrectionAction } from '../../data/entities'
+import {
+  AgentCorrection,
+  AgentEvalCase,
+  type AgentEvalCaseSourceType,
+  type CorrectionAction,
+} from '../../data/entities'
+
+export type DraftEvalCaseInput = {
+  tenantId: string
+  organizationId: string
+  sourceType: AgentEvalCaseSourceType
+  /** FK id → agent_corrections or agent_runs (per sourceType). */
+  sourceId: string
+  agentDefinitionId: string
+  processType?: string | null
+  input: unknown
+  expected?: unknown | null
+}
+
+/**
+ * Draft an `AgentEvalCase` (status `draft`) from a correction or a golden run.
+ * Shared field-mapping for both flywheel write paths so the two sources can
+ * never drift.
+ */
+export async function draftEvalCase(
+  em: EntityManager,
+  input: DraftEvalCaseInput,
+): Promise<AgentEvalCase> {
+  const evalCase = em.create(AgentEvalCase, {
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    sourceType: input.sourceType,
+    sourceId: input.sourceId,
+    agentDefinitionId: input.agentDefinitionId,
+    processType: input.processType ?? null,
+    input: input.input,
+    expected: input.expected ?? null,
+    status: 'draft',
+  })
+  em.persist(evalCase)
+  await em.flush()
+  return evalCase
+}
 
 export type RecordCorrectionInput = {
   tenantId: string
@@ -53,7 +95,7 @@ export async function recordCorrection(
   em.persist(correction)
   await em.flush()
 
-  const evalCase = em.create(AgentEvalCase, {
+  const evalCase = await draftEvalCase(em, {
     tenantId: input.tenantId,
     organizationId: input.organizationId,
     sourceType: 'correction',
@@ -62,10 +104,7 @@ export async function recordCorrection(
     processType: input.processType ?? null,
     input: input.evalInput,
     expected: input.correctedValue ?? null,
-    status: 'draft',
   })
-  em.persist(evalCase)
-  await em.flush()
 
   correction.evalCaseId = evalCase.id
   await em.flush()

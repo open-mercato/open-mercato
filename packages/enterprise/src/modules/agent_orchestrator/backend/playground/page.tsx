@@ -180,7 +180,17 @@ export default function AgentPlaygroundPage() {
           <label className="text-sm font-medium" htmlFor="ao-pg-agent">
             {t('agent_orchestrator.playground.agentLabel')}
           </label>
-          <Select value={agentId} onValueChange={(value) => setAgentId(value ?? '')}>
+          <Select
+            value={agentId}
+            onValueChange={(value) => {
+              const nextId = value ?? ''
+              setAgentId(nextId)
+              // Agent inputs are agent-specific: switching clears the previous
+              // agent's JSON and re-offers the new agent's declared sample.
+              const nextSample = agents.find((agent) => agent.id === nextId)?.sampleInput
+              setInput(nextSample !== undefined ? JSON.stringify(nextSample, null, 2) : '{\n  \n}')
+            }}
+          >
             <SelectTrigger id="ao-pg-agent" className="focus-visible:ring-brand-violet">
               <SelectValue placeholder={t('agent_orchestrator.playground.agentPlaceholder')} />
             </SelectTrigger>

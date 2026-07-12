@@ -507,13 +507,15 @@ function FacetTabs({
     { key: 'needs-review', label: t('agent_orchestrator.traces.facet.needsReview'), count: counts.needsReview },
   ]
   return (
-    <div className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
+    <div role="tablist" className="flex flex-nowrap items-center gap-4 overflow-x-auto border-b border-border">
       {tabs.map((tab) => {
         const active = facet === tab.key
         return (
           <button
             key={tab.key}
             type="button"
+            role="tab"
+            aria-selected={active}
             onClick={() => onFacetChange(tab.key)}
             className={cn(
               '-mb-px flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 py-2.5 text-sm transition-colors',

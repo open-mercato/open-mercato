@@ -8,13 +8,26 @@ import { getSkillEntry } from './defineSkill'
 export type AgentResultKind = 'actionable' | 'informative'
 
 /**
- * Where an agent runs. `'in-process'` agents are authored with `defineAgent` and
- * execute via the Vercel AI SDK object mode in this process. `'opencode'` agents
- * are authored as `agents/<id>/` file conventions (AGENT.md + OUTCOME.md),
- * registered via `registerFileAgent`, and run on the OpenCode runtime. The field
- * is additive (BC-safe): every existing agent stays `'in-process'`.
+ * Where an agent runs. `'native'` agents are authored with `defineAgent` and
+ * execute via the Vercel AI SDK object mode inside this process on the
+ * `NativeAgentRunner` (lightweight-agent-runtime spec Phase 1). `'in-process'`
+ * is the accepted legacy alias for the same runner — the union stays
+ * ADDITIVE-ONLY per BACKWARD_COMPATIBILITY.md, so entries registered with
+ * `'in-process'` dispatch identically. `'opencode'` agents are authored as
+ * `agents/<id>/` file conventions (AGENT.md + OUTCOME.md), registered via
+ * `registerFileAgent`, and run on the OpenCode runtime (deprecation planned —
+ * see the spec's Phase 3/6).
  */
-export type AgentRuntime = 'in-process' | 'opencode' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
+
+/**
+ * Runtime labels that execute on the native (in-process) runner. Persisted
+ * `agent_runs.runtime` values from before the `'native'` flip carry
+ * `'in-process'`; new runs stamp `'native'`. Filters, rollups, and dashboards
+ * MUST treat the two labels as ONE cohort (Migration & BC section of the
+ * lightweight-agent-runtime spec).
+ */
+export const NATIVE_RUNTIME_VALUES = ['native', 'in-process'] as const
 
 /**
  * Tool id of the built-in delegation tool (declared in agent_orchestrator's
@@ -60,9 +73,9 @@ export interface DefineAgentInput {
   /** Object-safe loop subset only. */
   loop?: { maxSteps?: number }
   /**
-   * Runtime the agent executes on. Defaults to `'in-process'`; `defineAgent`
-   * only ever produces in-process agents, so this is reserved for future use
-   * and kept additive.
+   * Runtime the agent executes on. `defineAgent` only ever produces agents for
+   * the native in-process runner (registered as `'native'`), so this is
+   * reserved for future use and kept additive.
    */
   runtime?: AgentRuntime
   /** Zod from data/validators.ts; IS the output.schema (single source). */
@@ -108,7 +121,7 @@ export interface AgentRegistryEntry {
   defaultModel?: string
   /** Object-safe loop subset (see DefineAgentInput). */
   loop?: { maxSteps?: number }
-  /** Runtime the agent executes on. Always set (default `'in-process'`). */
+  /** Runtime the agent executes on. Always set (`'native'` for `defineAgent` agents; `'in-process'` accepted as a legacy alias). */
   runtime: AgentRuntime
   /** Optional Playground "Insert sample" input (see DefineAgentInput). */
   sampleInput?: unknown
@@ -157,7 +170,7 @@ export function defineAgent(input: DefineAgentInput): AiAgentDefinition {
     defaultProvider: input.defaultProvider,
     defaultModel: input.defaultModel,
     loop: input.loop,
-    runtime: 'in-process',
+    runtime: 'native',
     sampleInput: input.sampleInput,
     facts: input.facts,
   })

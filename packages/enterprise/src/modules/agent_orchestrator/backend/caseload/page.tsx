@@ -1077,7 +1077,9 @@ export default function AgentCaseloadPage() {
           <DialogHeader>
             <DialogTitle>{t('agent_orchestrator.proposal.reject.heading')}</DialogTitle>
             <DialogDescription>
-              {t('agent_orchestrator.caseload.reject.description', undefined, { count: rejectPendingCount })}
+              {rejectPendingCount === 1
+                ? t('agent_orchestrator.caseload.reject.descriptionOne')
+                : t('agent_orchestrator.caseload.reject.description', undefined, { count: rejectPendingCount })}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">

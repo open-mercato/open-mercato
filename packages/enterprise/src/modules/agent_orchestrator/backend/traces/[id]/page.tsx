@@ -247,6 +247,7 @@ function GuardrailsCard({ checks }: { checks: GuardrailCheckView[] }) {
               <li key={check.id} className="overflow-hidden rounded-lg border border-border">
                 <button
                   type="button"
+                  aria-expanded={expandable ? open : undefined}
                   onClick={() => setOpenId(open ? null : check.id)}
                   disabled={!expandable}
                   className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors enabled:hover:bg-muted/40"
@@ -397,7 +398,14 @@ function ArtifactExpander({
   }
 
   if (full !== undefined) {
-    return <JsonDisplay data={full} />
+    return (
+      <div className="space-y-1">
+        <JsonDisplay data={full} />
+        <Button variant="outline" size="sm" onClick={() => setFull(undefined)}>
+          {t('agent_orchestrator.traces.detail.collapseArtifact')}
+        </Button>
+      </div>
+    )
   }
 
   return (
@@ -407,6 +415,14 @@ function ArtifactExpander({
         : t('agent_orchestrator.traces.detail.loadFullArtifact')}
     </Button>
   )
+}
+
+/** Object/array summaries get the copy-affordance JSON view; strings keep the raw pre. */
+function SummaryDisplay({ value }: { value: unknown }) {
+  if (value != null && typeof value === 'object') {
+    return <JsonDisplay data={value} />
+  }
+  return <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1 text-xs">{formatSummary(value)}</pre>
 }
 
 function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId: string }) {
@@ -424,6 +440,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
               <div key={toolCall.id} className="overflow-hidden rounded-lg border border-border">
                 <button
                   type="button"
+                  aria-expanded={open}
                   onClick={() => setOpenId(open ? null : toolCall.id)}
                   className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/40"
                 >
@@ -452,9 +469,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           {t('agent_orchestrator.traces.detail.toolRequest')}
                         </p>
-                        <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1 text-xs">
-                          {formatSummary(toolCall.requestSummary)}
-                        </pre>
+                        <SummaryDisplay value={toolCall.requestSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.requestArtifactKey} kind="tool_request" />
                       </div>
                     ) : null}
@@ -463,9 +478,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                         <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                           {t('agent_orchestrator.traces.detail.toolResponse')}
                         </p>
-                        <pre className="max-h-40 overflow-auto rounded bg-muted px-2 py-1 text-xs">
-                          {formatSummary(toolCall.responseSummary)}
-                        </pre>
+                        <SummaryDisplay value={toolCall.responseSummary} />
                         <ArtifactExpander runId={runId} artifactKey={toolCall.responseArtifactKey} kind="tool_response" />
                       </div>
                     ) : null}
@@ -950,6 +963,17 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                               ))}
                             </div>
                             <div className="w-14 shrink-0" />
+                          </div>
+                          {/* Span-kind legend — teaches the bar colors without changing them. */}
+                          <div className="flex items-center gap-4 pt-2 text-xs text-muted-foreground">
+                            <span className="flex items-center gap-1.5">
+                              <span className={`size-2 rounded-sm ${SPAN_KIND_BAR.llm}`} />
+                              {t('agent_orchestrator.traces.detail.legend.llm')}
+                            </span>
+                            <span className="flex items-center gap-1.5">
+                              <span className={`size-2 rounded-sm ${SPAN_KIND_BAR.tool}`} />
+                              {t('agent_orchestrator.traces.detail.legend.tool')}
+                            </span>
                           </div>
                         </div>
                       )}

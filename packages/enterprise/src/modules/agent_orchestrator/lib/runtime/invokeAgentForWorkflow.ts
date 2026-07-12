@@ -1,9 +1,11 @@
 import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentProposal } from '../../data/entities'
+import { agentProcessSubjectSchema, type AgentProcessSubject } from '../../data/validators'
 import type { AgentRuntimeService } from './agentRuntime'
 import type { AgentRunAs } from './persistence'
 import { resolveAgentPrincipal } from '../identity/agentPrincipalService'
+import { withProcessSubject } from '../processes/subjectContext'
 import type {
   DispositionService,
   DispositionOnResult,
@@ -25,6 +27,13 @@ export type InvokeAgentForWorkflowArgs = {
     userId?: string
     processId: string
     stepId: string
+    /**
+     * The INVOKE_AGENT node's already-interpolated `subject` descriptor (process
+     * projection spec, 2026-06-25). Additive + optional: forwarded opaquely into
+     * the async-scoped subject binding so `proposals.create` can attach it to
+     * the `proposal.created` event payload. Never persisted on run/proposal rows.
+     */
+    subject?: unknown
   }
 }
 
@@ -68,14 +77,21 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     // the run keeps its prior `userId`-derived attribution (additive, fail-open).
     const runAs = await this.resolveRunAs(agentId, ctx)
 
-    const result = await this.agentRuntime.run(agentId, input, {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId: ctx.userId ?? '',
-      processId: ctx.processId,
-      stepId: ctx.stepId,
-      ...(runAs ? { runAs } : {}),
-    })
+    // Subject binding (fail-open): a malformed descriptor is dropped, never a
+    // reason to refuse the run — the projection then simply lists the process
+    // by workflow name with no business facets.
+    const subject = this.parseSubject(ctx.subject)
+
+    const result = await withProcessSubject(subject, () =>
+      this.agentRuntime.run(agentId, input, {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: ctx.userId ?? '',
+        processId: ctx.processId,
+        stepId: ctx.stepId,
+        ...(runAs ? { runAs } : {}),
+      }),
+    )
 
     if (result.kind === 'informative') {
       return { kind: 'informative', data: result.data }
@@ -108,6 +124,12 @@ export class AgentWorkflowBridgeService implements AgentWorkflowBridge {
     return outcome.kind === 'auto_approved'
       ? { kind: 'auto_approved', proposalId: outcome.proposalId, payload: proposal.payload }
       : { kind: 'user_task', proposalId: outcome.proposalId }
+  }
+
+  private parseSubject(raw: unknown): AgentProcessSubject | null {
+    if (!raw || typeof raw !== 'object') return null
+    const parsed = agentProcessSubjectSchema.safeParse(raw)
+    return parsed.success ? parsed.data : null
   }
 
   /**

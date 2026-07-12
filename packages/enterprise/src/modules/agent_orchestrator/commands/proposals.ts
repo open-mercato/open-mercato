@@ -4,6 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { AgentProposal } from '../data/entities'
 import { agentProposalSchema, guardResultsSchema } from '../data/validators'
+import { getProcessSubject } from '../lib/processes/subjectContext'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const createAgentProposalSchema = z.object({
@@ -41,12 +42,17 @@ const createAgentProposalCommand: CommandHandler<CreateAgentProposalInput, { pro
     em.persist(proposal)
     await em.flush()
 
+    // `subject` (process projection spec, 2026-06-25): the INVOKE_AGENT node's
+    // business-record descriptor, read from the async-scoped binding the workflow
+    // bridge established. Additive optional payload field, never a column — the
+    // projection subscriber persists it onto `agent_processes` only.
     await emitAgentOrchestratorEvent('agent_orchestrator.proposal.created', {
       id: proposal.id,
       runId: proposal.runId,
       agentId: proposal.agentId,
       processId: proposal.processId,
       stepId: proposal.stepId,
+      subject: getProcessSubject() ?? null,
       tenantId: proposal.tenantId,
       organizationId: proposal.organizationId,
     }, { persistent: true })

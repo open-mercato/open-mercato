@@ -11,7 +11,7 @@ import {
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { AgentRun, AgentEvalCase } from '../data/entities'
 import { correctionAction } from '../data/validators'
-import { recordCorrection } from '../lib/trace/correctionService'
+import { draftEvalCase, recordCorrection } from '../lib/trace/correctionService'
 import { emitAgentOrchestratorEvent } from '../events'
 
 const EVAL_CASE_RESOURCE = 'agent_orchestrator.eval_case'
@@ -81,6 +81,8 @@ const createCorrectionCommand: CommandHandler<CreateCorrectionCommandInput, Crea
       {
         id: result.correctionId,
         proposalId: input.proposalId,
+        // Additive (process projection spec): corrections joinable to a process.
+        processId: input.processId ?? null,
         action: input.action,
         correctedByUserId: input.correctedByUserId,
         tenantId: input.tenantId,
@@ -102,6 +104,82 @@ const createCorrectionCommand: CommandHandler<CreateCorrectionCommandInput, Crea
     )
 
     return result
+  },
+}
+
+// ── evalCases.createFromRun ─────────────────────────────────────────────────
+
+const createEvalCaseFromRunCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  agentRunId: z.string().uuid(),
+})
+export type CreateEvalCaseFromRunCommandInput = z.infer<typeof createEvalCaseFromRunCommandSchema>
+export type CreateEvalCaseFromRunCommandResult = {
+  evalCaseId: string
+  status: string
+  created: boolean
+}
+
+const createEvalCaseFromRunCommand: CommandHandler<
+  CreateEvalCaseFromRunCommandInput,
+  CreateEvalCaseFromRunCommandResult
+> = {
+  id: 'agent_orchestrator.evalCases.createFromRun',
+  async execute(rawInput, ctx) {
+    const input = createEvalCaseFromRunCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const run = await findOneWithDecryption(
+      em,
+      AgentRun,
+      {
+        id: input.agentRunId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    if (!run) throw new CrudHttpError(404, { error: '[internal] run not found' })
+
+    // Idempotent: one golden-run case per run — re-adding returns the existing draft.
+    const existing = await em.findOne(AgentEvalCase, {
+      sourceType: 'golden_run',
+      sourceId: run.id,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      deletedAt: null,
+    })
+    if (existing) {
+      return { evalCaseId: existing.id, status: existing.status, created: false }
+    }
+
+    const evalCase = await draftEvalCase(em, {
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      sourceType: 'golden_run',
+      sourceId: run.id,
+      agentDefinitionId: run.agentId,
+      input: run.input ?? {},
+      expected: run.output ?? null,
+    })
+
+    await emitAgentOrchestratorEvent(
+      'agent_orchestrator.eval_case.created',
+      {
+        id: evalCase.id,
+        sourceType: 'golden_run',
+        sourceId: run.id,
+        agentDefinitionId: run.agentId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      { persistent: true },
+    )
+
+    return { evalCaseId: evalCase.id, status: evalCase.status, created: true }
   },
 }
 
@@ -180,6 +258,7 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
 }
 
 registerCommand(createCorrectionCommand)
+registerCommand(createEvalCaseFromRunCommand)
 registerCommand(approveEvalCaseCommand)
 
-export { createCorrectionCommand, approveEvalCaseCommand }
+export { createCorrectionCommand, createEvalCaseFromRunCommand, approveEvalCaseCommand }

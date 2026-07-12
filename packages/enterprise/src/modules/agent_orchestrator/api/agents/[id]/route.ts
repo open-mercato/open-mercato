@@ -22,7 +22,7 @@ const agentDetailSchema = z.object({
   id: z.string(),
   moduleId: z.string(),
   resultKind: z.enum(['informative', 'actionable']),
-  runtime: z.enum(['in-process', 'opencode', 'external']),
+  runtime: z.enum(['in-process', 'native', 'opencode', 'external']),
   tools: z.array(z.string()),
   skills: z.array(z.string()),
   skillDetails: z.array(skillDetailSchema),

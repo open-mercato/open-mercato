@@ -417,7 +417,20 @@ export default function AgentFleetOverviewPage() {
                     </thead>
                     <tbody>
                       {stuck.map((row) => (
-                        <tr key={row.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40" onClick={() => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}>
+                        <tr
+                          key={row.id}
+                          tabIndex={0}
+                          role="link"
+                          aria-label={t('agent_orchestrator.overview.stuck.openRow', undefined, { id: row.claim })}
+                          className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                          onClick={() => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)
+                            }
+                          }}
+                        >
                           <td className="px-2 py-2.5 font-mono text-xs text-foreground">{row.claim}</td>
                           <td className="px-2 py-2.5">
                             {row.processId ? (
@@ -468,7 +481,20 @@ export default function AgentFleetOverviewPage() {
                     </thead>
                     <tbody>
                       {trust.map((row) => (
-                        <tr key={row.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40" onClick={() => router.push(`/backend/agents/${encodeURIComponent(row.id)}`)}>
+                        <tr
+                          key={row.id}
+                          tabIndex={0}
+                          role="link"
+                          aria-label={t('agent_orchestrator.overview.trust.openRow', undefined, { id: row.id })}
+                          className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40 focus-visible:outline-none"
+                          onClick={() => router.push(`/backend/agents/${encodeURIComponent(row.id)}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              router.push(`/backend/agents/${encodeURIComponent(row.id)}`)
+                            }
+                          }}
+                        >
                           <td className="px-2 py-2.5">
                             <div className="flex items-center gap-2.5">
                               <Avatar label={row.label} size="sm" />

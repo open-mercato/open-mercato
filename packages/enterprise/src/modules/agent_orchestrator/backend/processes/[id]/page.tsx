@@ -466,7 +466,12 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   )
 
   const [selectedId, setSelectedId] = React.useState<string>('')
-  const selected = steps.find((step) => step.id === selectedId) ?? steps[0]
+  // Default focus: the first pending step (the one demanding a decision), else
+  // the newest step — never the oldest, which is history the operator has seen.
+  const selected =
+    steps.find((step) => step.id === selectedId) ??
+    steps.find((step) => step.disposition === 'pending') ??
+    steps[steps.length - 1]
 
   const openTrace = React.useCallback(() => {
     if (selected?.runId) {
@@ -618,8 +623,12 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           {stages.length > 0 ? (
             <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-3 border-t border-border pt-4">
               {stages.map((stage, index) => {
-                const state: StageState =
-                  currentStageIndex < 0
+                // Terminal processes render every stage as done — no phantom
+                // "current" stage on a completed/failed/cancelled case.
+                const isTerminal = ['auto_completed', 'completed', 'failed', 'cancelled'].includes(process.status)
+                const state: StageState = isTerminal
+                  ? 'done'
+                  : currentStageIndex < 0
                     ? 'upcoming'
                     : index < currentStageIndex
                       ? 'done'
