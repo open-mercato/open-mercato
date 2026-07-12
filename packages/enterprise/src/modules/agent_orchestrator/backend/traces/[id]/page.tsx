@@ -2,9 +2,10 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck } from 'lucide-react'
+import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -655,7 +656,15 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
     <Page>
       <PageBody>
         <div className="mb-4">
-          <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/traces')}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              if (!isLoading && (error || !detail)) router.back()
+              else router.push('/backend/traces')
+            }}
+          >
             {t('agent_orchestrator.traces.detail.back')}
           </Button>
         </div>
@@ -722,14 +731,55 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                       {subtitle ? <p className="mt-0.5 font-mono text-sm text-muted-foreground">{subtitle}</p> : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId ?? run.id)}`)}
-                      >
-                        <Workflow className="size-4" />
-                        {t('agent_orchestrator.proposal.openProcess')}
-                      </Button>
+                      {detail.proposals.length === 1 ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/backend/caseload/${encodeURIComponent(detail.proposals[0].id)}`)}
+                        >
+                          <Inbox className="size-4" />
+                          {t('agent_orchestrator.traces.detail.openProposal')}
+                        </Button>
+                      ) : detail.proposals.length > 1 ? (
+                        <Popover>
+                          <PopoverTrigger asChild>
+                            <Button variant="outline" size="sm">
+                              <Inbox className="size-4" />
+                              {t('agent_orchestrator.traces.detail.openProposal')}
+                              <ChevronRight className="size-4 rotate-90" />
+                            </Button>
+                          </PopoverTrigger>
+                          <PopoverContent align="end" className="w-64 p-1">
+                            <div className="flex flex-col">
+                              {[...detail.proposals]
+                                .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+                                .map((proposal) => (
+                                  <button
+                                    key={proposal.id}
+                                    type="button"
+                                    onClick={() => router.push(`/backend/caseload/${encodeURIComponent(proposal.id)}`)}
+                                    className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-muted/60"
+                                  >
+                                    <span className="truncate font-mono text-xs">{proposal.id.slice(0, 8)}</span>
+                                    <span className="shrink-0 text-xs text-muted-foreground">
+                                      {formatDateTime(proposal.createdAt) ?? ''}
+                                    </span>
+                                  </button>
+                                ))}
+                            </div>
+                          </PopoverContent>
+                        </Popover>
+                      ) : null}
+                      {run.processId ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push(`/backend/processes/${encodeURIComponent(run.processId!)}`)}
+                        >
+                          <Workflow className="size-4" />
+                          {t('agent_orchestrator.proposal.openProcess')}
+                        </Button>
+                      ) : null}
                       <Button size="sm" onClick={() => void addToEvals()} disabled={addingToEvals}>
                         <Plus className="size-4" />
                         {t('agent_orchestrator.traces.detail.actionAddEval')}

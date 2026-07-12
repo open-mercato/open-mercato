@@ -138,6 +138,10 @@ export type ProcessStep = {
   id: string
   /** FK id → agent run; drives "Open full trace" + GET /runs/:id. Null in sample mode. */
   runId: string | null
+  /** FK id → the proposal this step projects; drives "Review in Caseload". Null in sample mode. */
+  proposalId: string | null
+  /** Proposal disposition at build time; `'pending'` enables the caseload CTA. Null in sample mode. */
+  disposition: string | null
   /** Agent definition id (proposal.agent_id). */
   agentId: string | null
   /** Workflow step id (proposal.step_id). */
@@ -146,7 +150,8 @@ export type ProcessStep = {
   actorKind: ProcessActorKind
   summary: string
   time: string
-  day: ProcessStepDay
+  /** Day-divider key: `'today'`/`'yesterday'` (sample) or a `YYYY-MM-DD` date (real data). */
+  day: string
   detail: ProcessStepDetail
 }
 
@@ -208,6 +213,8 @@ export function buildSampleProcess(reference: string): ProcessView {
       {
         id: 'intake',
         runId: null,
+        proposalId: null,
+        disposition: null,
         agentId: 'intake',
         stepId: 'intake',
         actor: 'Intake Agent',
@@ -251,6 +258,8 @@ export function buildSampleProcess(reference: string): ProcessView {
       {
         id: 'coverage',
         runId: null,
+        proposalId: null,
+        disposition: null,
         agentId: 'coverage',
         stepId: 'coverage',
         actor: 'Coverage Analyst',
@@ -289,6 +298,8 @@ export function buildSampleProcess(reference: string): ProcessView {
       {
         id: 'damage',
         runId: null,
+        proposalId: null,
+        disposition: null,
         agentId: 'damage',
         stepId: 'damage',
         actor: 'Damage Estimator',
@@ -330,6 +341,8 @@ export function buildSampleProcess(reference: string): ProcessView {
       {
         id: 'fraud',
         runId: null,
+        proposalId: null,
+        disposition: null,
         agentId: 'fraud',
         stepId: 'fraud',
         actor: 'Fraud Signal Agent',
@@ -371,6 +384,8 @@ export function buildSampleProcess(reference: string): ProcessView {
       {
         id: 'dispose',
         runId: null,
+        proposalId: null,
+        disposition: null,
         agentId: null,
         stepId: 'dispose',
         actor: 'Open Mercato',
@@ -502,4 +517,92 @@ export function buildSampleProcessList(): ProcessListRow[] {
       subjectFraud: false,
     },
   ]
+}
+
+// ── Real-data mappers (projection API → view models) ─────────────────────────
+
+function str(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null
+}
+
+function num(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function bool(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null
+}
+
+const PROCESS_STATUSES: ReadonlySet<string> = new Set([
+  'running', 'waiting_on_you', 'question_open', 'docs_requested', 'fraud_hold',
+  'auto_completing', 'auto_completed', 'completed', 'failed', 'cancelled',
+])
+
+function processStatus(value: unknown): AgentProcessStatus {
+  return typeof value === 'string' && PROCESS_STATUSES.has(value)
+    ? (value as AgentProcessStatus)
+    : 'running'
+}
+
+/**
+ * Maps one `GET /api/agent_orchestrator/processes` (or `/processes/:id`) row to
+ * the `ProcessProjection` view. Snake_case/camelCase tolerant, null-safe: a
+ * process without a subject still renders by processId/workflow name (spec's
+ * honest degradation), never crashes.
+ */
+export function mapProcessProjection(item: Record<string, unknown>): ProcessProjection | null {
+  const processId = str(item.process_id) ?? str(item.processId)
+  if (!processId) return null
+  const agentIdsRaw = (item.agent_ids ?? item.agentIds) as unknown
+  return {
+    processId,
+    workflowId: str(item.workflow_id) ?? str(item.workflowId),
+    workflowVersion: str(item.workflow_version) ?? str(item.workflowVersion),
+    subjectType: str(item.subject_type) ?? str(item.subjectType),
+    subjectId: str(item.subject_id) ?? str(item.subjectId),
+    subjectLabel: str(item.subject_label) ?? str(item.subjectLabel),
+    subjectTitle: str(item.subject_title) ?? str(item.subjectTitle),
+    subjectValueMinor: num(item.subject_value_minor ?? item.subjectValueMinor),
+    subjectFraud: bool(item.subject_fraud ?? item.subjectFraud),
+    subjectFacets: ((item.subject_facets ?? item.subjectFacets) as ProcessSubjectFacets | null) ?? null,
+    status: processStatus(item.status),
+    currentStage: str(item.current_stage) ?? str(item.currentStage),
+    agentIds: Array.isArray(agentIdsRaw)
+      ? agentIdsRaw.filter((id): id is string => typeof id === 'string')
+      : [],
+    costMinor: num(item.cost_minor ?? item.costMinor),
+    currency: str(item.currency),
+    runCount: num(item.run_count ?? item.runCount) ?? 0,
+    pendingProposalCount: num(item.pending_proposal_count ?? item.pendingProposalCount) ?? 0,
+    assigneeUserId: str(item.assignee_user_id) ?? str(item.assigneeUserId),
+    teamId: str(item.team_id) ?? str(item.teamId),
+    waitingSince: str(item.waiting_since) ?? str(item.waitingSince),
+    openedAt: str(item.opened_at) ?? str(item.openedAt),
+    lastActivityAt: str(item.last_activity_at) ?? str(item.lastActivityAt),
+  }
+}
+
+/** Maps a projection row to one Processes-list row (subject-less rows degrade to processId/workflow name). */
+export function mapProcessListRow(item: Record<string, unknown>): ProcessListRow | null {
+  const projection = mapProcessProjection(item)
+  if (!projection) return null
+  return {
+    id: projection.processId,
+    subjectType: projection.subjectType ?? '—',
+    subjectLabel: projection.subjectLabel ?? projection.processId.slice(0, 8).toUpperCase(),
+    subjectTitle: projection.subjectTitle ?? projection.workflowId ?? '',
+    currentStage: projection.currentStage ?? '—',
+    status: projection.status,
+    agentIds: projection.agentIds,
+    costMinor: projection.costMinor ?? 0,
+    currency: projection.currency ?? '',
+    openedAt: projection.openedAt ?? new Date(0).toISOString(),
+    subjectValueMinor: projection.subjectValueMinor ?? 0,
+    subjectFraud: projection.subjectFraud ?? false,
+  }
 }

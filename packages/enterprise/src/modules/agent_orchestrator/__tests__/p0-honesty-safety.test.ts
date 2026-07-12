@@ -80,12 +80,18 @@ describe('agent_orchestrator P0 honesty & safety invariants', () => {
     const source = read('backend/processes/[id]/page.tsx')
     expect(source).not.toContain('actionPreviewOnly')
     expect(source).toContain('agent_orchestrator.process.actionsComingSoon')
+    // The three stub actions must stay disabled and handler-free. The block is
+    // scoped to start at the FIRST stub (Pause) so real actions rendered before
+    // it (e.g. the "Review in Caseload" CTA) are legitimately excluded.
     const actionsBlock = source.slice(
-      source.indexOf('agent_orchestrator.process.actionPause') - 400,
+      source.indexOf('agent_orchestrator.process.actionPause') - 80,
       source.indexOf('agent_orchestrator.process.actionsComingSoon'),
     )
     expect(actionsBlock).toContain('disabled')
     expect(actionsBlock).not.toContain('onClick')
+    for (const stub of ['actionPause', 'actionReassign', 'actionTakeOver']) {
+      expect(actionsBlock).toContain(`agent_orchestrator.process.${stub}`)
+    }
   })
 
   it('labels the Overview interventions section as sample data and drops the domain chip', () => {

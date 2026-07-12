@@ -272,7 +272,20 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
                     </thead>
                     <tbody>
                       {metrics.recent.map((run) => (
-                        <tr key={run.id} className="border-b border-border last:border-0">
+                        <tr
+                          key={run.id}
+                          tabIndex={0}
+                          role="link"
+                          aria-label={t('agent_orchestrator.agentDetail.recent.openTrace', 'Open run trace')}
+                          className="cursor-pointer border-b border-border outline-none transition-colors last:border-0 hover:bg-accent/40 focus-visible:bg-accent/40"
+                          onClick={() => router.push(`/backend/traces/${encodeURIComponent(run.id)}`)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault()
+                              router.push(`/backend/traces/${encodeURIComponent(run.id)}`)
+                            }
+                          }}
+                        >
                           <td className="py-2.5 pr-3 font-mono text-xs text-foreground">{run.claim}</td>
                           <td className="py-2.5 pr-3 text-foreground">{run.decision}</td>
                           <td className="py-2.5 pr-3 text-right text-muted-foreground">

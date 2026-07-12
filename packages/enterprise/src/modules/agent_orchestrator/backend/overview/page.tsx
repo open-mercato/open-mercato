@@ -30,7 +30,7 @@ type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
 type TrustRow = { id: string; label: string; runs: number; overridePct: number | null; status: Health }
-type StuckRow = { id: string; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
+type StuckRow = { id: string; processId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 type AgentMetricsResponse = { totalRuns?: number; overrideRate?: number | null; disposedProposals?: number }
 
@@ -223,6 +223,7 @@ export default function AgentFleetOverviewPage() {
         const waitingMin = minutesAgo(proposal.createdAt)
         return {
           id: proposal.id,
+          processId: proposal.processId,
           claim,
           agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId || '—',
           waitingMin,
@@ -329,17 +330,21 @@ export default function AgentFleetOverviewPage() {
                         <tr key={row.id} className="cursor-pointer border-b border-border last:border-0 hover:bg-accent/40" onClick={() => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}>
                           <td className="px-2 py-2.5 font-mono text-xs text-foreground">{row.claim}</td>
                           <td className="px-2 py-2.5">
-                            <button
-                              type="button"
-                              onClick={(event) => {
-                                event.stopPropagation()
-                                router.push(`/backend/processes/${encodeURIComponent(row.id)}`)
-                              }}
-                              className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80"
-                            >
-                              <Workflow className="size-3.5" />
-                              {t('agent_orchestrator.proposal.openProcess', 'Open process')}
-                            </button>
+                            {row.processId ? (
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation()
+                                  router.push(`/backend/processes/${encodeURIComponent(row.processId!)}`)
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80"
+                              >
+                                <Workflow className="size-3.5" />
+                                {t('agent_orchestrator.proposal.openProcess', 'Open process')}
+                              </button>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
                           </td>
                           <td className="px-2 py-2.5 text-foreground">{row.agentLabel}</td>
                           <td className="px-2 py-2.5 text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</td>

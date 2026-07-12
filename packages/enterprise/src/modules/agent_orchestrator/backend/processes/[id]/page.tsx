@@ -150,6 +150,8 @@ function buildSteps(
     steps.push({
       id: `${proposal.id}:proposed`,
       runId: proposal.runId,
+      proposalId: proposal.id,
+      disposition: proposal.disposition,
       agentId: proposal.agentId,
       stepId: proposal.stepId,
       actor: proposal.agentId,
@@ -169,6 +171,8 @@ function buildSteps(
       steps.push({
         id: `${proposal.id}:disposed`,
         runId: proposal.runId,
+        proposalId: proposal.id,
+        disposition: proposal.disposition,
         agentId: null,
         stepId: proposal.stepId,
         actor: t('agent_orchestrator.process.disposes'),
@@ -245,10 +249,12 @@ function StepDetailPanel({
   step,
   dayLabel,
   onOpenTrace,
+  onReviewInCaseload,
 }: {
   step: ProcessStep
   dayLabel: string
   onOpenTrace: () => void
+  onReviewInCaseload?: () => void
 }) {
   const t = useT()
   const roleLabel = t(
@@ -337,11 +343,17 @@ function StepDetailPanel({
         </div>
       </div>
 
-      <div className="mt-5 flex justify-end border-t border-border pt-4">
+      <div className="mt-5 flex justify-end gap-2 border-t border-border pt-4">
         <Button type="button" variant="outline" size="sm" onClick={onOpenTrace}>
           {t('agent_orchestrator.process.openTrace')}
           <ArrowRight className="size-4" />
         </Button>
+        {step.disposition === 'pending' && step.proposalId && onReviewInCaseload ? (
+          <Button type="button" size="sm" onClick={onReviewInCaseload}>
+            {t('agent_orchestrator.process.reviewInCaseload')}
+            <ArrowRight className="size-4" />
+          </Button>
+        ) : null}
       </div>
     </section>
   )
@@ -468,6 +480,17 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
     router.push('/backend/traces')
   }, [router, selected])
 
+  const reviewSelectedInCaseload = React.useCallback(() => {
+    if (selected?.proposalId) {
+      router.push(`/backend/caseload/${encodeURIComponent(selected.proposalId)}`)
+    }
+  }, [router, selected])
+
+  const oldestPendingProposalId = React.useMemo(
+    () => proposals.find((proposal) => proposal.disposition === 'pending')?.id ?? null,
+    [proposals],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -483,7 +506,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
       <Page>
         <PageBody>
           <div className="mb-4">
-            <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/processes')}>
+            <Button type="button" variant="outline" size="sm" onClick={() => router.back()}>
               {t('agent_orchestrator.process.back')}
             </Button>
           </div>
@@ -535,6 +558,16 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             </div>
             <div className="flex flex-col items-end gap-1.5">
               <div className="flex flex-wrap items-center gap-2">
+                {process.status === 'waiting_on_you' && oldestPendingProposalId ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => router.push(`/backend/caseload/${encodeURIComponent(oldestPendingProposalId)}`)}
+                  >
+                    {t('agent_orchestrator.process.reviewInCaseload')}
+                    <ArrowRight className="size-4" />
+                  </Button>
+                ) : null}
                 <Button type="button" variant="outline" size="sm" disabled>
                   {t('agent_orchestrator.process.actionPause')}
                 </Button>
@@ -704,7 +737,12 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           </section>
 
           {selected ? (
-            <StepDetailPanel step={selected} dayLabel={dayLabelOf(selected.day, t)} onOpenTrace={openTrace} />
+            <StepDetailPanel
+              step={selected}
+              dayLabel={dayLabelOf(selected.day, t)}
+              onOpenTrace={openTrace}
+              onReviewInCaseload={reviewSelectedInCaseload}
+            />
           ) : null}
         </div>
       </PageBody>

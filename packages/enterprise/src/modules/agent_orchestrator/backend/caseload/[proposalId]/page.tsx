@@ -209,14 +209,16 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                 {t('agent_orchestrator.proposal.openTrace')}
               </Button>
             ) : null}
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => router.push(`/backend/processes/${encodeURIComponent(proposal.processId ?? proposal.id)}`)}
-            >
-              {t('agent_orchestrator.proposal.openProcess')}
-            </Button>
+            {proposal.processId ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => router.push(`/backend/processes/${encodeURIComponent(proposal.processId!)}`)}
+              >
+                {t('agent_orchestrator.proposal.openProcess')}
+              </Button>
+            ) : null}
             <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/caseload')}>
               {t('agent_orchestrator.proposal.backToCaseload')}
             </Button>
