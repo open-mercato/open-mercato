@@ -80,6 +80,30 @@ The agent runtime enforces process-local protection around each run:
 `OM_AGENT_MAX_CONCURRENT_RUNS` bounds **one process**. The fleet-wide bound is `cap × replicas` — with 4 worker replicas at the default cap of 25, up to 100 runs can execute cluster-wide. The fleet-wide throttle is **worker concurrency** (`WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY` × replicas); the admission gate only protects each process's DB pool and the OpenCode service from direct-caller bursts (playground, scripts, agent fan-out).
 :::
 
+## Provider LLM budgets (native runtime)
+
+Native runs (`runtime: 'native'`, the in-process engine — historical rows may carry the legacy `'in-process'` label; treat both as one cohort) wrap every model call in a **process-local per-provider budget**: a concurrency semaphore keyed by the resolved provider id, plus automatic retry on 429/overloaded responses with jittered exponential backoff, always bounded by the run's own `OM_AGENT_RUN_TIMEOUT_MS` deadline. Budget exhaustion surfaces as the same retryable capacity error as the admission gate, so queued jobs retry and the playground returns `429` with `Retry-After`.
+
+| Env var | Default | Meaning |
+|---|---|---|
+| `OM_AGENT_PROVIDER_MAX_CONCURRENT` | `10` | Per-provider process-local cap on concurrent LLM calls (all providers). |
+| `OM_AGENT_PROVIDER_MAX_CONCURRENT_<PROVIDER>` | — | Per-provider override, uppercased id (e.g. `OM_AGENT_PROVIDER_MAX_CONCURRENT_ANTHROPIC`). |
+| `OM_AGENT_PROVIDER_RETRY_MAX` | `4` | Max retries on 429/overloaded before surfacing a retryable capacity failure. |
+| `OM_AGENT_PROVIDER_RETRY_BASE_MS` | `1000` | Backoff base (exponential + full jitter), bounded by the run deadline. |
+| `OM_AGENT_TRACE_CAPTURE` | `on` | Escape hatch (`off`) for the native runtime's always-on per-step span capture. |
+
+Like the admission gate, the provider budget is **process-local**: the aggregate pressure on a provider is `budget × replicas`. Size it so `OM_AGENT_PROVIDER_MAX_CONCURRENT × worker replicas` stays inside your provider's rate tier, and treat a sustained retry rate as the signal to lower it (or raise the provider tier) rather than relying on backoff.
+
+## Sizing for hundreds of parallel runs (native runtime)
+
+Native runs are LLM-latency-bound I/O waits — a worker at concurrency K holds K pending promises at negligible CPU cost, so "hundreds in parallel" is a fleet configuration, not an engine limit. Worked example for **100 concurrent runs**:
+
+- **5 worker replicas × `WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY=20`** = 100 slots.
+- Raise `OM_AGENT_MAX_CONCURRENT_RUNS` to ≥ 20 per process (the admission gate sits behind the queue concurrency for worker-driven runs, but direct callers share it).
+- **DB connections are the real ceiling**: 100 in-flight jobs ≈ 100 pooled connections worst case across the fleet. Set `OM_WORKERS_DB_CONNECTION_BUDGET` per process (e.g. 25 per replica), verify the logged post-clamp plan, and front Postgres with pgbouncer once `web_pool_max + Σ worker budgets + overhead` approaches `max_connections`.
+- Leave the per-provider budget at 10 unless your provider tier allows more: 5 replicas × 10 = 50 concurrent calls per provider fleet-wide; excess runs queue briefly at the budget gate instead of turning into provider 429 storms.
+- Span capture is always-on: at hundreds of parallel runs, schedule the span/tool-call retention work (F3 partitioning) alongside the rollout — see the lightweight-agent-runtime spec's Dependencies section.
+
 ## OpenCode connectivity
 
 | Env var | Default | Meaning |
@@ -110,5 +134,7 @@ Watch these signals in production:
 - **Queue depth and oldest-job age per queue** (`workflow-invoke-agent`, `workflow-activities`) — a growing oldest-job age means the fleet is undersized.
 - **Count of `agent_runs` with `status = 'running'`** — steady state should hover around the sized slot count; a monotonically growing count indicates hung runs or a timeout misconfiguration.
 - **429 / capacity-rejection rate** — sustained rejections mean the admission gate is saturated; add worker replicas or raise the caps deliberately.
+- **Provider 429 retry rate and budget wait time** (native runtime) — sustained retries or long waits at the provider gate mean `OM_AGENT_PROVIDER_MAX_CONCURRENT × replicas` exceeds your provider tier; lower the budget or raise the tier.
+- **Span-ingest lag** — native runs write their span trees post-run, best-effort; a run whose trace stays empty long after completion (with `OM_AGENT_TRACE_CAPTURE=on`) indicates capture failures — check worker logs for `native trace capture failed`.
 - **DB pool saturation** in both web and worker processes — see the connection-budget invariant above.
 - **OpenCode session count** — the single OpenCode container is a shared resource; remember the fleet-wide run bound is `cap × replicas`.

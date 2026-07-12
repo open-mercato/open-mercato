@@ -1811,6 +1811,15 @@ export type RunAiAgentObjectGenerateResult<TSchema> = {
   object: TSchema
   finishReason?: string
   usage?: { inputTokens?: number; outputTokens?: number }
+  /**
+   * Per-step records from the read-only tool loop, in the same
+   * {@link LoopStepRecord} shape the chat path's LoopTrace collector produces.
+   * Present only on the `enableTools` tool-loop branch; the toolless
+   * `generateObject`/`streamObject` paths never set it. Additive — consumed by
+   * the agent-orchestrator native runtime for per-step trace capture (spec
+   * `2026-07-07-lightweight-agent-runtime` Phase 1).
+   */
+  steps?: LoopStepRecord[]
 }
 
 export type RunAiAgentObjectStreamResult<TSchema> = {
@@ -1972,6 +1981,17 @@ export async function runAiAgentObject<TSchema = unknown>(
     const toolLoopConfig = resolveEffectiveLoopConfig(agent, input.loop, WRAPPER_DEFAULT_LOOP_CHAT)
     const toolStopConditions = translateStopConditions(toolLoopConfig, sanitizeToolNameForModel)
     const toolWrapperPrepareStep = buildWrapperPrepareStep(agent, toolLoopConfig, tools)
+    // Per-step exposure (native-runtime spec Phase 1, additive): aggregate the
+    // AI SDK's step records through the same collector the chat path uses and
+    // forward the caller's `loop.onStepFinish` — previously silently dropped on
+    // this branch. Callers that pass no `loop.onStepFinish` observe identical
+    // behavior plus the optional `steps` field on the result.
+    const toolLoopTrace = buildLoopTraceCollector(
+      agent.id,
+      effectiveObjectSessionId,
+      objectTurnId,
+      toolLoopConfig.onStepFinish,
+    )
     const toolResult = await generateText({
       model,
       system: systemPrompt,
@@ -1979,6 +1999,7 @@ export async function runAiAgentObject<TSchema = unknown>(
       tools,
       stopWhen: toolStopConditions as never,
       prepareStep: toolWrapperPrepareStep as never,
+      onStepFinish: toolLoopTrace.onStepFinish as never,
       output: Output.object({ schema: resolvedOutput.schema as never }),
       abortSignal: abortController.signal,
     })
@@ -1990,6 +2011,7 @@ export async function runAiAgentObject<TSchema = unknown>(
         inputTokens: toolResult.usage?.inputTokens,
         outputTokens: toolResult.usage?.outputTokens,
       },
+      steps: toolLoopTrace.finalize(null).steps,
     }
   }
 
