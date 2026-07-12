@@ -48,6 +48,7 @@ import {
   type ProposalView,
 } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
+import { summarizeProposalActions } from '../../components/proposalFactsData'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
 import {
   useInboxCursor,
@@ -100,6 +101,10 @@ type QueueRow = {
   agentLabel: string
   claim: string
   proposes: string
+  /** Humanized primary action type — the bounded filter vocabulary. */
+  proposesType: string | null
+  /** Raw persisted action type (`set_stage`) — tooltip material. */
+  proposesRawType: string | null
   confidencePct: number | null
   waitingLabel: string
   waitingStale: boolean
@@ -136,7 +141,6 @@ const STATUS_DOT: Record<CaseStatus, string> = {
   autoApproved: 'bg-status-info-icon',
   rejected: 'bg-status-error-icon',
 }
-const DECISION_KEYS = ['decision', 'action', 'recommendation', 'outcome', 'verdict', 'resolution', 'status']
 
 function statusOf(disposition: string): CaseStatus {
   if (disposition === 'pending') return 'actionRequired'
@@ -157,16 +161,23 @@ function fieldOf(item: Record<string, unknown>, ...keys: string[]): string {
   }
   return ''
 }
-function summarizeProposal(payload: unknown): string {
-  const obj = asObject(payload)
-  if (!obj) return '—'
-  for (const key of DECISION_KEYS) {
-    const value = obj[key]
-    if (typeof value === 'string' && value.trim()) return value
-    if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+/**
+ * What the row "Proposes" — a thin wrapper over `summarizeProposalActions`
+ * (spec 4 Phase 4): the first action's humanized type plus an action count,
+ * NEVER rationale prose. Non-canonical payloads yield '—' and the headline
+ * falls back to the agent label.
+ */
+function summarizeProposal(
+  payload: unknown,
+  more: (count: number) => string,
+): { display: string; typeLabel: string | null; typeRaw: string | null } {
+  const parts = summarizeProposalActions(payload)
+  if (!parts) return { display: '—', typeLabel: null, typeRaw: null }
+  return {
+    display: parts.extraCount > 0 ? `${parts.typeLabel} · ${more(parts.extraCount)}` : parts.typeLabel,
+    typeLabel: parts.typeLabel,
+    typeRaw: parts.typeRaw,
   }
-  const firstString = Object.values(obj).find((value) => typeof value === 'string' && value.trim())
-  return typeof firstString === 'string' ? firstString : '—'
 }
 function confidencePctOf(confidence: number | null): number | null {
   if (confidence == null) return null
@@ -200,7 +211,7 @@ function matchesSearch(row: QueueRow, query: string): boolean {
 }
 function matchesFilters(row: QueueRow, agentFilters: string[], proposesFilters: string[]): boolean {
   if (agentFilters.length > 0 && !agentFilters.includes(row.agentLabel)) return false
-  if (proposesFilters.length > 0 && !proposesFilters.includes(row.proposes)) return false
+  if (proposesFilters.length > 0 && (!row.proposesType || !proposesFilters.includes(row.proposesType))) return false
   return true
 }
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
@@ -371,11 +382,16 @@ export default function AgentCaseloadPage() {
       // (cursor, hotkeys, and bulk selection all skip them) even though the
       // dispose has not been sent yet — undo simply restores this overlay.
       const inUndoWindow = deferredApprove.pendingUndo.has(proposal.id)
+      const summary = summarizeProposal(proposal.payload, (count) =>
+        t('agent_orchestrator.caseload.proposes.more', undefined, { count }),
+      )
       return {
         id: proposal.id,
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
         claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
-        proposes: summarizeProposal(proposal.payload),
+        proposes: summary.display,
+        proposesType: summary.typeLabel,
+        proposesRawType: summary.typeRaw,
         confidencePct,
         waitingLabel: waiting.label,
         waitingStale: waiting.stale,
@@ -389,7 +405,7 @@ export default function AgentCaseloadPage() {
         pendingUndo: inUndoWindow,
       }
     })
-  }, [proposals, agentLabels, runClaims, deferredApprove.pendingUndo])
+  }, [proposals, agentLabels, runClaims, deferredApprove.pendingUndo, t])
 
   // Segment + sort are server-applied; text search and the agent/decision
   // pills narrow the LOADED page only, so both views show the same rows while
@@ -399,7 +415,24 @@ export default function AgentCaseloadPage() {
     [pageRows, search, agentFilters, proposesFilters],
   )
   const agentOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.agentLabel))).sort((a, b) => a.localeCompare(b)), [pageRows])
-  const proposesOptions = React.useMemo(() => Array.from(new Set(pageRows.map((row) => row.proposes).filter((value) => value !== '—'))).sort((a, b) => a.localeCompare(b)), [pageRows])
+  // Decision filter options are the distinct humanized ACTION TYPES — a
+  // bounded vocabulary, never prose (spec 4 Phase 4); tooltips keep the raw type.
+  const proposesOptions = React.useMemo(
+    () =>
+      Array.from(new Set(pageRows.map((row) => row.proposesType).filter((value): value is string => !!value))).sort(
+        (a, b) => a.localeCompare(b),
+      ),
+    [pageRows],
+  )
+  const proposesOptionTitles = React.useMemo(() => {
+    const titles = new Map<string, string>()
+    for (const row of pageRows) {
+      if (row.proposesType && row.proposesRawType && !titles.has(row.proposesType)) {
+        titles.set(row.proposesType, row.proposesRawType)
+      }
+    }
+    return titles
+  }, [pageRows])
   // Tab counts come from the org-level metrics endpoint (indexed disposition
   // counts), never from the loaded page.
   const counts = React.useMemo(() => {
@@ -643,7 +676,10 @@ export default function AgentCaseloadPage() {
           row.original.proposes === '—' ? (
             <span className="text-sm text-muted-foreground">—</span>
           ) : (
-            <span className="inline-flex max-w-full items-center truncate rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground" title={row.original.proposes}>
+            <span
+              className="inline-flex max-w-full items-center truncate rounded-md bg-muted px-2 py-0.5 text-xs font-medium text-foreground"
+              title={row.original.proposesRawType ?? row.original.proposes}
+            >
               {row.original.proposes}
             </span>
           ),
@@ -759,7 +795,13 @@ export default function AgentCaseloadPage() {
   const filterPills = (
     <>
       <MultiSelectPill allLabel={t('agent_orchestrator.caseload.filter.allAgents')} options={agentOptions} selected={agentFilters} onChange={setAgentFilters} />
-      <MultiSelectPill allLabel={t('agent_orchestrator.caseload.filter.allDecisions')} options={proposesOptions} selected={proposesFilters} onChange={setProposesFilters} />
+      <MultiSelectPill
+        allLabel={t('agent_orchestrator.caseload.filter.allDecisions')}
+        options={proposesOptions}
+        optionTitles={proposesOptionTitles}
+        selected={proposesFilters}
+        onChange={setProposesFilters}
+      />
       <Select value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)}>
         <SelectTrigger className="h-9 w-auto min-w-40">
           <ArrowUpDown className="size-4 shrink-0 opacity-70" />
@@ -974,11 +1016,14 @@ export default function AgentCaseloadPage() {
 function MultiSelectPill({
   allLabel,
   options,
+  optionTitles,
   selected,
   onChange,
 }: {
   allLabel: string
   options: string[]
+  /** Optional per-option tooltip (e.g. the raw action type behind a humanized label). */
+  optionTitles?: Map<string, string>
   selected: string[]
   onChange: (next: string[]) => void
 }) {
@@ -1009,6 +1054,7 @@ function MultiSelectPill({
                 key={value}
                 type="button"
                 onClick={() => toggle(value)}
+                title={optionTitles?.get(value)}
                 className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
               >
                 <Checkbox checked={selected.includes(value)} className="pointer-events-none" />

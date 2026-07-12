@@ -86,7 +86,7 @@ export function humanizeKey(key: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
 }
 
-function summarizeProposalShaped(value: ProposalShapedPayload): string | null {
+export function summarizeProposalShaped(value: ProposalShapedPayload): string | null {
   const action = value.actions.find((entry) => typeof entry?.type === 'string')
   const type = typeof action?.type === 'string' ? action.type : null
   const confidence =
@@ -96,6 +96,34 @@ function summarizeProposalShaped(value: ProposalShapedPayload): string | null {
   if (type && confidence) return `${type} · ${confidence}`
   if (type) return type
   return confidence
+}
+
+export type ProposalActionSummary = {
+  /** Raw action type as persisted (`set_stage`) — tooltip material. */
+  typeRaw: string
+  /** Humanized action type (`Set stage`) — the bounded display vocabulary. */
+  typeLabel: string
+  /** Additional actions beyond the first (`Set stage · +1 more` when 1). */
+  extraCount: number
+}
+
+/**
+ * What a canonical proposal payload proposes: the first typed action,
+ * humanized, plus how many more actions ride along. Returns null for anything
+ * that is not `{ actions: [...] }`-shaped — callers fall back to the agent
+ * label instead of leaking rationale prose (the pre-spec-4 failure mode).
+ */
+export function summarizeProposalActions(payload: unknown): ProposalActionSummary | null {
+  const shaped = asProposalShaped(payload)
+  if (!shaped) return null
+  const action = shaped.actions.find((entry) => typeof entry?.type === 'string')
+  const typeRaw = typeof action?.type === 'string' && action.type.trim() ? action.type : null
+  if (!typeRaw) return null
+  return {
+    typeRaw,
+    typeLabel: humanizeKey(typeRaw),
+    extraCount: Math.max(0, shaped.actions.length - 1),
+  }
 }
 
 const MAX_DERIVED_FACTS = 6

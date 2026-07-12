@@ -40,6 +40,8 @@ export type AgentProposalSeed = {
   stepId?: string | null
   /** Guardrail verdicts (`guard_results` jsonb) — drives the row risk chip + undo window. */
   guardResults?: Array<{ kind: string; result: 'pass' | 'warn' | 'block' }> | null
+  /** Proposal payload (canonical `{actions,…}` for summary assertions); defaults to the seed marker. */
+  payload?: unknown
   createdAt: Date
 }
 
@@ -99,7 +101,7 @@ export async function insertAgentProposalFixtures(rows: AgentProposalSeed[]): Pr
           row.organizationId,
           row.agentId,
           row.runId,
-          SEED_PAYLOAD,
+          row.payload !== undefined ? JSON.stringify(row.payload) : SEED_PAYLOAD,
           row.confidence ?? null,
           row.disposition ?? 'pending',
           row.processId ?? null,

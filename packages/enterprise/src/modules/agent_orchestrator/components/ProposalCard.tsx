@@ -15,6 +15,15 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatConfidence, type ProposalView } from './types'
 import { proposalVerdict } from './cockpitStatus'
+import { humanizeKey } from './proposalFactsData'
+import {
+  actionEditsToActions,
+  deriveActionEdits,
+  parseRawActions,
+  reassembleProposalPayload,
+  stringifyActions,
+  type ActionEdit,
+} from './proposalEdit'
 
 // Mirror the caseload status taxonomy (Action required / Approved / Rejected)
 // so the proposal detail badge reads identically to the inbox + list — and
@@ -100,17 +109,17 @@ function fieldsToPayload(fields: PayloadField[]): Record<string, unknown> {
   )
 }
 
-function humanizeKey(key: string): string {
-  const spaced = key.replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-  return spaced.charAt(0).toUpperCase() + spaced.slice(1)
-}
-
 export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }: ProposalCardProps) {
   const t = useT()
   const [mode, setMode] = React.useState<'view' | 'edit' | 'reject'>('view')
   const [payloadText, setPayloadText] = React.useState('')
   const [payloadFields, setPayloadFields] = React.useState<PayloadField[]>([])
   const [isComplexPayload, setIsComplexPayload] = React.useState(false)
+  // Structured (canonical `{actions}`) editing state — spec 4 Phase 4. The
+  // legacy whole-payload states above remain only for non-canonical payloads.
+  const [actionEdits, setActionEdits] = React.useState<ActionEdit[] | null>(null)
+  const [rawMode, setRawMode] = React.useState(false)
+  const [rawText, setRawText] = React.useState('')
   const [reason, setReason] = React.useState('')
   const [localError, setLocalError] = React.useState<string | null>(null)
 
@@ -125,13 +134,23 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
   const isPending = (proposal?.disposition ?? 'pending') === 'pending'
 
   const startEdit = React.useCallback(() => {
-    const fields = toPayloadFields(payload)
-    if (fields) {
-      setPayloadFields(fields)
-      setIsComplexPayload(false)
+    // Canonical `{actions}` payloads get the structured per-action editor;
+    // confidence/rationale are agent testimony and never become inputs.
+    const edits = deriveActionEdits(payload)
+    if (edits) {
+      setActionEdits(edits)
+      setRawMode(false)
+      setRawText(stringifyActions(actionEditsToActions(edits)))
     } else {
-      setPayloadText(stringifyPayload(payload))
-      setIsComplexPayload(true)
+      setActionEdits(null)
+      const fields = toPayloadFields(payload)
+      if (fields) {
+        setPayloadFields(fields)
+        setIsComplexPayload(false)
+      } else {
+        setPayloadText(stringifyPayload(payload))
+        setIsComplexPayload(true)
+      }
     }
     setReason('')
     setLocalError(null)
@@ -141,6 +160,44 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
   const updateField = React.useCallback((index: number, value: string | boolean) => {
     setPayloadFields((fields) => fields.map((field, i) => (i === index ? { ...field, value } : field)))
   }, [])
+
+  const updateActionField = React.useCallback((actionIndex: number, fieldIndex: number, value: string | boolean) => {
+    setActionEdits((edits) =>
+      edits
+        ? edits.map((edit, i) =>
+            i === actionIndex
+              ? { ...edit, fields: edit.fields.map((field, j) => (j === fieldIndex ? { ...field, value } : field)) }
+              : edit,
+          )
+        : edits,
+    )
+  }, [])
+
+  // The raw escape hatch edits ONLY the actions array — toggling to raw
+  // serializes the current field edits; toggling back re-derives fields from
+  // the raw text (invalid raw stays in raw mode with an inline error).
+  const toggleRawMode = React.useCallback(() => {
+    if (!actionEdits) return
+    if (!rawMode) {
+      setRawText(stringifyActions(actionEditsToActions(actionEdits)))
+      setRawMode(true)
+      setLocalError(null)
+      return
+    }
+    const parsed = parseRawActions(rawText)
+    if (!parsed.ok) {
+      setLocalError(
+        parsed.error === 'json'
+          ? t('agent_orchestrator.proposal.edit.invalidJson')
+          : t('agent_orchestrator.proposal.edit.invalidActions'),
+      )
+      return
+    }
+    const reparsed = deriveActionEdits(reassembleProposalPayload(payload, parsed.actions))
+    if (reparsed) setActionEdits(reparsed)
+    setRawMode(false)
+    setLocalError(null)
+  }, [actionEdits, rawMode, rawText, payload, t])
 
   const startReject = React.useCallback(() => {
     setReason('')
@@ -159,6 +216,27 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
       setLocalError(t('agent_orchestrator.proposal.reject.reasonRequired'))
       return
     }
+    if (actionEdits) {
+      // Structured path: zod-guard the edited actions, then reassemble the
+      // canonical payload — rationale/confidence/extra keys pass through verbatim.
+      let editedActions
+      if (rawMode) {
+        const parsed = parseRawActions(rawText)
+        if (!parsed.ok) {
+          setLocalError(
+            parsed.error === 'json'
+              ? t('agent_orchestrator.proposal.edit.invalidJson')
+              : t('agent_orchestrator.proposal.edit.invalidActions'),
+          )
+          return
+        }
+        editedActions = parsed.actions
+      } else {
+        editedActions = actionEditsToActions(actionEdits)
+      }
+      actions.onEdit(reassembleProposalPayload(payload, editedActions), reason.trim())
+      return
+    }
     let parsed: unknown
     if (isComplexPayload) {
       try {
@@ -171,7 +249,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
       parsed = fieldsToPayload(payloadFields)
     }
     actions.onEdit(parsed, reason.trim())
-  }, [actions, isComplexPayload, payloadText, payloadFields, reason, t])
+  }, [actions, actionEdits, rawMode, rawText, payload, isComplexPayload, payloadText, payloadFields, reason, t])
 
   const submitReject = React.useCallback(() => {
     if (!actions) return
@@ -260,8 +338,83 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
         {/* Inline edit / reject editors */}
         {mode === 'edit' ? (
           <section className="space-y-3" onKeyDown={handleKeyDown}>
-            <SectionHeader title={t('agent_orchestrator.proposal.edit.heading')} />
-            {isComplexPayload ? (
+            <SectionHeader
+              title={
+                actionEdits
+                  ? t('agent_orchestrator.proposal.edit.actionsHeading')
+                  : t('agent_orchestrator.proposal.edit.heading')
+              }
+              action={
+                actionEdits ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={toggleRawMode} disabled={busy}>
+                    {rawMode
+                      ? t('agent_orchestrator.proposal.edit.fieldsToggle')
+                      : t('agent_orchestrator.proposal.edit.rawToggle')}
+                  </Button>
+                ) : undefined
+              }
+            />
+            {actionEdits ? (
+              rawMode ? (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium" htmlFor="ao-edit-raw-actions">
+                    {t('agent_orchestrator.proposal.edit.rawActionsLabel')}
+                  </label>
+                  <Textarea
+                    id="ao-edit-raw-actions"
+                    value={rawText}
+                    onChange={(event) => setRawText(event.target.value)}
+                    rows={8}
+                    className="font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {actionEdits.map((edit, actionIndex) => (
+                    <div key={`${edit.type}-${actionIndex}`} className="space-y-3 rounded-lg border border-border p-3">
+                      <p className="text-sm font-medium text-foreground">
+                        {t('agent_orchestrator.proposal.edit.actionLabel', undefined, {
+                          index: actionIndex + 1,
+                          type: humanizeKey(edit.type),
+                        })}
+                      </p>
+                      {edit.fields.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">
+                          {t('agent_orchestrator.proposal.edit.noEditableFields')}
+                        </p>
+                      ) : (
+                        edit.fields.map((field, fieldIndex) => (
+                          <div key={field.key} className="space-y-1">
+                            <label
+                              className="text-sm font-medium"
+                              htmlFor={`ao-edit-action-${actionIndex}-field-${fieldIndex}`}
+                            >
+                              {humanizeKey(field.key)}
+                            </label>
+                            {field.kind === 'boolean' ? (
+                              <div>
+                                <Switch
+                                  id={`ao-edit-action-${actionIndex}-field-${fieldIndex}`}
+                                  checked={field.value === true}
+                                  onCheckedChange={(checked) => updateActionField(actionIndex, fieldIndex, checked)}
+                                />
+                              </div>
+                            ) : (
+                              <Input
+                                id={`ao-edit-action-${actionIndex}-field-${fieldIndex}`}
+                                type={field.kind === 'number' ? 'number' : 'text'}
+                                value={String(field.value)}
+                                onChange={(event) => updateActionField(actionIndex, fieldIndex, event.target.value)}
+                              />
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : isComplexPayload ? (
               <div className="space-y-1">
                 <label className="text-sm font-medium" htmlFor="ao-edit-payload">
                   {t('agent_orchestrator.proposal.edit.payloadLabel')}
