@@ -62,6 +62,39 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.identity.manage'],
   },
+  // Agentic Tasks overlay (spec 2026-07-03) — named, reusable task launchers.
+  { id: 'agent_orchestrator.tasks.view', title: 'View agentic tasks and run history', module: 'agent_orchestrator' },
+  {
+    id: 'agent_orchestrator.tasks.manage',
+    title: 'Create and configure agentic tasks',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.tasks.view'],
+  },
+  {
+    id: 'agent_orchestrator.tasks.run',
+    title: 'Run agentic tasks',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.tasks.view'],
+  },
+  // Process projection (spec 2026-06-25) — read the Processes list + detail
+  // header. Plural `processes`, matching the `proposals.*`/`agents.*` convention.
+  {
+    id: 'agent_orchestrator.processes.view',
+    title: 'View agent processes (claim-anchored caseload)',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.proposals.view'],
+  },
+  // Web egress overlay (spec 2026-07-11-agent-web-search-tool) — gates the
+  // read-only `web_search`/`web_fetch` MCP tools. Default-OFF: intentionally NOT
+  // added to the narrower `defaultRoleFeatures` in setup.ts, so an agent must be
+  // explicitly authorized for network egress. `dependsOn` agents.run because the
+  // tools are only reachable inside an agent run.
+  {
+    id: 'agent_orchestrator.web_search',
+    title: 'Use agent web search and fetch tools',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.agents.run'],
+  },
 ]
 
 export default features

@@ -22,7 +22,7 @@ See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.
 7. **MUST run `yarn generate` after editing any `agents/<id>/` file** — it re-emits the committed manifest (`generated/file-agents.generated.ts`) and the container artifacts under `docker/opencode/{agents,skills}/`. Then **restart OpenCode** (`docker compose up -d opencode`) — hot-reload is not guaranteed.
 8. **MUST scope every query by `tenantId` + `organizationId`** — runs, proposals, traces, evals, guardrail checks, context bundles, and principals are all tenant-scoped; never expose cross-tenant rows.
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
-10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path.
+10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
 11. **MUST add new `acl.ts` features to `setup.ts` `defaultRoleFeatures`** and run `yarn mercato auth sync-role-acls` so existing tenants receive the grant.
 
 ## Ask First
@@ -44,6 +44,15 @@ See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.
 - Never give a sub-agent an actionable OUTCOME or its own `subAgents` (depth cap = 1); sub-agents run under the caller's own scope, never escalated.
 - Never let an agent write outside its own Command — the fail-closed `agentNoBypassSubscriber` rejects any flush-time write not inside the agent's command path.
 - Never expose cross-tenant runs, proposals, traces, or principals; never mutate append-only audit rows.
+
+## Web Egress (`web_search` / `web_fetch`)
+
+Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`). Two `defineAiTool`s on the existing `open-mercato` MCP server; agents opt in via `tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]` in `AGENT.md` (example: `apps/mercato/src/modules/agent_examples/agents/deal_web_researcher/`).
+
+- **Egress runs server-side** in the OM process via the DI-resolved `webSearchProvider` (`lib/webSearch/`) — never the `isolated-vm` sandbox and never OpenCode's native web tools (still disabled in `docker/opencode/opencode.jsonc`). The sandbox no-net rule and the renderer are untouched; the tools are ordinary `open-mercato_agent_orchestrator_*` ids that ride the existing allowlist.
+- **Provider = SearXNG by default** (`@open-mercato/search-provider-searxng`, self-hosted, no key). Keyed adapters (Exa/Tavily) can re-register `webSearchProvider`.
+- **Gates:** default-off `agent_orchestrator.web_search` ACL feature (re-checked per MCP call via `requiredFeatures`); always-on SSRF at the socket boundary (blocks private/loopback/link-local/metadata + DNS-rebinding); domain allow/deny; per-run + per-tenant rate ceilings via `rateLimiterService`; result/byte caps. Both tools are `isMutation: false`.
+- **Ops env:** `OM_AGENT_WEB_SEARCH_BASE_URL` (SearXNG instance with JSON output; unset → tools return `not_configured`), plus optional `OM_AGENT_WEB_SEARCH_{MAX_RESULTS,TIMEOUT_MS,ALLOW_DOMAINS,DENY_DOMAINS,RATE_PER_RUN,RATE_PER_TENANT_PER_MINUTE}` and `OM_AGENT_WEB_FETCH_MAX_BYTES`.
 
 ## Validation Commands
 

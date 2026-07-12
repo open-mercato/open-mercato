@@ -45,6 +45,12 @@ confidence always routes to a human (fail-closed).
    `run_skill_script`) instead. A **local** tool is NOT listed in `AGENT.md` `tools:` — it
    auto-registers under the synthetic `__agent_tools__` skill; listing it there makes the load
    gate reject it as an unknown tool. Only `@ref` package tools belong in `tools:`.
+   - **Web egress:** for public web access, list the built-in read-only tools
+     `agent_orchestrator.web_search` / `agent_orchestrator.web_fetch` in `tools:` (example:
+     `agent_examples/agents/deal_web_researcher`). They are ACL-gated behind the default-off
+     `agent_orchestrator.web_search` feature and run server-side (never the sandbox); the tenant
+     must grant that feature and set `OM_AGENT_WEB_SEARCH_BASE_URL` (SearXNG). See the module
+     AGENTS.md → Web Egress and spec `2026-07-11-agent-web-search-tool.md`.
 3. **Sandbox.** Local `tools/*.ts` and `skills/**/scripts/*.ts` run in `isolated-vm`:
    **no `fs`, no net, no `require`, no `process`**, 30s / 32MB cap. They are pure functions of
    `args`. They cannot reach the web, the disk, or Google Drive — do not pretend they can.

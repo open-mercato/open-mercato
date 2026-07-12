@@ -16,6 +16,10 @@ import {
   AgentContextBundle,
   AgentPrincipal,
   AgentDelegationGrant,
+  AgentTaskDefinition,
+  AgentTaskRun,
+  AgentTaskEventTrigger,
+  AgentProcess,
 } from './data/entities'
 import { provisionAgentPrincipal, resolveAgentPrincipal } from './lib/identity/agentPrincipalService'
 import {
@@ -40,6 +44,7 @@ import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow
 import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
+import { resolveDefaultWebSearchProvider } from './lib/webSearch/webSearchProvider'
 import type { DispositionService } from './lib/disposition/dispositionService'
 
 export function register(container: AppContainer) {
@@ -58,6 +63,10 @@ export function register(container: AppContainer) {
     AgentContextBundle: asValue(AgentContextBundle),
     AgentPrincipal: asValue(AgentPrincipal),
     AgentDelegationGrant: asValue(AgentDelegationGrant),
+    AgentTaskDefinition: asValue(AgentTaskDefinition),
+    AgentTaskRun: asValue(AgentTaskRun),
+    AgentTaskEventTrigger: asValue(AgentTaskEventTrigger),
+    AgentProcess: asValue(AgentProcess),
     // Identity overlay (Wave 4, Phase 1): provisions a non-interactive agent
     // `User` (kind='agent') + a scoped `Role` so every internal-agent write is
     // attributed to a concrete actor id. Idempotent + org-scoped. The bound
@@ -126,6 +135,13 @@ export function register(container: AppContainer) {
     // carrying provenance (source attachment id + page/region locator) + confidence,
     // which the ContextResolver folds into the bundle as citable `document` sources.
     agentDocumentOcrProvider: asFunction(() => resolveDefaultOcrProvider(container)).scoped(),
+    // Web egress overlay (spec 2026-07-11-agent-web-search-tool): the default
+    // provider is a self-hosted SearXNG client built from `OM_AGENT_WEB_SEARCH_*`
+    // env; null when unconfigured (the tools then return `not_configured`). A test
+    // or enterprise deployment can re-register `webSearchProvider` with its own
+    // instance. The network call runs in THIS server process (allowed net), never
+    // the isolated-vm sandbox.
+    webSearchProvider: asFunction(() => resolveDefaultWebSearchProvider()).scoped(),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped(),
