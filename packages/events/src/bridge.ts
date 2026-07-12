@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -9,11 +10,20 @@ const RECONNECT_DELAY_MS = 1_000
 
 const logger = createLogger('events')
 
+/**
+ * PIDs can collide across containers, so self-echo suppression must not rely
+ * on originPid alone. Every publisher stamps envelopes with this random
+ * per-process instance id; consumers prefer it and fall back to originPid
+ * only for envelopes published by older processes during a rolling deploy.
+ */
+export const CROSS_PROCESS_EVENT_INSTANCE_ID = randomUUID()
+
 type BridgeEnvelope = {
   event: string
   payload: EventPayload
   options?: EmitOptions
   originPid: number
+  originInstanceId?: string
 }
 
 type CrossProcessEventListener = (envelope: BridgeEnvelope) => void | Promise<void>
@@ -163,6 +173,7 @@ export async function publishCrossProcessEvent(
     payload,
     options,
     originPid: process.pid,
+    originInstanceId: CROSS_PROCESS_EVENT_INSTANCE_ID,
   }
 
   const serialized = JSON.stringify(envelope)

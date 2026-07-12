@@ -608,6 +608,14 @@ export const createCommentCommand: CommandHandler<CommentCreateCommandInput, Com
       await assertDocumentCommentCapacity(em, input)
 
       const canShare = await hasDocumentCapability(ctx, em, input, 'canShare')
+      // An explicit grant request from an actor without the share capability
+      // must fail loudly instead of returning 201 with the grants silently
+      // dropped. Redo replays are exempt: their grants either already exist
+      // (mentioned users resolve a tier below) or were legitimately created
+      // by the original execution.
+      if (input.grantShares.length > 0 && !canShare && !input.redoExpectation) {
+        throw new CrudHttpError(403, { error: 'Forbidden' })
+      }
       for (const mentionedUserId of mentionUserIds) {
         const grantIdentity = grantIdentityByUserId.get(mentionedUserId)
         if (!grantIdentity || !canShare) continue

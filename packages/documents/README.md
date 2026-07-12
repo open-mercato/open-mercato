@@ -31,11 +31,11 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 | Var | Where | Default | Purpose |
 |---|---|---|---|
 | `DOCUMENTS_COLLAB_PORT` | sidecar | `4101` | WebSocket listen port |
-| `DOCUMENTS_COLLAB_REDIS_URL` | sidecar | local: `redis://127.0.0.1:6379`; production: required (or `REDIS_URL`) | Redis used to synchronize Yjs updates and awareness across sidecar replicas |
+| `DOCUMENTS_COLLAB_REDIS_URL` | sidecar | unset (or `REDIS_URL`) | Redis used to synchronize Yjs updates and awareness across sidecar replicas. When neither is set the sidecar runs single-node mode and logs a startup warning; multi-instance deployments require Redis |
 | `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` | app (client) | — | `ws(s)://…` the browser connects to; when unset the editor degrades to read-only last-saved HTML |
-| `DOCUMENTS_COLLAB_ALLOWED_ORIGINS` | sidecar | local/test: all; production: required | comma-separated exact browser origins allowed during the WebSocket handshake |
-| `DOCUMENTS_COLLAB_JWT_SECRET_V2` | app + sidecar | required | shared secret for v2 capability tokens; must contain at least 32 UTF-8 bytes |
-| `DOCUMENTS_COLLAB_JWT_SECRET` | app + sidecar | — | optional v1 rollout secret; when configured it must differ from the v2 secret |
+| `DOCUMENTS_COLLAB_ALLOWED_ORIGINS` | sidecar | local/test: all | comma-separated exact browser origins allowed during the WebSocket handshake. In production the sidecar requires an allowed origin, sourced from this var **or** `APP_URL`/`NEXT_PUBLIC_APP_URL` |
+| `DOCUMENTS_COLLAB_JWT_SECRET_V2` | app + sidecar | unset (fails closed) | shared secret for v2 capability tokens; must contain at least 32 UTF-8 bytes. When unset the app mints no token and clients fall back to non-collaborative editing |
+| `DOCUMENTS_COLLAB_JWT_SECRET` | app + sidecar | — | optional v1 rollout secret; the sidecar accepts legacy v1 tokens **only** while this is set to a ≥32-byte value that differs from the v2 secret |
 | `DOCUMENTS_COLLAB_APP_ROOT` | sidecar | auto-resolved | app root for `bootstrapFromAppRoot` (defaults to the resolved mercato app) |
 | `DOCUMENTS_COLLAB_START` | sidecar | on | set `off` to import the module without auto-starting the server (used by tests) |
 | `DATABASE_URL` | sidecar | — | required for the cross-process event bridge (force-close on unshare/delete/restore) |

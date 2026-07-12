@@ -339,6 +339,10 @@ services:
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     command: ["yarn", "documents:collab"]
     working_dir: /app
+    # Restart so a first boot that loses the race for the shared
+    # pkg_documents_dist volume (still being built by the app image) comes back
+    # up once dist is present, instead of exiting and staying dead.
+    restart: unless-stopped
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules

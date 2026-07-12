@@ -538,6 +538,10 @@ const updateDocumentCommand: CommandHandler<DocumentUpdateCommandInput, Document
 
 const deleteDocumentCommand: CommandHandler<DocumentDeleteCommandInput, DocumentCommandResult> = {
   id: 'documents.document.delete',
+  // Non-undoable by design: restoring a document would also have to revive its
+  // shares, comments, versions, links, and attachments as a consistent set,
+  // and re-open the collaboration room at the right generation. Recovery is
+  // via version restore on a re-created document, not command undo.
   isUndoable: false,
   async execute(rawInput, ctx) {
     const input = documentDeleteCommandSchema.parse(rawInput)

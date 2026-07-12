@@ -109,6 +109,8 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
   const resolveGrantAccessTo = React.useCallback(async (): Promise<string[] | undefined> => {
     const userIds = Array.from(new Set(pendingMentions.map((mention) => mention.userId.toLowerCase())))
     if (userIds.length === 0) return undefined
+    // Intentionally outside useGuardedMutation: access-check is read-shaped
+    // (a POST only to carry the user-id list in the body) and mutates nothing.
     const call = await apiCall<unknown>(
       `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userIds }) },

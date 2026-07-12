@@ -27,12 +27,13 @@ import * as Y from 'yjs'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
   COLLAB_TOKEN_CLOCK_SKEW_SECONDS,
   COLLAB_TOKEN_TTL_SECONDS,
   isCollabTokenV2Ready,
-  verifyCollabToken,
+  resolveLegacyCollabTokenVerifier,
   verifyCollabTokenV2,
   type CollabTokenClaims,
   type VerifiedCollabTokenV2Claims,
@@ -68,6 +69,8 @@ import {
 } from '@open-mercato/documents/modules/documents/lib/resourceLimits'
 
 export { htmlToYDoc, yDocToContent }
+
+const logger = createLogger('documents-collab')
 
 const MAX_COLLAB_STORE_ATTEMPTS = 4
 export const DOCUMENTS_COLLAB_MAX_AWARENESS_STATE_BYTES = 8 * 1024
@@ -167,8 +170,8 @@ export function resolveDocumentsCollabRedisExtensions<RedisExtension>(
 ): RedisExtension[] {
   const configuration = resolveDocumentsCollabRedisConfiguration(environment)
   if (!configuration) {
-    console.warn(
-      '[documents-collab] DOCUMENTS_COLLAB_REDIS_URL and REDIS_URL are unset; '
+    logger.warn(
+      'DOCUMENTS_COLLAB_REDIS_URL and REDIS_URL are unset; '
       + 'running in single-node mode. Multi-instance deployments require Redis '
       + 'for cross-instance document sync.',
     )
@@ -655,7 +658,7 @@ async function loadFreshCollabAcl(
   return rbacService.loadAcl(userId, scope)
 }
 export type CollabHooksDeps = {
-  verifyToken: (token: string) => CollabTokenClaims | null
+  verifyToken?: (token: string) => CollabTokenClaims | null
   verifyTokenV2?: (token: string) => VerifiedCollabTokenV2Claims | null
   authorizeContext: (context: CollabContext) => Promise<boolean>
   resolveAwarenessName?: (context: CollabContext) => Promise<unknown>
@@ -734,7 +737,7 @@ function normalizeTrustedOrigin(value: string): string | null {
 }
 
 export function resolveCollabAllowedOrigins(
-  env: Pick<NodeJS.ProcessEnv, 'DOCUMENTS_COLLAB_ALLOWED_ORIGINS' | 'APP_URL' | 'NEXT_PUBLIC_APP_URL'>,
+  env: { DOCUMENTS_COLLAB_ALLOWED_ORIGINS?: string; APP_URL?: string; NEXT_PUBLIC_APP_URL?: string },
 ): string[] {
   const candidates = [
     ...(env.DOCUMENTS_COLLAB_ALLOWED_ORIGINS ?? '').split(','),
@@ -800,7 +803,7 @@ function resolveCollabClaims(deps: CollabHooksDeps, token: string): CollabContex
   const v2Claims = deps.verifyTokenV2?.(token) ?? null
   if (v2Claims) return toContext(v2Claims, v2Claims.readOnly, v2Claims.exp)
 
-  const legacyClaims = deps.verifyToken(token)
+  const legacyClaims = deps.verifyToken?.(token) ?? null
   if (!legacyClaims) return null
   const exp = readLegacyTokenExpiration(token)
   return exp === null
@@ -1292,7 +1295,12 @@ export async function authorizeCollabContext(
       organizations: acl.organizations,
       organizationScope,
     })
-  } catch {
+  } catch (error) {
+    // Fail closed, but leave a trace: an RBAC/DB outage otherwise surfaces
+    // only as an unexplained mass disconnect.
+    logger.warn('collab authorization check failed; failing closed', {
+      error: error instanceof Error ? error.message : String(error),
+    })
     return false
   }
 }
@@ -1369,9 +1377,9 @@ export function createCollabHooks(deps: CollabHooksDeps) {
     // details or document data. Returning normally is intentional so
     // Hocuspocus reaches its zero-connection unload path instead of retaining
     // an invalidated, permanently authentication-blocked room.
-    console.error(invalidated
-      ? '[documents-collab] invalidated store failed; retiring in-memory room'
-      : '[documents-collab] final drain failed; retiring in-memory room')
+    logger.error(invalidated
+      ? 'invalidated store failed; retiring in-memory room'
+      : 'final drain failed; retiring in-memory room')
     return true
   }
 
@@ -1434,7 +1442,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       // never remain eligible for a later debounced/retried store. Complete
       // normally after invalidation so Hocuspocus can retire the mapped room.
       invalidateStoreRoom(data)
-      console.error('[documents-collab] store authorization failed; retiring in-memory room')
+      logger.error('store authorization failed; retiring in-memory room')
       return 'denied'
     }
 
@@ -1782,7 +1790,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
           if (materialized) materializationWarningRooms.delete(data.documentName)
           if (!materialized && !materializationWarningRooms.has(data.documentName)) {
             materializationWarningRooms.add(data.documentName)
-            console.warn(`[documents-collab] materialization failed for room ${data.documentName}; preserving previous html/text`)
+            logger.warn('materialization failed; preserving previous html/text', { room: data.documentName })
           }
           const yjsState = Buffer.from(Y.encodeStateAsUpdate(data.document))
           const resourceBudgetRevision = roomResourceBudgets.get(data.document)?.revision ?? 0
@@ -1955,16 +1963,22 @@ type DocumentsCrossProcessEventEnvelope = {
   event: string
   payload: unknown
   originPid?: unknown
+  originInstanceId?: unknown
 }
 
 /**
- * The Events bridge includes the publisher PID in every envelope. Keep the
- * self-echo check local so the Documents sidecar works with the existing
- * public bridge API and does not require a new Events-package helper.
+ * The Events bridge stamps every envelope with the publisher's random
+ * per-process instance id. Prefer it over originPid — PIDs can collide across
+ * containers — and keep the PID comparison only as a fallback for envelopes
+ * published by older processes during a rolling deploy.
  */
 export function isOwnDocumentsCrossProcessEvent(
   envelope: DocumentsCrossProcessEventEnvelope,
+  ownInstanceId?: string,
 ): boolean {
+  if (typeof envelope.originInstanceId === 'string' && ownInstanceId) {
+    return envelope.originInstanceId === ownInstanceId
+  }
   return envelope.originPid === process.pid
 }
 
@@ -1978,7 +1992,7 @@ export async function main(): Promise<void> {
     { Connection, Server },
     { bootstrapFromAppRoot },
     { createRequestContainer },
-    { registerCrossProcessEventListener },
+    { registerCrossProcessEventListener, CROSS_PROCESS_EVENT_INSTANCE_ID },
   ] = await Promise.all([
     import('@hocuspocus/server'),
     import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
@@ -2000,8 +2014,9 @@ export async function main(): Promise<void> {
   const invalidatedRoomDocuments = new WeakSet<Y.Doc>()
   const finalDrainRegistry = createCollabFinalDrainRegistry()
   let server: HocuspocusServer<CollabContext> | null = null
+  const legacyTokenVerifier = resolveLegacyCollabTokenVerifier(process.env)
   const hooks = createCollabHooks({
-    verifyToken: verifyCollabToken,
+    ...(legacyTokenVerifier ? { verifyToken: legacyTokenVerifier } : {}),
     verifyTokenV2: verifyCollabTokenV2,
     authorizeContext: async (context) => {
       const container = await createRequestContainer()
@@ -2174,7 +2189,7 @@ export async function main(): Promise<void> {
   await runningServer.listen()
 
   registerCrossProcessEventListener((envelope: DocumentsCrossProcessEventEnvelope) => {
-    if (isOwnDocumentsCrossProcessEvent(envelope)) return
+    if (isOwnDocumentsCrossProcessEvent(envelope, CROSS_PROCESS_EVENT_INSTANCE_ID)) return
     const action = resolveCollabRoomEventAction(envelope.event, envelope.payload)
     if (action === 'ignore') return
     const documentId = eventDocumentId(envelope.payload)
@@ -2197,12 +2212,38 @@ export async function main(): Promise<void> {
     runningServer.hocuspocus.closeConnections(documentId)
   })
 
-  console.log(`[documents-collab] listening on :${port}`)
+  // Hocuspocus debounces onStoreDocument, so an unhandled SIGTERM/SIGINT
+  // (docker stop, redeploy) would drop the last seconds of edits. destroy()
+  // unloads every document, which drains pending stores before the process
+  // exits.
+  let shuttingDown = false
+  const shutdown = (signal: NodeJS.Signals): void => {
+    if (shuttingDown) return
+    shuttingDown = true
+    logger.info('shutting down; draining pending document stores', { signal })
+    void runningServer
+      .destroy()
+      .catch((error: unknown) => {
+        logger.error('graceful shutdown failed', {
+          error: error instanceof Error ? error.message : String(error),
+        })
+        process.exitCode = 1
+      })
+      .finally(() => {
+        process.exit(process.exitCode ?? 0)
+      })
+  }
+  process.once('SIGTERM', shutdown)
+  process.once('SIGINT', shutdown)
+
+  logger.info(`listening on :${port}`)
 }
 
 if (process.env.DOCUMENTS_COLLAB_START !== 'off' && isMainModule()) {
   void main().catch((error: unknown) => {
-    console.error('[documents-collab] failed to start', error)
+    logger.error('failed to start', {
+      error: error instanceof Error ? (error.stack ?? error.message) : String(error),
+    })
     process.exitCode = 1
   })
 }

@@ -10,6 +10,20 @@ const mockCreateRequestContainer = jest.fn()
 const mockGetAuthFromRequest = jest.fn()
 const mockResolveOrganizationScopeForRequest = jest.fn()
 const mockResolveUserLabels = jest.fn()
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: jest.fn(),
+      child: () => logger,
+    }
+    return logger
+  },
+}))
 
 jest.mock('@open-mercato/shared/lib/di/container', () => ({
   createRequestContainer: (...args: unknown[]) => mockCreateRequestContainer(...args),
@@ -144,33 +158,29 @@ describe('collaboration token route capabilities', () => {
 
   it('degrades to the graceful non-collab response when the v2 secret is not ready', async () => {
     delete process.env.DOCUMENTS_COLLAB_JWT_SECRET_V2
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockLoggerWarn.mockClear()
 
-    try {
-      const response = await GET(request(), context())
-      const body = await response.json() as Record<string, unknown>
+    const response = await GET(request(), context())
+    const body = await response.json() as Record<string, unknown>
 
-      expect(response.status).toBe(200)
-      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
-      expect(body).toMatchObject({
-        token: '',
-        url: null,
-        documentId: DOCUMENT_ID,
-        tier: 'owner',
-        canEdit: false,
-        readOnly: true,
-        userName: 'Generic collaborator',
-        user: {
-          id: USER_ID,
-          name: 'Generic collaborator',
-        },
-      })
-      expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('DOCUMENTS_COLLAB_JWT_SECRET_V2'),
-      )
-    } finally {
-      warnSpy.mockRestore()
-    }
+    expect(response.status).toBe(200)
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+    expect(body).toMatchObject({
+      token: '',
+      url: null,
+      documentId: DOCUMENT_ID,
+      tier: 'owner',
+      canEdit: false,
+      readOnly: true,
+      userName: 'Generic collaborator',
+      user: {
+        id: USER_ID,
+        name: 'Generic collaborator',
+      },
+    })
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('DOCUMENTS_COLLAB_JWT_SECRET_V2'),
+    )
   })
 
   it('rejects a too-short v2 secret the same graceful way', async () => {

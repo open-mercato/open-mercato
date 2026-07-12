@@ -1,3 +1,19 @@
+const mockLoggerError = jest.fn()
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: (...args: unknown[]) => mockLoggerError(...args),
+      child: () => logger,
+    }
+    return logger
+  },
+}))
+
 import {
   assertCollabInboundFramePolicy,
   COLLAB_SERVER_RUNTIME_CONFIGURATION,
@@ -85,38 +101,30 @@ describe('documents collaboration Redis configuration', () => {
   })
 
   it('warns about single-node mode instead of requiring Redis at startup', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockLoggerWarn.mockClear()
     const createRedisExtension = jest.fn(() => ({ kind: 'redis-extension' }))
-    try {
-      expect(resolveDocumentsCollabRedisExtensions({ NODE_ENV: 'production' }, createRedisExtension))
-        .toEqual([])
-      expect(createRedisExtension).not.toHaveBeenCalled()
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('single-node mode'))
-    } finally {
-      warnSpy.mockRestore()
-    }
+    expect(resolveDocumentsCollabRedisExtensions({ NODE_ENV: 'production' }, createRedisExtension))
+      .toEqual([])
+    expect(createRedisExtension).not.toHaveBeenCalled()
+    expect(mockLoggerWarn).toHaveBeenCalledWith(expect.stringContaining('single-node mode'))
   })
 
   it('activates the Redis extension when a URL is explicitly configured', () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    mockLoggerWarn.mockClear()
     const createRedisExtension = jest.fn(
       (configuration: DocumentsCollabRedisConfiguration) => ({ configuration }),
     )
-    try {
-      const extensions = resolveDocumentsCollabRedisExtensions(
-        { NODE_ENV: 'production', REDIS_URL: 'redis://cache.example.test:6380/2' },
-        createRedisExtension,
-      )
-      expect(extensions).toHaveLength(1)
-      expect(createRedisExtension).toHaveBeenCalledWith(expect.objectContaining({
-        host: 'cache.example.test',
-        port: 6380,
-        options: expect.objectContaining({ db: 2 }),
-      }))
-      expect(warnSpy).not.toHaveBeenCalled()
-    } finally {
-      warnSpy.mockRestore()
-    }
+    const extensions = resolveDocumentsCollabRedisExtensions(
+      { NODE_ENV: 'production', REDIS_URL: 'redis://cache.example.test:6380/2' },
+      createRedisExtension,
+    )
+    expect(extensions).toHaveLength(1)
+    expect(createRedisExtension).toHaveBeenCalledWith(expect.objectContaining({
+      host: 'cache.example.test',
+      port: 6380,
+      options: expect.objectContaining({ db: 2 }),
+    }))
+    expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
 })
 
@@ -688,7 +696,7 @@ describe('documents collaboration v2 server contract', () => {
       const persistence = new Promise<never>((_resolve, reject) => {
         rejectPersistence = reject
       })
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+      mockLoggerError.mockClear()
       let runtime!: Hocuspocus<typeof context>
       const hooks = createCollabHooks({
         verifyToken: () => null,
@@ -767,11 +775,10 @@ describe('documents collaboration v2 server contract', () => {
         expect(finalDrainRegistry.isMarked(document)).toBe(false)
         expect(invalidatedRooms.has(document)).toBe(true)
         expect(runtime.documents.has(DOCUMENT_ID)).toBe(false)
-        expect(errorSpy).toHaveBeenCalledWith(
-          '[documents-collab] final drain failed; retiring in-memory room',
+        expect(mockLoggerError).toHaveBeenCalledWith(
+          expect.stringContaining('final drain failed; retiring in-memory room'),
         )
       } finally {
-        errorSpy.mockRestore()
         for (const document of runtime.documents.values()) {
           await runtime.unloadDocument(document)
         }
@@ -799,7 +806,7 @@ describe('documents collaboration v2 server contract', () => {
       resolve: (name: string) => name === 'em' ? {} : { indexRecordById: async () => undefined },
     }
     let containerCalls = 0
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockLoggerError.mockClear()
     let runtime!: Hocuspocus<typeof context>
     const hooks = createCollabHooks({
       verifyToken: () => null,
@@ -874,11 +881,10 @@ describe('documents collaboration v2 server contract', () => {
         await new Promise<void>((resolve) => setTimeout(resolve, 0))
       }
       expect(runtime.documents.has(DOCUMENT_ID)).toBe(false)
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[documents-collab] invalidated store failed; retiring in-memory room',
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('invalidated store failed; retiring in-memory room'),
       )
     } finally {
-      errorSpy.mockRestore()
       for (const document of runtime.documents.values()) {
         await runtime.unloadDocument(document)
       }

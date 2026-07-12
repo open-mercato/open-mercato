@@ -1,3 +1,4 @@
+import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ApiKeyPrincipalService, PrincipalScope } from '@open-mercato/shared/lib/auth/principal-service'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
@@ -17,7 +18,12 @@ export class DefaultApiKeyPrincipalService implements ApiKeyPrincipalService {
     const apiKey = await findOneWithDecryption(
       this.em,
       ApiKey,
-      { id: apiKeyId, tenantId: scope.tenantId, deletedAt: null },
+      {
+        id: apiKeyId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+        $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
+      } as FilterQuery<ApiKey>,
       { fields: ['rolesJson', 'expiresAt'] as const },
       scope,
     )

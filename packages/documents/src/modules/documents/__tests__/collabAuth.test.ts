@@ -1,3 +1,19 @@
+const mockLoggerError = jest.fn()
+const mockLoggerWarn = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: (...args: unknown[]) => mockLoggerWarn(...args),
+      error: (...args: unknown[]) => mockLoggerError(...args),
+      child: () => logger,
+    }
+    return logger
+  },
+}))
+
 import * as Y from 'yjs'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -1116,7 +1132,7 @@ describe('documents collab auth hooks', () => {
 
   it('fails closed and invalidates the room when store authorization throws', async () => {
     const authorizationFailure = new Error('authorization unavailable')
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockLoggerError.mockClear()
     const authorizeContext = jest.fn()
       .mockResolvedValueOnce(true)
       .mockResolvedValueOnce(true)
@@ -1145,11 +1161,10 @@ describe('documents collab auth hooks', () => {
     expect(persistSpy).not.toHaveBeenCalled()
     expect(invalidateRoom).toHaveBeenCalledTimes(1)
     expect(invalidateRoom).toHaveBeenCalledWith(DOC, document)
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[documents-collab] store authorization failed; retiring in-memory room',
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.stringContaining('store authorization failed; retiring in-memory room'),
     )
     await expect(finalDrainRegistry.consume(document)).resolves.toBe('unmarked')
-    errorSpy.mockRestore()
   })
 
   it('discards a granted drain and invalidates the room when its durable write fails', async () => {
@@ -1157,7 +1172,7 @@ describe('documents collab auth hooks', () => {
     let liveConnections = 1
     const finalDrainRegistry = createCollabFinalDrainRegistry(() => liveConnections)
     const persistenceFailure = new Error('durable store unavailable')
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    mockLoggerError.mockClear()
     const invalidateRoom = jest.fn()
     const { hooks } = makeHooks({
       authorizeContext: async () => false,
@@ -1185,11 +1200,10 @@ describe('documents collab auth hooks', () => {
     expect(finalDrainRegistry.isMarked(document)).toBe(false)
     expect(invalidateRoom).toHaveBeenCalledTimes(1)
     expect(invalidateRoom).toHaveBeenCalledWith(DOC, document)
-    expect(errorSpy).toHaveBeenCalledWith(
-      '[documents-collab] final drain failed; retiring in-memory room',
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      expect.stringContaining('final drain failed; retiring in-memory room'),
     )
     await expect(finalDrainRegistry.consume(document)).resolves.toBe('unmarked')
-    errorSpy.mockRestore()
   })
 
   it('rechecks authorization before a multi-replica CAS retry', async () => {

@@ -106,6 +106,17 @@ test.describe('TC-DOCUMENTS-011: deterministic preview and atomic template insta
       expect(searchable.status()).toBe(200)
       expect(searchableBody?.items?.some((item) => item.id === template?.id)).toBe(true)
 
+      const detailResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/templates/${template.id}`,
+        { token },
+      )
+      const detailBody = await readJsonSafe<{ id?: string; bodyHtml?: string }>(detailResponse)
+      expect(detailResponse.status(), 'manager reads the full template body').toBe(200)
+      expect(detailBody?.id).toBe(template.id)
+      expect(detailBody?.bodyHtml).toContain('{{product.title}}')
+
       const renderInput = {
         templateUpdatedAt: template.updatedAt,
         title,

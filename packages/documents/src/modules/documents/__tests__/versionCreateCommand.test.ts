@@ -155,7 +155,6 @@ function input(overrides: Partial<CreateVersionCommandInput> = {}): CreateVersio
     documentId,
     versionId,
     label: 'Before review',
-    createdAt,
     ...overrides,
   }
 }
@@ -169,7 +168,7 @@ describe('documents.version.create command', () => {
     const harness = buildHarness()
     const result = await createVersionCommand.execute(input(), harness.ctx)
 
-    expect(result).toMatchObject({ id: versionId, createdAt, label: 'Before review' })
+    expect(result).toMatchObject({ id: versionId, createdAt: expect.any(String), label: 'Before review' })
     expect(harness.getPersistedVersion()?.yjsSnapshot).toEqual(Buffer.from('snapshot'))
     expect(harness.order).toEqual([
       'begin',
@@ -216,7 +215,7 @@ describe('documents.version.create command', () => {
         versionId,
         documentId,
         contentDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
-        createdAt,
+        createdAt: expect.any(String),
       },
     })
     expect((log as { payload?: Record<string, unknown> }).payload).not.toHaveProperty('undo')

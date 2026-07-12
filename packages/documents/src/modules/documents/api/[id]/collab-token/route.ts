@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   COLLAB_TOKEN_TTL_SECONDS,
   isCollabTokenV2Ready,
@@ -45,13 +46,15 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['documents.view'] },
 }
 
+const logger = createLogger('documents').child({ component: 'api' })
+
 let warnedCollabTokenSecretNotReady = false
 
 function warnCollabTokenSecretNotReadyOnce(): void {
   if (warnedCollabTokenSecretNotReady) return
   warnedCollabTokenSecretNotReady = true
-  console.warn(
-    '[documents] DOCUMENTS_COLLAB_JWT_SECRET_V2 is missing, shorter than 32 UTF-8 bytes, '
+  logger.warn(
+    'DOCUMENTS_COLLAB_JWT_SECRET_V2 is missing, shorter than 32 UTF-8 bytes, '
     + 'or equal to DOCUMENTS_COLLAB_JWT_SECRET; collaboration tokens cannot be minted '
     + 'and clients fall back to non-collaborative editing.',
   )

@@ -54,6 +54,13 @@ type FolderListBody = {
   items?: FolderNode[]
 }
 
+type PrincipalsBody = {
+  items?: Array<{ id?: string; label?: string; secondary?: string | null }>
+  total?: number
+  page?: number
+  pageSize?: number
+}
+
 type TestUser = {
   id: string
   roleId: string
@@ -515,6 +522,59 @@ test.describe('TC-DOCUMENTS-009: capability, folder, token, and readiness harden
       await deleteFolderIfExists(request, adminToken, ownedFolder)
       await deleteUserIfExists(request, adminToken, owner?.id ?? null)
       await deleteRoleIfExists(request, adminToken, owner?.roleId ?? null)
+    }
+  })
+
+  test('scopes the principal picker to viewers and rejects unauthenticated and no-view callers', async ({ request }) => {
+    const stamp = Date.now()
+    let adminToken: string | null = null
+    let noView: TestUser | null = null
+    let document: CreatedRecord | null = null
+
+    try {
+      adminToken = await getAuthToken(request, 'admin')
+      const scope = getTokenContext(adminToken)
+      noView = await createTestUser(request, adminToken, {
+        label: 'no-view',
+        stamp,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        features: ['documents.create'],
+      })
+      document = await createDocument(
+        request,
+        adminToken,
+        `TC-DOCUMENTS-009 principals ${stamp}`,
+        null,
+      )
+
+      const authorized = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${encodeURIComponent(document.id)}/principals`,
+        { token: adminToken },
+      )
+      const authorizedBody = await readJsonSafe<PrincipalsBody>(authorized)
+      expect(authorized.status(), 'documents.view caller lists principals').toBe(200)
+      expect(Array.isArray(authorizedBody?.items)).toBe(true)
+      expect(authorizedBody?.pageSize).toBeLessThanOrEqual(20)
+
+      const denied = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${encodeURIComponent(document.id)}/principals`,
+        { token: noView.token },
+      )
+      expect(denied.status(), 'caller without documents.view is forbidden').toBe(403)
+
+      const unauthenticated = await request.get(
+        `/api/documents/${encodeURIComponent(document.id)}/principals`,
+      )
+      expect(unauthenticated.status(), 'unauthenticated caller is rejected').toBe(401)
+    } finally {
+      await deleteDocumentIfExists(request, adminToken, document)
+      await deleteUserIfExists(request, adminToken, noView?.id ?? null)
+      await deleteRoleIfExists(request, adminToken, noView?.roleId ?? null)
     }
   })
 

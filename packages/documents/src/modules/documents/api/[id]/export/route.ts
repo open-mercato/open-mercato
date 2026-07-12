@@ -370,7 +370,10 @@ export function isAllowedPdfAssetRequest(request: PdfRequestDescriptor): boolean
 async function handleExport(
   request: Request,
   context: RouteContext,
-  snapshot?: z.infer<typeof docxSnapshotSchema>,
+  options?: {
+    loadSnapshot?: () => Promise<z.infer<typeof docxSnapshotSchema>>
+    operation?: string
+  },
 ): Promise<Response> {
   try {
     const format = resolveExportFormat(new URL(request.url).searchParams.get('format'))
@@ -382,6 +385,10 @@ async function handleExport(
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     await assertTier(ctx.em, id, ctx.auth, 'viewer')
     const doc = await loadScopedDocument(ctx, id)
+    // The snapshot body is buffered and validated only after the caller has
+    // proven document access, so an unauthenticated request cannot make the
+    // server process multi-megabyte payloads.
+    const snapshot = options?.loadSnapshot ? await options.loadSnapshot() : undefined
     const content = await loadDocumentContent(ctx.em, id, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -463,7 +470,7 @@ async function handleExport(
       },
     })
   } catch (error) {
-    return handleDocumentsRouteError(error, 'documents.export.get')
+    return handleDocumentsRouteError(error, options?.operation ?? 'documents.export.get')
   }
 }
 
@@ -472,12 +479,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 }
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
-  try {
-    const snapshot = docxSnapshotSchema.parse(await readBody(request))
-    return await handleExport(request, context, snapshot)
-  } catch (error) {
-    return handleDocumentsRouteError(error, 'documents.export.post')
-  }
+  return handleExport(request, context, {
+    loadSnapshot: async () => docxSnapshotSchema.parse(await readBody(request)),
+    operation: 'documents.export.post',
+  })
 }
 
 export const openApi: OpenApiRouteDoc = {

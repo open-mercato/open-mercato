@@ -3,6 +3,16 @@ jest.mock('puppeteer-core', () => ({
   default: { launch: jest.fn() },
 }))
 
+const mockGetAuthFromRequest = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/di/container', () => ({
+  createRequestContainer: async () => ({ resolve: () => ({}) }),
+}))
+
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({
+  getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
+}))
+
 import { deflateSync } from 'node:zlib'
 
 import {
@@ -113,7 +123,11 @@ describe('document DOCX export resource policy', () => {
     expect(html).toBe('<p>Safe</p>')
   })
 
-  it('returns a 400 validation response for a malformed JSON snapshot body', async () => {
+  it('rejects an unauthenticated snapshot POST before parsing its body', async () => {
+    // Auth is resolved before the snapshot body is buffered/validated, so an
+    // unauthenticated caller cannot make the server process a large payload.
+    mockGetAuthFromRequest.mockResolvedValue(null)
+
     const response = await POST(
       new Request('http://localhost/api/documents/00000000-0000-4000-8000-000000000000/export?format=docx', {
         method: 'POST',
@@ -123,10 +137,7 @@ describe('document DOCX export resource policy', () => {
       { params: { id: '00000000-0000-4000-8000-000000000000' } },
     )
 
-    expect(response.status).toBe(400)
-    const body = await response.json()
-    expect(typeof body.error).toBe('string')
-    expect(Array.isArray(body.details)).toBe(true)
+    expect(response.status).toBe(401)
   })
 })
 

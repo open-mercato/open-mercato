@@ -11,6 +11,8 @@ import {
   handleDocumentsRouteError,
   resolveDocumentsContext,
   routeErrorSchema,
+  runMutationGuardAfterSuccess,
+  validateMutationGuard,
 } from '../../../_shared'
 
 type RouteContext = {
@@ -18,10 +20,12 @@ type RouteContext = {
 }
 
 const attachmentBinaryResponseSchema = z.unknown().describe('Binary file content')
+const attachmentDeleteResponseSchema = z.object({ ok: z.boolean() })
 const DOCUMENT_ATTACHMENT_PARTITION_CODE = 'privateAttachments'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['documents.view'] },
+  DELETE: { requireAuth: true, requireFeatures: ['documents.edit'] },
 }
 
 async function resolveParams(context: RouteContext): Promise<{ documentId: string; attachmentId: string }> {
@@ -83,6 +87,36 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
   }
 }
 
+// Detach soft-deletes only the documents-owned association row. The
+// underlying attachments-module record and blob stay untouched: older
+// document versions may still embed the file, and blob lifecycle belongs to
+// the attachments module. Detached attachments stop blocking undo of
+// document create/instantiate (commands/aggregate.ts filters deletedAt: null).
+export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
+  try {
+    const { documentId, attachmentId } = await resolveParams(context)
+    const ctx = await resolveDocumentsContext(request, ['documents.edit'])
+    await assertTier(ctx.em, documentId, ctx.auth, 'editor')
+    const documentAttachment = await loadDocumentAttachment(ctx, documentId, attachmentId)
+    const guardResult = await validateMutationGuard(ctx, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
+      resourceId: documentAttachment.id,
+      operation: 'delete',
+      mutationPayload: { documentId, attachmentId },
+    })
+    documentAttachment.deletedAt = new Date()
+    await ctx.em.flush()
+    await runMutationGuardAfterSuccess(ctx, guardResult, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
+      resourceId: documentAttachment.id,
+      operation: 'delete',
+    })
+    return NextResponse.json({ ok: true })
+  } catch (error) {
+    return handleDocumentsRouteError(error, 'documents.attachments.delete')
+  }
+}
+
 export const openApi: OpenApiRouteDoc = {
   tag: 'Documents',
   summary: 'Read document attachment',
@@ -102,7 +136,16 @@ export const openApi: OpenApiRouteDoc = {
         { status: 503, description: 'Attachment service unavailable', schema: routeErrorSchema },
       ],
     },
+    DELETE: {
+      summary: 'Detach a document-scoped attachment',
+      responses: [{ status: 200, description: 'Attachment detached', schema: attachmentDeleteResponseSchema }],
+      errors: [
+        { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
+        { status: 403, description: 'Forbidden', schema: routeErrorSchema },
+        { status: 404, description: 'Attachment not found', schema: routeErrorSchema },
+      ],
+    },
   },
 }
 
-export default { GET }
+export default { GET, DELETE }

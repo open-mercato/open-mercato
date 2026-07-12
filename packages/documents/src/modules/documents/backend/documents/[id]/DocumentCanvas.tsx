@@ -61,7 +61,7 @@ export function DocumentCanvas({
         {outlineOpen ? <OutlinePane editor={editor} /> : null}
         <article className="om-doc-paper mx-auto flex-none bg-card sm:rounded-sm sm:shadow-lg">
           {readOnly ? (
-            <h1 className="mb-8 text-3xl font-semibold leading-tight text-foreground">{title.value}</h1>
+            <h1 className="mb-6 text-xl font-semibold leading-tight text-foreground sm:mb-8 sm:text-3xl">{title.value}</h1>
           ) : (
             <Input
               value={title.value}
@@ -71,7 +71,7 @@ export function DocumentCanvas({
               maxLength={512}
               disabled={title.saving}
               aria-label={t('documents.editor.title.ariaLabel')}
-              className="mb-6 h-auto border-0 bg-transparent px-0 py-0 text-3xl font-semibold leading-tight text-foreground shadow-none focus-visible:shadow-focus max-sm:text-xl sm:mb-8"
+              className="mb-6 h-auto border-0 bg-transparent px-0 py-0 text-xl font-semibold leading-tight text-foreground shadow-none focus-visible:shadow-focus sm:mb-8 sm:text-3xl"
             />
           )}
           {editor ? (

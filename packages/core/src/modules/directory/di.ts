@@ -9,6 +9,8 @@ export function register(container: AppContainer) {
   container.register({
     organizationScopeService: asFunction((cradle: { em: EntityManager; rbacService: OrganizationScopeRbac }) =>
       new DefaultOrganizationScopeService(cradle.em, cradle.rbacService, container),
-    ).scoped(),
+    )
+      .scoped()
+      .proxy(),
   })
 }

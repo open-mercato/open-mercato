@@ -10,7 +10,7 @@ import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
 } from '@open-mercato/shared/lib/modules/resource-usage'
-export { registerCrossProcessEventListener } from './bridge'
+export { registerCrossProcessEventListener, CROSS_PROCESS_EVENT_INSTANCE_ID } from './bridge'
 import { publishCrossProcessEvent } from './bridge'
 import type {
   EventBus,

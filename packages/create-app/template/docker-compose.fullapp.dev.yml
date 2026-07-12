@@ -88,6 +88,9 @@ services:
         - "host.docker.internal:host-gateway"
     command: ["yarn", "documents:collab"]
     working_dir: /app
+    # Restart so a first boot that races the shared app build comes back up
+    # once its dependencies are present, instead of exiting and staying dead.
+    restart: unless-stopped
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules

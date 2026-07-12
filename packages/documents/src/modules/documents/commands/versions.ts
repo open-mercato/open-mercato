@@ -41,7 +41,6 @@ export const createVersionCommandSchema = documentsScopedCommandSchema.extend({
   documentId: z.string().uuid(),
   versionId: z.string().uuid(),
   label: documentVersionLabelSchema,
-  createdAt: z.string().datetime().optional(),
 })
 
 export type CreateVersionCommandInput = z.infer<typeof createVersionCommandSchema>
@@ -336,7 +335,6 @@ const createVersionCommand: CommandHandler<CreateVersionCommandInput, CreateVers
         yjsSnapshot,
         contentHtml,
         createdByUserId: actorUserId,
-        ...(input.createdAt ? { createdAt: new Date(input.createdAt) } : {}),
       })
       await persistRetentionBoundVersion(em, input, version, [input.versionId])
     }], { transaction: true, label: 'documents.version.create' })

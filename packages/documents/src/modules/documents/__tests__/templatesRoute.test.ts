@@ -191,6 +191,7 @@ describe('documents templates route', () => {
   })
 
   it('applies bounded database pagination when pagination is omitted', async () => {
+    mockAcl(['documents.view', 'documents.templates.manage'])
     const templates = Array.from({ length: 50 }, (_, index) => ({
       id: `11111111-1111-4111-8111-${String(index).padStart(12, '0')}`,
       name: `Template ${index}`,
@@ -289,6 +290,7 @@ describe('documents templates route', () => {
   })
 
   it('returns the scoped full body from the selected-template detail endpoint', async () => {
+    mockAcl(['documents.view', 'documents.templates.manage'])
     mockEm.findOne.mockResolvedValue({
       id: TEMPLATE_ID,
       tenantId: TENANT_ID,
@@ -325,16 +327,40 @@ describe('documents templates route', () => {
     })
   })
 
+  it('denies the selected-template detail endpoint to a view-only caller', async () => {
+    mockAcl(['documents.view'])
+    mockEm.findOne.mockResolvedValue({
+      id: TEMPLATE_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      name: 'Selected template',
+      bodyHtml: '<p>Selected body</p>',
+      contextSlots: null,
+      isActive: true,
+      createdAt: new Date('2026-07-10T09:00:00.000Z'),
+      updatedAt: new Date('2026-07-10T10:00:00.000Z'),
+    })
+
+    const response = await GET_DETAIL(
+      new Request(`http://localhost/api/documents/templates/${TEMPLATE_ID}`),
+      { params: { templateId: TEMPLATE_ID } },
+    )
+
+    expect(response.status).toBe(403)
+  })
+
   it('bounds template reads with database pagination', async () => {
     mockAcl(['documents.view'])
 
     const response = await GET(new Request('http://localhost/api/documents/templates?page=2&pageSize=25'))
 
     expect(response.status).toBe(200)
+    // A view-only caller never receives bodies, so the list loads the bounded
+    // summary projection.
     expect(mockEm.find).toHaveBeenCalledWith(
       DocumentTemplate,
       expect.objectContaining({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID, deletedAt: null }),
-      { orderBy: { name: 'ASC', id: 'ASC' }, limit: 25, offset: 25 },
+      expect.objectContaining({ orderBy: { name: 'ASC', id: 'ASC' }, limit: 25, offset: 25 }),
     )
     expect(mockEm.count).toHaveBeenCalledWith(
       DocumentTemplate,
@@ -390,12 +416,12 @@ describe('documents templates route', () => {
       [
         DocumentTemplate,
         expect.objectContaining(searchedFields),
-        { orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 0 },
+        expect.objectContaining({ orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 0 }),
       ],
       [
         DocumentTemplate,
         expect.objectContaining(searchedFields),
-        { orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 1 },
+        expect.objectContaining({ orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 1 }),
       ],
     ])
     await expect(firstResponse.json()).resolves.toMatchObject({
@@ -439,7 +465,7 @@ describe('documents templates route', () => {
         deletedAt: null,
         isActive: true,
       }),
-      { orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 0 },
+      expect.objectContaining({ orderBy: { name: 'ASC', id: 'ASC' }, limit: 1, offset: 0 }),
     )
     await expect(response.json()).resolves.toMatchObject({
       items: [expect.objectContaining({ id: TEMPLATE_ID, isActive: true })],

@@ -100,8 +100,17 @@ services:
         - "host.docker.internal:host-gateway"
     command: ["yarn", "documents:collab"]
     working_dir: /app
+    restart: unless-stopped
     ports:
       - "${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
+    # Liveness only: any HTTP reply (including 503 when collaboration is not
+    # configured) means the process is serving; a connection error means it is
+    # down. Readiness would false-negative on the optional collab feature.
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:'+(process.env.DOCUMENTS_COLLAB_PORT||4101)+'/healthz',r=>process.exit(0)).on('error',()=>process.exit(1))\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}

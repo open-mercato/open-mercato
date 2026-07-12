@@ -28,14 +28,19 @@ const templateDetailResponseSchema = z.object({
   createdAt: z.string(),
 })
 
+// The detail endpoint exists to serve the template editor, which reveals the
+// full body. Gate it on the same manage feature as every template mutation so
+// a view-only user cannot read template boilerplate. Instantiation flows never
+// hit this route: they render slots via the list (bodies excluded) and the
+// server-side preview/instantiate endpoints.
 export const metadata = {
-  GET: { requireAuth: true, requireFeatures: ['documents.view'] },
+  GET: { requireAuth: true, requireFeatures: ['documents.templates.manage'] },
 }
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
     const templateId = templateIdSchema.parse((await context.params).templateId)
-    const ctx = await resolveDocumentsContext(request, ['documents.view'])
+    const ctx = await resolveDocumentsContext(request, ['documents.templates.manage'])
     const template = await findOneWithDecryption(
       ctx.em,
       DocumentTemplate,

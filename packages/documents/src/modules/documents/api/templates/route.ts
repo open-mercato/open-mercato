@@ -140,7 +140,11 @@ export async function GET(request: Request): Promise<Response> {
     const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
     const page = query.page ?? DEFAULT_TEMPLATE_PAGE
     const pageSize = query.pageSize ?? DEFAULT_TEMPLATE_PAGE_SIZE
-    const includeBody = query.includeBody ?? true
+    // Template bodies are manageable-only. A view-only caller never receives
+    // bodyHtml, even when it asks for it; instantiation/slot flows request
+    // includeBody=false and are unaffected.
+    const canManageTemplates = hasDocumentsFeature(ctx.auth, 'documents.templates.manage')
+    const includeBody = (query.includeBody ?? true) && canManageTemplates
     const where: FilterQuery<DocumentTemplate> = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
@@ -172,7 +176,7 @@ export async function GET(request: Request): Promise<Response> {
       items: templates.map((template) => serializeTemplate(template, includeBody)),
       total,
       capabilities: {
-        canManageTemplates: hasDocumentsFeature(ctx.auth, 'documents.templates.manage'),
+        canManageTemplates,
       },
       page,
       pageSize,

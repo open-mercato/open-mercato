@@ -8,6 +8,7 @@ import {
   isCollabTokenV2Ready,
   mintCollabToken,
   mintCollabTokenV2,
+  resolveLegacyCollabTokenVerifier,
   verifyCollabToken,
   verifyCollabTokenV2,
   type CollabTokenClaims,
@@ -235,5 +236,23 @@ describe('collab tokens', () => {
     )
 
     expect(verifyCollabTokenV2(token)).toBeNull()
+  })
+})
+
+describe('legacy verifier gating', () => {
+  it('returns no verifier when DOCUMENTS_COLLAB_JWT_SECRET is unset', () => {
+    expect(resolveLegacyCollabTokenVerifier({})).toBeNull()
+  })
+
+  it('returns no verifier when the explicit legacy secret is weaker than the v2 minimum', () => {
+    expect(resolveLegacyCollabTokenVerifier({
+      DOCUMENTS_COLLAB_JWT_SECRET: 'fewer-than-thirty-two-bytes',
+    })).toBeNull()
+  })
+
+  it('returns the verifier only for an explicitly configured strong legacy secret', () => {
+    expect(resolveLegacyCollabTokenVerifier({
+      DOCUMENTS_COLLAB_JWT_SECRET: 'explicit-legacy-rollout-secret-32bytes!',
+    })).toBe(verifyCollabToken)
   })
 })

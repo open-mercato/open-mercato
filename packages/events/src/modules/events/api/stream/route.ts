@@ -11,7 +11,11 @@
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
-import { registerCrossProcessEventListener, registerGlobalEventTap } from '../../../../bus'
+import {
+  CROSS_PROCESS_EVENT_INSTANCE_ID,
+  registerCrossProcessEventListener,
+  registerGlobalEventTap,
+} from '../../../../bus'
 import type { EmitOptions } from '../../../../types'
 
 export const metadata = {
@@ -200,7 +204,10 @@ function ensureGlobalTapSubscription(): void {
   })
 
   registerCrossProcessEventListener(async (envelope) => {
-    if (envelope.originPid === process.pid) return
+    const isOwnEnvelope = typeof envelope.originInstanceId === 'string'
+      ? envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID
+      : envelope.originPid === process.pid
+    if (isOwnEnvelope) return
     await broadcastEventToConnections(
       envelope.event,
       (envelope.payload ?? {}) as Record<string, unknown>,

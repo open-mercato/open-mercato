@@ -81,6 +81,23 @@ export function mintCollabToken(claims: CollabTokenClaims): string {
   )
 }
 
+/**
+ * Legacy v1 acceptance is a rollout bridge only. Nothing mints v1 tokens
+ * anymore, so the sidecar accepts them solely while a dedicated
+ * DOCUMENTS_COLLAB_JWT_SECRET is explicitly configured and at least as strong
+ * as the v2 minimum. Default deployments (derived JWT_SECRET fallback) accept
+ * v2 tokens exclusively.
+ */
+export function resolveLegacyCollabTokenVerifier(
+  env: Record<string, string | undefined> = process.env,
+): ((token: string) => CollabTokenClaims | null) | null {
+  const secret = env.DOCUMENTS_COLLAB_JWT_SECRET?.trim()
+  if (!secret || new TextEncoder().encode(secret).byteLength < COLLAB_TOKEN_V2_MIN_SECRET_BYTES) {
+    return null
+  }
+  return verifyCollabToken
+}
+
 export function verifyCollabToken(token: string): CollabTokenClaims | null {
   let payload: unknown
   try {
