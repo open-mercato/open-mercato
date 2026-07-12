@@ -92,6 +92,26 @@ export function advanceCursorAfterDispose(
 }
 
 /**
+ * Relative cursor movement (j/k, arrows). A null cursor anchors to the first
+ * row when moving forward and the last row when moving backwards; movement is
+ * clamped to the row set, never wrapping (wrap-around makes "did I hit the
+ * end?" unknowable during rapid keying).
+ */
+export function moveCursorBy(prev: CursorState, rows: readonly CursorRowLike[], delta: number): CursorState {
+  if (rows.length === 0) return EMPTY_CURSOR
+  if (prev.cursorId == null) {
+    const index = delta >= 0 ? 0 : rows.length - 1
+    return { cursorId: rows[index].id, cursorIndex: index }
+  }
+  const currentIndex = rows.findIndex((row) => row.id === prev.cursorId)
+  const anchor = currentIndex >= 0 ? currentIndex : Math.max(0, Math.min(prev.cursorIndex, rows.length - 1))
+  const next = Math.max(0, Math.min(anchor + delta, rows.length - 1))
+  const target = rows[next]
+  if (target.id === prev.cursorId && next === prev.cursorIndex) return prev
+  return { cursorId: target.id, cursorIndex: next }
+}
+
+/**
  * Bulk-selection preservation across live refreshes: keep only ids that are
  * still pending in the refreshed rows. Returns the SAME reference when nothing
  * changed so `setState` callers can skip a re-render.
@@ -111,6 +131,10 @@ export type InboxCursor = {
   cursorIndex: number
   /** Explicit user selection (row click). Unknown ids are ignored. */
   setCursor: (id: string) => void
+  /** Relative movement for j/k + arrow hotkeys (clamped, never wraps). */
+  moveCursor: (delta: number) => void
+  /** Escape: close the pane by dropping the cursor (next refresh re-anchors). */
+  clearCursor: () => void
   /** Deliberate advance-to-neighbor after dispose (single or bulk). */
   advanceAfterDispose: (disposedIds: readonly string[]) => void
 }
@@ -130,9 +154,138 @@ export function useInboxCursor(rows: readonly CursorRowLike[]): InboxCursor {
     setCursorState({ cursorId: id, cursorIndex: index })
   }, [])
 
+  const moveCursor = React.useCallback((delta: number) => {
+    setCursorState((prev) => moveCursorBy(prev, rowsRef.current, delta))
+  }, [])
+
+  const clearCursor = React.useCallback(() => {
+    setCursorState(EMPTY_CURSOR)
+  }, [])
+
   const advanceAfterDispose = React.useCallback((disposedIds: readonly string[]) => {
     setCursorState((prev) => advanceCursorAfterDispose(prev, rowsRef.current, disposedIds))
   }, [])
 
-  return { cursorId: cursor.cursorId, cursorIndex: cursor.cursorIndex, setCursor, advanceAfterDispose }
+  return { cursorId: cursor.cursorId, cursorIndex: cursor.cursorIndex, setCursor, moveCursor, clearCursor, advanceAfterDispose }
+}
+
+/**
+ * Caseload inbox hotkeys (UX remediation spec 4, Phase 2).
+ *
+ * One `document`-level keydown listener drives the whole triage keyboard: the
+ * resolver below is a pure function over an event snapshot so the guard rules
+ * (editable focus, open modal layer, held modifiers, key repeat) are
+ * unit-testable without a renderer. Letter keys act only when nothing modal is
+ * open and focus is not in a text-entry control — the two failure modes that
+ * would turn a keystroke meant for a form into a disposition.
+ */
+export type CaseloadHotkeyAction =
+  | 'next'
+  | 'prev'
+  | 'open'
+  | 'approve'
+  | 'reject'
+  | 'edit'
+  | 'toggleSelect'
+  | 'legend'
+  | 'escape'
+
+export type CaseloadHotkeyEvent = {
+  key: string
+  repeat: boolean
+  metaKey: boolean
+  ctrlKey: boolean
+  altKey: boolean
+  /** Focus sits in an input/textarea/select/contenteditable. */
+  editableTarget: boolean
+  /** The event target is natively activatable (button/link) — Enter defers to it. */
+  interactiveTarget: boolean
+  /** A dialog or the shortcut-legend popover is open — everything is inert. */
+  modalOpen: boolean
+}
+
+export function resolveCaseloadHotkey(event: CaseloadHotkeyEvent): CaseloadHotkeyAction | null {
+  if (event.repeat) return null
+  if (event.metaKey || event.ctrlKey || event.altKey) return null
+  if (event.modalOpen) return null
+  if (event.editableTarget) return null
+  switch (event.key) {
+    case 'j':
+    case 'ArrowDown':
+      return 'next'
+    case 'k':
+    case 'ArrowUp':
+      return 'prev'
+    case 'o':
+      return 'open'
+    case 'Enter':
+      // A focused button/link owns Enter — native activation already does the
+      // right thing (row buttons set the cursor, footer buttons act).
+      return event.interactiveTarget ? null : 'open'
+    case 'a':
+      return 'approve'
+    case 'r':
+      return 'reject'
+    case 'e':
+      return 'edit'
+    case 'x':
+      return 'toggleSelect'
+    case '?':
+      return 'legend'
+    case 'Escape':
+      return 'escape'
+    default:
+      return null
+  }
+}
+
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  const tag = target.tagName
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true
+  if (target instanceof HTMLElement && target.isContentEditable) return true
+  return !!target.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"]')
+}
+
+function isInteractiveTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false
+  return !!target.closest('button, a[href], [role="button"], [role="option"], summary')
+}
+
+/**
+ * Any open modal layer makes the hotkeys inert: house dialogs stamp
+ * `data-dialog-content` (Radix adds `data-state`), Radix keeps `role="dialog"`
+ * for third-party content, and the shortcut-legend popover opts in explicitly
+ * via `data-caseload-hotkey-modal` (popovers carry no dialog role).
+ */
+function hasOpenModalLayer(): boolean {
+  return !!document.querySelector(
+    '[data-dialog-content][data-state="open"], [role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"], [data-caseload-hotkey-modal][data-state="open"]',
+  )
+}
+
+export function useCaseloadHotkeys(enabled: boolean, onAction: (action: CaseloadHotkeyAction) => void): void {
+  const handlerRef = React.useRef(onAction)
+  handlerRef.current = onAction
+
+  React.useEffect(() => {
+    if (!enabled) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = resolveCaseloadHotkey({
+        key: event.key,
+        repeat: event.repeat,
+        metaKey: event.metaKey,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        editableTarget: isEditableTarget(event.target),
+        interactiveTarget: isInteractiveTarget(event.target),
+        modalOpen: hasOpenModalLayer(),
+      })
+      if (!action) return
+      event.preventDefault()
+      handlerRef.current(action)
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [enabled])
 }

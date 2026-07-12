@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2 } from 'lucide-react'
+import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2, Keyboard } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
@@ -16,6 +16,7 @@ import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
 import { Pagination } from '@open-mercato/ui/primitives/pagination'
+import { Kbd } from '@open-mercato/ui/primitives/kbd'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import {
   Dialog,
@@ -48,7 +49,7 @@ import {
 } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
-import { useInboxCursor, intersectSelection } from './hooks'
+import { useInboxCursor, useCaseloadHotkeys, intersectSelection, type CaseloadHotkeyAction } from './hooks'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 // A single status taxonomy drives the tiles, the filter segment, and the table
@@ -391,6 +392,11 @@ export default function AgentCaseloadPage() {
   // id across refreshes and advances to the neighbor on dispose instead of
   // resetting to the top.
   const inboxCursor = useInboxCursor(visibleRows)
+  const [legendOpen, setLegendOpen] = React.useState(false)
+  const cursorRow = React.useMemo(
+    () => visibleRows.find((row) => row.id === inboxCursor.cursorId) ?? null,
+    [visibleRows, inboxCursor.cursorId],
+  )
   const selectableIds = React.useMemo(() => visibleRows.filter((row) => row.isPending).map((row) => row.id), [visibleRows])
   const selectedRows = React.useMemo(() => visibleRows.filter((row) => selectedIds.has(row.id)), [visibleRows, selectedIds])
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selectedIds.has(id))
@@ -487,6 +493,45 @@ export default function AgentCaseloadPage() {
   }, [reason, busy, rejectDialog.rows, disposeRows, reload, inboxCursor, t])
 
   const openDetail = React.useCallback((row: QueueRow) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`), [router])
+
+  // Keyboard-first triage (spec 4 Phase 2): j/k + A/R/E/X act on the cursor
+  // row; the resolver's guards (editable focus, open dialog, modifiers) live
+  // in the hook so a keystroke meant for a form can never dispose anything.
+  const handleHotkey = React.useCallback(
+    (action: CaseloadHotkeyAction) => {
+      switch (action) {
+        case 'next':
+          inboxCursor.moveCursor(1)
+          break
+        case 'prev':
+          inboxCursor.moveCursor(-1)
+          break
+        case 'open':
+          if (!inboxCursor.cursorId) inboxCursor.moveCursor(1)
+          break
+        case 'approve':
+          if (cursorRow?.isPending && !busy) void approveRows([cursorRow])
+          break
+        case 'reject':
+          if (cursorRow?.isPending && !busy) openReject([cursorRow])
+          break
+        case 'edit':
+          if (cursorRow) openDetail(cursorRow)
+          break
+        case 'toggleSelect':
+          if (cursorRow?.isPending) toggleRow(cursorRow.id)
+          break
+        case 'legend':
+          setLegendOpen(true)
+          break
+        case 'escape':
+          inboxCursor.clearCursor()
+          break
+      }
+    },
+    [inboxCursor, cursorRow, busy, approveRows, openReject, openDetail, toggleRow],
+  )
+  useCaseloadHotkeys(view === 'inbox' && !isLoading && !error, handleHotkey)
 
   const rejectPendingCount = rejectDialog.rows.filter((row) => row.isPending).length
 
@@ -703,6 +748,7 @@ export default function AgentCaseloadPage() {
             busy={busy}
             cursorId={inboxCursor.cursorId}
             onCursorChange={inboxCursor.setCursor}
+            hotkeysBar={<HotkeysHint legendOpen={legendOpen} onLegendOpenChange={setLegendOpen} />}
             position={
               inboxCursor.cursorIndex >= 0 && total > 0
                 ? { current: Math.min((page - 1) * pageSize + inboxCursor.cursorIndex + 1, total), total }
@@ -925,6 +971,73 @@ function StatusTabs({
   )
 }
 
+/**
+ * Inline shortcut hint + the `?`-triggered full legend. The popover content is
+ * stamped `data-caseload-hotkey-modal` so the hotkey hook treats an open
+ * legend as a modal layer (only Escape acts, handled natively by Radix).
+ * Key cap letters (J/K/A/…) are physical key names, not translatable copy.
+ */
+function HotkeysHint({
+  legendOpen,
+  onLegendOpenChange,
+}: {
+  legendOpen: boolean
+  onLegendOpenChange: (open: boolean) => void
+}) {
+  const t = useT()
+  const legendRows: Array<{ keys: string[]; label: string }> = [
+    { keys: ['J', 'K'], label: t('agent_orchestrator.caseload.hotkeys.navigate') },
+    { keys: ['Enter'], label: t('agent_orchestrator.caseload.hotkeys.open') },
+    { keys: ['A'], label: t('agent_orchestrator.caseload.hotkeys.approve') },
+    { keys: ['R'], label: t('agent_orchestrator.caseload.hotkeys.reject') },
+    { keys: ['E'], label: t('agent_orchestrator.caseload.hotkeys.edit') },
+    { keys: ['X'], label: t('agent_orchestrator.caseload.hotkeys.select') },
+    { keys: ['Esc'], label: t('agent_orchestrator.caseload.hotkeys.close') },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-1.5 text-xs text-muted-foreground">
+      <span className="inline-flex items-center gap-1">
+        <Kbd>J</Kbd>
+        <Kbd>K</Kbd> {t('agent_orchestrator.caseload.hotkeys.navigate')}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <Kbd>A</Kbd> {t('agent_orchestrator.caseload.hotkeys.approve')}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <Kbd>R</Kbd> {t('agent_orchestrator.caseload.hotkeys.reject')}
+      </span>
+      <span className="inline-flex items-center gap-1">
+        <Kbd>E</Kbd> {t('agent_orchestrator.caseload.hotkeys.edit')}
+      </span>
+      <Popover open={legendOpen} onOpenChange={onLegendOpenChange}>
+        <PopoverTrigger asChild>
+          <Button type="button" variant="ghost" size="sm" className="ml-auto h-6 gap-1 px-1.5 text-xs font-normal text-muted-foreground">
+            <Kbd>?</Kbd> {t('agent_orchestrator.caseload.hotkeys.help')}
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-64 p-3" data-caseload-hotkey-modal="">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+            <Keyboard className="size-4 opacity-70" />
+            {t('agent_orchestrator.caseload.hotkeys.title')}
+          </p>
+          <dl className="mt-2 space-y-1.5">
+            {legendRows.map((row) => (
+              <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
+                <dt className="text-muted-foreground">{row.label}</dt>
+                <dd className="flex items-center gap-1">
+                  {row.keys.map((key) => (
+                    <Kbd key={key}>{key}</Kbd>
+                  ))}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </PopoverContent>
+      </Popover>
+    </div>
+  )
+}
+
 // "7d" on its own reads as a mystery number — the clock icon + tooltip make it
 // unmistakably "how long this has been waiting".
 function WaitingLabel({ value, className }: { value: string; className?: string }) {
@@ -955,6 +1068,7 @@ function ExceptionsInbox({
   onApprove,
   onReject,
   onOpenDetail,
+  hotkeysBar,
   footer,
 }: {
   toolbar: React.ReactNode
@@ -971,6 +1085,7 @@ function ExceptionsInbox({
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
+  hotkeysBar?: React.ReactNode
   footer?: React.ReactNode
 }) {
   const t = useT()
@@ -985,6 +1100,22 @@ function ExceptionsInbox({
     }
     hadRowsRef.current = rows.length > 0
   }, [rows.length])
+  // Roving focus: j/k keeps the cursor row visible, and when DOM focus was
+  // already on a row (Tab or a previous move), it follows the cursor so
+  // Enter/Space keep acting on what the operator sees highlighted.
+  const listRef = React.useRef<HTMLUListElement>(null)
+  React.useEffect(() => {
+    if (!cursorId) return
+    const list = listRef.current
+    if (!list) return
+    const active = list.querySelector<HTMLButtonElement>(`[data-inbox-row="${CSS.escape(cursorId)}"]`)
+    if (!active) return
+    active.scrollIntoView({ block: 'nearest' })
+    const focused = document.activeElement
+    if (focused instanceof HTMLElement && focused !== active && focused.hasAttribute('data-inbox-row')) {
+      active.focus()
+    }
+  }, [cursorId])
 
   return (
     <div className="grid gap-4 xl:grid-cols-[minmax(480px,560px)_1fr]">
@@ -993,20 +1124,29 @@ function ExceptionsInbox({
         <div ref={tabsRef}>
           <StatusTabs segment={segment} counts={counts} total={total} onSegmentChange={onSegmentChange} className="px-4" />
         </div>
+        {hotkeysBar}
         {rows.length === 0 ? (
           <div className="px-4 py-10 text-center text-sm text-muted-foreground">{t('agent_orchestrator.caseload.empty')}</div>
         ) : (
-          <ul className="max-h-[640px] divide-y divide-border overflow-auto">
-            {rows.map((row) => {
+          <ul
+            ref={listRef}
+            role="listbox"
+            aria-label={t('agent_orchestrator.caseload.inbox.queueAria')}
+            className="max-h-[640px] divide-y divide-border overflow-auto"
+          >
+            {rows.map((row, index) => {
               const active = row.id === cursorId
               const face = row.confidencePct != null ? confidenceFace(row.confidencePct) : null
               return (
-                <li key={row.id}>
+                <li key={row.id} role="presentation">
                   <button
                     type="button"
-                    aria-current={active ? 'true' : undefined}
+                    role="option"
+                    aria-selected={active}
+                    tabIndex={active || (cursorId == null && index === 0) ? 0 : -1}
+                    data-inbox-row={row.id}
                     onClick={() => onCursorChange(row.id)}
-                    className={cn('flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none', active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40')}
+                    className={cn('flex w-full items-start gap-3 border-l-2 px-4 py-3 text-left transition-colors focus:outline-none focus-visible:bg-muted/60', active ? 'border-l-brand-violet bg-brand-violet/10' : 'border-l-transparent hover:bg-muted/40')}
                   >
                     <Avatar label={row.agentLabel} size="sm" />
                     <div className="min-w-0 flex-1">
@@ -1158,13 +1298,16 @@ function DecisionPane({
             <Button type="button" variant="outline" size="sm" onClick={() => onReject(row)} disabled={busy}>
               <X className="mr-1.5 size-4 text-status-error-text" />
               {t('agent_orchestrator.proposal.actions.reject')}
+              <Kbd className="ml-1.5">R</Kbd>
             </Button>
             <Button type="button" variant="outline" size="sm" onClick={() => onOpenDetail(row)} disabled={busy}>
               {t('agent_orchestrator.proposal.actions.edit')}
+              <Kbd className="ml-1.5">E</Kbd>
             </Button>
             <Button type="button" size="sm" className="ml-auto" onClick={() => onApprove(row)} disabled={busy}>
               <Check className="mr-1.5 size-4" />
               {t('agent_orchestrator.proposal.actions.approve')}
+              <Kbd className="ml-1.5 border-primary-foreground/30 bg-transparent text-primary-foreground">A</Kbd>
             </Button>
           </>
         ) : (
