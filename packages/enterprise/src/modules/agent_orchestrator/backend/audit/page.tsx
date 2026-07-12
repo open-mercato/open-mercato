@@ -13,8 +13,8 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, mapOverviewMetrics, type OverviewMetricsView } from '../../components/types'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateTime, formatNumber, mapAgent, mapOverviewMetrics, type OverviewMetricsView } from '../../components/types'
 
 type Disposition = 'pending' | 'approved' | 'edited' | 'rejected' | 'auto_approved'
 type DispositionFilter = 'all' | Disposition
@@ -59,17 +59,11 @@ function dispositionOf(value: string): Disposition {
     ? (value as Disposition)
     : 'pending'
 }
-function formatWhen(value: string | null): string {
-  if (!value) return '—'
-  const parsed = Date.parse(value)
-  if (Number.isNaN(parsed)) return '—'
-  return new Date(parsed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 
 export default function AgentAuditPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [rows, setRows] = React.useState<AuditRow[]>([])
   const [total, setTotal] = React.useState(0)
@@ -165,7 +159,7 @@ export default function AgentAuditPage() {
     {
       accessorKey: 'when',
       header: t('agent_orchestrator.audit.col.when', 'When'),
-      cell: ({ row }) => <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">{formatWhen(row.original.when)}</span>,
+      cell: ({ row }) => <span className="whitespace-nowrap text-sm tabular-nums text-muted-foreground">{formatDateTime(row.original.when, locale) ?? '—'}</span>,
     },
     {
       accessorKey: 'agentLabel',
@@ -220,7 +214,7 @@ export default function AgentAuditPage() {
         ? <span className="block truncate text-sm text-muted-foreground" title={row.original.reason}>{row.original.reason}</span>
         : <span className="text-sm text-muted-foreground">—</span>,
     },
-  ], [t, router])
+  ], [t, locale, router])
 
   if (isLoading && rows.length === 0) {
     return (
@@ -262,31 +256,31 @@ export default function AgentAuditPage() {
           <StatCard
             icon={Gavel}
             label={t('agent_orchestrator.audit.kpi.total', 'Decisions')}
-            value={decisionsTotal.toLocaleString('en-US')}
+            value={formatNumber(decisionsTotal, locale) ?? '—'}
             sub={t('agent_orchestrator.audit.kpi.totalSub', 'Agent decisions logged')}
           />
           <StatCard
             icon={CheckCircle2}
             label={t('agent_orchestrator.audit.kpi.approved', 'Approved')}
-            value={approvedCount.toLocaleString('en-US')}
+            value={formatNumber(approvedCount, locale) ?? '—'}
             sub={t('agent_orchestrator.audit.kpi.approvedSub', 'Approved or auto-approved')}
           />
           <StatCard
             icon={Replace}
             label={t('agent_orchestrator.audit.kpi.overridden', 'Overridden')}
-            value={overriddenCount.toLocaleString('en-US')}
+            value={formatNumber(overriddenCount, locale) ?? '—'}
             sub={t('agent_orchestrator.audit.kpi.overriddenSub', 'Edited or rejected')}
           />
           <StatCard
             icon={Undo2}
             label={t('agent_orchestrator.audit.kpi.corrections', 'Corrections (7d)')}
-            value={correctionsCount == null ? '—' : correctionsCount.toLocaleString('en-US')}
+            value={formatNumber(correctionsCount, locale) ?? '—'}
             sub={t('agent_orchestrator.audit.kpi.correctionsSub', 'Operator corrections recorded')}
           />
           <StatCard
             icon={Clock}
             label={t('agent_orchestrator.audit.kpi.pending', 'Pending')}
-            value={pendingCount.toLocaleString('en-US')}
+            value={formatNumber(pendingCount, locale) ?? '—'}
             sub={t('agent_orchestrator.audit.kpi.pendingSub', 'Awaiting a decision')}
           />
         </div>

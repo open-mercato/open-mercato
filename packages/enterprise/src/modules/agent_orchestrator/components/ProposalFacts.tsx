@@ -2,7 +2,7 @@
 import * as React from 'react'
 import { Check, ShieldAlert } from 'lucide-react'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import type { AgentFactView, GuardCheckView } from './types'
 import {
   deriveFactsFromInput,
@@ -31,8 +31,9 @@ export function FactsGrid({
   sources: FactSources
   className?: string
 }) {
-  const declared = facts && facts.length > 0 ? resolveDeclaredFacts(facts, sources) : []
-  const rows = declared.length > 0 ? declared : deriveFactsFromInput(sources.input)
+  const locale = useLocale()
+  const declared = facts && facts.length > 0 ? resolveDeclaredFacts(facts, sources, locale) : []
+  const rows = declared.length > 0 ? declared : deriveFactsFromInput(sources.input, locale)
   if (rows.length === 0) return null
   return (
     <div className={cn('grid grid-cols-2 gap-4 sm:grid-cols-4', className)}>
@@ -52,7 +53,8 @@ export function FactsGrid({
 
 export function ProposedFields({ payload, className }: { payload: unknown; className?: string }) {
   const t = useT()
-  const fields: ResolvedFact[] = deriveProposedFields(payload)
+  const locale = useLocale()
+  const fields: ResolvedFact[] = deriveProposedFields(payload, locale)
   if (fields.length === 0) return null
   return (
     <div className={className}>

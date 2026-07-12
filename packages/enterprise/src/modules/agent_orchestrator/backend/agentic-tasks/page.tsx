@@ -23,6 +23,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { formatRelativeAge } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 
 const ENTITY_ID = 'agent_orchestrator:agent_task_definition'
@@ -35,19 +36,6 @@ const lastRunVariant: StatusMap<TaskRunStatus> = {
   running: 'info',
   completed: 'success',
   failed: 'error',
-}
-
-/** Compact locale-neutral age ("5m" / "3h" / "2d") for the Last-run column. */
-function ageShortOf(iso: string | null): string | null {
-  if (!iso) return null
-  const parsed = Date.parse(iso)
-  if (!Number.isFinite(parsed)) return null
-  const ms = Math.max(0, Date.now() - parsed)
-  const minutes = Math.floor(ms / 60_000)
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.floor(hours / 24)}d`
 }
 
 function mapLastRun(raw: unknown): TaskLastRun | null {
@@ -377,7 +365,7 @@ export default function AgenticTasksPage() {
           if (!lastRun) {
             return <span className="text-xs text-muted-foreground">{t('agent_orchestrator.tasks.list.lastRunNever')}</span>
           }
-          const age = ageShortOf(lastRun.finishedAt)
+          const age = formatRelativeAge(lastRun.finishedAt)
           return (
             <span className="inline-flex items-center gap-1.5">
               <StatusBadge variant={lastRunVariant[lastRun.status]}>

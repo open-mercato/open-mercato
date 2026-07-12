@@ -14,11 +14,12 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   mapAgent,
   mapAgentWindowMetrics,
   formatCostMinor,
+  formatNumber,
   type AgentView,
   type AgentRuntime,
   type AgentWindowMetricsView,
@@ -71,6 +72,7 @@ async function fetchAgentMetrics(ids: string[]): Promise<Map<string, AgentWindow
 
 export default function AgentsRegistryPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [rows, setRows] = React.useState<AgentRow[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
@@ -181,7 +183,7 @@ export default function AgentsRegistryPage() {
     {
       accessorKey: 'runs',
       header: t('agent_orchestrator.agents.list.col.runs', 'Runs'),
-      cell: ({ row }) => <div className="text-right text-sm tabular-nums">{row.original.runs.toLocaleString('en-US')}</div>,
+      cell: ({ row }) => <div className="text-right text-sm tabular-nums">{formatNumber(row.original.runs, locale) ?? '0'}</div>,
     },
     {
       accessorKey: 'evalPass',
@@ -289,7 +291,7 @@ export default function AgentsRegistryPage() {
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           <StatCard icon={Bot} label={t('agent_orchestrator.agents.kpi.active', 'Active agents')} sub={t('agent_orchestrator.agents.kpi.activeSub', '{gated} gated, {review} review', { gated: gatedCount, review: reviewCount })}>
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{rows.length.toLocaleString('en-US')}</span>
+            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{formatNumber(rows.length, locale) ?? '0'}</span>
           </StatCard>
           <StatCard icon={ShieldCheck} label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>
             {avgEvalPass == null ? (

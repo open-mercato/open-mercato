@@ -14,7 +14,7 @@ import { ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter, DrawerClose } from '@open-mercato/ui/primitives/drawer'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -23,6 +23,8 @@ import {
   mapAgentDetail,
   mapAgentWindowMetrics,
   formatCostMinor,
+  formatNumber,
+  formatTimeShort,
   type AgentDetailView,
   type SkillDetailView,
   type AgentWindowMetricsView,
@@ -69,13 +71,7 @@ function fieldOf(item: Record<string, unknown>, ...keys: string[]): string {
   }
   return ''
 }
-function timeOf(value: string | null): string {
-  if (!value) return ''
-  const parsed = Date.parse(value)
-  if (Number.isNaN(parsed)) return ''
-  const d = new Date(parsed)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
+
 
 async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
   const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
@@ -85,6 +81,7 @@ async function fetchItems(path: string): Promise<Array<Record<string, unknown>>>
 
 export default function AgentDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const agentId = params?.id ?? ''
 
@@ -169,7 +166,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     }
 
     const sortedRuns = [...runs].sort((a, b) => Date.parse(fieldOf(b, 'created_at', 'createdAt') || '') - Date.parse(fieldOf(a, 'created_at', 'createdAt') || ''))
-    const lastActive = timeOf(fieldOf(sortedRuns[0] ?? {}, 'created_at', 'createdAt') || null)
+    const lastActive = formatTimeShort(fieldOf(sortedRuns[0] ?? {}, 'created_at', 'createdAt') || null) ?? ''
     const recent: RunRow[] = sortedRuns.slice(0, 6).map((run) => {
       const runId = fieldOf(run, 'id')
       const input = asObject(run.input)
@@ -246,7 +243,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
 
           <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-3 lg:grid-cols-7">
             <StatCell icon={Hash} label={t('agent_orchestrator.agents.list.col.runs', 'Runs')}>
-              <span className="text-xl font-bold tabular-nums text-foreground">{metrics.runCount.toLocaleString('en-US')}</span>
+              <span className="text-xl font-bold tabular-nums text-foreground">{formatNumber(metrics.runCount, locale) ?? '0'}</span>
             </StatCell>
             <StatCell icon={CircleCheck} label={t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass')}>
               {windowMetrics?.evalPassRate == null
@@ -331,7 +328,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
                             </StatusBadge>
                           </td>
                           <td className="py-2.5 pr-3 text-right text-muted-foreground">—</td>
-                          <td className="py-2.5 text-right tabular-nums text-muted-foreground">{timeOf(run.when)}</td>
+                          <td className="py-2.5 text-right tabular-nums text-muted-foreground">{formatTimeShort(run.when) ?? ''}</td>
                         </tr>
                       ))}
                     </tbody>

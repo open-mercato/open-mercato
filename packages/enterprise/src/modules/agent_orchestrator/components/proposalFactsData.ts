@@ -35,7 +35,7 @@ export function resolvePath(root: unknown, path: string): unknown {
   return current
 }
 
-export function formatFactValue(value: unknown, format?: AgentFactView['format']): string | null {
+export function formatFactValue(value: unknown, format?: AgentFactView['format'], locale?: string): string | null {
   if (value == null) return null
   if (format === 'percent') {
     const num = typeof value === 'number' ? value : Number(value)
@@ -44,21 +44,21 @@ export function formatFactValue(value: unknown, format?: AgentFactView['format']
   }
   if (format === 'number') {
     const num = typeof value === 'number' ? value : Number(value)
-    return Number.isFinite(num) ? num.toLocaleString() : null
+    return Number.isFinite(num) ? num.toLocaleString(locale) : null
   }
   if (format === 'boolean' || typeof value === 'boolean') {
     return value === true || value === 'true' ? '✓' : '✗'
   }
-  if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString() : null
+  if (typeof value === 'number') return Number.isFinite(value) ? value.toLocaleString(locale) : null
   if (typeof value === 'string') return value.trim() || null
   return null
 }
 
 /** Resolve the agent's declared facts; entries whose path resolves to nothing are dropped. */
-export function resolveDeclaredFacts(facts: AgentFactView[], sources: FactSources): ResolvedFact[] {
+export function resolveDeclaredFacts(facts: AgentFactView[], sources: FactSources, locale?: string): ResolvedFact[] {
   return facts
     .map((fact): ResolvedFact | null => {
-      const value = formatFactValue(resolvePath(sources[fact.source], fact.path), fact.format)
+      const value = formatFactValue(resolvePath(sources[fact.source], fact.path), fact.format, locale)
       return value == null ? null : { label: fact.label, value }
     })
     .filter((fact): fact is ResolvedFact => !!fact)
@@ -134,14 +134,14 @@ const MAX_DERIVED_FACTS = 6
  * (upstream agents' findings passed through workflow input mapping) summarize
  * to "action · confidence"; other shapes are skipped.
  */
-export function deriveFactsFromInput(input: unknown): ResolvedFact[] {
+export function deriveFactsFromInput(input: unknown, locale?: string): ResolvedFact[] {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return []
   const facts: ResolvedFact[] = []
   for (const [key, value] of Object.entries(input as Record<string, unknown>)) {
     if (facts.length >= MAX_DERIVED_FACTS) break
     if (value == null) continue
     if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      const formatted = formatFactValue(value)
+      const formatted = formatFactValue(value, undefined, locale)
       if (formatted != null) facts.push({ label: humanizeKey(key), value: formatted })
       continue
     }
@@ -155,7 +155,7 @@ export function deriveFactsFromInput(input: unknown): ResolvedFact[] {
 }
 
 /** Flat primitive fields of the first proposed action's payload — what the operator decides on. */
-export function deriveProposedFields(payload: unknown): ResolvedFact[] {
+export function deriveProposedFields(payload: unknown, locale?: string): ResolvedFact[] {
   const proposalShaped = asProposalShaped(payload)
   const action = proposalShaped?.actions.find(
     (entry) => entry && typeof entry === 'object' && entry.payload && typeof entry.payload === 'object',
@@ -163,7 +163,7 @@ export function deriveProposedFields(payload: unknown): ResolvedFact[] {
   if (!action) return []
   const fields: ResolvedFact[] = []
   for (const [key, value] of Object.entries(action.payload as Record<string, unknown>)) {
-    const formatted = formatFactValue(value)
+    const formatted = formatFactValue(value, undefined, locale)
     if (formatted != null) fields.push({ label: humanizeKey(key), value: formatted })
   }
   return fields

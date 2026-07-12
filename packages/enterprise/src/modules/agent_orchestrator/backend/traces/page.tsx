@@ -19,9 +19,9 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
-import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, type RunView, type TracesKpiView } from '../../components/types'
+import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, formatDateTime, formatDurationMs, formatRelativeAge, type RunView, type TracesKpiView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
 
 type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number }
@@ -79,23 +79,6 @@ function ranAtValue(createdAt: string | null): number {
   const parsed = Date.parse(createdAt)
   return Number.isNaN(parsed) ? 0 : parsed
 }
-function relativeFrom(createdAt: string | null, now: number): string {
-  const parsed = ranAtValue(createdAt)
-  if (!parsed) return '—'
-  const minutes = Math.max(0, Math.round((now - parsed) / 60000))
-  if (minutes < 60) return `${minutes}m`
-  const hours = Math.round(minutes / 60)
-  if (hours < 24) return `${hours}h`
-  return `${Math.round(hours / 24)}d`
-}
-function exactFrom(createdAt: string | null): string {
-  const parsed = ranAtValue(createdAt)
-  return parsed ? new Date(parsed).toLocaleString() : '—'
-}
-function formatLatency(latencyMs: number | null): string | null {
-  if (latencyMs == null) return null
-  return latencyMs < 1000 ? `${latencyMs}ms` : `${(latencyMs / 1000).toFixed(1)}s`
-}
 // Page-scoped quick filter — narrows only the rows currently loaded from the
 // server (run-id search across the full history is the consistency pass's item).
 function matchesSearch(run: RunView, query: string): boolean {
@@ -107,6 +90,7 @@ function matchesSearch(run: RunView, query: string): boolean {
 
 export default function AgentTracesPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const [runs, setRuns] = React.useState<RunView[]>([])
   const [total, setTotal] = React.useState(0)
@@ -239,7 +223,7 @@ export default function AgentTracesPage() {
       id: 'when',
       accessorFn: (row) => ranAtValue(row.createdAt),
       header: t('agent_orchestrator.traces.col.when', 'When'),
-      cell: ({ row }) => <WhenLabel createdAt={row.original.createdAt} />,
+      cell: ({ row }) => <WhenLabel createdAt={row.original.createdAt} locale={locale} />,
     },
     {
       id: 'eval',
@@ -272,7 +256,7 @@ export default function AgentTracesPage() {
       accessorKey: 'latencyMs',
       header: t('agent_orchestrator.traces.col.latency', 'Latency'),
       cell: ({ row }) => {
-        const value = formatLatency(row.original.latencyMs)
+        const value = formatDurationMs(row.original.latencyMs)
         return value
           ? <span className="text-sm tabular-nums text-foreground">{value}</span>
           : <span className="text-sm text-muted-foreground">—</span>
@@ -299,7 +283,7 @@ export default function AgentTracesPage() {
         </StatusBadge>
       ),
     },
-  ], [t])
+  ], [t, locale])
 
   // Empty only when the whole window is empty (not just a filtered facet/page).
   const showEmpty = !isLoading && !error && counts.all === 0 && facet === 'all' && !agentFilter
@@ -395,11 +379,11 @@ export default function AgentTracesPage() {
 
 // "7d" alone reads as a mystery number — the clock icon + the exact timestamp in
 // the tooltip make it unmistakably "when this run happened".
-function WhenLabel({ createdAt }: { createdAt: string | null }) {
+function WhenLabel({ createdAt, locale }: { createdAt: string | null; locale: string }) {
   return (
-    <span className="inline-flex items-center gap-1 tabular-nums text-sm text-muted-foreground" title={exactFrom(createdAt)}>
+    <span className="inline-flex items-center gap-1 tabular-nums text-sm text-muted-foreground" title={formatDateTime(createdAt, locale) ?? '—'}>
       <Clock className="size-3 shrink-0 opacity-70" />
-      {relativeFrom(createdAt, Date.now())}
+      {formatRelativeAge(createdAt) ?? '—'}
     </span>
   )
 }
@@ -424,7 +408,7 @@ function KpiStrip({ kpis, forbidden }: { kpis: TracesKpiView | null; forbidden: 
   const errorPct = kpis.errorRate == null ? null : Math.round(kpis.errorRate * 100)
   const tiles = [
     { icon: CheckCircle2, label: t('agent_orchestrator.traces.kpi.passRate'), value: passPct == null ? '—' : `${passPct}%`, sub: t('agent_orchestrator.traces.kpi.passRateSub') },
-    { icon: Gauge, label: t('agent_orchestrator.traces.kpi.p95Latency'), value: formatLatency(kpis.p95LatencyMs) ?? '—', sub: t('agent_orchestrator.traces.kpi.p95LatencySub') },
+    { icon: Gauge, label: t('agent_orchestrator.traces.kpi.p95Latency'), value: formatDurationMs(kpis.p95LatencyMs) ?? '—', sub: t('agent_orchestrator.traces.kpi.p95LatencySub') },
     { icon: TriangleAlert, label: t('agent_orchestrator.traces.kpi.errorRate'), value: errorPct == null ? '—' : `${errorPct}%`, sub: t('agent_orchestrator.traces.kpi.errorRateSub') },
   ]
   return (

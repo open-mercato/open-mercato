@@ -13,11 +13,12 @@ import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import {
   mapRunDetail,
   formatConfidence,
+  formatDateTime,
   formatDurationMs,
   formatTokens,
   formatCostMinor,
@@ -59,12 +60,6 @@ function formatSummary(value: unknown): string {
   } catch {
     return String(value)
   }
-}
-
-function formatDateTime(iso: string | null): string | null {
-  if (!iso) return null
-  const trimmed = iso.slice(0, 16).replace('T', ' ')
-  return trimmed.length >= 16 ? trimmed : iso
 }
 
 function parseTime(value: string | null): number | null {
@@ -527,6 +522,7 @@ function ReasoningCard({ proposals, input }: { proposals: ProposalView[]; input:
 
 export default function AgentRunTracePage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const runId = params?.id ?? ''
   const [detail, setDetail] = React.useState<RunDetailView | null>(null)
@@ -792,7 +788,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                   >
                                     <span className="truncate font-mono text-xs">{proposal.id.slice(0, 8)}</span>
                                     <span className="shrink-0 text-xs text-muted-foreground">
-                                      {formatDateTime(proposal.createdAt) ?? ''}
+                                      {formatDateTime(proposal.createdAt, locale) ?? ''}
                                     </span>
                                   </button>
                                 ))}
@@ -887,12 +883,12 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     <StatCell
                       icon={Play}
                       label={t('agent_orchestrator.traces.detail.started')}
-                      value={formatDateTime(run.createdAt) ?? '—'}
+                      value={formatDateTime(run.createdAt, locale) ?? '—'}
                     />
                     <StatCell
                       icon={Flag}
                       label={t('agent_orchestrator.traces.detail.finished')}
-                      value={formatDateTime(run.completedAt) ?? '—'}
+                      value={formatDateTime(run.completedAt, locale) ?? '—'}
                     />
                     <StatCell
                       icon={Cpu}

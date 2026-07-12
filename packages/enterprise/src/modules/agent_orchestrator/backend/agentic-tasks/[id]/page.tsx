@@ -26,7 +26,8 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateTime } from '../../../components/types'
 
 type TaskRunStatus = 'running' | 'completed' | 'failed'
 
@@ -120,14 +121,9 @@ function mapTrigger(raw: Record<string, unknown>): TriggerRow | null {
   }
 }
 
-function formatDateTime(value: string | null): string {
-  if (!value) return '—'
-  const parsed = Date.parse(value)
-  return Number.isFinite(parsed) ? new Date(parsed).toLocaleString() : '—'
-}
-
 export default function AgenticTaskDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const taskId = params?.id ?? ''
 
@@ -320,12 +316,12 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
       {
         accessorKey: 'createdAt',
         header: t('agent_orchestrator.tasks.runs.col.started'),
-        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.createdAt)}</span>,
+        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.createdAt, locale) ?? '—'}</span>,
       },
       {
         accessorKey: 'completedAt',
         header: t('agent_orchestrator.tasks.runs.col.completed'),
-        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.completedAt)}</span>,
+        cell: ({ row }) => <span className="text-xs tabular-nums">{formatDateTime(row.original.completedAt, locale) ?? '—'}</span>,
       },
       {
         id: 'result',
@@ -366,7 +362,7 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
         },
       },
     ],
-    [t, router],
+    [t, locale, router],
   )
 
   if (isLoading) {

@@ -611,3 +611,61 @@ export function formatCostMinor(costMinor: number | null, currency: string | nul
   const code = currency ?? 'USD'
   return `${(costMinor / 100).toFixed(2)} ${code}`
 }
+
+/**
+ * Locale-aware display formatters shared by every cockpit page.
+ *
+ * Policy: LIST surfaces render relative age (queues are about urgency), DETAIL
+ * headers render absolute date+time (forensics); when a cell needs the other
+ * form it belongs in the tooltip/title. Pages obtain the active locale once via
+ * `useLocale()` and pass it down — the helpers stay pure (no hook coupling).
+ *
+ * `formatRelativeAge`/`formatWaitMinutes`/`formatTimeShort` are locale-neutral
+ * by design: their output is digits plus single-letter duration units ("5m",
+ * "3h 20m", "2d 4h") or a 24h clock label, which carry no locale content —
+ * only grouping/date-order formatters take a locale parameter.
+ */
+export function formatNumber(value: number | null | undefined, locale: string): string | null {
+  if (value == null || !Number.isFinite(value)) return null
+  return new Intl.NumberFormat(locale).format(value)
+}
+
+export function formatDateTime(iso: string | null | undefined, locale: string): string | null {
+  if (!iso) return null
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return null
+  return new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(parsed)
+}
+
+/** Compact HH:mm label for dense timeline rows (locale-neutral 24h clock). */
+export function formatTimeShort(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return null
+  const date = new Date(parsed)
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`
+}
+
+export function formatRelativeAge(iso: string | null | undefined, nowMs: number = Date.now()): string | null {
+  if (!iso) return null
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return null
+  const minutes = Math.floor(Math.max(0, nowMs - parsed) / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours > 0 ? `${days}d ${restHours}h` : `${days}d`
+}
+
+export function formatWaitMinutes(minutes: number | null | undefined): string | null {
+  if (minutes == null || !Number.isFinite(minutes)) return null
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const restMinutes = minutes % 60
+  if (hours < 24) return restMinutes ? `${hours}h ${restMinutes}m` : `${hours}h`
+  const days = Math.floor(hours / 24)
+  const restHours = hours % 24
+  return restHours ? `${days}d ${restHours}h` : `${days}d`
+}

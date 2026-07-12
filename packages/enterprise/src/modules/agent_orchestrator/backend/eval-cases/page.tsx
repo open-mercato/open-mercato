@@ -10,7 +10,8 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatDateTime } from '../../components/types'
 
 type EvalCaseStatus = 'draft' | 'approved' | 'archived'
 type EvalCaseSourceType = 'correction' | 'golden_run'
@@ -56,18 +57,13 @@ function mapRow(item: Record<string, unknown>): EvalCaseRow | null {
   }
 }
 
-function formatDateTime(iso: string | null): string | null {
-  if (!iso) return null
-  const trimmed = iso.slice(0, 16).replace('T', ' ')
-  return trimmed.length >= 16 ? trimmed : iso
-}
-
 function initialTabFrom(param: string | null): StatusTab {
   return param === 'draft' || param === 'approved' || param === 'archived' ? param : 'all'
 }
 
 export default function EvalCasesPage() {
   const t = useT()
+  const locale = useLocale()
   const searchParams = useSearchParams()
   const [tab, setTab] = React.useState<StatusTab>(() => initialTabFrom(searchParams?.get('status') ?? null))
   const [rows, setRows] = React.useState<EvalCaseRow[]>([])
@@ -149,12 +145,12 @@ export default function EvalCasesPage() {
         header: t('agent_orchestrator.evalCases.col.created'),
         cell: ({ row }) => (
           <span className="text-sm tabular-nums text-muted-foreground">
-            {formatDateTime(row.original.createdAt) ?? '—'}
+            {formatDateTime(row.original.createdAt, locale) ?? '—'}
           </span>
         ),
       },
     ],
-    [t],
+    [t, locale],
   )
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize))

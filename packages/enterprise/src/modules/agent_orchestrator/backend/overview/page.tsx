@@ -12,9 +12,11 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import {
   mapAgent,
+  formatNumber,
+  formatWaitMinutes,
   mapAgentWindowMetrics,
   mapOverviewMetrics,
   mapProposal,
@@ -81,14 +83,6 @@ function minutesAgo(value: string | null): number | null {
   if (Number.isNaN(parsed)) return null
   return Math.max(0, Math.round((Date.now() - parsed) / 60000))
 }
-function formatWait(min: number | null): string {
-  if (min == null) return '—'
-  if (min < 60) return `${min}m`
-  const hours = Math.floor(min / 60)
-  const rest = min % 60
-  return rest ? `${hours}h ${rest}m` : `${hours}h`
-}
-
 type ListFetch =
   | { ok: true; items: Array<Record<string, unknown>>; total: number }
   | { ok: false; status: number }
@@ -108,6 +102,7 @@ function panelStateOf(res: ListFetch): PanelState {
 
 export default function AgentFleetOverviewPage() {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [windowKey, setWindowKey] = React.useState<OverviewWindowKey>(() => windowKeyFrom(searchParams?.get('window') ?? null))
@@ -334,7 +329,7 @@ export default function AgentFleetOverviewPage() {
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.overview.title', 'Fleet overview')}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <ContextChip>
-                {t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: (metrics?.runsTotal ?? 0).toLocaleString('en-US') })}
+                {t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: formatNumber(metrics?.runsTotal ?? 0, locale) ?? '0' })}
                 <span className="ml-1 text-muted-foreground/70">· {windowLabel}</span>
               </ContextChip>
             </div>
@@ -347,7 +342,7 @@ export default function AgentFleetOverviewPage() {
               <span className="hidden text-xs text-muted-foreground sm:inline">
                 {refreshedMin < 1
                   ? t('agent_orchestrator.overview.refreshedJustNow', 'Updated just now')
-                  : t('agent_orchestrator.overview.refreshedAt', 'Updated {time} ago', { time: formatWait(refreshedMin) })}
+                  : t('agent_orchestrator.overview.refreshedAt', 'Updated {time} ago', { time: formatWaitMinutes(refreshedMin) ?? '—' })}
               </span>
             ) : null}
             <Button variant="outline" size="sm" aria-label={t('agent_orchestrator.overview.refresh', 'Refresh')} onClick={() => setRefreshKey((value) => value + 1)}>
@@ -388,8 +383,8 @@ export default function AgentFleetOverviewPage() {
               <KpiTile icon={ClipboardList}
                 label={t('agent_orchestrator.overview.kpi.needsDecision', 'Needs a decision')}
                 caption={t('agent_orchestrator.overview.window.now', 'now')}
-                value={kpi.pendingCount.toLocaleString('en-US')}
-                chip={kpi.oldestMin == null ? null : <OldestChip>{t('agent_orchestrator.overview.kpi.oldest', 'oldest {time}', { time: formatWait(kpi.oldestMin) })}</OldestChip>}
+                value={formatNumber(kpi.pendingCount, locale) ?? '0'}
+                chip={kpi.oldestMin == null ? null : <OldestChip>{t('agent_orchestrator.overview.kpi.oldest', 'oldest {time}', { time: formatWaitMinutes(kpi.oldestMin) ?? '—' })}</OldestChip>}
                 sub={t('agent_orchestrator.overview.kpi.needsDecisionSub', 'Waiting in the inbox now')} />
               <KpiTile icon={Users}
                 label={t('agent_orchestrator.overview.kpi.operatorRatio', 'Operator ratio')}
@@ -442,7 +437,7 @@ export default function AgentFleetOverviewPage() {
                           </td>
                           <td className="px-2 py-2.5 text-foreground">{row.agentLabel}</td>
                           <td className="px-2 py-2.5 text-foreground">{t(`agent_orchestrator.overview.interventions.${row.waitingFor}`, titleCase(row.waitingFor))}</td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{formatWait(row.waitingMin)}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-muted-foreground">{formatWaitMinutes(row.waitingMin) ?? '—'}</td>
                           <td className="px-2 py-2.5">
                             <StatusBadge variant={slaVariant[row.sla]} dot>
                               {t(`agent_orchestrator.overview.stuck.sla.${row.sla}`, titleCase(row.sla))}
@@ -482,7 +477,7 @@ export default function AgentFleetOverviewPage() {
                               </div>
                             </div>
                           </td>
-                          <td className="px-2 py-2.5 text-right tabular-nums text-foreground">{row.runs.toLocaleString('en-US')}</td>
+                          <td className="px-2 py-2.5 text-right tabular-nums text-foreground">{formatNumber(row.runs, locale) ?? '0'}</td>
                           <td className="px-2 py-2.5"><OverrideMeter pct={row.overridePct} /></td>
                           <td className="px-2 py-2.5">
                             <StatusBadge variant={statusVariant[row.status]} dot>
@@ -529,7 +524,7 @@ export default function AgentFleetOverviewPage() {
                         <div className="truncate text-xs text-muted-foreground">{t(`agent_orchestrator.overview.interventions.${key}Sub`, '')}</div>
                       </div>
                     </div>
-                    <div className="mt-3 text-3xl font-bold tabular-nums tracking-tight text-foreground">{count.toLocaleString('en-US')}</div>
+                    <div className="mt-3 text-3xl font-bold tabular-nums tracking-tight text-foreground">{formatNumber(count, locale) ?? '0'}</div>
                     <p className="mt-1 text-xs text-muted-foreground">
                       <span className="font-semibold text-foreground">{pct}%</span> {t('agent_orchestrator.overview.interventions.ofTotal', 'of all interventions')}
                     </p>

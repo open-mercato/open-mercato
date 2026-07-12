@@ -18,12 +18,14 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { confidenceFace, confidencePctOf } from '../../../components/cockpitStatus'
 import {
   formatConfidence,
   formatCostMinor,
   formatDurationMs,
+  formatNumber,
+  formatTimeShort,
   mapProposal,
   mapRun,
   type ProposalView,
@@ -89,10 +91,10 @@ const ACTOR_TEXT: Record<ProcessActorKind, string> = {
   system: 'text-foreground',
 }
 
-function formatSubjectValue(minor: number | null, currency: string | null): string | null {
+function formatSubjectValue(minor: number | null, currency: string | null, locale: string): string | null {
   if (minor == null) return null
-  const major = minor / 100
-  return `${major.toLocaleString('en-US')}${currency ? ` ${currency}` : ''}`
+  const major = formatNumber(minor / 100, locale)
+  return major == null ? null : `${major}${currency ? ` ${currency}` : ''}`
 }
 
 function formatAge(iso: string | null, t: ReturnType<typeof useT>): string | null {
@@ -106,13 +108,6 @@ function formatAge(iso: string | null, t: ReturnType<typeof useT>): string | nul
   if (days > 0) return t('agent_orchestrator.process.relTimeDh', undefined, { days, hours })
   if (hours > 0) return t('agent_orchestrator.process.relTimeH', undefined, { hours })
   return t('agent_orchestrator.process.relTimeM', undefined, { minutes })
-}
-
-function timeOf(iso: string | null): string {
-  if (!iso) return ''
-  const parsed = new Date(iso)
-  if (!Number.isFinite(parsed.getTime())) return ''
-  return `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`
 }
 
 /** Calendar-day key used for the timeline's day dividers. */
@@ -157,7 +152,7 @@ function buildSteps(
       actor: proposal.agentId,
       actorKind: 'agent',
       summary: summarize(proposal, t),
-      time: timeOf(proposal.createdAt),
+      time: formatTimeShort(proposal.createdAt) ?? '',
       day: dayKeyOf(proposal.createdAt),
       detail: {
         confidence: formatConfidence(proposal.confidence ?? run?.confidence ?? null),
@@ -180,7 +175,7 @@ function buildSteps(
         summary: t('agent_orchestrator.process.stepDisposed', undefined, {
           disposition: t(`agent_orchestrator.disposition.${proposal.disposition}`),
         }),
-        time: timeOf(proposal.updatedAt ?? proposal.createdAt),
+        time: formatTimeShort(proposal.updatedAt ?? proposal.createdAt) ?? '',
         day: dayKeyOf(proposal.updatedAt ?? proposal.createdAt),
         detail: {
           confidence: proposal.dispositionBy?.startsWith('rule:') ? 'auto' : null,
@@ -363,6 +358,7 @@ type ListResponse = { items?: Array<Record<string, unknown>> }
 
 export default function ProcessDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
   const processId = params?.id ?? ''
 
@@ -520,7 +516,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
   const currentStageIndex = stages.findIndex(
     (stage) => stage.key === process.currentStage || stage.label === process.currentStage,
   )
-  const claimedValue = formatSubjectValue(process.subjectValueMinor, process.currency)
+  const claimedValue = formatSubjectValue(process.subjectValueMinor, process.currency, locale)
   const openedAge = formatAge(process.openedAt, t)
 
   // Day dividers are emitted inline as the day changes down the trace.

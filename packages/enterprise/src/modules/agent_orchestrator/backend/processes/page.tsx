@@ -12,7 +12,7 @@ import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatCostMinor } from '../../components/types'
+import { formatCostMinor, formatRelativeAge } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import {
   mapProcessListRow,
@@ -43,19 +43,6 @@ function listPath(facet: Facet, page: number, pageSize: number): string {
   const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
   if (facet !== 'all') params.set('scope', FACET_SCOPE[facet])
   return `/api/agent_orchestrator/processes?${params.toString()}`
-}
-
-function ageShort(iso: string | null): string {
-  if (!iso) return '—'
-  const parsed = Date.parse(iso)
-  if (!Number.isFinite(parsed)) return '—'
-  const ms = Math.max(0, Date.now() - parsed)
-  const days = Math.floor(ms / (24 * 60 * 60 * 1000))
-  const hours = Math.floor((ms % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000))
-  const minutes = Math.floor((ms % (60 * 60 * 1000)) / (60 * 1000))
-  if (days > 0) return `${days}d ${hours}h`
-  if (hours > 0) return `${hours}h`
-  return `${minutes}m`
 }
 
 export default function ProcessesListPage() {
@@ -159,7 +146,7 @@ export default function ProcessesListPage() {
         accessorKey: 'openedAt',
         header: t('agent_orchestrator.process.list.col.age'),
         cell: ({ row }) => (
-          <span className="text-sm tabular-nums text-muted-foreground">{ageShort(row.original.openedAt)}</span>
+          <span className="text-sm tabular-nums text-muted-foreground">{formatRelativeAge(row.original.openedAt) ?? '—'}</span>
         ),
       },
       {
