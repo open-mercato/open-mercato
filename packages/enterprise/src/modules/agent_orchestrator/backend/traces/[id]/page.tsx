@@ -259,11 +259,13 @@ function GuardrailsCard({ checks }: { checks: GuardrailCheckView[] }) {
                     />
                   )}
                   <span className="truncate font-mono text-xs text-foreground">{check.kind}</span>
-                  <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
-                    {check.phase}
+                  <span className="shrink-0 rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
+                    {t(`agent_orchestrator.traces.detail.guardrailPhase.${check.phase}`, check.phase)}
                   </span>
                   <span className="min-w-0 flex-1" />
-                  <StatusBadge variant={GUARDRAIL_RESULT_VARIANT[check.result]}>{check.result}</StatusBadge>
+                  <StatusBadge variant={GUARDRAIL_RESULT_VARIANT[check.result]}>
+                    {t(`agent_orchestrator.traces.detail.guardrailResult.${check.result}`, check.result)}
+                  </StatusBadge>
                   {expandable ? (
                     <ChevronRight
                       className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}
@@ -431,7 +433,7 @@ function ToolCallsCard({ toolCalls, runId }: { toolCalls: ToolCallView[]; runId:
                     <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{toolCall.latencyMs}ms</span>
                   ) : null}
                   <StatusBadge variant={toolCall.status === 'error' ? 'error' : 'success'}>
-                    {toolCall.status ?? 'ok'}
+                    {t(`agent_orchestrator.traces.detail.toolStatus.${toolCall.status ?? 'ok'}`, toolCall.status ?? 'ok')}
                   </StatusBadge>
                   <ChevronRight
                     className={`size-4 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-90' : ''}`}

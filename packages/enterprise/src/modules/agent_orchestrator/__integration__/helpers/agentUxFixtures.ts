@@ -52,3 +52,52 @@ export async function deleteAgentProcessesForOrganization(organizationId: string
     await client.query('delete from agent_processes where organization_id = $1', [organizationId])
   })
 }
+
+export type AgentGuardrailCheckSeed = {
+  tenantId: string
+  organizationId: string
+  agentRunId: string
+  proposalId?: string | null
+  phase?: 'input' | 'output'
+  kind?: string
+  result?: 'pass' | 'warn' | 'block'
+  capability?: string
+  guardrailSetVersion?: string
+}
+
+/** Inserts guardrail-check rows for a run (feeds the trace inspector's Guardrails card); returns ids. */
+export async function insertAgentGuardrailCheckFixtures(rows: AgentGuardrailCheckSeed[]): Promise<string[]> {
+  const ids: string[] = []
+  await withClient(async (client) => {
+    for (const row of rows) {
+      const id = randomUUID()
+      ids.push(id)
+      await client.query(
+        `insert into agent_guardrail_checks (
+           id, tenant_id, organization_id, agent_run_id, proposal_id,
+           guardrail_set_version, capability, phase, kind, result, created_at
+         ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())`,
+        [
+          id,
+          row.tenantId,
+          row.organizationId,
+          row.agentRunId,
+          row.proposalId ?? null,
+          row.guardrailSetVersion ?? 'tc-uxc-006',
+          row.capability ?? 'tc.smoke',
+          row.phase ?? 'output',
+          row.kind ?? 'pii',
+          row.result ?? 'warn',
+        ],
+      )
+    }
+  })
+  return ids
+}
+
+export async function deleteAgentGuardrailChecksByIds(ids: string[]): Promise<void> {
+  if (!ids.length) return
+  await withClient(async (client) => {
+    await client.query('delete from agent_guardrail_checks where id = any($1::uuid[])', [ids])
+  })
+}

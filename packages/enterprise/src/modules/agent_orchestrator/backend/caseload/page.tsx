@@ -47,6 +47,7 @@ import {
   type OverviewMetricsView,
   type ProposalView,
 } from '../../components/types'
+import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { summarizeProposalActions } from '../../components/proposalFactsData'
 import { FactsGrid, ProposedFields, ReasoningList } from '../../components/ProposalFacts'
@@ -337,7 +338,7 @@ export default function AgentCaseloadPage() {
           const id = fieldOf(run, 'id')
           if (!id) continue
           const input = asObject(run.input)
-          claims.set(id, (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || id.slice(0, 12))
+          claims.set(id, (input && subjectRefOf(input)) || id.slice(0, 12))
           io.set(id, { input: run.input ?? null, output: run.output ?? null })
         }
         setRunClaims(claims)

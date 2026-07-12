@@ -29,6 +29,7 @@ import {
   type SkillDetailView,
   type AgentWindowMetricsView,
 } from '../../../components/types'
+import { subjectRefOf } from '../../../components/subjectRef'
 import { SkillDrawer } from '../../../components/SkillDrawer'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
@@ -179,7 +180,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
       else if (disposition === 'approved' || disposition === 'auto_approved') outcome = 'applied'
       return {
         id: runId,
-        claim: (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || runId.slice(0, 12),
+        claim: (input && subjectRefOf(input)) || runId.slice(0, 12),
         decision: (payload && fieldOf(payload, 'decision', 'action', 'label')) || fieldOf(run, 'result_kind', 'resultKind') || '—',
         confidence: proposal ? asNumber(proposal.confidence) : null,
         outcome,

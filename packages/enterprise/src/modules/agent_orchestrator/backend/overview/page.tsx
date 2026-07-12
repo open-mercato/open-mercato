@@ -25,6 +25,7 @@ import {
   type ProposalView,
   type RunView,
 } from '../../components/types'
+import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
@@ -288,7 +289,7 @@ export default function AgentFleetOverviewPage() {
         const run = pendingRuns.get(proposal.runId) ?? null
         const input = run ? asObject(run.input) : null
         const claim =
-          (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) ||
+          (input && subjectRefOf(input)) ||
           proposal.runId.slice(0, 12)
         const waitingMin = minutesAgo(proposal.createdAt)
         return {
