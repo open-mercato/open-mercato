@@ -14,6 +14,7 @@ import {
 import { emitAgentOrchestratorEvent } from '../../events'
 import { provisionTaskExecutionPrincipal } from '../../lib/tasks/executionPrincipal'
 import { syncTaskSchedule } from '../../lib/tasks/schedule'
+import { withScheduleSemanticChecks } from '../../lib/tasks/scheduleValidation'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -22,6 +23,11 @@ import {
 } from '../openapi'
 
 const ENTITY_TYPE = 'agent_orchestrator:agent_task_definition'
+
+// Route-layer semantic schedule validation (real cron parse via the scheduler)
+// on top of the client-safe shape schemas — see lib/tasks/scheduleValidation.ts.
+const createSchemaWithSemantics = withScheduleSemanticChecks(agentTaskDefinitionCreateSchema)
+const updateSchemaWithSemantics = withScheduleSemanticChecks(agentTaskDefinitionUpdateSchema)
 
 const routeMetadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.tasks.view'] },
@@ -159,7 +165,7 @@ const crud = makeCrudRoute<
     },
   },
   create: {
-    schema: agentTaskDefinitionCreateSchema,
+    schema: createSchemaWithSemantics,
     mapToEntity: (input, ctx) => {
       const scope = requireScope(ctx)
       return {
@@ -183,7 +189,7 @@ const crud = makeCrudRoute<
     response: (entity) => ({ id: String((entity as { id: string }).id) }),
   },
   update: {
-    schema: agentTaskDefinitionUpdateSchema,
+    schema: updateSchemaWithSemantics,
     getId: (input) => input.id,
     applyToEntity: (entity, input) => {
       const row = entity as AgentTaskDefinition

@@ -7765,6 +7765,8 @@ __metadata:
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
+    "@open-mercato/scheduler": "workspace:*"
+    "@open-mercato/search-provider-searxng": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"
@@ -7888,6 +7890,21 @@ __metadata:
       optional: true
     ioredis:
       optional: true
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/search-provider-searxng@workspace:*, @open-mercato/search-provider-searxng@workspace:packages/search-provider-searxng":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/search-provider-searxng@workspace:packages/search-provider-searxng"
+  dependencies:
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
 

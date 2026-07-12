@@ -27,7 +27,9 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { validateCronExpression } from '@open-mercato/scheduler'
 import { formatDateTime } from '../../../components/types'
+import { isValidIanaTimeZone } from '../../../data/validators'
 
 type TaskRunStatus = 'running' | 'completed' | 'failed'
 
@@ -41,6 +43,7 @@ type TaskDetail = {
   inputDefaults: unknown
   grantedFeatures: string[]
   scheduleCron: string | null
+  scheduleTimezone: string | null
   scheduleEnabled: boolean
   enabled: boolean
 }
@@ -69,6 +72,39 @@ const statusVariant: StatusMap<TaskRunStatus> = {
   failed: 'error',
 }
 
+/**
+ * Client-side schedule health — recomputes the next occurrence with the same
+ * scheduler parser the server validates with. No persisted health flag (the
+ * scheduler registration is best-effort by design); an unparseable stored cron
+ * is the one state we can detect and must surface.
+ */
+function ScheduleHealth({
+  task,
+  locale,
+  t,
+}: {
+  task: { scheduleCron: string | null; scheduleTimezone: string | null; scheduleEnabled: boolean; enabled: boolean }
+  locale: string
+  t: ReturnType<typeof useT>
+}) {
+  if (!task.scheduleCron || !task.scheduleEnabled || !task.enabled) return null
+  const timezone =
+    task.scheduleTimezone && isValidIanaTimeZone(task.scheduleTimezone) ? task.scheduleTimezone : 'UTC'
+  const result = validateCronExpression(task.scheduleCron, { timezone, count: 1 })
+  if (!result.ok || !result.nextRuns?.length) {
+    return (
+      <span className="text-status-error-text">{t('agent_orchestrator.tasks.detail.scheduleInvalid')}</span>
+    )
+  }
+  return (
+    <span className="text-muted-foreground">
+      {t('agent_orchestrator.tasks.detail.scheduleNextRun', undefined, {
+        time: formatDateTime(result.nextRuns[0].toISOString(), locale) ?? '',
+      })}
+    </span>
+  )
+}
+
 function asString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -89,6 +125,7 @@ function mapDetail(raw: Record<string, unknown>): TaskDetail | null {
       ? granted.filter((value): value is string => typeof value === 'string')
       : [],
     scheduleCron: asString(raw.scheduleCron) ?? asString(raw.schedule_cron),
+    scheduleTimezone: asString(raw.scheduleTimezone) ?? asString(raw.schedule_timezone),
     scheduleEnabled: (raw.scheduleEnabled ?? raw.schedule_enabled) !== false,
     enabled: (raw.enabled ?? true) !== false,
   }
@@ -418,6 +455,7 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
                     {!task.scheduleEnabled ? ` (${t('agent_orchestrator.tasks.list.schedulePaused')})` : ''}
                   </span>
                 ) : null}
+                <ScheduleHealth task={task} locale={locale} t={t} />
               </div>
             </div>
             <Button size="sm" onClick={openRunDialog} disabled={!task.enabled}>

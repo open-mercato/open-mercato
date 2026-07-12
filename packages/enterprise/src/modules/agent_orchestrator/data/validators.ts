@@ -935,12 +935,38 @@ export type AgentTaskTargetTypeInput = z.infer<typeof agentTaskTargetType>
 export const agentTaskRunStatus = z.enum(['running', 'completed', 'failed'])
 export type AgentTaskRunStatusInput = z.infer<typeof agentTaskRunStatus>
 
-/** 5- or 6-field cron expression; the scheduler owns full parsing. */
+/**
+ * 5- or 6-field cron expression SHAPE gate. Semantic validation (does this
+ * actually parse and schedule?) is applied server-side at the route layer via
+ * `withScheduleSemanticChecks` — deliberately NOT here, because this file is
+ * imported by client bundles and the semantic check pulls in
+ * `@open-mercato/scheduler` (cron-parser + luxon).
+ */
 const cronExpression = z
   .string()
   .min(1)
   .max(100)
   .regex(/^\S+(\s+\S+){4,5}$/, 'Invalid cron expression')
+
+/**
+ * True when the value is an IANA timezone the runtime can actually resolve
+ * (`"Europe/Warsaw"` passes, `"Warsaw"` does not). Dependency-free — safe for
+ * both client zod schemas and server validators.
+ */
+export function isValidIanaTimeZone(value: string): boolean {
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: value })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const scheduleTimezone = z
+  .string()
+  .min(1)
+  .max(64)
+  .refine(isValidIanaTimeZone, 'Invalid IANA timezone (expected e.g. Europe/Warsaw)')
 
 const taskTargetShape = {
   name: z.string().min(1).max(255),
@@ -953,7 +979,7 @@ const taskTargetShape = {
   inputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
   grantedFeatures: z.array(z.string().min(1).max(200)).max(200).optional(),
   scheduleCron: cronExpression.nullable().optional(),
-  scheduleTimezone: z.string().min(1).max(64).nullable().optional(),
+  scheduleTimezone: scheduleTimezone.nullable().optional(),
   scheduleEnabled: z.boolean().optional(),
   enabled: z.boolean().optional(),
 }

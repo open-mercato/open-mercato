@@ -4,16 +4,24 @@ import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { z } from 'zod'
-import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock } from 'lucide-react'
+import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock, X, TriangleAlert } from 'lucide-react'
+import { validateCronExpression } from '@open-mercato/scheduler'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
-import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import {
+  CrudForm,
+  type CrudField,
+  type CrudFieldOption,
+  type CrudCustomFieldRenderProps,
+} from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { Input } from '@open-mercato/ui/primitives/input'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -22,9 +30,16 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { formatRelativeAge } from '../../components/types'
+import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
+import { formatRelativeAge, formatDateTime } from '../../components/types'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
+import { isValidIanaTimeZone } from '../../data/validators'
+import {
+  listTimeZones,
+  parseGrantedFeaturesText,
+  resolveFeaturePrefill,
+  unknownFeatureIds,
+} from './formHelpers'
 
 const ENTITY_ID = 'agent_orchestrator:agent_task_definition'
 
@@ -125,6 +140,171 @@ function parseJsonField(raw: string | undefined, fieldId: string, message: strin
   }
 }
 
+type FeatureCatalogItem = { id: string; title: string }
+
+const FEATURES_DATALIST_ID = 'om-agent-task-features'
+
+/**
+ * Chips + datalist picker over the declared feature catalog. The form value
+ * stays the newline-joined string (`grantedFeaturesText`) so submit/edit
+ * plumbing is unchanged; this component is the safety layer: catalog
+ * suggestions while typing, warning chips for unknown ids, a least-privilege
+ * prefill when switching a fresh task to a workflow target, and a non-blocking
+ * empty-grants warning for workflow-target tasks.
+ */
+function FeaturesPickerField({
+  fieldProps,
+  catalog,
+  isEdit,
+  t,
+}: {
+  fieldProps: CrudCustomFieldRenderProps
+  catalog: FeatureCatalogItem[]
+  isEdit: boolean
+  t: ReturnType<typeof useT>
+}) {
+  const { value, values, setValue } = fieldProps
+  const [draft, setDraft] = React.useState('')
+  const prefilledRef = React.useRef(false)
+  const features = React.useMemo(
+    () => parseGrantedFeaturesText(typeof value === 'string' ? value : ''),
+    [value],
+  )
+  const targetType = values?.targetType === 'workflow' ? ('workflow' as const) : ('agent' as const)
+
+  React.useEffect(() => {
+    if (isEdit || prefilledRef.current) return
+    const prefill = resolveFeaturePrefill(targetType, features)
+    if (prefill) {
+      prefilledRef.current = true
+      setValue(prefill.join('\n'))
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetType])
+
+  const unknown = React.useMemo(
+    () => new Set(unknownFeatureIds(features, catalog.map((item) => item.id))),
+    [features, catalog],
+  )
+
+  const addDraft = React.useCallback(() => {
+    const trimmed = draft.trim()
+    if (!trimmed) return
+    if (!features.includes(trimmed)) setValue([...features, trimmed].join('\n'))
+    setDraft('')
+  }, [draft, features, setValue])
+
+  const removeFeature = React.useCallback(
+    (id: string) => {
+      setValue(features.filter((feature) => feature !== id).join('\n'))
+    },
+    [features, setValue],
+  )
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-2">
+        <Input
+          id={fieldProps.id}
+          list={FEATURES_DATALIST_ID}
+          value={draft}
+          placeholder={t('agent_orchestrator.tasks.form.featuresAdd')}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault()
+              addDraft()
+            }
+          }}
+        />
+        <Button type="button" variant="outline" onClick={addDraft} disabled={!draft.trim()}>
+          {t('agent_orchestrator.tasks.form.featuresAddAction')}
+        </Button>
+        <datalist id={FEATURES_DATALIST_ID}>
+          {catalog.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.title}
+            </option>
+          ))}
+        </datalist>
+      </div>
+      {features.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {features.map((feature) => {
+            const isUnknown = unknown.has(feature)
+            return (
+              <span
+                key={feature}
+                title={isUnknown ? t('agent_orchestrator.tasks.form.featuresUnknown') : undefined}
+                className={
+                  isUnknown
+                    ? 'inline-flex items-center gap-1 rounded-md border border-status-warning-border bg-status-warning-bg px-2 py-0.5 font-mono text-xs text-status-warning-text'
+                    : 'inline-flex items-center gap-1 rounded-md border border-border bg-muted px-2 py-0.5 font-mono text-xs text-foreground'
+                }
+              >
+                {isUnknown ? <TriangleAlert className="size-3 shrink-0" /> : null}
+                {feature}
+                <IconButton
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  aria-label={t('agent_orchestrator.tasks.form.featuresRemove', undefined, { id: feature })}
+                  onClick={() => removeFeature(feature)}
+                >
+                  <X className="size-3" />
+                </IconButton>
+              </span>
+            )
+          })}
+        </div>
+      ) : null}
+      {targetType === 'workflow' && features.length === 0 ? (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-3 py-2 text-xs text-status-warning-text"
+        >
+          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
+          <span>{t('agent_orchestrator.tasks.form.workflowGrantsWarning')}</span>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+/**
+ * Display-only "Next runs" preview under the schedule fields — the live
+ * semantic feedback that makes a typo'd cron visible before save. Uses the
+ * same scheduler parser the server-side validator runs.
+ */
+function CronPreviewField({
+  values,
+  locale,
+  t,
+}: {
+  values: Record<string, unknown> | undefined
+  locale: string
+  t: ReturnType<typeof useT>
+}) {
+  const cron = typeof values?.scheduleCron === 'string' ? values.scheduleCron.trim() : ''
+  const timezoneRaw = typeof values?.scheduleTimezone === 'string' ? values.scheduleTimezone.trim() : ''
+  const timezone = timezoneRaw && isValidIanaTimeZone(timezoneRaw) ? timezoneRaw : 'UTC'
+  if (!cron) return null
+  const result = validateCronExpression(cron, { timezone, count: 3 })
+  if (!result.ok) {
+    return (
+      <p className="text-xs text-status-error-text">
+        {t('agent_orchestrator.tasks.form.nextRunsInvalid', undefined, { error: result.error ?? '' })}
+      </p>
+    )
+  }
+  return (
+    <div className="text-xs text-muted-foreground">
+      <span className="font-medium text-foreground">{t('agent_orchestrator.tasks.form.nextRuns')}:</span>{' '}
+      {(result.nextRuns ?? []).map((run) => formatDateTime(run.toISOString(), locale)).join(' · ')}
+    </div>
+  )
+}
+
 export default function AgenticTasksPage() {
   const t = useT()
   const router = useRouter()
@@ -135,6 +315,12 @@ export default function AgenticTasksPage() {
   const [mode, setMode] = React.useState<'list' | 'create' | 'edit'>('list')
   const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
   const [workflows, setWorkflows] = React.useState<CrudFieldOption[]>([])
+  const [featureCatalog, setFeatureCatalog] = React.useState<FeatureCatalogItem[]>([])
+  const locale = useLocale()
+  const timeZoneOptions = React.useMemo<CrudFieldOption[]>(
+    () => listTimeZones().map((zone) => ({ value: zone, label: zone })),
+    [],
+  )
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
@@ -205,6 +391,22 @@ export default function AgenticTasksPage() {
           .filter((option) => option.value !== ''),
       )
     })
+    void apiCall<{ items?: Array<Record<string, unknown>> }>(
+      '/api/agent_orchestrator/features',
+      undefined,
+      { fallback: { items: [] } },
+    ).then((call) => {
+      if (cancelled || !call.ok) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setFeatureCatalog(
+        items
+          .map((item) => ({
+            id: typeof item.id === 'string' ? item.id : '',
+            title: typeof item.title === 'string' ? item.title : '',
+          }))
+          .filter((item) => item.id !== ''),
+      )
+    })
     return () => { cancelled = true }
   }, [])
 
@@ -232,20 +434,39 @@ export default function AgenticTasksPage() {
 
   const formSchema = React.useMemo(
     () =>
-      z.object({
-        name: z.string().min(1, 'agent_orchestrator.tasks.form.errors.nameRequired'),
-        description: z.string().optional(),
-        targetType: z.enum(['agent', 'workflow']),
-        targetAgentId: z.string().optional(),
-        targetWorkflowId: z.string().optional(),
-        inputDefaultsJson: z.string().optional(),
-        inputSchemaJson: z.string().optional(),
-        grantedFeaturesText: z.string().optional(),
-        scheduleCron: z.string().optional(),
-        scheduleTimezone: z.string().optional(),
-        scheduleEnabled: z.boolean(),
-        enabled: z.boolean(),
-      }),
+      z
+        .object({
+          name: z.string().min(1, 'agent_orchestrator.tasks.form.errors.nameRequired'),
+          description: z.string().optional(),
+          targetType: z.enum(['agent', 'workflow']),
+          targetAgentId: z.string().optional(),
+          targetWorkflowId: z.string().optional(),
+          inputDefaultsJson: z.string().optional(),
+          inputSchemaJson: z.string().optional(),
+          grantedFeaturesText: z.string().optional(),
+          scheduleCron: z.string().optional(),
+          scheduleTimezone: z.string().optional(),
+          scheduleEnabled: z.boolean(),
+          enabled: z.boolean(),
+        })
+        .superRefine((data, ctx) => {
+          const cron = data.scheduleCron?.trim()
+          if (cron && !validateCronExpression(cron, { count: 1 }).ok) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['scheduleCron'],
+              message: 'agent_orchestrator.tasks.form.errors.cronInvalid',
+            })
+          }
+          const timezone = data.scheduleTimezone?.trim()
+          if (timezone && !isValidIanaTimeZone(timezone)) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['scheduleTimezone'],
+              message: 'agent_orchestrator.tasks.form.errors.timezoneInvalid',
+            })
+          }
+        }),
     [],
   )
 
@@ -295,8 +516,11 @@ export default function AgenticTasksPage() {
       {
         id: 'grantedFeaturesText',
         label: t('agent_orchestrator.tasks.form.grantedFeatures'),
-        type: 'textarea',
+        type: 'custom',
         description: t('agent_orchestrator.tasks.form.grantedFeaturesHint'),
+        component: (fieldProps) => (
+          <FeaturesPickerField fieldProps={fieldProps} catalog={featureCatalog} isEdit={mode === 'edit'} t={t} />
+        ),
       },
       {
         id: 'scheduleCron',
@@ -304,11 +528,24 @@ export default function AgenticTasksPage() {
         type: 'text',
         description: t('agent_orchestrator.tasks.form.scheduleCronHint'),
       },
-      { id: 'scheduleTimezone', label: t('agent_orchestrator.tasks.form.scheduleTimezone'), type: 'text' },
+      {
+        id: 'scheduleTimezone',
+        label: t('agent_orchestrator.tasks.form.scheduleTimezone'),
+        type: 'combobox',
+        options: timeZoneOptions,
+        seedOptions: timeZoneOptions,
+        allowCustomValues: true,
+      },
+      {
+        id: 'schedulePreview',
+        label: '',
+        type: 'custom',
+        component: ({ values }) => <CronPreviewField values={values} locale={locale} t={t} />,
+      },
       { id: 'scheduleEnabled', label: t('agent_orchestrator.tasks.form.scheduleEnabled'), type: 'checkbox' },
       { id: 'enabled', label: t('agent_orchestrator.tasks.form.enabled'), type: 'checkbox' },
     ],
-    [t, agents, workflows],
+    [t, agents, workflows, featureCatalog, timeZoneOptions, locale, mode],
   )
 
   const columns = React.useMemo<ColumnDef<TaskRow>[]>(
