@@ -61,6 +61,14 @@ export async function computeAgentMetrics(
   const avgLatencyMs = latencies.length ? latencies.reduce((sum, n) => sum + n, 0) / latencies.length : null
   const costMinorTotal = runs.reduce((sum, run) => sum + (typeof run.costMinor === 'number' ? run.costMinor : 0), 0)
 
+  // Additive observability keys (data-honesty pass). Counts (errorRuns,
+  // evalPassedRuns) are stored alongside the rates so org-level readers can
+  // aggregate across agents — rates are not additive, counts are.
+  const errorRuns = runs.filter((run) => run.status === 'error').length
+  const errorRate = totalRuns ? errorRuns / totalRuns : null
+  const evalPassedRuns = evaluated.filter((run) => run.evalPassed === true).length
+  const p95LatencyMs = percentileOf(latencies, 0.95)
+
   const proposalWindow = { ...scope, agentId, createdAt }
   const [unchanged, changed] = await Promise.all([
     em.count(AgentProposal, { ...proposalWindow, disposition: { $in: ['approved', 'auto_approved'] } }),
@@ -79,7 +87,19 @@ export async function computeAgentMetrics(
     costMinorTotal,
     disposedProposals,
     approveUnchangedRate,
+    errorRuns,
+    errorRate,
+    p95LatencyMs,
+    evalPassedRuns,
   }
+}
+
+/** Nearest-rank percentile over an unsorted sample; null when empty. */
+export function percentileOf(values: number[], fraction: number): number | null {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const rank = Math.min(sorted.length - 1, Math.max(0, Math.ceil(fraction * sorted.length) - 1))
+  return sorted[rank]
 }
 
 /**

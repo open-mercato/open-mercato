@@ -19,7 +19,14 @@ import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, Dr
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
-import { mapAgentDetail, type AgentDetailView, type SkillDetailView } from '../../../components/types'
+import {
+  mapAgentDetail,
+  mapAgentWindowMetrics,
+  formatCostMinor,
+  type AgentDetailView,
+  type SkillDetailView,
+  type AgentWindowMetricsView,
+} from '../../../components/types'
 import { SkillDrawer } from '../../../components/SkillDrawer'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
@@ -88,6 +95,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
   const [activeSkill, setActiveSkill] = React.useState<SkillDetailView | null>(null)
   const [autonomy, setAutonomy] = React.useState<Autonomy>('review')
   const [configOpen, setConfigOpen] = React.useState(false)
+  const [windowMetrics, setWindowMetrics] = React.useState<AgentWindowMetricsView | null>(null)
 
   React.useEffect(() => {
     let cancelled = false
@@ -108,14 +116,26 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
       }
       // UI heuristic until the backend exposes a real autonomy setting.
       setAutonomy(mapped.resultKind === 'informative' ? 'auto' : 'review')
-      const [runItems, proposalItems] = await Promise.all([
+      const [runItems, proposalItems, metricsCall] = await Promise.all([
         fetchItems(`/api/agent_orchestrator/runs?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
         fetchItems(`/api/agent_orchestrator/proposals?agentId=${encodeURIComponent(agentId)}&pageSize=100`),
+        // Windowed KPIs from the batch metrics endpoint (rollup-preferred) —
+        // same gate as this page (`agents.view`), single-id batch.
+        apiCall<{ items?: Array<Record<string, unknown>> }>(
+          `/api/agent_orchestrator/metrics/agents?window=7d&ids=${encodeURIComponent(agentId)}`,
+          undefined,
+          { fallback: { items: [] } },
+        ),
       ])
       if (cancelled) return
       setAgent(mapped)
       setRuns(runItems)
       setProposals(proposalItems)
+      const metricsItem =
+        metricsCall.ok && Array.isArray(metricsCall.result?.items) && metricsCall.result.items[0]
+          ? mapAgentWindowMetrics(metricsCall.result.items[0] as Record<string, unknown>)
+          : null
+      setWindowMetrics(metricsItem)
       setState('ready')
     }
     if (agentId) load()
@@ -195,7 +215,6 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
 
   const overridePct = metrics.overrideRate == null ? null : Math.round(metrics.overrideRate * 100)
   const overrideGate = overridePct != null && overridePct > 30
-  const backendChip = <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
 
   return (
     <Page>
@@ -229,13 +248,24 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             <StatCell icon={Hash} label={t('agent_orchestrator.agents.list.col.runs', 'Runs')}>
               <span className="text-xl font-bold tabular-nums text-foreground">{metrics.runCount.toLocaleString('en-US')}</span>
             </StatCell>
-            <StatCell icon={CircleCheck} label={t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass')}>{backendChip}</StatCell>
+            <StatCell icon={CircleCheck} label={t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass')}>
+              {windowMetrics?.evalPassRate == null
+                ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+                : <span className="text-xl font-bold tabular-nums text-foreground">{Math.round(windowMetrics.evalPassRate * 100)}%</span>}
+            </StatCell>
             <StatCell icon={Replace} label={t('agent_orchestrator.agents.list.col.override', 'Override')}>
               {overridePct == null
                 ? <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
                 : <span className={`text-xl font-bold tabular-nums ${overrideGate ? 'text-status-error-text' : 'text-foreground'}`}>{overridePct}%</span>}
             </StatCell>
-            <StatCell icon={Coins} label={t('agent_orchestrator.agents.list.col.cost', 'Cost / run')}>{backendChip}</StatCell>
+            <StatCell icon={Coins} label={t('agent_orchestrator.agents.list.col.cost', 'Cost / run (est.)')}>
+              {(() => {
+                const value = formatCostMinor(windowMetrics?.avgCostMinor ?? null, windowMetrics?.currency ?? null)
+                return value
+                  ? <span className="text-xl font-bold tabular-nums text-foreground">{value}</span>
+                  : <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+              })()}
+            </StatCell>
             <StatCell icon={Clock} label={t('agent_orchestrator.agentDetail.fields.lastActive', 'Last active')}>
               <span className="text-xl font-bold tabular-nums text-foreground">{metrics.lastActive || '—'}</span>
             </StatCell>

@@ -15,10 +15,18 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent, type AgentView, type AgentRuntime } from '../../components/types'
+import {
+  mapAgent,
+  mapAgentWindowMetrics,
+  formatCostMinor,
+  type AgentView,
+  type AgentRuntime,
+  type AgentWindowMetricsView,
+} from '../../components/types'
 
 const RUNTIME_LABEL: Record<AgentRuntime, string> = {
   'in-process': 'In Process',
+  native: 'Native',
   opencode: 'Open Code',
   external: 'External',
 }
@@ -31,25 +39,34 @@ type AgentRow = AgentView & {
   runs: number
   evalPass: number | null
   overrideRate: number | null
-  cost: number | null
-  pending: number
+  costPerRun: number | null
+  costTotal: number
+  currency: string | null
   status: Health
 }
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 
-const DISPOSED = ['approved', 'edited', 'rejected', 'auto_approved']
-const OVERRIDDEN = ['edited', 'rejected']
+const METRICS_WINDOW = '7d'
+const METRICS_BATCH_SIZE = 50
 
-function agentIdOf(item: Record<string, unknown>): string {
-  const value = item.agent_id ?? item.agentId
-  return typeof value === 'string' ? value : ''
-}
-
-async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
-  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
-  if (!call.ok || !Array.isArray(call.result?.items)) return []
-  return call.result.items
+/** One round-trip per 50 agents via GET /metrics/agents (rollup-preferred). */
+async function fetchAgentMetrics(ids: string[]): Promise<Map<string, AgentWindowMetricsView>> {
+  const byAgent = new Map<string, AgentWindowMetricsView>()
+  for (let start = 0; start < ids.length; start += METRICS_BATCH_SIZE) {
+    const chunk = ids.slice(start, start + METRICS_BATCH_SIZE)
+    const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      `/api/agent_orchestrator/metrics/agents?window=${METRICS_WINDOW}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (!call.ok || !Array.isArray(call.result?.items)) continue
+    for (const item of call.result.items) {
+      const mapped = mapAgentWindowMetrics(item as Record<string, unknown>)
+      if (mapped) byAgent.set(mapped.agentId, mapped)
+    }
+  }
+  return byAgent
 }
 
 export default function AgentsRegistryPage() {
@@ -82,48 +99,34 @@ export default function AgentsRegistryPage() {
         .map((item) => mapAgent(item))
         .filter((agent): agent is AgentView => !!agent)
 
-      // Governance metrics computed from the real run/proposal lists.
-      const [runs, proposals] = await Promise.all([
-        fetchItems('/api/agent_orchestrator/runs?pageSize=100'),
-        fetchItems('/api/agent_orchestrator/proposals?pageSize=100'),
-      ])
+      // Real per-agent window metrics (rollup-preferred, live fallback) — one
+      // batch round-trip instead of the old global-100-row sample.
+      const metricsByAgent = await fetchAgentMetrics(agents.map((agent) => agent.id))
       if (cancelled) return
 
-      const runStats = new Map<string, { total: number; errors: number }>()
-      for (const run of runs) {
-        const id = agentIdOf(run)
-        if (!id) continue
-        const stat = runStats.get(id) ?? { total: 0, errors: 0 }
-        stat.total += 1
-        if (run.status === 'error') stat.errors += 1
-        runStats.set(id, stat)
-      }
-      const proposalStats = new Map<string, { disposed: number; overrides: number; pending: number }>()
-      for (const proposal of proposals) {
-        const id = agentIdOf(proposal)
-        if (!id) continue
-        const stat = proposalStats.get(id) ?? { disposed: 0, overrides: 0, pending: 0 }
-        const disposition = typeof proposal.disposition === 'string' ? proposal.disposition : 'pending'
-        if (disposition === 'pending') stat.pending += 1
-        if (DISPOSED.includes(disposition)) stat.disposed += 1
-        if (OVERRIDDEN.includes(disposition)) stat.overrides += 1
-        proposalStats.set(id, stat)
-      }
-
       const built: AgentRow[] = agents.map((agent) => {
-        const run = runStats.get(agent.id) ?? { total: 0, errors: 0 }
-        const proposal = proposalStats.get(agent.id) ?? { disposed: 0, overrides: 0, pending: 0 }
-        const overrideRate = proposal.disposed > 0 ? proposal.overrides / proposal.disposed : null
-        const errorRate = run.total > 0 ? run.errors / run.total : 0
+        const metrics = metricsByAgent.get(agent.id) ?? null
+        const overrideRate = metrics?.overrideRate ?? null
+        const errorRate = metrics?.errorRate ?? 0
         // UI heuristic until the backend exposes a real autonomy setting.
         const autonomy: Autonomy = agent.resultKind === 'informative' ? 'auto' : 'review'
         let status: Health = 'new'
-        if (run.total > 0 || proposal.disposed > 0) {
-          if ((overrideRate ?? 0) > 0.3 || errorRate > 0.2) status = 'poor'
+        if ((metrics?.runsTotal ?? 0) > 0 || (metrics?.disposedProposals ?? 0) > 0) {
+          if ((overrideRate ?? 0) > 0.3 || (errorRate ?? 0) > 0.2) status = 'poor'
           else if ((overrideRate ?? 0) > 0.15) status = 'watch'
           else status = 'good'
         }
-        return { ...agent, autonomy, runs: run.total, evalPass: null, overrideRate, cost: null, pending: proposal.pending, status }
+        return {
+          ...agent,
+          autonomy,
+          runs: metrics?.runsTotal ?? 0,
+          evalPass: metrics?.evalPassRate ?? null,
+          overrideRate,
+          costPerRun: metrics?.avgCostMinor ?? null,
+          costTotal: metrics?.costMinorTotal ?? 0,
+          currency: metrics?.currency ?? null,
+          status,
+        }
       })
       setRows(built)
       setIsLoading(false)
@@ -183,7 +186,11 @@ export default function AgentsRegistryPage() {
     {
       accessorKey: 'evalPass',
       header: t('agent_orchestrator.agents.list.col.evalPass', 'Eval pass'),
-      cell: () => <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />,
+      cell: ({ row }) => {
+        const value = row.original.evalPass
+        if (value == null) return <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+        return <span className="text-sm tabular-nums text-foreground">{Math.round(value * 100)}%</span>
+      },
     },
     {
       accessorKey: 'overrideRate',
@@ -203,9 +210,13 @@ export default function AgentsRegistryPage() {
       },
     },
     {
-      accessorKey: 'cost',
-      header: t('agent_orchestrator.agents.list.col.cost', 'Cost / run'),
-      cell: () => <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />,
+      accessorKey: 'costPerRun',
+      header: t('agent_orchestrator.agents.list.col.cost', 'Cost / run (est.)'),
+      cell: ({ row }) => {
+        const value = formatCostMinor(row.original.costPerRun, row.original.currency)
+        if (!value) return <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+        return <span className="text-sm tabular-nums text-muted-foreground">{value}</span>
+      },
     },
     {
       accessorKey: 'status',
@@ -244,6 +255,13 @@ export default function AgentsRegistryPage() {
   const avgOverride = ratedRows.length
     ? Math.round((ratedRows.reduce((sum, agent) => sum + (agent.overrideRate ?? 0), 0) / ratedRows.length) * 100)
     : null
+  const evalRatedRows = rows.filter((agent) => agent.evalPass != null)
+  const avgEvalPass = evalRatedRows.length
+    ? Math.round((evalRatedRows.reduce((sum, agent) => sum + (agent.evalPass ?? 0), 0) / evalRatedRows.length) * 100)
+    : null
+  const spendMinorTotal = rows.reduce((sum, agent) => sum + agent.costTotal, 0)
+  const spendCurrency = rows.find((agent) => agent.currency)?.currency ?? null
+  const spendLabel = spendMinorTotal > 0 ? formatCostMinor(spendMinorTotal, spendCurrency) : null
 
   const total = rows.length
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -274,7 +292,14 @@ export default function AgentsRegistryPage() {
             <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{rows.length.toLocaleString('en-US')}</span>
           </StatCard>
           <StatCard icon={ShieldCheck} label={t('agent_orchestrator.agents.kpi.avgEval', 'Avg eval pass')}>
-            <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
+            {avgEvalPass == null ? (
+              <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+            ) : (
+              <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">
+                {avgEvalPass}
+                <span className="text-xl font-semibold text-muted-foreground">%</span>
+              </span>
+            )}
           </StatCard>
           <StatCard icon={Pencil} label={t('agent_orchestrator.agents.kpi.avgOverride', 'Avg override')}>
             {avgOverride == null ? (
@@ -286,8 +311,12 @@ export default function AgentsRegistryPage() {
               </span>
             )}
           </StatCard>
-          <StatCard icon={Wallet} label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d)')}>
-            <PendingChip label={t('agent_orchestrator.agents.list.pending.backend', 'Needs backend')} />
+          <StatCard icon={Wallet} label={t('agent_orchestrator.agents.kpi.spend', 'Spend (7d, est.)')}>
+            {spendLabel == null ? (
+              <PendingChip label={t('agent_orchestrator.agents.list.pending.noData', 'No data')} />
+            ) : (
+              <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{spendLabel}</span>
+            )}
           </StatCard>
         </div>
 
@@ -335,7 +364,7 @@ function titleCase(value: string): string {
 }
 
 const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = { actionable: Zap, informative: Info }
-const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = { 'in-process': Cpu, opencode: SquareCode, external: Globe }
+const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = { 'in-process': Cpu, native: Cpu, opencode: SquareCode, external: Globe }
 const AUTONOMY_ICON: Record<string, React.ComponentType<{ className?: string }>> = { auto: Bot, review: Eye, gated: Lock }
 
 function Chip({ icon: Icon, children }: { icon?: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {

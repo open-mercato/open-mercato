@@ -28,6 +28,14 @@ export type GuardCheckView = {
   result: string
 }
 
+/** Windowed traces KPI block on GET /metrics/overview (data-honesty pass). */
+export type TracesKpiView = {
+  p95LatencyMs: number | null
+  errorRate: number | null
+  evalPassRate: number | null
+  source: 'rollup' | 'live'
+}
+
 /** Response of GET /metrics/overview — org-level cockpit aggregates. */
 export type OverviewMetricsView = {
   window: string
@@ -36,6 +44,25 @@ export type OverviewMetricsView = {
   oldestPendingAt: string | null
   runsTotal: number
   dispositionCounts: Record<string, number>
+  /** Windowed count of operator corrections (additive). */
+  correctionsCount: number | null
+  /** Traces-list KPI block (additive); null when the server predates it. */
+  traces: TracesKpiView | null
+  source: 'rollup' | 'live'
+}
+
+/** One item of GET /metrics/agents — per-agent window metrics. */
+export type AgentWindowMetricsView = {
+  agentId: string
+  runsTotal: number
+  errorRate: number | null
+  overrideRate: number | null
+  evalPassRate: number | null
+  avgLatencyMs: number | null
+  avgCostMinor: number | null
+  costMinorTotal: number
+  disposedProposals: number
+  currency: string | null
   source: 'rollup' | 'live'
 }
 
@@ -247,6 +274,42 @@ export function mapOverviewMetrics(item: Record<string, unknown>): OverviewMetri
     oldestPendingAt: asString(item.oldestPendingAt),
     runsTotal: asNumber(item.runsTotal) ?? 0,
     dispositionCounts,
+    correctionsCount: asNumber(item.correctionsCount),
+    traces: mapTracesKpi(item.traces),
+    source,
+  }
+}
+
+function mapTracesKpi(raw: unknown): TracesKpiView | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const block = raw as Record<string, unknown>
+  const source = block.source === 'rollup' ? 'rollup' : block.source === 'live' ? 'live' : null
+  if (!source) return null
+  return {
+    p95LatencyMs: asNumber(block.p95LatencyMs),
+    errorRate: asNumber(block.errorRate),
+    evalPassRate: asNumber(block.evalPassRate),
+    source,
+  }
+}
+
+/** Defensive mapper for GET /metrics/agents items. */
+export function mapAgentWindowMetrics(item: Record<string, unknown>): AgentWindowMetricsView | null {
+  const agentId = asString(item.agentId)
+  if (!agentId) return null
+  const source = item.source === 'rollup' ? 'rollup' : item.source === 'live' ? 'live' : null
+  if (!source) return null
+  return {
+    agentId,
+    runsTotal: asNumber(item.runsTotal) ?? 0,
+    errorRate: asNumber(item.errorRate),
+    overrideRate: asNumber(item.overrideRate),
+    evalPassRate: asNumber(item.evalPassRate),
+    avgLatencyMs: asNumber(item.avgLatencyMs),
+    avgCostMinor: asNumber(item.avgCostMinor),
+    costMinorTotal: asNumber(item.costMinorTotal) ?? 0,
+    disposedProposals: asNumber(item.disposedProposals) ?? 0,
+    currency: asString(item.currency),
     source,
   }
 }

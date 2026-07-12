@@ -34,8 +34,11 @@ export type AgentResult<T = unknown> =
   | { kind: 'informative'; data: T }
   | { kind: 'actionable'; proposal: AgentProposalPayload }
 
-/** Trace-list filter facets (trace-eval overlay). */
-export const runFilterFacet = z.enum(['overridden', 'low-confidence', 'eval-fail'])
+/**
+ * Trace-list filter facets (trace-eval overlay). `needs-review` is the union
+ * facet the traces list tabs use: failed eval OR low confidence.
+ */
+export const runFilterFacet = z.enum(['overridden', 'low-confidence', 'eval-fail', 'needs-review'])
 export type RunFilterFacet = z.infer<typeof runFilterFacet>
 
 /** Relative time windows for trace/metrics queries. */
@@ -483,8 +486,26 @@ export const agentMetricRollupMetricsSchema = z.object({
   costMinorTotal: z.number().nonnegative(),
   disposedProposals: z.number().int().nonnegative(),
   approveUnchangedRate: z.number().min(0).max(1).nullable(),
+  // Additive observability keys (UX data-honesty pass). Optional so rollup rows
+  // written before the upgrade still parse for the original KPIs — readers MUST
+  // treat a missing key as "no fresh rollup for that metric" and live-compute.
+  errorRuns: z.number().int().nonnegative().optional(),
+  errorRate: z.number().min(0).max(1).nullable().optional(),
+  p95LatencyMs: z.number().nonnegative().nullable().optional(),
+  evalPassedRuns: z.number().int().nonnegative().optional(),
 })
 export type AgentMetricRollupMetrics = z.infer<typeof agentMetricRollupMetricsSchema>
+
+/**
+ * Query schema for GET /metrics/agents — batch per-agent window metrics for
+ * the registry/overview surfaces. `ids` is comma-separated; the route enforces
+ * the 1–50 cap after splitting.
+ */
+export const agentMetricsBatchQuerySchema = z.object({
+  window: z.enum(['24h', '7d', '30d']).default('7d'),
+  ids: z.string().min(1),
+})
+export type AgentMetricsBatchQuery = z.infer<typeof agentMetricsBatchQuerySchema>
 
 // ── Context bundles / TDCR assembly (context overlay, Phase 1) ──────────────
 /**

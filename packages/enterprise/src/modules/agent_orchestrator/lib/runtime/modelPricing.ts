@@ -84,10 +84,15 @@ function resolvePricingTable(): Record<string, PriceEntry> {
   }
 }
 
-function resolveCurrency(): string {
+/**
+ * The deployment's cost-estimate currency (`OM_AGENT_COST_CURRENCY`, default
+ * USD). Exported for read surfaces that label aggregated estimates.
+ */
+export function resolveCostCurrency(): string {
   const raw = process.env.OM_AGENT_COST_CURRENCY?.trim()
   return raw && /^[A-Za-z]{3}$/.test(raw) ? raw.toUpperCase() : DEFAULT_CURRENCY
 }
+const resolveCurrency = resolveCostCurrency
 
 /**
  * Resolve the price for a model id, tolerating the id shapes the stack

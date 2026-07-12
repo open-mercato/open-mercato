@@ -15,6 +15,7 @@ import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
   mapAgent,
+  mapAgentWindowMetrics,
   mapOverviewMetrics,
   mapProposal,
   mapRun,
@@ -32,7 +33,6 @@ type Verb = 'do' | 'review'
 type TrustRow = { id: string; label: string; runs: number; overridePct: number | null; status: Health }
 type StuckRow = { id: string; processId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
-type AgentMetricsResponse = { totalRuns?: number; overrideRate?: number | null; disposedProposals?: number }
 
 const statusVariant: StatusMap<Health> = { good: 'success', watch: 'warning', poor: 'error', new: 'neutral' }
 const slaVariant: StatusMap<Sla> = { breach: 'error', risk: 'warning', ok: 'success' }
@@ -126,26 +126,25 @@ export default function AgentFleetOverviewPage() {
           }
         }
         const runIds = Array.from(new Set(pending.map((row) => row.runId)))
-        const [runsRes, perAgentEntries] = await Promise.all([
+        // Per-agent trust metrics come from ONE batched /metrics/agents call
+        // (chunked at the endpoint's 50-id cap) instead of an N+1 fan-out over
+        // /agents/:id/metrics — same rollup-preferred data, one round-trip.
+        const metricsChunks: string[][] = []
+        for (let start = 0; start < ids.length; start += 50) metricsChunks.push(ids.slice(start, start + 50))
+        const [runsRes, batchedMetrics] = await Promise.all([
           runIds.length
             ? fetchList(
                 `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
               )
             : Promise.resolve({ items: [] as Array<Record<string, unknown>>, total: 0 }),
           Promise.all(
-            ids.map(async (id) => {
-              const call = await apiCall<AgentMetricsResponse>(
-                `/api/agent_orchestrator/agents/${encodeURIComponent(id)}/metrics?window=${OVERVIEW_WINDOW}`,
-              )
-              if (!call.ok || !call.result) return [id, null] as const
-              const stats: AgentWindowMetrics = {
-                totalRuns: typeof call.result.totalRuns === 'number' ? call.result.totalRuns : 0,
-                overrideRate: typeof call.result.overrideRate === 'number' ? call.result.overrideRate : null,
-                disposedProposals:
-                  typeof call.result.disposedProposals === 'number' ? call.result.disposedProposals : 0,
-              }
-              return [id, stats] as const
-            }),
+            metricsChunks.map((chunk) =>
+              apiCall<{ items?: Array<Record<string, unknown>> }>(
+                `/api/agent_orchestrator/metrics/agents?window=${OVERVIEW_WINDOW}&ids=${chunk.map((id) => encodeURIComponent(id)).join(',')}`,
+                undefined,
+                { fallback: { items: [] } },
+              ),
+            ),
           ),
         ])
         if (cancelled) return
@@ -155,8 +154,17 @@ export default function AgentFleetOverviewPage() {
           if (run) runs.set(run.id, run)
         }
         const perAgent = new Map<string, AgentWindowMetrics>()
-        for (const [id, stats] of perAgentEntries) {
-          if (stats) perAgent.set(id, stats)
+        for (const call of batchedMetrics) {
+          if (!call.ok || !Array.isArray(call.result?.items)) continue
+          for (const item of call.result.items) {
+            const mapped = mapAgentWindowMetrics(item as Record<string, unknown>)
+            if (!mapped) continue
+            perAgent.set(mapped.agentId, {
+              totalRuns: mapped.runsTotal,
+              overrideRate: mapped.overrideRate,
+              disposedProposals: mapped.disposedProposals,
+            })
+          }
         }
         setMetrics(overview)
         setPendingProposals(pending)

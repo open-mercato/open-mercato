@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { CheckCircle2, Clock, Download, Filter, Gavel, Replace, Workflow } from 'lucide-react'
+import { CheckCircle2, Clock, Gavel, Replace, Undo2, Workflow } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -11,19 +11,20 @@ import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
-import { SearchInput } from '@open-mercato/ui/primitives/search-input'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapAgent } from '../../components/types'
+import { mapAgent, mapOverviewMetrics, type OverviewMetricsView } from '../../components/types'
 
 type Disposition = 'pending' | 'approved' | 'edited' | 'rejected' | 'auto_approved'
+type DispositionFilter = 'all' | Disposition
 
 type AuditRow = {
   id: string
   when: string | null
   agentId: string
   agentLabel: string
-  claim: string
+  subjectRef: string
   disposition: Disposition
   operator: string | null
   reason: string | null
@@ -37,8 +38,8 @@ const dispositionVariant: StatusMap<Disposition> = {
   rejected: 'error',
   pending: 'neutral',
 }
-const APPROVED = ['approved', 'auto_approved']
-const OVERRIDDEN = ['edited', 'rejected']
+
+const DISPOSITION_FILTERS: DispositionFilter[] = ['all', 'pending', 'approved', 'auto_approved', 'edited', 'rejected']
 
 function asString(value: unknown): string | null {
   return typeof value === 'string' ? value : null
@@ -65,54 +66,70 @@ function formatWhen(value: string | null): string {
   return new Date(parsed).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
-async function fetchItems(path: string): Promise<Array<Record<string, unknown>>> {
-  const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(path, undefined, { fallback: { items: [] } })
-  if (!call.ok || !Array.isArray(call.result?.items)) return []
-  return call.result.items
-}
+type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 
 export default function AgentAuditPage() {
   const t = useT()
   const router = useRouter()
   const [rows, setRows] = React.useState<AuditRow[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [page, setPage] = React.useState(1)
   const [pageSize, setPageSize] = React.useState(20)
-  const [query, setQuery] = React.useState('')
+  const [disposition, setDisposition] = React.useState<DispositionFilter>('all')
 
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       setIsLoading(true)
       setError(null)
-      const agentsCall = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-        '/api/agent_orchestrator/agents',
-        undefined,
-        { fallback: { items: [] } },
-      )
+      const listParams = new URLSearchParams({
+        page: String(page),
+        pageSize: String(pageSize),
+        sortField: 'createdAt',
+        sortDir: 'desc',
+      })
+      if (disposition !== 'all') listParams.set('disposition', disposition)
+      // Server-paginated log + org-level KPIs — the old 100-row client join is
+      // gone; totals now describe the whole tenant, not a sample.
+      const [agentsCall, proposalsCall, overviewCall] = await Promise.all([
+        apiCall<ListResponse>('/api/agent_orchestrator/agents', undefined, { fallback: { items: [] } }),
+        apiCall<ListResponse>(`/api/agent_orchestrator/proposals?${listParams.toString()}`, undefined, {
+          fallback: { items: [], total: 0 },
+        }),
+        apiCall<Record<string, unknown>>('/api/agent_orchestrator/metrics/overview?window=7d'),
+      ])
       if (cancelled) return
-      if (!agentsCall.ok) {
-        setError(t('agent_orchestrator.agents.list.error'))
+      if (!proposalsCall.ok) {
+        setError(t('agent_orchestrator.audit.error', 'Could not load the audit log.'))
         setIsLoading(false)
         return
       }
       const agentLabels = new Map<string, string>()
-      for (const item of Array.isArray(agentsCall.result?.items) ? agentsCall.result.items : []) {
+      for (const item of agentsCall.ok && Array.isArray(agentsCall.result?.items) ? agentsCall.result.items : []) {
         const agent = mapAgent(item)
         if (agent) agentLabels.set(agent.id, agent.label || agent.id)
       }
+      const proposals = Array.isArray(proposalsCall.result?.items) ? proposalsCall.result.items : []
+      setTotal(typeof proposalsCall.result?.total === 'number' ? proposalsCall.result.total : proposals.length)
+      setMetrics(overviewCall.ok && overviewCall.result ? mapOverviewMetrics(overviewCall.result) : null)
 
-      const [proposals, runs] = await Promise.all([
-        fetchItems('/api/agent_orchestrator/proposals?pageSize=100'),
-        fetchItems('/api/agent_orchestrator/runs?pageSize=100'),
-      ])
-      if (cancelled) return
-
+      // Per-page run enrichment (caseload precedent) — only the visible rows.
+      const runIds = Array.from(new Set(proposals.map((p) => fieldOf(p, 'run_id', 'runId')).filter(Boolean)))
       const runById = new Map<string, Record<string, unknown>>()
-      for (const run of runs) {
-        const runId = fieldOf(run, 'id')
-        if (runId) runById.set(runId, run)
+      if (runIds.length > 0) {
+        const runsCall = await apiCall<ListResponse>(
+          `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        if (cancelled) return
+        for (const run of runsCall.ok && Array.isArray(runsCall.result?.items) ? runsCall.result.items : []) {
+          const runId = fieldOf(run, 'id')
+          if (runId) runById.set(runId, run)
+        }
       }
 
       const built: AuditRow[] = proposals.map((proposal) => {
@@ -120,20 +137,21 @@ export default function AgentAuditPage() {
         const runId = fieldOf(proposal, 'run_id', 'runId')
         const run = runById.get(runId)
         const input = run ? asObject(run.input) : null
-        const claim = (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) || (runId ? runId.slice(0, 12) : fieldOf(proposal, 'id').slice(0, 12))
+        const subjectRef =
+          (input && fieldOf(input, 'claimId', 'claim_id', 'dealId', 'deal_id', 'reference')) ||
+          (runId ? runId.slice(0, 12) : fieldOf(proposal, 'id').slice(0, 12))
         return {
           id: fieldOf(proposal, 'id'),
           when: fieldOf(proposal, 'created_at', 'createdAt') || null,
           agentId,
           agentLabel: agentLabels.get(agentId) || agentId || '—',
-          claim,
+          subjectRef,
           disposition: dispositionOf(fieldOf(proposal, 'disposition') || 'pending'),
           operator: fieldOf(proposal, 'disposition_by', 'dispositionBy') || null,
           reason: fieldOf(proposal, 'disposition_reason', 'dispositionReason') || null,
           processId: fieldOf(proposal, 'process_id', 'processId') || null,
         }
       })
-      built.sort((a, b) => Date.parse(b.when || '') - Date.parse(a.when || ''))
       setRows(built)
       setIsLoading(false)
     }
@@ -141,7 +159,7 @@ export default function AgentAuditPage() {
     return () => {
       cancelled = true
     }
-  }, [t])
+  }, [t, page, pageSize, disposition])
 
   const columns = React.useMemo<ColumnDef<AuditRow>[]>(() => [
     {
@@ -164,9 +182,9 @@ export default function AgentAuditPage() {
       ),
     },
     {
-      accessorKey: 'claim',
+      accessorKey: 'subjectRef',
       header: t('agent_orchestrator.audit.col.claim', 'Claim'),
-      cell: ({ row }) => <span className="font-mono text-xs text-foreground">{row.original.claim}</span>,
+      cell: ({ row }) => <span className="font-mono text-xs text-foreground">{row.original.subjectRef}</span>,
     },
     {
       accessorKey: 'disposition',
@@ -204,7 +222,7 @@ export default function AgentAuditPage() {
     },
   ], [t, router])
 
-  if (isLoading) {
+  if (isLoading && rows.length === 0) {
     return (
       <Page>
         <PageBody>
@@ -224,46 +242,27 @@ export default function AgentAuditPage() {
     )
   }
 
-  const total = rows.length
-  const approvedCount = rows.filter((row) => APPROVED.includes(row.disposition)).length
-  const overriddenCount = rows.filter((row) => OVERRIDDEN.includes(row.disposition)).length
-  const pendingCount = rows.filter((row) => row.disposition === 'pending').length
+  // KPIs are org-level aggregates from /metrics/overview — dispositionCounts is
+  // the CURRENT backlog state (all proposals), correctionsCount is windowed.
+  const counts = metrics?.dispositionCounts ?? {}
+  const decisionsTotal = Object.values(counts).reduce((sum, count) => sum + count, 0)
+  const approvedCount = (counts.approved ?? 0) + (counts.auto_approved ?? 0)
+  const overriddenCount = (counts.edited ?? 0) + (counts.rejected ?? 0)
+  const pendingCount = counts.pending ?? 0
+  const correctionsCount = metrics?.correctionsCount ?? null
 
-  // KPIs summarize the whole log; the search narrows only the table below.
-  const q = query.trim().toLowerCase()
-  const filteredRows = q
-    ? rows.filter((row) =>
-        [row.claim, row.agentLabel, row.agentId, row.operator, row.reason].some((value) =>
-          (value ?? '').toLowerCase().includes(q),
-        ),
-      )
-    : rows
-  const filteredTotal = filteredRows.length
-  const totalPages = Math.max(1, Math.ceil(filteredTotal / pageSize))
-  const pagedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize)
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
   return (
     <Page>
       <PageBody className="space-y-5">
-        <div className="flex items-center justify-between gap-3">
-          <h1 className="text-lg font-semibold">{t('agent_orchestrator.audit.title', 'Audit log')}</h1>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm">
-              <Filter className="mr-2 size-4" />
-              {t('agent_orchestrator.agents.actions.filters', 'Filters')}
-            </Button>
-            <Button variant="outline" size="sm">
-              <Download className="mr-2 size-4" />
-              {t('agent_orchestrator.agents.actions.export', 'Export')}
-            </Button>
-          </div>
-        </div>
+        <h1 className="text-lg font-semibold">{t('agent_orchestrator.audit.title', 'Audit log')}</h1>
 
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
           <StatCard
             icon={Gavel}
             label={t('agent_orchestrator.audit.kpi.total', 'Decisions')}
-            value={total.toLocaleString('en-US')}
+            value={decisionsTotal.toLocaleString('en-US')}
             sub={t('agent_orchestrator.audit.kpi.totalSub', 'Agent decisions logged')}
           />
           <StatCard
@@ -279,6 +278,12 @@ export default function AgentAuditPage() {
             sub={t('agent_orchestrator.audit.kpi.overriddenSub', 'Edited or rejected')}
           />
           <StatCard
+            icon={Undo2}
+            label={t('agent_orchestrator.audit.kpi.corrections', 'Corrections (7d)')}
+            value={correctionsCount == null ? '—' : correctionsCount.toLocaleString('en-US')}
+            sub={t('agent_orchestrator.audit.kpi.correctionsSub', 'Operator corrections recorded')}
+          />
+          <StatCard
             icon={Clock}
             label={t('agent_orchestrator.audit.kpi.pending', 'Pending')}
             value={pendingCount.toLocaleString('en-US')}
@@ -286,51 +291,63 @@ export default function AgentAuditPage() {
           />
         </div>
 
-        {rows.length === 0 ? (
+        {total === 0 && disposition === 'all' ? (
           <EmptyState
             title={t('agent_orchestrator.audit.empty', 'No agent decisions yet')}
             description={t('agent_orchestrator.audit.emptyDescription', 'Agent proposals and their dispositions will appear here once agents start running.')}
           />
         ) : (
-          <DataTable<AuditRow>
-            columns={columns}
-            data={pagedRows}
-            sortable
-            // Search lives in the DataTable title slot (left) so it shares one row
-            // with the right-aligned Views switcher — no divider, no stray ••• band.
-            title={
-              <SearchInput
-                value={query}
-                onChange={(value) => { setQuery(value); setPage(1) }}
-                placeholder={t('agent_orchestrator.audit.searchPlaceholder', 'Search logs…')}
-                className="w-full max-w-xs"
-              />
-            }
-            pagination={{
-              page,
-              pageSize,
-              total: filteredTotal,
-              totalPages,
-              onPageChange: setPage,
-              pageSizeOptions: [10, 20, 50],
-              onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
-            }}
-            columnChooser={{ auto: true }}
-            perspective={{ tableId: 'agent_orchestrator.audit.list', align: 'right' }}
-            onRowClick={(row) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
-            rowActions={(row) => (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                title={t('agent_orchestrator.proposal.openProcess', 'Open process')}
-                onClick={() => router.push(`/backend/processes/${encodeURIComponent(row.processId ?? row.id)}`)}
-              >
-                <Workflow className="size-4" />
-                <span className="sr-only">{t('agent_orchestrator.proposal.openProcess', 'Open process')}</span>
-              </Button>
-            )}
-          />
+          <div className="space-y-2">
+            <DataTable<AuditRow>
+              columns={columns}
+              data={rows}
+              title={
+                <Select value={disposition} onValueChange={(value) => { setDisposition(value as DispositionFilter); setPage(1) }}>
+                  <SelectTrigger className="h-9 w-auto min-w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DISPOSITION_FILTERS.map((option) => (
+                      <SelectItem key={option} value={option}>
+                        {option === 'all'
+                          ? t('agent_orchestrator.audit.filter.all', 'All dispositions')
+                          : t(`agent_orchestrator.disposition.${option}`, titleCase(option))}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              }
+              pagination={{
+                page,
+                pageSize,
+                total,
+                totalPages,
+                onPageChange: setPage,
+                pageSizeOptions: [10, 20, 50],
+                onPageSizeChange: (next) => { setPageSize(next); setPage(1) },
+              }}
+              columnChooser={{ auto: true }}
+              perspective={{ tableId: 'agent_orchestrator.audit.list', align: 'right' }}
+              onRowClick={(row) => router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)}
+              rowActions={(row) =>
+                row.processId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    title={t('agent_orchestrator.proposal.openProcess', 'Open process')}
+                    onClick={() => router.push(`/backend/processes/${encodeURIComponent(row.processId!)}`)}
+                  >
+                    <Workflow className="size-4" />
+                    <span className="sr-only">{t('agent_orchestrator.proposal.openProcess', 'Open process')}</span>
+                  </Button>
+                ) : null
+              }
+            />
+            <p className="text-xs text-muted-foreground">
+              {t('agent_orchestrator.audit.log.serverPaginatedNote', 'The log is paginated server-side across all decisions; narrow it with the disposition filter.')}
+            </p>
+          </div>
         )}
       </PageBody>
     </Page>

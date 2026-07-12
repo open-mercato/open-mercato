@@ -83,10 +83,10 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>) {
   const recent = new Date(now - 60 * 60 * 1000)
   // 4 runs in the last hour: 3 evaluated (2 pass, 1 fail), latencies + cost.
   const runs = [
-    { id: 'run-1', evalPassed: true, latencyMs: 100, costMinor: 10 },
-    { id: 'run-2', evalPassed: true, latencyMs: 200, costMinor: 20 },
-    { id: 'run-3', evalPassed: false, latencyMs: 300, costMinor: 30 },
-    { id: 'run-4', evalPassed: null, latencyMs: null, costMinor: null },
+    { id: 'run-1', status: 'ok', evalPassed: true, latencyMs: 100, costMinor: 10 },
+    { id: 'run-2', status: 'ok', evalPassed: true, latencyMs: 200, costMinor: 20 },
+    { id: 'run-3', status: 'error', evalPassed: false, latencyMs: 300, costMinor: 30 },
+    { id: 'run-4', status: 'ok', evalPassed: null, latencyMs: null, costMinor: null },
   ]
   for (const run of runs) {
     storeFor(AgentRun).push({
@@ -142,6 +142,12 @@ describe('writeRollupsForOrg', () => {
     expect(metrics.costMinorTotal).toBe(60)
     expect(metrics.disposedProposals).toBe(3)
     expect(metrics.approveUnchangedRate).toBeCloseTo(2 / 3)
+    // Additive observability keys (data-honesty pass): counts stored alongside
+    // rates so org-level readers can aggregate across agents.
+    expect(metrics.errorRuns).toBe(1)
+    expect(metrics.errorRate).toBeCloseTo(1 / 4)
+    expect(metrics.evalPassedRuns).toBe(2)
+    expect(metrics.p95LatencyMs).toBe(300)
   })
 
   it('is idempotent: re-running the same interval does not duplicate rows', async () => {

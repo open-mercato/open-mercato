@@ -80,6 +80,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.status) filters.status = { $eq: query.status }
       if (query.resultKind) filters.result_kind = { $eq: query.resultKind }
+      if (query.flagged) filters.flagged_at = { $ne: null }
       if (query.window && WINDOW_MS[query.window]) {
         filters.created_at = { $gte: new Date(Date.now() - WINDOW_MS[query.window]).toISOString() }
       }
@@ -87,6 +88,13 @@ const crud = makeCrudRoute<never, never, z.infer<typeof runListQuerySchema>>({
       // the self-contained facets are honored.
       if (query.filter === 'eval-fail') filters.eval_passed = { $eq: false }
       else if (query.filter === 'low-confidence') filters.confidence = { $lt: LOW_CONFIDENCE_THRESHOLD }
+      else if (query.filter === 'needs-review') {
+        // The traces-list union facet: failed eval OR low confidence.
+        filters.$or = [
+          { eval_passed: { $eq: false } },
+          { confidence: { $lt: LOW_CONFIDENCE_THRESHOLD } },
+        ]
+      }
       return filters
     },
   },

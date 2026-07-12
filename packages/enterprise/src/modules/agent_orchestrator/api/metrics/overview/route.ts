@@ -4,7 +4,7 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
-import { AgentMetricRollup, AgentProposal, AgentRun } from '../../../data/entities'
+import { AgentCorrection, AgentMetricRollup, AgentProposal, AgentRun } from '../../../data/entities'
 import { agentMetricRollupMetricsSchema } from '../../../data/validators'
 import { ROLLUP_WINDOW_MS, ROLLUP_BUCKET_MS, type MetricScope } from '../../../lib/metrics/metricRollupService'
 import { agentOrchestratorTag } from '../../openapi'
@@ -33,16 +33,27 @@ const ROLLUP_FRESHNESS_MS = 2 * ROLLUP_BUCKET_MS
 
 const errorSchema = z.object({ error: z.string() })
 
+type FreshRollupSums = {
+  runsTotal: number
+  /** Null when any fresh row predates the additive observability keys. */
+  errorRuns: number | null
+  evaluatedRuns: number | null
+  evalPassedRuns: number | null
+}
+
 /**
- * Sum `totalRuns` across the freshest matching rollup row of every agent in
- * the org. Returns null when no fresh rollup covers the requested window (or a
- * stored payload fails validation), signalling the caller to live-compute.
+ * Sum the aggregatable COUNTS across the freshest matching rollup row of every
+ * agent in the org. Returns null when no fresh rollup covers the requested
+ * window (or a stored payload fails validation), signalling the caller to
+ * live-compute. The additive keys (`errorRuns`, `evalPassedRuns`) may be
+ * missing on rows written before the data-honesty upgrade — those sums come
+ * back null so ONLY the affected metrics fall back to live (rollup key drift).
  */
-async function sumFreshRollupRuns(
+async function sumFreshRollups(
   em: EntityManager,
   scope: MetricScope,
   windowSpanMs: number,
-): Promise<number | null> {
+): Promise<FreshRollupSums | null> {
   const rollups = await em.find(
     AgentMetricRollup,
     { tenantId: scope.tenantId, organizationId: scope.organizationId },
@@ -58,13 +69,47 @@ async function sumFreshRollupRuns(
   }
   if (latestPerAgent.size === 0) return null
 
-  let runsTotal = 0
+  const sums: FreshRollupSums = { runsTotal: 0, errorRuns: 0, evaluatedRuns: 0, evalPassedRuns: 0 }
   for (const rollup of latestPerAgent.values()) {
     const parsed = agentMetricRollupMetricsSchema.safeParse(rollup.metrics)
     if (!parsed.success) return null
-    runsTotal += parsed.data.totalRuns
+    sums.runsTotal += parsed.data.totalRuns
+    if (sums.errorRuns != null) {
+      sums.errorRuns = parsed.data.errorRuns == null ? null : sums.errorRuns + parsed.data.errorRuns
+    }
+    if (sums.evaluatedRuns != null && sums.evalPassedRuns != null) {
+      if (parsed.data.evalPassedRuns == null) {
+        sums.evaluatedRuns = null
+        sums.evalPassedRuns = null
+      } else {
+        sums.evaluatedRuns += parsed.data.evaluatedRuns
+        sums.evalPassedRuns += parsed.data.evalPassedRuns
+      }
+    }
   }
-  return runsTotal
+  return sums
+}
+
+/**
+ * Org-level p95 latency over the window. Percentiles are not aggregatable from
+ * per-agent rollups, so this is ALWAYS live — one indexed `percentile_cont`
+ * over `latency_ms` (scoped, single window). Fails open to null.
+ */
+async function liveP95LatencyMs(em: EntityManager, scope: MetricScope, since: Date): Promise<number | null> {
+  try {
+    const rows = (await em.getConnection().execute(
+      `select percentile_cont(0.95) within group (order by latency_ms) as p95
+         from agent_runs
+        where tenant_id = ? and organization_id = ? and created_at >= ?
+          and deleted_at is null and latency_ms is not null`,
+      [scope.tenantId, scope.organizationId, since],
+    )) as Array<{ p95: unknown }>
+    const value = rows?.[0]?.p95
+    const parsed = typeof value === 'string' ? Number(value) : value
+    return typeof parsed === 'number' && Number.isFinite(parsed) ? parsed : null
+  } catch {
+    return null
+  }
 }
 
 export async function GET(req: Request) {
@@ -110,9 +155,41 @@ export async function GET(req: Request) {
   ])
   const autoApproveRate = disposedInWindow > 0 ? autoApprovedInWindow / disposedInWindow : null
 
-  const rollupRunsTotal = await sumFreshRollupRuns(em, scope, windowSpanMs)
-  const runsTotal =
-    rollupRunsTotal ?? (await em.count(AgentRun, { ...scope, deletedAt: null, createdAt: { $gte: since } }))
+  const rollupSums = await sumFreshRollups(em, scope, windowSpanMs)
+  const windowedRunScope = { ...scope, deletedAt: null, createdAt: { $gte: since } }
+  const runsTotal = rollupSums?.runsTotal ?? (await em.count(AgentRun, windowedRunScope))
+
+  // Traces KPI block (data-honesty pass). Error/eval-pass rates prefer fresh
+  // rollup COUNT sums (rates are not additive, counts are); rows written before
+  // the additive keys existed force a live fallback for just those metrics.
+  // p95 is always live — see liveP95LatencyMs.
+  let errorRate: number | null
+  let tracesFromRollup = false
+  if (rollupSums && rollupSums.errorRuns != null) {
+    errorRate = rollupSums.runsTotal > 0 ? rollupSums.errorRuns / rollupSums.runsTotal : null
+    tracesFromRollup = true
+  } else {
+    const [windowedRuns, windowedErrors] = await Promise.all([
+      rollupSums ? Promise.resolve(rollupSums.runsTotal) : em.count(AgentRun, windowedRunScope),
+      em.count(AgentRun, { ...windowedRunScope, status: 'error' }),
+    ])
+    errorRate = windowedRuns > 0 ? windowedErrors / windowedRuns : null
+  }
+  let evalPassRate: number | null
+  if (rollupSums && rollupSums.evaluatedRuns != null && rollupSums.evalPassedRuns != null) {
+    evalPassRate = rollupSums.evaluatedRuns > 0 ? rollupSums.evalPassedRuns / rollupSums.evaluatedRuns : null
+  } else {
+    tracesFromRollup = false
+    const [evaluated, passed] = await Promise.all([
+      em.count(AgentRun, { ...windowedRunScope, evalPassed: { $ne: null } }),
+      em.count(AgentRun, { ...windowedRunScope, evalPassed: true }),
+    ])
+    evalPassRate = evaluated > 0 ? passed / evaluated : null
+  }
+  const [p95LatencyMs, correctionsCount] = await Promise.all([
+    liveP95LatencyMs(em, scope, since),
+    em.count(AgentCorrection, { ...scope, createdAt: { $gte: since } }),
+  ])
 
   return NextResponse.json({
     window,
@@ -121,7 +198,14 @@ export async function GET(req: Request) {
     oldestPendingAt: oldestPending?.createdAt ? oldestPending.createdAt.toISOString() : null,
     runsTotal,
     dispositionCounts,
-    source: rollupRunsTotal != null ? ('rollup' as const) : ('live' as const),
+    correctionsCount,
+    traces: {
+      p95LatencyMs,
+      errorRate,
+      evalPassRate,
+      source: tracesFromRollup ? ('rollup' as const) : ('live' as const),
+    },
+    source: rollupSums != null ? ('rollup' as const) : ('live' as const),
   })
 }
 
@@ -132,7 +216,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'Auto-approve rate, pending backlog and run totals for the organization over a window',
       description:
-        'Org-level cockpit metrics over a window (24h|7d|30d, default 7d). Windowed run totals aggregate fresh precomputed per-agent rollup rows when available (source="rollup") and fall back to live indexed aggregates (source="live"). pendingCount, oldestPendingAt and dispositionCounts are current-state indexed counts of agent proposals, not windowed history. Gated by agent_orchestrator.proposals.view.',
+        'Org-level cockpit metrics over a window (24h|7d|30d, default 7d). Windowed run totals aggregate fresh precomputed per-agent rollup rows when available (source="rollup") and fall back to live indexed aggregates (source="live"). pendingCount, oldestPendingAt and dispositionCounts are current-state indexed counts of agent proposals, not windowed history. Additive fields: `correctionsCount` (windowed corrections) and a `traces` block ({ p95LatencyMs, errorRate, evalPassRate, source }) for the traces-list KPI strip — its error/eval rates prefer fresh rollup count sums; p95 is always live-computed (percentiles are not aggregatable from per-agent rollups). Gated by agent_orchestrator.proposals.view.',
       responses: [{ status: 200, description: 'Overview metrics for the authenticated organization' }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: errorSchema },

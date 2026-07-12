@@ -19,15 +19,13 @@ import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { mapRun, formatCostMinor, type RunView } from '../../components/types'
+import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, type RunView, type TracesKpiView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
 
-type RunsResponse = { items?: Array<Record<string, unknown>> }
+type RunsResponse = { items?: Array<Record<string, unknown>>; total?: number; totalPages?: number }
 type WindowKey = '24h' | '7d' | '30d'
 type FacetKey = 'all' | 'errors' | 'needs-review'
 type SortKey = 'recentDesc' | 'recentAsc' | 'latencyDesc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
-
-const LOW_CONFIDENCE_THRESHOLD = 0.5
 
 const SORT_OPTIONS: Array<{ key: SortKey; labelKey: string }> = [
   { key: 'recentDesc', labelKey: 'agent_orchestrator.traces.sort.recentDesc' },
@@ -37,6 +35,23 @@ const SORT_OPTIONS: Array<{ key: SortKey; labelKey: string }> = [
   { key: 'confidenceAsc', labelKey: 'agent_orchestrator.traces.sort.confidenceAsc' },
   { key: 'agentAsc', labelKey: 'agent_orchestrator.traces.sort.agentAsc' },
 ]
+
+/** SortKey → server sortField/sortDir (keys of the runs route's sortFieldMap). */
+const SORT_PARAMS: Record<SortKey, { sortField: string; sortDir: 'asc' | 'desc' }> = {
+  recentDesc: { sortField: 'createdAt', sortDir: 'desc' },
+  recentAsc: { sortField: 'createdAt', sortDir: 'asc' },
+  latencyDesc: { sortField: 'latencyMs', sortDir: 'desc' },
+  confidenceDesc: { sortField: 'confidence', sortDir: 'desc' },
+  confidenceAsc: { sortField: 'confidence', sortDir: 'asc' },
+  agentAsc: { sortField: 'agentId', sortDir: 'asc' },
+}
+
+/** Facet → server list params (matches the runs route's filter facets). */
+function facetParams(facet: FacetKey): Record<string, string> {
+  if (facet === 'errors') return { status: 'error' }
+  if (facet === 'needs-review') return { filter: 'needs-review' }
+  return {}
+}
 
 // Run status: ok is the overwhelming majority, so it stays neutral (no green) —
 // the Eval column owns the health signal (green pass / red fail). Errors and
@@ -79,39 +94,24 @@ function formatLatency(latencyMs: number | null): string | null {
   if (latencyMs == null) return null
   return latencyMs < 1000 ? `${latencyMs}ms` : `${(latencyMs / 1000).toFixed(1)}s`
 }
+// Page-scoped quick filter — narrows only the rows currently loaded from the
+// server (run-id search across the full history is the consistency pass's item).
 function matchesSearch(run: RunView, query: string): boolean {
   const q = query.trim().toLowerCase()
   if (!q) return true
   return [run.agentId, run.model, run.runtime, run.externalRunId]
     .some((field) => typeof field === 'string' && field.toLowerCase().includes(q))
 }
-// Low confidence almost always co-occurs with a failed eval, so the two are
-// collapsed into one "needs review" lens rather than two near-identical tabs.
-function isNeedsReview(run: RunView): boolean {
-  return run.evalPassed === false || (run.confidence != null && run.confidence < LOW_CONFIDENCE_THRESHOLD)
-}
-function matchesFacet(run: RunView, facet: FacetKey): boolean {
-  if (facet === 'errors') return run.status === 'error'
-  if (facet === 'needs-review') return isNeedsReview(run)
-  return true
-}
-function sortRuns(runs: RunView[], key: SortKey): RunView[] {
-  const sorted = [...runs]
-  switch (key) {
-    case 'recentAsc': sorted.sort((a, b) => ranAtValue(a.createdAt) - ranAtValue(b.createdAt)); break
-    case 'latencyDesc': sorted.sort((a, b) => (b.latencyMs ?? -1) - (a.latencyMs ?? -1)); break
-    case 'confidenceDesc': sorted.sort((a, b) => (b.confidence ?? -1) - (a.confidence ?? -1)); break
-    case 'confidenceAsc': sorted.sort((a, b) => (a.confidence ?? Number.POSITIVE_INFINITY) - (b.confidence ?? Number.POSITIVE_INFINITY)); break
-    case 'agentAsc': sorted.sort((a, b) => a.agentId.localeCompare(b.agentId)); break
-    default: sorted.sort((a, b) => ranAtValue(b.createdAt) - ranAtValue(a.createdAt))
-  }
-  return sorted
-}
 
 export default function AgentTracesPage() {
   const t = useT()
   const router = useRouter()
   const [runs, setRuns] = React.useState<RunView[]>([])
+  const [total, setTotal] = React.useState(0)
+  const [counts, setCounts] = React.useState<{ all: number; errors: number; needsReview: number }>({ all: 0, errors: 0, needsReview: 0 })
+  const [kpis, setKpis] = React.useState<TracesKpiView | null>(null)
+  const [kpisForbidden, setKpisForbidden] = React.useState(false)
+  const [agentOptions, setAgentOptions] = React.useState<string[]>([])
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [window, setWindow] = React.useState<WindowKey>('7d')
@@ -123,69 +123,90 @@ export default function AgentTracesPage() {
   const [pageSize, setPageSize] = React.useState(20)
   const [reloadToken, setReloadToken] = React.useState(0)
 
+  const agentFilter = agentFilters[0] ?? null
+
   React.useEffect(() => {
     let cancelled = false
     async function load() {
       setIsLoading(true)
       setError(null)
-      const params = new URLSearchParams({ pageSize: '100', window })
-      const call = await apiCall<RunsResponse>(`/api/agent_orchestrator/runs?${params.toString()}`, undefined, {
-        fallback: { items: [] },
+      const scoped: Record<string, string> = { window }
+      if (agentFilter) scoped.agentId = agentFilter
+      const sort = SORT_PARAMS[sortKey]
+      const listParams = new URLSearchParams({
+        ...scoped,
+        ...facetParams(facet),
+        page: String(page),
+        pageSize: String(pageSize),
+        sortField: sort.sortField,
+        sortDir: sort.sortDir,
       })
+      const countProbe = (probeFacet: FacetKey) =>
+        apiCall<RunsResponse>(
+          `/api/agent_orchestrator/runs?${new URLSearchParams({ ...scoped, ...facetParams(probeFacet), page: '1', pageSize: '1' }).toString()}`,
+          undefined,
+          { fallback: { items: [], total: 0 } },
+        )
+      const [listCall, allProbe, errorsProbe, reviewProbe, kpiCall, agentsCall] = await Promise.all([
+        apiCall<RunsResponse>(`/api/agent_orchestrator/runs?${listParams.toString()}`, undefined, {
+          fallback: { items: [], total: 0 },
+        }),
+        countProbe('all'),
+        countProbe('errors'),
+        countProbe('needs-review'),
+        apiCall<Record<string, unknown>>(`/api/agent_orchestrator/metrics/overview?window=${window}`),
+        apiCall<{ items?: Array<Record<string, unknown>> }>('/api/agent_orchestrator/agents', undefined, {
+          fallback: { items: [] },
+        }),
+      ])
       if (cancelled) return
-      if (!call.ok) {
+      if (!listCall.ok) {
         setError(t('agent_orchestrator.traces.error'))
         setIsLoading(false)
         return
       }
-      const items = Array.isArray(call.result?.items) ? call.result!.items : []
+      const items = Array.isArray(listCall.result?.items) ? listCall.result!.items : []
       setRuns(items.map((item) => mapRun(item as Record<string, unknown>)).filter((row): row is RunView => !!row))
+      setTotal(typeof listCall.result?.total === 'number' ? listCall.result.total : items.length)
+      setCounts({
+        all: (allProbe.ok && allProbe.result?.total) || 0,
+        errors: (errorsProbe.ok && errorsProbe.result?.total) || 0,
+        needsReview: (reviewProbe.ok && reviewProbe.result?.total) || 0,
+      })
+      // The KPI strip reads /metrics/overview (gate proposals.view) while this
+      // page gates trace.view — a forbidden strip renders an inline note, never
+      // fake zeros (data-honesty pass).
+      if (kpiCall.ok && kpiCall.result) {
+        const overview = mapOverviewMetrics(kpiCall.result)
+        setKpis(overview?.traces ?? null)
+        setKpisForbidden(false)
+      } else {
+        setKpis(null)
+        setKpisForbidden(kpiCall.status === 403)
+      }
+      // The agent filter needs the registry (gate agents.view) — hidden when
+      // the viewer cannot list agents.
+      const agents = agentsCall.ok && Array.isArray(agentsCall.result?.items) ? agentsCall.result.items : []
+      setAgentOptions(
+        agents
+          .map((item) => mapAgent(item)?.id)
+          .filter((id): id is string => !!id)
+          .sort((a, b) => a.localeCompare(b)),
+      )
       setIsLoading(false)
     }
     void load()
     return () => { cancelled = true }
-  }, [t, window, reloadToken])
+  }, [t, window, facet, agentFilter, sortKey, page, pageSize, reloadToken])
 
-  // Window is the only server-side filter; search/agent/facet/sort/paging are all
-  // client-side so the facet tabs can carry live counts of the visible window.
-  const searched = React.useMemo(
-    () => runs.filter((run) => matchesSearch(run, search) && (agentFilters.length === 0 || agentFilters.includes(run.agentId))),
-    [runs, search, agentFilters],
-  )
-  const counts = React.useMemo(() => ({
-    errors: searched.filter((run) => run.status === 'error').length,
-    needsReview: searched.filter(isNeedsReview).length,
-  }), [searched])
-  const facetRows = React.useMemo(() => searched.filter((run) => matchesFacet(run, facet)), [searched, facet])
-  const sortedRows = React.useMemo(() => sortRuns(facetRows, sortKey), [facetRows, sortKey])
-  const totalPages = Math.max(1, Math.ceil(sortedRows.length / pageSize))
+  // Page-scoped quick filter (server rows for the current page only).
   const pagedRows = React.useMemo(
-    () => sortedRows.slice((page - 1) * pageSize, page * pageSize),
-    [sortedRows, page, pageSize],
+    () => (search.trim() ? runs.filter((run) => matchesSearch(run, search)) : runs),
+    [runs, search],
   )
-  const agentOptions = React.useMemo(
-    () => Array.from(new Set(runs.map((run) => run.agentId))).sort((a, b) => a.localeCompare(b)),
-    [runs],
-  )
-  // Window-scoped aggregates (react to window + search + agent, independent of the
-  // facet tab so they stay stable as you drill). p95 latency in particular cannot
-  // be eyeballed from paged rows — and it lives nowhere else in the cockpit.
-  const kpis = React.useMemo(() => {
-    const evaluated = searched.filter((run) => run.evalPassed !== null)
-    const passed = evaluated.filter((run) => run.evalPassed === true).length
-    const latencies = searched
-      .map((run) => run.latencyMs)
-      .filter((value): value is number => value != null)
-      .sort((a, b) => a - b)
-    const errorCount = searched.filter((run) => run.status === 'error').length
-    return {
-      passRate: evaluated.length > 0 ? Math.round((passed / evaluated.length) * 100) : null,
-      p95Latency: latencies.length > 0 ? latencies[Math.min(latencies.length - 1, Math.ceil(0.95 * latencies.length) - 1)] : null,
-      errorRate: searched.length > 0 ? Math.round((errorCount / searched.length) * 100) : null,
-    }
-  }, [searched])
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
 
-  React.useEffect(() => { setPage(1) }, [window, facet, search, agentFilters, sortKey])
+  React.useEffect(() => { setPage(1) }, [window, facet, agentFilter, sortKey])
 
   const columns = React.useMemo<ColumnDef<RunView>[]>(() => [
     {
@@ -266,7 +287,8 @@ export default function AgentTracesPage() {
     },
   ], [t])
 
-  const showEmpty = !isLoading && !error && runs.length === 0
+  // Empty only when the whole window is empty (not just a filtered facet/page).
+  const showEmpty = !isLoading && !error && counts.all === 0 && facet === 'all' && !agentFilter
 
   return (
     <Page>
@@ -303,12 +325,16 @@ export default function AgentTracesPage() {
                     <SegmentedControlItem value="30d">{t('agent_orchestrator.traces.window.30d')}</SegmentedControlItem>
                   </SegmentedControl>
                 </div>
-                <MultiSelectPill
-                  allLabel={t('agent_orchestrator.traces.filter.allAgents')}
-                  options={agentOptions}
-                  selected={agentFilters}
-                  onChange={setAgentFilters}
-                />
+                {agentOptions.length > 0 ? (
+                  <MultiSelectPill
+                    allLabel={t('agent_orchestrator.traces.filter.allAgents')}
+                    options={agentOptions}
+                    selected={agentFilters}
+                    // Single-select: the filter is pushed down to the server
+                    // (`agentId` accepts one agent), so toggling replaces the pick.
+                    onChange={(next) => setAgentFilters(next.length > 0 ? [next[next.length - 1]] : [])}
+                  />
+                ) : null}
                 <Select value={sortKey} onValueChange={(value) => setSortKey(value as SortKey)}>
                   <SelectTrigger className="h-9 w-auto min-w-40">
                     <ArrowUpDown className="size-4 shrink-0 opacity-70" />
@@ -326,9 +352,9 @@ export default function AgentTracesPage() {
               </div>
             </div>
 
-            <KpiStrip passRate={kpis.passRate} p95Latency={kpis.p95Latency} errorRate={kpis.errorRate} />
+            <KpiStrip kpis={kpis} forbidden={kpisForbidden} />
 
-            <FacetTabs facet={facet} counts={counts} total={searched.length} onFacetChange={setFacet} />
+            <FacetTabs facet={facet} counts={{ errors: counts.errors, needsReview: counts.needsReview }} total={counts.all} onFacetChange={setFacet} />
 
             <DataTable<RunView>
               columns={columns}
@@ -339,7 +365,7 @@ export default function AgentTracesPage() {
               pagination={{
                 page,
                 pageSize,
-                total: sortedRows.length,
+                total,
                 totalPages,
                 onPageChange: setPage,
                 pageSizeOptions: [10, 20, 50],
@@ -364,41 +390,51 @@ function WhenLabel({ createdAt }: { createdAt: string | null }) {
   )
 }
 
-// Window-scoped observability summary. Mirrors the Overview KpiTile recipe
-// (icon badge + 3xl value + sub + brand-gradient accent) so the cockpit reads
-// as one product; the metrics here are observability-specific, not fleet repeats.
-function KpiStrip({
-  passRate,
-  p95Latency,
-  errorRate,
-}: {
-  passRate: number | null
-  p95Latency: number | null
-  errorRate: number | null
-}) {
+// Window-scoped observability summary, served by /metrics/overview's `traces`
+// block (rollup-preferred, live fallback) — real window aggregates, never a
+// sample of the loaded page. Mirrors the Overview KpiTile recipe so the cockpit
+// reads as one product. The endpoint gates `proposals.view` while this page
+// gates `trace.view`: a forbidden fetch renders an inline note, not fake zeros.
+function KpiStrip({ kpis, forbidden }: { kpis: TracesKpiView | null; forbidden: boolean }) {
   const t = useT()
+  if (forbidden || !kpis) {
+    return (
+      <div className="rounded-xl border border-dashed border-border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        {forbidden
+          ? t('agent_orchestrator.traces.kpi.forbidden')
+          : t('agent_orchestrator.traces.kpi.unavailable')}
+      </div>
+    )
+  }
+  const passPct = kpis.evalPassRate == null ? null : Math.round(kpis.evalPassRate * 100)
+  const errorPct = kpis.errorRate == null ? null : Math.round(kpis.errorRate * 100)
   const tiles = [
-    { icon: CheckCircle2, label: t('agent_orchestrator.traces.kpi.passRate'), value: passRate == null ? '—' : `${passRate}%`, sub: t('agent_orchestrator.traces.kpi.passRateSub') },
-    { icon: Gauge, label: t('agent_orchestrator.traces.kpi.p95Latency'), value: formatLatency(p95Latency) ?? '—', sub: t('agent_orchestrator.traces.kpi.p95LatencySub') },
-    { icon: TriangleAlert, label: t('agent_orchestrator.traces.kpi.errorRate'), value: errorRate == null ? '—' : `${errorRate}%`, sub: t('agent_orchestrator.traces.kpi.errorRateSub') },
+    { icon: CheckCircle2, label: t('agent_orchestrator.traces.kpi.passRate'), value: passPct == null ? '—' : `${passPct}%`, sub: t('agent_orchestrator.traces.kpi.passRateSub') },
+    { icon: Gauge, label: t('agent_orchestrator.traces.kpi.p95Latency'), value: formatLatency(kpis.p95LatencyMs) ?? '—', sub: t('agent_orchestrator.traces.kpi.p95LatencySub') },
+    { icon: TriangleAlert, label: t('agent_orchestrator.traces.kpi.errorRate'), value: errorPct == null ? '—' : `${errorPct}%`, sub: t('agent_orchestrator.traces.kpi.errorRateSub') },
   ]
   return (
-    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-      {tiles.map(({ icon: Icon, label, value, sub }) => (
-        <div key={label} className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm text-muted-foreground">{label}</p>
-            <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
-              <Icon className="size-4" />
-            </span>
+    <div className="space-y-1.5">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        {tiles.map(({ icon: Icon, label, value, sub }) => (
+          <div key={label} className="relative overflow-hidden rounded-xl border border-border bg-card p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm text-muted-foreground">{label}</p>
+              <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-brand-violet">
+                <Icon className="size-4" />
+              </span>
+            </div>
+            <div className="mt-2 flex min-h-9 items-center gap-2">
+              <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{value}</span>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+            <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-brand-lime via-brand-lime to-brand-violet" />
           </div>
-          <div className="mt-2 flex min-h-9 items-center gap-2">
-            <span className="text-3xl font-bold tabular-nums tracking-tight text-foreground">{value}</span>
-          </div>
-          <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
-          <div className="absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-brand-lime via-brand-lime to-brand-violet" />
-        </div>
-      ))}
+        ))}
+      </div>
+      {kpis.source === 'live' ? (
+        <p className="text-xs text-muted-foreground">{t('agent_orchestrator.traces.kpi.sourceLive')}</p>
+      ) : null}
     </div>
   )
 }

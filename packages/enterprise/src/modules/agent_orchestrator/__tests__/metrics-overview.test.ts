@@ -1,6 +1,6 @@
 /** @jest-environment node */
 import { GET } from '../api/metrics/overview/route'
-import { AgentRun, AgentProposal, AgentMetricRollup } from '../data/entities'
+import { AgentRun, AgentProposal, AgentCorrection, AgentMetricRollup } from '../data/entities'
 import { ROLLUP_WINDOW_MS } from '../lib/metrics/metricRollupService'
 
 jest.mock('@open-mercato/shared/lib/auth/server', () => ({
@@ -22,7 +22,7 @@ const USER = '44444444-4444-4444-8444-444444444444'
  * createdAt/computedAt orderBy. Aggregation, rollup-vs-live selection and org
  * scoping are properties of the route; the DB-backed path lives in integration.
  */
-function createFakeEm(rows: Map<unknown, Array<Record<string, unknown>>>) {
+function createFakeEm(rows: Map<unknown, Array<Record<string, unknown>>>, options?: { p95?: number | null }) {
   function storeFor(entity: unknown): Array<Record<string, unknown>> {
     if (!rows.has(entity)) rows.set(entity, [])
     return rows.get(entity)!
@@ -32,6 +32,10 @@ function createFakeEm(rows: Map<unknown, Array<Record<string, unknown>>>) {
     if (condition && typeof condition === 'object' && !(condition instanceof Date)) {
       const cond = condition as Record<string, unknown>
       if ('$in' in cond) return (cond.$in as unknown[]).includes(rowValue)
+      if ('$ne' in cond) {
+        if (cond.$ne === null) return rowValue !== null && rowValue !== undefined
+        return rowValue !== cond.$ne
+      }
       if ('$gte' in cond) {
         const time = rowValue instanceof Date ? rowValue.getTime() : Number.NaN
         return !Number.isNaN(time) && time >= (cond.$gte as Date).getTime()
@@ -68,15 +72,24 @@ function createFakeEm(rows: Map<unknown, Array<Record<string, unknown>>>) {
     async findOne(entity: unknown, where: Record<string, unknown>, opts?: { orderBy?: Record<string, 'asc' | 'desc'> }) {
       return sortRows(storeFor(entity).filter((row) => matches(row, where)), opts?.orderBy)[0] ?? null
     },
+    getConnection() {
+      // The route's org-level p95 uses a raw percentile_cont query; the fake
+      // returns a canned value (aggregation itself is Postgres's job).
+      return {
+        async execute() {
+          return [{ p95: options?.p95 ?? null }]
+        },
+      }
+    },
   }
 }
 
-async function setup(rows: Map<unknown, Array<Record<string, unknown>>>) {
+async function setup(rows: Map<unknown, Array<Record<string, unknown>>>, options?: { p95?: number | null }) {
   const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
   ;(getAuthFromRequest as jest.Mock).mockResolvedValue({ sub: USER, tenantId: TENANT_A, orgId: ORG_A })
   const { createRequestContainer } = await import('@open-mercato/shared/lib/di/container')
   ;(createRequestContainer as jest.Mock).mockResolvedValue({
-    resolve: (token: string) => (token === 'em' ? createFakeEm(rows) : null),
+    resolve: (token: string) => (token === 'em' ? createFakeEm(rows, options) : null),
   })
 }
 
@@ -108,7 +121,12 @@ function run(overrides: Record<string, unknown>): Record<string, unknown> {
   }
 }
 
-function freshRollup(agentId: string, totalRuns: number, windowKey: '24h' | '7d' | '30d'): Record<string, unknown> {
+function freshRollup(
+  agentId: string,
+  totalRuns: number,
+  windowKey: '24h' | '7d' | '30d',
+  extraMetrics?: Record<string, unknown>,
+): Record<string, unknown> {
   const spanMs = ROLLUP_WINDOW_MS[windowKey]
   const windowEnd = new Date()
   return {
@@ -128,6 +146,7 @@ function freshRollup(agentId: string, totalRuns: number, windowKey: '24h' | '7d'
       costMinorTotal: 0,
       disposedProposals: 0,
       approveUnchangedRate: null,
+      ...extraMetrics,
     },
   }
 }
@@ -250,5 +269,70 @@ describe('GET /api/agent_orchestrator/metrics/overview', () => {
 
     const res = await GET(makeRequest())
     expect(res.status).toBe(401)
+  })
+
+  it('serves the traces block from fresh rollup count sums (source=rollup) plus live p95', async () => {
+    const rows = new Map<unknown, Array<Record<string, unknown>>>()
+    rows.set(AgentMetricRollup, [
+      freshRollup('agent-a', 10, '7d', { errorRuns: 2, evaluatedRuns: 4, evalPassedRuns: 3 }),
+      freshRollup('agent-b', 10, '7d', { errorRuns: 0, evaluatedRuns: 6, evalPassedRuns: 6 }),
+    ])
+    rows.set(AgentCorrection, [
+      { tenantId: TENANT_A, organizationId: ORG_A, createdAt: new Date(Date.now() - 60 * 60 * 1000) },
+      { tenantId: TENANT_A, organizationId: ORG_A, createdAt: new Date(Date.now() - 60 * 60 * 1000) },
+      // Outside the 7d window — must not count.
+      { tenantId: TENANT_A, organizationId: ORG_A, createdAt: new Date(Date.now() - 10 * 24 * 60 * 60 * 1000) },
+    ])
+    await setup(rows, { p95: 4200 })
+
+    const res = await GET(makeRequest('7d'))
+    expect(res.status).toBe(200)
+    const body = await res.json()
+
+    expect(body.traces.source).toBe('rollup')
+    expect(body.traces.errorRate).toBeCloseTo(2 / 20)
+    expect(body.traces.evalPassRate).toBeCloseTo(9 / 10)
+    expect(body.traces.p95LatencyMs).toBe(4200)
+    expect(body.correctionsCount).toBe(2)
+  })
+
+  it('rollup key drift: rows without the additive keys force a live traces block while runsTotal stays rollup', async () => {
+    const rows = new Map<unknown, Array<Record<string, unknown>>>()
+    // Pre-upgrade rollup row: totalRuns present, no errorRuns/evalPassedRuns.
+    rows.set(AgentMetricRollup, [freshRollup('agent-a', 5, '7d')])
+    rows.set(AgentRun, [
+      run({ status: 'ok', evalPassed: true }),
+      run({ status: 'error', evalPassed: false }),
+    ])
+    await setup(rows, { p95: 100 })
+
+    const res = await GET(makeRequest('7d'))
+    const body = await res.json()
+
+    expect(body.source).toBe('rollup')
+    expect(body.runsTotal).toBe(5)
+    expect(body.traces.source).toBe('live')
+    // Live fallback computes from the run rows, not the drifted rollup.
+    expect(body.traces.errorRate).toBeCloseTo(1 / 5)
+    expect(body.traces.evalPassRate).toBeCloseTo(1 / 2)
+  })
+
+  it('live traces block when no rollup exists at all', async () => {
+    const rows = new Map<unknown, Array<Record<string, unknown>>>()
+    rows.set(AgentRun, [
+      run({ status: 'ok', evalPassed: true }),
+      run({ status: 'ok', evalPassed: null }),
+      run({ status: 'error', evalPassed: false }),
+    ])
+    await setup(rows, { p95: null })
+
+    const res = await GET(makeRequest('7d'))
+    const body = await res.json()
+
+    expect(body.traces.source).toBe('live')
+    expect(body.traces.errorRate).toBeCloseTo(1 / 3)
+    expect(body.traces.evalPassRate).toBeCloseTo(1 / 2)
+    expect(body.traces.p95LatencyMs).toBeNull()
+    expect(body.correctionsCount).toBe(0)
   })
 })
