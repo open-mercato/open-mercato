@@ -13,10 +13,7 @@ const processesIcon = React.createElement(
 
 export const metadata = {
   requireAuth: true,
-  // Interim guard. Sample-driven preview predates the backend; switch to
-  // `agent_orchestrator.processes.view` once the AgentProcess projection +
-  // /api/agent_orchestrator/processes routes land (spec 2026-06-25 §Access Control).
-  requireFeatures: ['agent_orchestrator.trace.view'],
+  requireFeatures: ['agent_orchestrator.processes.view'],
   pageTitle: 'Processes',
   pageTitleKey: 'agent_orchestrator.nav.processes',
   pageGroup: 'Agents',

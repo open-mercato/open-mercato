@@ -1,0 +1,519 @@
+"use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import type { ColumnDef } from '@tanstack/react-table'
+import { z } from 'zod'
+import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock } from 'lucide-react'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { Switch } from '@open-mercato/ui/primitives/switch'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { createCrud, updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+const ENTITY_ID = 'agent_orchestrator:agent_task_definition'
+
+type TaskRow = {
+  id: string
+  name: string
+  description: string | null
+  targetType: 'agent' | 'workflow'
+  targetAgentId: string | null
+  targetWorkflowId: string | null
+  inputDefaults: unknown
+  inputSchema: unknown
+  grantedFeatures: string[]
+  scheduleCron: string | null
+  scheduleTimezone: string | null
+  scheduleEnabled: boolean
+  enabled: boolean
+  updatedAt: string | null
+}
+
+type FormValues = {
+  id?: string
+  name: string
+  description?: string
+  targetType: 'agent' | 'workflow'
+  targetAgentId?: string
+  targetWorkflowId?: string
+  inputDefaultsJson?: string
+  inputSchemaJson?: string
+  grantedFeaturesText?: string
+  scheduleCron?: string
+  scheduleTimezone?: string
+  scheduleEnabled: boolean
+  enabled: boolean
+  updatedAt?: string | null
+}
+
+function readString(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string') return value
+  }
+  return ''
+}
+
+function mapRow(item: Record<string, unknown>): TaskRow | null {
+  const id = readString(item, 'id')
+  if (!id) return null
+  const grantedRaw = item.granted_features ?? item.grantedFeatures
+  return {
+    id,
+    name: readString(item, 'name'),
+    description: typeof item.description === 'string' ? item.description : null,
+    targetType: readString(item, 'target_type', 'targetType') === 'workflow' ? 'workflow' : 'agent',
+    targetAgentId: readString(item, 'target_agent_id', 'targetAgentId') || null,
+    targetWorkflowId: readString(item, 'target_workflow_id', 'targetWorkflowId') || null,
+    inputDefaults: item.input_defaults ?? item.inputDefaults ?? null,
+    inputSchema: item.input_schema ?? item.inputSchema ?? null,
+    grantedFeatures: Array.isArray(grantedRaw)
+      ? grantedRaw.filter((value): value is string => typeof value === 'string')
+      : [],
+    scheduleCron: readString(item, 'schedule_cron', 'scheduleCron') || null,
+    scheduleTimezone: readString(item, 'schedule_timezone', 'scheduleTimezone') || null,
+    scheduleEnabled: (item.schedule_enabled ?? item.scheduleEnabled) !== false,
+    enabled: (item.enabled ?? true) !== false,
+    updatedAt: readString(item, 'updated_at', 'updatedAt') || null,
+  }
+}
+
+function parseJsonField(raw: string | undefined, fieldId: string, message: string): unknown {
+  const trimmed = raw?.trim()
+  if (!trimmed) return undefined
+  try {
+    return JSON.parse(trimmed)
+  } catch {
+    throw createCrudFormError(message, { [fieldId]: message })
+  }
+}
+
+export default function AgenticTasksPage() {
+  const t = useT()
+  const router = useRouter()
+  const [rows, setRows] = React.useState<TaskRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
+  const [editing, setEditing] = React.useState<TaskRow | null>(null)
+  const [mode, setMode] = React.useState<'list' | 'create' | 'edit'>('list')
+  const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
+  const [workflows, setWorkflows] = React.useState<CrudFieldOption[]>([])
+
+  const load = React.useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setIsLoading(true)
+    setError(null)
+    const call = await apiCall<{ items?: Array<Record<string, unknown>> }>(
+      '/api/agent_orchestrator/tasks?pageSize=100',
+      undefined,
+      { fallback: { items: [] } },
+    )
+    if (!call.ok) {
+      setError(t('agent_orchestrator.tasks.list.error'))
+      if (!opts?.silent) setIsLoading(false)
+      return
+    }
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
+    setRows(items.map(mapRow).filter((row): row is TaskRow => !!row))
+    if (!opts?.silent) setIsLoading(false)
+  }, [t])
+
+  React.useEffect(() => {
+    void load()
+  }, [load])
+
+  React.useEffect(() => {
+    let cancelled = false
+    void apiCall<{ items?: Array<Record<string, unknown>> }>(
+      '/api/agent_orchestrator/agents',
+      undefined,
+      { fallback: { items: [] } },
+    ).then((call) => {
+      if (cancelled || !call.ok) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setAgents(
+        items
+          .map((item) => {
+            const id = typeof item.id === 'string' ? item.id : ''
+            const label = typeof item.label === 'string' && item.label ? item.label : id
+            return { value: id, label }
+          })
+          .filter((option) => option.value !== ''),
+      )
+    })
+    void apiCall<{ items?: Array<Record<string, unknown>> }>(
+      '/api/workflows/definitions?pageSize=100',
+      undefined,
+      { fallback: { items: [] } },
+    ).then((call) => {
+      if (cancelled || !call.ok) return
+      const items = Array.isArray(call.result?.items) ? call.result.items : []
+      setWorkflows(
+        items
+          .map((item) => {
+            const id = typeof item.workflowId === 'string' ? item.workflowId : ''
+            const label = typeof item.name === 'string' && item.name ? `${item.name} (${id})` : id
+            return { value: id, label }
+          })
+          .filter((option) => option.value !== ''),
+      )
+    })
+    return () => { cancelled = true }
+  }, [])
+
+  const toggleEnabled = React.useCallback(async (row: TaskRow, next: boolean) => {
+    setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, enabled: next } : item)))
+    try {
+      await withScopedApiRequestHeaders(
+        buildOptimisticLockHeader(row.updatedAt),
+        () => updateCrud('agent_orchestrator/tasks', {
+          id: row.id,
+          name: row.name,
+          targetType: row.targetType,
+          targetAgentId: row.targetAgentId ?? undefined,
+          targetWorkflowId: row.targetWorkflowId ?? undefined,
+          enabled: next,
+        }),
+      )
+      await load({ silent: true })
+    } catch (err) {
+      setRows((prev) => prev.map((item) => (item.id === row.id ? { ...item, enabled: row.enabled } : item)))
+      if (surfaceRecordConflict(err, t)) return
+      flash(t('agent_orchestrator.tasks.flash.toggleError'), 'error')
+    }
+  }, [load, t])
+
+  const formSchema = React.useMemo(
+    () =>
+      z.object({
+        name: z.string().min(1, 'agent_orchestrator.tasks.form.errors.nameRequired'),
+        description: z.string().optional(),
+        targetType: z.enum(['agent', 'workflow']),
+        targetAgentId: z.string().optional(),
+        targetWorkflowId: z.string().optional(),
+        inputDefaultsJson: z.string().optional(),
+        inputSchemaJson: z.string().optional(),
+        grantedFeaturesText: z.string().optional(),
+        scheduleCron: z.string().optional(),
+        scheduleTimezone: z.string().optional(),
+        scheduleEnabled: z.boolean(),
+        enabled: z.boolean(),
+      }),
+    [],
+  )
+
+  const fields = React.useMemo<CrudField[]>(
+    () => [
+      { id: 'name', label: t('agent_orchestrator.tasks.form.name'), type: 'text', required: true },
+      { id: 'description', label: t('agent_orchestrator.tasks.form.description'), type: 'textarea' },
+      {
+        id: 'targetType',
+        label: t('agent_orchestrator.tasks.form.targetType'),
+        type: 'select',
+        options: [
+          { value: 'agent', label: t('agent_orchestrator.tasks.target.agent') },
+          { value: 'workflow', label: t('agent_orchestrator.tasks.target.workflow') },
+        ],
+      },
+      {
+        id: 'targetAgentId',
+        label: t('agent_orchestrator.tasks.form.targetAgent'),
+        type: 'combobox',
+        options: agents,
+        seedOptions: agents,
+        allowCustomValues: true,
+        visibleWhen: { field: 'targetType', equals: 'agent' },
+      },
+      {
+        id: 'targetWorkflowId',
+        label: t('agent_orchestrator.tasks.form.targetWorkflow'),
+        type: 'combobox',
+        options: workflows,
+        seedOptions: workflows,
+        allowCustomValues: true,
+        visibleWhen: { field: 'targetType', equals: 'workflow' },
+      },
+      {
+        id: 'inputDefaultsJson',
+        label: t('agent_orchestrator.tasks.form.inputDefaults'),
+        type: 'textarea',
+        description: t('agent_orchestrator.tasks.form.inputDefaultsHint'),
+      },
+      {
+        id: 'inputSchemaJson',
+        label: t('agent_orchestrator.tasks.form.inputSchema'),
+        type: 'textarea',
+        description: t('agent_orchestrator.tasks.form.inputSchemaHint'),
+      },
+      {
+        id: 'grantedFeaturesText',
+        label: t('agent_orchestrator.tasks.form.grantedFeatures'),
+        type: 'textarea',
+        description: t('agent_orchestrator.tasks.form.grantedFeaturesHint'),
+      },
+      {
+        id: 'scheduleCron',
+        label: t('agent_orchestrator.tasks.form.scheduleCron'),
+        type: 'text',
+        description: t('agent_orchestrator.tasks.form.scheduleCronHint'),
+      },
+      { id: 'scheduleTimezone', label: t('agent_orchestrator.tasks.form.scheduleTimezone'), type: 'text' },
+      { id: 'scheduleEnabled', label: t('agent_orchestrator.tasks.form.scheduleEnabled'), type: 'checkbox' },
+      { id: 'enabled', label: t('agent_orchestrator.tasks.form.enabled'), type: 'checkbox' },
+    ],
+    [t, agents, workflows],
+  )
+
+  const columns = React.useMemo<ColumnDef<TaskRow>[]>(
+    () => [
+      {
+        accessorKey: 'name',
+        header: t('agent_orchestrator.tasks.list.col.name'),
+        cell: ({ row }) => (
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium text-foreground">{row.original.name}</div>
+            {row.original.description ? (
+              <div className="truncate text-xs text-muted-foreground">{row.original.description}</div>
+            ) : null}
+          </div>
+        ),
+      },
+      {
+        accessorKey: 'targetType',
+        header: t('agent_orchestrator.tasks.list.col.target'),
+        cell: ({ row }) => {
+          const isAgent = row.original.targetType === 'agent'
+          const Icon = isAgent ? Bot : WorkflowIcon
+          const target = isAgent ? row.original.targetAgentId : row.original.targetWorkflowId
+          return (
+            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
+              <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate font-mono">{target ?? '—'}</span>
+            </span>
+          )
+        },
+      },
+      {
+        accessorKey: 'scheduleCron',
+        header: t('agent_orchestrator.tasks.list.col.schedule'),
+        cell: ({ row }) =>
+          row.original.scheduleCron ? (
+            <span className="inline-flex items-center gap-1 font-mono text-xs text-foreground">
+              <CalendarClock className="size-3.5 shrink-0 text-muted-foreground" />
+              {row.original.scheduleCron}
+              {!row.original.scheduleEnabled ? (
+                <span className="text-muted-foreground">({t('agent_orchestrator.tasks.list.schedulePaused')})</span>
+              ) : null}
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">—</span>
+          ),
+      },
+      {
+        accessorKey: 'enabled',
+        header: t('agent_orchestrator.tasks.list.col.enabled'),
+        enableSorting: false,
+        cell: ({ row }) => (
+          <div className="flex items-center" onClick={(event) => event.stopPropagation()}>
+            <Switch
+              checked={row.original.enabled}
+              onCheckedChange={(next) => { void toggleEnabled(row.original, next) }}
+              aria-label={t('agent_orchestrator.tasks.list.col.enabled')}
+            />
+          </div>
+        ),
+      },
+    ],
+    [t, toggleEnabled],
+  )
+
+  function buildBody(values: FormValues): Record<string, unknown> {
+    const invalidJson = t('agent_orchestrator.tasks.form.errors.invalidJson')
+    const inputDefaults = parseJsonField(values.inputDefaultsJson, 'inputDefaultsJson', invalidJson)
+    const inputSchema = parseJsonField(values.inputSchemaJson, 'inputSchemaJson', invalidJson)
+    const grantedFeatures = (values.grantedFeaturesText ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+    return {
+      name: values.name,
+      description: values.description?.trim() ? values.description.trim() : undefined,
+      targetType: values.targetType,
+      targetAgentId: values.targetType === 'agent' ? values.targetAgentId : undefined,
+      targetWorkflowId: values.targetType === 'workflow' ? values.targetWorkflowId : undefined,
+      inputDefaults,
+      inputSchema,
+      grantedFeatures,
+      scheduleCron: values.scheduleCron?.trim() ? values.scheduleCron.trim() : null,
+      scheduleTimezone: values.scheduleTimezone?.trim() ? values.scheduleTimezone.trim() : null,
+      scheduleEnabled: values.scheduleEnabled,
+      enabled: values.enabled,
+    }
+  }
+
+  if (mode !== 'list') {
+    const isEdit = mode === 'edit' && editing
+    const initialValues: Partial<FormValues> = isEdit
+      ? {
+          id: editing!.id,
+          name: editing!.name,
+          description: editing!.description ?? undefined,
+          targetType: editing!.targetType,
+          targetAgentId: editing!.targetAgentId ?? undefined,
+          targetWorkflowId: editing!.targetWorkflowId ?? undefined,
+          inputDefaultsJson: editing!.inputDefaults ? JSON.stringify(editing!.inputDefaults, null, 2) : '',
+          inputSchemaJson: editing!.inputSchema ? JSON.stringify(editing!.inputSchema, null, 2) : '',
+          grantedFeaturesText: editing!.grantedFeatures.join('\n'),
+          scheduleCron: editing!.scheduleCron ?? '',
+          scheduleTimezone: editing!.scheduleTimezone ?? '',
+          scheduleEnabled: editing!.scheduleEnabled,
+          enabled: editing!.enabled,
+          updatedAt: editing!.updatedAt,
+        }
+      : { targetType: 'agent', scheduleEnabled: true, enabled: true }
+
+    return (
+      <Page>
+        <PageBody>
+          <div className="max-w-2xl">
+            <CrudForm<FormValues>
+              title={
+                isEdit
+                  ? t('agent_orchestrator.tasks.form.editTitle')
+                  : t('agent_orchestrator.tasks.form.createTitle')
+              }
+              fields={fields}
+              initialValues={initialValues}
+              entityIds={[ENTITY_ID]}
+              schema={formSchema}
+              submitLabel={t('agent_orchestrator.tasks.form.submit')}
+              cancelHref="/backend/agentic-tasks"
+              disableOptimisticLock
+              onSubmit={async (values) => {
+                const targetId = values.targetType === 'agent' ? values.targetAgentId : values.targetWorkflowId
+                if (!targetId?.trim()) {
+                  const message = t('agent_orchestrator.tasks.form.errors.targetRequired')
+                  const fieldId = values.targetType === 'agent' ? 'targetAgentId' : 'targetWorkflowId'
+                  throw createCrudFormError(message, { [fieldId]: message })
+                }
+                const body = buildBody(values)
+                try {
+                  if (isEdit) {
+                    await withScopedApiRequestHeaders(
+                      buildOptimisticLockHeader(editing!.updatedAt),
+                      () => updateCrud('agent_orchestrator/tasks', { id: editing!.id, ...body }),
+                    )
+                  } else {
+                    await createCrud('agent_orchestrator/tasks', body)
+                  }
+                } catch (err) {
+                  if (surfaceRecordConflict(err, t)) return
+                  throw err
+                }
+                flash(t('agent_orchestrator.tasks.flash.saved'), 'success')
+                setMode('list')
+                setEditing(null)
+                await load()
+              }}
+            />
+          </div>
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('agent_orchestrator.tasks.list.title')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={error} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody className="space-y-5">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg font-semibold">{t('agent_orchestrator.tasks.list.title')}</h1>
+            <p className="text-sm text-muted-foreground">{t('agent_orchestrator.tasks.list.subtitle')}</p>
+          </div>
+          <Button size="sm" onClick={() => { setEditing(null); setMode('create') }}>
+            <Plus className="mr-2 size-4" />
+            {t('agent_orchestrator.tasks.actions.new')}
+          </Button>
+        </div>
+
+        {rows.length === 0 ? (
+          <EmptyState
+            title={t('agent_orchestrator.tasks.list.empty')}
+            description={t('agent_orchestrator.tasks.list.emptyDescription')}
+          />
+        ) : (
+          <DataTable<TaskRow>
+            columns={columns}
+            data={rows}
+            sortable
+            onRowClick={(row) => router.push(`/backend/agentic-tasks/${encodeURIComponent(row.id)}`)}
+            rowActions={(row) => (
+              <RowActions
+                items={[
+                  {
+                    id: 'open',
+                    label: t('agent_orchestrator.tasks.list.actions.open'),
+                    onSelect: () => router.push(`/backend/agentic-tasks/${encodeURIComponent(row.id)}`),
+                  },
+                  {
+                    id: 'edit',
+                    label: t('agent_orchestrator.tasks.list.actions.edit'),
+                    onSelect: () => { setEditing(row); setMode('edit') },
+                  },
+                  {
+                    id: 'delete',
+                    label: t('agent_orchestrator.tasks.list.actions.delete'),
+                    destructive: true,
+                    onSelect: async () => {
+                      try {
+                        await withScopedApiRequestHeaders(
+                          buildOptimisticLockHeader(row.updatedAt),
+                          () => deleteCrud('agent_orchestrator/tasks', row.id),
+                        )
+                        flash(t('agent_orchestrator.tasks.flash.deleted'), 'success')
+                        await load({ silent: true })
+                      } catch (err) {
+                        if (surfaceRecordConflict(err, t)) return
+                        flash(t('agent_orchestrator.tasks.flash.deleteError'), 'error')
+                      }
+                    },
+                  },
+                ]}
+              />
+            )}
+          />
+        )}
+      </PageBody>
+    </Page>
+  )
+}
