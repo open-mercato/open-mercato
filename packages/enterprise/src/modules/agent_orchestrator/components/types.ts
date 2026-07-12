@@ -65,6 +65,10 @@ export type RunView = {
   currency: string | null
   agentVersion: string | null
   humanConfirmedAt: string | null
+  /** Forensic completion timestamp (stamped once, flag-proof); null = running or legacy-unbackfilled. */
+  completedAt: string | null
+  /** Operator triage flag timestamp; null = unflagged. */
+  flaggedAt: string | null
   contextRouting: unknown
   /** FK id → workflows process instance (drives "Open process"). */
   processId: string | null
@@ -106,14 +110,50 @@ export type EvalResultView = {
   evidence: unknown
 }
 
+export type ContextRoutedSourceView = {
+  kind: string
+  ref: string
+  locator: string | null
+  tokens: number | null
+}
+
+export type ContextPrunedSourceView = {
+  kind: string
+  ref: string
+  reason: string
+}
+
+export type ContextBundleView = {
+  id: string
+  capability: string
+  tokenBudget: number | null
+  tokensUsed: number | null
+  routedSources: ContextRoutedSourceView[]
+  prunedSources: ContextPrunedSourceView[]
+}
+
+export type GuardrailCheckView = {
+  id: string
+  phase: string
+  kind: string
+  result: 'pass' | 'warn' | 'block'
+  capability: string
+  guardrailSetVersion: string | null
+  evidence: unknown
+}
+
 export type RunDetailView = {
   run: RunView
   spans: SpanView[]
   toolCalls: ToolCallView[]
   evalResults: EvalResultView[]
+  contextBundle: ContextBundleView | null
+  guardrailChecks: GuardrailCheckView[]
+  /** The run's proposals (oldest first) — carry the persisted `payload.rationale`. */
+  proposals: ProposalView[]
 }
 
-export type AgentRuntime = 'in-process' | 'opencode' | 'external'
+export type AgentRuntime = 'in-process' | 'native' | 'opencode' | 'external'
 
 export type AgentView = {
   id: string
@@ -266,6 +306,8 @@ export function mapRun(item: Record<string, unknown>): RunView | null {
     currency: asString(item.currency),
     agentVersion: asString(item.agent_version) ?? asString(item.agentVersion),
     humanConfirmedAt: asString(item.human_confirmed_at) ?? asString(item.humanConfirmedAt),
+    completedAt: asString(item.completed_at) ?? asString(item.completedAt),
+    flaggedAt: asString(item.flagged_at) ?? asString(item.flaggedAt),
     contextRouting: item.context_routing ?? item.contextRouting ?? null,
     processId: asString(item.process_id) ?? asString(item.processId),
   }
@@ -318,6 +360,63 @@ export function mapEvalResult(item: Record<string, unknown>): EvalResultView | n
   }
 }
 
+export function mapContextBundle(item: Record<string, unknown> | null | undefined): ContextBundleView | null {
+  if (!item) return null
+  const id = asString(item.id)
+  if (!id) return null
+  const routedSources = (Array.isArray(item.routed_sources ?? item.routedSources) ? (item.routed_sources ?? item.routedSources) as unknown[] : [])
+    .map((row): ContextRoutedSourceView | null => {
+      if (!row || typeof row !== 'object') return null
+      const source = row as Record<string, unknown>
+      const ref = asString(source.ref)
+      if (!ref) return null
+      return {
+        kind: asString(source.kind) ?? 'entity',
+        ref,
+        locator: asString(source.locator),
+        tokens: asNumber(source.tokens),
+      }
+    })
+    .filter((row): row is ContextRoutedSourceView => !!row)
+  const prunedSources = (Array.isArray(item.pruned_sources ?? item.prunedSources) ? (item.pruned_sources ?? item.prunedSources) as unknown[] : [])
+    .map((row): ContextPrunedSourceView | null => {
+      if (!row || typeof row !== 'object') return null
+      const source = row as Record<string, unknown>
+      const ref = asString(source.ref)
+      if (!ref) return null
+      return {
+        kind: asString(source.kind) ?? 'entity',
+        ref,
+        reason: asString(source.reason) ?? '',
+      }
+    })
+    .filter((row): row is ContextPrunedSourceView => !!row)
+  return {
+    id,
+    capability: asString(item.capability) ?? '',
+    tokenBudget: asNumber(item.token_budget ?? item.tokenBudget),
+    tokensUsed: asNumber(item.tokens_used ?? item.tokensUsed),
+    routedSources,
+    prunedSources,
+  }
+}
+
+export function mapGuardrailCheck(item: Record<string, unknown>): GuardrailCheckView | null {
+  const id = asString(item.id)
+  if (!id) return null
+  const rawResult = asString(item.result)
+  const result = rawResult === 'block' || rawResult === 'warn' ? rawResult : 'pass'
+  return {
+    id,
+    phase: asString(item.phase) ?? 'output',
+    kind: asString(item.kind) ?? '',
+    result,
+    capability: asString(item.capability) ?? '',
+    guardrailSetVersion: asString(item.guardrail_set_version) ?? asString(item.guardrailSetVersion),
+    evidence: item.evidence ?? null,
+  }
+}
+
 export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | null {
   const run = mapRun((payload.run as Record<string, unknown>) ?? {})
   if (!run) return null
@@ -331,7 +430,14 @@ export function mapRunDetail(payload: Record<string, unknown>): RunDetailView | 
   const evalResults = (Array.isArray(payload.evalResults) ? payload.evalResults : [])
     .map((row) => mapEvalResult(row as Record<string, unknown>))
     .filter((row): row is EvalResultView => !!row)
-  return { run, spans, toolCalls, evalResults }
+  const contextBundle = mapContextBundle(payload.contextBundle as Record<string, unknown> | null | undefined)
+  const guardrailChecks = (Array.isArray(payload.guardrailChecks) ? payload.guardrailChecks : [])
+    .map((row) => mapGuardrailCheck(row as Record<string, unknown>))
+    .filter((row): row is GuardrailCheckView => !!row)
+  const proposals = (Array.isArray(payload.proposals) ? payload.proposals : [])
+    .map((row) => mapProposal(row as Record<string, unknown>))
+    .filter((row): row is ProposalView => !!row)
+  return { run, spans, toolCalls, evalResults, contextBundle, guardrailChecks, proposals }
 }
 
 export function mapAgent(item: Record<string, unknown>): AgentView | null {
@@ -339,7 +445,13 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
   if (!id) return null
   const resultKind = item.resultKind === 'actionable' ? 'actionable' : 'informative'
   const runtime: AgentRuntime =
-    item.runtime === 'opencode' ? 'opencode' : item.runtime === 'external' ? 'external' : 'in-process'
+    item.runtime === 'opencode'
+      ? 'opencode'
+      : item.runtime === 'external'
+        ? 'external'
+        : item.runtime === 'native'
+          ? 'native'
+          : 'in-process'
   return {
     id,
     label: asString(item.label) ?? id,

@@ -44,6 +44,10 @@ export class AgentRun {
     | 'contextRouting'
     | 'outputArtifactKey'
     | 'humanConfirmedAt'
+    | 'flaggedAt'
+    | 'flaggedBy'
+    | 'rerunOfRunId'
+    | 'completedAt'
     | 'createdAt'
     | 'updatedAt'
     | 'deletedAt'
@@ -131,8 +135,29 @@ export class AgentRun {
   @Property({ name: 'human_confirmed_at', type: Date, nullable: true })
   humanConfirmedAt?: Date | null
 
+  /** Operator triage flag (trace inspector); null = unflagged. */
+  @Property({ name: 'flagged_at', type: Date, nullable: true })
+  flaggedAt?: Date | null
+
+  /** FK id → auth.users; the operator who flagged the run. */
+  @Property({ name: 'flagged_by', type: 'uuid', nullable: true })
+  flaggedBy?: string | null
+
+  /** FK id → agent_runs; the source run this run is a re-run of (trace inspector "Re-run"). Distinct from `parentRunId` (sub-agent delegation). */
+  @Property({ name: 'rerun_of_run_id', type: 'uuid', nullable: true })
+  rerunOfRunId?: string | null
+
   @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
   status: AgentRunStatus = 'running'
+
+  /**
+   * Forensic completion timestamp: stamped once at the terminal transition
+   * (`runs.complete`/`runs.fail`; trace ingest sets it null-only from span end
+   * times) and never mutated afterwards — unlike `updatedAt`, which later
+   * writes (e.g. flagging) legitimately bump.
+   */
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
 
   @Property({ name: 'input', type: 'jsonb' })
   input!: unknown
@@ -759,13 +784,19 @@ export type AgentCredentialMode = 'internal' | 'oauth_client' | 'authmd'
  */
 // One LIVE principal per (organization_id, agent_definition_id) is enforced by a
 // partial unique index (`agent_principals_org_agent_uq`) over live rows
-// (`WHERE deleted_at IS NULL`), owned by raw SQL in Migration20260625050000. A
+// (`WHERE deleted_at IS NULL`), created by raw SQL in Migration20260625050000. A
 // `@Unique` decorator can't express a partial index (it would block re-provisioning
-// after a soft-delete), so the entity omits it — the migration is the source of
-// truth. Mirrors `users_tenant_email_hash_uniq` in the auth module.
+// after a soft-delete), so it is declared via `@Index({ expression })` — the
+// repo's partial-index convention (cf. `agent_runs_eval_failed_idx`) — which
+// keeps `db:generate` snapshot-aware of it instead of emitting a drop each run.
 @Entity({ tableName: 'agent_principals' })
 @Index({ name: 'agent_principals_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_principals_user_idx', properties: ['userId'] })
+@Index({
+  name: 'agent_principals_org_agent_uq',
+  expression:
+    `create unique index "agent_principals_org_agent_uq" on "agent_principals" ("organization_id", "agent_definition_id") where "deleted_at" is null`,
+})
 export class AgentPrincipal {
   [OptionalProps]?: 'credentialMode' | 'enabled' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
@@ -1024,4 +1055,414 @@ export class AgentContextBundle {
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+export type AgentTaskTargetType = 'agent' | 'workflow'
+export type AgentTaskRunStatus = 'running' | 'completed' | 'failed'
+
+/**
+ * A persisted, reusable "agentic task" launcher (Agentic Tasks spec,
+ * 2026-07-03): a named, permissioned pointer at either a single agent or a
+ * `workflows` definition, triggerable manually / via API key / on a schedule /
+ * by a domain event. Deliberately NOT the dispatch spec's `AgentTask`
+ * (external-fleet routing) — different concept, different tables.
+ *
+ * User-editable → carries `updated_at` for optimistic locking (default ON).
+ * Every definition executes under its own auto-provisioned `AgentPrincipal`
+ * (`executionPrincipalId`, synthetic agent id `task:<id>`), never as the
+ * triggering user.
+ */
+@Entity({ tableName: 'agent_task_definitions' })
+@Index({ name: 'agent_task_definitions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_task_definitions_target_idx', properties: ['organizationId', 'targetType'] })
+export class AgentTaskDefinition {
+  [OptionalProps]?:
+    | 'description'
+    | 'targetAgentId'
+    | 'targetWorkflowId'
+    | 'inputDefaults'
+    | 'inputSchema'
+    | 'executionPrincipalId'
+    | 'grantedFeatures'
+    | 'scheduleCron'
+    | 'scheduleTimezone'
+    | 'scheduleEnabled'
+    | 'enabled'
+    | 'createdBy'
+    | 'createdAt'
+    | 'updatedAt'
+    | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'name', type: 'varchar', length: 255 })
+  name!: string
+
+  @Property({ name: 'description', type: 'text', nullable: true })
+  description?: string | null
+
+  @Property({ name: 'target_type', type: 'varchar', length: 20 })
+  targetType!: AgentTaskTargetType
+
+  /** Stable registry `agentId` when targetType='agent'. */
+  @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
+  targetAgentId?: string | null
+
+  /** `WorkflowDefinition.workflowId` when targetType='workflow' (FK id only, no ORM relation). */
+  @Property({ name: 'target_workflow_id', type: 'varchar', length: 150, nullable: true })
+  targetWorkflowId?: string | null
+
+  /** Default input merged under the run-time input; encrypted (encryption.ts). */
+  @Property({ name: 'input_defaults', type: 'jsonb', nullable: true })
+  inputDefaults?: unknown | null
+
+  /** Optional JSON-Schema (OUTCOME-compatible subset) validating `/run` input. */
+  @Property({ name: 'input_schema', type: 'jsonb', nullable: true })
+  inputSchema?: unknown | null
+
+  /**
+   * FK id → agent_principals; the task's dedicated execution identity. Nullable
+   * only for the instant between the insert and the afterCreate provisioning
+   * hook — never null for a task the UI can run.
+   */
+  @Property({ name: 'execution_principal_id', type: 'uuid', nullable: true })
+  executionPrincipalId?: string | null
+
+  /**
+   * The exact least-privilege feature set granted to the execution principal's
+   * role. Stored on the definition so the detail page can audit it and updates
+   * can diff without reading auth.RoleAcl cross-module.
+   */
+  @Property({ name: 'granted_features', type: 'jsonb', nullable: true })
+  grantedFeatures?: string[] | null
+
+  @Property({ name: 'schedule_cron', type: 'varchar', length: 100, nullable: true })
+  scheduleCron?: string | null
+
+  @Property({ name: 'schedule_timezone', type: 'varchar', length: 64, nullable: true })
+  scheduleTimezone?: string | null
+
+  @Property({ name: 'schedule_enabled', type: 'boolean', default: true })
+  scheduleEnabled: boolean = true
+
+  @Property({ name: 'enabled', type: 'boolean', default: true })
+  enabled: boolean = true
+
+  /** FK id → auth.users; the admin who created the task. */
+  @Property({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+/**
+ * One execution of an `AgentTaskDefinition` — the unified, shallow run ledger
+ * across both target types (the deep trace stays in agent_runs / workflow
+ * instances). System-transitioned (`running → completed|failed`), no user edit
+ * form → exempt from the optimistic-lock UI surface, mirroring `AgentRun`.
+ * Target pointers are denormalized so history survives definition edits.
+ */
+@Entity({ tableName: 'agent_task_runs' })
+@Index({ name: 'agent_task_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_task_runs_definition_idx', properties: ['taskDefinitionId', 'createdAt'] })
+@Index({ name: 'agent_task_runs_source_idx', properties: ['sourceEntityType', 'sourceEntityId'] })
+@Index({
+  name: 'agent_task_runs_idempotency_uq',
+  expression:
+    `create unique index "agent_task_runs_idempotency_uq" on "agent_task_runs" ("organization_id", "task_definition_id", "idempotency_key") where "idempotency_key" is not null`,
+})
+export class AgentTaskRun {
+  [OptionalProps]?:
+    | 'status'
+    | 'targetAgentId'
+    | 'targetWorkflowId'
+    | 'agentRunId'
+    | 'workflowInstanceId'
+    | 'sourceEntityType'
+    | 'sourceEntityId'
+    | 'idempotencyKey'
+    | 'startedAt'
+    | 'completedAt'
+    | 'failureReason'
+    | 'createdAt'
+    | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_task_definitions. */
+  @Property({ name: 'task_definition_id', type: 'uuid' })
+  taskDefinitionId!: string
+
+  /** Denormalized snapshot at trigger time. */
+  @Property({ name: 'target_type', type: 'varchar', length: 20 })
+  targetType!: AgentTaskTargetType
+
+  @Property({ name: 'target_agent_id', type: 'varchar', length: 150, nullable: true })
+  targetAgentId?: string | null
+
+  @Property({ name: 'target_workflow_id', type: 'varchar', length: 150, nullable: true })
+  targetWorkflowId?: string | null
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'running' })
+  status: AgentTaskRunStatus = 'running'
+
+  /** FK id → agent_runs (agent target). */
+  @Property({ name: 'agent_run_id', type: 'uuid', nullable: true })
+  agentRunId?: string | null
+
+  /** FK id → workflows instance (workflow target). */
+  @Property({ name: 'workflow_instance_id', type: 'uuid', nullable: true })
+  workflowInstanceId?: string | null
+
+  /** The resolved input actually used; encrypted (encryption.ts). */
+  @Property({ name: 'input', type: 'jsonb' })
+  input!: unknown
+
+  /** Correlates to the triggering business record for cross-module launches. */
+  @Property({ name: 'source_entity_type', type: 'varchar', length: 100, nullable: true })
+  sourceEntityType?: string | null
+
+  @Property({ name: 'source_entity_id', type: 'uuid', nullable: true })
+  sourceEntityId?: string | null
+
+  /** Provenance only, never an ACL identity: `user:<id>` / `api_key:<id>` / `schedule:<id>` / `event:<eventName>`. */
+  @Property({ name: 'triggered_by', type: 'varchar', length: 150 })
+  triggeredBy!: string
+
+  @Property({ name: 'idempotency_key', type: 'varchar', length: 200, nullable: true })
+  idempotencyKey?: string | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'completed_at', type: Date, nullable: true })
+  completedAt?: Date | null
+
+  /** May echo malformed input on validation failure; encrypted (encryption.ts). */
+  @Property({ name: 'failure_reason', type: 'text', nullable: true })
+  failureReason?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
+/**
+ * A domain-event trigger for an `AgentTaskDefinition` — mirrors `workflows`'
+ * `WorkflowEventTrigger` (`eventPattern` + `{ filterConditions, contextMapping,
+ * debounceMs, maxConcurrentInstances }` config), evaluated by the module's own
+ * wildcard subscriber. User-editable → `updated_at` for optimistic locking.
+ */
+@Entity({ tableName: 'agent_task_event_triggers' })
+@Index({ name: 'agent_task_event_triggers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_task_event_triggers_definition_idx', properties: ['taskDefinitionId'] })
+export class AgentTaskEventTrigger {
+  [OptionalProps]?: 'config' | 'enabled' | 'priority' | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_task_definitions. */
+  @Property({ name: 'task_definition_id', type: 'uuid' })
+  taskDefinitionId!: string
+
+  /** e.g. `claims.claim.reported` or a trailing-wildcard `claims.*`. */
+  @Property({ name: 'event_pattern', type: 'varchar', length: 255 })
+  eventPattern!: string
+
+  /** `{ filterConditions?, contextMapping?, debounceMs?, maxConcurrentInstances? }` (WorkflowEventTriggerConfig shape). */
+  @Property({ name: 'config', type: 'jsonb', nullable: true })
+  config?: unknown | null
+
+  @Property({ name: 'enabled', type: 'boolean', default: true })
+  enabled: boolean = true
+
+  @Property({ name: 'priority', type: 'integer', default: 0 })
+  priority: number = 0
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+/** Derived display status of an `AgentProcess` (spec §Status derivation — first match wins). */
+export type AgentProcessStatus =
+  | 'running'
+  | 'waiting_on_you'
+  | 'question_open'
+  | 'docs_requested'
+  | 'fraud_hold'
+  | 'auto_completing'
+  | 'auto_completed'
+  | 'completed'
+  | 'failed'
+  | 'cancelled'
+
+/**
+ * Read-model projection: ONE row per `(tenant, org, processId)` — the indexable
+ * backing of the Processes cockpit list/detail-header (process subject & caseload
+ * projection spec, 2026-06-25). NOT a source of truth: the `workflows` instance
+ * stays authoritative; this row is derived from agent + workflow lifecycle events
+ * by an idempotent recompute-from-source subscriber service and is fully
+ * rebuildable via the `rebuild-processes` CLI backfill. Filter-driving subject
+ * facets (`subject_type`/`subject_value_minor`/`subject_fraud`) are deliberately
+ * PLAINTEXT typed columns (SQL-filterable); only the free-text `subject_title` is
+ * encrypted (encryption.ts). Other modules referenced by FK id only.
+ */
+// One LIVE projection per (tenant, org, process) is enforced by a partial unique
+// index (`agent_processes_org_process_uq`) over live rows (`WHERE deleted_at IS
+// NULL`), declared via `@Index({ expression })` so `db:generate` stays aware of
+// it (precedent: `agent_task_runs_idempotency_uq`, `agent_runs_eval_failed_idx`).
+@Entity({ tableName: 'agent_processes' })
+@Index({ name: 'agent_processes_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_processes_status_idx', properties: ['organizationId', 'status', 'lastActivityAt'] })
+@Index({ name: 'agent_processes_value_idx', properties: ['organizationId', 'subjectValueMinor'] })
+@Index({
+  name: 'agent_processes_org_process_uq',
+  expression:
+    `create unique index "agent_processes_org_process_uq" on "agent_processes" ("tenant_id", "organization_id", "process_id") where "deleted_at" is null`,
+})
+export class AgentProcess {
+  [OptionalProps]?: 'workflowId' | 'workflowVersion'
+    | 'subjectType' | 'subjectId' | 'subjectLabel' | 'subjectTitle' | 'subjectFacets'
+    | 'subjectValueMinor' | 'subjectFraud'
+    | 'status' | 'currentStage' | 'agentIds' | 'costMinor' | 'currency'
+    | 'runCount' | 'pendingProposalCount'
+    | 'assigneeUserId' | 'teamId' | 'waitingSince' | 'lastActivityAt'
+    | 'createdAt' | 'updatedAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → workflows instance; NOT an ORM relation. Unique per (tenant, org) over live rows. */
+  @Property({ name: 'process_id', type: 'uuid' })
+  processId!: string
+
+  @Property({ name: 'workflow_id', type: 'varchar', length: 200, nullable: true })
+  workflowId?: string | null
+
+  @Property({ name: 'workflow_version', type: 'varchar', length: 50, nullable: true })
+  workflowVersion?: string | null
+
+  // ── Subject (the business record this process is about) ────────────────────
+  /** e.g. 'Motor' — TYPE column + filter. Plaintext: must be SQL-queryable. */
+  @Property({ name: 'subject_type', type: 'varchar', length: 100, nullable: true })
+  subjectType?: string | null
+
+  /** Business record id (opaque; FK by value only). */
+  @Property({ name: 'subject_id', type: 'varchar', length: 200, nullable: true })
+  subjectId?: string | null
+
+  /** e.g. 'CLM-2026-04417' — low-sensitivity ref kept plaintext for `q` search. */
+  @Property({ name: 'subject_label', type: 'varchar', length: 200, nullable: true })
+  subjectLabel?: string | null
+
+  /**
+   * Free-text, person-readable subject — the ONLY encrypted subject field
+   * (encryption.ts → `agent_orchestrator:agent_process`). Never SQL-filtered.
+   */
+  @Property({ name: 'subject_title', type: 'varchar', length: 300, nullable: true })
+  subjectTitle?: string | null
+
+  /** Claim value in minor units — High-value filter / value sort. Plaintext by design. */
+  @Property({ name: 'subject_value_minor', type: 'bigint', nullable: true })
+  subjectValueMinor?: number | null
+
+  /** Fraud signal — Fraud-flagged filter. Plaintext by design. */
+  @Property({ name: 'subject_fraud', type: 'boolean', nullable: true })
+  subjectFraud?: boolean | null
+
+  /** Non-filterable display extras only (never queried in SQL). Zod-validated. */
+  @Property({ name: 'subject_facets', type: 'jsonb', nullable: true })
+  subjectFacets?: unknown | null
+
+  // ── Derived display + aggregates ────────────────────────────────────────────
+  @Property({ name: 'status', type: 'varchar', length: 30, default: 'running' })
+  status: AgentProcessStatus = 'running'
+
+  @Property({ name: 'current_stage', type: 'varchar', length: 100, nullable: true })
+  currentStage?: string | null
+
+  /** Distinct agent ids that have run under this process (AGENTS column). */
+  @Property({ name: 'agent_ids', type: 'jsonb', nullable: true })
+  agentIds?: string[] | null
+
+  @Property({ name: 'cost_minor', type: 'bigint', nullable: true })
+  costMinor?: number | null
+
+  @Property({ name: 'currency', type: 'varchar', length: 3, nullable: true })
+  currency?: string | null
+
+  @Property({ name: 'run_count', type: 'integer', default: 0 })
+  runCount: number = 0
+
+  @Property({ name: 'pending_proposal_count', type: 'integer', default: 0 })
+  pendingProposalCount: number = 0
+
+  // ── Routing / SLA (mirrored from workflows for fast filtering; Phase B) ─────
+  @Property({ name: 'assignee_user_id', type: 'uuid', nullable: true })
+  assigneeUserId?: string | null
+
+  @Property({ name: 'team_id', type: 'uuid', nullable: true })
+  teamId?: string | null
+
+  /** When the process entered a human-waiting state (Stuck >24h filter). */
+  @Property({ name: 'waiting_since', type: Date, nullable: true })
+  waitingSince?: Date | null
+
+  /** First observed agent activity for the process (AGE column). */
+  @Property({ name: 'opened_at', type: Date })
+  openedAt!: Date
+
+  @Property({ name: 'last_activity_at', type: Date, onCreate: () => new Date() })
+  lastActivityAt: Date = new Date()
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }

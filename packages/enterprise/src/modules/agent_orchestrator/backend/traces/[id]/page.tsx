@@ -864,7 +864,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                     <StatCell
                       icon={Flag}
                       label={t('agent_orchestrator.traces.detail.finished')}
-                      value={formatDateTime(run.updatedAt) ?? '—'}
+                      value={formatDateTime(run.completedAt) ?? '—'}
                     />
                     <StatCell
                       icon={Cpu}

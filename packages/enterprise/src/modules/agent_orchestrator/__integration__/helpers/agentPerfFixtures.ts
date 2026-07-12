@@ -25,6 +25,8 @@ export type AgentRunSeed = {
   agentId: string
   status?: 'running' | 'ok' | 'error' | 'cancelled'
   createdAt: Date
+  /** Forensic completion timestamp (TC-AGENT-HONESTY-001); null/absent = not stamped. */
+  completedAt?: Date | null
 }
 
 export type AgentProposalSeed = {
@@ -53,7 +55,7 @@ export async function insertAgentRunFixtures(rows: AgentRunSeed[]): Promise<stri
       chunk.forEach((row, index) => {
         const base = params.length
         tuples.push(
-          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb, $${base + 7}, $${base + 7})`,
+          `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}::jsonb, $${base + 7}, $${base + 7}, $${base + 8})`,
         )
         params.push(
           ids[start + index],
@@ -63,10 +65,11 @@ export async function insertAgentRunFixtures(rows: AgentRunSeed[]): Promise<stri
           row.status ?? 'ok',
           SEED_PAYLOAD,
           row.createdAt,
+          row.completedAt ?? null,
         )
       })
       await client.query(
-        `insert into agent_runs (id, tenant_id, organization_id, agent_id, status, input, created_at, updated_at)
+        `insert into agent_runs (id, tenant_id, organization_id, agent_id, status, input, created_at, updated_at, completed_at)
          values ${tuples.join(', ')}`,
         params,
       )

@@ -166,6 +166,18 @@ export async function ingestTrace(
     const parent = spansByExternal.get(spanPayload.parentExternalSpanId)
     if (span && parent && span.parentSpanId !== parent.id) span.parentSpanId = parent.id
   }
+  // Forensic completion timestamp, null-only: the ingest envelope carries no
+  // run-level end time, so derive it from the newest span end. Set only when
+  // the run is terminal and `completed_at` is still null — never overwrite the
+  // command-stamped value (it is the flag-proof "Finished" fact).
+  if (!run.completedAt && run.status !== 'running') {
+    let newestEnd: Date | null = null
+    for (const span of spansByExternal.values()) {
+      if (span.endedAt && (!newestEnd || span.endedAt > newestEnd)) newestEnd = span.endedAt
+    }
+    if (newestEnd) run.completedAt = newestEnd
+  }
+
   let toolCallsAppended = 0
   for (const { span, payloadSpan } of freshSpans) {
     for (const toolCall of payloadSpan.toolCalls ?? []) {

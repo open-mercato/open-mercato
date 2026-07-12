@@ -150,6 +150,53 @@ describe('ingestTrace', () => {
   })
 })
 
+describe('ingestTrace — forensic completed_at (null-only)', () => {
+  it('sets completed_at from the newest span end for a terminal run', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = basePayload()
+    payload.spans[0] = { ...payload.spans[0], endedAt: '2026-06-23T00:00:03.000Z' }
+    payload.spans[1] = { ...payload.spans[1], endedAt: '2026-06-23T00:00:05.500Z' }
+    await ingestTrace(em, SCOPE, payload)
+
+    const run = storeFor(AgentRun)[0]
+    expect(run.completedAt).toEqual(new Date('2026-06-23T00:00:05.500Z'))
+  })
+
+  it('never overwrites a non-null completed_at on re-ingest', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = basePayload()
+    payload.spans[1] = { ...payload.spans[1], endedAt: '2026-06-23T00:00:05.500Z' }
+    await ingestTrace(em, SCOPE, payload)
+    const run = storeFor(AgentRun)[0]
+    const stamped = run.completedAt
+
+    const later = basePayload()
+    later.spans.push({
+      externalSpanId: 'span-much-later',
+      sequence: 2,
+      name: 'late',
+      kind: 'tool' as const,
+      startedAt: '2026-06-24T00:00:00.000Z',
+      endedAt: '2026-06-24T00:00:09.000Z',
+    })
+    await ingestTrace(em, SCOPE, later)
+    expect(run.completedAt).toBe(stamped)
+  })
+
+  it('leaves completed_at null for a running run and when no span carries an end time', async () => {
+    const { em, storeFor } = createFakeEm()
+    const running = { ...basePayload(), status: 'running' as const }
+    running.spans[1] = { ...running.spans[1], endedAt: '2026-06-23T00:00:05.500Z' }
+    await ingestTrace(em, SCOPE, running)
+    expect(storeFor(AgentRun)[0].completedAt ?? null).toBeNull()
+
+    const noEnds = { ...basePayload(), externalRunId: 'run-ext-2' }
+    await ingestTrace(em, SCOPE, noEnds)
+    const second = storeFor(AgentRun).find((row) => row.externalRunId === 'run-ext-2')!
+    expect(second.completedAt ?? null).toBeNull()
+  })
+})
+
 describe('ingestTrace — artifact offload (F1)', () => {
   const bigOutput = { note: 'x'.repeat(5000) }
 
