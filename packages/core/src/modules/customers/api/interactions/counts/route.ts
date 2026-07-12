@@ -9,13 +9,10 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { applyEmailVisibilityFilter } from '../../../lib/visibilityFilter'
-<<<<<<< HEAD
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
-=======
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
->>>>>>> refs/janitor/origin/develop
 
 const querySchema = z.object({
   entityId: z.string().uuid(),

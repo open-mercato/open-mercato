@@ -10,13 +10,10 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
-<<<<<<< HEAD
 import { isOpenInteractionStatus } from '../../lib/interactionStatus'
-=======
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
->>>>>>> refs/janitor/origin/develop
 
 interface ActivitiesCardProps {
   entityId: string

@@ -10,13 +10,10 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CustomerInteraction } from '../../../data/entities'
-<<<<<<< HEAD
 import { TERMINAL_INTERACTION_STATUS_LIST } from '../../../lib/interactionStatus'
-=======
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
->>>>>>> refs/janitor/origin/develop
 
 const querySchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
