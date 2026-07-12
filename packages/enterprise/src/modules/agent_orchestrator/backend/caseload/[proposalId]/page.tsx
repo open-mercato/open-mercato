@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -16,6 +16,7 @@ import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ProposalCard, type DisposeKind } from '../../../components/ProposalCard'
+import { parseQueueState, serializeQueueState } from '../hooks'
 import { AgentIoDrawer } from '../../../components/AgentIoDrawer'
 import { FactsGrid, ReasoningList } from '../../../components/ProposalFacts'
 import {
@@ -35,7 +36,15 @@ type PageState = 'loading' | 'notFound' | 'error' | 'ready'
 export default function AgentProposalDetailPage({ params }: { params?: { proposalId?: string } }) {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const proposalId = params?.proposalId ?? ''
+  // Queue params forwarded by the list page (spec 4 Phase 5): the Back button
+  // and the post-dispose redirect rebuild the exact queue the operator left.
+  // Parse→serialize normalizes the forwarded string and drops junk params.
+  const caseloadHref = React.useMemo(() => {
+    const queueQuery = serializeQueueState(parseQueueState(searchParams))
+    return queueQuery ? `/backend/caseload?${queueQuery}` : '/backend/caseload'
+  }, [searchParams])
 
   const [state, setState] = React.useState<PageState>('loading')
   const [proposal, setProposal] = React.useState<ProposalView | null>(null)
@@ -142,7 +151,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
               ? 'agent_orchestrator.proposal.flash.edited'
               : 'agent_orchestrator.proposal.flash.rejected'
         flash(t(successKey), 'success')
-        router.push('/backend/caseload')
+        router.push(caseloadHref)
       } catch (err) {
         // useGuardedMutation already surfaces 409 conflicts on the shared bar;
         // call again defensively in case a future caller suppresses it, then
@@ -155,7 +164,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
         setBusy(false)
       }
     },
-    [proposal, proposalId, retryLastMutation, router, runMutation, t],
+    [proposal, proposalId, retryLastMutation, router, runMutation, caseloadHref, t],
   )
 
   if (state === 'loading') {
@@ -175,7 +184,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
           <RecordNotFoundState
             label={t('agent_orchestrator.proposal.notFound')}
             description={t('agent_orchestrator.proposal.notFoundDescription')}
-            backHref="/backend/caseload"
+            backHref={caseloadHref}
             backLabel={t('agent_orchestrator.proposal.backToCaseload')}
           />
         </PageBody>
@@ -219,7 +228,7 @@ export default function AgentProposalDetailPage({ params }: { params?: { proposa
                 {t('agent_orchestrator.proposal.openProcess')}
               </Button>
             ) : null}
-            <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/caseload')}>
+            <Button type="button" variant="outline" size="sm" onClick={() => router.push(caseloadHref)}>
               {t('agent_orchestrator.proposal.backToCaseload')}
             </Button>
           </div>

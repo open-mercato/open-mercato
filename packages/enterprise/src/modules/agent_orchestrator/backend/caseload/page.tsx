@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
 import { RotateCw, Check, X, Smile, Meh, Frown, Sparkles, TriangleAlert, Clock, ArrowUpDown, ChevronDown, Inbox, Activity, CheckCircle2, Keyboard, ShieldAlert } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
@@ -56,7 +56,12 @@ import {
   useDeferredApprove,
   intersectSelection,
   hasGuardRisk,
+  parseQueueState,
+  serializeQueueState,
+  firstFailureMessage,
+  pruneSelectionAfterDispose,
   type CaseloadHotkeyAction,
+  type DisposeOutcome,
 } from './hooks'
 
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
@@ -240,6 +245,10 @@ function LifecycleTile({ icon: Icon, label, value, sub }: { icon: React.Componen
 export default function AgentCaseloadPage() {
   const t = useT()
   const router = useRouter()
+  const searchParams = useSearchParams()
+  // Queue state initializes from the URL exactly once (spec 4 Phase 5) —
+  // afterwards state is the source of truth and the URL mirrors it below.
+  const [initialQueue] = React.useState(() => parseQueueState(searchParams))
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [total, setTotal] = React.useState(0)
   const [metrics, setMetrics] = React.useState<OverviewMetricsView | null>(null)
@@ -250,14 +259,14 @@ export default function AgentCaseloadPage() {
   const [runningCount, setRunningCount] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
-  const [view, setView] = React.useState<ViewKey>('inbox')
-  const [segment, setSegment] = React.useState<SegmentKey>('actionRequired')
-  const [search, setSearch] = React.useState('')
+  const [view, setView] = React.useState<ViewKey>(initialQueue.view)
+  const [segment, setSegment] = React.useState<SegmentKey>(initialQueue.segment)
+  const [search, setSearch] = React.useState(initialQueue.q)
   const [agentFilters, setAgentFilters] = React.useState<string[]>([])
   const [proposesFilters, setProposesFilters] = React.useState<string[]>([])
-  const [sortKey, setSortKey] = React.useState<SortKey>('waitingDesc')
-  const [page, setPage] = React.useState(1)
-  const [pageSize, setPageSize] = React.useState(20)
+  const [sortKey, setSortKey] = React.useState<SortKey>(initialQueue.sort)
+  const [page, setPage] = React.useState(initialQueue.page)
+  const [pageSize, setPageSize] = React.useState(initialQueue.pageSize)
   const [reloadToken, setReloadToken] = React.useState(0)
   const [busy, setBusy] = React.useState(false)
   const [rejectDialog, setRejectDialog] = React.useState<{ open: boolean; rows: QueueRow[] }>({ open: false, rows: [] })
@@ -453,7 +462,30 @@ export default function AgentCaseloadPage() {
     [counts.actionRequired, runningCount],
   )
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
-  React.useEffect(() => { setPage(1) }, [segment, sortKey, pageSize])
+  // Reset to page 1 when the segment/sort/pageSize change — but not on mount,
+  // where the values just arrived from a deep link that may carry `page=3`.
+  const skipPageResetRef = React.useRef(true)
+  React.useEffect(() => {
+    if (skipPageResetRef.current) {
+      skipPageResetRef.current = false
+      return
+    }
+    setPage(1)
+  }, [segment, sortKey, pageSize])
+  // Mirror the queue state into the URL (debounced — `q` changes per
+  // keystroke) so filtered queues are shareable and the detail page can
+  // rebuild this exact view from the forwarded params.
+  const queueQuery = React.useMemo(
+    () => serializeQueueState({ view, segment, q: search, sort: sortKey, page, pageSize }),
+    [view, segment, search, sortKey, page, pageSize],
+  )
+  React.useEffect(() => {
+    if ((searchParams?.toString() ?? '') === queueQuery) return
+    const timer = window.setTimeout(() => {
+      router.replace(queueQuery ? `/backend/caseload?${queueQuery}` : '/backend/caseload', { scroll: false })
+    }, 250)
+    return () => window.clearTimeout(timer)
+  }, [queueQuery, router, searchParams])
   // Deliberate context switches clear the bulk selection; live refreshes only
   // prune ids that are no longer pending (spec 4 Phase 1 — an org-wide
   // proposal.* event must not wipe an operator's half-built selection).
@@ -496,12 +528,16 @@ export default function AgentCaseloadPage() {
     })
   }, [selectableIds])
   // Sequentially dispose each pending row with its own optimistic-lock header.
+  // Failures are AGGREGATED into the returned outcome (spec 4 Phase 5) — the
+  // callers emit one flash instead of a per-row toast storm; conflict failures
+  // carry a null message because they already surfaced on the conflict bar.
   const disposeRows = React.useCallback(
-    async (rows: QueueRow[], disposition: 'approved' | 'rejected', rejectReason?: string): Promise<number> => {
+    async (rows: QueueRow[], disposition: 'approved' | 'rejected', rejectReason?: string): Promise<DisposeOutcome> => {
       const pending = rows.filter((row) => row.isPending)
-      if (pending.length === 0) return 0
+      if (pending.length === 0) return { ok: 0, failures: [] }
       setBusy(true)
       let ok = 0
+      const failures: DisposeOutcome['failures'] = []
       try {
         for (const row of pending) {
           try {
@@ -519,17 +555,45 @@ export default function AgentCaseloadPage() {
             })
             ok += 1
           } catch (err) {
-            if (!surfaceRecordConflict(err, t)) {
-              flash(err instanceof Error ? err.message : t('agent_orchestrator.proposal.flash.error'), 'error')
-            }
+            const conflictSurfaced = surfaceRecordConflict(err, t)
+            failures.push({
+              id: row.id,
+              message: conflictSurfaced ? null : err instanceof Error ? err.message : null,
+            })
           }
         }
       } finally {
         setBusy(false)
       }
-      return ok
+      return { ok, failures }
     },
     [runMutation, retryLastMutation, t],
+  )
+
+  // One flash per dispose attempt: all-success keeps the count flash, any
+  // failure in a bulk emits the aggregate summary, a lone failure keeps the
+  // plain error message (conflicts stay silent — the bar owns them).
+  const flashDisposeOutcome = React.useCallback(
+    (outcome: DisposeOutcome, attempted: number, summaryKey: string, successKey: string) => {
+      if (outcome.failures.length === 0) {
+        if (outcome.ok > 0) flash(t(successKey, undefined, { count: outcome.ok }), 'success')
+        return
+      }
+      if (attempted > 1) {
+        flash(
+          t(summaryKey, undefined, {
+            ok: outcome.ok,
+            failed: outcome.failures.length,
+            error: firstFailureMessage(outcome.failures) ?? t('agent_orchestrator.proposal.flash.error'),
+          }),
+          'error',
+        )
+        return
+      }
+      const message = firstFailureMessage(outcome.failures)
+      if (message) flash(message, 'error')
+    },
+    [t],
   )
 
   const approveRows = React.useCallback(
@@ -545,24 +609,33 @@ export default function AgentCaseloadPage() {
         inboxCursor.advanceAfterDispose([row.id])
         return 1
       }
-      const ok = await disposeRows(rows, 'approved')
-      if (ok > 0) {
-        flash(t('agent_orchestrator.caseload.flash.approved', undefined, { count: ok }), 'success')
-        inboxCursor.advanceAfterDispose(pending.map((row) => row.id))
-      }
-      setSelectedIds(new Set())
+      const outcome = await disposeRows(rows, 'approved')
+      flashDisposeOutcome(outcome, pending.length, 'agent_orchestrator.caseload.bulk.summary', 'agent_orchestrator.caseload.flash.approved')
+      const failedIds = new Set(outcome.failures.map((failure) => failure.id))
+      const succeededIds = pending.map((row) => row.id).filter((id) => !failedIds.has(id))
+      if (succeededIds.length > 0) inboxCursor.advanceAfterDispose(succeededIds)
+      // Successes leave the selection; failures stay selected for retry.
+      setSelectedIds((prev) => pruneSelectionAfterDispose(prev, succeededIds))
       reload()
-      return ok
+      return outcome.ok
     },
-    [disposeRows, reload, inboxCursor, deferredApprove, t],
+    [disposeRows, flashDisposeOutcome, reload, inboxCursor, deferredApprove],
   )
 
   // The deferred committer sends the SAME guarded, lock-headered dispose the
   // immediate path uses (`isPending` restored — the overlay cleared it), then
   // refreshes counts. A 409 surfaces via the existing conflict bar.
   commitDeferredRef.current = (id, row) => {
-    void disposeRows([{ ...row, isPending: true, pendingUndo: false }], 'approved').then((ok) => {
-      if (ok > 0) reload()
+    void disposeRows([{ ...row, isPending: true, pendingUndo: false }], 'approved').then((outcome) => {
+      if (outcome.ok > 0) {
+        reload()
+        return
+      }
+      // A failed deferred commit restores the row to pending on the next
+      // reload; a non-conflict failure still deserves its error message.
+      const message = firstFailureMessage(outcome.failures)
+      if (message) flash(message, 'error')
+      reload()
     })
   }
 
@@ -588,25 +661,27 @@ export default function AgentCaseloadPage() {
     const trimmed = reason.trim()
     if (!trimmed || busy) return
     const rows = rejectDialog.rows
-    const ok = await disposeRows(rows, 'rejected', trimmed)
-    if (ok > 0) {
-      flash(t('agent_orchestrator.caseload.flash.rejected', undefined, { count: ok }), 'success')
-      inboxCursor.advanceAfterDispose(rows.filter((row) => row.isPending).map((row) => row.id))
-    }
+    const pending = rows.filter((row) => row.isPending)
+    const outcome = await disposeRows(rows, 'rejected', trimmed)
+    flashDisposeOutcome(outcome, pending.length, 'agent_orchestrator.caseload.bulk.summaryRejected', 'agent_orchestrator.caseload.flash.rejected')
+    const failedIds = new Set(outcome.failures.map((failure) => failure.id))
+    const succeededIds = pending.map((row) => row.id).filter((id) => !failedIds.has(id))
+    if (succeededIds.length > 0) inboxCursor.advanceAfterDispose(succeededIds)
     setRejectDialog({ open: false, rows: [] })
     setReason('')
-    setSelectedIds(new Set())
+    setSelectedIds((prev) => pruneSelectionAfterDispose(prev, succeededIds))
     reload()
-  }, [reason, busy, rejectDialog.rows, disposeRows, reload, inboxCursor, t])
+  }, [reason, busy, rejectDialog.rows, disposeRows, flashDisposeOutcome, reload, inboxCursor])
 
   const openDetail = React.useCallback(
     (row: QueueRow) => {
       // In-app navigation commits synchronously — the undo affordance is gone
-      // once the queue is left behind.
+      // once the queue is left behind. The current queue params travel on the
+      // link so the detail page can return to this exact view (spec 4 Phase 5).
       deferredApprove.flushAll()
-      router.push(`/backend/caseload/${encodeURIComponent(row.id)}`)
+      router.push(`/backend/caseload/${encodeURIComponent(row.id)}${queueQuery ? `?${queueQuery}` : ''}`)
     },
-    [router, deferredApprove],
+    [router, deferredApprove, queueQuery],
   )
 
   // Keyboard-first triage (spec 4 Phase 2): j/k + A/R/E/X act on the cursor
@@ -735,13 +810,16 @@ export default function AgentCaseloadPage() {
       id: 'select',
       enableSorting: false,
       meta: { maxWidth: '44px' },
-      header: () => (
-        <Checkbox
-          checked={allSelected ? true : someSelected ? 'indeterminate' : false}
-          onCheckedChange={toggleAll}
-          aria-label={t('agent_orchestrator.caseload.bulk.selectAll')}
-        />
-      ),
+      // No pending rows on this tab → nothing is selectable, so the select-all
+      // checkbox would be a dead control (spec 4 Phase 5).
+      header: () =>
+        selectableIds.length === 0 ? null : (
+          <Checkbox
+            checked={allSelected ? true : someSelected ? 'indeterminate' : false}
+            onCheckedChange={toggleAll}
+            aria-label={t('agent_orchestrator.caseload.bulk.selectAll')}
+          />
+        ),
       cell: ({ row }) =>
         row.original.isPending ? (
           <div className="flex items-center" onClick={(event) => event.stopPropagation()}>
@@ -754,7 +832,7 @@ export default function AgentCaseloadPage() {
         ) : null,
     }
     return [selectColumn, ...base]
-  }, [t, selectedIds, allSelected, someSelected, toggleAll, toggleRow])
+  }, [t, selectedIds, selectableIds, allSelected, someSelected, toggleAll, toggleRow])
 
   const rowActions = React.useCallback(
     (row: QueueRow) => {
@@ -822,7 +900,12 @@ export default function AgentCaseloadPage() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.caseload.title')}</h1>
-            <p className="mt-1 text-sm text-muted-foreground">{t('agent_orchestrator.caseload.subtitlePersonal', undefined, { count: grandTotal })}</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t('agent_orchestrator.caseload.subtitleQueue', undefined, {
+                count: grandTotal,
+                sort: t(SORT_OPTIONS.find((option) => option.key === sortKey)?.labelKey ?? SORT_OPTIONS[0].labelKey),
+              })}
+            </p>
           </div>
           <div className="flex items-center gap-2">
             <SegmentedControl value={view} onValueChange={(value) => setView(value as ViewKey)}>
@@ -1481,7 +1564,7 @@ function DecisionPane({
           <div className="flex items-start gap-2.5 rounded-lg bg-muted px-3.5 py-2.5 text-sm text-foreground">
             <TriangleAlert className="mt-0.5 size-4 shrink-0 text-status-warning-text" />
             <div>
-              <p className="font-medium">{t('agent_orchestrator.caseload.inbox.gatedTitle')}</p>
+              <p className="font-medium">{t('agent_orchestrator.caseload.inbox.needsDecision')}</p>
               <p className="mt-0.5 text-muted-foreground">{t('agent_orchestrator.proposal.gate')}</p>
             </div>
           </div>

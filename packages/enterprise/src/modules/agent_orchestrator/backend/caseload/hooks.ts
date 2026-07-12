@@ -474,3 +474,107 @@ export function useDeferredApprove<T>(onCommit: (id: string, payload: T) => void
 
   return { pendingUndo, defer, undo, flushAll }
 }
+
+/**
+ * Queue state in the URL (spec 4, Phase 5).
+ *
+ * `view`, `segment`, `q`, `sort`, `page`, `pageSize` round-trip through the
+ * page's search params so filtered queues are shareable and the detail page
+ * can rebuild the exact queue the operator left. Serialization omits defaults
+ * (a pristine queue keeps the bare `/backend/caseload` URL) and parsing
+ * validates every value — an unknown enum or a junk number falls back to the
+ * default instead of poisoning state.
+ */
+
+export type QueueState = {
+  view: 'inbox' | 'list'
+  segment: 'actionRequired' | 'approved' | 'rejected' | 'all'
+  q: string
+  sort: 'waitingDesc' | 'waitingAsc' | 'confidenceDesc' | 'confidenceAsc' | 'agentAsc'
+  page: number
+  pageSize: number
+}
+
+export const QUEUE_STATE_DEFAULTS: QueueState = {
+  view: 'inbox',
+  segment: 'actionRequired',
+  q: '',
+  sort: 'waitingDesc',
+  page: 1,
+  pageSize: 20,
+}
+
+const QUEUE_VIEWS = new Set<QueueState['view']>(['inbox', 'list'])
+const QUEUE_SEGMENTS = new Set<QueueState['segment']>(['actionRequired', 'approved', 'rejected', 'all'])
+const QUEUE_SORTS = new Set<QueueState['sort']>([
+  'waitingDesc',
+  'waitingAsc',
+  'confidenceDesc',
+  'confidenceAsc',
+  'agentAsc',
+])
+export const QUEUE_PAGE_SIZES: readonly number[] = [10, 20, 50]
+
+type SearchParamsLike = { get(name: string): string | null }
+
+export function parseQueueState(params: SearchParamsLike | null | undefined): QueueState {
+  if (!params) return QUEUE_STATE_DEFAULTS
+  const view = params.get('view')
+  const segment = params.get('segment')
+  const sort = params.get('sort')
+  const page = Number.parseInt(params.get('page') ?? '', 10)
+  const pageSize = Number.parseInt(params.get('pageSize') ?? '', 10)
+  return {
+    view: QUEUE_VIEWS.has(view as QueueState['view']) ? (view as QueueState['view']) : QUEUE_STATE_DEFAULTS.view,
+    segment: QUEUE_SEGMENTS.has(segment as QueueState['segment'])
+      ? (segment as QueueState['segment'])
+      : QUEUE_STATE_DEFAULTS.segment,
+    q: params.get('q') ?? QUEUE_STATE_DEFAULTS.q,
+    sort: QUEUE_SORTS.has(sort as QueueState['sort']) ? (sort as QueueState['sort']) : QUEUE_STATE_DEFAULTS.sort,
+    page: Number.isInteger(page) && page >= 1 ? page : QUEUE_STATE_DEFAULTS.page,
+    pageSize: QUEUE_PAGE_SIZES.includes(pageSize) ? pageSize : QUEUE_STATE_DEFAULTS.pageSize,
+  }
+}
+
+/** Canonical query string for a queue state; empty string when all-default. */
+export function serializeQueueState(state: QueueState): string {
+  const params = new URLSearchParams()
+  if (state.view !== QUEUE_STATE_DEFAULTS.view) params.set('view', state.view)
+  if (state.segment !== QUEUE_STATE_DEFAULTS.segment) params.set('segment', state.segment)
+  if (state.q !== QUEUE_STATE_DEFAULTS.q) params.set('q', state.q)
+  if (state.sort !== QUEUE_STATE_DEFAULTS.sort) params.set('sort', state.sort)
+  if (state.page !== QUEUE_STATE_DEFAULTS.page) params.set('page', String(state.page))
+  if (state.pageSize !== QUEUE_STATE_DEFAULTS.pageSize) params.set('pageSize', String(state.pageSize))
+  return params.toString()
+}
+
+/**
+ * Bulk-dispose outcome (spec 4, Phase 5): the sequential loop reports one
+ * aggregate instead of flashing per row. `message` is null when the failure
+ * already surfaced on the optimistic-lock conflict bar.
+ */
+export type DisposeFailure = { id: string; message: string | null }
+export type DisposeOutcome = { ok: number; failures: DisposeFailure[] }
+
+/** First human-readable failure message, skipping conflict-bar failures. */
+export function firstFailureMessage(failures: readonly DisposeFailure[]): string | null {
+  for (const failure of failures) {
+    if (failure.message) return failure.message
+  }
+  return null
+}
+
+/**
+ * Selection after a dispose attempt: successfully disposed ids leave the set,
+ * failed ids stay selected for retry, unrelated selections are untouched.
+ * Returns the SAME reference when nothing changed.
+ */
+export function pruneSelectionAfterDispose(prev: Set<string>, succeededIds: Iterable<string>): Set<string> {
+  let next: Set<string> | null = null
+  for (const id of succeededIds) {
+    if (!prev.has(id)) continue
+    if (!next) next = new Set(prev)
+    next.delete(id)
+  }
+  return next ?? prev
+}
