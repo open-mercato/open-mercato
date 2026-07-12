@@ -1,3 +1,5 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
 /**
  * OpenCode API Route Handlers
  *
@@ -11,6 +13,8 @@ import {
   type OpenCodeClient,
   type OpenCodeQuestion,
 } from './opencode-client'
+
+const logger = createLogger('ai_assistant').child({ component: 'opencode' })
 
 let clientInstance: OpenCodeClient | null = null
 
@@ -445,11 +449,19 @@ export async function handleOpenCodeMessageStreaming(
               // Session is explicitly idle and no questions - complete
               resolved = true
               const durationMs = Date.now() - startTime
-              console.error(`[AI Usage] Session complete (heartbeat): sessionId=${targetSessionId.slice(0, 16)}... duration=${durationMs}ms tokens={in:${usageStats.totalInputTokens},out:${usageStats.totalOutputTokens}} toolCalls=${usageStats.toolCalls} tools=[${usageStats.toolNames.join(',')}] messages=${usageStats.messageCount}`)
+              logger.info('Session complete (heartbeat)', {
+                sessionId: targetSessionId.slice(0, 16),
+                durationMs,
+                inputTokens: usageStats.totalInputTokens,
+                outputTokens: usageStats.totalOutputTokens,
+                toolCalls: usageStats.toolCalls,
+                tools: usageStats.toolNames.join(','),
+                messages: usageStats.messageCount,
+              })
               try {
                 await onEvent({ type: 'done', sessionId: targetSessionId })
               } catch (err) {
-                console.error('[OpenCode SSE] Heartbeat: Failed to emit done event:', err)
+                logger.error('Heartbeat: failed to emit done event', { err })
               }
               cleanup()
               clearTimeout(timeout)
@@ -458,7 +470,7 @@ export async function handleOpenCodeMessageStreaming(
             }
             // Status is 'unknown' or something else - wait for SSE events
           } catch (err) {
-            console.error('[OpenCode SSE] Heartbeat error:', err)
+            logger.error('Heartbeat error', { err })
           }
         }
       }, 1000)
@@ -572,7 +584,15 @@ export async function handleOpenCodeMessageStreaming(
                           // Truly idle - complete the stream
                           resolved = true
                           const durationMs = Date.now() - startTime
-                          console.error(`[AI Usage] Session complete: sessionId=${targetSessionId.slice(0, 16)}... duration=${durationMs}ms tokens={in:${usageStats.totalInputTokens},out:${usageStats.totalOutputTokens}} toolCalls=${usageStats.toolCalls} tools=[${usageStats.toolNames.join(',')}] messages=${usageStats.messageCount}`)
+                          logger.info('Session complete', {
+                            sessionId: targetSessionId.slice(0, 16),
+                            durationMs,
+                            inputTokens: usageStats.totalInputTokens,
+                            outputTokens: usageStats.totalOutputTokens,
+                            toolCalls: usageStats.toolCalls,
+                            tools: usageStats.toolNames.join(','),
+                            messages: usageStats.messageCount,
+                          })
                           await onEvent({ type: 'done', sessionId: targetSessionId })
                           cleanup()
                           clearTimeout(timeout)
@@ -580,14 +600,14 @@ export async function handleOpenCodeMessageStreaming(
                           resolve()
                         }
                       } catch (err) {
-                        console.error('[OpenCode SSE] Error in timeout callback:', err)
+                        logger.error('Error in timeout callback', { err })
                         // Still try to complete even if there was an error
                         if (!resolved) {
                           resolved = true
                           try {
                             await onEvent({ type: 'done', sessionId: targetSessionId })
                           } catch (e2) {
-                            console.error('[OpenCode SSE] Failed to emit done event:', e2)
+                            logger.error('Failed to emit done event', { err: e2 })
                           }
                           cleanup()
                           clearTimeout(timeout)
@@ -639,7 +659,7 @@ export async function handleOpenCodeMessageStreaming(
                     if (info.tokens) {
                       usageStats.totalInputTokens += info.tokens.input || 0
                       usageStats.totalOutputTokens += info.tokens.output || 0
-                      console.error(`[AI Usage] Tokens (message ${usageStats.messageCount}): input=${info.tokens.input} output=${info.tokens.output} model=${info.modelID || 'unknown'}`)
+                      logger.debug('Token usage for message', { message: usageStats.messageCount, inputTokens: info.tokens.input, outputTokens: info.tokens.output, model: info.modelID || 'unknown' })
                     }
 
                     // Emit intermediate metadata for visibility
@@ -675,14 +695,14 @@ export async function handleOpenCodeMessageStreaming(
                     break
                   case 'thinking':
                     // Extended thinking blocks — route to debug panel only, never to chat
-                    console.error(`[OpenCode SSE] Thinking block received (${(delta || part.text || '').length} chars)`)
+                    logger.debug('Thinking block received', { chars: (delta || part.text || '').length })
                     await onEvent({ type: 'debug', partType: 'thinking', data: { text: delta || part.text } })
                     break
                   case 'tool_use':
                     if (part.name) {
                       usageStats.toolCalls++
                       usageStats.toolNames.push(part.name)
-                      console.error(`[AI Usage] Tool call #${usageStats.toolCalls}: ${part.name}`)
+                      logger.debug('Tool call observed', { toolCallNumber: usageStats.toolCalls, toolName: part.name })
                       await onEvent({
                         type: 'tool-call',
                         id: part.id,
@@ -717,7 +737,7 @@ export async function handleOpenCodeMessageStreaming(
               }
             }
           } catch (err) {
-            console.error('[OpenCode SSE] Error processing event:', err)
+            logger.error('Error processing SSE event', { err })
           }
         },
         (error) => {
@@ -731,7 +751,7 @@ export async function handleOpenCodeMessageStreaming(
     // We only catch errors here - successful completion is signaled via SSE session.status: idle
     client.sendMessage(session.id, message, { model }).catch((err) => {
       // Log send errors - SSE should also receive an error event
-      console.error('[OpenCode] Send error (SSE should handle):', err)
+      logger.error('Send error (SSE should handle)', { err })
     })
 
     // Wait for SSE to indicate completion (session.status: idle or error)
@@ -863,7 +883,7 @@ export async function handleOpenCodeAnswer(
     // Timeout - assume complete
     await onEvent({ type: 'done', sessionId })
   } catch (error) {
-    console.error('[OpenCode Answer] Error:', error)
+    logger.error('Answer question failed', { err: error })
     await onEvent({
       type: 'error',
       error: error instanceof Error ? error.message : 'Failed to answer question',

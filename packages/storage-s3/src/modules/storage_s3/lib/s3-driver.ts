@@ -149,17 +149,20 @@ export class S3StorageDriver implements StorageDriver {
     partitionCode: string,
     storagePath: string,
   ): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
-    const tmpDir = path.join(os.tmpdir(), `s3-tmp-${randomUUID()}`)
-    await fs.mkdir(tmpDir, { recursive: true })
-    const fileName = path.basename(storagePath) || 'download'
-    const filePath = path.join(tmpDir, fileName)
-    const { buffer } = await this.read(partitionCode, storagePath)
-    await fs.writeFile(filePath, buffer)
-    return {
-      filePath,
-      cleanup: async () => {
-        await fs.rm(tmpDir, { recursive: true, force: true })
-      },
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 's3-tmp-'))
+    const cleanup = async () => {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+
+    try {
+      const fileName = path.basename(storagePath) || 'download'
+      const filePath = path.join(tmpDir, fileName)
+      const { buffer } = await this.read(partitionCode, storagePath)
+      await fs.writeFile(filePath, buffer, { flag: 'wx', mode: 0o600 })
+      return { filePath, cleanup }
+    } catch (error) {
+      await Promise.allSettled([cleanup()])
+      throw error
     }
   }
 

@@ -1,6 +1,6 @@
-import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { chmodSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { atomicWriteFileSync } from '../../scripts/lib/add-js-extension.mjs'
 import { buildPackage } from '../../scripts/build-package.mjs'
 
@@ -35,6 +35,19 @@ await buildPackage(packageDir, {
     const guidesDestDir = join(outdir, 'agentic', 'guides')
     mkdirSync(guidesDestDir, { recursive: true })
 
+    // Clean stale per-module artifacts before regenerating so an incremental dist never
+    // retains a removed module's full guide or fact-sheet. The legacy `core.<module>.md`
+    // redirect stubs are no longer emitted (#3754); this purge also deletes any that linger
+    // in an incremental `dist/` from an older build. Mirrors packages/create-app/build.mjs;
+    // the conceptual `module-system.md` and the single-dot package guides are
+    // re-copied/re-discovered below.
+    rmSync(join(guidesDestDir, 'modules'), { recursive: true, force: true })
+    for (const entry of readdirSync(guidesDestDir)) {
+      if (/^core\..+\.md$/.test(entry)) {
+        rmSync(join(guidesDestDir, entry))
+      }
+    }
+
     let guidesFound = 0
     for (const pkg of readdirSync(packagesDir)) {
       const guideSource = join(packagesDir, pkg, 'agentic', 'standalone-guide.md')
@@ -57,6 +70,48 @@ await buildPackage(packageDir, {
 
     if (guidesFound > 0) {
       console.log(`Discovered ${guidesFound} standalone guides → dist/agentic/guides/`)
+    }
+
+    // Generate per-module fact-sheets (Layer 2) for every package-provided module via
+    // the freshly built ts-morph extractor + resolver-routed discovery, so
+    // `mercato agentic:init` bundles the same guides as a create-mercato-app scaffold
+    // (packages/create-app/build.mjs). Discovery goes through the resolver, never a
+    // hardcoded packages/* path (.ai/lessons.md §161-169).
+    const { extractAllModuleFacts, renderModuleFactsJson } = await import(
+      pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts.js')).href
+    )
+    const { discoverPackageModuleSources } = await import(
+      pathToFileURL(join(outdir, 'lib', 'generators', 'module-facts-discovery.js')).href
+    )
+    const { createResolver } = await import(pathToFileURL(join(outdir, 'lib', 'resolver.js')).href)
+
+    const sources = discoverPackageModuleSources(createResolver(join(packagesDir, '..')))
+    if (sources.length > 0) {
+      const registryPath = join(packagesDir, '..', 'apps', 'mercato', '.mercato', 'generated', 'modules.runtime.generated.ts')
+      let coreVersion = null
+      try {
+        coreVersion = JSON.parse(readFileSync(join(packagesDir, 'core', 'package.json'), 'utf8')).version ?? null
+      } catch {
+        coreVersion = null
+      }
+
+      const { factsByModule, markdownByModule, warnings } = extractAllModuleFacts({
+        sources,
+        registryPath: existsSync(registryPath) ? registryPath : null,
+        coreVersion,
+      })
+
+      const modulesGuidesDir = join(guidesDestDir, 'modules')
+      mkdirSync(modulesGuidesDir, { recursive: true })
+      for (const [moduleId, markdown] of Object.entries(markdownByModule)) {
+        writeFileSync(join(modulesGuidesDir, `${moduleId}.md`), markdown)
+      }
+      writeFileSync(join(guidesDestDir, 'module-facts.json'), renderModuleFactsJson(factsByModule))
+
+      for (const warning of warnings) console.warn(warning)
+      console.log(`Generated ${Object.keys(markdownByModule).length} module fact-sheets → dist/agentic/guides/modules/`)
+    } else {
+      console.warn('[module-facts] no package modules discovered; skipping fact-sheet generation')
     }
   },
 })

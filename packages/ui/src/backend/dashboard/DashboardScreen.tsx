@@ -14,6 +14,9 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { InjectionSpot } from '../injection/InjectionSpot'
 import { WidgetDataBatchProvider } from './widgetData'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'DashboardScreen' })
 
 type DashboardWidgetSize = 'sm' | 'md' | 'lg'
 
@@ -147,7 +150,7 @@ export function DashboardScreen() {
         setSettingsId(null)
       }
     } catch (err) {
-      console.error('Failed to load dashboard layout', err)
+      logger.error('Failed to load dashboard layout', { err })
       if (getDashboardWidgets().length === 0) {
         setHasRegisteredWidgets(false)
         setLayout([])
@@ -237,7 +240,7 @@ export function DashboardScreen() {
         if (!call.ok) throw new Error(`Failed with status ${call.status}`)
         setError(null)
       } catch (err) {
-        console.error('Failed to save layout', err)
+        logger.error('Failed to save layout', { err })
         setError(t('dashboard.saveError'))
       } finally {
         adjustSaving(-1)
@@ -256,7 +259,7 @@ export function DashboardScreen() {
       if (!call.ok) throw new Error(`Failed with status ${call.status}`)
       setError(null)
     } catch (err) {
-      console.error('Failed to update widget settings', err)
+      logger.error('Failed to update widget settings', { err })
       setError(t('dashboard.saveError'))
     } finally {
       adjustSaving(-1)
@@ -574,7 +577,7 @@ function DashboardWidgetCard({
       })
       .catch((err) => {
         if (cancelled) return
-        console.error('Failed to load widget module', err)
+        logger.error('Failed to load widget module', { err })
         setLoadError(t('dashboard.widget.loadError'))
         setLoading(false)
       })
@@ -615,7 +618,7 @@ function DashboardWidgetCard({
       try {
         return module.hydrateSettings(raw)
       } catch (err) {
-        console.warn('Failed to hydrate widget settings', err)
+        logger.warn('Failed to hydrate widget settings', { err })
         return raw
       }
     }
@@ -628,7 +631,7 @@ function DashboardWidgetCard({
       try {
         raw = module.dehydrateSettings(next as never)
       } catch (err) {
-        console.warn('Failed to dehydrate widget settings', err)
+        logger.warn('Failed to dehydrate widget settings', { err })
       }
     }
     onSettingsChange(raw)

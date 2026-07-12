@@ -35,6 +35,7 @@ import {
   resolveSplashUrl as resolveSplashAccessUrl,
 } from './dev-splash-url.mjs'
 import { resolveDatabaseNameOverride } from './dev-database-url.mjs'
+import { describeWatchMode, parseWatchScopeArgs, resolveWatchScope } from './watch-scope.mjs'
 import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
   createMemoryTraceSession,
@@ -197,6 +198,10 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+// Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
+// translated into env vars and forwarded to the spawned package watcher, which
+// reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
+const watchScopeArgs = parseWatchScopeArgs(args)
 const setupMode = !isMonorepo && args.includes('--setup')
 const reinstall = setupMode && args.includes('--reinstall')
 const standaloneLocalRegistryRefresh = !isMonorepo && shouldRefreshStandaloneRegistryPackages()
@@ -229,6 +234,7 @@ const memoryTrace = memoryTraceEnabled
 
 let devLogSessionInstance = null
 let devRunnerLogInstance = null
+let localDevLazyWorkerModeDefaultLogged = false
 
 function getDevLogSession() {
   if (devLogSessionInstance) return devLogSessionInstance
@@ -593,10 +599,31 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
     env.OM_AUTO_SPAWN_WORKERS_LAZY = 'true'
   }
   if (
+    typeof process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE !== 'string'
+    || process.env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE.trim() === ''
+  ) {
+    env.OM_AUTO_SPAWN_WORKERS_LAZY_MODE = 'shared'
+    const lazyWorkersRaw = process.env.OM_AUTO_SPAWN_WORKERS_LAZY
+    const lazyWorkersCanRun =
+      typeof lazyWorkersRaw !== 'string'
+      || lazyWorkersRaw.trim() === ''
+      || isEnabledEnvFlag(lazyWorkersRaw)
+    if (lazyWorkersCanRun && !localDevLazyWorkerModeDefaultLogged) {
+      localDevLazyWorkerModeDefaultLogged = true
+      console.warn('⚠️ OM_AUTO_SPAWN_WORKERS_LAZY_MODE is not set; defaulting to "shared" for local dev.')
+    }
+  }
+  if (
     typeof process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY !== 'string'
     || process.env.OM_AUTO_SPAWN_SCHEDULER_LAZY.trim() === ''
   ) {
     env.OM_AUTO_SPAWN_SCHEDULER_LAZY = 'true'
+  }
+  if (
+    typeof process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER !== 'string'
+    || process.env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER.trim() === ''
+  ) {
+    env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER = 'true'
   }
   return env
 }
@@ -1622,15 +1649,30 @@ function resolveWatchPackagesScript() {
   return raw === 'legacy' ? 'watch:packages:legacy' : 'watch:packages'
 }
 
+function buildWatchScopeEnv() {
+  const env = {}
+  if (watchScopeArgs.mode) env.OM_WATCH_SCOPE = watchScopeArgs.mode
+  if (watchScopeArgs.packages?.length) env.OM_WATCH_PACKAGES = watchScopeArgs.packages.join(',')
+  if (watchScopeArgs.popularLimit) env.OM_WATCH_POPULAR_LIMIT = String(watchScopeArgs.popularLimit)
+  return env
+}
+
+function resolveActiveWatchScope(watchScopeEnv = buildWatchScopeEnv()) {
+  return resolveWatchScope({ env: { ...process.env, ...watchScopeEnv }, argv: [] }).mode
+}
+
 function startPackageWatch() {
   const watchScript = resolveWatchPackagesScript()
-  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript })
+  const watchScopeEnv = buildWatchScopeEnv()
+  const activeScope = resolveActiveWatchScope(watchScopeEnv)
+  markMemoryTrace('package-watch:start', 'Watching workspace packages', { script: watchScript, scope: activeScope })
 
   if (classic) {
     const child = spawnCommand(yarnCommand, [watchScript], {
       label: watchScript,
       logFile: getDevRunnerLog(),
       mirrorOutput: true,
+      env: watchScopeEnv,
     })
 
     child.on('close', (code, signal) => {
@@ -1652,9 +1694,16 @@ function startPackageWatch() {
   const stageCurrent = greenfield ? 5 : 2
   const stageTotal = greenfield ? 5 : 3
   console.log(`👀 ${formatProgressLine('Watching workspace packages', stageCurrent, stageTotal, resolveProgressPercent(stageCurrent, stageTotal))}`)
+  const watchMode = describeWatchMode(activeScope)
+  console.log(`   ↳ watch scope: ${watchMode.text}`)
+  if (watchMode.mode !== 'all') {
+    console.log('     tip: set OM_WATCH_SCOPE=all or pass --watch=all to watch every package')
+  }
   updateSplashState({
     phase: 'Watching workspace packages',
-    detail: 'Package watchers are running in the background',
+    detail: watchMode.mode === 'all'
+      ? 'Package watchers are running in the background'
+      : `Package watchers are running (watch scope: ${watchMode.text})`,
     progressCurrent: stageCurrent,
     progressTotal: stageTotal,
     progressPercent: resolveProgressPercent(stageCurrent, stageTotal),
@@ -1666,6 +1715,7 @@ function startPackageWatch() {
     label: 'Watching workspace packages',
     logFile: getDevRunnerLog(),
     mirrorOutput: verbose,
+    env: watchScopeEnv,
   })
 
   if (verbose) {

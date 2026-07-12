@@ -9,6 +9,9 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { InboxProposal, InboxProposalAction } from '../data/entities'
 import type { CrossModuleEntities } from '../lib/executionEngine'
 import { resolveOptionalEventBus } from '../lib/eventBus'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops')
 
 export interface RequestContext {
   auth: AuthContext
@@ -154,7 +157,7 @@ export function handleRouteError(err: unknown, label: string): NextResponse {
   if (err instanceof UnauthorizedError) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  console.error(`[inbox_ops:${label}] Error:`, err)
+  logger.error('Request failed', { label, err })
   return NextResponse.json({ error: `Failed to ${label}` }, { status: 500 })
 }
 

@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -8,6 +9,8 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiTokenUsageRepository } from '../../../data/repositories/AiTokenUsageRepository'
 import { hasRequiredFeatures } from '../../../lib/auth'
 import { toDateString, toIntegerString, toIsoString } from '../../../lib/usage-serialization'
+
+const logger = createLogger('ai_assistant')
 
 const REQUIRED_FEATURE = 'ai_assistant.settings.manage'
 
@@ -120,7 +123,7 @@ export async function GET(req: NextRequest): Promise<Response> {
 
     return NextResponse.json({ rows: serialized, total: serialized.length })
   } catch (error) {
-    console.error('[AI Usage Daily] GET error:', error)
+    logger.error('AI Usage Daily — GET error', { err: error })
     return jsonError(500, 'Failed to fetch daily usage data.', 'internal_error')
   }
 }

@@ -24,6 +24,9 @@ import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { runBeforeQueryPipeline, runAfterQueryPipeline, type QueryExtensionContext } from '@open-mercato/shared/lib/query/query-extension-runner'
 import { resolveEncryptedSortFields, resolveEncryptedSortMaxRows, sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { mapWithConcurrency } from '@open-mercato/shared/lib/query/bounded-decrypt'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'engine' })
 
 const DECRYPT_CONCURRENCY = 8
 
@@ -317,10 +320,10 @@ export class HybridQueryEngine implements QueryEngine {
             const force = this.isForcePartialIndexEnabled()
             if (!force) {
               if (gap.stats) {
-                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+                logger.warn('Partial index coverage detected; falling back to basic engine', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
               } else {
-                console.warn('[HybridQueryEngine] Partial index coverage detected; falling back to basic engine:', { entity })
+                logger.warn('Partial index coverage detected; falling back to basic engine', { entity })
                 if (debugEnabled) this.debug('query:fallback:partial-coverage', { entity })
               }
               const fallbackResult = await this.fallback.query(entity, opts)
@@ -347,10 +350,10 @@ export class HybridQueryEngine implements QueryEngine {
               return await applyAfterExtensions(resultWithWarning)
             }
             if (gap.stats) {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
+              logger.warn('Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: gap.stats.baseCount, indexedCount: gap.stats.indexedCount, scope: gap.scope })
             } else {
-              console.warn('[HybridQueryEngine] Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity })
+              logger.warn('Partial index coverage detected; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity })
             }
             partialIndexWarning = {
@@ -510,7 +513,7 @@ export class HybridQueryEngine implements QueryEngine {
             const globalIndexed = globalStats.indexedCount
             const globalGap = (globalBase > 0 && globalIndexed < globalBase) || globalIndexed > globalBase
             if (globalGap) {
-              console.warn('[HybridQueryEngine] Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES:', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
+              logger.warn('Partial index coverage detected at global scope; forcing query index usage due to FORCE_QUERY_INDEX_ON_PARTIAL_INDEXES', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
               if (debugEnabled) this.debug('query:partial-coverage:forced', { entity, baseCount: globalBase, indexedCount: globalIndexed, scope: 'global' })
               partialIndexWarning = {
                 entity, entityLabel: this.resolveEntityLabel(entity),
@@ -792,7 +795,7 @@ export class HybridQueryEngine implements QueryEngine {
           resolvedKeys.forEach((key) => selectFieldSet.add(`cf:${key}`))
           if (this.isDebugVerbosity()) this.debug('query:cf:resolved-keys', { entity, keys: resolvedKeys })
         } catch (err) {
-          console.warn('[HybridQueryEngine] Failed to resolve custom field keys for', entity, err)
+          logger.warn('Failed to resolve custom field keys', { entity, err })
         }
       } else if (Array.isArray(opts.includeCustomFields)) {
         opts.includeCustomFields.map((key) => String(key)).forEach((key) => selectFieldSet.add(`cf:${key}`))
@@ -909,7 +912,7 @@ export class HybridQueryEngine implements QueryEngine {
             )
             next = { ...next, ...decrypted }
           } catch (err) {
-            console.error('Error decrypting entity payload', err)
+            logger.error('Error decrypting entity payload', { err })
           }
         }
         if (encSvc) {
@@ -1973,9 +1976,7 @@ export class HybridQueryEngine implements QueryEngine {
         await bus.emitEvent('query_index.reindex', payload, { persistent: true })
         if (this.isDebugVerbosity()) this.debug('query:auto-reindex:scheduled', context)
       } catch (err) {
-        console.warn('[HybridQueryEngine] Failed to schedule auto reindex:', {
-          ...context, error: err instanceof Error ? err.message : err,
-        })
+        logger.warn('Failed to schedule auto reindex', { ...context, err })
       }
     })
   }
@@ -2184,11 +2185,7 @@ export class HybridQueryEngine implements QueryEngine {
 
   private logSearchDebug(event: string, payload: Record<string, unknown>) {
     if (!this.isDebugVerbosity()) return
-    try {
-      console.info('[query-index:search]', event, JSON.stringify(payload))
-    } catch {
-      console.info('[query-index:search]', event, payload)
-    }
+    logger.debug('Search debug event', { event, payload })
   }
 
   private applyColumnFilter(
@@ -2348,7 +2345,7 @@ export class HybridQueryEngine implements QueryEngine {
   private debug(message: string, context?: Record<string, unknown>): void {
     if (!this.isDebugVerbosity()) return
     if (!this.isSqlDebugEnabled()) return
-    if (context) console.debug('[HybridQueryEngine]', message, context)
-    else console.debug('[HybridQueryEngine]', message)
+    if (context) logger.debug(message, context)
+    else logger.debug(message)
   }
 }

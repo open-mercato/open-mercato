@@ -1,4 +1,7 @@
 import { createHmac, randomBytes } from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'token-hash' })
 
 const DEV_ONLY_SECRET = 'om-auth-token-dev-only-secret'
 let missingSecretWarned = false
@@ -18,10 +21,7 @@ function resolveTokenSecret(): string {
     }
     if (!missingSecretWarned) {
       missingSecretWarned = true
-      console.warn(
-        '[auth.tokenHash] No AUTH_TOKEN_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — ' +
-        'using insecure dev-only default. Set a secret before deploying to production.',
-      )
+      logger.warn('No AUTH_TOKEN_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — using insecure dev-only default. Set a secret before deploying to production.')
     }
     return DEV_ONLY_SECRET
   }

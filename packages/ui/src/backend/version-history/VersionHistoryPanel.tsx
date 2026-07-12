@@ -13,6 +13,9 @@ import { getVersionHistoryActionLabel, getVersionHistoryStatusLabel } from './la
 import { useAuditPermissions, canUndoEntry, canRedoEntry } from './useAuditPermissions'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { humanizeResourceKind } from './labels'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 export type VersionHistoryPanelProps = {
   open: boolean
@@ -107,7 +110,7 @@ export function VersionHistoryPanel({
         window.location.reload()
       }
     } catch (err) {
-      console.error(t('audit_logs.actions.undo'), err)
+      logger.error('Undo failed', { err })
     } finally {
       setUndoingToken(null)
     }
@@ -127,7 +130,7 @@ export function VersionHistoryPanel({
         window.location.reload()
       }
     } catch (err) {
-      console.error(t('audit_logs.actions.redo'), err)
+      logger.error('Redo failed', { err })
     } finally {
       setRedoingId(null)
     }

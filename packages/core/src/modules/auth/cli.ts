@@ -1,5 +1,7 @@
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { OM_LOG_LEVEL_ENV, resetLogLevelCache } from '@open-mercato/shared/lib/logger'
+import { resetServerLoggerCache } from '@open-mercato/shared/lib/logger'
 import { hash } from 'bcryptjs'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User, Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
@@ -475,9 +477,17 @@ const setupApp: ModuleCli = {
       const originalInfo = console.info
       console.log = () => undefined
       console.info = () => undefined
+      const originalLogLevel = process.env[OM_LOG_LEVEL_ENV]
+      process.env[OM_LOG_LEVEL_ENV] = 'error'
+      resetLogLevelCache()
+      resetServerLoggerCache()
       restoreConsole = () => {
         console.log = originalLog
         console.info = originalInfo
+        if (originalLogLevel === undefined) delete process.env[OM_LOG_LEVEL_ENV]
+        else process.env[OM_LOG_LEVEL_ENV] = originalLogLevel
+        resetLogLevelCache()
+        resetServerLoggerCache()
       }
     }
     const container = await createRequestContainer()

@@ -80,6 +80,13 @@ type DashboardWidgetEntry = {
   importPath: string
 }
 
+type CommandLoaderGenerationEntry = {
+  moduleId: string
+  key: string
+  importPath: string
+  ids: string[]
+}
+
 type RuntimeApiMethodMetadata = {
   requireAuth?: boolean
   requireRoles?: string[]
@@ -1031,6 +1038,164 @@ function buildDynamicImportExpression(importPath: string): string {
   return `import(${toLiteral(sanitizeGeneratedModuleSpecifier(importPath))})`
 }
 
+const COMMAND_SCAN_CONFIG = {
+  folder: 'commands',
+  include: (name: string) =>
+    ['.ts', '.js', '.tsx', '.jsx'].some((extension) => name.endsWith(extension)) &&
+    !name.endsWith('.d.ts') &&
+    !/\.(test|spec)\.[jt]sx?$/.test(name) &&
+    stripModuleCodeExtension(name) !== 'index',
+  sort: (a: string, b: string) => a.localeCompare(b),
+}
+
+function getStaticStringExpression(
+  expr: ts.Expression,
+  stringConstants: Map<string, string> = new Map(),
+): string | null {
+  const unwrapped = unwrapExpression(expr)
+  if (ts.isStringLiteral(unwrapped) || ts.isNoSubstitutionTemplateLiteral(unwrapped)) return unwrapped.text
+  if (ts.isIdentifier(unwrapped)) {
+    const direct = stringConstants.get(unwrapped.text)
+    if (direct) return direct
+  }
+  return null
+}
+
+function getPropertyNameText(name: ts.PropertyName): string | null {
+  if (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name)) return name.text
+  return null
+}
+
+function getObjectStringProperty(
+  object: ts.ObjectLiteralExpression,
+  propertyName: string,
+  stringConstants: Map<string, string> = new Map(),
+): string | null {
+  for (const property of object.properties) {
+    if (!ts.isPropertyAssignment(property)) continue
+    const name = getPropertyNameText(property.name)
+    if (name !== propertyName) continue
+    return getStaticStringExpression(property.initializer, stringConstants)
+  }
+  return null
+}
+
+function collectStringArrayElements(expr: ts.Expression, stringConstants: Map<string, string> = new Map()): string[] {
+  const unwrapped = unwrapExpression(expr)
+  if (!ts.isArrayLiteralExpression(unwrapped)) return []
+  const values: string[] = []
+  for (const element of unwrapped.elements) {
+    const value = getStaticStringExpression(element, stringConstants)
+    if (value) values.push(value)
+  }
+  return values
+}
+
+function extractCommandIdsFromSource(sourcePath: string): string[] {
+  const sourceText = fs.readFileSync(sourcePath, 'utf8')
+  const sourceFile = ts.createSourceFile(sourcePath, sourceText, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX)
+  const ids = new Set<string>()
+  const stringConstants = new Map<string, string>()
+  const variableCommandIds = new Map<string, string>()
+
+  const collectVariables = (node: ts.Node): void => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const stringValue = getStaticStringExpression(node.initializer, stringConstants)
+      if (stringValue) {
+        stringConstants.set(node.name.text, stringValue)
+      }
+      if (ts.isObjectLiteralExpression(node.initializer)) {
+        const id = getObjectStringProperty(node.initializer, 'id', stringConstants)
+        if (id) variableCommandIds.set(node.name.text, id)
+      } else if (node.name.text === 'commandIds') {
+        for (const id of collectStringArrayElements(node.initializer, stringConstants)) ids.add(id)
+      }
+    }
+    ts.forEachChild(node, collectVariables)
+  }
+
+  const collectRegistrations = (node: ts.Node): void => {
+    if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
+      const callName = node.expression.text
+      const firstArg = node.arguments[0]
+      if (callName === 'registerCommand' && firstArg) {
+        if (ts.isIdentifier(firstArg)) {
+          const id = variableCommandIds.get(firstArg.text)
+          if (id) ids.add(id)
+        } else if (ts.isObjectLiteralExpression(firstArg)) {
+          const id = getObjectStringProperty(firstArg, 'id', stringConstants)
+          if (id) ids.add(id)
+        }
+      }
+      if (callName === 'registerDictionaryEntryCommands' && firstArg && ts.isObjectLiteralExpression(firstArg)) {
+        const prefix = getObjectStringProperty(firstArg, 'commandPrefix', stringConstants)
+        if (prefix) {
+          ids.add(`${prefix}.create`)
+          ids.add(`${prefix}.update`)
+          ids.add(`${prefix}.delete`)
+        }
+      }
+    }
+    ts.forEachChild(node, collectRegistrations)
+  }
+
+  collectVariables(sourceFile)
+  collectRegistrations(sourceFile)
+  return Array.from(ids).sort((a, b) => a.localeCompare(b))
+}
+
+function collectCommandLoaderEntries(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  modId: string,
+): CommandLoaderGenerationEntry[] {
+  const files = scanModuleDir(roots, COMMAND_SCAN_CONFIG)
+  const entries: CommandLoaderGenerationEntry[] = []
+  for (const file of files) {
+    const relPath = `commands/${file.relPath}`
+    const resolved = resolveModuleFile(roots, imps, relPath)
+    if (!resolved) continue
+    const logicalKey = stripModuleCodeExtension(file.relPath)
+    const basename = path.basename(logicalKey)
+    if (basename === 'shared' || basename === 'factory') continue
+    entries.push({
+      moduleId: modId,
+      key: `${modId}:commands:${logicalKey}`,
+      importPath: resolved.importPath,
+      ids: extractCommandIdsFromSource(resolved.absolutePath),
+    })
+  }
+  return entries
+}
+
+function renderCommandLoadersFile(entries: CommandLoaderGenerationEntry[]): string {
+  const seenCommandIds = new Map<string, string>()
+  const rendered: string[] = []
+
+  for (const entry of entries) {
+    const loadExpr = `() => ${buildDynamicImportExpression(entry.importPath)}`
+    for (const id of entry.ids) {
+      const previous = seenCommandIds.get(id)
+      if (previous && previous !== entry.key) {
+        throw new Error(`[generate] Duplicate command id "${id}" discovered in "${previous}" and "${entry.key}"`)
+      }
+      seenCommandIds.set(id, entry.key)
+      rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, id: ${toLiteral(id)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+    }
+    rendered.push(`  { moduleId: ${toLiteral(entry.moduleId)}, key: ${toLiteral(entry.key)}, load: ${loadExpr} },`)
+  }
+
+  return `// AUTO-GENERATED by mercato generate command-loaders
+import type { CommandLoader } from '@open-mercato/shared/lib/commands'
+
+export const commandLoaderEntries: CommandLoader[] = [
+${rendered.join('\n')}
+]
+
+export default commandLoaderEntries
+`
+}
+
 function serializeGeneratedImport(statement: GeneratedImportStatement): string {
   if (typeof statement === 'string') {
     return statement
@@ -1210,6 +1375,10 @@ function detectExportedHttpMethods(sourceFile: string): HttpMethod[] {
 
 function buildPageRouteProps(metaExpr: string, routePath: string): string {
   return `pattern: ${toLiteral(routePath || '/')}, requireAuth: (${metaExpr})?.requireAuth, requireRoles: (${metaExpr})?.requireRoles, requireFeatures: (${metaExpr})?.requireFeatures, requireCustomerAuth: (${metaExpr})?.requireCustomerAuth, requireCustomerFeatures: (${metaExpr})?.requireCustomerFeatures, nav: (${metaExpr})?.nav, title: (${metaExpr})?.pageTitle ?? (${metaExpr})?.title, titleKey: (${metaExpr})?.pageTitleKey ?? (${metaExpr})?.titleKey, group: (${metaExpr})?.pageGroup ?? (${metaExpr})?.group, groupKey: (${metaExpr})?.pageGroupKey ?? (${metaExpr})?.groupKey, icon: (${metaExpr})?.icon, order: (${metaExpr})?.pageOrder ?? (${metaExpr})?.order, priority: (${metaExpr})?.pagePriority ?? (${metaExpr})?.priority, navHidden: (${metaExpr})?.navHidden, visible: (${metaExpr})?.visible, enabled: (${metaExpr})?.enabled, breadcrumb: (${metaExpr})?.breadcrumb, pageContext: (${metaExpr})?.pageContext, placement: (${metaExpr})?.placement`
+}
+
+function buildPageRouteManifestSpread(metaExpr: string, routePath: string): string {
+  return `...resolvePageRouteMetadata(${toLiteral(routePath || '/')}, ${metaExpr})`
 }
 
 function normalizeBreadcrumb(raw: unknown): SerializablePageMetadata['breadcrumb'] {
@@ -1418,7 +1587,7 @@ async function processPageFiles(options: {
         sourceFile: metaPath,
         metaPath,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: type === 'backend',
+        allowRuntimeFallback: true,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
@@ -1436,7 +1605,7 @@ async function processPageFiles(options: {
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: type === 'backend',
+        allowRuntimeFallback: true,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
@@ -1449,7 +1618,7 @@ async function processPageFiles(options: {
     }
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
-    const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
+    const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
@@ -1496,7 +1665,7 @@ async function processPageFiles(options: {
         sourceFile: metaPath,
         metaPath,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: type === 'backend',
+        allowRuntimeFallback: false,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
@@ -1514,7 +1683,7 @@ async function processPageFiles(options: {
       const manifestMetadata = await loadPageMetadataForManifest({
         sourceFile,
         runtimeExpr: `(((${manifestMetaImportName} as any).metadata) as any)`,
-        allowRuntimeFallback: type === 'backend',
+        allowRuntimeFallback: false,
       })
       manifestMetaExpr = manifestMetadata.manifestExpr
       if (manifestMetadata.requiresRuntimeImport) {
@@ -1527,7 +1696,7 @@ async function processPageFiles(options: {
     }
     const baseProps = buildPageRouteProps(metaExpr, routePath)
     const runtimeBaseProps = buildPageRouteProps(runtimeMetaExpr, routePath)
-    const manifestBaseProps = buildPageRouteProps(manifestMetaExpr, routePath)
+    const manifestBaseProps = buildPageRouteManifestSpread(manifestMetaExpr, routePath)
     eagerRoutes.push(`{ ${baseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     runtimeRoutes.push(`{ ${runtimeBaseProps}, Component: ${buildLazyRouteComponentExpression(importPath)} }`)
     manifestRoutes.push(`{ moduleId: ${toLiteral(modId)}, ${manifestBaseProps}, load: async () => { const mod = await ${buildDynamicImportExpression(importPath)}; return (mod.default ?? mod) as any } }`)
@@ -2126,8 +2295,12 @@ function renderAstLegacyManifestOutput(options: {
   imports?: GeneratedImportStatement[]
   entries: string[]
 }): string {
+  const usesPageRouteMetadataHelper = options.typeName === 'FrontendRouteManifestEntry'
+    || options.typeName === 'BackendRouteManifestEntry'
   const importSection = [
-    `import type { ${options.typeName} } from '@open-mercato/shared/modules/registry'`,
+    usesPageRouteMetadataHelper
+      ? `import { resolvePageRouteMetadata, type ${options.typeName} } from '@open-mercato/shared/modules/registry'`
+      : `import type { ${options.typeName} } from '@open-mercato/shared/modules/registry'`,
     ...(options.imports ?? []).map((entry) => serializeGeneratedImport(entry)),
   ].join('\n')
 
@@ -2466,8 +2639,9 @@ function processTranslationsAst(options: {
   appImportBase: string
   pkgImportBase: string
   imports: string[]
+  extraImports?: string[]
 }): GeneratedObjectEntry[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports } = options
+  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
   const i18nApp = path.join(roots.appBase, 'i18n')
   const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
   const i18nCore = path.join(pkgI18nBase, 'i18n')
@@ -2500,6 +2674,8 @@ function processTranslationsAst(options: {
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
       imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
       imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
+      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
       translations.push({
         name: JSON.stringify(locale),
         value: objectLiteral([
@@ -2513,6 +2689,7 @@ function processTranslationsAst(options: {
     if (appHas) {
       const appName = `T_${toVar(modId)}_${toVar(locale)}_A`
       imports.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
+      extraImports?.push(buildImportStatement(appName, `${appImportBase}/i18n/${locale}.json`))
       translations.push({
         name: JSON.stringify(locale),
         value: asExpression(identifier(appName), 'unknown as Record<string, string>'),
@@ -2523,6 +2700,7 @@ function processTranslationsAst(options: {
     if (coreHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
       imports.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
+      extraImports?.push(buildImportStatement(coreName, `${pkgImportBase}/i18n/${locale}.json`))
       translations.push({
         name: JSON.stringify(locale),
         value: asExpression(identifier(coreName), 'unknown as Record<string, string>'),
@@ -2577,6 +2755,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const bootstrapRegsChecksumFile = path.join(outputDir, 'bootstrap-registrations.generated.checksum')
   const legacySubscribersOutFile = path.join(outputDir, 'subscribers.generated.ts')
   const legacySubscribersChecksumFile = path.join(outputDir, 'subscribers.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
@@ -2621,6 +2801,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
 
   // UMES conflict detection: collect file paths during module processing
@@ -2641,6 +2822,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
@@ -3124,6 +3306,8 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   writeGeneratedFile({ outFile: backendRoutesOutFile, checksumFile: backendRoutesChecksumFile, content: backendRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: apiRoutesOutFile, checksumFile: apiRoutesChecksumFile, content: apiRoutesOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacySubscribersOutFile, checksumFile: legacySubscribersChecksumFile, content: legacySubscribersOutput, structureChecksum, result, quiet })
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   for (const extension of extensions) {
     const outputs = extension.generateOutput()
@@ -3196,20 +3380,31 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const outputDir = resolver.getOutputDir()
   const outFile = path.join(outputDir, 'modules.app.generated.ts')
   const checksumFile = path.join(outputDir, 'modules.app.generated.checksum')
+  const bootstrapOutFile = path.join(outputDir, 'modules.bootstrap.generated.ts')
+  const bootstrapChecksumFile = path.join(outputDir, 'modules.bootstrap.generated.checksum')
+  const i18nOutFile = path.join(outputDir, 'modules.i18n.generated.ts')
+  const i18nChecksumFile = path.join(outputDir, 'modules.i18n.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'bootstrap-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'bootstrap-modules.generated.checksum')
   const enabledIdsOutFile = path.join(outputDir, 'enabled-module-ids.generated.ts')
   const enabledIdsChecksumFile = path.join(outputDir, 'enabled-module-ids.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
     verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
   }
   const imports: string[] = []
+  const bootstrapImports: string[] = []
+  const i18nImports: string[] = []
   const moduleDecls: WriterFunction[] = []
+  const bootstrapModuleDecls: WriterFunction[] = []
+  const i18nModuleDecls: WriterFunction[] = []
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
 
   for (const entry of enabled) {
@@ -3222,6 +3417,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     const frontendRoutes: WriterFunction[] = []
     const backendRoutes: WriterFunction[] = []
@@ -3243,6 +3439,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
       imports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
+      bootstrapImports.push(buildImportStatement(`* as ${infoImportName}`, importPath))
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
         const mod = require(indexResolved.absolutePath)
@@ -3254,11 +3451,13 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
 
     {
       const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      if (setup) bootstrapImports.push(buildImportStatement(`* as ${setup.importName}`, setup.importPath))
       if (setup) setupImportName = setup.importName
     }
 
     {
       const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports)
+      if (encryption) bootstrapImports.push(buildImportStatement(`* as ${encryption.importName}`, encryption.importPath))
       if (encryption) encryptionImportName = encryption.importName
     }
 
@@ -3267,12 +3466,13 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       if (resolved) {
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
+        bootstrapImports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
         integrationImportName = importName
       }
     }
 
     {
-      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
+      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports, bootstrapImports)
       if (ext) extensionsImportName = ext.importName
     }
 
@@ -3282,17 +3482,18 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
         imports.push(buildImportStatement(`* as ${importName}`, importPath))
+        bootstrapImports.push(buildImportStatement(`* as ${importName}`, importPath))
         featuresImportName = importName
       }
     }
 
     {
-      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
+      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports, bootstrapImports)
       if (ce) customEntitiesImportName = ce.importName
     }
 
     {
-      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
+      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports, bootstrapImports)
       if (fields) fieldsImportName = fields.importName
     }
 
@@ -3336,13 +3537,17 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       }
     }
 
+    const translationImports: string[] = []
     translations.push(...processTranslationsAst({
       roots,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
       imports,
+      extraImports: translationImports,
     }))
+    bootstrapImports.push(...translationImports)
+    i18nImports.push(...translationImports)
 
     subscribers.push(...await processSubscribersAst({
       roots,
@@ -3372,18 +3577,16 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       { name: 'id', value: modId },
       { name: 'customFieldSets', value: buildModuleCustomFieldSetsValue({ fieldsImportName, customEntitiesImportName, moduleId: modId }) },
     ]
+    const i18nModuleEntries: GeneratedObjectEntry[] = [
+      { name: 'id', value: modId },
+    ]
 
     if (infoImportName) {
       moduleEntries.push({ name: 'info', value: propertyAccess(identifier(infoImportName), 'metadata') })
     }
-    if (frontendRoutes.length > 0) {
-      moduleEntries.push({ name: 'frontendRoutes', value: arrayLiteral(frontendRoutes, writeValue) })
-    }
-    if (backendRoutes.length > 0) {
-      moduleEntries.push({ name: 'backendRoutes', value: arrayLiteral(backendRoutes, writeValue) })
-    }
     if (translations.length > 0) {
       moduleEntries.push({ name: 'translations', value: objectLiteral(translations) })
+      i18nModuleEntries.push({ name: 'translations', value: objectLiteral(translations) })
     }
     if (subscribers.length > 0) {
       moduleEntries.push({ name: 'subscribers', value: arrayLiteral(subscribers, writeValue) })
@@ -3467,7 +3670,17 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
       })
     }
 
-    moduleDecls.push(objectLiteral(moduleEntries))
+    const routeAwareModuleEntries = [...moduleEntries]
+    if (frontendRoutes.length > 0) {
+      routeAwareModuleEntries.push({ name: 'frontendRoutes', value: arrayLiteral(frontendRoutes, writeValue) })
+    }
+    if (backendRoutes.length > 0) {
+      routeAwareModuleEntries.push({ name: 'backendRoutes', value: arrayLiteral(backendRoutes, writeValue) })
+    }
+
+    moduleDecls.push(objectLiteral(routeAwareModuleEntries))
+    bootstrapModuleDecls.push(objectLiteral(moduleEntries))
+    i18nModuleDecls.push(objectLiteral(i18nModuleEntries))
   }
 
   const output = renderAstModuleRegistryFile({
@@ -3477,11 +3690,23 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     moduleEntries: moduleDecls,
     includeCreateElementImport: hasRouteComponents,
   })
+  const bootstrapOutput = renderAstModuleRegistryFile({
+    fileName: 'modules.bootstrap.generated.ts',
+    generator: 'registry (bootstrap version)',
+    imports: bootstrapImports,
+    moduleEntries: bootstrapModuleDecls,
+  })
+  const i18nOutput = renderAstModuleRegistryFile({
+    fileName: 'modules.i18n.generated.ts',
+    generator: 'registry (i18n version)',
+    imports: i18nImports,
+    moduleEntries: i18nModuleDecls,
+  })
   const legacyOutput = renderAstLegacyAliasFile({
     fileName: 'bootstrap-modules.generated.ts',
     exportName: 'bootstrapModules',
     exportType: 'Module[]',
-    sourceFileName: 'modules.app.generated.ts',
+    sourceFileName: 'modules.bootstrap.generated.ts',
     initializer: identifier('modules'),
   })
 
@@ -3509,10 +3734,15 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
 
   const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
+  writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
 
   const enabledIdsOutput = renderEnabledModuleIdsFile(enabled.map((entry) => entry.id))
   writeGeneratedFile({ outFile: enabledIdsOutFile, checksumFile: enabledIdsChecksumFile, content: enabledIdsOutput, structureChecksum, result, quiet })
+
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   return result
 }
@@ -3534,6 +3764,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const checksumFile = path.join(outputDir, 'modules.cli.generated.checksum')
   const legacyOutFile = path.join(outputDir, 'cli-modules.generated.ts')
   const legacyChecksumFile = path.join(outputDir, 'cli-modules.generated.checksum')
+  const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
+  const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
   const enabled = resolver.loadEnabledModules()
   for (const entry of enabled) {
@@ -3545,6 +3777,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const importIdRef = { value: 0 }
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
+  const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -3556,6 +3789,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     const isAppModule = entry.from === '@app'
     const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
     const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
 
     let cliImportName: string | null = null
     const translations: GeneratedObjectEntry[] = []
@@ -3848,6 +4082,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
+  const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
+  writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   return result
 }

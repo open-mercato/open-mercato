@@ -6,6 +6,9 @@ import { extractUndoPayload as extractSharedUndoPayload } from '@open-mercato/sh
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { ChannelThreadMapping, ExternalConversation } from '../data/entities'
 import { emitCommunicationChannelsEvent } from '../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'reassign-conversation' })
 
 const reassignConversationSchema = z.object({
   threadId: z.string().uuid(),
@@ -165,9 +168,9 @@ const reassignConversationCommand: CommandHandler<
     } catch (emitErr) {
       // Best-effort lifecycle/workflow-trigger signal — a bus failure must not
       // abort the reassignment (the rows are already committed above).
-      console.warn(
-        '[communication_channels:reassign-conversation] reassigned event emit failed:',
-        emitErr instanceof Error ? emitErr.message : emitErr,
+      logger.warn(
+        'reassigned event emit failed',
+        { err: emitErr },
       )
     }
 

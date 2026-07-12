@@ -104,6 +104,12 @@ function applyDocumentAddressSnapshot(em: EntityManager, entity: SalesDocumentAd
   entity.quote = snapshot.documentKind === 'quote' ? em.getReference(SalesQuote, snapshot.documentId) : null
 }
 
+function assertDocumentAddressParent(entity: SalesDocumentAddress, input: { documentId: string; documentKind: 'order' | 'quote' }): void {
+  if (entity.documentId !== input.documentId || entity.documentKind !== input.documentKind) {
+    throw new CrudHttpError(404, { error: 'sales.document.address.not_found' })
+  }
+}
+
 async function emitDocumentAddressIndexSideEffects(
   ctx: { container: { resolve: (name: string) => unknown } },
   action: 'created' | 'updated' | 'deleted',
@@ -256,6 +262,7 @@ const updateDocumentAddress: CommandHandler<DocumentAddressUpdateInput, { id: st
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
+    assertDocumentAddressParent(entity, input)
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
     if (input.documentKind === 'order') {
       await assertAddressEditable(em, {
@@ -344,6 +351,7 @@ const deleteDocumentAddress: CommandHandler<
       'sales.document.address.not_found'
     )
     ensureSameScope(entity, input.organizationId, input.tenantId)
+    assertDocumentAddressParent(entity, input)
     const document = await requireDocument(em, input.documentKind, input.documentId, input.organizationId, input.tenantId)
     if (input.documentKind === 'order') {
       await assertAddressEditable(em, {

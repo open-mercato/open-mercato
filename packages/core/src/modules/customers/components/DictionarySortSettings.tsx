@@ -20,6 +20,9 @@ import {
   type DictionaryEntrySortMode,
 } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const SAVE_CONTEXT_ID = 'customers-dictionary-sort-modes'
 
@@ -149,7 +152,7 @@ export function DictionarySortSettings() {
         }
         if (!cancelled) setSortModes(next)
       } catch (err) {
-        console.error('customers.dictionarySorting.load failed', err)
+        logger.error('customers.dictionarySorting.load failed', { err })
         if (!cancelled) {
           const message = err instanceof Error && err.message
             ? err.message

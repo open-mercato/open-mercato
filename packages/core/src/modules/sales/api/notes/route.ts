@@ -1,8 +1,11 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { SalesNote } from '../../data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
+import { SalesNote, type SalesDocumentKind } from '../../data/entities'
 import { noteCreateSchema, noteUpdateSchema } from '../../data/validators'
 import { withScopedPayload } from '../utils'
 import { E } from '#generated/entities.ids.generated'
@@ -27,6 +30,91 @@ const listSchema = z
   })
   .passthrough()
 
+type NoteListQuery = z.infer<typeof listSchema>
+type NoteAction = 'view' | 'manage'
+
+const noteFeatureByContext: Record<SalesDocumentKind, Record<NoteAction, string>> = {
+  order: { view: 'sales.orders.view', manage: 'sales.orders.manage' },
+  quote: { view: 'sales.quotes.view', manage: 'sales.quotes.manage' },
+  invoice: { view: 'sales.invoices.manage', manage: 'sales.invoices.manage' },
+  credit_memo: { view: 'sales.credit_memos.manage', manage: 'sales.credit_memos.manage' },
+}
+
+const allNoteViewFeatures = Array.from(
+  new Set(Object.values(noteFeatureByContext).map((features) => features.view)),
+)
+const allNoteManageFeatures = Array.from(
+  new Set(Object.values(noteFeatureByContext).map((features) => features.manage)),
+)
+
+function resolveNoteListContextType(query: NoteListQuery): SalesDocumentKind | null {
+  if (query.contextType) return query.contextType
+  if (query.orderId) return 'order'
+  if (query.quoteId) return 'quote'
+  return null
+}
+
+function requiredNoteFeatures(action: NoteAction, contextType: SalesDocumentKind | null): string[] {
+  if (contextType) return [noteFeatureByContext[contextType][action]]
+  return action === 'view' ? allNoteViewFeatures : allNoteManageFeatures
+}
+
+async function ensureNotePermission(
+  ctx: CrudCtx,
+  action: NoteAction,
+  contextType: SalesDocumentKind | null,
+  translate: (key: string, fallback?: string) => string
+) {
+  const auth = ctx.auth
+  if (!auth?.sub) {
+    throw new CrudHttpError(401, { error: translate('api.errors.unauthorized', 'Unauthorized') })
+  }
+
+  const requiredFeatures = requiredNoteFeatures(action, contextType)
+  const rbac = ctx.container.resolve<RbacService>('rbacService')
+  const ok = await rbac.userHasAllFeatures(auth.sub, requiredFeatures, {
+    tenantId: auth.tenantId ?? null,
+    organizationId: ctx.selectedOrganizationId ?? auth.orgId ?? null,
+  })
+
+  if (!ok) {
+    throw new CrudHttpError(403, {
+      error: translate('api.errors.forbidden', 'Forbidden'),
+      requiredFeatures,
+    })
+  }
+}
+
+async function loadNoteForPermission(
+  ctx: CrudCtx,
+  id: string,
+  translate: (key: string, fallback?: string) => string
+): Promise<SalesNote> {
+  const em = ctx.container.resolve<EntityManager>('em')
+  const note = await findOneWithDecryption(em, SalesNote, { id }, {}, {
+    tenantId: ctx.auth?.tenantId ?? undefined,
+    organizationId: ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? undefined,
+  })
+
+  if (!note) {
+    throw new CrudHttpError(404, {
+      error: translate('sales.documents.detail.error', 'Document not found or inaccessible.'),
+    })
+  }
+
+  return note
+}
+
+async function ensureExistingNotePermission(
+  ctx: CrudCtx,
+  id: string,
+  action: NoteAction,
+  translate: (key: string, fallback?: string) => string
+) {
+  const note = await loadNoteForPermission(ctx, id, translate)
+  await ensureNotePermission(ctx, action, note.contextType, translate)
+}
+
 const routeMetadata = {
   GET: { requireAuth: true },
   POST: { requireAuth: true },
@@ -46,6 +134,12 @@ const crud = makeCrudRoute({
   },
   indexer: {
     entityType: E.sales.sales_note,
+  },
+  hooks: {
+    beforeList: async (query, ctx) => {
+      const { translate } = await resolveTranslations()
+      await ensureNotePermission(ctx, 'view', resolveNoteListContextType(query as NoteListQuery), translate)
+    },
   },
   list: {
     schema: listSchema,
@@ -84,7 +178,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return noteCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const input = noteCreateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        await ensureNotePermission(ctx, 'manage', input.contextType, translate)
+        return input
       },
       response: ({ result }) => ({
         id: result?.noteId ?? result?.id ?? null,
@@ -97,7 +193,9 @@ const crud = makeCrudRoute({
       schema: rawBodySchema,
       mapInput: async ({ raw, ctx }) => {
         const { translate } = await resolveTranslations()
-        return noteUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        const input = noteUpdateSchema.parse(withScopedPayload(raw ?? {}, ctx, translate))
+        await ensureExistingNotePermission(ctx, input.id, 'manage', translate)
+        return input
       },
       response: () => ({ ok: true }),
     },
@@ -114,6 +212,7 @@ const crud = makeCrudRoute({
         if (!id) {
           throw new CrudHttpError(400, { error: translate('sales.documents.detail.error', 'Document not found or inaccessible.') })
         }
+        await ensureExistingNotePermission(ctx, id, 'manage', translate)
         return { id }
       },
       response: () => ({ ok: true }),

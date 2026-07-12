@@ -4,6 +4,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
@@ -12,7 +13,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { SalesDocumentNumberGenerator } from '../services/salesDocumentNumberGenerator'
 import type { SalesCalculationService } from '../services/salesCalculationService'
 import type { SalesAdjustmentDraft, SalesLineSnapshot, SalesDocumentCalculationResult } from '../lib/types'
-import { cloneJson, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
+import { cloneJson, deriveLineNetFromGross, ensureOrganizationScope, ensureSameScope, ensureTenantScope, extractUndoPayload, toNumericString, enforceSalesDocumentOptimisticLock, SALES_RESOURCE_KIND_ORDER, SALES_RESOURCE_KIND_RETURN } from './shared'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
 import { SalesOrder, SalesOrderAdjustment, SalesOrderLine, SalesReturn, SalesReturnLine, SalesShipment, SalesShipmentItem } from '../data/entities'
 import { coerceShipmentQuantity } from '../lib/shipments/snapshots'
@@ -65,6 +66,28 @@ const returnCrudEvents: CrudEventsConfig = {
   }),
 }
 
+type OrderCacheRecord = Pick<SalesOrder, 'id' | 'organizationId' | 'tenantId'>
+
+/**
+ * Return mutations update the order aggregate, which is also the cache resource
+ * used by the order-lines and order-adjustments routes. Invalidate it after
+ * each committed return lifecycle change so reloads receive its fresh
+ * `updatedAt` optimistic-lock token.
+ */
+async function invalidateOrderCache(
+  container: Parameters<typeof invalidateCrudCache>[0],
+  order: OrderCacheRecord,
+  fallbackTenant: string | null,
+): Promise<void> {
+  await invalidateCrudCache(
+    container,
+    SALES_RESOURCE_KIND_ORDER,
+    { id: order.id, organizationId: order.organizationId, tenantId: order.tenantId },
+    fallbackTenant,
+    'updated',
+  )
+}
+
 function toNumeric(value: unknown): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
   if (typeof value === 'string' && value.trim().length) {
@@ -76,6 +99,22 @@ function toNumeric(value: unknown): number {
 
 function round(value: number): number {
   return Math.round((value + Number.EPSILON) * 1e4) / 1e4
+}
+
+/**
+ * Payment totals live on the order, not in the line/adjustment math a return
+ * recalculates. Every `calculateDocumentTotals` call that writes order totals
+ * back to the order MUST seed these so `buildBaseDocumentResult` preserves the
+ * recorded `paidTotalAmount` / `refundedTotalAmount` instead of defaulting them
+ * to 0 — otherwise creating/undoing/redoing a return silently zeroes the paid
+ * amount and the order's outstanding balance goes wrong on any paid order
+ * (#3756). Mirrors `resolveExistingPaymentTotals` in `commands/documents.ts`.
+ */
+function resolveExistingPaymentTotals(order: SalesOrder): { paidTotalAmount: number; refundedTotalAmount: number } {
+  return {
+    paidTotalAmount: toNumeric(order.paidTotalAmount),
+    refundedTotalAmount: toNumeric(order.refundedTotalAmount),
+  }
 }
 
 function applyOrderTotals(order: SalesOrder, totals: SalesDocumentCalculationResult['totals'], lineCount: number): void {
@@ -194,10 +233,7 @@ export async function recalculateOrderTotalsForDisplay(
     lines: lineSnapshots,
     adjustments: adjustmentDrafts,
     context: buildCalculationContext(order),
-    existingTotals: {
-      paidTotalAmount: toNumeric(order.paidTotalAmount),
-      refundedTotalAmount: toNumeric(order.refundedTotalAmount),
-    },
+    existingTotals: resolveExistingPaymentTotals(order),
   })
   return calculation.totals
 }
@@ -382,6 +418,7 @@ async function reverseReturnEffects(
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
         order.updatedAt = new Date()
@@ -531,6 +568,7 @@ async function restoreReturnEffects(
           lines: lineSnapshots,
           adjustments: adjustmentDrafts,
           context: buildCalculationContext(order),
+          existingTotals: resolveExistingPaymentTotals(order),
         })
         applyOrderTotals(order, calculation.totals, calculation.lines.length)
         order.updatedAt = new Date()
@@ -603,7 +641,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     }
 
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
-    const { header, createdLines } = await em.transactional(async (tx) => {
+    const { header, createdLines, order } = await em.transactional(async (tx) => {
       const order = await findOneWithDecryption(
         tx,
         SalesOrder,
@@ -683,7 +721,15 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         if (!line) return
         const quantity = lineInput.quantity
         const lineQuantity = Math.max(toNumeric(line.quantity), 0)
-        const unitNet = lineQuantity > 0 ? toNumeric(line.totalNetAmount) / lineQuantity : toNumeric(line.unitPriceNet)
+        // `total_net_amount = 0` while `total_gross_amount > 0` is not a representable
+        // priced state (gross = net * (1 + taxRate) ⇒ net = 0 ⇒ gross = 0). When a line
+        // carries a positive gross but a zeroed/missing net, reconstruct the net from the
+        // line's gross and tax rate so the return credits both sides and the order's net
+        // grand total moves in lockstep with gross (#3036). A genuinely free line
+        // (gross = 0, e.g. a 100% discount / comp) keeps net 0, so the return is not
+        // over-credited at the discount-ignoring unit price (#3521).
+        const lineTotalNet = deriveLineNetFromGross(line.totalNetAmount, line.totalGrossAmount, line.taxRate)
+        const unitNet = lineQuantity > 0 ? lineTotalNet / lineQuantity : toNumeric(line.unitPriceNet)
         const unitGross = lineQuantity > 0 ? toNumeric(line.totalGrossAmount) / lineQuantity : toNumeric(line.unitPriceGross)
         const totalNet = -round(Math.max(unitNet, 0) * quantity)
         const totalGross = -round(Math.max(unitGross, 0) * quantity)
@@ -738,6 +784,7 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
         lines: lineSnapshots,
         adjustments: adjustmentDrafts,
         context: buildCalculationContext(order),
+        existingTotals: resolveExistingPaymentTotals(order),
       })
       applyOrderTotals(order, calculation.totals, calculation.lines.length)
       order.updatedAt = new Date()
@@ -745,8 +792,10 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
 
       await tx.flush()
 
-      return { header: entity, createdLines: createdReturnLines }
+      return { header: entity, createdLines: createdReturnLines, order }
     })
+
+    await invalidateOrderCache(ctx.container, order, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -803,6 +852,11 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const salesCalculationService = ctx.container.resolve<SalesCalculationService>('salesCalculationService')
     await reverseReturnEffects(em, salesCalculationService, after)
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
   },
   redo: async ({ ctx, logEntry }) => {
     const after = resolveRedoSnapshot<ReturnSnapshot>(logEntry)
@@ -824,6 +878,12 @@ const createReturnCommand: CommandHandler<ReturnCreateInput, { returnId: string 
     if (!header) {
       throw new CrudHttpError(404, { error: 'sales.returns.orderMissing' })
     }
+
+    await invalidateOrderCache(ctx.container, {
+      id: after.orderId,
+      organizationId: after.organizationId,
+      tenantId: after.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -1023,6 +1083,11 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
     await enforceSalesDocumentOptimisticLock(ctx, header, SALES_RESOURCE_KIND_RETURN)
 
     await reverseReturnEffects(em, salesCalculationService, snapshot)
+    await invalidateOrderCache(ctx.container, {
+      id: snapshot.orderId,
+      organizationId: snapshot.organizationId,
+      tenantId: snapshot.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
@@ -1085,6 +1150,12 @@ const deleteReturnCommand: CommandHandler<ReturnDeleteInput, { returnId: string 
       { tenantId: before.tenantId, organizationId: before.organizationId },
     )
     if (!header) return
+
+    await invalidateOrderCache(ctx.container, {
+      id: before.orderId,
+      organizationId: before.organizationId,
+      tenantId: before.tenantId,
+    }, ctx.auth?.tenantId ?? null)
 
     const dataEngine = ctx.container.resolve('dataEngine') as DataEngine
     await emitCrudSideEffects({
