@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
+import { spawnSync } from 'node:child_process'
 import { resolvePreset, generateModulesTs, applyStarterPreset } from './apply-starter-preset.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -199,4 +200,86 @@ test('template baseline modules keep example enabled for classic', () => {
   assert.ok(content.includes("id: 'example'"))
   assert.ok(content.includes("enabledModules.some((entry) => entry.id === 'example')"))
   assert.ok(content.includes("enabledModules.push({ id: 'example_customers_sync', from: '@app' })"))
+})
+
+test('template baseline installs every enabled Documents package', () => {
+  const templateRoot = join(__dirname, '..', '..', 'template')
+  const modulesSource = readFileSync(join(templateRoot, 'src', 'modules.ts'), 'utf-8')
+  const nextConfigSource = readFileSync(join(templateRoot, 'next.config.ts'), 'utf-8')
+  const packageTemplate = JSON.parse(readFileSync(join(templateRoot, 'package.json.template'), 'utf-8')) as {
+    dependencies?: Record<string, string>
+    scripts?: Record<string, string>
+  }
+  const environmentTemplate = readFileSync(join(templateRoot, '.env.example'), 'utf-8')
+  const htmlToDocxTypes = readFileSync(join(templateRoot, 'types', 'html-to-docx', 'index.d.ts'), 'utf-8')
+  const dockerfile = readFileSync(join(templateRoot, 'Dockerfile'), 'utf-8')
+  const fullAppCompose = readFileSync(join(templateRoot, 'docker-compose.fullapp.yml'), 'utf-8')
+
+  assert.ok(modulesSource.includes("{ id: 'documents', from: '@open-mercato/documents' }"))
+  assert.equal(packageTemplate.dependencies?.['@open-mercato/documents'], '{{PACKAGE_VERSION}}')
+  assert.equal(
+    packageTemplate.scripts?.['documents:collab'],
+    'node ./node_modules/@open-mercato/documents/dist/server/documents-collab-server.js',
+  )
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'puppeteer-core'/)
+  assert.match(nextConfigSource, /serverExternalPackages:[\s\S]*'html-to-docx'/)
+  assert.match(environmentTemplate, /^NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_JWT_SECRET_V2=$/m)
+  assert.match(environmentTemplate, /^DOCUMENTS_COLLAB_ALLOWED_ORIGINS=/m)
+  assert.match(htmlToDocxTypes, /declare module 'html-to-docx'/)
+  assert.match(dockerfile, /^ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL$/m)
+  assert.match(dockerfile, /new URL\(raw\)/)
+  assert.match(dockerfile, /raw !== raw\.trim\(\)/)
+  assert.match(dockerfile, /hostname === "localhost"/)
+  assert.match(dockerfile, /\^127\(\?:\\\.\|\$\)\/\.test\(hostname\)/)
+  assert.match(dockerfile, /\["ws:", "wss:"\]\.includes\(endpoint\.protocol\)/)
+  assert.doesNotMatch(dockerfile, /ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws:\/\/localhost:4101/)
+  assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
+  assert.match(dockerfile, /EXPOSE \$\{CONTAINER_PORT\} \$\{DOCUMENTS_COLLAB_PORT\}/)
+  assert.match(
+    fullAppCompose,
+    /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:\?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/,
+  )
+  assert.doesNotMatch(fullAppCompose, /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL[^\n]*:-ws:\/\/localhost/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:\?Set DOCUMENTS_COLLAB_JWT_SECRET_V2/,
+  )
+  assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
+  assert.match(fullAppCompose, /documents-collab:[\s\S]*command: \["yarn", "documents:collab"\]/)
+})
+
+test('production image rejects non-browser collaboration endpoints', () => {
+  const dockerfile = readFileSync(
+    join(__dirname, '..', '..', 'template', 'Dockerfile'),
+    'utf-8',
+  )
+  const validatorLine = dockerfile
+    .split('\n')
+    .find((line) => line.startsWith("RUN node -e '"))
+  assert.ok(validatorLine)
+  const validator = validatorLine.slice("RUN node -e '".length, -1)
+  const validate = (url: string) => spawnSync(process.execPath, ['-e', validator], {
+    env: { ...process.env, NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: url },
+    encoding: 'utf-8',
+  })
+
+  assert.equal(validate('wss://collab.example.test/socket').status, 0)
+  assert.equal(validate('ws://collab.internal.test:4101').status, 0)
+  for (const invalid of [
+    '',
+    ' ',
+    'https://collab.example.test',
+    'ws://localhost:4101',
+    'ws://localhost.:4101',
+    'wss://preview.localhost/socket',
+    'wss://preview.localhost.:4101/socket',
+    'ws://127.0.0.2:4101',
+    'ws://[::1]:4101',
+    'ws://[::ffff:127.0.0.1]:4101',
+    'ws://0.0.0.0:4101',
+  ]) {
+    const result = validate(invalid)
+    assert.notEqual(result.status, 0, `expected production validator to reject ${invalid}`)
+  }
 })

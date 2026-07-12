@@ -5,6 +5,7 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentTemplate } from '../../data/entities'
 import {
   documentTemplateContextSlotSchema,
@@ -12,8 +13,20 @@ import {
   documentTemplateUpdateSchema,
 } from '../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
+import type {
+  TemplateCommandResult,
+  TemplateCreateCommandInput,
+  TemplateDeleteCommandInput,
+  TemplateUpdateCommandInput,
+} from '../../commands/templates'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../_commands'
 import {
   handleDocumentsRouteError,
+  hasDocumentsFeature,
   readBody,
   resolveActorUserId,
   resolveDocumentsContext,
@@ -24,7 +37,25 @@ import {
 
 const listQuerySchema = z.object({
   search: z.string().trim().optional(),
+  isActive: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  includeBody: z.enum(['true', 'false']).transform((value) => value === 'true').optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  pageSize: z.coerce.number().int().min(1).max(100).optional(),
+}).refine((query) => (query.page === undefined) === (query.pageSize === undefined), {
+  message: 'page and pageSize must be provided together',
 })
+
+const DEFAULT_TEMPLATE_PAGE = 1
+const DEFAULT_TEMPLATE_PAGE_SIZE = 50
+const TEMPLATE_SUMMARY_FIELDS = [
+  'id',
+  'name',
+  'description',
+  'contextSlots',
+  'isActive',
+  'updatedAt',
+  'createdAt',
+] as const
 
 const templateDeleteSchema = z.object({
   id: z.string().uuid(),
@@ -42,8 +73,12 @@ const templateItemSchema = z.object({
 })
 
 const templateListResponseSchema = z.object({
-  items: z.array(templateItemSchema),
+  items: z.array(templateItemSchema.omit({ bodyHtml: true }).extend({ bodyHtml: z.string().optional() })),
   total: z.number(),
+  capabilities: z.object({ canManageTemplates: z.boolean() }),
+  page: z.number(),
+  pageSize: z.number(),
+  totalPages: z.number(),
 })
 
 const mutationResponseSchema = z.object({
@@ -64,12 +99,12 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['documents.templates.manage'] },
 }
 
-function serializeTemplate(template: DocumentTemplate): Record<string, unknown> {
+function serializeTemplate(template: DocumentTemplate, includeBody = true): Record<string, unknown> {
   return {
     id: template.id,
     name: template.name,
     description: template.description ?? null,
-    bodyHtml: template.bodyHtml,
+    ...(includeBody ? { bodyHtml: template.bodyHtml } : {}),
     contextSlots: template.contextSlots ?? null,
     isActive: template.isActive,
     updatedAt: template.updatedAt.toISOString(),
@@ -81,12 +116,18 @@ async function loadScopedTemplate(
   ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
   id: string,
 ): Promise<DocumentTemplate> {
-  const template = await ctx.em.findOne(DocumentTemplate, {
-    id,
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    deletedAt: null,
-  })
+  const template = await findOneWithDecryption(
+    ctx.em,
+    DocumentTemplate,
+    {
+      id,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
   if (!template) throw new CrudHttpError(404, { error: 'documents.templates.notFound' })
   return template
 }
@@ -96,16 +137,45 @@ export async function GET(request: Request): Promise<Response> {
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     const url = new URL(request.url)
     const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
+    const page = query.page ?? DEFAULT_TEMPLATE_PAGE
+    const pageSize = query.pageSize ?? DEFAULT_TEMPLATE_PAGE_SIZE
+    const includeBody = query.includeBody ?? true
     const where: FilterQuery<DocumentTemplate> = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       deletedAt: null,
-      ...(query.search ? { name: { $ilike: `%${query.search}%` } } : {}),
+      ...(query.search ? {
+        $or: [
+          { name: { $ilike: `%${query.search}%` } },
+          { description: { $ilike: `%${query.search}%` } },
+        ],
+      } : {}),
+      ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
     }
-    const templates = await ctx.em.find(DocumentTemplate, where, { orderBy: { name: 'ASC' } })
+    const [templates, total] = await Promise.all([
+      findWithDecryption(
+        ctx.em,
+        DocumentTemplate,
+        where,
+        {
+          orderBy: { name: 'ASC', id: 'ASC' },
+          limit: pageSize,
+          offset: (page - 1) * pageSize,
+          ...(includeBody ? {} : { fields: TEMPLATE_SUMMARY_FIELDS }),
+        },
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      ),
+      ctx.em.count(DocumentTemplate, where),
+    ])
     return NextResponse.json({
-      items: templates.map(serializeTemplate),
-      total: templates.length,
+      items: templates.map((template) => serializeTemplate(template, includeBody)),
+      total,
+      capabilities: {
+        canManageTemplates: hasDocumentsFeature(ctx.auth, 'documents.templates.manage'),
+      },
+      page,
+      pageSize,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
     })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.templates.list')
@@ -123,26 +193,28 @@ export async function POST(request: Request): Promise<Response> {
       mutationPayload: input,
     })
 
-    const template = ctx.em.create(DocumentTemplate, {
-      id: randomUUID(),
+    const commandInput: TemplateCreateCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      name: input.name,
-      description: input.description ?? null,
-      bodyHtml: input.bodyHtml,
-      contextSlots: input.contextSlots ?? null,
-      createdByUserId: resolveActorUserId(ctx.auth),
-      isActive: input.isActive ?? true,
-    })
-    ctx.em.persist(template)
-    await ctx.em.flush()
+      templateId: randomUUID(),
+      actorUserId: resolveActorUserId(ctx.auth),
+      template: input,
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<TemplateCreateCommandInput, TemplateCommandResult>(
+      'documents.template.create',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: 'new',
       operation: 'create',
     })
 
-    return NextResponse.json({ id: template.id, updatedAt: template.updatedAt.toISOString() }, { status: 201 })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ id: execution.result.id, updatedAt: execution.result.updatedAt }, { status: 201 }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.templates.create')
   }
@@ -166,24 +238,28 @@ export async function PUT(request: Request): Promise<Response> {
       mutationPayload: input,
     })
 
-    if (input.name !== undefined) template.name = input.name
-    if (Object.prototype.hasOwnProperty.call(input, 'description')) {
-      template.description = input.description ?? null
+    const commandInput: TemplateUpdateCommandInput = {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      actorUserId: resolveActorUserId(ctx.auth),
+      expectedUpdatedAt: template.updatedAt.toISOString(),
+      template: input,
     }
-    if (input.bodyHtml !== undefined) template.bodyHtml = input.bodyHtml
-    if (Object.prototype.hasOwnProperty.call(input, 'contextSlots')) {
-      template.contextSlots = input.contextSlots ?? null
-    }
-    if (input.isActive !== undefined) template.isActive = input.isActive
-    template.updatedAt = new Date()
-    await ctx.em.flush()
+    const execution = await resolveDocumentsCommandBus(ctx).execute<TemplateUpdateCommandInput, TemplateCommandResult>(
+      'documents.template.update',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: template.id,
       operation: 'update',
     })
 
-    return NextResponse.json({ id: template.id, updatedAt: template.updatedAt.toISOString() })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ id: execution.result.id, updatedAt: execution.result.updatedAt }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.templates.update')
   }
@@ -206,17 +282,28 @@ export async function DELETE(request: Request): Promise<Response> {
       operation: 'delete',
     })
 
-    const now = new Date()
-    template.deletedAt = now
-    template.updatedAt = now
-    await ctx.em.flush()
+    const commandInput: TemplateDeleteCommandInput = {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      templateId: template.id,
+      actorUserId: resolveActorUserId(ctx.auth),
+      expectedUpdatedAt: template.updatedAt.toISOString(),
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<TemplateDeleteCommandInput, TemplateCommandResult>(
+      'documents.template.delete',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: template.id,
       operation: 'delete',
     })
 
-    return NextResponse.json({ ok: true, id: template.id, updatedAt: template.updatedAt.toISOString() })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ ok: true, id: execution.result.id, updatedAt: execution.result.updatedAt }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.templates.delete')
   }

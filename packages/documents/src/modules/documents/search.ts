@@ -6,6 +6,7 @@ import type {
 } from '@open-mercato/shared/modules/search'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DocumentContent } from './data/entities'
 import { DOCUMENTS_ENTITY_IDS } from './lib/constants'
@@ -27,13 +28,16 @@ function isContainerLike(value: unknown): value is ContainerLike {
   return typeof value === 'object' && value !== null && 'resolve' in value && typeof value.resolve === 'function'
 }
 
-function isEntityManager(value: unknown): value is Pick<EntityManager, 'findOne'> {
+function isEntityManager(value: unknown): value is EntityManager {
   return typeof value === 'object' && value !== null && 'findOne' in value && typeof value.findOne === 'function'
 }
 
 function buildPresenter(t: TranslateFn, ctx: SearchBuildContext): SearchResultPresenter {
   return {
-    title: pickString(ctx.record.title) ?? String(ctx.record.id ?? t('documents.search.badge.document', 'Document')),
+    // Search presenters must never surface opaque database identifiers as a
+    // user-facing fallback. A missing/decrypted-away title remains a generic,
+    // localized document label while the record id is used only for routing.
+    title: pickString(ctx.record.title) ?? t('documents.search.badge.document', 'Document'),
     subtitle: pickString(ctx.record.folder_name, ctx.record.folderName) ?? undefined,
     icon: 'file-text',
     badge: t('documents.search.badge.document', 'Document'),
@@ -50,7 +54,8 @@ async function resolveContentText(ctx: SearchBuildContext): Promise<string | nul
     ...(ctx.tenantId ? { tenantId: ctx.tenantId } : {}),
     ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
   }
-  const content = await em.findOne(
+  const content = await findOneWithDecryption(
+    em,
     DocumentContent,
     {
       documentId: ctx.record.id,
@@ -58,6 +63,7 @@ async function resolveContentText(ctx: SearchBuildContext): Promise<string | nul
       ...scope,
     },
     { fields: ['contentText'] as const },
+    { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
   )
   return pickString(content?.contentText)
 }

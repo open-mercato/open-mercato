@@ -3,6 +3,9 @@ FROM node:24-alpine AS builder
 ENV NEXT_TELEMETRY_DISABLED=1 \
     PATH=/app/node_modules/.bin:$PATH
 ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
+ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+RUN node -e 'const raw = process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? ""; let endpoint; try { endpoint = new URL(raw) } catch {} const hostname = (endpoint?.hostname ?? "").replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, ""); const loopback = hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "::1" || hostname === "::" || hostname === "0.0.0.0" || /^127(?:\.|$)/.test(hostname) || /^::ffff:7f[0-9a-f]{2}:/.test(hostname) || hostname === "::ffff:0:0"; if (raw !== raw.trim() || !endpoint || !["ws:", "wss:"].includes(endpoint.protocol) || !hostname || loopback) { console.error("ERROR: NEXT_PUBLIC_DOCUMENTS_COLLAB_URL must be a trimmed, browser-reachable ws(s) endpoint and cannot use localhost or a loopback address"); process.exit(1) }'
+ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL}
 
 WORKDIR /app
 
@@ -58,12 +61,13 @@ COPY docker/scripts/init-or-migrate.sh /app/docker/scripts/init-or-migrate.sh
 RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 
-EXPOSE 3000
+EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 FROM node:24-alpine AS runner
 
 ARG CONTAINER_PORT=3000
+ARG DOCUMENTS_COLLAB_PORT=4101
 ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 
 ENV NODE_ENV=production \
@@ -107,5 +111,5 @@ RUN adduser -D -u 1001 omuser \
 
 USER omuser
 
-EXPOSE ${CONTAINER_PORT}
+EXPOSE ${CONTAINER_PORT} ${DOCUMENTS_COLLAB_PORT}
 CMD ["yarn", "start"]

@@ -6,18 +6,30 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { DocumentShare } from '../../../data/entities'
 import { documentShareCreateSchema, documentShareUpdateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
-import { emitDocumentsEvent } from '../../../events'
-import { assertTier } from '../../../lib/permissions'
+import { sanitizeDocumentsDisplayLabel } from '../../../lib/displayLabels'
 import { resolveUserLabels } from '../../../lib/userLabels'
+import type {
+  ShareCreateCommandInput,
+  ShareDeleteCommandInput,
+  ShareUpdateCommandInput,
+  ShareCommandResult,
+} from '../../../commands/shares'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../../_commands'
 import {
   handleDocumentsRouteError,
   loadScopedShare,
   readBody,
   resolveActorUserId,
+  resolveDocumentCapabilityProjection,
   resolveDocumentsContext,
   routeErrorSchema,
   runMutationGuardAfterSuccess,
@@ -71,10 +83,20 @@ async function resolveId(context: RouteContext): Promise<string> {
   return params.id
 }
 
+async function assertCanShare(
+  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
+  documentId: string,
+): Promise<void> {
+  const projection = await resolveDocumentCapabilityProjection(ctx, documentId)
+  if (!projection.capabilities.canShare) {
+    throw new CrudHttpError(403, { error: 'Forbidden' })
+  }
+}
+
 type PrincipalLabel = { label: string; secondary?: string | null }
 
 function cleanString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+  return sanitizeDocumentsDisplayLabel(value)
 }
 
 async function resolvePrincipalLabels(
@@ -94,11 +116,17 @@ async function resolvePrincipalLabels(
   }
 
   if (roleIds.length > 0) {
-    const roles = await em.find(Role, {
-      id: { $in: roleIds },
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    } as FilterQuery<Role>)
+    const roles = await findWithDecryption(
+      em,
+      Role,
+      {
+        id: { $in: roleIds },
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      } as FilterQuery<Role>,
+      undefined,
+      scope,
+    )
     for (const role of roles) {
       const name = cleanString(role.name)
       if (name) labels.set(role.id, { label: name, secondary: null })
@@ -111,9 +139,10 @@ async function resolvePrincipalLabels(
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
     const documentId = await resolveId(context)
-    const ctx = await resolveDocumentsContext(request, ['documents.share', 'documents.manage'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'owner')
-    const shares = await ctx.em.find(
+    const ctx = await resolveDocumentsContext(request, ['documents.share'])
+    await assertCanShare(ctx, documentId)
+    const shares = await findWithDecryption(
+      ctx.em,
       DocumentShare,
       {
         documentId,
@@ -122,6 +151,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         deletedAt: null,
       },
       { orderBy: { createdAt: 'ASC' } },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const labels = await resolvePrincipalLabels(
       ctx.em,
@@ -145,25 +175,9 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
     const documentId = await resolveId(context)
-    const ctx = await resolveDocumentsContext(request, ['documents.share', 'documents.manage'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'owner')
+    const ctx = await resolveDocumentsContext(request, ['documents.share'])
+    await assertCanShare(ctx, documentId)
     const input = documentShareCreateSchema.parse(await readBody(request))
-    if (input.principalType === 'role') {
-      const role = await ctx.em.findOne(Role, {
-        id: input.principalId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-      } as FilterQuery<Role>)
-      if (!role) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
-    } else {
-      const user = await ctx.em.findOne(User, {
-        id: input.principalId,
-        tenantId: ctx.tenantId,
-        deletedAt: null,
-        $or: [{ organizationId: null }, { organizationId: ctx.organizationId }],
-      } as FilterQuery<User>)
-      if (!user) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
-    }
     const guardResourceId = `${documentId}:${input.principalType}:${input.principalId}`
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
@@ -172,7 +186,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       mutationPayload: input,
     })
 
-    const existing = await ctx.em.findOne(
+    const existing = await findOneWithDecryption(
+      ctx.em,
       DocumentShare,
       {
         documentId,
@@ -181,41 +196,33 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
         principalType: input.principalType,
         principalId: input.principalId,
       },
-      { orderBy: { updatedAt: 'DESC' } },
+      { filters: false, orderBy: { updatedAt: 'DESC' } },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
-    const now = new Date()
-    const share = existing ?? ctx.em.create(DocumentShare, {
-      id: randomUUID(),
+    const commandInput: ShareCreateCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       documentId,
-      principalType: input.principalType,
-      principalId: input.principalId,
-      permission: input.permission,
-      createdByUserId: resolveActorUserId(ctx.auth),
-    })
-    share.permission = input.permission
-    share.deletedAt = null
-    share.updatedAt = now
-    if (!existing) ctx.em.persist(share)
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.document.shared', {
-      id: documentId,
-      shareId: share.id,
-      principalType: share.principalType,
-      principalId: share.principalId,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId: resolveActorUserId(ctx.auth),
-    })
+      shareId: existing?.id ?? randomUUID(),
+      actorUserId: resolveActorUserId(ctx.auth),
+      expectedUpdatedAt: existing?.updatedAt.toISOString() ?? null,
+      share: input,
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<ShareCreateCommandInput, ShareCommandResult>(
+      'documents.share.create',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
       resourceId: guardResourceId,
       operation: 'create',
     })
 
-    return NextResponse.json({ id: share.id, updatedAt: share.updatedAt.toISOString() }, { status: 201 })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ id: execution.result.id, updatedAt: execution.result.updatedAt }, { status: 201 }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentShare, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.shares.create')
   }
@@ -224,8 +231,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
 export async function PUT(request: Request, context: RouteContext): Promise<Response> {
   try {
     const documentId = await resolveId(context)
-    const ctx = await resolveDocumentsContext(request, ['documents.share', 'documents.manage'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'owner')
+    const ctx = await resolveDocumentsContext(request, ['documents.share'])
+    await assertCanShare(ctx, documentId)
     const input = documentShareUpdateSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
     enforceCommandOptimisticLock({
@@ -241,26 +248,29 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
       mutationPayload: input,
     })
 
-    share.permission = input.permission
-    share.updatedAt = new Date()
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.document.shared', {
-      id: documentId,
-      shareId: share.id,
-      principalType: share.principalType,
-      principalId: share.principalId,
+    const commandInput: ShareUpdateCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId: resolveActorUserId(ctx.auth),
-    })
+      documentId,
+      actorUserId: resolveActorUserId(ctx.auth),
+      expectedUpdatedAt: share.updatedAt.toISOString(),
+      share: input,
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<ShareUpdateCommandInput, ShareCommandResult>(
+      'documents.share.update',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
       resourceId: share.id,
       operation: 'update',
     })
 
-    return NextResponse.json({ id: share.id, updatedAt: share.updatedAt.toISOString() })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ id: execution.result.id, updatedAt: execution.result.updatedAt }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentShare, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.shares.update')
   }
@@ -269,8 +279,8 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
 export async function DELETE(request: Request, context: RouteContext): Promise<Response> {
   try {
     const documentId = await resolveId(context)
-    const ctx = await resolveDocumentsContext(request, ['documents.share', 'documents.manage'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'owner')
+    const ctx = await resolveDocumentsContext(request, ['documents.share'])
+    await assertCanShare(ctx, documentId)
     const input = shareDeleteSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
     enforceCommandOptimisticLock({
@@ -285,27 +295,29 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
       operation: 'delete',
     })
 
-    const now = new Date()
-    share.deletedAt = now
-    share.updatedAt = now
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.document.unshared', {
-      id: documentId,
-      shareId: share.id,
-      principalType: share.principalType,
-      principalId: share.principalId,
+    const commandInput: ShareDeleteCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId: resolveActorUserId(ctx.auth),
-    })
+      documentId,
+      shareId: share.id,
+      actorUserId: resolveActorUserId(ctx.auth),
+      expectedUpdatedAt: share.updatedAt.toISOString(),
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<ShareDeleteCommandInput, ShareCommandResult>(
+      'documents.share.delete',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
       resourceId: share.id,
       operation: 'delete',
     })
 
-    return NextResponse.json({ ok: true, id: share.id, updatedAt: share.updatedAt.toISOString() })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ ok: true, id: execution.result.id, updatedAt: execution.result.updatedAt }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentShare, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.shares.delete')
   }

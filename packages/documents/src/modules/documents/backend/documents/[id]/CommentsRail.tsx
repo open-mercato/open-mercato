@@ -2,18 +2,11 @@
 
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
-import { AtSign, CheckCircle2, CornerDownRight, MessageSquare, RotateCcw, Send } from 'lucide-react'
-import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
-import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
-import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
-import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { MessageSquare } from 'lucide-react'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
-import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { Label } from '@open-mercato/ui/primitives/label'
-import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
-import { Textarea } from '@open-mercato/ui/primitives/textarea'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import {
   Dialog,
   DialogContent,
@@ -23,841 +16,105 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
-import { useT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import { MentionPicker } from './MentionPicker'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { jumpToCommentAnchor, type CommentAnchor } from './CommentAnchorNavigation'
+import { CommentComposer } from './CommentComposer'
+import { CommentThreadList } from './CommentThreadList'
+import { resolveCommentsCapability, type DocumentTier } from './componentCapabilities'
+import { useDocumentComments } from './useDocumentComments'
 
-export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
-
-type CommentAnchor = {
-  from: number
-  to: number
-}
-
-type CommentFocusRequest = {
-  anchor: CommentAnchor
-  requestId: number
-}
-
-type DocumentComment = {
-  id: string
-  documentId: string
-  parentCommentId: string | null
-  authorUserId: string
-  body: string
-  mentions: CommentMention[]
-  anchor: CommentAnchor | null
-  resolvedAt: string | null
-  resolvedByUserId: string | null
-  createdAt: string
-  updatedAt: string
-  replies: DocumentComment[]
-}
-
-type CommentMention = {
-  userId: string
-}
-
-type UserLabel = {
-  label: string
-  secondary?: string | null
-}
-
-type UserLabels = Record<string, UserLabel>
-
-type PendingMention = {
-  userId: string
-  name: string
-}
-
-type AccessCheckUser = {
-  userId: string
-  label: string | null
-  secondary: string | null
-}
+type CommentFocusRequest = { anchor: CommentAnchor; requestId: number }
+export type { DocumentTier } from './componentCapabilities'
+export { resolveCommentsCapability } from './componentCapabilities'
 
 type CommentsRailProps = {
   documentId: string
-  tier: DocumentTier
   editor: Editor | null
   commentFocusRequest?: CommentFocusRequest | null
+  /** Legacy compatibility; an explicit capability projection takes precedence. */
+  tier?: DocumentTier
+  canComment?: boolean
   canShare?: boolean
 }
 
-type CommentsState =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; comments: DocumentComment[]; userLabels: UserLabels }
-
-type GrantAccessChoice = 'share' | 'skip'
-
-type GrantAccessPromptState = {
-  names: string[]
-}
-
-type LabelFor = (userId: string) => string
-
-type CommentItemProps = {
-  comment: DocumentComment
-  canComment: boolean
-  canResolve: boolean
-  isResolving: boolean
-  onJump: (comment: DocumentComment) => void
-  onReply: (comment: DocumentComment) => void
-  onResolve: (comment: DocumentComment) => void
-  labelFor: LabelFor
-  t: TranslateFn
-}
-
-const MENTION_TOKEN_PATTERN =
-  /@\[([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]/gi
-const EMPTY_USER_LABELS: UserLabels = {}
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' ? value as Record<string, unknown> : null
-}
-
-function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'string' && value.trim().length > 0) return value
-  }
-  return null
-}
-
-function readNullableString(record: Record<string, unknown>, ...keys: string[]): string | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (value === null) return null
-    if (typeof value === 'string' && value.trim().length > 0) return value
-  }
-  return null
-}
-
-function readNumber(record: Record<string, unknown>, ...keys: string[]): number | null {
-  for (const key of keys) {
-    const value = record[key]
-    if (typeof value === 'number' && Number.isFinite(value)) return value
-  }
-  return null
-}
-
-function readAnchor(value: unknown): CommentAnchor | null {
-  const record = readRecord(value)
-  if (!record) return null
-  const from = readNumber(record, 'from')
-  const to = readNumber(record, 'to')
-  if (from === null || to === null || from === to) return null
-  return { from, to }
-}
-
-function normalizeComment(value: unknown): DocumentComment | null {
-  const record = readRecord(value)
-  if (!record) return null
-  const id = readString(record, 'id')
-  const documentId = readString(record, 'documentId', 'document_id')
-  const authorUserId = readString(record, 'authorUserId', 'author_user_id')
-  const body = readString(record, 'body') ?? ''
-  const createdAt = readString(record, 'createdAt', 'created_at')
-  const updatedAt = readString(record, 'updatedAt', 'updated_at')
-  if (!id || !documentId || !authorUserId || !createdAt || !updatedAt) return null
-  const rawReplies = record.replies
-  const replies = Array.isArray(rawReplies)
-    ? rawReplies.map(normalizeComment).filter((comment): comment is DocumentComment => comment !== null)
-    : []
-  return {
-    id,
-    documentId,
-    parentCommentId: readNullableString(record, 'parentCommentId', 'parent_comment_id'),
-    authorUserId,
-    body,
-    mentions: readMentions(record.mentions),
-    anchor: readAnchor(record.anchor),
-    resolvedAt: readNullableString(record, 'resolvedAt', 'resolved_at'),
-    resolvedByUserId: readNullableString(record, 'resolvedByUserId', 'resolved_by_user_id'),
-    createdAt,
-    updatedAt,
-    replies,
-  }
-}
-
-function readCommentItems(payload: unknown): DocumentComment[] {
-  if (Array.isArray(payload)) return payload.map(normalizeComment).filter((comment): comment is DocumentComment => comment !== null)
-  const record = readRecord(payload)
-  if (!record) return []
-  const candidates = [record.items, record.data]
-  for (const candidate of candidates) {
-    if (Array.isArray(candidate)) {
-      return candidate.map(normalizeComment).filter((comment): comment is DocumentComment => comment !== null)
-    }
-  }
-  return []
-}
-
-function readCommentPayload(payload: unknown): { comments: DocumentComment[]; userLabels: UserLabels } {
-  return {
-    comments: readCommentItems(payload),
-    userLabels: readUserLabels(payload),
-  }
-}
-
-function canCommentWithTier(tier: DocumentTier): boolean {
-  return tier === 'commenter' || tier === 'editor' || tier === 'owner'
-}
-
-function canResolveWithTier(tier: DocumentTier): boolean {
-  return canCommentWithTier(tier)
-}
-
-function formatDateTime(value: string): string {
-  const timestamp = Date.parse(value)
-  if (!Number.isFinite(timestamp)) return value
-  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(timestamp))
-}
-
-function readStringArray(value: unknown): string[] {
-  if (!Array.isArray(value)) return []
-  return value
-    .filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
-    .map((entry) => entry.toLowerCase())
-}
-
-function normalizeMention(value: unknown): CommentMention | null {
-  const record = readRecord(value)
-  if (!record) return null
-  const userId = readString(record, 'userId', 'user_id')
-  return userId ? { userId: userId.toLowerCase() } : null
-}
-
-function readMentions(value: unknown): CommentMention[] {
-  if (!Array.isArray(value)) return []
-  return value.map(normalizeMention).filter((mention): mention is CommentMention => mention !== null)
-}
-
-function normalizeUserLabel(value: unknown): UserLabel | null {
-  const record = readRecord(value)
-  if (!record) return null
-  const label = readString(record, 'label')
-  if (!label) return null
-  return {
-    label,
-    secondary: readNullableString(record, 'secondary'),
-  }
-}
-
-function readUserLabels(payload: unknown): UserLabels {
-  const record = readRecord(payload)
-  const rawLabels = readRecord(record?.userLabels)
-  if (!rawLabels) return {}
-  const labels: UserLabels = {}
-  for (const [userId, rawLabel] of Object.entries(rawLabels)) {
-    const label = normalizeUserLabel(rawLabel)
-    if (label) labels[userId.toLowerCase()] = label
-  }
-  return labels
-}
-
-function normalizeAccessCheckUser(value: unknown): AccessCheckUser | null {
-  const record = readRecord(value)
-  if (!record) return null
-  const userId = readString(record, 'userId', 'user_id', 'id')
-  if (!userId) return null
-  return {
-    userId: userId.toLowerCase(),
-    label: readNullableString(record, 'label'),
-    secondary: readNullableString(record, 'secondary'),
-  }
-}
-
-function readAccessCheckWithoutAccessUsers(payload: unknown): AccessCheckUser[] | null {
-  const record = readRecord(payload)
-  if (!record || !Array.isArray(record.withoutAccessUsers)) return null
-  return record.withoutAccessUsers
-    .map(normalizeAccessCheckUser)
-    .filter((user): user is AccessCheckUser => user !== null)
-}
-
-function readAccessCheckWithoutAccessIds(payload: unknown): string[] {
-  const record = readRecord(payload)
-  if (!record) return []
-  return readStringArray(record.withoutAccess)
-}
-
-type MentionRange = {
-  start: number
-  end: number
-  label: string
-  key: string
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
-function rangesOverlap(first: MentionRange, second: MentionRange): boolean {
-  return first.start < second.end && second.start < first.end
-}
-
-function pushMentionRange(ranges: MentionRange[], range: MentionRange) {
-  if (range.start >= range.end) return
-  if (ranges.some((existing) => rangesOverlap(existing, range))) return
-  ranges.push(range)
-}
-
-function formatCommentBody(body: string, mentions: CommentMention[], labelFor: LabelFor): React.ReactNode[] {
-  const ranges: MentionRange[] = []
-  let tokenIndex = 0
-  for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
-    const matchIndex = match.index ?? 0
-    const token = match[0]
-    const userId = match[1] ?? ''
-    const label = labelFor(userId)
-    const legacyPrefix = `@${label} `
-    const beforeToken = body.slice(0, matchIndex)
-    const start = beforeToken.endsWith(legacyPrefix) ? matchIndex - legacyPrefix.length : matchIndex
-    pushMentionRange(ranges, {
-      start,
-      end: matchIndex + token.length,
-      label,
-      key: `legacy:${userId}:${tokenIndex}`,
-    })
-    tokenIndex += 1
-  }
-
-  const labels = Array.from(new Set(mentions.map((mention) => labelFor(mention.userId))))
-  labels.forEach((label, labelIndex) => {
-    const pattern = new RegExp(`@${escapeRegExp(label)}(?=$|[\\s.,;:!?()[\\]{}<>])`, 'g')
-    let match: RegExpExecArray | null
-    let mentionIndex = 0
-    while ((match = pattern.exec(body)) !== null) {
-      pushMentionRange(ranges, {
-        start: match.index,
-        end: match.index + match[0].length,
-        label,
-        key: `label:${labelIndex}:${mentionIndex}`,
-      })
-      mentionIndex += 1
-    }
-  })
-
-  ranges.sort((first, second) => first.start - second.start || first.end - second.end)
-  const parts: React.ReactNode[] = []
-  let lastIndex = 0
-  for (const range of ranges) {
-    if (range.start < lastIndex) continue
-    const literalBefore = body.slice(lastIndex, range.start)
-    if (literalBefore.length > 0) parts.push(literalBefore)
-    parts.push(
-      <span
-        key={range.key}
-        className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-primary"
-      >
-        @{range.label}
-      </span>,
-    )
-    lastIndex = range.end
-  }
-  if (lastIndex < body.length) {
-    parts.push(body.slice(lastIndex))
-  }
-  return parts.length > 0 ? parts : [body]
-}
-
-function findCommentById(comments: DocumentComment[], commentId: string): DocumentComment | null {
-  for (const comment of comments) {
-    if (comment.id === commentId) return comment
-    const reply = findCommentById(comment.replies, commentId)
-    if (reply) return reply
-  }
-  return null
-}
-
-function CommentItem({
-  comment,
+export function CommentsRail({
+  documentId,
+  editor,
+  commentFocusRequest,
+  tier,
   canComment,
-  canResolve,
-  isResolving,
-  onJump,
-  onReply,
-  onResolve,
-  labelFor,
-  t,
-}: CommentItemProps) {
-  const hasAnchor = comment.anchor !== null
-  const resolved = comment.resolvedAt !== null
-  const content = (
-    <>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{labelFor(comment.authorUserId)}</p>
-          <p className="text-xs text-muted-foreground">{formatDateTime(comment.createdAt)}</p>
-        </div>
-        {resolved ? (
-          <StatusBadge variant="success" dot>
-            {t('documents.comments.resolved')}
-          </StatusBadge>
-        ) : null}
-      </div>
-      <p className="whitespace-pre-wrap text-sm text-foreground">{formatCommentBody(comment.body, comment.mentions, labelFor)}</p>
-    </>
-  )
-
-  return (
-    <article className="space-y-3 rounded-lg border border-border bg-background p-3">
-      {hasAnchor ? (
-        <Button
-          type="button"
-          variant="ghost"
-          className="h-auto w-full flex-col items-stretch justify-start gap-2 p-0 text-left hover:bg-transparent"
-          onClick={() => onJump(comment)}
-        >
-          {content}
-        </Button>
-      ) : (
-        <div className="space-y-2">{content}</div>
-      )}
-      <div className="flex flex-wrap items-center gap-2">
-        {canComment && comment.parentCommentId === null ? (
-          <Button type="button" size="sm" variant="ghost" onClick={() => onReply(comment)}>
-            <CornerDownRight />
-            {t('documents.comments.actions.reply')}
-          </Button>
-        ) : null}
-        {canResolve ? (
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => onResolve(comment)}
-            disabled={isResolving}
-          >
-            {resolved ? <RotateCcw /> : <CheckCircle2 />}
-            {resolved ? t('documents.comments.actions.reopen') : t('documents.comments.actions.resolve')}
-          </Button>
-        ) : null}
-      </div>
-      {comment.replies.length > 0 ? (
-        <div className="space-y-2 border-l border-border pl-3">
-          {comment.replies.map((reply) => (
-            <CommentItem
-              key={reply.id}
-              comment={reply}
-              canComment={false}
-              canResolve={canResolve}
-              isResolving={isResolving}
-              onJump={onJump}
-              onReply={onReply}
-              onResolve={onResolve}
-              labelFor={labelFor}
-              t={t}
-            />
-          ))}
-        </div>
-      ) : null}
-    </article>
-  )
-}
-
-export function CommentsRail({ documentId, tier, editor, commentFocusRequest, canShare = false }: CommentsRailProps) {
+  canShare = false,
+}: CommentsRailProps) {
   const t = useT()
-  const composerId = React.useId()
+  const mayComment = resolveCommentsCapability(canComment, tier)
   const composerRef = React.useRef<HTMLFormElement | null>(null)
-  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null)
-  const grantAccessResolverRef = React.useRef<((choice: GrantAccessChoice) => void) | null>(null)
-  const [state, setState] = React.useState<CommentsState>({ status: 'loading' })
-  const [body, setBody] = React.useState('')
-  const [pendingMentions, setPendingMentions] = React.useState<PendingMention[]>([])
-  const [parentCommentId, setParentCommentId] = React.useState<string | null>(null)
-  const [pendingAnchor, setPendingAnchor] = React.useState<CommentAnchor | null>(null)
-  const [mentionPickerOpen, setMentionPickerOpen] = React.useState(false)
-  const [isSubmitting, setIsSubmitting] = React.useState(false)
-  const [resolvingCommentId, setResolvingCommentId] = React.useState<string | null>(null)
-  const [grantAccessPrompt, setGrantAccessPrompt] = React.useState<GrantAccessPromptState | null>(null)
-
-  const mutationContextId = `documents-comments:${documentId}`
-  const { runMutation, retryLastMutation } = useGuardedMutation<{
-    formId: string
-    resourceKind: string
-    resourceId: string
-    retryLastMutation: () => Promise<boolean>
-  }>({
-    contextId: mutationContextId,
-    blockedMessage: t('ui.forms.flash.saveBlocked'),
-  })
-
-  const reload = React.useCallback(async () => {
-    setState((current) => current.status === 'ready' ? current : { status: 'loading' })
-    try {
-      const call = await apiCall<unknown>(`/api/documents/${encodeURIComponent(documentId)}/comments`)
-      if (!call.ok) {
-        setState({ status: 'error', message: t('documents.comments.error.load') })
-        return
-      }
-      const nextState = readCommentPayload(call.result)
-      setState({ status: 'ready', comments: nextState.comments, userLabels: nextState.userLabels })
-    } catch (err) {
-      setState({ status: 'error', message: err instanceof Error ? err.message : t('documents.comments.error.load') })
-    }
-  }, [documentId, t])
+  const comments = useDocumentComments({ documentId, editor, canComment: mayComment, canShare })
 
   React.useEffect(() => {
-    void reload()
-  }, [reload])
-
-  const canComment = canCommentWithTier(tier)
-  const canResolve = canResolveWithTier(tier)
-  const userLabels = state.status === 'ready' ? state.userLabels : EMPTY_USER_LABELS
-  const labelFor = React.useCallback<LabelFor>((userId) => {
-    return userLabels[userId.toLowerCase()]?.label ?? t('documents.users.unknown')
-  }, [t, userLabels])
-
-  React.useEffect(() => {
-    if (!commentFocusRequest || !canComment) return
-    setParentCommentId(null)
-    setPendingAnchor(commentFocusRequest.anchor)
-    window.setTimeout(() => {
-      composerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
-      textareaRef.current?.focus()
-    }, 0)
-  }, [canComment, commentFocusRequest])
-
-  React.useEffect(() => () => {
-    grantAccessResolverRef.current?.('skip')
-    grantAccessResolverRef.current = null
-  }, [])
-
-  const resolveGrantAccessPrompt = React.useCallback((choice: GrantAccessChoice) => {
-    const resolver = grantAccessResolverRef.current
-    grantAccessResolverRef.current = null
-    setGrantAccessPrompt(null)
-    resolver?.(choice)
-  }, [])
+    if (!commentFocusRequest || !mayComment) return
+    comments.setPendingAnchor(commentFocusRequest.anchor)
+    window.setTimeout(() => composerRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }), 0)
+  }, [commentFocusRequest, comments.setPendingAnchor, mayComment])
 
   const grantPromptKeyDown = useDialogKeyHandler({
-    onConfirm: () => resolveGrantAccessPrompt('share'),
-    onCancel: () => resolveGrantAccessPrompt('skip'),
+    onConfirm: () => comments.chooseGrantAccess(true),
+    onCancel: () => comments.chooseGrantAccess(false),
   })
-
-  const requestGrantAccessChoice = React.useCallback((names: string[]): Promise<GrantAccessChoice> => {
-    grantAccessResolverRef.current?.('skip')
-    return new Promise((resolve) => {
-      grantAccessResolverRef.current = resolve
-      setGrantAccessPrompt({ names })
-    })
-  }, [])
-
-  const captureSelectionAnchor = React.useCallback((): CommentAnchor | null => {
-    if (!editor) return null
-    const { from, to } = editor.state.selection
-    if (from === to) return null
-    const docSize = editor.state.doc.content.size
-    if (from < 0 || to < 0 || from > docSize || to > docSize || from >= to) return null
-    return { from, to }
-  }, [editor])
-
-  const handleBodyChange = React.useCallback((nextBody: string) => {
-    setBody(nextBody)
-  }, [])
-
-  const checkMentionAccess = React.useCallback(async (userIds: string[]): Promise<AccessCheckUser[]> => {
-    const call = await apiCall<unknown>(
-      `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ userIds }),
-      },
-    )
-    if (!call.ok) throw new Error(t('documents.comments.error.save'))
-    const withoutAccessUsers = readAccessCheckWithoutAccessUsers(call.result)
-    if (withoutAccessUsers) return withoutAccessUsers
-    return readAccessCheckWithoutAccessIds(call.result).map((userId) => ({
-      userId,
-      label: null,
-      secondary: null,
-    }))
-  }, [documentId, t])
-
-  const resolveGrantAccessTo = React.useCallback(async (mentions: PendingMention[]): Promise<string[] | undefined> => {
-    const mentionedIds = Array.from(new Set(mentions.map((mention) => mention.userId.toLowerCase())))
-    if (mentionedIds.length === 0) return undefined
-
-    const withoutAccess = await checkMentionAccess(mentionedIds)
-    if (withoutAccess.length === 0) return undefined
-    if (!canShare) {
-      flash(t('documents.comments.grant.noAccessInfo'), 'info')
-      return []
-    }
-
-    const names = withoutAccess.map((user) => user.label ?? labelFor(user.userId))
-    const choice = await requestGrantAccessChoice(names)
-    return choice === 'share' ? withoutAccess.map((user) => user.userId) : []
-  }, [canShare, checkMentionAccess, labelFor, requestGrantAccessChoice, t])
-
-  const handleSubmit = React.useCallback(async () => {
-    const trimmedBody = body.trim()
-    if (!trimmedBody || !canComment) return
-    const mentions = pendingMentions.map(({ userId }) => ({ userId }))
-    setIsSubmitting(true)
-    try {
-      const grantAccessTo = await resolveGrantAccessTo(pendingMentions)
-      await runMutation({
-        operation: async () => {
-          await apiCallOrThrow(
-            `/api/documents/${encodeURIComponent(documentId)}/comments`,
-            {
-              method: 'POST',
-              headers: { 'content-type': 'application/json' },
-              body: JSON.stringify({
-                body: trimmedBody,
-                anchor: pendingAnchor ?? captureSelectionAnchor(),
-                parentCommentId,
-                ...(mentions.length > 0 ? { mentions } : {}),
-                ...(grantAccessTo !== undefined ? { grantAccessTo } : {}),
-              }),
-            },
-            { errorMessage: t('documents.comments.error.save') },
-          )
-        },
-        context: {
-          formId: mutationContextId,
-          resourceKind: 'documents.document_comment',
-          resourceId: documentId,
-          retryLastMutation,
-        },
-        mutationPayload: { body: trimmedBody, parentCommentId, mentions, grantAccessTo },
-      })
-      setBody('')
-      setPendingMentions([])
-      setParentCommentId(null)
-      setPendingAnchor(null)
-      setMentionPickerOpen(false)
-      await reload()
-    } catch (err) {
-      flash(err instanceof Error ? err.message : t('documents.comments.error.save'), 'error')
-    } finally {
-      setIsSubmitting(false)
-    }
-  }, [
-    body,
-    canComment,
-    captureSelectionAnchor,
-    documentId,
-    mutationContextId,
-    parentCommentId,
-    pendingAnchor,
-    pendingMentions,
-    reload,
-    resolveGrantAccessTo,
-    retryLastMutation,
-    runMutation,
-    t,
-  ])
-
-  const handleResolve = React.useCallback(async (comment: DocumentComment) => {
-    if (!canResolve) return
-    setResolvingCommentId(comment.id)
-    try {
-      await runMutation({
-        operation: async () => {
-          await withScopedApiRequestHeaders(
-            buildOptimisticLockHeader(comment.updatedAt),
-            () => apiCallOrThrow(
-              `/api/documents/${encodeURIComponent(documentId)}/comments`,
-              {
-                method: 'PATCH',
-                headers: { 'content-type': 'application/json' },
-                body: JSON.stringify({ id: comment.id, resolved: comment.resolvedAt === null }),
-              },
-              { errorMessage: t('documents.comments.error.save') },
-            ),
-          )
-        },
-        context: {
-          formId: mutationContextId,
-          resourceKind: 'documents.document_comment',
-          resourceId: comment.id,
-          retryLastMutation,
-        },
-        mutationPayload: { id: comment.id, resolved: comment.resolvedAt === null },
-      })
-      await reload()
-    } catch (err) {
-      if (surfaceRecordConflict(err, t, { onRefresh: () => { void reload() } })) {
-        flash(t('ui.forms.flash.recordModified'), 'error')
-        await reload()
-        return
-      }
-      flash(err instanceof Error ? err.message : t('documents.comments.error.save'), 'error')
-    } finally {
-      setResolvingCommentId(null)
-    }
-  }, [canResolve, documentId, mutationContextId, reload, retryLastMutation, runMutation, t])
-
-  const handleReply = React.useCallback((comment: DocumentComment) => {
-    setPendingAnchor(null)
-    setParentCommentId(comment.id)
-    window.setTimeout(() => textareaRef.current?.focus(), 0)
-  }, [])
-
-  const handleJump = React.useCallback((comment: DocumentComment) => {
-    if (!editor || !comment.anchor) return
-    const { from, to } = comment.anchor
-    const docSize = editor.state.doc.content.size
-    if (from < 0 || to < 0 || from > docSize || to > docSize || from >= to) return
-    try {
-      editor.commands.setTextSelection({ from, to })
-      editor.commands.focus()
-    } catch {
-      return
-    }
-  }, [editor])
-
-  const handleComposerKeyDown = React.useCallback((event: React.KeyboardEvent) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-      event.preventDefault()
-      void handleSubmit()
-      return
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      setBody('')
-      setPendingMentions([])
-      setParentCommentId(null)
-      setPendingAnchor(null)
-      setMentionPickerOpen(false)
-    }
-  }, [handleSubmit])
-
-  const handleMentionPick = React.useCallback((user: { id: string; name: string }) => {
-    const userId = user.id.toLowerCase()
-    const mentionText = `@${user.name} `
-    setPendingMentions((current) =>
-      current.some((mention) => mention.userId === userId)
-        ? current
-        : [...current, { userId, name: user.name }],
-    )
-    setBody((current) => `${current}${current.length > 0 && !/\s$/.test(current) ? ' ' : ''}${mentionText}`)
-    setMentionPickerOpen(false)
-    window.setTimeout(() => textareaRef.current?.focus(), 0)
-  }, [])
-
-  const comments = state.status === 'ready' ? state.comments : []
-  const parentComment = parentCommentId ? findCommentById(comments, parentCommentId) : null
-  const replyToName = parentComment ? labelFor(parentComment.authorUserId) : t('documents.users.unknown')
 
   return (
     <>
-      <section className="rounded-lg border border-border bg-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      <section className="rounded-lg border border-border bg-card p-3 sm:p-4">
+        <div className="mb-4 flex items-center gap-2">
           <MessageSquare className="size-4 text-muted-foreground" aria-hidden="true" />
           <h2 className="text-sm font-semibold">{t('documents.comments.title')}</h2>
         </div>
-      </div>
-
-      <div className="space-y-4">
-        {state.status === 'loading' ? (
-          <LoadingMessage label={t('documents.comments.loading')} />
-        ) : state.status === 'error' ? (
-          <ErrorMessage label={state.message} />
-        ) : comments.length === 0 ? (
-          <EmptyState
-            size="sm"
-            variant="subtle"
-            title={t('documents.comments.empty')}
-            icon={<MessageSquare className="size-5" />}
-          />
-        ) : (
-          <div className="space-y-3">
-            {comments.map((comment) => (
-              <CommentItem
-                key={comment.id}
-                comment={comment}
-                canComment={canComment}
-                canResolve={canResolve}
-                isResolving={resolvingCommentId === comment.id}
-                onJump={handleJump}
-                onReply={handleReply}
-                onResolve={(nextComment) => void handleResolve(nextComment)}
-                labelFor={labelFor}
-                t={t}
-              />
-            ))}
-          </div>
-        )}
-
-        {canComment ? (
-          <form
-            ref={composerRef}
-            className="space-y-3 rounded-lg border border-border bg-muted/20 p-3"
-            onSubmit={(event) => {
-              event.preventDefault()
-              void handleSubmit()
-            }}
-            onKeyDown={handleComposerKeyDown}
-          >
-            <div className="space-y-2">
-              <Label htmlFor={composerId}>{t('documents.comments.title')}</Label>
-              {parentCommentId ? (
-                <p className="inline-flex items-center gap-2 rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-                  <CornerDownRight className="size-3" aria-hidden="true" />
-                  {t('documents.comments.replyTo', { name: replyToName })}
-                </p>
-              ) : null}
-              <Textarea
-                ref={textareaRef}
-                id={composerId}
-                value={body}
-                onChange={(event) => handleBodyChange(event.target.value)}
-                placeholder={t('documents.comments.composer.placeholder')}
-                maxLength={8000}
-                showCount
-                disabled={isSubmitting}
-              />
-            </div>
-            {mentionPickerOpen ? (
-              <MentionPicker documentId={documentId} onPick={handleMentionPick} disabled={isSubmitting} />
-            ) : null}
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setMentionPickerOpen((current) => !current)}
-                disabled={isSubmitting}
-              >
-                <AtSign />
-                {t('documents.comments.actions.mention')}
-              </Button>
-              <Button type="submit" disabled={isSubmitting || body.trim().length === 0}>
-                <Send />
-                {t('documents.comments.actions.send')}
-              </Button>
-            </div>
-          </form>
-        ) : null}
-      </div>
+        <div className="space-y-4">
+          {comments.state.status === 'loading' ? <LoadingMessage label={t('documents.comments.loading')} /> : null}
+          {comments.state.status === 'error' ? <ErrorMessage label={comments.state.message} /> : null}
+          {comments.state.status === 'ready' && comments.comments.length === 0 ? (
+            <EmptyState size="sm" variant="subtle" title={t('documents.comments.empty')} icon={<MessageSquare className="size-5" />} />
+          ) : null}
+          {comments.state.status === 'ready' && comments.comments.length > 0 ? (
+            <CommentThreadList
+              comments={comments.comments}
+              canComment={mayComment}
+              resolvingCommentId={comments.resolvingCommentId}
+              labelFor={comments.labelFor}
+              onJump={(comment) => {
+                if (!editor || comment.anchor === null || comment.anchor === 'changed' || !jumpToCommentAnchor(editor, comment.anchor)) {
+                  flash(t('documents.comments.anchor.changed'), 'info')
+                }
+              }}
+              onReply={comments.startReply}
+              onResolve={(comment) => void comments.resolveComment(comment)}
+              t={t}
+            />
+          ) : null}
+          {mayComment ? (
+            <CommentComposer
+              ref={composerRef}
+              documentId={documentId}
+              body={comments.body}
+              replyToName={comments.replyToName}
+              isSubmitting={comments.isSubmitting}
+              onBodyChange={comments.setBody}
+              onMentionsChange={comments.setPendingMentions}
+              onSubmit={() => void comments.submit()}
+              onCancel={comments.resetComposer}
+              focusSignal={commentFocusRequest?.requestId ?? comments.parentCommentId?.length}
+            />
+          ) : null}
+        </div>
       </section>
-
-      <Dialog
-        open={grantAccessPrompt !== null}
-        onOpenChange={(open) => {
-          if (!open) resolveGrantAccessPrompt('skip')
-        }}
-      >
+      <Dialog open={comments.grantAccessNames !== null} onOpenChange={(open) => { if (!open) comments.chooseGrantAccess(false) }}>
         <DialogContent onKeyDown={grantPromptKeyDown}>
           <DialogHeader>
             <DialogTitle>{t('documents.comments.grant.title')}</DialogTitle>
-            <DialogDescription>
-              {t('documents.comments.grant.body', { names: grantAccessPrompt?.names.join(', ') ?? '' })}
-            </DialogDescription>
+            <DialogDescription>{t('documents.comments.grant.body', { names: comments.grantAccessNames?.join(', ') ?? '' })}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => resolveGrantAccessPrompt('skip')}>
-              {t('documents.comments.grant.skip')}
-            </Button>
-            <Button type="button" onClick={() => resolveGrantAccessPrompt('share')}>
-              {t('documents.comments.grant.share')}
-            </Button>
+            <Button type="button" variant="outline" onClick={() => comments.chooseGrantAccess(false)}>{t('documents.comments.grant.skip')}</Button>
+            <Button type="button" onClick={() => comments.chooseGrantAccess(true)}>{t('documents.comments.grant.share')}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

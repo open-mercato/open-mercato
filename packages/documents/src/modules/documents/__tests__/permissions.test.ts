@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import {
   Document,
   DocumentShare,
@@ -9,6 +10,7 @@ import {
 } from '../data/entities'
 import {
   hasTier,
+  resolveActiveSubjectRoleIds,
   resolvePermission,
   resolveUserAccess,
   TIER_RANK,
@@ -21,6 +23,8 @@ const DOCUMENT_ID = 'document-1'
 const OWNER_ID = 'owner-1'
 const USER_ID = 'user-1'
 const ROLE_ID = 'role-1'
+const KEY_ROLE_ID = 'role-key'
+const API_KEY_ID = 'key-1'
 
 type MockDocumentRow = Pick<
   Document,
@@ -45,7 +49,21 @@ type PrincipalFilter = {
 
 type MockUserRoleRow = {
   user: string
-  role: { id: string }
+  role: { id: string; tenantId: string; deletedAt: Date | null }
+  deletedAt: Date | null
+}
+
+type MockApiKeyRow = {
+  id: string
+  tenantId: string
+  rolesJson: string[]
+  expiresAt: Date | null
+  deletedAt: Date | null
+}
+
+type MockRoleRow = {
+  id: string
+  tenantId: string
   deletedAt: Date | null
 }
 
@@ -113,11 +131,20 @@ class MockEntityManager {
     private readonly document: MockDocumentRow | null,
     private readonly shares: MockShareRow[] = [],
     private readonly userRoles: MockUserRoleRow[] = [],
+    private readonly apiKeys: MockApiKeyRow[] = [],
+    private readonly roles: MockRoleRow[] = [],
   ) {}
 
-  async findOne(entity: unknown, where: unknown): Promise<MockDocumentRow | null> {
-    if (entity !== Document || !this.document) return null
+  async findOne(entity: unknown, where: unknown): Promise<unknown> {
     const query = readQuery(where)
+    if (entity === ApiKey) {
+      return this.apiKeys.find((key) => (
+        query.id === key.id
+        && query.tenantId === key.tenantId
+        && (query.deletedAt !== null || key.deletedAt === null)
+      )) ?? null
+    }
+    if (entity !== Document || !this.document) return null
     if (query.id !== this.document.id) return null
     if (query.tenantId !== this.document.tenantId) return null
     if (query.organizationId !== this.document.organizationId) return null
@@ -128,11 +155,23 @@ class MockEntityManager {
   async find(entity: unknown, where: unknown): Promise<unknown[]> {
     const query = readQuery(where)
     if (entity === UserRole) {
+      const roleQuery = readQuery(query.role)
       return this.userRoles.filter((row) => {
         if (query.user !== row.user) return false
         if (query.deletedAt === null && row.deletedAt !== null) return false
+        if (roleQuery.tenantId !== row.role.tenantId) return false
+        if (roleQuery.deletedAt === null && row.role.deletedAt !== null) return false
         return true
       })
+    }
+    if (entity === Role) {
+      const idQuery = readQuery(query.id)
+      const ids = stringArray(idQuery.$in)
+      return this.roles.filter((role) => (
+        ids.includes(role.id)
+        && query.tenantId === role.tenantId
+        && (query.deletedAt !== null || role.deletedAt === null)
+      ))
     }
     if (entity !== DocumentShare) return []
     const principalFilters = Array.isArray(query.$or)
@@ -153,8 +192,10 @@ function mockEm(
   document: MockDocumentRow | null,
   shares: MockShareRow[] = [],
   userRoles: MockUserRoleRow[] = [],
+  apiKeys: MockApiKeyRow[] = [],
+  roles: MockRoleRow[] = [],
 ): EntityManager {
-  return new MockEntityManager(document, shares, userRoles) as unknown as EntityManager
+  return new MockEntityManager(document, shares, userRoles, apiKeys, roles) as unknown as EntityManager
 }
 
 describe('documents permission tiers', () => {
@@ -188,7 +229,7 @@ describe('documents permission tiers', () => {
     },
   )
 
-  it('resolves a matching role share', async () => {
+  it('ignores a matching role share carried only by stale token claims', async () => {
     const result = await resolvePermission(
       mockEm(makeDocument(), [
         makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'commenter' }),
@@ -196,16 +237,41 @@ describe('documents permission tiers', () => {
       DOCUMENT_ID,
       makeCtx({ roleIds: [ROLE_ID] }),
     )
+    expect(result).toBeNull()
+  })
+
+  it('resolves a matching role share from an active current-tenant assignment', async () => {
+    const result = await resolvePermission(
+      mockEm(
+        makeDocument(),
+        [makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'commenter' })],
+        [{
+          user: USER_ID,
+          role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+          deletedAt: null,
+        }],
+      ),
+      DOCUMENT_ID,
+      makeCtx({ roleIds: [], roles: [] }),
+    )
     expect(result).toBe('commenter')
   })
 
   it('returns the maximum tier when multiple shares apply', async () => {
     const result = await resolvePermission(
-      mockEm(makeDocument(), [
-        makeShare({ permission: 'viewer' }),
-        makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' }),
-        makeShare({ permission: 'commenter' }),
-      ]),
+      mockEm(
+        makeDocument(),
+        [
+          makeShare({ permission: 'viewer' }),
+          makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' }),
+          makeShare({ permission: 'commenter' }),
+        ],
+        [{
+          user: USER_ID,
+          role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+          deletedAt: null,
+        }],
+      ),
       DOCUMENT_ID,
       makeCtx({ roleIds: [ROLE_ID] }),
     )
@@ -231,13 +297,114 @@ describe('documents permission tiers', () => {
       mockEm(
         makeDocument(),
         [makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' })],
-        [{ user: USER_ID, role: { id: ROLE_ID }, deletedAt: null }],
+        [{
+          user: USER_ID,
+          role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+          deletedAt: null,
+        }],
       ),
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       USER_ID,
     )
     expect(result).toBe('editor')
+  })
+
+  it('ignores role shares from soft-deleted or cross-tenant current roles', async () => {
+    const result = await resolveUserAccess(
+      mockEm(
+        makeDocument(),
+        [makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' })],
+        [
+          {
+            user: USER_ID,
+            role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: new Date() },
+            deletedAt: null,
+          },
+          {
+            user: USER_ID,
+            role: { id: ROLE_ID, tenantId: 'tenant-2', deletedAt: null },
+            deletedAt: null,
+          },
+        ],
+      ),
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      USER_ID,
+    )
+
+    expect(result).toBeNull()
+  })
+
+  it('resolves API-key roles from the active key and active same-tenant Role rows only', async () => {
+    const scope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+    const activeKey: MockApiKeyRow = {
+      id: API_KEY_ID,
+      tenantId: TENANT_ID,
+      rolesJson: [KEY_ROLE_ID, 'deleted-role', 'cross-tenant-role'],
+      expiresAt: new Date(Date.now() + 60_000),
+      deletedAt: null,
+    }
+    const roles: MockRoleRow[] = [
+      { id: KEY_ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+      { id: 'deleted-role', tenantId: TENANT_ID, deletedAt: new Date() },
+      { id: 'cross-tenant-role', tenantId: 'tenant-2', deletedAt: null },
+    ]
+
+    await expect(resolveActiveSubjectRoleIds(
+      mockEm(null, [], [], [activeKey], roles),
+      scope,
+      `api_key:${API_KEY_ID}`,
+    )).resolves.toEqual([KEY_ROLE_ID])
+
+    await expect(resolveActiveSubjectRoleIds(
+      mockEm(null, [], [], [{ ...activeKey, deletedAt: new Date() }], roles),
+      scope,
+      `api_key:${API_KEY_ID}`,
+    )).resolves.toEqual([])
+
+    await expect(resolveActiveSubjectRoleIds(
+      mockEm(null, [], [], [{ ...activeKey, expiresAt: new Date(Date.now() - 1) }], roles),
+      scope,
+      `api_key:${API_KEY_ID}`,
+    )).resolves.toEqual([])
+  })
+
+  it('uses key roles rather than the backing user roles for API-key role shares', async () => {
+    const activeKey: MockApiKeyRow = {
+      id: API_KEY_ID,
+      tenantId: TENANT_ID,
+      rolesJson: [KEY_ROLE_ID],
+      expiresAt: null,
+      deletedAt: null,
+    }
+    const result = await resolvePermission(
+      mockEm(
+        makeDocument(),
+        [
+          makeShare({ principalType: 'role', principalId: ROLE_ID, permission: 'editor' }),
+          makeShare({ principalType: 'role', principalId: KEY_ROLE_ID, permission: 'viewer' }),
+        ],
+        [{
+          user: USER_ID,
+          role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+          deletedAt: null,
+        }],
+        [activeKey],
+        [{ id: KEY_ROLE_ID, tenantId: TENANT_ID, deletedAt: null }],
+      ),
+      DOCUMENT_ID,
+      makeCtx({
+        sub: `api_key:${API_KEY_ID}`,
+        userId: USER_ID,
+        isApiKey: true,
+        // Even stale claims cannot reintroduce the backing user's role.
+        roleIds: [ROLE_ID],
+        roles: [ROLE_ID],
+      }),
+    )
+
+    expect(result).toBe('viewer')
   })
 
   it('does not treat manage features as explicit recipient access', async () => {

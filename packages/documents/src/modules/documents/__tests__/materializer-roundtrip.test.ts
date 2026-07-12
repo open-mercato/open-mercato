@@ -1,5 +1,12 @@
 import { TiptapTransformer } from '@hocuspocus/transformer'
-import { htmlToYDoc, yDocToContent } from '../lib/collabMaterializer'
+import * as Y from 'yjs'
+import {
+  htmlToYDoc,
+  materializeDocumentContentReplacement,
+  materializeDocumentHtml,
+  yDocToContent,
+} from '../lib/collabMaterializer'
+import { COLLAB_FRAGMENT_FIELD, getDocumentEditorExtensions } from '../lib/editorConfig'
 
 type JsdomModule = typeof import('jsdom')
 type JsdomInstance = InstanceType<JsdomModule['JSDOM']>
@@ -55,5 +62,92 @@ describe('documents collab materializer round-trip', () => {
     })
 
     expect(yDocToContent(ydoc)).toBeNull()
+  })
+
+  it('returns the canonical editor HTML alongside the exact Yjs state to persist', () => {
+    const authored = `<p><span data-entity-ref data-entity-type="product" data-entity-id="${ENTITY_ID}" data-label="Desk" data-href="/backend/catalog/products/${ENTITY_ID}" class="om-entity-ref">Desk</span></p>`
+
+    const content = materializeDocumentHtml(authored)
+
+    expect(content).not.toBeNull()
+    expect(content?.yjsState.length).toBeGreaterThan(0)
+    expect(content?.html).toContain('data-entity-ref=""')
+    expect(content?.html).toContain('role="link"')
+    expect(content?.html).toContain('aria-label="Desk"')
+    expect(content?.text).toBe('Desk')
+  })
+
+  it('replaces stale REST content without duplicating it when a retained client merges the new state', () => {
+    const original = materializeDocumentHtml('<p>Original REST body</p>')
+    expect(original).not.toBeNull()
+    if (!original) throw new Error('[internal] original content should materialize')
+    const replacement = materializeDocumentContentReplacement(
+      original.yjsState,
+      '<p>Replacement REST body</p>',
+    )
+    expect(replacement).not.toBeNull()
+    if (!replacement) throw new Error('[internal] replacement content should materialize')
+
+    const originalDocument = new Y.Doc()
+    const replacementDocument = new Y.Doc()
+    Y.applyUpdate(originalDocument, new Uint8Array(original.yjsState))
+    Y.applyUpdate(replacementDocument, new Uint8Array(replacement.yjsState))
+    const retainedClient = new Y.Doc()
+    Y.applyUpdate(retainedClient, new Uint8Array(original.yjsState))
+    Y.applyUpdate(retainedClient, new Uint8Array(replacement.yjsState))
+
+    expect(yDocToContent(retainedClient)?.text).toBe('Replacement REST body')
+  })
+
+  it('canonicalizes executable REST markup before it can be persisted or exported', () => {
+    const replacement = materializeDocumentContentReplacement(
+      null,
+      '<meta http-equiv="refresh" content="0;url=https://attacker.example">'
+        + '<iframe src="https://attacker.example/frame"></iframe>'
+        + '<p onclick="alert(1)">Canonical body<img src="https://attacker.example/pixel" onerror="alert(2)"></p>'
+        + '<script>location="https://attacker.example/script"</script>',
+    )
+
+    expect(replacement).not.toBeNull()
+    expect(replacement?.html).not.toMatch(/<(?:script|iframe|meta)\b/i)
+    expect(replacement?.html).not.toMatch(/\bon(?:click|error)\s*=/i)
+    expect(replacement?.text).toContain('Canonical body')
+  })
+
+  it('removes UUID-shaped entity-chip labels from REST and crafted Yjs previews', () => {
+    const authored = `<p><span data-entity-ref data-entity-type="product" data-entity-id="${ENTITY_ID}" data-label="${ENTITY_ID}" data-href="/backend/catalog/products/${ENTITY_ID}">${ENTITY_ID}</span></p>`
+    const rest = materializeDocumentHtml(authored)
+
+    expect(rest).not.toBeNull()
+    expect(rest?.text).toBe('')
+    expect(rest?.html).not.toContain('aria-label=')
+    expect(rest?.html).not.toContain('data-label=')
+    expect(rest?.html).toContain('data-entity-label-invalid')
+    expect(rest?.html).not.toContain('>Record<')
+
+    const ydoc = TiptapTransformer.toYdoc({
+      type: 'doc',
+      content: [{
+        type: 'paragraph',
+        content: [{
+          type: 'entityRef',
+          attrs: {
+            entityType: 'product',
+            entityId: ENTITY_ID,
+            label: `Product ${ENTITY_ID}`,
+            href: `/backend/catalog/products/${ENTITY_ID}`,
+          },
+        }],
+      }],
+    }, COLLAB_FRAGMENT_FIELD, getDocumentEditorExtensions())
+    const preview = yDocToContent(ydoc)
+
+    expect(preview).not.toBeNull()
+    expect(preview?.text).toBe('')
+    expect(preview?.text).not.toContain(ENTITY_ID)
+    expect(preview?.html).not.toContain('aria-label=')
+    expect(preview?.html).not.toContain('data-label=')
+    expect(preview?.html).toContain('data-entity-label-invalid')
+    expect(preview?.html).not.toContain('>Record<')
   })
 })

@@ -1,32 +1,68 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import type { FilterQuery } from '@mikro-orm/core'
+import { raw } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { Document, DocumentContent, DocumentShare } from '../data/entities'
-import { documentCreateSchema } from '../data/validators'
+import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { DocumentShare } from '../data/entities'
+import { documentCreateSchema, documentEntityTypeSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
-import { emitDocumentsEvent } from '../events'
 import { resolveUserLabels } from '../lib/userLabels'
+import { deriveDocumentCapabilities } from '../lib/capabilities'
+import { getVisibleDocumentPage } from '../lib/visibility'
+import { getEntityRegistryEntry } from '../lib/entityRegistry'
+import { verifyEntityRegistryTargetAccess } from '../lib/entityRegistry.server'
+import { isDocumentEntityRegistryModuleEnabled } from '../lib/entityRegistryAvailability.server'
 import {
   handleDocumentsRouteError,
   hasDocumentsFeature,
-  loadScopedFolder,
   readBody,
   resolveActorUserId,
   resolveDocumentsContext,
-  resolveSearchIndexer,
   routeErrorSchema,
   runMutationGuardAfterSuccess,
-  serializeDocument,
   validateMutationGuard,
 } from './_shared'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from './_commands'
+import type { DocumentCreateCommandInput } from '../commands/document-crud'
 
 const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
   search: z.string().trim().optional(),
   folderId: z.string().uuid().optional().nullable(),
+  entityType: documentEntityTypeSchema.optional(),
+  entityId: z.string().uuid().optional(),
+}).superRefine((query, context) => {
+  if (Boolean(query.entityType) !== Boolean(query.entityId)) {
+    context.addIssue({
+      code: 'custom',
+      message: 'documents.validation.links.entityFilterPairRequired',
+    })
+  }
+})
+
+const capabilitiesSchema = z.object({
+  canView: z.boolean(),
+  canComment: z.boolean(),
+  canEdit: z.boolean(),
+  canShare: z.boolean(),
+  canDelete: z.boolean(),
+  canCreate: z.boolean(),
+  canManageTemplates: z.boolean(),
+})
+
+const collectionCapabilitiesSchema = z.object({
+  canCreateDocument: z.boolean(),
+  canCreateFolder: z.boolean(),
+  canLinkDocuments: z.boolean(),
+  canInstantiateTemplate: z.boolean(),
+  canManageTemplates: z.boolean(),
 })
 
 const documentListItemSchema = z.object({
@@ -40,10 +76,13 @@ const documentListItemSchema = z.object({
   sharedWithCount: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  relationshipTier: z.enum(['owner', 'editor', 'commenter', 'viewer']).nullable(),
+  capabilities: capabilitiesSchema,
 })
 
 const listResponseSchema = z.object({
   items: z.array(documentListItemSchema),
+  collectionCapabilities: collectionCapabilitiesSchema,
   total: z.number(),
   page: z.number(),
   pageSize: z.number(),
@@ -60,45 +99,32 @@ export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['documents.create'] },
 }
 
-function matchesSearch(document: Document, search: string | undefined): boolean {
-  if (!search) return true
-  return document.title.toLowerCase().includes(search.toLowerCase())
+function readString(record: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (typeof value === 'string' && value.length > 0) return value
+  }
+  return null
 }
 
-async function resolveVisibleDocumentIds(
-  documents: Document[],
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-): Promise<Set<string> | null> {
-  if (hasDocumentsFeature(ctx.auth, 'documents.manage')) return null
-  const userId = resolveActorUserId(ctx.auth)
-  const visible = new Set<string>()
-  for (const document of documents) {
-    if (document.ownerUserId === userId) visible.add(document.id)
+function readBoolean(record: Record<string, unknown>, ...keys: string[]): boolean {
+  for (const key of keys) {
+    if (typeof record[key] === 'boolean') return record[key] as boolean
   }
-  const remainingIds = documents
-    .map((document) => document.id)
-    .filter((documentId) => !visible.has(documentId))
-  if (!remainingIds.length) return visible
+  return false
+}
 
-  const principalFilters: Array<FilterQuery<DocumentShare>> = [
-    { principalType: 'user', principalId: userId },
-  ]
-  if (ctx.auth.roleIds.length > 0) {
-    principalFilters.push({
-      principalType: 'role',
-      principalId: { $in: ctx.auth.roleIds },
-    } as FilterQuery<DocumentShare>)
+function readDate(record: Record<string, unknown>, ...keys: string[]): string {
+  for (const key of keys) {
+    const value = record[key]
+    const date = value instanceof Date
+      ? value
+      : typeof value === 'string' && value.length > 0
+        ? new Date(value)
+        : null
+    if (date && !Number.isNaN(date.getTime())) return date.toISOString()
   }
-
-  const shares = await ctx.em.find(DocumentShare, {
-    documentId: { $in: remainingIds },
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    deletedAt: null,
-    $or: principalFilters,
-  } as FilterQuery<DocumentShare>)
-  for (const share of shares) visible.add(share.documentId)
-  return visible
+  return new Date(0).toISOString()
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -107,52 +133,134 @@ export async function GET(request: Request): Promise<Response> {
     const url = new URL(request.url)
     const query = listQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
 
-    const where: FilterQuery<Document> = {
+    let relationFilter: { entityType: z.infer<typeof documentEntityTypeSchema>; entityId: string } | null = null
+    if (query.entityType && query.entityId) {
+      const registryEntry = getEntityRegistryEntry(query.entityType)
+      if (
+        !registryEntry
+        || !isDocumentEntityRegistryModuleEnabled(registryEntry)
+        || !hasDocumentsFeature(ctx.auth, registryEntry.requiredFeature)
+      ) {
+        throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+      }
+      const verifiedTarget = await verifyEntityRegistryTargetAccess(request, {
+        entityType: query.entityType,
+        entityId: query.entityId,
+      })
+      relationFilter = {
+        entityType: query.entityType,
+        entityId: verifiedTarget.id,
+      }
+    }
+
+    const managerOverride = hasDocumentsFeature(ctx.auth, 'documents.manage')
+    const visiblePage = await getVisibleDocumentPage({
+      em: ctx.em,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      deletedAt: null,
-      ...(query.folderId ? { folderId: query.folderId } : {}),
-    }
-    const documents = await ctx.em.find(Document, where, { orderBy: { updatedAt: 'DESC' } })
-    const visibleIds = await resolveVisibleDocumentIds(documents, ctx)
-    const visibleDocuments = documents.filter((document) => {
-      if (visibleIds && !visibleIds.has(document.id)) return false
-      return matchesSearch(document, query.search)
+      userId: resolveActorUserId(ctx.auth),
+      roleIds: ctx.auth.roleIds,
+      managerOverride,
+      page: query.page,
+      pageSize: query.pageSize,
+      search: query.search ?? null,
+      folderId: query.folderId ?? null,
+      relationFilter,
     })
-
-    const total = visibleDocuments.length
-    const start = (query.page - 1) * query.pageSize
-    const pageDocuments = visibleDocuments.slice(start, start + query.pageSize)
+    const orderedIds = visiblePage.rows.map((row) => row.id)
+    const queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
+    const hydration = orderedIds.length > 0
+      ? await queryEngine.query<Record<string, unknown>>(DOCUMENTS_ENTITY_IDS.document, {
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          filters: { id: { $in: orderedIds } },
+          page: { page: 1, pageSize: orderedIds.length },
+          extensions: {
+            userId: resolveActorUserId(ctx.auth),
+            container: ctx.container,
+            userFeatures: ctx.auth.features,
+            resolve: <T = unknown>(name: string) => ctx.container.resolve(name) as T,
+          },
+        })
+      : { items: [] as Record<string, unknown>[] }
+    const hydratedById = new Map(
+      hydration.items
+        .map((item) => [readString(item, 'id'), item] as const)
+        .filter((entry): entry is readonly [string, Record<string, unknown>] => entry[0] !== null),
+    )
+    const pageDocuments = orderedIds
+      .map((id) => hydratedById.get(id) ?? null)
+      .filter((item): item is Record<string, unknown> => item !== null)
     const ownerLabels = await resolveUserLabels(
       ctx.em,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      pageDocuments.map((document) => document.ownerUserId),
+      pageDocuments
+        .map((document) => readString(document, 'ownerUserId', 'owner_user_id'))
+        .filter((id): id is string => id !== null),
     )
-    const pageDocumentIds = pageDocuments.map((document) => document.id)
     const shareCounts = new Map<string, number>()
-    if (pageDocumentIds.length > 0) {
-      const shares = await ctx.em.find(DocumentShare, {
-        documentId: { $in: pageDocumentIds },
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        deletedAt: null,
-      } as FilterQuery<DocumentShare>)
-      for (const share of shares) {
-        shareCounts.set(share.documentId, (shareCounts.get(share.documentId) ?? 0) + 1)
+    if (orderedIds.length > 0) {
+      const groupedShares = await ctx.em
+        .createQueryBuilder(DocumentShare, 'document_share')
+        .select([
+          'document_share.documentId',
+          raw('count(*) as "shareCount"'),
+        ])
+        .where({
+          documentId: { $in: orderedIds },
+          tenantId: ctx.tenantId,
+          organizationId: ctx.organizationId,
+          deletedAt: null,
+        })
+        .groupBy('document_share.documentId')
+        .execute<Array<{ documentId?: unknown; document_id?: unknown; shareCount?: unknown; share_count?: unknown }>>('all', false)
+      for (const row of groupedShares) {
+        const documentId = row.documentId ?? row.document_id
+        const count = Number(row.shareCount ?? row.share_count ?? 0)
+        if (typeof documentId === 'string' && Number.isFinite(count)) shareCounts.set(documentId, count)
       }
     }
-    const items = pageDocuments.map((document) => ({
-      ...serializeDocument(document),
-      ownerLabel: ownerLabels.get(document.ownerUserId)?.label ?? null,
-      sharedWithCount: shareCounts.get(document.id) ?? 0,
-    }))
+    const visibleRowsById = new Map(visiblePage.rows.map((row) => [row.id, row]))
+    const items = pageDocuments.map((document) => {
+      const id = readString(document, 'id') ?? ''
+      const ownerUserId = readString(document, 'ownerUserId', 'owner_user_id') ?? ''
+      const visibleRow = visibleRowsById.get(id)
+      const relationshipTier = visibleRow?.relationshipTier ?? null
+      return {
+        id,
+        title: readString(document, 'title') ?? '',
+        folderId: readString(document, 'folderId', 'folder_id'),
+        ownerUserId,
+        ownerLabel: ownerLabels.get(ownerUserId)?.label ?? null,
+        createdByUserId: readString(document, 'createdByUserId', 'created_by_user_id') ?? '',
+        isActive: readBoolean(document, 'isActive', 'is_active'),
+        sharedWithCount: shareCounts.get(id) ?? 0,
+        createdAt: readDate(document, 'createdAt', 'created_at'),
+        updatedAt: readDate(document, 'updatedAt', 'updated_at'),
+        relationshipTier,
+        capabilities: deriveDocumentCapabilities({
+          relationshipTier,
+          managerOverride,
+          userFeatures: ctx.auth.features,
+        }),
+      }
+    })
 
     return NextResponse.json({
       items,
-      total,
+      collectionCapabilities: {
+        canCreateDocument: hasDocumentsFeature(ctx.auth, 'documents.create'),
+        canCreateFolder: hasDocumentsFeature(ctx.auth, 'documents.edit'),
+        canLinkDocuments: hasDocumentsFeature(ctx.auth, 'documents.edit'),
+        canInstantiateTemplate:
+          hasDocumentsFeature(ctx.auth, 'documents.create')
+          && hasDocumentsFeature(ctx.auth, 'documents.edit'),
+        canManageTemplates: hasDocumentsFeature(ctx.auth, 'documents.templates.manage'),
+      },
+      total: visiblePage.total,
       page: query.page,
       pageSize: query.pageSize,
-      totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
+      totalPages: Math.max(1, Math.ceil(visiblePage.total / query.pageSize)),
     })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.list')
@@ -164,7 +272,6 @@ export async function POST(request: Request): Promise<Response> {
     const ctx = await resolveDocumentsContext(request, ['documents.create'])
     const body = await readBody(request)
     const input = documentCreateSchema.parse(body)
-    const userId = resolveActorUserId(ctx.auth)
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.document,
       resourceId: 'new',
@@ -172,45 +279,19 @@ export async function POST(request: Request): Promise<Response> {
       mutationPayload: input,
     })
 
-    if (input.folderId) {
-      const folder = await loadScopedFolder(ctx, input.folderId)
-      if (folder.deletedAt) {
-        return NextResponse.json({ error: 'Folder not found' }, { status: 404 })
-      }
+    const commandInput: DocumentCreateCommandInput = {
+      ...input,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      documentId: randomUUID(),
+      contentId: randomUUID(),
     }
-
-    const document = ctx.em.create(Document, {
-      id: randomUUID(),
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      title: input.title,
-      folderId: input.folderId ?? null,
-      ownerUserId: userId,
-      createdByUserId: userId,
-      isActive: true,
-    })
-    const content = ctx.em.create(DocumentContent, {
-      id: randomUUID(),
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      documentId: document.id,
-      contentHtml: '',
-      contentText: '',
-    })
-    ctx.em.persist([document, content])
-    await ctx.em.flush()
-
-    await resolveSearchIndexer(ctx.container).indexRecordById({
-      entityId: DOCUMENTS_ENTITY_IDS.document,
-      recordId: document.id,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-    })
-    await emitDocumentsEvent('documents.document.created', {
-      id: document.id,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId,
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      DocumentCreateCommandInput,
+      { id: string; updatedAt: string }
+    >('documents.document.create', {
+      input: commandInput,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
     })
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.document,
@@ -218,10 +299,14 @@ export async function POST(request: Request): Promise<Response> {
       operation: 'create',
     })
 
-    return NextResponse.json(
-      { id: document.id, updatedAt: document.updatedAt.toISOString() },
+    const response = NextResponse.json(
+      { id: result.id, updatedAt: result.updatedAt },
       { status: 201 },
     )
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.document,
+      resourceId: result.id,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.create')
   }

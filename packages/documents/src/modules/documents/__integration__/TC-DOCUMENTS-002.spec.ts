@@ -1,17 +1,17 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
   createUserFixture,
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   expectId,
   getTokenContext,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['documents'],
@@ -203,12 +203,16 @@ test.describe('TC-DOCUMENTS-002: sharing tiers', () => {
       )
       expect(nonSharedGetResponse.status(), 'non-shared user should be tier-denied').toBe(403)
 
+      const deletedShareId = shareId
       await deleteShareIfExists(request, adminToken, documentId, shareId)
       shareId = null
 
       const reShare = await shareWithUser(request, adminToken, documentId, sharedUser.id, 'viewer')
       shareId = reShare.id
-      expect(reShare.id.length).toBeGreaterThan(0)
+      // Re-share is a guarded resurrection of the same soft-deleted row. This
+      // keeps one durable principal identity and lets the new command's undo
+      // restore the exact deleted snapshot without accumulating stale rows.
+      expect(reShare.id).toBe(deletedShareId)
     } finally {
       await deleteShareIfExists(request, adminToken, documentId, shareId)
       await deleteDocumentIfExists(request, adminToken, documentId)

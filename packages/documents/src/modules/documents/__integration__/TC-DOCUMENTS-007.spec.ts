@@ -1,18 +1,18 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
   createUserFixture,
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   expectId,
   getTokenContext,
   getTokenScope,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {

@@ -4837,6 +4837,15 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@floating-ui/core@npm:^1.8.0":
+  version: 1.8.0
+  resolution: "@floating-ui/core@npm:1.8.0"
+  dependencies:
+    "@floating-ui/utils": "npm:^0.2.12"
+  checksum: 10/762cd5677fd4e82597db2efdd8f1e81d248eac5615d8be755e1bbb5f12a14c56a6bccd735676374d4914db7ccb3f09ec405ec7433e8c48a5521f5d66dc8dd5d6
+  languageName: node
+  linkType: hard
+
 "@floating-ui/dom@npm:^1.0.0, @floating-ui/dom@npm:^1.7.6":
   version: 1.7.6
   resolution: "@floating-ui/dom@npm:1.7.6"
@@ -4854,6 +4863,16 @@ __metadata:
     "@floating-ui/core": "npm:^1.7.3"
     "@floating-ui/utils": "npm:^0.2.10"
   checksum: 10/d3d6a23e7b9804ba56338c7c666590258683af14b6026270d32afc1202f72b5b82cca359004bdc7830bf2463a045da6c7bd4e7d5351218cf270ff94206197971
+  languageName: node
+  linkType: hard
+
+"@floating-ui/dom@npm:^1.7.5":
+  version: 1.8.0
+  resolution: "@floating-ui/dom@npm:1.8.0"
+  dependencies:
+    "@floating-ui/core": "npm:^1.8.0"
+    "@floating-ui/utils": "npm:^0.2.12"
+  checksum: 10/2e7d75fb702875a62795dd8529569f27eff53167768d75476056d6bf824a1ba608177a8877ed9d728eadb5787b4bd07b043fb2c3125b7ad2505a398680b323c0
   languageName: node
   linkType: hard
 
@@ -4906,6 +4925,13 @@ __metadata:
   version: 0.2.11
   resolution: "@floating-ui/utils@npm:0.2.11"
   checksum: 10/72150138ba1c274d757a1da85233202fa9fdfd2272ec1fb0883eb0ffdf138863af81573049ed2c20b98adb4b7ae2236065541ce14037fe328955089831a678d5
+  languageName: node
+  linkType: hard
+
+"@floating-ui/utils@npm:^0.2.12":
+  version: 0.2.12
+  resolution: "@floating-ui/utils@npm:0.2.12"
+  checksum: 10/ec4e176fb22d33d75df752c5acf82dcaacae40ed2d09c1a5015cb4081318fff20260db216678e952344b95f90c6b43214762b69eba7c51556ecd82c35a795cff
   languageName: node
   linkType: hard
 
@@ -4993,6 +5019,31 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@hocuspocus/common@npm:^4.4.0":
+  version: 4.4.0
+  resolution: "@hocuspocus/common@npm:4.4.0"
+  dependencies:
+    lib0: "npm:^0.2.87"
+  checksum: 10/7d4f88c2dda2ec0dc5face500bb110d4beeef25516145d450686261ffab9c5be44ee86d0191fa5f4898a3b679f16125c9e8e5a64b0e68776b33fa3a79a082c27
+  languageName: node
+  linkType: hard
+
+"@hocuspocus/extension-redis@npm:^4.3.0":
+  version: 4.4.0
+  resolution: "@hocuspocus/extension-redis@npm:4.4.0"
+  dependencies:
+    "@hocuspocus/common": "npm:^4.4.0"
+    "@hocuspocus/server": "npm:^4.4.0"
+    "@sesamecare-oss/redlock": "npm:^1.4.0"
+    ioredis: "npm:~5.6.1"
+    kleur: "npm:^4.1.4"
+  peerDependencies:
+    y-protocols: ^1.0.6
+    yjs: ^13.6.8
+  checksum: 10/c833d2e72fe0266ea05634ce9f10d4b7bc27a2b3695587b5a45307868f1e29e27e511378055a238ac5035ac4146ca6989c2a882a361ef056524ec38e8149ce89
+  languageName: node
+  linkType: hard
+
 "@hocuspocus/provider@npm:^4.3.0":
   version: 4.3.0
   resolution: "@hocuspocus/provider@npm:4.3.0"
@@ -5020,6 +5071,22 @@ __metadata:
     y-protocols: ^1.0.6
     yjs: ^13.6.8
   checksum: 10/88ea32f8e4635973f5e0a4e3b5bca168aa2b8c714ebed05cb6c294e3dacea904321a1b402d513253ebe8f84992a1387c455e676b98aa72bca62c38889fc5be94
+  languageName: node
+  linkType: hard
+
+"@hocuspocus/server@npm:^4.4.0":
+  version: 4.4.0
+  resolution: "@hocuspocus/server@npm:4.4.0"
+  dependencies:
+    "@hocuspocus/common": "npm:^4.4.0"
+    async-mutex: "npm:^0.5.0"
+    crossws: "npm:^0.4.4"
+    kleur: "npm:^4.1.4"
+    lib0: "npm:^0.2.47"
+  peerDependencies:
+    y-protocols: ^1.0.6
+    yjs: ^13.6.8
+  checksum: 10/48fa6406620029b4e6ec27459e35f589462af5a70e915d41c66f4692bdf952f940b123538cf640331b33d25cda819679f6fab8d8e618c2535dc22b44d3e86091
   languageName: node
   linkType: hard
 
@@ -5326,6 +5393,13 @@ __metadata:
   version: 1.10.0
   resolution: "@ioredis/commands@npm:1.10.0"
   checksum: 10/2b0322f99d24f11d99ae279b59d977bb129f95f973ed3a31cbee68376e8fad41f974d23d7f9a06151b3d9c140038ef312e0b45d4577048ab0797aa9a6839213d
+  languageName: node
+  linkType: hard
+
+"@ioredis/commands@npm:^1.1.1":
+  version: 1.11.0
+  resolution: "@ioredis/commands@npm:1.11.0"
+  checksum: 10/45a665424e1ac7dad3566a464ed32e09fb33dcb0bd7ac009a25ab027589ba4a2c2faf54d484bd2f5a9321d08e9a470e1dff3e47c537ee0d97b2bec96ba2325ef
   languageName: node
   linkType: hard
 
@@ -6680,6 +6754,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@mikro-orm/core@npm:^7.1.3":
+  version: 7.1.3
+  resolution: "@mikro-orm/core@npm:7.1.3"
+  peerDependencies:
+    dataloader: 2.2.3
+  peerDependenciesMeta:
+    dataloader:
+      optional: true
+  checksum: 10/26dea237891a957f5ea2d8d0cb308cfc5690a867fcf96913dc945aa624beb0b494064651548c9a5ddcf9152b59b6c6b9c16f3f94acaf7040da22b11b0deddb5f
+  languageName: node
+  linkType: hard
+
 "@mikro-orm/core@npm:^7.1.5":
   version: 7.1.5
   resolution: "@mikro-orm/core@npm:7.1.5"
@@ -7847,10 +7933,14 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/documents@workspace:packages/documents"
   dependencies:
+    "@floating-ui/dom": "npm:^1.7.5"
+    "@hocuspocus/extension-redis": "npm:^4.3.0"
     "@hocuspocus/provider": "npm:^4.3.0"
     "@hocuspocus/server": "npm:^4.3.0"
     "@hocuspocus/transformer": "npm:^4.3.0"
+    "@mikro-orm/core": "npm:^7.1.3"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/events": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
     "@tiptap/core": "npm:^3"
@@ -7860,6 +7950,7 @@ __metadata:
     "@tiptap/extension-highlight": "npm:^3"
     "@tiptap/extension-image": "npm:^3"
     "@tiptap/extension-link": "npm:^3"
+    "@tiptap/extension-list": "npm:^3.27.3"
     "@tiptap/extension-placeholder": "npm:^3"
     "@tiptap/extension-table": "npm:^3"
     "@tiptap/extension-table-cell": "npm:^3"
@@ -7884,11 +7975,16 @@ __metadata:
     happy-dom: "npm:^20.10.6"
     html-to-docx: "npm:^1.8.0"
     jest: "npm:^30.4.2"
+    pdfjs-dist: "npm:^6.0.227"
+    prosemirror-model: "npm:^1.25.9"
+    prosemirror-state: "npm:^1.4.4"
+    prosemirror-view: "npm:^1.41.9"
     puppeteer-core: "npm:^25.3.0"
     react: "npm:19.2.7"
     react-dom: "npm:19.2.7"
     ts-jest: "npm:^29.4.11"
     tsx: "npm:^4.22.4"
+    typescript: "npm:^6.0.3"
     y-prosemirror: "npm:^1.3.7"
     y-protocols: "npm:^1.0.7"
     yjs: "npm:^13.6.31"
@@ -10675,6 +10771,15 @@ __metadata:
   peerDependencies:
     selderee: ~0.12.0
   checksum: 10/11399112888e3745f3066f02b8bc52344b6f4011192f5dacec63bed5d83e97801b418e16ec95531715c53d199f2c96f1357a218bd9fef4ebe18e638eb1b19c48
+  languageName: node
+  linkType: hard
+
+"@sesamecare-oss/redlock@npm:^1.4.0":
+  version: 1.4.0
+  resolution: "@sesamecare-oss/redlock@npm:1.4.0"
+  peerDependencies:
+    ioredis: ">=5"
+  checksum: 10/72cf406b0dc1b603de505bb9db3aba0b6189926a8446257485080508c20d24b120fa9e879aeb628ace326c6cf735f8b958d337a95167af2864ef406e38cb1f72
   languageName: node
   linkType: hard
 
@@ -15629,6 +15734,13 @@ __metadata:
   languageName: node
   linkType: hard
 
+"cluster-key-slot@npm:^1.1.0":
+  version: 1.1.2
+  resolution: "cluster-key-slot@npm:1.1.2"
+  checksum: 10/516ed8b5e1a14d9c3a9c96c72ef6de2d70dfcdbaa0ec3a90bc7b9216c5457e39c09a5775750c272369070308542e671146120153062ab5f2f481bed5de2c925f
+  languageName: node
+  linkType: hard
+
 "cm6-theme-basic-light@npm:^0.2.0":
   version: 0.2.0
   resolution: "cm6-theme-basic-light@npm:0.2.0"
@@ -17193,7 +17305,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"denque@npm:2.1.0":
+"denque@npm:2.1.0, denque@npm:^2.1.0":
   version: 2.1.0
   resolution: "denque@npm:2.1.0"
   checksum: 10/8ea05321576624b90acfc1ee9208b8d1d04b425cf7573b9b4fa40a2c3ed4d4b0af5190567858f532f677ed2003d4d2b73c8130b34e3c7b8d5e88cdcfbfaa1fe7
@@ -20894,6 +21006,23 @@ __metadata:
   languageName: node
   linkType: hard
 
+"ioredis@npm:~5.6.1":
+  version: 5.6.1
+  resolution: "ioredis@npm:5.6.1"
+  dependencies:
+    "@ioredis/commands": "npm:^1.1.1"
+    cluster-key-slot: "npm:^1.1.0"
+    debug: "npm:^4.3.4"
+    denque: "npm:^2.1.0"
+    lodash.defaults: "npm:^4.2.0"
+    lodash.isarguments: "npm:^3.1.0"
+    redis-errors: "npm:^1.2.0"
+    redis-parser: "npm:^3.0.0"
+    standard-as-callback: "npm:^2.1.0"
+  checksum: 10/632186e21f2d8b94a12918b5feef0f5df70315e303988989adb0d190377759ffa601660be7536489c0768803a0fb6eb94f861b33c1fcfc673d518fdd31c541e2
+  languageName: node
+  linkType: hard
+
 "ip-address@npm:10.1.1":
   version: 10.1.1
   resolution: "ip-address@npm:10.1.1"
@@ -22838,6 +22967,20 @@ __metadata:
   version: 4.0.8
   resolution: "lodash.debounce@npm:4.0.8"
   checksum: 10/cd0b2819786e6e80cb9f5cda26b1a8fc073daaf04e48d4cb462fa4663ec9adb3a5387aa22d7129e48eed1afa05b482e2a6b79bfc99b86886364449500cbb00fd
+  languageName: node
+  linkType: hard
+
+"lodash.defaults@npm:^4.2.0":
+  version: 4.2.0
+  resolution: "lodash.defaults@npm:4.2.0"
+  checksum: 10/6a2a9ea5ad7585aff8d76836c9e1db4528e5f5fa50fc4ad81183152ba8717d83aef8aec4fa88bf3417ed946fd4b4358f145ee08fbc77fb82736788714d3e12db
+  languageName: node
+  linkType: hard
+
+"lodash.isarguments@npm:^3.1.0":
+  version: 3.1.0
+  resolution: "lodash.isarguments@npm:3.1.0"
+  checksum: 10/e5186d5fe0384dcb0652501d9d04ebb984863ebc9c9faa2d4b9d5dfd81baef9ffe8e2887b9dc471d62ed092bc0788e5f1d42e45c72457a2884bbb54ac132ed92
   languageName: node
   linkType: hard
 
@@ -25692,6 +25835,18 @@ __metadata:
   languageName: node
   linkType: hard
 
+"pdfjs-dist@npm:^6.0.227":
+  version: 6.0.227
+  resolution: "pdfjs-dist@npm:6.0.227"
+  dependencies:
+    "@napi-rs/canvas": "npm:^1.0.0"
+  dependenciesMeta:
+    "@napi-rs/canvas":
+      optional: true
+  checksum: 10/76dff7cf3d556eda0a72f48b9822fe1010411fb5913c822228ada3f88dec717789e4ee2dffcca16596a91d683a1d0c07e6541a1505f162b1e3457e948cd500b9
+  languageName: node
+  linkType: hard
+
 "pdfjs-dist@npm:^6.1.200":
   version: 6.1.200
   resolution: "pdfjs-dist@npm:6.1.200"
@@ -28027,14 +28182,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"redis-errors@npm:1.2.0, redis-errors@npm:^1.0.0":
+"redis-errors@npm:1.2.0, redis-errors@npm:^1.0.0, redis-errors@npm:^1.2.0":
   version: 1.2.0
   resolution: "redis-errors@npm:1.2.0"
   checksum: 10/001c11f63ddd52d7c80eb4f4ede3a9433d29a458a7eea06b9154cb37c9802a218d93b7988247aa8c958d4b5d274b18354e8853c148f1096fda87c6e675cfd3ee
   languageName: node
   linkType: hard
 
-"redis-parser@npm:3.0.0":
+"redis-parser@npm:3.0.0, redis-parser@npm:^3.0.0":
   version: 3.0.0
   resolution: "redis-parser@npm:3.0.0"
   dependencies:
@@ -29710,7 +29865,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"standard-as-callback@npm:2.1.0":
+"standard-as-callback@npm:2.1.0, standard-as-callback@npm:^2.1.0":
   version: 2.1.0
   resolution: "standard-as-callback@npm:2.1.0"
   checksum: 10/88bec83ee220687c72d94fd86a98d5272c91d37ec64b66d830dbc0d79b62bfa6e47f53b71646011835fc9ce7fae62739545d13124262b53be4fbb3e2ebad551c

@@ -1,18 +1,18 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
   createUserFixture,
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
-import { deleteAttachmentIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/attachmentsFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
+import { deleteAttachmentIfExists } from '@open-mercato/core/helpers/integration/attachmentsFixtures'
 import {
   expectId,
   getTokenContext,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const integrationMeta = {
   dependsOnModules: ['documents'],

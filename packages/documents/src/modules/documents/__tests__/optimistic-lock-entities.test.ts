@@ -8,6 +8,7 @@ const editableEntities = [
   'DocumentShare',
   'DocumentComment',
   'DocumentTemplate',
+  'DocumentEntityLink',
 ] as const
 
 const appendOnlyEntities = [

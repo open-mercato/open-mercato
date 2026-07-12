@@ -3,7 +3,9 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
+import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Document, DocumentShare } from '../data/entities'
 
 export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
@@ -47,34 +49,79 @@ function normalizeStrings(values: unknown): string[] {
   )
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-}
-
 function hasDocumentsManage(ctx: DocumentsPermissionContext): boolean {
   if (ctx.isSuperAdmin === true) return true
   const features = normalizeStrings(ctx.features)
   return hasAllFeatures(['documents.manage'], features)
 }
 
-async function resolveRoleIds(em: EntityManager, ctx: DocumentsPermissionContext): Promise<string[]> {
-  const explicitRoleIds = normalizeStrings(ctx.roleIds)
-  const roleValues = normalizeStrings(ctx.roles)
-  const uuidRoleValues = roleValues.filter(isUuid)
-  const roleNames = roleValues.filter((value) => !isUuid(value))
-  const initialIds = Array.from(new Set([...explicitRoleIds, ...uuidRoleValues]))
-  if (!roleNames.length || !ctx.tenantId) return initialIds
+export async function resolveActiveUserRoleIds(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+): Promise<string[]> {
+  const userRoles = await findWithDecryption(
+    em,
+    UserRole,
+    {
+      user: userId,
+      deletedAt: null,
+      role: {
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+    } as FilterQuery<UserRole>,
+    { fields: ['role'] as const },
+    scope,
+  )
+  return Array.from(
+    new Set(
+      userRoles
+        .map((row) => String((row.role as { id?: string })?.id ?? row.role))
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    ),
+  )
+}
 
-  const roles = await em.find(
+export async function resolveActiveSubjectRoleIds(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  subject: string,
+): Promise<string[]> {
+  if (!subject.startsWith('api_key:')) {
+    return resolveActiveUserRoleIds(em, scope, subject)
+  }
+
+  const apiKeyId = subject.slice('api_key:'.length).trim()
+  if (!apiKeyId) return []
+  const apiKey = await findOneWithDecryption(
+    em,
+    ApiKey,
+    {
+      id: apiKeyId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now())) return []
+
+  const grantedRoleIds = normalizeStrings(apiKey.rolesJson)
+  if (grantedRoleIds.length === 0) return []
+  const roles = await findWithDecryption(
+    em,
     Role,
     {
-      tenantId: ctx.tenantId,
+      id: { $in: grantedRoleIds },
+      tenantId: scope.tenantId,
       deletedAt: null,
-      name: { $in: roleNames },
     } as FilterQuery<Role>,
     { fields: ['id'] as const },
+    scope,
   )
-  return Array.from(new Set([...initialIds, ...roles.map((role) => String(role.id))]))
+  return Array.from(new Set(roles.map((role) => String(role.id))))
 }
 
 function maxShareTier(shares: DocumentShare[]): DocumentTier | null {
@@ -97,12 +144,18 @@ export async function resolvePermission(
   const organizationId = resolveOrganizationId(permissionCtx)
   if (!organizationId) return null
 
-  const document = await em.findOne(Document, {
-    id: documentId,
-    tenantId: ctx.tenantId,
-    organizationId,
-    deletedAt: null,
-  })
+  const document = await findOneWithDecryption(
+    em,
+    Document,
+    {
+      id: documentId,
+      tenantId: ctx.tenantId,
+      organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId },
+  )
   if (!document) return null
 
   const userId = resolveUserId(ctx)
@@ -111,7 +164,13 @@ export async function resolvePermission(
   }
   if (!userId) return null
 
-  const roleIds = await resolveRoleIds(em, permissionCtx)
+  // Never trust role ids/names carried by the request token. Role shares are
+  // resolved from active UserRole links to active roles in the current tenant.
+  const roleIds = await resolveActiveSubjectRoleIds(
+    em,
+    { tenantId: ctx.tenantId, organizationId },
+    ctx.sub,
+  )
   const principals: Array<FilterQuery<DocumentShare>> = [
     { principalType: 'user', principalId: userId },
   ]
@@ -119,13 +178,19 @@ export async function resolvePermission(
     principals.push({ principalType: 'role', principalId: { $in: roleIds } } as FilterQuery<DocumentShare>)
   }
 
-  const shares = await em.find(DocumentShare, {
-    documentId,
-    tenantId: ctx.tenantId,
-    organizationId,
-    deletedAt: null,
-    $or: principals,
-  } as FilterQuery<DocumentShare>)
+  const shares = await findWithDecryption(
+    em,
+    DocumentShare,
+    {
+      documentId,
+      tenantId: ctx.tenantId,
+      organizationId,
+      deletedAt: null,
+      $or: principals,
+    } as FilterQuery<DocumentShare>,
+    undefined,
+    { tenantId: ctx.tenantId, organizationId },
+  )
 
   return maxShareTier(shares)
 }
@@ -136,28 +201,22 @@ export async function resolveUserAccess(
   scope: { tenantId: string; organizationId: string },
   userId: string,
 ): Promise<DocumentTier | null> {
-  const document = await em.findOne(Document, {
-    id: documentId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    deletedAt: null,
-  })
+  const document = await findOneWithDecryption(
+    em,
+    Document,
+    {
+      id: documentId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
   if (!document) return null
   if (document.ownerUserId === userId) return 'owner'
 
-  const userRoles = await em.find(
-    UserRole,
-    { user: userId, deletedAt: null } as FilterQuery<UserRole>,
-    { fields: ['role'] as const },
-  )
-  const roleIds = Array.from(
-    new Set(
-      userRoles
-        .map((row) => String((row.role as { id?: string })?.id ?? row.role))
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  )
+  const roleIds = await resolveActiveUserRoleIds(em, scope, userId)
 
   const principals: Array<FilterQuery<DocumentShare>> = [
     { principalType: 'user', principalId: userId },
@@ -166,14 +225,65 @@ export async function resolveUserAccess(
     principals.push({ principalType: 'role', principalId: { $in: roleIds } } as FilterQuery<DocumentShare>)
   }
 
-  const shares = await em.find(DocumentShare, {
-    documentId,
-    tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
-    deletedAt: null,
-    $or: principals,
-  } as FilterQuery<DocumentShare>)
+  const shares = await findWithDecryption(
+    em,
+    DocumentShare,
+    {
+      documentId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      $or: principals,
+    } as FilterQuery<DocumentShare>,
+    undefined,
+    scope,
+  )
 
+  return maxShareTier(shares)
+}
+
+export async function resolveSubjectAccess(
+  em: EntityManager,
+  documentId: string,
+  scope: { tenantId: string; organizationId: string },
+  identity: { subject: string; userId: string },
+): Promise<DocumentTier | null> {
+  const document = await findOneWithDecryption(
+    em,
+    Document,
+    {
+      id: documentId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    undefined,
+    scope,
+  )
+  if (!document) return null
+  if (document.ownerUserId === identity.userId) return 'owner'
+
+  const roleIds = await resolveActiveSubjectRoleIds(em, scope, identity.subject)
+  const principals: Array<FilterQuery<DocumentShare>> = [
+    { principalType: 'user', principalId: identity.userId },
+  ]
+  if (roleIds.length > 0) {
+    principals.push({ principalType: 'role', principalId: { $in: roleIds } } as FilterQuery<DocumentShare>)
+  }
+
+  const shares = await findWithDecryption(
+    em,
+    DocumentShare,
+    {
+      documentId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+      $or: principals,
+    } as FilterQuery<DocumentShare>,
+    undefined,
+    scope,
+  )
   return maxShareTier(shares)
 }
 

@@ -11,6 +11,8 @@ const events = [
   { id: 'documents.comment.resolved', label: 'Comment Resolved', entity: 'comment', category: 'lifecycle' },
   { id: 'documents.version.created', label: 'Version Created', entity: 'version', category: 'crud' },
   { id: 'documents.version.restored', label: 'Version Restored', entity: 'version', category: 'lifecycle', clientBroadcast: true },
+  { id: 'documents.link.created', label: 'Document Link Created', entity: 'link', category: 'crud' },
+  { id: 'documents.link.deleted', label: 'Document Link Deleted', entity: 'link', category: 'crud' },
 ] as const
 
 export const eventsConfig = createModuleEvents({ moduleId: 'documents', events })

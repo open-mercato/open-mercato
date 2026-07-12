@@ -6,7 +6,9 @@ import {
   DocumentComment,
   DocumentContent,
   DocumentFolder,
+  DocumentEntityLink,
   DocumentShare,
+  DocumentTemplate,
   DocumentVersion,
 } from './data/entities'
 
@@ -17,10 +19,11 @@ export function register(container: AppContainer) {
     DocumentComment: asValue(DocumentComment),
     DocumentContent: asValue(DocumentContent),
     DocumentFolder: asValue(DocumentFolder),
+    DocumentEntityLink: asValue(DocumentEntityLink),
     DocumentShare: asValue(DocumentShare),
+    DocumentTemplate: asValue(DocumentTemplate),
     DocumentVersion: asValue(DocumentVersion),
   })
-  // Permission and content services are intentionally deferred to the API packet.
 }
 
 export default { register }

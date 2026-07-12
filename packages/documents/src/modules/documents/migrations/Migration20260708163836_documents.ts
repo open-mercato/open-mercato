@@ -37,4 +37,14 @@ export class Migration20260708163836_documents extends Migration {
     this.addSql(`create index "document_versions_scope_idx" on "document_versions" ("organization_id", "tenant_id");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`drop table if exists "document_versions" cascade;`);
+    this.addSql(`drop table if exists "document_shares" cascade;`);
+    this.addSql(`drop table if exists "document_folders" cascade;`);
+    this.addSql(`drop table if exists "document_contents" cascade;`);
+    this.addSql(`drop table if exists "document_comments" cascade;`);
+    this.addSql(`drop table if exists "document_attachments" cascade;`);
+    this.addSql(`drop table if exists "documents" cascade;`);
+  }
+
 }

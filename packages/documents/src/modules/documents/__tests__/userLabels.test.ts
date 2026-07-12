@@ -17,6 +17,8 @@ type FindUsersWithDecryption = (
   em: EntityManager,
   entityName: typeof User,
   where: FilterQuery<User>,
+  options: Record<string, never>,
+  scope: { tenantId: string; organizationId: string },
 ) => Promise<User[]>
 
 const findWithDecryptionMock = findWithDecryption as unknown as jest.MockedFunction<FindUsersWithDecryption>
@@ -64,7 +66,7 @@ describe('resolveUserLabels', () => {
       tenantId: TENANT_ID,
       deletedAt: null,
       $or: [{ organizationId: null }, { organizationId: ORGANIZATION_ID }],
-    })
+    }, {}, { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
   })
 
   it('returns an empty map without querying for empty input', async () => {
@@ -76,5 +78,29 @@ describe('resolveUserLabels', () => {
 
     expect(labels.size).toBe(0)
     expect(findWithDecryptionMock).not.toHaveBeenCalled()
+  })
+
+  it('never promotes UUID-bearing names or emails into user-visible labels', async () => {
+    findWithDecryptionMock.mockResolvedValue([
+      makeUser({
+        id: USER_ID_1,
+        name: `Agent ${USER_ID_1}`,
+        email: `${USER_ID_2}@example.test`,
+      }),
+      makeUser({
+        id: USER_ID_2,
+        name: `Agent ${USER_ID_1}`,
+        email: 'safe@example.test',
+      }),
+    ])
+
+    const labels = await resolveUserLabels(
+      mockEm,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      [USER_ID_1, USER_ID_2],
+    )
+
+    expect(labels.has(USER_ID_1)).toBe(false)
+    expect(labels.get(USER_ID_2)).toEqual({ label: 'safe@example.test', secondary: null })
   })
 })

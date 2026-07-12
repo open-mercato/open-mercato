@@ -1,9 +1,9 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   expectId,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {
@@ -176,16 +176,50 @@ test.describe('TC-DOCUMENTS-001: CRUD, folders, content, and optimistic lock', (
 
       const contentHtml = `<p>${title} body</p>`
       const contentText = `${title} body`
-      const putContentResponse = await apiRequest(
+      const initialContentResponse = await apiRequest(
         request,
-        'PUT',
+        'GET',
         `/api/documents/${encodeURIComponent(documentId)}/content`,
-        { token, data: { contentHtml, contentText } },
+        { token },
+      )
+      const initialContentBody = await readJsonSafe<ContentBody>(initialContentResponse)
+      const initialContentUpdatedAt = expectUpdatedAt(
+        initialContentBody?.updatedAt,
+        'initial content response should include updatedAt',
+      )
+      const putContentResponse = await request.fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/content`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            [OPTIMISTIC_LOCK_HEADER_NAME]: initialContentUpdatedAt,
+          },
+          data: { contentHtml, contentText },
+        },
       )
       const putContentBody = await readJsonSafe<ContentBody & { ok?: boolean }>(putContentResponse)
       expect(putContentResponse.status(), 'PUT /api/documents/[id]/content should return 200').toBe(200)
       expect(putContentBody?.ok).toBe(true)
-      expect(typeof putContentBody?.updatedAt).toBe('string')
+      const persistedContentUpdatedAt = expectUpdatedAt(
+        putContentBody?.updatedAt,
+        'content PUT should return updatedAt',
+      )
+
+      const staleContentResponse = await request.fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/content`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            [OPTIMISTIC_LOCK_HEADER_NAME]: initialContentUpdatedAt,
+          },
+          data: { contentHtml: '<p>Stale content overwrite</p>', contentText: 'Stale content overwrite' },
+        },
+      )
+      expect(staleContentResponse.status(), 'stale content PUT should return 409').toBe(409)
 
       const getContentResponse = await apiRequest(
         request,
@@ -197,6 +231,36 @@ test.describe('TC-DOCUMENTS-001: CRUD, folders, content, and optimistic lock', (
       expect(getContentResponse.status(), 'GET /api/documents/[id]/content should return 200').toBe(200)
       expect(getContentBody?.contentHtml).toBe(contentHtml)
       expect(getContentBody?.contentText).toBe(contentText)
+
+      const adversarialContentResponse = await request.fetch(
+        `/api/documents/${encodeURIComponent(documentId)}/content`,
+        {
+          method: 'PUT',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            [OPTIMISTIC_LOCK_HEADER_NAME]: persistedContentUpdatedAt,
+          },
+          data: {
+            contentHtml: `<meta http-equiv="refresh" content="0;url=https://attacker.example"><iframe src="https://attacker.example/frame"></iframe><p onclick="location='https://attacker.example/click'">${title} canonical<img src="https://attacker.example/tracker.png" onerror="alert(1)"></p><script>location='https://attacker.example/script'</script>`,
+            contentText: 'forged caller-controlled export text',
+          },
+        },
+      )
+      expect(adversarialContentResponse.status(), 'adversarial content PUT should be canonicalized').toBe(200)
+
+      const canonicalContentResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${encodeURIComponent(documentId)}/content`,
+        { token },
+      )
+      const canonicalContentBody = await readJsonSafe<ContentBody>(canonicalContentResponse)
+      expect(canonicalContentResponse.status(), 'canonical content GET should return 200').toBe(200)
+      expect(canonicalContentBody?.contentHtml).not.toMatch(/<(?:script|iframe|meta)\b/i)
+      expect(canonicalContentBody?.contentHtml).not.toMatch(/\bon(?:click|error)\s*=/i)
+      expect(canonicalContentBody?.contentText).toContain(`${title} canonical`)
+      expect(canonicalContentBody?.contentText).not.toBe('forged caller-controlled export text')
 
       const deleteResponse = await request.fetch(`/api/documents/${encodeURIComponent(documentId)}`, {
         method: 'DELETE',

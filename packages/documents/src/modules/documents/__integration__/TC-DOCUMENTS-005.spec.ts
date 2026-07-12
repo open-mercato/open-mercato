@@ -1,17 +1,17 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createRoleFixture,
   createUserFixture,
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   expectId,
   getTokenContext,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {
@@ -74,7 +74,7 @@ type DocumentsTestUser = {
   token: string
 }
 
-const DOCUMENTS_USER_FEATURES = ['documents.view', 'documents.edit']
+const DOCUMENTS_USER_FEATURES = ['documents.view', 'documents.edit', 'documents.share']
 const DOCUMENTS_VIEW_FEATURES = ['documents.view']
 const BASE_URL = process.env.BASE_URL?.trim() || null
 
@@ -274,6 +274,8 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
     let commenter: DocumentsTestUser | null = null
     let viewer: DocumentsTestUser | null = null
     let mentionTarget: DocumentsTestUser | null = null
+    let managerWithoutShare: DocumentsTestUser | null = null
+    let managerMentionTarget: DocumentsTestUser | null = null
     let documentId: string | null = null
     let documentUpdatedAt: string | null = null
 
@@ -287,6 +289,18 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       commenter = await createDocumentsUser(request, adminToken, 'commenter', DOCUMENTS_USER_FEATURES)
       viewer = await createDocumentsUser(request, adminToken, 'viewer', DOCUMENTS_VIEW_FEATURES)
       mentionTarget = await createDocumentsUser(request, adminToken, 'mention-target', DOCUMENTS_VIEW_FEATURES)
+      managerWithoutShare = await createDocumentsUser(
+        request,
+        adminToken,
+        'manager-without-share',
+        ['documents.view', 'documents.edit', 'documents.manage'],
+      )
+      managerMentionTarget = await createDocumentsUser(
+        request,
+        adminToken,
+        'manager-mention-target',
+        DOCUMENTS_VIEW_FEATURES,
+      )
 
       await shareWithUser(request, adminToken, documentId, commenter.id, 'commenter')
       await shareWithUser(request, adminToken, documentId, viewer.id, 'viewer')
@@ -347,7 +361,12 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         `/api/documents/${encodeURIComponent(documentId)}/comments`,
         {
           token: commenter.token,
-          data: { body: `ping @[${mentionTarget.id}]`, anchor: null, parentCommentId: null },
+          data: {
+            body: `ping @[${mentionTarget.id}]`,
+            anchor: null,
+            parentCommentId: null,
+            grantAccessTo: [mentionTarget.id],
+          },
         },
       )
       const mentionCommentBody = await readJsonSafe<MutationBody>(mentionCommentResponse)
@@ -363,7 +382,34 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       const skippedMentionItems = Array.isArray(skippedMentionNotificationsBody?.items)
         ? skippedMentionNotificationsBody.items
         : []
-      expect(skippedMentionItems.length, 'non-shared mentioned user should not receive a notification').toBe(0)
+      expect(
+        skippedMentionItems.length,
+        'a commenter with documents.share but without owner tier must not grant access',
+      ).toBe(0)
+      expect(
+        await checkMentionAccess(request, adminToken, documentId, [mentionTarget.id]),
+        'lower-tier documents.share must not satisfy the owner-tier side of canShare',
+      ).toContain(mentionTarget.id)
+
+      const managerGrantAttempt = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(documentId)}/comments`,
+        {
+          token: managerWithoutShare.token,
+          data: {
+            body: `manager ping @[${managerMentionTarget.id}]`,
+            anchor: null,
+            parentCommentId: null,
+            grantAccessTo: [managerMentionTarget.id],
+          },
+        },
+      )
+      expect(managerGrantAttempt.status(), 'manager should still be allowed to create the comment').toBe(201)
+      expect(
+        await checkMentionAccess(request, adminToken, documentId, [managerMentionTarget.id]),
+        'documents.manage must not substitute for the documents.share action feature',
+      ).toContain(managerMentionTarget.id)
 
       const grantMentionCommentResponse = await apiRequest(
         request,
@@ -514,6 +560,10 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       await deleteRoleIfExists(request, adminToken, viewer?.roleId ?? null)
       await deleteUserIfExists(request, adminToken, mentionTarget?.id ?? null)
       await deleteRoleIfExists(request, adminToken, mentionTarget?.roleId ?? null)
+      await deleteUserIfExists(request, adminToken, managerWithoutShare?.id ?? null)
+      await deleteRoleIfExists(request, adminToken, managerWithoutShare?.roleId ?? null)
+      await deleteUserIfExists(request, adminToken, managerMentionTarget?.id ?? null)
+      await deleteRoleIfExists(request, adminToken, managerMentionTarget?.roleId ?? null)
     }
   })
 })

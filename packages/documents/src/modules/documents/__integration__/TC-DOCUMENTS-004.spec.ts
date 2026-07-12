@@ -1,5 +1,5 @@
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
   createRoleFixture,
@@ -7,13 +7,13 @@ import {
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
   getTokenScope,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {
@@ -253,9 +253,7 @@ test.describe('TC-DOCUMENTS-004: tenant isolation and content search', () => {
       const contentBody = await readJsonSafe<MutationBody>(contentResponse)
       expect(contentResponse.status(), 'PUT /api/documents/[id]/content should return 200').toBe(200)
       expect(contentBody?.ok, 'content PUT should report ok=true').toBe(true)
-      if (typeof contentBody?.updatedAt === 'string' && contentBody.updatedAt.length > 0) {
-        documentUpdatedAt = contentBody.updatedAt
-      }
+      expectUpdatedAt(contentBody?.updatedAt, 'content PUT should return the content updatedAt token')
 
       await expect
         .poll(

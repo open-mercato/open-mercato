@@ -4,6 +4,11 @@
 // enforced through tenant/org scope plus per-document access control.
 import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 
-export const defaultEncryptionMaps: ModuleEncryptionMap[] = []
+export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
+  {
+    entityId: 'documents:document_entity_link',
+    fields: [{ field: 'label_snapshot' }],
+  },
+]
 
 export default defaultEncryptionMaps

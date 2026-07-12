@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
-import type { FilterQuery } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { z } from 'zod'
 import { getAuthFromRequest, type AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -13,14 +12,26 @@ import {
   type CrudMutationGuardValidationSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import {
   Document,
   DocumentContent,
   DocumentFolder,
   DocumentShare,
 } from '../data/entities'
+import {
+  deriveDocumentCapabilities,
+  type DocumentCapabilities,
+} from '../lib/capabilities'
+import {
+  resolveActiveSubjectRoleIds,
+  resolvePermission,
+  type DocumentTier,
+} from '../lib/permissions'
+import { hasResolvedDocumentsOrganizationAccess } from '../lib/organizationAccess'
+import { containsCanonicalUuid } from '../lib/displayLabels'
 
 export type DocumentsAuthContext = NonNullable<AuthContext> & {
   features: string[]
@@ -37,21 +48,6 @@ export type DocumentsRouteContext = {
   request: Request
 }
 
-export type SearchIndexerLike = {
-  indexRecordById: (params: {
-    entityId: string
-    recordId: string
-    tenantId: string
-    organizationId?: string | null
-  }) => Promise<unknown>
-  deleteRecord?: (params: {
-    entityId: string
-    recordId: string
-    tenantId: string
-    organizationId?: string | null
-  }) => Promise<unknown>
-}
-
 type RbacServiceLike = {
   loadAcl: (
     userId: string,
@@ -65,9 +61,88 @@ type RbacServiceLike = {
 
 export type MutationGuardResult = CrudMutationGuardValidationSuccess | null
 
+export type DocumentCapabilityProjection = {
+  relationshipTier: DocumentTier | null
+  capabilities: DocumentCapabilities
+}
+
 export const routeErrorSchema = z.object({ error: z.string() })
 
-export const okResponseSchema = z.object({ ok: z.boolean() })
+const actorUuidSchema = z.string().uuid()
+
+const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }> = {
+  Unauthorized: { key: 'api.errors.unauthorized', fallback: 'Unauthorized' },
+  Forbidden: { key: 'api.errors.forbidden', fallback: 'Forbidden' },
+  'Organization context is required': {
+    key: 'documents.errors.organizationRequired',
+    fallback: 'Organization context is required',
+  },
+  'Validation failed': { key: 'api.errors.invalidPayload', fallback: 'Invalid payload.' },
+  'Internal server error': { key: 'api.errors.internal', fallback: 'Internal server error' },
+  'Record changed by another user': {
+    key: 'documents.errors.recordChanged',
+    fallback: 'Record changed by another user',
+  },
+  'Document not found': { key: 'documents.documents.notFound', fallback: 'Document not found.' },
+  'Folder not found': { key: 'documents.folders.notFound', fallback: 'Folder not found.' },
+  'Share not found': { key: 'documents.share.notFound', fallback: 'Share not found.' },
+  'Comment not found': { key: 'documents.comments.notFound', fallback: 'Comment not found.' },
+  'Document comment limit reached': {
+    key: 'documents.comments.limitExceeded',
+    fallback: 'This document has reached its comment limit.',
+  },
+  'Document version history storage limit exceeded': {
+    key: 'documents.versions.quotaExceeded',
+    fallback: 'Version history could not retain this snapshot within the document storage limit.',
+  },
+  'Share principal not found in this organization': {
+    key: 'documents.share.principalNotFound',
+    fallback: 'Share principal not found in this organization',
+  },
+  'Private attachment partition is not configured': {
+    key: 'documents.attachments.partitionUnavailable',
+    fallback: 'Private attachment partition is not configured',
+  },
+  'Expected multipart/form-data': {
+    key: 'documents.attachments.multipartRequired',
+    fallback: 'Expected multipart/form-data',
+  },
+  'File is required': { key: 'documents.attachments.fileRequired', fallback: 'File is required' },
+  'Attachment exceeds the maximum upload size.': {
+    key: 'documents.attachments.tooLarge',
+    fallback: 'Attachment exceeds the maximum upload size.',
+  },
+  'Executable file types are not allowed as attachments.': {
+    key: 'documents.attachments.executableBlocked',
+    fallback: 'Executable file types are not allowed as attachments.',
+  },
+  'Active content uploads are not allowed.': {
+    key: 'documents.attachments.activeContentBlocked',
+    fallback: 'Active content uploads are not allowed.',
+  },
+  'Attachment storage quota exceeded for this tenant.': {
+    key: 'documents.attachments.quotaExceeded',
+    fallback: 'Attachment storage quota exceeded for this tenant.',
+  },
+  'Attachment not found': { key: 'documents.attachments.notFound', fallback: 'Attachment not found' },
+  'Partition misconfigured': {
+    key: 'documents.attachments.partitionMisconfigured',
+    fallback: 'Attachment partition is misconfigured',
+  },
+  'File not available': {
+    key: 'documents.attachments.fileUnavailable',
+    fallback: 'File not available',
+  },
+  'Unsupported format': { key: 'documents.export.unsupportedFormat', fallback: 'Unsupported format' },
+  'documents.export.runtimeUnavailable': {
+    key: 'documents.export.runtimeUnavailable',
+    fallback: 'PDF export is temporarily unavailable.',
+  },
+}
+
+const ROUTE_ERROR_KEY_FALLBACKS = Object.fromEntries(
+  Object.values(ROUTE_ERROR_TRANSLATIONS).map(({ key, fallback }) => [key, fallback]),
+) as Record<string, string>
 
 function normalizeStrings(values: unknown): string[] {
   if (!Array.isArray(values)) return []
@@ -80,44 +155,37 @@ function normalizeStrings(values: unknown): string[] {
   )
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
-}
-
 function resolveSelectedOrganization(
   auth: NonNullable<AuthContext>,
   scope: { selectedId?: string | null; filterIds?: string[] | null; allowedIds?: string[] | null; tenantId?: string | null } | null,
 ): string | null {
   const allowed = scope?.filterIds ?? scope?.allowedIds ?? (auth.orgId ? [auth.orgId] : null)
-  const organizationId = scope?.selectedId ?? auth.orgId ?? (Array.isArray(allowed) && allowed.length > 0 ? allowed[0] : null)
-  if (!organizationId) return null
-  if (Array.isArray(allowed) && allowed.length > 0 && !allowed.includes(organizationId)) return null
-  return organizationId
+  const candidates = [
+    scope?.selectedId ?? null,
+    auth.orgId ?? null,
+    Array.isArray(allowed) && allowed.length > 0 ? allowed[0] : null,
+  ]
+  for (const candidate of candidates) {
+    if (!candidate) continue
+    if (!Array.isArray(allowed) || allowed.includes(candidate)) return candidate
+  }
+  return null
 }
 
-async function resolveRoleIds(em: EntityManager, auth: NonNullable<AuthContext>): Promise<string[]> {
-  const explicitRoleIds = normalizeStrings((auth as { roleIds?: unknown }).roleIds)
-  const roleValues = normalizeStrings(auth.roles)
-  const uuidRoleValues = roleValues.filter(isUuid)
-  const roleNames = roleValues.filter((value) => !isUuid(value))
-  const initialIds = Array.from(new Set([...explicitRoleIds, ...uuidRoleValues]))
-  if (!roleNames.length || !auth.tenantId) return initialIds
-
-  const roles = await em.find(
-    Role,
-    {
-      tenantId: auth.tenantId,
-      deletedAt: null,
-      name: { $in: roleNames },
-    } as FilterQuery<Role>,
-    { fields: ['id'] as const },
-  )
-  return Array.from(new Set([...initialIds, ...roles.map((role) => String(role.id))]))
+function readAuthScopeId(auth: NonNullable<AuthContext>, key: 'actorTenantId' | 'actorOrgId'): string | null {
+  const value = auth[key]
+  if (typeof value === 'string' && value.trim().length > 0) return value.trim()
+  return null
 }
 
-function mergeFeatures(auth: NonNullable<AuthContext>, aclFeatures: string[], aclIsSuperAdmin: boolean): string[] {
-  if (auth.isSuperAdmin === true || aclIsSuperAdmin) return ['*']
-  return Array.from(new Set([...aclFeatures, ...normalizeStrings((auth as { features?: unknown }).features)]))
+function normalizeActorUuid(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const normalized = value.trim()
+  return actorUuidSchema.safeParse(normalized).success ? normalized : null
+}
+
+function isApiKeyAuth(auth: NonNullable<AuthContext>): boolean {
+  return auth.isApiKey === true || auth.sub.trim().startsWith('api_key:')
 }
 
 export function hasDocumentsFeature(auth: DocumentsAuthContext, feature: string): boolean {
@@ -130,6 +198,28 @@ export function hasAnyDocumentsFeature(auth: DocumentsAuthContext, features: str
   return features.some((feature) => hasAllFeatures([feature], auth.features))
 }
 
+export function deriveCapabilitiesForContext(
+  ctx: DocumentsRouteContext,
+  relationshipTier: DocumentTier | null,
+): DocumentCapabilities {
+  return deriveDocumentCapabilities({
+    relationshipTier,
+    managerOverride: hasDocumentsFeature(ctx.auth, 'documents.manage'),
+    userFeatures: ctx.auth.features,
+  })
+}
+
+export async function resolveDocumentCapabilityProjection(
+  ctx: DocumentsRouteContext,
+  documentId: string,
+): Promise<DocumentCapabilityProjection> {
+  const relationshipTier = await resolvePermission(ctx.em, documentId, ctx.auth)
+  return {
+    relationshipTier,
+    capabilities: deriveCapabilitiesForContext(ctx, relationshipTier),
+  }
+}
+
 export async function resolveDocumentsContext(
   request: Request,
   requiredFeatures: string[],
@@ -138,31 +228,63 @@ export async function resolveDocumentsContext(
   const em = container.resolve('em') as EntityManager
   const auth = await getAuthFromRequest(request)
   if (!auth || !auth.tenantId) {
-    throw new CrudHttpError(401, { error: 'Unauthorized' })
+    throw new CrudHttpError(401, { error: 'api.errors.unauthorized' })
   }
 
-  const scope = await resolveOrganizationScopeForRequest({ container, auth, request })
-  const tenantId = scope?.tenantId ?? auth.tenantId
-  const organizationId = resolveSelectedOrganization(auth, scope)
-  if (!tenantId || !organizationId) {
-    throw new CrudHttpError(400, { error: 'Organization context is required' })
-  }
-
+  const authenticatedActorUserId = resolveActorUserId(auth)
+  const actorTenantId = readAuthScopeId(auth, 'actorTenantId') ?? auth.tenantId
+  const actorOrganizationId = readAuthScopeId(auth, 'actorOrgId') ?? auth.orgId
   const rbacService = container.resolve('rbacService') as RbacServiceLike
-  const acl = await rbacService.loadAcl(auth.sub, { tenantId, organizationId })
-  const roleIds = await resolveRoleIds(em, auth)
-  const documentsAuth: DocumentsAuthContext = {
+  const actorAcl = await rbacService.loadAcl(auth.sub, {
+    tenantId: actorTenantId,
+    organizationId: actorOrganizationId,
+  })
+  // Organization scope resolution historically accepts the authenticated
+  // superadmin bit to support tenant/org switching. Replace that potentially
+  // stale token bit with the live RBAC decision before asking the shared scope
+  // resolver to expand parent grants into descendant organizations.
+  const scopeAuth = {
     ...auth,
+    // API-key authentication validates both keyId and any backing user. Keep
+    // the prefixed subject for ACL while projecting its UUID domain actor for
+    // ownership/share/audit helpers. An unbound key uses its own key UUID.
+    userId: authenticatedActorUserId,
+    isSuperAdmin: actorAcl.isSuperAdmin === true,
+  }
+  const scope = await resolveOrganizationScopeForRequest({ container, auth: scopeAuth, request })
+  const tenantId = scope?.tenantId ?? auth.tenantId
+  const organizationId = resolveSelectedOrganization(scopeAuth, scope)
+  if (!tenantId) {
+    throw new CrudHttpError(400, { error: 'documents.errors.organizationRequired' })
+  }
+  if (!organizationId) {
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+  }
+
+  const acl = await rbacService.loadAcl(auth.sub, { tenantId, organizationId })
+  if (!hasResolvedDocumentsOrganizationAccess(acl, organizationId, scope)) {
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+  }
+  const roleIds = await resolveActiveSubjectRoleIds(
+    em,
+    { tenantId, organizationId },
+    auth.sub,
+  )
+  const documentsAuth: DocumentsAuthContext = {
+    ...scopeAuth,
     tenantId,
     orgId: organizationId,
     organizationId,
     roleIds,
-    features: mergeFeatures(auth, acl.features, acl.isSuperAdmin),
-    isSuperAdmin: auth.isSuperAdmin === true || acl.isSuperAdmin,
+    // JWT/trusted-request claims are only authentication hints. The current
+    // RBAC projection is authoritative for features and superadmin status so
+    // a revoked grant cannot survive in a long-lived token.
+    features: acl.isSuperAdmin === true ? ['*'] : normalizeStrings(acl.features),
+    isSuperAdmin: acl.isSuperAdmin === true,
   }
 
   if (!hasAnyDocumentsFeature(documentsAuth, requiredFeatures)) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
   }
 
   return {
@@ -175,53 +297,90 @@ export async function resolveDocumentsContext(
   }
 }
 
-export function resolveActorUserId(auth: DocumentsAuthContext): string {
-  if (typeof auth.userId === 'string' && auth.userId.trim().length > 0) return auth.userId
-  if (typeof auth.sub === 'string' && auth.sub.trim().length > 0 && !auth.sub.startsWith('api_key:')) return auth.sub
-  throw new CrudHttpError(403, { error: 'Forbidden' })
+export function resolveActorUserId(auth: NonNullable<AuthContext>): string {
+  const subject = auth.sub.trim()
+  if (isApiKeyAuth(auth)) {
+    // `keyId` is populated only by successful API-key authentication. Do not
+    // recover an actor by parsing an arbitrary prefixed subject when that
+    // validated field is absent, malformed, or disagrees with the subject.
+    const keyId = normalizeActorUuid(auth.keyId)
+    if (!keyId || subject !== `api_key:${keyId}`) {
+      throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+    }
+    if (auth.userId === undefined || auth.userId === null) return keyId
+    const backingUserId = normalizeActorUuid(auth.userId)
+    if (backingUserId) return backingUserId
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+  }
+
+  const actorUserId = normalizeActorUuid(subject)
+  const claimedUserId = auth.userId === undefined || auth.userId === null
+    ? actorUserId
+    : normalizeActorUuid(auth.userId)
+  if (actorUserId && claimedUserId === actorUserId) return actorUserId
+  throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
 }
 
 export async function readBody(request: Request): Promise<Record<string, unknown>> {
   return (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
 }
 
-export function handleDocumentsRouteError(error: unknown, label: string): Response {
+async function localizeRouteErrorBody(body: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const rawError = typeof body.error === 'string' ? body.error : null
+  if (!rawError) return body
+
+  if (containsCanonicalUuid(rawError)) {
+    const { key, fallback } = ROUTE_ERROR_TRANSLATIONS['Internal server error']!
+    try {
+      const { translate } = await resolveTranslations()
+      return { ...body, error: translate(key, fallback) }
+    } catch {
+      return { ...body, error: fallback }
+    }
+  }
+
+  const literal = ROUTE_ERROR_TRANSLATIONS[rawError]
+  const key = literal?.key ?? rawError
+  const fallback = literal?.fallback ?? ROUTE_ERROR_KEY_FALLBACKS[key]
+  if (!key.startsWith('documents.') && !key.startsWith('api.')) return body
+
+  try {
+    const { translate } = await resolveTranslations()
+    return { ...body, error: translate(key, fallback) }
+  } catch {
+    return { ...body, error: fallback ?? key }
+  }
+}
+
+export async function handleDocumentsRouteError(error: unknown, label: string): Promise<Response> {
   if (isCrudHttpError(error)) {
-    return NextResponse.json(error.body, { status: error.status })
+    const body = error.body && typeof error.body === 'object' && !Array.isArray(error.body)
+      ? error.body as Record<string, unknown>
+      : { error: 'api.errors.internal' }
+    return NextResponse.json(await localizeRouteErrorBody(body), { status: error.status })
   }
   if (error instanceof z.ZodError) {
-    return NextResponse.json({ error: 'Validation failed', details: error.issues }, { status: 400 })
+    return NextResponse.json(
+      await localizeRouteErrorBody({ error: 'api.errors.invalidPayload', details: error.issues }),
+      { status: 400 },
+    )
   }
   console.error(`[documents] ${label} failed`, error)
-  return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  return NextResponse.json(
+    await localizeRouteErrorBody({ error: 'api.errors.internal' }),
+    { status: 500 },
+  )
 }
 
 export async function loadScopedDocument(ctx: DocumentsRouteContext, id: string): Promise<Document> {
-  const document = await ctx.em.findOne(Document, {
+  const document = await findOneWithDecryption(ctx.em, Document, {
     id,
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     deletedAt: null,
-  })
-  if (!document) throw new CrudHttpError(404, { error: 'Document not found' })
+  }, undefined, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  if (!document) throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
   return document
-}
-
-export async function loadScopedFolder(ctx: DocumentsRouteContext, id: string): Promise<DocumentFolder> {
-  const folder = await ctx.em.findOne(DocumentFolder, {
-    id,
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    deletedAt: null,
-  })
-  if (!folder) throw new CrudHttpError(404, { error: 'Folder not found' })
-  return folder
-}
-
-export async function assertFolderWritable(ctx: DocumentsRouteContext, folder: DocumentFolder): Promise<void> {
-  const userId = resolveActorUserId(ctx.auth)
-  if (folder.ownerUserId === userId || hasDocumentsFeature(ctx.auth, 'documents.manage')) return
-  throw new CrudHttpError(403, { error: 'Forbidden' })
 }
 
 export async function loadScopedShare(
@@ -229,14 +388,14 @@ export async function loadScopedShare(
   documentId: string,
   shareId: string,
 ): Promise<DocumentShare> {
-  const share = await ctx.em.findOne(DocumentShare, {
+  const share = await findOneWithDecryption(ctx.em, DocumentShare, {
     id: shareId,
     documentId,
     tenantId: ctx.tenantId,
     organizationId: ctx.organizationId,
     deletedAt: null,
-  })
-  if (!share) throw new CrudHttpError(404, { error: 'Share not found' })
+  }, undefined, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  if (!share) throw new CrudHttpError(404, { error: 'documents.share.notFound' })
   return share
 }
 
@@ -283,14 +442,6 @@ export function serializeShare(share: DocumentShare): Record<string, unknown> {
     createdAt: share.createdAt.toISOString(),
     updatedAt: share.updatedAt.toISOString(),
   }
-}
-
-export function resolveSearchIndexer(container: AwilixContainer): SearchIndexerLike {
-  const candidate = container.resolve('searchIndexer') as Partial<SearchIndexerLike> | null
-  if (!candidate || typeof candidate.indexRecordById !== 'function') {
-    throw new Error('[internal] searchIndexer is not available')
-  }
-  return candidate as SearchIndexerLike
 }
 
 export async function validateMutationGuard(

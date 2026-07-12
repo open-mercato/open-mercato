@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { assertTier } from '../../../lib/permissions'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   COLLAB_TOKEN_TTL_SECONDS,
-  mintCollabToken,
+  mintCollabTokenV2,
+  verifyCollabTokenV2,
 } from '../../../lib/collabToken'
+import { resolveUserLabels } from '../../../lib/userLabels'
+import { resolveCollaborationUserColor } from '../../../lib/collaborationAwareness'
 import {
   handleDocumentsRouteError,
   resolveActorUserId,
+  resolveDocumentCapabilityProjection,
   resolveDocumentsContext,
   routeErrorSchema,
 } from '../../_shared'
@@ -21,47 +26,19 @@ const collabTokenResponseSchema = z.object({
   token: z.string(),
   url: z.string().nullable(),
   documentId: z.string(),
-  tier: z.string(),
+  tier: z.enum(['owner', 'editor', 'commenter', 'viewer']),
   expiresInSec: z.number(),
+  expiresAt: z.string(),
+  userName: z.string(),
+  userColor: z.string(),
+  canEdit: z.boolean(),
+  readOnly: z.boolean(),
   user: z.object({
     id: z.string(),
     name: z.string(),
     color: z.string(),
   }),
 })
-
-function hashString(value: string): number {
-  let hash = 2166136261
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index)
-    hash = Math.imul(hash, 16777619)
-  }
-  return hash >>> 0
-}
-
-function channelToHex(value: number): string {
-  return Math.round(value).toString(16).padStart(2, '0')
-}
-
-function hslToHex(hue: number, saturationPercent: number, lightnessPercent: number): string {
-  const saturation = saturationPercent / 100
-  const lightness = lightnessPercent / 100
-  const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation
-  const intermediate = chroma * (1 - Math.abs(((hue / 60) % 2) - 1))
-  const match = lightness - chroma / 2
-  const [red, green, blue] =
-    hue < 60 ? [chroma, intermediate, 0]
-      : hue < 120 ? [intermediate, chroma, 0]
-        : hue < 180 ? [0, chroma, intermediate]
-          : hue < 240 ? [0, intermediate, chroma]
-            : hue < 300 ? [intermediate, 0, chroma]
-              : [chroma, 0, intermediate]
-  return `#${channelToHex((red + match) * 255)}${channelToHex((green + match) * 255)}${channelToHex((blue + match) * 255)}`
-}
-
-function resolveUserColor(userId: string): string {
-  return hslToHex(hashString(userId) % 360, 64, 42)
-}
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['documents.view'] },
@@ -72,29 +49,64 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const params = await context.params
     const id = params.id
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
-    const tier = await assertTier(ctx.em, id, ctx.auth, 'viewer')
+    // The collaboration sidecar currently reauthorizes the signed user
+    // identity and has no API-key subject with which to reload the key's
+    // restricted ACL/roles. Do not mint a token that would silently promote a
+    // bound key to its backing user's full collaboration access.
+    if (ctx.auth.isApiKey === true || ctx.auth.sub.startsWith('api_key:')) {
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    const projection = await resolveDocumentCapabilityProjection(ctx, id)
+    if (!projection.relationshipTier || !projection.capabilities.canView) {
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
     const userId = resolveActorUserId(ctx.auth)
-    const userName = typeof ctx.auth.email === 'string' && ctx.auth.email ? ctx.auth.email : userId
-    const token = mintCollabToken({
+    const [userLabels, translations] = await Promise.all([
+      resolveUserLabels(
+        ctx.em,
+        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        [userId],
+      ),
+      resolveTranslations(),
+    ])
+    const userName = userLabels.get(userId)?.label
+      ?? translations.translate('documents.users.unknown', 'Unknown user')
+    const userColor = resolveCollaborationUserColor(userId)
+    const readOnly = !projection.capabilities.canEdit
+    const token = mintCollabTokenV2({
       userId,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       documentId: id,
-      tier,
+      tier: projection.relationshipTier,
+      tokenVersion: 2,
+      readOnly,
     })
+    const verifiedToken = verifyCollabTokenV2(token)
+    if (!verifiedToken) {
+      throw new Error('[internal] Failed to verify a freshly minted collaboration token')
+    }
 
-    return NextResponse.json({
-      token,
-      url: process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? null,
-      documentId: id,
-      tier,
-      expiresInSec: COLLAB_TOKEN_TTL_SECONDS,
-      user: {
-        id: userId,
-        name: userName,
-        color: resolveUserColor(userId),
+    return NextResponse.json(
+      {
+        token,
+        url: process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? null,
+        documentId: id,
+        tier: projection.relationshipTier,
+        expiresInSec: COLLAB_TOKEN_TTL_SECONDS,
+        expiresAt: new Date(verifiedToken.exp * 1000).toISOString(),
+        userName,
+        userColor,
+        canEdit: projection.capabilities.canEdit,
+        readOnly,
+        user: {
+          id: userId,
+          name: userName,
+          color: userColor,
+        },
       },
-    })
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.collabToken.get')
   }

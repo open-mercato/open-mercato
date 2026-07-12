@@ -2,11 +2,12 @@ import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { sanitizeDocumentsDisplayLabel } from './displayLabels'
 
 export type UserLabel = { label: string; secondary?: string | null }
 
 function cleanString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+  return sanitizeDocumentsDisplayLabel(value)
 }
 
 export async function resolveUserLabels(
@@ -25,7 +26,7 @@ export async function resolveUserLabels(
     tenantId: scope.tenantId,
     deletedAt: null,
     $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
-  } as FilterQuery<User>)
+  } as FilterQuery<User>, {}, scope)
 
   for (const user of users) {
     const name = cleanString(user.name)

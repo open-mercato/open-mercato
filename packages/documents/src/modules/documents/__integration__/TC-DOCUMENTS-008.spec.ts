@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, type APIRequestContext, test } from '@playwright/test'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import {
   createOrganizationFixture,
   createRoleFixture,
@@ -8,14 +8,14 @@ import {
   deleteRoleIfExists,
   deleteUserIfExists,
   setRoleAclFeatures,
-} from '@open-mercato/core/modules/core/__integration__/helpers/authFixtures'
+} from '@open-mercato/core/helpers/integration/authFixtures'
 import {
   deleteGeneralEntityIfExists,
   expectId,
   getTokenContext,
   getTokenScope,
   readJsonSafe,
-} from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
+} from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 
 export const integrationMeta = {
@@ -456,11 +456,14 @@ test.describe('TC-DOCUMENTS-008: templates and chips', () => {
       expect(storedHtml).toContain('data-entity-ref')
       expect(storedHtml).toContain('data-entity-type="customer-person"')
       expect(storedHtml).toContain(`data-entity-id="${entityId}"`)
-      expect(storedHtml).toContain('data-label="Ada &amp; &lt;Lovelace&gt;&quot;"')
+      // The canonical TipTap serializer keeps angle brackets literal inside a
+      // quoted attribute while escaping the quote delimiter. Assert the
+      // canonical form rather than the caller's pre-materialization encoding.
+      expect(storedHtml).toContain('data-label="Ada &amp; <Lovelace>&quot;"')
       expect(storedHtml).toContain(`data-href="/backend/customers/people/${entityId}"`)
       expect(storedHtml).toContain('class="om-entity-ref"')
-      expect(storedHtml).toContain('Ada &amp; &lt;Lovelace&gt;&quot;')
-      expect(storedHtml).toContain('style="text-align: center"')
+      expect(storedHtml).toContain('Ada &amp; &lt;Lovelace&gt;"')
+      expect(storedHtml).toContain('style="text-align: center;"')
       expect(storedHtml).toContain('<mark>Centered mark</mark>')
       expect(storedHtml).not.toContain('{{')
 

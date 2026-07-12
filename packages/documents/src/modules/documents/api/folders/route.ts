@@ -2,15 +2,16 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { DocumentFolder } from '../../data/entities'
 import { documentFolderCreateSchema, documentFolderUpdateSchema } from '../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
 import {
-  assertFolderWritable,
+  getVisibleFolders,
+  type FolderVisibility,
+  type VisibleFolderRow,
+} from '../../lib/visibility'
+import {
   handleDocumentsRouteError,
-  loadScopedFolder,
+  hasDocumentsFeature,
   readBody,
   resolveActorUserId,
   resolveDocumentsContext,
@@ -19,6 +20,16 @@ import {
   serializeFolder,
   validateMutationGuard,
 } from '../_shared'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../_commands'
+import type {
+  FolderCreateCommandInput,
+  FolderDeleteCommandInput,
+  FolderUpdateCommandInput,
+} from '../../commands/folders'
 
 const folderDeleteSchema = z.object({
   id: z.string().uuid(),
@@ -27,6 +38,8 @@ const folderDeleteSchema = z.object({
 type FolderNode = Record<string, unknown> & {
   id: string
   parentFolderId: string | null
+  canEdit: boolean
+  visibility: FolderVisibility
   children: FolderNode[]
 }
 
@@ -38,6 +51,8 @@ const folderNodeSchema: z.ZodType<FolderNode> = z.lazy(() =>
     ownerUserId: z.string().uuid(),
     createdAt: z.string(),
     updatedAt: z.string(),
+    canEdit: z.boolean(),
+    visibility: z.enum(['owned', 'contains-visible', 'ancestor']),
     children: z.array(folderNodeSchema),
   }),
 )
@@ -65,14 +80,16 @@ export const metadata = {
   DELETE: { requireAuth: true, requireFeatures: ['documents.edit'] },
 }
 
-function buildFolderTree(folders: DocumentFolder[]): FolderNode[] {
+function buildFolderTree(visibleFolders: VisibleFolderRow[]): FolderNode[] {
   const nodes = new Map<string, FolderNode>()
   const roots: FolderNode[] = []
-  for (const folder of folders) {
+  for (const { folder, canEdit, visibility } of visibleFolders) {
     nodes.set(folder.id, {
       ...serializeFolder(folder),
       id: folder.id,
       parentFolderId: folder.parentFolderId ?? null,
+      canEdit,
+      visibility,
       children: [],
     })
   }
@@ -86,32 +103,22 @@ function buildFolderTree(folders: DocumentFolder[]): FolderNode[] {
   return roots
 }
 
-async function assertParentFolder(
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-  parentFolderId: string | null | undefined,
-  currentFolderId?: string,
-): Promise<void> {
-  if (!parentFolderId) return
-  if (currentFolderId && parentFolderId === currentFolderId) {
-    throw new CrudHttpError(400, { error: 'Folder cannot be its own parent' })
-  }
-  const parent = await loadScopedFolder(ctx, parentFolderId)
-  await assertFolderWritable(ctx, parent)
-}
-
 export async function GET(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
-    const folders = await ctx.em.find(
-      DocumentFolder,
-      {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        deletedAt: null,
-      },
-      { orderBy: { name: 'ASC' } },
-    )
-    return NextResponse.json({ items: buildFolderTree(folders), total: folders.length })
+    const visibleFolders = await getVisibleFolders({
+      em: ctx.em,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      userId: resolveActorUserId(ctx.auth),
+      roleIds: ctx.auth.roleIds,
+      managerOverride: hasDocumentsFeature(ctx.auth, 'documents.manage'),
+      canEditAction: hasDocumentsFeature(ctx.auth, 'documents.edit'),
+    })
+    return NextResponse.json({
+      items: buildFolderTree(visibleFolders),
+      total: visibleFolders.length,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.folders.list')
   }
@@ -127,25 +134,30 @@ export async function POST(request: Request): Promise<Response> {
       operation: 'create',
       mutationPayload: input,
     })
-    await assertParentFolder(ctx, input.parentFolderId ?? null)
-
-    const folder = ctx.em.create(DocumentFolder, {
-      id: randomUUID(),
+    const commandInput: FolderCreateCommandInput = {
+      ...input,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      name: input.name,
-      parentFolderId: input.parentFolderId ?? null,
-      ownerUserId: resolveActorUserId(ctx.auth),
+      folderId: randomUUID(),
+    }
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      FolderCreateCommandInput,
+      { id: string; updatedAt: string }
+    >('documents.folder.create', {
+      input: commandInput,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
     })
-    ctx.em.persist(folder)
-    await ctx.em.flush()
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
       resourceId: 'new',
       operation: 'create',
     })
 
-    return NextResponse.json({ id: folder.id, updatedAt: folder.updatedAt.toISOString() }, { status: 201 })
+    const response = NextResponse.json({ id: result.id, updatedAt: result.updatedAt }, { status: 201 })
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
+      resourceId: result.id,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.folders.create')
   }
@@ -155,35 +167,35 @@ export async function PUT(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     const input = documentFolderUpdateSchema.parse(await readBody(request))
-    const folder = await loadScopedFolder(ctx, input.id)
-    await assertFolderWritable(ctx, folder)
-    enforceCommandOptimisticLock({
-      resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
-      current: folder.updatedAt,
-      request,
-    })
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
+      resourceId: input.id,
       operation: 'update',
       mutationPayload: input,
     })
-    await assertParentFolder(ctx, input.parentFolderId ?? null, folder.id)
-
-    if (input.name !== undefined) folder.name = input.name
-    if (Object.prototype.hasOwnProperty.call(input, 'parentFolderId')) {
-      folder.parentFolderId = input.parentFolderId ?? null
+    const commandInput: FolderUpdateCommandInput = {
+      ...input,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
     }
-    folder.updatedAt = new Date()
-    await ctx.em.flush()
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      FolderUpdateCommandInput,
+      { id: string; updatedAt: string }
+    >('documents.folder.update', {
+      input: commandInput,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
+    })
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
+      resourceId: input.id,
       operation: 'update',
     })
 
-    return NextResponse.json({ id: folder.id, updatedAt: folder.updatedAt.toISOString() })
+    const response = NextResponse.json({ id: result.id, updatedAt: result.updatedAt })
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
+      resourceId: result.id,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.folders.update')
   }
@@ -193,31 +205,34 @@ export async function DELETE(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     const input = folderDeleteSchema.parse(await readBody(request))
-    const folder = await loadScopedFolder(ctx, input.id)
-    await assertFolderWritable(ctx, folder)
-    enforceCommandOptimisticLock({
-      resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
-      current: folder.updatedAt,
-      request,
-    })
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
+      resourceId: input.id,
       operation: 'delete',
     })
-
-    const now = new Date()
-    folder.deletedAt = now
-    folder.updatedAt = now
-    await ctx.em.flush()
+    const commandInput: FolderDeleteCommandInput = {
+      id: input.id,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    }
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      FolderDeleteCommandInput,
+      { id: string; updatedAt: string }
+    >('documents.folder.delete', {
+      input: commandInput,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
+    })
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
-      resourceId: folder.id,
+      resourceId: input.id,
       operation: 'delete',
     })
 
-    return NextResponse.json({ ok: true, id: folder.id, updatedAt: folder.updatedAt.toISOString() })
+    const response = NextResponse.json({ ok: true, id: result.id, updatedAt: result.updatedAt })
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
+      resourceId: result.id,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.folders.delete')
   }
@@ -245,7 +260,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Update document folder',
       requestBody: { contentType: 'application/json', schema: documentFolderUpdateSchema },
       responses: [{ status: 200, description: 'Folder updated', schema: mutationResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 400, description: 'Invalid folder hierarchy', schema: routeErrorSchema },
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+      ],
     },
     DELETE: {
       summary: 'Delete document folder',

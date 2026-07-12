@@ -2,28 +2,41 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentVersion } from '../../../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
-import { emitDocumentsEvent } from '../../../events'
+import { DOCUMENTS_VERSION_LIST_PAGE_SIZE } from '../../../lib/historyLimits'
 import { assertTier } from '../../../lib/permissions'
-import { loadDocumentContent } from '../../../lib/contentService'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import {
   handleDocumentsRouteError,
   readBody,
-  resolveActorUserId,
   resolveDocumentsContext,
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
 } from '../../_shared'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../../_commands'
+import type { CreateVersionCommandInput } from '../../../commands/versions'
+import { documentVersionLabelSchema } from '../../../data/validators'
+import { sanitizeDocumentVersionLabel } from '../../../lib/versionLabels'
 
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
 
-const versionCreateSchema = z.object({
-  label: z.string().trim().max(256).optional().nullable(),
+export const versionCreateSchema = z.object({
+  label: documentVersionLabelSchema,
+})
+
+export const versionListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(DOCUMENTS_VERSION_LIST_PAGE_SIZE)
+    .default(DOCUMENTS_VERSION_LIST_PAGE_SIZE),
 })
 
 const versionListItemSchema = z.object({
@@ -36,6 +49,10 @@ const versionListItemSchema = z.object({
 
 const versionListResponseSchema = z.object({
   items: z.array(versionListItemSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
 })
 
 const versionCreateResponseSchema = z.object({
@@ -58,7 +75,7 @@ async function resolveId(context: RouteContext): Promise<string> {
 function serializeVersion(version: DocumentVersion): z.infer<typeof versionCreateResponseSchema> {
   return {
     id: version.id,
-    label: version.label ?? null,
+    label: sanitizeDocumentVersionLabel(version.label),
     createdByUserId: version.createdByUserId,
     createdAt: version.createdAt.toISOString(),
   }
@@ -69,14 +86,23 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
-    const versions = await ctx.em.find(
+    const url = new URL(request.url)
+    const query = versionListQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
+    const [versions, total] = await findAndCountWithDecryption(
+      ctx.em,
       DocumentVersion,
       {
         documentId,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
       },
-      { orderBy: { createdAt: 'DESC' } },
+      {
+        fields: ['id', 'label', 'createdByUserId', 'createdAt'],
+        orderBy: { createdAt: 'DESC', id: 'ASC' },
+        limit: query.pageSize,
+        offset: (query.page - 1) * query.pageSize,
+      },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const labels = await resolveUserLabels(
       ctx.em,
@@ -89,6 +115,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         ...serializeVersion(version),
         createdByLabel: labels.get(version.createdByUserId)?.label ?? null,
       })),
+      page: query.page,
+      pageSize: query.pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / query.pageSize)),
     })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.versions.list')
@@ -107,30 +137,19 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       operation: 'create',
       mutationPayload: input,
     })
-    const content = await loadDocumentContent(ctx.em, documentId, {
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-    })
-    const userId = resolveActorUserId(ctx.auth)
-    const version = ctx.em.create(DocumentVersion, {
-      id: randomUUID(),
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
+    const commandInput: CreateVersionCommandInput = {
+      ...input,
       documentId,
-      label: input.label ?? null,
-      yjsSnapshot: content?.yjsState ? Buffer.from(content.yjsState) : Buffer.alloc(0),
-      contentHtml: content?.contentHtml ?? '',
-      createdByUserId: userId,
-    })
-    ctx.em.persist(version)
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.version.created', {
-      id: version.id,
-      documentId,
+      versionId: randomUUID(),
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId,
+    }
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      CreateVersionCommandInput,
+      z.infer<typeof versionCreateResponseSchema>
+    >('documents.version.create', {
+      input: commandInput,
+      ctx: buildDocumentsCommandRuntimeContext(ctx),
     })
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentVersion,
@@ -138,7 +157,16 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       operation: 'create',
     })
 
-    return NextResponse.json(serializeVersion(version), { status: 201 })
+    const response = NextResponse.json({
+      id: result.id,
+      label: sanitizeDocumentVersionLabel(result.label),
+      createdByUserId: result.createdByUserId,
+      createdAt: result.createdAt,
+    }, { status: 201 })
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentVersion,
+      resourceId: result.id,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.versions.create')
   }
@@ -151,6 +179,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List document versions',
+      query: versionListQuerySchema,
       responses: [{ status: 200, description: 'Document version metadata', schema: versionListResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
@@ -165,6 +194,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: routeErrorSchema },
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
+        { status: 413, description: 'Document content or version history exceeds its safe storage bound', schema: routeErrorSchema },
       ],
     },
   },

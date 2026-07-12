@@ -1,22 +1,32 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import type { FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
-import { resolveNotificationService } from '@open-mercato/core/modules/notifications/lib/notificationService'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { Document, DocumentComment, DocumentShare } from '../../../data/entities'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { DocumentComment } from '../../../data/entities'
 import { documentCommentCreateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
-import { emitDocumentsEvent } from '../../../events'
-import { assertTier, hasTier, resolveUserAccess } from '../../../lib/permissions'
-import { resolveUserLabels } from '../../../lib/userLabels'
 import {
-  hasDocumentsFeature,
+  DOCUMENTS_COMMENT_LIST_PAGE_SIZE,
+  DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT,
+} from '../../../lib/historyLimits'
+import { assertTier, hasTier } from '../../../lib/permissions'
+import { resolveUserLabels } from '../../../lib/userLabels'
+import type {
+  CommentCreateCommandInput,
+  CommentCreateCommandResult,
+  CommentResolveCommandInput,
+  CommentResolveCommandResult,
+} from '../../../commands/comments'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../../_commands'
+import {
   handleDocumentsRouteError,
-  loadScopedDocument,
   readBody,
   resolveActorUserId,
   resolveDocumentsContext,
@@ -41,12 +51,19 @@ type SerializedComment = {
   resolvedByUserId: string | null
   createdAt: string
   updatedAt: string
+  canResolve: boolean
   replies: SerializedComment[]
 }
 
 const commentResolveSchema = z.object({
   id: z.string().uuid(),
   resolved: z.boolean(),
+})
+
+export const commentListQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
+    .default(DOCUMENTS_COMMENT_LIST_PAGE_SIZE),
 })
 
 const commentMentionSchema = z.object({
@@ -71,6 +88,7 @@ const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
     resolvedByUserId: z.string().uuid().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
+    canResolve: z.boolean(),
     replies: z.array(commentNodeSchema),
   }),
 )
@@ -78,6 +96,12 @@ const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
 const commentListResponseSchema = z.object({
   items: z.array(commentNodeSchema),
   userLabels: z.record(z.string(), userLabelSchema),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().positive(),
+  total: z.number().int().nonnegative(),
+  totalPages: z.number().int().positive(),
+  totalComments: z.number().int().nonnegative(),
+  truncated: z.boolean(),
 })
 
 const commentCreateResponseSchema = z.object({
@@ -103,7 +127,7 @@ async function resolveId(context: RouteContext): Promise<string> {
   return params.id
 }
 
-function serializeComment(comment: DocumentComment): SerializedComment {
+function serializeComment(comment: DocumentComment, canResolve: boolean): SerializedComment {
   return {
     id: comment.id,
     documentId: comment.documentId,
@@ -116,14 +140,21 @@ function serializeComment(comment: DocumentComment): SerializedComment {
     resolvedByUserId: comment.resolvedByUserId ?? null,
     createdAt: comment.createdAt.toISOString(),
     updatedAt: comment.updatedAt.toISOString(),
+    canResolve,
     replies: [],
   }
 }
 
-function buildThreadedComments(comments: DocumentComment[]): SerializedComment[] {
+function buildThreadedComments(
+  comments: DocumentComment[],
+  options: { tier: Awaited<ReturnType<typeof assertTier>>; userId: string },
+): SerializedComment[] {
   const nodes = new Map<string, SerializedComment>()
   for (const comment of comments) {
-    nodes.set(comment.id, serializeComment(comment))
+    nodes.set(comment.id, serializeComment(
+      comment,
+      hasTier(options.tier, 'commenter') || comment.authorUserId === options.userId,
+    ))
   }
 
   const roots: SerializedComment[] = []
@@ -141,9 +172,27 @@ function buildThreadedComments(comments: DocumentComment[]): SerializedComment[]
   return roots
 }
 
+export function paginateNewestThreadRoots<T>(roots: T[], page: number, pageSize: number): T[] {
+  const end = Math.max(0, roots.length - ((page - 1) * pageSize))
+  const start = Math.max(0, end - pageSize)
+  return roots.slice(start, end)
+}
+
+function collectSerializedCommentIds(comments: SerializedComment[]): Set<string> {
+  const ids = new Set<string>()
+  const visit = (nodes: SerializedComment[]) => {
+    for (const comment of nodes) {
+      ids.add(comment.id)
+      visit(comment.replies)
+    }
+  }
+  visit(comments)
+  return ids
+}
+
 function extractMentionedUserIds(body: string): string[] {
   const mentionTokenPattern =
-    /@\[([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})\]/gi
+    /@\[([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\]/gi
   return Array.from(
     new Set(
       Array.from(body.matchAll(mentionTokenPattern))
@@ -172,128 +221,34 @@ function collectCommentLabelUserIds(comments: DocumentComment[]): string[] {
 }
 
 async function loadScopedComment(documentId: string, commentId: string, ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>): Promise<DocumentComment> {
-  const comment = await ctx.em.findOne(DocumentComment, {
-    id: commentId,
-    documentId,
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    deletedAt: null,
-  })
-  if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
-  return comment
-}
-
-async function assertParentComment(
-  documentId: string,
-  parentCommentId: string | null | undefined,
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-): Promise<void> {
-  if (!parentCommentId) return
-  await loadScopedComment(documentId, parentCommentId, ctx)
-}
-
-async function assertShareUserPrincipal(
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-  userId: string,
-): Promise<void> {
-  const user = await ctx.em.findOne(User, {
-    id: userId,
-    tenantId: ctx.tenantId,
-    deletedAt: null,
-    $or: [{ organizationId: null }, { organizationId: ctx.organizationId }],
-  } as FilterQuery<User>)
-  if (!user) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
-}
-
-async function grantMentionAccessToUser(
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-  documentId: string,
-  userId: string,
-  actorUserId: string,
-): Promise<DocumentShare> {
-  await assertShareUserPrincipal(ctx, userId)
-  const existing = await ctx.em.findOne(
-    DocumentShare,
+  const comment = await findOneWithDecryption(
+    ctx.em,
+    DocumentComment,
     {
+      id: commentId,
       documentId,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      principalType: 'user',
-      principalId: userId,
+      deletedAt: null,
     },
-    { orderBy: { updatedAt: 'DESC' } },
+    undefined,
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
   )
-  const now = new Date()
-  const share = existing ?? ctx.em.create(DocumentShare, {
-    id: randomUUID(),
-    tenantId: ctx.tenantId,
-    organizationId: ctx.organizationId,
-    documentId,
-    principalType: 'user',
-    principalId: userId,
-    permission: 'commenter',
-    createdByUserId: actorUserId,
-  })
-  share.permission = 'commenter'
-  share.deletedAt = null
-  share.updatedAt = now
-  if (!existing) ctx.em.persist(share)
-  await ctx.em.flush()
-  return share
-}
-
-async function emitMentionNotifications(
-  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
-  document: Document,
-  comment: DocumentComment,
-  mentionedUserIds: string[],
-): Promise<void> {
-  if (!mentionedUserIds.length) return
-  const notificationService = resolveNotificationService(ctx.container)
-  const linkHref = `/backend/documents/${encodeURIComponent(document.id)}?commentId=${encodeURIComponent(comment.id)}`
-
-  for (const recipientUserId of mentionedUserIds) {
-    await emitDocumentsEvent('documents.comment.mentioned', {
-      id: comment.id,
-      documentId: document.id,
-      mentionedUserId: recipientUserId,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId: comment.authorUserId,
-    })
-    await notificationService.create(
-      {
-        recipientUserId,
-        type: 'documents.comment.mentioned',
-        titleKey: 'documents.notifications.comment.mentioned.title',
-        bodyKey: 'documents.notifications.comment.mentioned.body',
-        severity: 'info',
-        titleVariables: {
-          documentTitle: document.title,
-        },
-        bodyVariables: {
-          documentTitle: document.title,
-          authorUserId: comment.authorUserId,
-        },
-        sourceEntityType: DOCUMENTS_ENTITY_IDS.documentComment,
-        sourceEntityId: comment.id,
-        linkHref,
-      },
-      {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-      },
-    )
-  }
+  if (!comment) throw new CrudHttpError(404, { error: 'Comment not found' })
+  return comment
 }
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
+    const tier = await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
+    const userId = resolveActorUserId(ctx.auth)
+    const url = new URL(request.url)
+    const query = commentListQuerySchema.parse(Object.fromEntries(url.searchParams.entries()))
 
-    const comments = await ctx.em.find(
+    const loadedComments = await findWithDecryption(
+      ctx.em,
       DocumentComment,
       {
         documentId,
@@ -301,17 +256,32 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         organizationId: ctx.organizationId,
         deletedAt: null,
       },
-      { orderBy: { createdAt: 'ASC' } },
+      {
+        orderBy: { createdAt: 'DESC', id: 'DESC' },
+        limit: DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT + 1,
+      },
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
+    const truncated = loadedComments.length > DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT
+    const comments = loadedComments.slice(0, DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT).reverse()
+    const roots = buildThreadedComments(comments, { tier, userId })
+    const items = paginateNewestThreadRoots(roots, query.page, query.pageSize)
+    const visibleCommentIds = collectSerializedCommentIds(items)
     const userLabels = await resolveUserLabels(
       ctx.em,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      collectCommentLabelUserIds(comments),
+      collectCommentLabelUserIds(comments.filter((comment) => visibleCommentIds.has(comment.id))),
     )
 
     return NextResponse.json({
-      items: buildThreadedComments(comments),
+      items,
       userLabels: Object.fromEntries(userLabels.entries()),
+      page: query.page,
+      pageSize: query.pageSize,
+      total: roots.length,
+      totalPages: Math.max(1, Math.ceil(roots.length / query.pageSize)),
+      totalComments: comments.length,
+      truncated,
     })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.list')
@@ -323,14 +293,8 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     await assertTier(ctx.em, documentId, ctx.auth, 'commenter')
-    const document = await loadScopedDocument(ctx, documentId)
     const input = documentCommentCreateSchema.parse(await readBody(request))
-    await assertParentComment(documentId, input.parentCommentId, ctx)
     const userId = resolveActorUserId(ctx.auth)
-    const mentionUserIds = dedupeUserIds([
-      ...(input.mentions ?? []).map((mention) => mention.userId),
-      ...extractMentionedUserIds(input.body),
-    ])
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: documentId,
@@ -338,74 +302,33 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       mutationPayload: input,
     })
 
-    const comment = ctx.em.create(DocumentComment, {
-      id: randomUUID(),
+    const commandInput: CommentCreateCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       documentId,
-      parentCommentId: input.parentCommentId ?? null,
-      authorUserId: userId,
-      body: input.body,
-      anchor: input.anchor ?? null,
-      mentions: mentionUserIds.length > 0
-        ? mentionUserIds.map((mentionedUserId) => ({ userId: mentionedUserId }))
-        : null,
-    })
-    ctx.em.persist(comment)
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.comment.created', {
-      id: comment.id,
-      documentId,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      userId,
-    })
-    const canShare =
-      hasDocumentsFeature(ctx.auth, 'documents.share')
-      || hasDocumentsFeature(ctx.auth, 'documents.manage')
-      || document.ownerUserId === userId
-    const grantSet = new Set((input.grantAccessTo ?? []).map((id) => id.toLowerCase()))
-
-    for (const mentionedId of mentionUserIds) {
-      if (!grantSet.has(mentionedId) || !canShare) continue
-      const tier = await resolveUserAccess(
-        ctx.em,
-        documentId,
-        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-        mentionedId,
-      )
-      if (tier) continue
-      const share = await grantMentionAccessToUser(ctx, documentId, mentionedId, userId)
-      await emitDocumentsEvent('documents.document.shared', {
-        id: documentId,
-        shareId: share.id,
-        principalType: share.principalType,
-        principalId: share.principalId,
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId,
-        userId,
-      })
+      commentId: randomUUID(),
+      actorUserId: userId,
+      comment: input,
+      grantShares: dedupeUserIds(input.grantAccessTo ?? []).map((mentionedUserId) => ({
+        userId: mentionedUserId,
+        shareId: randomUUID(),
+      })),
     }
-
-    const notifyMentionedIds: string[] = []
-    for (const mentionedId of mentionUserIds) {
-      const tier = await resolveUserAccess(
-        ctx.em,
-        documentId,
-        { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-        mentionedId,
-      )
-      if (tier) notifyMentionedIds.push(mentionedId)
-    }
-    await emitMentionNotifications(ctx, document, comment, notifyMentionedIds)
+    const execution = await resolveDocumentsCommandBus(ctx).execute<CommentCreateCommandInput, CommentCreateCommandResult>(
+      'documents.comment.create',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: documentId,
       operation: 'create',
     })
 
-    return NextResponse.json({ id: comment.id, updatedAt: comment.updatedAt.toISOString() }, { status: 201 })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({ id: execution.result.id, updatedAt: execution.result.updatedAt }, { status: 201 }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentComment, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.create')
   }
@@ -436,32 +359,34 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       mutationPayload: input,
     })
 
-    const now = new Date()
-    comment.resolvedAt = input.resolved ? now : null
-    comment.resolvedByUserId = input.resolved ? userId : null
-    comment.updatedAt = now
-    await ctx.em.flush()
-
-    await emitDocumentsEvent('documents.comment.resolved', {
-      id: comment.id,
-      documentId,
-      resolved: input.resolved,
+    const commandInput: CommentResolveCommandInput = {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId,
-    })
+      documentId,
+      actorUserId: userId,
+      expectedUpdatedAt: comment.updatedAt.toISOString(),
+      comment: input,
+    }
+    const execution = await resolveDocumentsCommandBus(ctx).execute<CommentResolveCommandInput, CommentResolveCommandResult>(
+      'documents.comment.resolve',
+      { input: commandInput, ctx: buildDocumentsCommandRuntimeContext(ctx) },
+    )
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: comment.id,
       operation: 'update',
     })
 
-    return NextResponse.json({
-      id: comment.id,
-      resolvedAt: comment.resolvedAt ? comment.resolvedAt.toISOString() : null,
-      resolvedByUserId: comment.resolvedByUserId ?? null,
-      updatedAt: comment.updatedAt.toISOString(),
-    })
+    return attachDocumentsOperationMetadata(
+      NextResponse.json({
+        id: execution.result.id,
+        resolvedAt: execution.result.resolvedAt,
+        resolvedByUserId: execution.result.resolvedByUserId,
+        updatedAt: execution.result.updatedAt,
+      }),
+      execution.logEntry,
+      { resourceKind: DOCUMENTS_ENTITY_IDS.documentComment, resourceId: execution.result.id },
+    )
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.comments.resolve')
   }
@@ -474,6 +399,7 @@ export const openApi: OpenApiRouteDoc = {
   methods: {
     GET: {
       summary: 'List document comments',
+      query: commentListQuerySchema,
       responses: [{ status: 200, description: 'Threaded document comments', schema: commentListResponseSchema }],
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
@@ -489,6 +415,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: routeErrorSchema },
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
+        { status: 413, description: 'Document comment limit reached', schema: routeErrorSchema },
       ],
     },
     PATCH: {

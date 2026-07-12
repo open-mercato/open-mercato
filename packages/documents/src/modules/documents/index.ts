@@ -1,4 +1,5 @@
 import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+import './commands'
 
 export const metadata: ModuleInfo = {
   name: 'documents',
@@ -8,6 +9,7 @@ export const metadata: ModuleInfo = {
   author: 'Open Mercato',
   license: 'MIT',
   ejectable: true,
+  requires: ['attachments'],
 }
 
 export { features } from './acl'

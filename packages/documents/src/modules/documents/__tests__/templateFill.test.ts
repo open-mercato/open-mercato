@@ -1,4 +1,4 @@
-import { fillTemplateTokens, type TemplateFillSlot } from '../lib/templateFill'
+import { fillTemplateTokens, renderTemplateTokens, type TemplateFillSlot } from '../lib/templateFill'
 
 const DEAL_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -82,5 +82,22 @@ describe('fillTemplateTokens', () => {
     const now = new Date('2026-01-02T12:00:00.000Z')
 
     expect(fillTemplateTokens(html, [], { locale: 'en-US', now })).toBe('<p>1/2/2026</p>')
+  })
+
+  it('uses UTC for deterministic effective-date rendering across hosts', () => {
+    const now = new Date('2026-01-02T00:30:00+14:00')
+
+    expect(fillTemplateTokens('<p>{{date}}</p>', [], { locale: 'en-US', now })).toBe('<p>1/1/2026</p>')
+  })
+
+  it.each([
+    '<p>{{customer.name</p>',
+    '<p>customer.name}}</p>',
+    '<p>{{}}</p>',
+    '<p>{{customer.{{name}}</p>',
+  ])('reports malformed token syntax and never returns it as renderable HTML: %s', (bodyHtml) => {
+    const result = renderTemplateTokens(bodyHtml, [])
+    expect(result.unresolvedTokens).toContain('invalid-token-syntax')
+    expect(result.html).toBe('')
   })
 })
