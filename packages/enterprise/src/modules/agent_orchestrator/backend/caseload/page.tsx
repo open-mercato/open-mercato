@@ -363,6 +363,12 @@ export default function AgentCaseloadPage() {
   useAppEvent('agent_orchestrator.proposal.*', () => {
     coalescedReload()
   })
+  // A guardrail trip usually precedes proposal.created by seconds — subscribing
+  // keeps the row-level risk chips fresh and the broadcast flag honest
+  // (UX consistency pass, Area 1: the flag previously had zero listeners).
+  useAppEvent('agent_orchestrator.guardrail.tripped', () => {
+    coalescedReload()
+  })
 
   const decisionDetails = React.useMemo<Map<string, DecisionDetail>>(() => {
     const map = new Map<string, DecisionDetail>()

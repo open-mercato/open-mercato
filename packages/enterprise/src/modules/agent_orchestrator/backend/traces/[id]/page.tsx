@@ -11,8 +11,10 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useCoalescedReload } from '../../../components/useCoalescedReload'
 import {
   mapRunDetail,
   formatConfidence,
@@ -530,6 +532,8 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   const [detail, setDetail] = React.useState<RunDetailView | null>(null)
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
+  const loadedRunRef = React.useRef<string | null>(null)
   const [addingToEvals, setAddingToEvals] = React.useState(false)
   const [inEvalSet, setInEvalSet] = React.useState(false)
   const [flagging, setFlagging] = React.useState(false)
@@ -627,7 +631,10 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   React.useEffect(() => {
     let cancelled = false
     async function load() {
-      setIsLoading(true)
+      // Live-refresh reloads (same run already rendered) refetch silently —
+      // no loading flash while the operator is reading the trace.
+      const silent = loadedRunRef.current === runId
+      if (!silent) setIsLoading(true)
       setError(null)
       const call = await apiCall<Record<string, unknown>>(
         `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}`,
@@ -640,6 +647,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
         setIsLoading(false)
         return
       }
+      loadedRunRef.current = runId
       setDetail(mapRunDetail(call.result ?? {}))
       setIsLoading(false)
     }
@@ -647,7 +655,27 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
     return () => {
       cancelled = true
     }
-  }, [t, runId])
+  }, [t, runId, reloadToken])
+
+  // Live refresh: a "Running" trace updates when its run completes or its
+  // trace ingests (broadcast payloads carry the run id — filter client-side).
+  const coalescedDetailReload = useCoalescedReload(
+    React.useCallback(() => setReloadToken((token) => token + 1), []),
+  )
+  useAppEvent(
+    'agent_orchestrator.run.completed',
+    (event) => {
+      if (event.payload?.id === runId) coalescedDetailReload()
+    },
+    [runId],
+  )
+  useAppEvent(
+    'agent_orchestrator.run.ingested',
+    (event) => {
+      if (event.payload?.id === runId) coalescedDetailReload()
+    },
+    [runId],
+  )
 
   const timeline = React.useMemo(
     () => (detail ? buildTimeline(detail.spans, detail.run.latencyMs) : null),

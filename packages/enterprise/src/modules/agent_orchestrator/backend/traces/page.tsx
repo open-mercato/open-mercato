@@ -17,8 +17,10 @@ import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primit
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useCoalescedReload } from '../../components/useCoalescedReload'
 import { mapRun, mapOverviewMetrics, mapAgent, formatCostMinor, type RunView, type TracesKpiView } from '../../components/types'
 import { runStatusLabelKey } from '../../components/cockpitStatus'
 
@@ -198,6 +200,18 @@ export default function AgentTracesPage() {
     void load()
     return () => { cancelled = true }
   }, [t, window, facet, agentFilter, sortKey, page, pageSize, reloadToken])
+
+  // Live refresh: run completions and trace ingests refetch the current page
+  // (DOM Event Bridge, org-scoped server-side), coalesced so an event burst
+  // triggers at most one refetch per interval. The manual refresh button stays.
+  const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+  const coalescedReload = useCoalescedReload(reload)
+  useAppEvent('agent_orchestrator.run.completed', () => {
+    coalescedReload()
+  })
+  useAppEvent('agent_orchestrator.run.ingested', () => {
+    coalescedReload()
+  })
 
   // Page-scoped quick filter (server rows for the current page only).
   const pagedRows = React.useMemo(

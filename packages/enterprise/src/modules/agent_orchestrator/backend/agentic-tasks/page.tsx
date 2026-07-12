@@ -8,6 +8,8 @@ import { Plus, Bot, Workflow as WorkflowIcon, CalendarClock } from 'lucide-react
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { CrudForm, type CrudField, type CrudFieldOption } from '@open-mercato/ui/backend/CrudForm'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -21,8 +23,41 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useCoalescedReload } from '../../components/useCoalescedReload'
 
 const ENTITY_ID = 'agent_orchestrator:agent_task_definition'
+
+type TaskRunStatus = 'running' | 'completed' | 'failed'
+
+type TaskLastRun = { status: TaskRunStatus; finishedAt: string | null }
+
+const lastRunVariant: StatusMap<TaskRunStatus> = {
+  running: 'info',
+  completed: 'success',
+  failed: 'error',
+}
+
+/** Compact locale-neutral age ("5m" / "3h" / "2d") for the Last-run column. */
+function ageShortOf(iso: string | null): string | null {
+  if (!iso) return null
+  const parsed = Date.parse(iso)
+  if (!Number.isFinite(parsed)) return null
+  const ms = Math.max(0, Date.now() - parsed)
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  return `${Math.floor(hours / 24)}d`
+}
+
+function mapLastRun(raw: unknown): TaskLastRun | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const status = record.status
+  if (status !== 'running' && status !== 'completed' && status !== 'failed') return null
+  const finished = record.finished_at ?? record.finishedAt
+  return { status, finishedAt: typeof finished === 'string' ? finished : null }
+}
 
 type TaskRow = {
   id: string
@@ -38,6 +73,7 @@ type TaskRow = {
   scheduleTimezone: string | null
   scheduleEnabled: boolean
   enabled: boolean
+  lastRun: TaskLastRun | null
   updatedAt: string | null
 }
 
@@ -86,6 +122,7 @@ function mapRow(item: Record<string, unknown>): TaskRow | null {
     scheduleTimezone: readString(item, 'schedule_timezone', 'scheduleTimezone') || null,
     scheduleEnabled: (item.schedule_enabled ?? item.scheduleEnabled) !== false,
     enabled: (item.enabled ?? true) !== false,
+    lastRun: mapLastRun(item.last_run ?? item.lastRun),
     updatedAt: readString(item, 'updated_at', 'updatedAt') || null,
   }
 }
@@ -133,6 +170,16 @@ export default function AgenticTasksPage() {
   React.useEffect(() => {
     void load()
   }, [load])
+
+  // Live refresh: task runs starting/finishing update the Last-run column
+  // without a manual reload (silent — no loading flash), coalesced so an
+  // event burst triggers at most one refetch per interval.
+  const coalescedReload = useCoalescedReload(
+    React.useCallback(() => { void load({ silent: true }) }, [load]),
+  )
+  useAppEvent('agent_orchestrator.task_run.*', () => {
+    coalescedReload()
+  })
 
   React.useEffect(() => {
     let cancelled = false
@@ -320,6 +367,26 @@ export default function AgenticTasksPage() {
           ) : (
             <span className="text-xs text-muted-foreground">—</span>
           ),
+      },
+      {
+        accessorKey: 'lastRun',
+        header: t('agent_orchestrator.tasks.list.col.lastRun'),
+        enableSorting: false,
+        cell: ({ row }) => {
+          const lastRun = row.original.lastRun
+          if (!lastRun) {
+            return <span className="text-xs text-muted-foreground">{t('agent_orchestrator.tasks.list.lastRunNever')}</span>
+          }
+          const age = ageShortOf(lastRun.finishedAt)
+          return (
+            <span className="inline-flex items-center gap-1.5">
+              <StatusBadge variant={lastRunVariant[lastRun.status]}>
+                {t(`agent_orchestrator.tasks.runs.status.${lastRun.status}`)}
+              </StatusBadge>
+              {age ? <span className="text-xs tabular-nums text-muted-foreground">{age}</span> : null}
+            </span>
+          )
+        },
       },
       {
         accessorKey: 'enabled',
