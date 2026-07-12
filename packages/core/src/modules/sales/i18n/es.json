@@ -1220,6 +1220,7 @@
   "sales.orders.form.payments": "Pagos",
   "sales.orders.form.shipments": "Envíos",
   "sales.orders.lines.delete": "Eliminar línea de pedido",
+  "sales.orders.lines.price_locked_after_shipment": "Los precios unitarios no se pueden cambiar después de que se haya enviado una cantidad.",
   "sales.orders.lines.upsert": "Actualizar línea de pedido",
   "sales.orders.list.title": "Pedidos",
   "sales.orders.status_change.actor_api_key": "Clave API {name}",

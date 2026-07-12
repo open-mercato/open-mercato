@@ -1220,6 +1220,7 @@
   "sales.orders.form.payments": "Płatności",
   "sales.orders.form.shipments": "Wysyłki",
   "sales.orders.lines.delete": "Usuń pozycję zamówienia",
+  "sales.orders.lines.price_locked_after_shipment": "Ceny jednostkowe nie mogą zostać zmienione po wysłaniu części ilości.",
   "sales.orders.lines.upsert": "Zaktualizuj pozycję zamówienia",
   "sales.orders.list.title": "Zamówienia",
   "sales.orders.status_change.actor_api_key": "Klucz API {name}",

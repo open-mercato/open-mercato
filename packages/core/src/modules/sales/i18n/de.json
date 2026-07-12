@@ -1220,6 +1220,7 @@
   "sales.orders.form.payments": "Zahlungen",
   "sales.orders.form.shipments": "Sendungen",
   "sales.orders.lines.delete": "Bestellposition löschen",
+  "sales.orders.lines.price_locked_after_shipment": "Stückpreise können nicht geändert werden, nachdem eine Menge versandt wurde.",
   "sales.orders.lines.upsert": "Bestellposition aktualisieren",
   "sales.orders.list.title": "Aufträge",
   "sales.orders.status_change.actor_api_key": "API-Schlüssel {name}",
