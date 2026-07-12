@@ -22,6 +22,18 @@ into the implemented baseline, the roadmap (`next/`), and historical material (`
   at `packages/cli/src/lib/generators/extensions/agent-files.ts`, and examples in
   `apps/mercato/src/modules/agent_examples/`.
 - **House-style conventions** (still live): [`2026-06-19-agent-orchestrator-conventions.md`](./2026-06-19-agent-orchestrator-conventions.md).
+- **UX remediation (2026-07-12, pending implementation):** the 8-auditor UX audit
+  ([`.ai/analysis/2026-07-12-agent-orchestrator-ux-audit.md`](../../../analysis/2026-07-12-agent-orchestrator-ux-audit.md))
+  produced a five-spec fix plan coordinated by
+  [`2026-07-12-ux-remediation-plan.md`](./2026-07-12-ux-remediation-plan.md) (umbrella; locked Q1–Q8 decisions):
+  [P0 hotfixes](./2026-07-12-ux-p0-hotfixes.md) → [navigation](./2026-07-12-ux-navigation-pass.md) →
+  [data honesty](./2026-07-12-ux-data-honesty-pass.md) → [operator throughput](./2026-07-12-ux-caseload-operator-throughput.md) →
+  [consistency](./2026-07-12-ux-consistency-pass.md). **All five specs are implemented (2026-07-12)** —
+  23 commits total, per-spec hashes in the umbrella's scope table and each spec's changelog. Deploy notes:
+  one migration (`…20260712135724`, `completed_at` + backfill) and the optional `OM_AGENT_MODEL_PRICING`/
+  `OM_AGENT_COST_CURRENCY` env for cost estimates. Known follow-ups recorded in the specs: audit
+  operator-name resolution (needs a user-lookup surface), declared-facts replacement of `subjectRefOf`,
+  Traces eval-column server sort key, persisted autonomy (deployment-gating spec).
 
 ## `next/` — roadmap overlays (not yet built)
 
@@ -51,6 +63,7 @@ Suggested implementation order (dependencies first):
 | + | **Performance hardening (Phase 0+1)** — config/runbook track (async queue, worker fleet sizing, `OPENCODE_URL` compose fix) + small code track: dedicated `workflow-invoke-agent` queue (core, Ask First), in-process run timeout, bounded admission control in `agentRuntime.run`, composite indexes for operator-hot queries, `created_at DESC` default list ordering, rollup-backed Overview KPIs + server-side Caseload pagination, coalesced SSE refetch. Independent overlay; consumes the shipped metric rollups read-only. Derived from `.ai/analysis/2026-07-06-agent-orchestration-performance-analysis.md`. | [`2026-07-06-agent-orchestrator-performance-hardening.md`](./2026-07-06-agent-orchestrator-performance-hardening.md) | — |
 | + | **Lightweight scalable agent runtime (`native`) + UI-authored agents** — replaces OpenCode as the execution path for ALL agents (thin queue-native layer over the shipped in-process engine; per-run cost = one pending LLM promise), always-on per-step span capture into the shipped trace tables, per-provider LLM budgets with 429 backoff; then (bundled scope) `AgentDefinition`/`AgentDefinitionVersion` with workflow-style draft→published versioning, an org-scoped registry resolver, per-definition execution principals, and a backend builder UI. OpenCode decommissioned per the BC deprecation protocol (one-minor bridge). Phases 1–3 (runtime + migration) ship independently of Phases 4–5 (custom agents + UI). Supersedes the OpenCode-scaling items of the 2026-07-06 performance analysis (Phase 2 there). | [`2026-07-07-lightweight-agent-runtime.md`](./2026-07-07-lightweight-agent-runtime.md) | — |
 | 0 | **Workflows emit instance lifecycle events** (prerequisite, core, Ask First) — publish the already-declared `workflows.instance.*` events so external read-models can react to terminal/stage/assignment transitions. **Also required by Agentic Tasks' workflow-target completion subscriber.** | [`next/2026-06-26-workflows-emit-instance-lifecycle-events.md`](./next/2026-06-26-workflows-emit-instance-lifecycle-events.md) | — |
+| + | **Agent role taxonomy & decision pipeline** — first-class **Extractor / Decision / Executor** roles: a durable, cited `AgentFinding` store (extractor output as reusable TDCR context), a new **`decision`** `AgentResult` kind + human-dispositionable `AgentDecision` artifact with multi-signal autonomy, a **closed action catalog** (verb → param schema → command) superseding the freeform `actionCommandMap`, and extractor→decision→executor **pipelines on the workflows engine** (decision-outcome transitions, loop-backs, a negotiation `WAIT_FOR_SIGNAL` + inbound-reply→signal bridge, timer-race SLA). 4 independently-deployable phases; preserves propose-only. Phase 4 inbound emit-scope fix is core/webhooks **Ask First**. Feasibility grounded in the 2026-07-10 code investigation. | [`next/2026-07-10-agent-role-taxonomy-and-decision-pipeline.md`](./next/2026-07-10-agent-role-taxonomy-and-decision-pipeline.md) | — |
 
 Before implementing any overlay, run the spec-writing / pre-implement skills and reconcile the
 spec's assumptions against the shipped code (some specs predate the MVP-inversion and the

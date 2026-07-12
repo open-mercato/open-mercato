@@ -1,9 +1,9 @@
 # Agent Orchestrator `next/` — Implementation Trace
 
-> **Generated:** 2026-06-24 · **Branch:** `feat/agent-orchestrator-mvp` · **Method:** code-grounded audit of
+> **Generated:** 2026-06-24 · **Re-audited:** 2026-07-12 · **Branch:** `feat/agent-orchestrator-mvp` · **Method:** code-grounded audit of
 > `packages/enterprise/src/modules/agent_orchestrator/` (entities, `di.ts`, `lib/`, `api/`, `backend/`, `events.ts`,
-> migrations) cross-checked against each `next/` spec's signature entities/services/APIs.
-> **Authoritative source for "what shipped":** `2026-06-24-trace-eval-pr4b-and-followups.md` §1 (PR #3532).
+> migrations, workers) cross-checked against each `next/` spec's signature entities/services/APIs, plus the
+> module git history (Guardrails P1–P4, Context P1–P4, Identity P1–P4, performance hardening, F1 offload).
 
 ## Status legend
 
@@ -15,66 +15,78 @@
 
 | # | Spec | Status | Primary evidence (or absence) |
 |---|------|--------|-------------------------------|
-| 1 | `2026-06-19-agent-trace-eval-capture.md` | ✅ Implemented | `AgentSpan`/`AgentToolCall`/`AgentRunSession` entities; `lib/trace/{ingestAuth,traceIngestionService,correctionService}.ts`; `api/trace/ingest`, `api/runs/[id]`; `backend/traces/{page,[id]/page}.tsx`; events `run.ingested`/`run.evaluated`; migration `…20260623072052` |
-| 2 | `2026-06-20-agent-eval-harness-and-metrics.md` | ✅ Implemented | `AgentEvalCase`/`AgentEvalAssertion`/`AgentEvalResult`/`AgentCorrection` entities; `lib/eval/{scorers,evalRuntimeService,llmJudge,sampling,defaultAssertions}.ts`; `workers/llm-judge.ts`; `api/{corrections,eval-cases/[id]/approve,eval-cases/export,agents/[id]/metrics}`; events `proposal.corrected`/`eval_case.created`/`eval_case.approved`; migrations `…20260623153336`,`…20260623155649` |
-| 3 | `2026-06-19-agent-operations-ui.md` | 🟡 Partial | Operator caseload + engineer trace inspector + admin KPI tiles exist as **standalone `backend/` pages** (`overview`, `caseload`, `traces`, `agents`, `playground`), **not** as widget-injection overlays into `workflows` My-Tasks/dashboards/perspectives as specced. Guard-results panel missing (blocked on guardrails). Admin KPIs computed live (no rollups). |
-| 4 | `2026-06-24-trace-eval-pr4b-and-followups.md` | ⬜ Not started | This is the **deferred-work backlog** for #3532 (F1–F10). None of F1–F10 implemented: no `agent_metric_rollups` (F2), no S3 artifact offload (F1 — `outputArtifactKey`/`request|responseArtifactKey` columns exist but unpopulated), no partitioning (F3), no `encryption.ts` (F5), etc. |
-| 5 | `2026-06-19-agent-runtime-guardrails.md` | ⬜ Not started | No `AgentGuardrailCheck` entity, no `lib/guardrails`, no pre/post-call injection/PII/grounding gate. (F10 confirms the overlay is unbuilt.) |
-| 6 | `2026-06-19-agent-context-knowledge-plane.md` | ⬜ Not started | No `agent_context_bundles` table, no `lib/context`, no TDCR resolver, no attachment/OCR ingest. Agent input remains plain JSON. |
-| 7 | `2026-06-19-agent-identity-and-on-behalf-of.md` | ⬜ Not started | No `AgentIdentity`/on-behalf-of principal model. **Note:** `agent_run_sessions` (`AgentRunSession`) is the OpenCode per-run session-token correlation store in `openCodeAgentRunner.ts` — unrelated to this spec. |
-| 8 | `2026-06-19-agent-dispatch.md` | ⬜ Not started | No dispatch service, adapters, or A2A routing in `lib/`. |
-| 9 | `2026-06-19-agent-deployment-and-regression-gating.md` | ⬜ Not started | No shadow/canary/autonomy-ramp or eval-gated promotion. ("shadow" hits in code are incidental — seed copy + a sandbox comment.) Depends on #2 (now available). |
-| 10 | `2026-06-19-agent-decision-transparency-and-ai-act.md` | ⬜ Not started | No DSAR/erasure/explanation/contestability surfaces. Precursors only: `AgentCorrection` (audit trail) + anti-rubber-stamp KPI tiles on `backend/overview`. |
-| 11 | `2026-06-25-agent-process-subject-and-caseload-projection.md` | ⬜ Not started | No `agent_processes` projection entity, no `subject` reference on the `INVOKE_AGENT` boundary, no claim-anchored Processes list/detail backing. The cockpit's caseload (#3) keys off single proposals/runs, not a per-process indexed row. |
-| 12 | `2026-06-26-agent-attachments-and-artifacts.md` | ⬜ Not started | No `AgentRunArtifact` entity; no `lib/runtime/{agentWorkspaceManager,artifactCollector,attachmentStager}.ts`; OpenCode frontmatter still hard-denies `write/edit/bash` (`defineFileAgent.ts:257-261`) and inputs are text-only (`openCodeAgentRunner.ts:229-232`). Reuses Wave 0 **F1** (S3 artifact offload) + **F5** (`encryption.ts`). Distinct from #6's context-fact ingest: this is the OpenCode **sandbox file plane** (raw file staging + artifact authoring), not read-only context assembly. |
-| 13 | `../2026-07-03-agentic-tasks.md` | ⬜ Not started (newly specced) | No `AgentTaskDefinition`/`AgentTaskRun`/`AgentTaskEventTrigger` entities, no `agent-task-runs` queue/worker, no `backend/tasks` UI. **Prereqs largely met on this branch:** the identity overlay it reuses (`provisionAgentPrincipal` + `agentRuntime.run` `ctx.runAs` with fail-closed no-bypass) is **shipped** here (contra this matrix's stale #7 ⬜ — see note below); the `@open-mercato/scheduler` seam it reuses is already wired in `setup.ts`. **The one hard gap:** the workflow-target completion subscriber depends on `workflows.instance.completed/failed` being **emitted to the bus**, which they are **not** today (`workflow-executor.ts` sets `completedAt` but never calls `.emit(`) → blocked on prerequisite [`2026-06-26-workflows-emit-instance-lifecycle-events.md`]. |
+| 1 | `2026-06-19-agent-trace-eval-capture.md` | ✅ Implemented | `AgentSpan`/`AgentToolCall`/`AgentRunSession` entities; `lib/trace/{ingestAuth,traceIngestionService,correctionService,artifactStore}.ts`; `api/trace/ingest`, `api/runs/[id]`, `api/runs/[id]/artifact`; `backend/traces/{page,[id]/page}.tsx`; events `run.ingested`/`run.evaluated` |
+| 2 | `2026-06-20-agent-eval-harness-and-metrics.md` | ✅ Implemented | `AgentEvalCase`/`AgentEvalAssertion`/`AgentEvalResult`/`AgentCorrection`/`AgentMetricRollup` entities; `lib/eval/`, `lib/metrics/`; `workers/{llm-judge,metric-rollup}.ts`; `api/{corrections,eval-cases/*,eval-assertions,agents/[id]/metrics,metrics/overview}`; `backend/eval-assertions` page |
+| 3 | `2026-06-19-agent-operations-ui.md` | 🟡 Partial | Cockpit exists as **standalone `backend/` pages** (`overview`, `caseload`, `traces`, `agents`, `playground`, `processes`, `audit`, `eval-assertions`), **not** the specced widget-injection overlays into `workflows` My-Tasks. Since the last audit: Overview KPIs are **rollup-backed** (`/metrics/overview`, live fallback), Caseload is server-paginated with real run enrichment, and the decision panel shows **real guardrail verdicts** (`proposal.guardResults` → `components/ProposalFacts.tsx`). As of 2026-07-12 the **trace inspector is fully real-data** — guardrail-verdicts panel (`GuardrailsCard`), context bundle, proposal-rationale reasoning, and working Add-to-evals / Flag / Re-run header actions (`api/runs/[id]/{eval-case,flag,rerun}`) — except the **model-comparison card** (still Sample; needs #9 shadow runs). The Processes pages read **live projection data** (#11). Remaining spec delta: standalone pages vs the specced widget-injection model. |
+| 4 | `2026-06-24-trace-eval-pr4b-and-followups.md` | 🟡 Nearly complete | F1/F2/F4/F5/F6/F7/F8/F9/F10 ✅ (F8 + F10 closed 2026-07-12), F3 ⬜ (rides with the native-runtime rollout) — see the F-table below. |
+| 5 | `2026-06-19-agent-runtime-guardrails.md` | ✅ Implemented (P1–P4) | `AgentGuardrailCheck`/`AgentGuardrailSet` entities; `lib/guardrails/{guardrailService,promptInjection,grounding,groundingSets,syncGroundingSets}.ts`; `api/guardrail-checks`; event `guardrail.tripped`. P3 injection isolation + P4 grounding cite-or-abstain landed after Context `retrieve()` (Waves 1+3 complete). |
+| 6 | `2026-06-19-agent-context-knowledge-plane.md` | ✅ Implemented (P1–P4) | `AgentContextBundle` entity; `lib/context/{registry,contextResolver,retrievalSource,documentIngest,documentOcrProvider,documentSource,packer,redactor}.ts`; `api/context-bundles`. TDCR registry + retrieval + doc-ingest/OCR + redaction/token-budget packer (Wave 2 complete). |
+| 7 | `2026-06-19-agent-identity-and-on-behalf-of.md` | ✅ Implemented (P1–P4) | `AgentPrincipal`/`AgentDelegationGrant` entities; `lib/identity/{agentPrincipalService,agentTokenService,agentDelegationGrantService,agentAuthMdService,agentNoBypassSubscriber,agentWriteScope}.ts`; `api/identity/{token,well-known,…}`; events `agent_principal.registered`/`delegation_grant.revoked`; `agentRuntime.run` `ctx.runAs` fail-closed no-bypass (Wave 4 complete). |
+| 8 | `2026-06-19-agent-dispatch.md` | ⬜ Not started | No `AgentTask`/`AgentBinding`/`AgentTaskLease`, no `DispatchService`/`TaskRouter`, no internal/pull/A2A adapters in `lib/`. Its identity prerequisite (Wave 4) is now met. |
+| 9 | `2026-06-19-agent-deployment-and-regression-gating.md` | ⬜ Not started | No `AgentRelease`/`AgentBudget`, no shadow/canary/autonomy ramp, no `EvalGateRunner`/`promote`. Prereqs eval ✅ + rollups (F2) ✅ are met; canary still wants the Wave-5 `TaskRouter`. |
+| 10 | `2026-06-19-agent-decision-transparency-and-ai-act.md` | ⬜ Not started | No `AgentDecisionRecord`/`AgentContestCase`/`AgentFairnessMetric`, no DSAR/erasure/portal `decisions` surfaces. Precursors: `AgentCorrection`, anti-rubber-stamp KPIs, F5 encryption (crypto-shredding base). |
+| 11 | `2026-06-25-agent-process-subject-and-caseload-projection.md` | ✅ Implemented (2026-07-12; assignment/SLA fields await the workflows task-assignment signal) | `AgentProcess` entity + migration `…20260711235946` (partial unique `agent_processes_org_process_uq`); `subject` on `invokeAgentConfigSchema` (core, additive) → bridge ctx → `lib/processes/subjectContext.ts` (ALS) → `proposal.created` payload; `processId` added to `proposal.corrected`/`run.ingested`; idempotent recompute-from-source projection (`lib/processes/agentProcessProjection.ts`) + 8 subscribers (`agent-process-*`: 4 agent events + 4 `workflows.instance.*` incl. terminal resolution — Phase B unblocked by #17); `process.updated` clientBroadcast; `rebuild-processes` CLI (`cli.ts`); `api/processes` (scoped list: `needs_decision`/`stuck_24h`/`high_value`/`fraud_flagged`) + `api/processes/[id]` (`findOneWithDecryption`, accepts processId or row id); ACL `processes.view`; Processes list/detail pages rewired to live data (sample builders no longer used). Deferred per the spec changelog: `my_team`/assignment fields (no task-assignment signal yet), workflow-definition stage labels, Pause/Reassign/Take-over proxy verbs, `TC-AGENT-PROCESS-*` integration specs. |
+| 12 | `2026-06-26-agent-attachments-and-artifacts.md` | ⬜ Not started (now unblocked) | No `AgentRunArtifact`; no `lib/runtime/{agentWorkspaceManager,artifactCollector,attachmentStager}.ts`; OpenCode frontmatter still hard-denies `write/edit/bash` and inputs are text-only. Its hard prerequisites **F5 (`encryption.ts`) and F1 (`lib/trace/artifactStore.ts`) are both shipped** — pull forward at will. Note the lightweight-runtime spec (#15) plans to decommission OpenCode; reconcile before building the OpenCode sandbox file plane. |
+| 13 | `../2026-07-03-agentic-tasks.md` | ✅ Implemented (P1–P4; P5 deferred) | `AgentTaskDefinition`/`AgentTaskRun`/`AgentTaskEventTrigger` entities + migration `…20260711232818`; `api/tasks/**` (CRUD + `[id]/run` + event-trigger sub-resource) + `api/task-runs/**`; `commands/tasks.ts` (`tasks.enqueueRun`); `agent-task-runs` queue + `workers/task-run-executor.ts` (both target types; per-task execution principal via `lib/tasks/executionPrincipal.ts` with `runAs` on-behalf-of); `subscribers/task-run-workflow-{completed,failed,cancelled}.ts` (workflow-target resolution — #17 landed same day) + wildcard `subscribers/task-event-trigger.ts`; cron via `lib/tasks/schedule.ts`; `backend/tasks` list/detail UI; ACL `tasks.*`; events `task.*`/`task_run.*`/`task_event_trigger.*`. **Phase 5 (cross-module launch widget + schema-driven form + bulk ProgressJob) deferred** — see the spec changelog (2026-07-12). |
+| 14 | `../2026-07-06-agent-orchestrator-performance-hardening.md` | ✅ Implemented (Phases 0–5) | Per its implementation log: compose `OPENCODE_URL` fix + scaling runbook; core `workflow-invoke-agent` queue + worker; `lib/runtime/admission.ts` (capacity gate, 429/`Retry-After`, run timeout); composite/partial indexes + `list.defaultSort` (`created_at DESC`); rollup-backed `/metrics/overview` + server-paginated Caseload + `useCoalescedReload`; 4 Playwright specs (authored; execution pending env). |
+| 15 | `../2026-07-07-lightweight-agent-runtime.md` | 🟡 Partial (P1–P2 ✅ 2026-07-12) | Phases 1–2 shipped: `lib/runtime/{nativeAgentRunner,nativeTraceCapture,providerBudget,errors}.ts` (`agentRuntime.ts` reduced to dispatch); `defineAgent` registers `'native'`; runs stamp `externalRunId = runId` (closes F8); always-on async per-step span capture through `ingestTrace` (partial traces survive failures; `OM_AGENT_TRACE_CAPTURE=off` escape hatch); per-provider concurrency semaphore + full-jitter backoff on 429/529/overloaded (`AgentProviderCapacityError` reuses the structural-retryable seam); additive `ai-assistant` object-mode `loop.onStepFinish` forwarding + `steps` return. **Remaining:** Phase 3+ — file-agent compilation to `native`, OpenCode decommission (BC bridge), `AgentDefinition`/`AgentDefinitionVersion` + org-scoped registry resolver + builder UI. Absorbs F3 next. |
+| 16 | `2026-07-10-agent-role-taxonomy-and-decision-pipeline.md` | ⬜ Not started (newly specced) | No `AgentFinding`/`AgentDecision` entities, no `decision` `AgentResult` kind, no closed action catalog, no decision-outcome workflow transitions / `WAIT_FOR_SIGNAL` negotiation bridge. |
+| 17 | `2026-06-26-workflows-emit-instance-lifecycle-events.md` | ✅ Implemented (2026-07-12) | `workflow-executor.ts` now emits `workflows.instance.created/started/completed/failed/cancelled` to the bus (`emitInstanceLifecycleEvent` over `emitWorkflowsEvent`, `persistent: true`, best-effort). Unblocked #13's workflow-target subscribers the same day. `paused`/`resumed` + task-assignment signals deferred per the spec's own scope; see its changelog. |
 
 ## Summary
 
-- **Shipped (PR #3532):** the **trace · eval · correction loop** (specs 1 + 2) plus the **operator/engineer cockpit
-  surfaces** (spec 3, as standalone pages). This is the bulk of `next/`'s observability layer.
-- **Not started:** guardrails (5), context/knowledge plane (6), identity (7), dispatch (8), deployment gating (9),
-  AI-Act compliance (10), process-subject projection (11), the agent file plane (12), and the PR-4b infra
-  backlog (4 / F1–F10).
+- **Shipped:** trace + eval + corrections + metric rollups (1, 2), **guardrails P1–P4** (5), **context knowledge
+  plane P1–P4** (6), **identity & on-behalf-of P1–P4** (7), **performance hardening Phases 0–5** (14), and the
+  Wave-0 stabilization backlog minus F3 (4). Waves 0–4 of the dependency plan are done.
+- **Partial:** operations UI (3) — all cockpit surfaces now read real data (only the trace inspector's
+  model-comparison card remains Sample, blocked on #9 shadow runs); remaining delta is architectural
+  (standalone pages vs widget-injection).
+- **Shipped 2026-07-12 (this working tree):** workflows lifecycle-event emission (17); **Agentic Tasks
+  Phases 1–4** (13) — launcher entities/CRUD/run pipeline/worker, both target types, per-task execution
+  principals, cron + domain-event triggers, `backend/tasks` UI; its Phase 5 (cross-module launch widget)
+  deferred; the **process subject + caseload projection** (11): `AgentProcess` read-model, `subject` on
+  the `INVOKE_AGENT` boundary, `processes.view` + list/detail APIs, `rebuild-processes` CLI, Processes
+  cockpit pages rewired off sample data (assignment/`my_team` fields still await a workflows task-assignment
+  signal); the **native runtime Phases 1–2** (15) — `NativeAgentRunner`, always-on span capture for
+  in-process runs, per-provider LLM budgets/backoff, additive `ai-assistant` step forwarding (closes F8);
+  and the **trace-inspector real-data completion** — context bundle, guardrail panel (closes F10),
+  proposal-rationale reasoning, and live Add-to-evals / Flag / Re-run actions
+  (`AgentRun.flaggedAt/flaggedBy/rerunOfRunId`, migration `…20260711225137`).
+- **Not started:** dispatch (8), deployment gating (9), AI-Act compliance (10), agent file plane (12),
+  role taxonomy / decision pipeline (16), the native runtime's remaining Phases 3+ (OpenCode decommission,
+  `AgentDefinition` + builder UI), and F3 partitioning.
 
 ## Deferred follow-ups on the shipped work (from spec 4, F1–F10)
 
-> **Status re-audited 2026-07-09** against code on `feat/agent-orchestrator-mvp`. Most of this table
-> was stale — only **F1** and **F3** remain genuine code gaps; **F8** is partial and folds into the
-> lightweight-runtime spec. The `Status` column reflects the re-audit; the original effort/priority is kept.
+> **Status re-audited 2026-07-12** against code on `feat/agent-orchestrator-mvp`.
 
-| ID | Item | Effort · priority | Status (2026-07-09) |
-|----|------|-------------------|---------------------|
+| ID | Item | Effort · priority | Status |
+|----|------|-------------------|--------|
 | F1 | Encrypted S3 artifact offload (artifact-key columns exist, unpopulated) | M · medium | ✅ **Done (2026-07-09)** — `lib/trace/artifactStore.ts` (encrypt via reused F5 maps → `storage-s3` upload, fail-open degrade); wired into `ingestTrace` (run output + tool request/response) via injected offloader; read path `GET /runs/:id/artifact` (key-belongs-to-run validated, server-side decrypt) + inspector "load full payload" wiring; unit-tested |
-| F2 | `AgentMetricRollup` + scheduler + persisted anti-rubber-stamp signals | M · medium | ✅ **Shipped** — `AgentMetricRollup` entity + `lib/metrics/` |
-| F3 | Span/tool-call partitioning + tiered retention + archival worker | L · low (risk-high) | ⬜ **Open** — no `PARTITION` in any migration; re-prioritized alongside the native-runtime rollout |
-| F4 | `/runs` ACL gate rollout safety (`agents.view`→`trace.view` needs `auth sync-role-acls`) | S · **high** | ✅ **Done** — route gates `trace.view`, `setup.ts` grants it, `runs-acl-rollout.test.ts` encodes the invariant; deploy note added to the scaling runbook (§ ACL sync) + RELEASE_NOTES (2026-07-09) |
+| F2 | `AgentMetricRollup` + scheduler + persisted anti-rubber-stamp signals | M · medium | ✅ **Shipped** — `AgentMetricRollup` entity + `lib/metrics/` + `workers/metric-rollup.ts`; Overview reads rollup-preferred with live fallback |
+| F3 | Span/tool-call partitioning + tiered retention + archival worker | L · low (risk-high) | ⬜ **Open** — no `PARTITION` in any migration; re-prioritized alongside the native-runtime rollout (#15) |
+| F4 | `/runs` ACL gate rollout safety (`agents.view`→`trace.view` needs `auth sync-role-acls`) | S · **high** | ✅ **Done** — route gates `trace.view`, `setup.ts` grants it, `runs-acl-rollout.test.ts` encodes the invariant; deploy note in the scaling runbook + RELEASE_NOTES (2026-07-09) |
 | F5 | Module `encryption.ts` + route reads via decryption helpers | S · medium | ✅ **Shipped** — `encryption.ts` declares `AgentRun.input/output`, `AgentProposal.payload`, `AgentEvalCase.input/expected` |
-| F6 | Dispose→correction hook test | S · medium | ✅ **Done** — `__tests__/dispose-correction-hook.test.ts` covers edit/reject → correction+draft eval case, approve/auto_approve → none (4 tests, passing) |
-| F7 | i18n flatten + de/es/pl locales (pre-existing; partially advanced this session for new trace keys) | M · low | ✅ **Present** — `i18n/{en,es,de,pl}.json` all exist (run `i18n:check-sync` to confirm parity) |
-| F8 | Runner stamps `runtime` + `externalRunId` for cross-correlation | S · low | 🟡 **Partial** — OpenCode stamps both; in-process leaves `externalRunId` null by design. Subsumed by the native-runtime spec's Phase 1 (`createRun` stamps `externalRunId=runId`) — do it there |
+| F6 | Dispose→correction hook test | S · medium | ✅ **Done** — `__tests__/dispose-correction-hook.test.ts` (4 tests, passing) |
+| F7 | i18n flatten + de/es/pl locales | M · low | ✅ **Present** — `i18n/{en,es,de,pl}.json`; `i18n:check-sync` clean as of the perf-hardening gate |
+| F8 | Runner stamps `runtime` + `externalRunId` for cross-correlation | S · low | ✅ **Done (2026-07-12)** — closed by #15 Phase 1 as planned: `NativeAgentRunner` creates runs with `stampExternalRunIdFromId` (uuid pre-generated, `externalRunId = id` in one insert); OpenCode already stamped both |
 | F9 | `llm_judge` assertion management (CRUD or seed) | M · low | ✅ **Shipped** — `api/eval-assertions` route + `backend/eval-assertions` page |
-| F10 | Cockpit guard-results panel (**blocked** on guardrails overlay #5) | M · low | ⬜ **Open** — guardrails P1 shipped (`lib/guardrails/`); the cockpit panel itself is still unbuilt |
+| F10 | Cockpit guard-results panel | M · low | ✅ **Done (2026-07-12)** — caseload decision panel renders real verdicts (`proposal.guardResults` → `ProposalFacts`); trace inspector gained `GuardrailsCard` (all checks, `pass/warn/block` badges, redacted evidence + pinned set version) fed by `guardrailChecks` on `GET /runs/:id` |
 
 ## Implementation Plan
 
-A dependency-ordered roadmap to take the remaining `next/` scope from the current branch to a complete agent
-platform. Each **Wave** is independently shippable; phases inside a wave are the owning spec's own phase numbers
-(cited as *spec §Phase N*). Effort: S ≤ 2d, M ≈ 3–6d, L ≈ 1–2wk (one engineer).
+A dependency-ordered roadmap. Each **Wave** is independently shippable; phases inside a wave are the owning
+spec's own phase numbers. Effort: S ≤ 2d, M ≈ 3–6d, L ≈ 1–2wk (one engineer).
+**Waves 0–4 are complete** (0 minus F3); they are kept below, collapsed, as the as-built record.
 
 ### Dependency graph (what must precede what)
 
 ```
-Wave 0  Stabilize shipped trace/eval (F4,F5,F6,F8,F7 → F2,F1,F9,F3)
-            │  (F5 encryption.ts unblocks F1 + Compliance crypto)
-            ▼
-Wave 1  Guardrails P1–P2 (schema/tool-scope, moderation/PII)  ──► unblocks Ops-UI guard panel (F10)
-            ▼
-Wave 2  Context & Knowledge Plane P1–P4 (TDCR, retrieval, doc-ingest, redaction)  ──► "agents read attachments"
-            ▼
-Wave 3  Guardrails P3–P4 (injection isolation, grounding)      ◄── needs Context retrieval()
-            ▼
-Wave 4  Identity & On-Behalf-Of P1–P4                          ──► prerequisite for Dispatch pull/A2A
+Wave 0  Stabilize shipped trace/eval (F1–F10)                   ✅ done (F3 deferred to the native-runtime rollout)
+Wave 1  Guardrails P1–P2 (schema/tool-scope, moderation/PII)    ✅ done
+Wave 2  Context & Knowledge Plane P1–P4                         ✅ done
+Wave 3  Guardrails P3–P4 (injection isolation, grounding)       ✅ done
+Wave 4  Identity & On-Behalf-Of P1–P4                           ✅ done
             ▼
 Wave 5  Dispatch + A2A P1–P7 (internal+pull critical path 1→2→3→4, then A2A 5→6→7)
             ▼
@@ -82,86 +94,36 @@ Wave 6  Deployment & Regression Gating P1–P4 (needs eval ✅ + Dispatch router
             ▼
 Wave 7  Compliance / AI-Act P1–P4 (mostly independent; pull earlier if a person-affecting agent ships)
 
-Cross-cutting: Operations-UI completion threads through Waves 1–6 (guard panel after W1, KPI rollups after F2).
+Independent overlays (not on the chain, pull forward by workload):
+  · #15 Lightweight `native` runtime + UI-authored agents        🟡 P1–P2 done (2026-07-12); P3+ remain (OpenCode decommission absorbs F3)
+  · #13 Agentic Tasks                                            ✅ P1–P4 done (2026-07-12); P5 cross-module launch deferred
+  · #12 Agent file plane (F1+F5 met; reconcile with #15's OpenCode decommission first)
+  · #11 Process subject + caseload projection                    ✅ done (2026-07-12)
+  · #16 Role taxonomy & decision pipeline (4 phases; Phase 4 inbound emit-scope fix is core/webhooks Ask First)
+  · #17 Workflows instance lifecycle events                      ✅ done (2026-07-12)
+
+Cross-cutting: Operations-UI completion — model-comparison card (needs #9 shadow runs),
+optional widget-injection migration.
 ```
 
-> **Rationale for the order:** safety and correctness on already-shipped surfaces first (Wave 0), then the
-> blocking pre/post-call guardrails (Wave 1) since they gate every agent run, then the context substrate (Wave 2)
-> that both improves answer quality *and* is required by the grounding/injection guardrails (Wave 3). Identity
-> (Wave 4) is the principal model that Dispatch's pull/A2A adapters (Wave 5) require. Deployment gating (Wave 6)
-> needs the eval harness (done) plus Dispatch's router for canary. Compliance (Wave 7) is regulatory-driven and can
-> be pulled forward the moment a person-affecting agent goes live.
+### Waves 0–4 — complete (as-built record)
+
+- **Wave 0** (`2026-06-24-trace-eval-pr4b-and-followups.md`): F4 → F5 → F8(partial) → F6 → F7 → F2 → F1 → F9 all
+  landed; **F3 (partitioning/retention) deliberately deferred** to ride with the native-runtime rollout.
+- **Wave 1+3 — Guardrails P1–P4** (`2026-06-19-agent-runtime-guardrails.md`): output-schema/tool-scope,
+  moderation/PII, prompt-injection isolation, grounding cite-or-abstain (`lib/guardrails/`, `AgentGuardrailCheck`,
+  `guardrail.tripped`).
+- **Wave 2 — Context P1–P4** (`2026-06-19-agent-context-knowledge-plane.md`): TDCR registry/resolver, retrieval
+  source, document ingest/OCR, redaction + token-budget packer (`lib/context/`, `AgentContextBundle`).
+- **Wave 4 — Identity P1–P4** (`2026-06-19-agent-identity-and-on-behalf-of.md`): `AgentPrincipal` provisioning,
+  on-behalf-of audit + `runAs`, OAuth `/token` + delegation grants + three-layer no-bypass, ID-JAG self-registration
+  (`lib/identity/`, `api/identity/`).
+- Plus (unplanned in the original waves): **performance hardening Phases 0–5** (#14) — invoke-agent queue split,
+  admission control + run timeout, indexes + default ordering, rollup-backed cockpit reads, integration specs.
 
 ---
 
-### Wave 0 — Stabilize the shipped trace/eval before new overlays
-
-> Source: `2026-06-24-trace-eval-pr4b-and-followups.md` (F1–F10). Finish the branch for QA/production first.
-
-| Step | Item | Effort | Notes / exit criteria |
-|------|------|--------|------------------------|
-| 0.1 | **F4** `/runs` ACL rollout safety | S · **high** | Deploy runbook runs `yarn mercato auth sync-role-acls`; existing-tenant operators retain run-list access. **Do first — it's a live 403 risk.** |
-| 0.2 | **F5** module `encryption.ts` + decryption reads | S | `defaultEncryptionMaps` for `AgentRun.input/output`, `AgentProposal.payload`, `AgentEvalCase.input/expected`, `AgentToolCall.*Summary`; route reads through `findWithDecryption`. **Prereq for F1 + Compliance.** |
-| 0.3 | **F8** runner stamps `runtime`+`externalRunId` | S | Runner-created runs become re-correlatable by a later trace POST. |
-| 0.4 | **F6** dispose→correction hook test | S | `__integration__/TC-AGENT-TRACE-004.spec.ts`: edited/rejected verdict writes `AgentCorrection`+draft `AgentEvalCase`; approved does not. |
-| 0.5 | **F7** i18n flatten + de/es/pl | M | `yarn i18n:check-sync` passes for the module. (Partially advanced this session for new trace keys.) |
-| 0.6 | **F2** `AgentMetricRollup` + scheduler + worker | M | Append-only rollups on an interval; metrics endpoint + Overview tiles prefer rollups with live fallback. Unblocks Wave 6 autonomy ramp. |
-| 0.7 | **F1** encrypted S3 artifact offload | M | `lib/trace/artifactStore.ts`; large payloads → `storage-s3` (key on row, redacted summary inline), degrades inline when storage absent. Needs F5. |
-| 0.8 | **F9** `llm_judge` assertion management | M | CRUD route (`makeCrudRoute`, gate `eval.manage`) + page, or seed examples, so the dormant judge worker has assertions. |
-| 0.9 | **F3** span/tool-call partitioning + tiered retention | L · risk-high | Hand-authored monthly range partitioning + archival worker (drop+recreate the brand-new tables). Confirm no env has live span data. Do last. |
-
-**Exit:** branch is QA-ready, PII reads encrypted, metrics stable on rollups, audit tiers retained.
-
----
-
-### Wave 1 — Runtime Guardrails (P1–P2)
-
-> Source: `2026-06-19-agent-runtime-guardrails.md`. New: `AgentGuardrailCheck` entity, `guardrail.tripped` event, `lib/guardrails/`, ACL `guardrails.*`.
-
-- **§Phase 1 — Output-schema + tool-scope** (M): validate every result against the per-capability Zod contract; reuse `ai_assistant` allowlist/mutation-policy. Ship `AgentGuardrailCheck`, `guardrail.tripped`, the no-bypass tie-in. *Highest value/cost ratio — do first.*
-- **§Phase 2 — Input moderation + outbound PII** (M): pre-call moderation behind a provider-agnostic DI seam (default OpenAI moderations) + `endUserIdentifier` HMAC; PII detection/redaction on outbound payloads/summaries via `TenantDataEncryptionService`. Persist verdicts as `AgentGuardrailCheck(kind='moderation')`.
-
-**Unblocks:** Ops-UI **F10** guard-results panel (add a guard section to `components/ProposalCard.tsx` + trace inspector once `AgentGuardrailCheck` exists).
-**Exit:** schema/tool-scope + moderation/PII gates block or warn on every run; verdicts queryable and surfaced in the cockpit.
-
----
-
-### Wave 2 — Context & Knowledge Plane (P1–P4)
-
-> Source: `2026-06-19-agent-context-knowledge-plane.md`. New: `AgentContextBundle` entity, `lib/context/`, `agentContextResolver` DI, additive read-only CRUD for the trace "context assembled" panel. **This is the "agents read attachments" capability.**
-
-- **§Phase 1 — `ContextModule` registry + structured TDCR** (M): code-first typed registry, per-capability allowlist + mandatory floor; assemble over `entities`/custom fields via `queryEngine`/`query_index`; persist `AgentContextBundle`; wire into `INVOKE_AGENT`.
-- **§Phase 2 — Retrieval source** (M): wrap `searchService` (RRF) + `query_index`; citable snippets; expose `retrieve()` (consumed by Wave 3 grounding).
-- **§Phase 3 — Document ingest / extraction** (L): elevate the existing OpenAI vision-OCR path into a typed swappable-provider OCR/classification/field-extraction pipeline; facts carry provenance. *Delivers attachment reading.*
-- **§Phase 4 — Redaction + token budget** (M): `findWithDecryption`/`TenantDataEncryptionService` + PII redaction (least-privilege); packer enforces budget (mandatory floor first, routed vs pruned).
-
-**Exit:** one append-only `AgentContextBundle` per run; trace "context assembled" panel renders routed/pruned/tokens; every snippet citable; document facts carry lineage; no cross-tenant assembly.
-
----
-
-### Wave 3 — Guardrails (P3–P4)  *(needs Wave 2 `retrieve()`)*
-
-- **§Phase 3 — Prompt-injection / untrusted-content isolation** (M) for attachment-derived context (Wave 2 doc-ingest).
-- **§Phase 4 — Grounding (cite-or-abstain)** (M) for factual capabilities; versioned sets per capability (YAML→DB sync); rejects ungrounded factual proposals using Context `retrieve()`.
-
-**Exit:** injected document content can never act as instructions; factual proposals without a cited source are blocked/abstained.
-
----
-
-### Wave 4 — Identity & On-Behalf-Of (P1–P4)
-
-> Source: `2026-06-19-agent-identity-and-on-behalf-of.md`. Touches `auth`, `audit_logs`, `api_keys`. **Prerequisite for Dispatch pull/A2A.**
-
-- **§Phase 1** (M): `User.kind` + `AgentPrincipal` provisioning (agent `User` + scoped `Role`) — internal agents fully attributed.
-- **§Phase 2** (M): `ActionLog.onBehalfOfUserId` + `'agent'` source + `runAs` propagation through `INVOKE_AGENT`/dispatch/trace + audit UI chain ("Agent X on behalf of Y").
-- **§Phase 3** (L): external-agent OAuth client-credentials `/token` server + `AgentDelegationGrant` + three-layer no-bypass enforcement (flush-time write-interceptor + structural propose-only + release-gate test).
-- **§Phase 4** (M): ID-JAG self-registration (`/.well-known` + `/agent/auth`) for external onboarding (additive).
-
-**Exit:** every agent action attributed to a principal (and the human it acts for); external agents get scoped, audited, revocable credentials.
-
----
-
-### Wave 5 — Dispatch + A2A (P1–P7)  *(needs Wave 4 for pull/A2A)*
+### Wave 5 — Dispatch + A2A (P1–P7)  *(identity prerequisite met)*
 
 > Source: `2026-06-19-agent-dispatch.md`. New: `AgentTask`/`AgentTaskEvent`/`AgentBinding`/`AgentTaskLease`, `DispatchService`, `TaskRouter`. **Critical path 1→2→3→4.**
 
@@ -181,8 +143,8 @@ Cross-cutting: Operations-UI completion threads through Waves 1–6 (guard panel
 > Source: `2026-06-19-agent-deployment-and-regression-gating.md`. New: `AgentRelease`/`AgentBudget` entities, `EvalGateRunner`, `promote` endpoint.
 
 - **§Phase 1** (M): `AgentRelease` + CRUD + **shadow mode** (propose-only candidate run) wired to the trace model-comparison view (trace ✅).
-- **§Phase 2** (M): **canary** via `feature_toggles` gating the dispatch `TaskRouter`; gradual-autonomy ramp worker from override-rate metrics (uses F2 rollups).
-- **§Phase 3** (M): `AgentBudget` + enforcement via `ai_assistant` `loop.budget`; `budget.exceeded` event + notifications; model routing via `AiModelFactory`.
+- **§Phase 2** (M): **canary** via `feature_toggles` gating the dispatch `TaskRouter`; gradual-autonomy ramp worker from override-rate metrics (uses F2 rollups ✅).
+- **§Phase 3** (M): `AgentBudget` + enforcement via `ai_assistant` `loop.budget`; `budget.exceeded` event + notifications; model routing via `AiModelFactory`. *(Overlaps #15's per-provider LLM budgets — reconcile.)*
 - **§Phase 4** (M): eval harness gate + `EvalGateRunner`; regression-gated `promote` endpoint + CI step over the eval-case export.
 
 **Exit:** new agent versions ship shadow → canary → ramp, gated by eval regressions and budget.
@@ -191,7 +153,7 @@ Cross-cutting: Operations-UI completion threads through Waves 1–6 (guard panel
 
 ### Wave 7 — Compliance / AI-Act / DSAR / Fairness (P1–P4)
 
-> Source: `2026-06-19-agent-decision-transparency-and-ai-act.md`. New: `AgentDecisionRecord`/`AgentContestCase`/`AgentFairnessMetric`, portal `decisions` pages. **Pull forward when a person-affecting agent goes live.** Crypto-shredding (gap-12) builds on Wave 0 **F5**.
+> Source: `2026-06-19-agent-decision-transparency-and-ai-act.md`. New: `AgentDecisionRecord`/`AgentContestCase`/`AgentFairnessMetric`, portal `decisions` pages. **Pull forward when a person-affecting agent goes live.** Crypto-shredding builds on F5 ✅.
 
 - **§Phase 1** (L): `AgentDecisionRecord` + claimant explanation service + portal `decisions` pages + nav + `decision.recorded` (GDPR Art. 22 / AI Act Art. 86 minimum).
 - **§Phase 2** (L): contest/appeal — `AgentContestCase`, `business_rules` ACTION, review workflow with mandatory reviewer, overturn → `AgentCorrection`, optimistic-locked resolve, portal contest endpoint.
@@ -204,35 +166,31 @@ Cross-cutting: Operations-UI completion threads through Waves 1–6 (guard panel
 
 ### Cross-cutting — Operations UI completion (spec 3)
 
-Thread these into the waves above rather than as a standalone wave:
-
-- After **Wave 1**: add the **guard-results panel** (F10) to `ProposalCard` + trace inspector.
-- After **Wave 0 F2**: repoint Admin KPI tiles to **persisted rollups** (stable windows, no 5000-row cap).
+- ~~**Trace-inspector guard panel**~~ — ✅ done 2026-07-12 (F10): `GuardrailsCard` in `backend/traces/[id]/page.tsx`.
+- ~~**Real Processes backing**~~ — ✅ done 2026-07-12 (#11): the pages read `api/processes*`; `buildSampleProcessList`/`buildSampleProcess` remain exported but unused.
+- **Model-comparison card** — the last Sample-labeled surface; blocked on #9 Phase 1 shadow runs.
 - Optional: migrate the standalone cockpit pages to the specced **widget-injection + perspectives** model onto `workflows` My-Tasks/dashboards — only if the standalone pages prove duplicative; otherwise keep as-is and update the spec to match reality.
 
 ---
 
 ### One-line sequencing summary
 
-**Wave 0 (F4→F5→F8→F6→F7→F2→F1→F9→F3)** → **Guardrails P1–2** → **Context P1–4** → **Guardrails P3–4** → **Identity P1–4** → **Dispatch P1–7** → **Deployment P1–4** → **Compliance P1–4**, with Ops-UI guard panel + rollup tie-in folded in after Guardrails P1 and F2 respectively.
+Waves 0–4 ✅ (+ overlays #11, #13 P1–P4, #15 P1–P2, #17 ✅ 2026-07-12) → next on the chain is **Dispatch P1–P7** → **Deployment P1–P4** → **Compliance P1–P4**; remaining independent overlays (**native runtime #15 P3+**, **file plane #12**, **role taxonomy #16**) can be pulled forward by workload — #15's OpenCode decommission is the standing maintainer decision for the execution path and should be sequenced before/with anything OpenCode-coupled (including #12).
 
 ## Notes
 
-- The `README.md` suggested implementation order (1 = guardrails) does **not** match reality: the **trace + eval**
-  overlay (README #2) shipped first; guardrails (README #1) is unbuilt.
-- Suggested next pickups by dependency/value: **F4** (operational, high — existing-tenant 403 risk), then **F5**
-  (PII reads), then the **guardrails overlay (#5)** which unblocks F10 and the disposition-card guard panel.
-- Recent same-branch hardening (not a spec): `proposal.created`/`proposal.disposed` now `clientBroadcast` →
-  live caseload/overview refresh; trace detail now renders tool request/response, tool/run errors, and eval evidence.
-- **Branch drift on this matrix (2026-06-24 vs. current):** this trace was generated on `feat/agent-orchestrator-mvp`. On the current working branch the **identity overlay (#7) has since shipped** — `lib/identity/{agentPrincipalService,agentTokenService,agentDelegationGrantService,agentAuthMdService,agentNoBypassSubscriber,agentWriteScope}.ts`, the `AgentPrincipal`/`AgentDelegationGrant` entities, `api/identity/*`, and `agentRuntime.run`'s `ctx.runAs` fail-closed enforcement all exist. Re-audit #7 (and any other row) against the current tree before trusting a ⬜ here.
-- **Spec 13 (Agentic Tasks) sequencing:** an **independent user-facing launcher overlay** — like spec 12, it is **not** gated behind the guardrails→context→dispatch dependency chain. It adds no new execution engine; every run is still `agentRuntime.run()` (agent target) or `workflowExecutor.startWorkflow()` (workflow target). Two-part sequencing: (1) the **agent-target path is unblocked today** — the identity overlay it needs for its per-task execution principal is shipped on this branch (see the branch-drift note above), and `@open-mercato/scheduler` is already wired in `setup.ts`; (2) the **workflow-target completion path is blocked on prerequisite [`2026-06-26-workflows-emit-instance-lifecycle-events.md`]** — `workflows.instance.completed/failed` are declared but never emitted to the bus, so the `AgentTaskRun` for a workflow target could never leave `'running'` until that core-module prerequisite lands. Deliberately named `AgentTaskDefinition`/`AgentTaskRun` (tables `agent_task_definitions`/`agent_task_runs`) to avoid a collision with Dispatch's (#8) `AgentTask`/`agent_tasks`, which is a different concept (external-fleet routing). Pull it forward whenever a self-service "launch this agent/workflow" surface (or an API/scheduled/event trigger for one) is the next workload; ship the agent-target phases first, land the workflows-lifecycle prerequisite before the workflow-target phases.
-- **Spec 12 (agent file plane) sequencing:** an independent overlay that builds directly on the shipped OpenCode
-  runtime; it is **not** gated behind the dependency waves. Its only hard prerequisites are Wave 0 **F5**
-  (`encryption.ts`, for the `caption` column + encrypted artifact bytes) and **F1** (the `storage-s3` artifact
-  store it reuses for output bytes). It is **complementary to, not a substitute for, Wave 2 (Context, gap-06/10):**
-  Context assembles attachments into read-only `AgentContextBundle` *facts*; spec 12 stages the *raw file* into a
-  tool-enabled OpenCode sandbox and captures agent-authored *artifacts* back out. Pull it forward whenever a
-  file-shaped OpenCode agent (document processing, report/quote generation) is the next workload. **Phase 0 is
-  resolved** (`…-phase0-findings.md`): OpenCode permission config is static and can't scope per-run, so cross-run
-  isolation is by exclusive single-run container lease + subdir wipe over a shared-volume workspace (path-glob
-  confines writes from OpenCode internals); per-run ephemeral containers are the Phase-4 escalation.
+- **Biggest divergence from the specs now:** the execution path. `2026-07-07-lightweight-agent-runtime.md` (#15)
+  decommissions OpenCode entirely; #12 (file plane) and any remaining OpenCode-scaling work should be reconciled
+  against it before implementation.
+- Suggested next pickups by dependency/value: the **workflows task-assignment signal** (small core follow-up
+  that turns on #11's `my_team`/assignee/SLA fields), **#15 Phase 3+** (file agents → `native`, OpenCode
+  decommission + F3 partitioning, then `AgentDefinition` + builder UI), **#13 Phase 5** (cross-module
+  "Run agentic task" launch widget), then **#12 / #16** by workload; **Wave 5 dispatch** when external/pull
+  agent fleets become real; **#9 Phase 1 shadow runs** whenever the model-comparison card should go real.
+- The Processes cockpit pages read **live projection data** as of 2026-07-12; the old sample builders in
+  `components/processTypes.ts` are exported-but-unused.
+- Uncommitted on this branch (outside this folder): the **agent web-search tool**
+  (`.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`, `lib/webSearch/`,
+  `packages/search-provider-searxng/`) — part of the same effort, not a `next/` overlay.
+- Historical audit details from the 2026-06-24 generation (per-row evidence for specs 1–13 as they were then)
+  are preserved in git history of this file.

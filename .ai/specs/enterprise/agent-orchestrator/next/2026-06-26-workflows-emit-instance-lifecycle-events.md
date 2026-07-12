@@ -1,6 +1,6 @@
 # Workflows — Emit Declared Instance Lifecycle Events
 
-> **Status:** Draft (prerequisite — not started) · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-26
+> **Status:** Implemented (core scope, 2026-07-12; paused/resumed + task-assignment deferred) · **Owner:** Patryk Lewczuk (Comerito) · **Created:** 2026-06-26
 > **Module:** `workflows` (core) · **Type:** prerequisite enabler (Ask First — core-module change)
 > **Unblocks:** Phase B of [`2026-06-25-agent-process-subject-and-caseload-projection.md`](./2026-06-25-agent-process-subject-and-caseload-projection.md) (terminal status, non-agent stage transitions, assignment/SLA filters).
 
@@ -71,4 +71,5 @@ The only reason this is "Ask First" is that it modifies a **core** module to ser
 
 ## Changelog
 
+- **2026-07-12:** Core scope implemented in `lib/workflow-executor.ts` via a best-effort `emitInstanceLifecycleEvent` helper over the module's `emitWorkflowsEvent` (global-bus emitter, `persistent: true`, payload `{ id, tenantId, organizationId, workflowId, version, status, stepId }`). Emission sites: `startWorkflow` → `created` + `started`; each successful step advance in `executeWorkflow` → `started` with `stepId`/`fromStepId`; `completeWorkflow` → `completed`/`failed`/`cancelled` (including the compensation early-return path, which emits `failed` with the post-compensation status); `persistFailedStatusAfterRollback` → `failed` (its `status !== 'RUNNING'` guard also dedupes re-entry). The internal `WorkflowEvent` audit rows are unchanged; bus failures are logged and never break execution. Unit-tested in `lib/__tests__/instance-lifecycle-events.test.ts` (6 tests: created/started payloads, terminal emits exactly once each, step-advance payload, audit coexistence, failing-bus resilience). **Deferred:** `paused`/`resumed` emission (parking happens at many engine-internal sites across step/signal/task/timer/parallel handlers — per this spec's own storm-risk mitigation, emit instance-level lifecycle only; revisit if a consumer needs park signals), the task-assignment/claim signal (assignment is not modeled as events today — follow-up per §Proposed Solution), and the `TC-WF-LIFECYCLE-EVENTS` Playwright integration specs (unit coverage landed first; author them per §Integration Coverage when the integration env is exercised).
 - **2026-06-26:** Initial draft. Prerequisite enabler extracted from the agent-orchestrator Processes-projection analysis: make `workflows` actually emit its already-declared `workflows.instance.*` lifecycle events (and, if modeled, a task-assignment signal) so external read-models can react to instance terminal/stage/assignment transitions.
