@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox } from 'lucide-react'
+import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -531,6 +531,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
   const [isLoading, setIsLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
   const [addingToEvals, setAddingToEvals] = React.useState(false)
+  const [inEvalSet, setInEvalSet] = React.useState(false)
   const [flagging, setFlagging] = React.useState(false)
   const [rerunning, setRerunning] = React.useState(false)
 
@@ -553,6 +554,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
         },
         context: { retryLastMutation },
       })
+      setInEvalSet(true)
       flash(
         created
           ? t('agent_orchestrator.traces.detail.actionAddEvalDone')
@@ -780,10 +782,21 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                           {t('agent_orchestrator.proposal.openProcess')}
                         </Button>
                       ) : null}
-                      <Button size="sm" onClick={() => void addToEvals()} disabled={addingToEvals}>
-                        <Plus className="size-4" />
-                        {t('agent_orchestrator.traces.detail.actionAddEval')}
-                      </Button>
+                      {inEvalSet ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => router.push('/backend/eval-cases?status=draft')}
+                        >
+                          <ClipboardCheck className="size-4" />
+                          {t('agent_orchestrator.traces.detail.actionViewEvalSet')}
+                        </Button>
+                      ) : (
+                        <Button size="sm" onClick={() => void addToEvals()} disabled={addingToEvals}>
+                          <Plus className="size-4" />
+                          {t('agent_orchestrator.traces.detail.actionAddEval')}
+                        </Button>
+                      )}
                       <Button
                         variant="outline"
                         size="sm"

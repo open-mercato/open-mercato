@@ -51,6 +51,8 @@ export const runListQuerySchema = z
     agentId: z.string().optional(),
     status: z.enum(['running', 'ok', 'error', 'cancelled']).optional(),
     resultKind: z.enum(['informative', 'actionable']).optional(),
+    /** Only runs carrying the operator triage flag (`flagged_at` set). */
+    flagged: z.coerce.boolean().optional(),
     // Trace facets + window (trace-eval overlay).
     filter: runFilterFacet.optional(),
     window: runWindow.optional(),
@@ -272,6 +274,27 @@ export const evalCaseExportQuerySchema = z
   })
   .passthrough()
 export type EvalCaseExportQuery = z.infer<typeof evalCaseExportQuerySchema>
+
+export const evalCaseStatusSchema = z.enum(['draft', 'approved', 'archived'])
+export const evalCaseSourceTypeSchema = z.enum(['correction', 'golden_run'])
+
+/**
+ * Query schema for the read-only GET /eval-cases list. The route projects
+ * metadata columns only — the encrypted `input`/`expected` payloads are never
+ * selected, so no filter may reference them either.
+ */
+export const evalCaseListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    status: evalCaseStatusSchema.optional(),
+    agentDefinitionId: z.string().max(100).optional(),
+    sourceType: evalCaseSourceTypeSchema.optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type EvalCaseListQuery = z.infer<typeof evalCaseListQuerySchema>
 
 // ── Eval assertion management (F9) ──────────────────────────────────────────
 /**
@@ -846,3 +869,187 @@ export const idJagAssertionClaimsSchema = z.object({
   display_name: z.string().min(1).max(200).optional(),
 })
 export type IdJagAssertionClaims = z.infer<typeof idJagAssertionClaimsSchema>
+
+// ── Agentic Tasks (spec 2026-07-03) ──────────────────────────────────────────
+
+export const agentTaskTargetType = z.enum(['agent', 'workflow'])
+export type AgentTaskTargetTypeInput = z.infer<typeof agentTaskTargetType>
+
+export const agentTaskRunStatus = z.enum(['running', 'completed', 'failed'])
+export type AgentTaskRunStatusInput = z.infer<typeof agentTaskRunStatus>
+
+/** 5- or 6-field cron expression; the scheduler owns full parsing. */
+const cronExpression = z
+  .string()
+  .min(1)
+  .max(100)
+  .regex(/^\S+(\s+\S+){4,5}$/, 'Invalid cron expression')
+
+const taskTargetShape = {
+  name: z.string().min(1).max(255),
+  description: z.string().max(4000).nullable().optional(),
+  targetType: agentTaskTargetType,
+  targetAgentId: z.string().min(1).max(150).nullable().optional(),
+  targetWorkflowId: z.string().min(1).max(150).nullable().optional(),
+  inputDefaults: z.record(z.string(), z.unknown()).nullable().optional(),
+  /** JSON-Schema restricted to the OUTCOME-compatible subset; compiled lazily at /run time. */
+  inputSchema: z.record(z.string(), z.unknown()).nullable().optional(),
+  grantedFeatures: z.array(z.string().min(1).max(200)).max(200).optional(),
+  scheduleCron: cronExpression.nullable().optional(),
+  scheduleTimezone: z.string().min(1).max(64).nullable().optional(),
+  scheduleEnabled: z.boolean().optional(),
+  enabled: z.boolean().optional(),
+}
+
+function requireTargetPointer(data: { targetType: 'agent' | 'workflow'; targetAgentId?: string | null; targetWorkflowId?: string | null }): boolean {
+  return data.targetType === 'agent' ? !!data.targetAgentId : !!data.targetWorkflowId
+}
+
+export const agentTaskDefinitionCreateSchema = z
+  .object(taskTargetShape)
+  .refine(requireTargetPointer, {
+    message: 'Target id is required for the selected target type',
+    path: ['targetAgentId'],
+  })
+export type AgentTaskDefinitionCreateInput = z.infer<typeof agentTaskDefinitionCreateSchema>
+
+export const agentTaskDefinitionUpdateSchema = z
+  .object({ id: z.string().uuid(), ...taskTargetShape })
+  .refine(requireTargetPointer, {
+    message: 'Target id is required for the selected target type',
+    path: ['targetAgentId'],
+  })
+export type AgentTaskDefinitionUpdateInput = z.infer<typeof agentTaskDefinitionUpdateSchema>
+
+export const agentTaskDefinitionListQuerySchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    targetType: agentTaskTargetType.optional(),
+    enabled: z.coerce.boolean().optional(),
+    search: z.string().max(200).optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(50),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type AgentTaskDefinitionListQuery = z.infer<typeof agentTaskDefinitionListQuerySchema>
+
+/** `POST /tasks/:id/run` request body — always async, returns 202 + taskRunId. */
+export const agentTaskRunRequestSchema = z.object({
+  input: z.record(z.string(), z.unknown()).optional(),
+  idempotencyKey: z.string().min(1).max(200).optional(),
+  sourceEntityType: z.string().min(1).max(100).optional(),
+  sourceEntityId: z.string().uuid().optional(),
+})
+export type AgentTaskRunRequest = z.infer<typeof agentTaskRunRequestSchema>
+
+export const agentTaskRunListQuerySchema = z
+  .object({
+    id: z.string().uuid().optional(),
+    taskDefinitionId: z.string().uuid().optional(),
+    status: agentTaskRunStatus.optional(),
+    sourceEntityType: z.string().max(100).optional(),
+    sourceEntityId: z.string().uuid().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(50),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type AgentTaskRunListQuery = z.infer<typeof agentTaskRunListQuerySchema>
+
+/** WorkflowEventTriggerConfig-shaped trigger config (mirrored locally, no cross-module import). */
+export const agentTaskEventTriggerConfigSchema = z
+  .object({
+    filterConditions: z
+      .array(
+        z.object({
+          field: z.string().min(1),
+          operator: z.enum([
+            'eq', 'neq', 'gt', 'gte', 'lt', 'lte',
+            'contains', 'startsWith', 'endsWith', 'in', 'notIn', 'exists', 'notExists',
+          ]),
+          value: z.unknown().optional(),
+        }),
+      )
+      .optional(),
+    contextMapping: z
+      .array(
+        z.object({
+          targetKey: z.string().min(1),
+          sourceExpression: z.string().min(1),
+          defaultValue: z.unknown().optional(),
+        }),
+      )
+      .optional(),
+    debounceMs: z.number().int().min(0).max(86_400_000).optional(),
+    maxConcurrentInstances: z.number().int().min(1).max(1000).optional(),
+  })
+  .strict()
+export type AgentTaskEventTriggerConfig = z.infer<typeof agentTaskEventTriggerConfigSchema>
+
+export const agentTaskEventTriggerCreateSchema = z.object({
+  eventPattern: z
+    .string()
+    .min(1)
+    .max(255)
+    .regex(/^[a-z0-9_]+(\.[a-z0-9_]+)*(\.\*)?$|^[a-z0-9_]+\.\*$/i, 'Invalid event pattern'),
+  config: agentTaskEventTriggerConfigSchema.nullable().optional(),
+  enabled: z.boolean().optional(),
+  priority: z.number().int().min(-1000).max(1000).optional(),
+})
+export type AgentTaskEventTriggerCreateInput = z.infer<typeof agentTaskEventTriggerCreateSchema>
+
+export const agentTaskEventTriggerUpdateSchema = agentTaskEventTriggerCreateSchema.partial().extend({
+  updatedAt: z.string().optional(),
+})
+export type AgentTaskEventTriggerUpdateInput = z.infer<typeof agentTaskEventTriggerUpdateSchema>
+
+// ── Process subject & caseload projection (spec 2026-06-25) ──────────────────
+
+/**
+ * The `subject` descriptor a workflow's INVOKE_AGENT node declares (static or
+ * `{{context.*}}`-interpolated) — "what business record this process is about".
+ * Travels via event payloads / transient run ctx only; never a run/proposal column.
+ */
+export const agentProcessSubjectSchema = z
+  .object({
+    subjectType: z.string().min(1).max(100).nullable().optional(),
+    subjectId: z.string().min(1).max(200).nullable().optional(),
+    subjectLabel: z.string().min(1).max(200).nullable().optional(),
+    subjectTitle: z.string().min(1).max(300).nullable().optional(),
+    valueMinor: z.coerce.number().int().nullable().optional(),
+    currency: z.string().length(3).nullable().optional(),
+    fraud: z.coerce.boolean().nullable().optional(),
+    /** Non-filterable display extras (e.g. policyholder, ownerLabel). */
+    facets: z.record(z.string(), z.unknown()).nullable().optional(),
+  })
+  .passthrough()
+export type AgentProcessSubject = z.infer<typeof agentProcessSubjectSchema>
+
+export const agentProcessStatusSchema = z.enum([
+  'running', 'waiting_on_you', 'question_open', 'docs_requested', 'fraud_hold',
+  'auto_completing', 'auto_completed', 'completed', 'failed', 'cancelled',
+])
+
+export const processListScopeSchema = z.enum([
+  'all', 'needs_decision', 'stuck_24h', 'high_value', 'fraud_flagged',
+])
+export type ProcessListScope = z.infer<typeof processListScopeSchema>
+
+export const processListQuerySchema = z
+  .object({
+    page: z.coerce.number().min(1).default(1),
+    pageSize: z.coerce.number().min(1).max(100).default(50),
+    id: z.string().uuid().optional(),
+    processId: z.string().uuid().optional(),
+    scope: processListScopeSchema.optional(),
+    status: agentProcessStatusSchema.optional(),
+    subjectType: z.string().max(100).optional(),
+    q: z.string().max(200).optional(),
+    sortField: z.string().optional(),
+    sortDir: z.enum(['asc', 'desc']).optional(),
+  })
+  .passthrough()
+export type ProcessListQuery = z.infer<typeof processListQuerySchema>

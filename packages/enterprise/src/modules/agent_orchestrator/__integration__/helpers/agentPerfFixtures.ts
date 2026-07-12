@@ -128,6 +128,14 @@ export async function deleteAgentProposalsByIds(ids: string[]): Promise<void> {
   })
 }
 
+/** Hard-deletes agent_eval_cases rows by id (cleanup for add-to-evals specs — no delete API exists). */
+export async function deleteAgentEvalCasesByIds(ids: string[]): Promise<void> {
+  if (ids.length === 0) return
+  await withClient(async (client) => {
+    await client.query('delete from agent_eval_cases where id = any($1::uuid[])', [ids])
+  })
+}
+
 /**
  * Hard-deletes every agent_runs/agent_proposals row of a throwaway
  * organization — the blanket cleanup for specs that own a fresh org.
