@@ -149,6 +149,14 @@ export class OpenCodeAgentRunner {
       stepId: ctx.stepId ?? null,
     })
 
+    if (ctx.onRunPersisted) {
+      try {
+        ctx.onRunPersisted(runId)
+      } catch (err) {
+        console.warn(`[internal] onRunPersisted hook failed for "${agentId}":`, err)
+      }
+    }
+
     // Mint a fresh per-run session token scoped to the caller (their roles,
     // tenant, org) — never static, never superadmin. The MCP HTTP server
     // resolves this token's ACL on every tool call, so a tool the caller lacks

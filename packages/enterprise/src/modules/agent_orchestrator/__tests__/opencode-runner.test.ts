@@ -275,6 +275,50 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     expect(createCall.input.externalRunId).toBe('ses_fake_1')
   })
 
+  it('invokes ctx.onRunPersisted with the created run id, and a throwing hook never fails the run', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const sessionTokenRef = { value: '' }
+    const agentSentRef = { value: undefined as string | undefined }
+    const client = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
+
+    const runner = new OpenCodeAgentRunner({
+      container: container as never,
+      commandBus: commandBus as never,
+      openCodeClient: client,
+    })
+
+    const observed: string[] = []
+    const result = await runner.run(entry, { dealId: 'deal-1' }, {
+      ...runCtx,
+      onRunPersisted: (persistedRunId: string) => {
+        observed.push(persistedRunId)
+      },
+    })
+    expect(result.kind).toBe('actionable')
+    expect(observed).toEqual(['run-123'])
+
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const client2 = makeFakeClient({ outcome: validOutcome, sessionTokenRef, agentSentRef, container })
+      const runner2 = new OpenCodeAgentRunner({
+        container: container as never,
+        commandBus: commandBus as never,
+        openCodeClient: client2,
+      })
+      const result2 = await runner2.run(entry, { dealId: 'deal-1' }, {
+        ...runCtx,
+        onRunPersisted: () => {
+          throw new Error('[internal] hook boom')
+        },
+      })
+      expect(result2.kind).toBe('actionable')
+      expect(warnSpy).toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it('fails the run when the agent never submits an outcome (idle without outcome, after the corrective nudge)', async () => {
     const entry = registerExampleFileAgent()
     const { calls, commandBus, container } = makeHarness()

@@ -36,6 +36,15 @@ export type AgentRunCtx = {
    * which keep the prior `ctx.userId`-derived attribution.
    */
   runAs?: AgentRunAs
+  /**
+   * Invoked by both runners immediately after the AgentRun row is created, with
+   * the new run id — lets a caller (e.g. the playground run route) learn the run
+   * id without changing `agentRuntime.run`'s return type. Nested sub-agent
+   * delegations that inherit the ctx fire it again with the child run id, so a
+   * caller wanting the top-level run must keep the FIRST invocation only.
+   * Runners invoke it inside try/catch: a throwing hook is logged, never fatal.
+   */
+  onRunPersisted?: (runId: string) => void
 }
 
 export type AgentRunAs = {
@@ -113,6 +122,8 @@ export async function createRun(
      */
     runtime?: string | null
     externalRunId?: string | null
+    /** Native runtime: pre-generate the run uuid and stamp `externalRunId = id` in one insert (spec H2). */
+    stampExternalRunIdFromId?: boolean
     /** Declared model id (e.g. `anthropic/claude-sonnet-4-5`); null when the agent uses the tenant default. */
     model?: string | null
     /** Workflow process instance + step this run belongs to (INVOKE_AGENT); links the run to the process in traces. */

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -7,6 +8,7 @@ import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/d
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { agentRunRequestSchema, baseAgentResultSchema } from '../../../../data/validators'
+import { AgentProposal } from '../../../../data/entities'
 import {
   AgentNotFoundError,
   AgentOutputInvalidError,
@@ -75,10 +77,17 @@ export async function POST(req: Request, ctx: RouteContext) {
     return NextResponse.json(guardResult.body, { status: guardResult.status })
   }
 
+  // Capture the persisted run id (navigation spec §1): the runners fire
+  // `onRunPersisted` for every run they create — nested sub-agent delegations
+  // included — so keep only the FIRST invocation, which is the top-level run.
+  let observedRunId: string | null = null
   const runCtx: AgentRunCtx = {
     tenantId: auth.tenantId,
     organizationId,
     userId: auth.sub,
+    onRunPersisted: (persistedRunId) => {
+      if (!observedRunId) observedRunId = persistedRunId
+    },
   }
 
   let result: unknown
@@ -119,7 +128,23 @@ export async function POST(req: Request, ctx: RouteContext) {
     })
   }
 
-  return NextResponse.json(result)
+  // Additive sibling fields next to the typed result (navigation spec §1): the
+  // `AgentResult` union never defines `runId`/`proposalId`, so spreading is
+  // collision-free and existing consumers reading `kind`/`proposal`/`data` are
+  // unaffected. Id-only projection — no encrypted proposal columns are fetched.
+  let proposalId: string | null = null
+  if (observedRunId) {
+    const em = (container.resolve('em') as EntityManager).fork()
+    const proposals = await em.find(
+      AgentProposal,
+      { runId: observedRunId, tenantId: auth.tenantId, organizationId, deletedAt: null },
+      { orderBy: { createdAt: 'desc' }, limit: 1, fields: ['id'] },
+    )
+    proposalId = proposals[0]?.id ?? null
+  }
+
+  const resultRecord = (result && typeof result === 'object' ? result : {}) as Record<string, unknown>
+  return NextResponse.json({ ...resultRecord, runId: observedRunId, proposalId })
 }
 
 export const openApi: OpenApiRouteDoc = {
@@ -129,14 +154,20 @@ export const openApi: OpenApiRouteDoc = {
     POST: {
       summary: 'Run an agent',
       description:
-        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for actionable results), and returns the typed AgentResult.',
+        'Runs the agent in object mode under the caller scope, persists an AgentRun (and an AgentProposal for actionable results), and returns the typed AgentResult plus additive sibling fields: `runId` (the persisted AgentRun id) and `proposalId` (the newest AgentProposal created by the run, null for informative runs).',
       requestBody: {
         contentType: 'application/json',
         schema: agentRunRequestSchema,
         description: 'Agent input payload (shape is agent-specific).',
       },
       responses: [
-        { status: 200, description: 'Typed AgentResult', schema: baseAgentResultSchema },
+        {
+          status: 200,
+          description: 'Typed AgentResult + { runId, proposalId }',
+          schema: baseAgentResultSchema.and(
+            z.object({ runId: z.string().uuid().nullable(), proposalId: z.string().uuid().nullable() }),
+          ),
+        },
       ],
       errors: [
         { status: 400, description: 'Tenant context missing, or no single organization is selected (run under "All organizations" is rejected)', schema: errorSchema },
