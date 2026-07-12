@@ -203,22 +203,15 @@ describe('document link command transaction snapshots', () => {
     const result = await createLinkCommand.execute(linkInput(), harness.ctx)
     expect(result.before).toMatchObject({ id: linkId, existed: false, updatedAt: null })
     expect(result.after).toMatchObject({ id: linkId, existed: true, deletedAt: null })
-    expect(harness.order.slice(0, 6)).toEqual([
+    expect(harness.order.slice(0, 5)).toEqual([
       'verify-target',
       'begin',
       'lock-document',
       'authorize',
-      'verify-target',
       'lock-link',
     ])
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(2)
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenNthCalledWith(
-      1,
-      harness.ctx.request,
-      linkInput().link,
-    )
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenNthCalledWith(
-      2,
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(1)
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledWith(
       harness.ctx.request,
       linkInput().link,
     )
@@ -358,92 +351,42 @@ describe('document link command transaction snapshots', () => {
     expect(harness.em.create).not.toHaveBeenCalled()
   })
 
-  it('rolls back when peer-record access is revoked while waiting for the document lock', async () => {
+  it('runs the single target verification before the create transaction begins', async () => {
     const harness = buildHarness()
-    mockVerifyEntityRegistrySelection
-      .mockImplementationOnce(async () => {
-        harness.order.push('verify-target-before-lock')
-        return verifiedProduct()
-      })
-      .mockImplementationOnce(async () => {
-        harness.order.push('verify-target-after-lock')
-        throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
-      })
+    mockVerifyEntityRegistrySelection.mockImplementation(async () => {
+      harness.order.push('verify-target')
+      return verifiedProduct()
+    })
     mockFindOneWithDecryption.mockImplementation(async (
       _em: EntityManager,
       entity: unknown,
-    ) => {
-      if (entity !== Document) throw new Error('Link lookup must not run after target revocation')
-      harness.order.push('lock-document')
-      return makeDocument()
-    })
+    ) => entity === Document ? makeDocument() : null)
 
-    await expect(createLinkCommand.execute(linkInput(), harness.ctx)).rejects.toMatchObject({
-      status: 403,
-    })
+    await createLinkCommand.execute(linkInput(), harness.ctx)
 
-    expect(harness.order).toEqual([
-      'verify-target-before-lock',
-      'begin',
-      'lock-document',
-      'authorize',
-      'verify-target-after-lock',
-      'rollback',
-    ])
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(2)
-    expect(harness.em.create).not.toHaveBeenCalled()
-    expect(harness.em.persist).not.toHaveBeenCalled()
-    expect(harness.em.commit).not.toHaveBeenCalled()
-    expect(harness.dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(1)
+    expect(harness.order.indexOf('verify-target')).toBeGreaterThanOrEqual(0)
+    expect(harness.order.indexOf('verify-target')).toBeLessThan(harness.order.indexOf('begin'))
   })
 
-  it('rolls back when the peer record is deleted while waiting for the document lock', async () => {
+  it.each([
+    [403, 'documents.links.targetRestricted'],
+    [503, 'documents.links.targetUnavailable'],
+  ])('rejects the create with %s before any transaction when target verification fails', async (
+    status,
+    error,
+  ) => {
     const harness = buildHarness()
-    mockVerifyEntityRegistrySelection
-      .mockResolvedValueOnce(verifiedProduct())
-      .mockRejectedValueOnce(new CrudHttpError(503, { error: 'documents.links.targetUnavailable' }))
-    mockFindOneWithDecryption.mockImplementation(async (
-      _em: EntityManager,
-      entity: unknown,
-    ) => {
-      if (entity !== Document) throw new Error('Link lookup must not run after target deletion')
-      harness.order.push('lock-document')
-      return makeDocument()
-    })
+    mockVerifyEntityRegistrySelection.mockRejectedValueOnce(new CrudHttpError(status, { error }))
 
     await expect(createLinkCommand.execute(linkInput(), harness.ctx)).rejects.toMatchObject({
-      status: 503,
+      status,
+      body: { error },
     })
 
-    expect(harness.order).toEqual(['begin', 'lock-document', 'authorize', 'rollback'])
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(2)
-    expect(harness.em.create).not.toHaveBeenCalled()
-    expect(harness.em.persist).not.toHaveBeenCalled()
-    expect(harness.em.commit).not.toHaveBeenCalled()
-    expect(harness.dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
-  })
-
-  it('rolls back when the canonical peer label changes while waiting for the document lock', async () => {
-    const harness = buildHarness()
-    mockVerifyEntityRegistrySelection
-      .mockResolvedValueOnce(verifiedProduct())
-      .mockResolvedValueOnce(verifiedProduct('Atlas Runner 2'))
-    mockFindOneWithDecryption.mockImplementation(async (
-      _em: EntityManager,
-      entity: unknown,
-    ) => {
-      if (entity !== Document) throw new Error('Link lookup must not run after target change')
-      harness.order.push('lock-document')
-      return makeDocument()
-    })
-
-    await expect(createLinkCommand.execute(linkInput(), harness.ctx)).rejects.toMatchObject({
-      status: 409,
-      body: { error: 'Record changed by another user' },
-    })
-
-    expect(harness.order).toEqual(['begin', 'lock-document', 'authorize', 'rollback'])
-    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(2)
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(1)
+    expect(mockFindOneWithDecryption).not.toHaveBeenCalled()
+    expect(harness.em.begin).not.toHaveBeenCalled()
     expect(harness.em.create).not.toHaveBeenCalled()
     expect(harness.em.persist).not.toHaveBeenCalled()
     expect(harness.em.commit).not.toHaveBeenCalled()
@@ -562,7 +505,60 @@ describe('document link command transaction snapshots', () => {
 
     expect(link.deletedAt).toEqual(deletedAt)
     expect(mockVerifyEntityRegistrySelection).not.toHaveBeenCalled()
-    expect(harness.em.rollback).toHaveBeenCalledTimes(1)
+    expect(harness.em.begin).not.toHaveBeenCalled()
+    expect(harness.em.rollback).not.toHaveBeenCalled()
+  })
+
+  it('re-verifies the resurrected target before the undo transaction begins', async () => {
+    const harness = buildHarness()
+    const deletedAt = new Date('2026-07-10T12:00:01.000Z')
+    const link = makeLink(deletedAt)
+    link.updatedAt = deletedAt
+    mockVerifyEntityRegistrySelection.mockImplementation(async () => {
+      harness.order.push('verify-target')
+      return verifiedProduct()
+    })
+    mockFindOneWithDecryption.mockImplementation(async (
+      _em: EntityManager,
+      entity: unknown,
+    ) => {
+      if (entity === Document) {
+        harness.order.push('lock-document')
+        return makeDocument()
+      }
+      return link
+    })
+
+    await deleteLinkCommand.undo!({
+      input: {},
+      ctx: harness.ctx,
+      logEntry: {
+        commandPayload: {
+          __redoInput: deleteInput(),
+          undo: {
+            before: { id: linkId, existed: true, deletedAt: null, updatedAt },
+            after: {
+              id: linkId,
+              existed: true,
+              deletedAt: deletedAt.toISOString(),
+              updatedAt: deletedAt.toISOString(),
+            },
+          },
+        },
+      },
+    })
+
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledTimes(1)
+    expect(mockVerifyEntityRegistrySelection).toHaveBeenCalledWith(harness.ctx.request, {
+      entityType: 'product',
+      entityId: productId,
+      label: 'Atlas Runner',
+      href: `/backend/catalog/products/${productId}`,
+    })
+    expect(harness.order.indexOf('verify-target')).toBeGreaterThanOrEqual(0)
+    expect(harness.order.indexOf('verify-target')).toBeLessThan(harness.order.indexOf('begin'))
+    expect(link.deletedAt).toBeNull()
+    expect(link.labelSnapshot).toBe('Atlas Runner')
   })
 
   it('rejects delete undo when another link already refilled the aggregate slot', async () => {
@@ -602,7 +598,7 @@ describe('document link command transaction snapshots', () => {
     expect(harness.em.rollback).toHaveBeenCalledTimes(1)
   })
 
-  it('rejects delete undo when the locked row was physically removed', async () => {
+  it('rejects delete undo when the row was physically removed without opening a transaction', async () => {
     const harness = buildHarness()
     mockFindOneWithDecryption.mockImplementation(async (
       _em: EntityManager,
@@ -635,7 +631,8 @@ describe('document link command transaction snapshots', () => {
       },
     })).rejects.toMatchObject({ status: 409 })
 
-    expect(harness.order.slice(0, 4)).toEqual(['begin', 'lock-document', 'authorize', 'rollback'])
+    expect(mockVerifyEntityRegistrySelection).not.toHaveBeenCalled()
+    expect(harness.em.begin).not.toHaveBeenCalled()
     expect(harness.em.commit).not.toHaveBeenCalled()
     expect(harness.dataEngine.markOrmEntityChange).not.toHaveBeenCalled()
   })

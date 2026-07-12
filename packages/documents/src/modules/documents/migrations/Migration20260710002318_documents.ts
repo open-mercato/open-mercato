@@ -26,7 +26,7 @@ export class Migration20260710002318_documents extends Migration {
   }
 
   override down(): void | Promise<void> {
-    this.addSql(`drop index "document_templates_active_seed_key_uq";`);
+    this.addSql(`drop index if exists "document_templates_active_seed_key_uq";`);
     this.addSql(`alter table "document_templates" drop column "seed_key";`);
 
     this.addSql(`drop table if exists "document_entity_links" cascade;`);

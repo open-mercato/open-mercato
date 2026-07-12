@@ -45,10 +45,12 @@ export function buildDocxPaginationSnapshot(editor: Editor | null): DocxPaginati
 export async function downloadDocumentExport(
   documentId: string,
   format: ExportFormat,
-  snapshot: DocxPaginationSnapshot | null = null,
-  errorMessage = 'Export failed',
+  snapshot: DocxPaginationSnapshot | null,
+  errorMessage: string,
 ): Promise<void> {
   const hasSnapshot = format === 'docx' && snapshot !== null
+  // Intentionally outside useGuardedMutation: export is read-shaped (no record is
+  // mutated); the POST variant only carries the client pagination snapshot payload.
   const call = await apiCallOrThrow<Blob>(
     `/api/documents/${encodeURIComponent(documentId)}/export?format=${format}`,
     {

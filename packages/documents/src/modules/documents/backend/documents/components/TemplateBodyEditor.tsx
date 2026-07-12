@@ -29,7 +29,7 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
   const [token, setToken] = React.useState<string | undefined>()
   const editor = useEditor({
     extensions: getDocumentEditorExtensions({
-      entityRefFallbackLabel: t('documents.links.restrictedRecord'),
+      entityRefFallbackLabel: t('documents.editor.entityRef.fallbackLabel'),
     }),
     content: bodyHtml,
     editable: true,

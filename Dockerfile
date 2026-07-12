@@ -1,6 +1,9 @@
 FROM node:24-alpine AS builder
 
 ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+# Optional: unset/empty builds fine (realtime collaboration stays disabled at
+# runtime); a set value must be a trimmed, non-loopback ws(s):// endpoint.
+RUN node -e 'const raw = process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? ""; if (raw === "") { process.exit(0) } let endpoint; try { endpoint = new URL(raw) } catch {} const hostname = (endpoint?.hostname ?? "").replace(/^\[|\]$/g, "").toLowerCase().replace(/\.$/, ""); const loopback = hostname === "localhost" || hostname.endsWith(".localhost") || hostname === "::1" || hostname === "::" || hostname === "0.0.0.0" || /^127(?:\.|$)/.test(hostname) || /^::ffff:7f[0-9a-f]{2}:/.test(hostname) || hostname === "::ffff:0:0"; if (raw !== raw.trim() || !endpoint || !["ws:", "wss:"].includes(endpoint.protocol) || !hostname || loopback) { console.error("ERROR: NEXT_PUBLIC_DOCUMENTS_COLLAB_URL, when set, must be a trimmed, browser-reachable ws(s) endpoint and cannot use localhost or a loopback address; leave it unset to disable realtime collaboration"); process.exit(1) }'
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -173,13 +176,17 @@ RUN chmod +x /app/docker/scripts/dev-entrypoint.sh
 RUN chmod +x /app/docker/scripts/init-or-migrate.sh
 RUN chmod +x /app/docker/scripts/mcp-entrypoint.sh
 
-EXPOSE 3000
+EXPOSE 3000 4101
 CMD ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
 
 # Production stage
 FROM node:24-alpine AS runner
 
 ARG CONTAINER_PORT=3000
+ARG DOCUMENTS_COLLAB_PORT=4101
+# Chromium backs the Documents PDF export (puppeteer-core). Build with
+# --build-arg INSTALL_CHROMIUM=0 to skip it; PDF export then returns 503.
+ARG INSTALL_CHROMIUM=1
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
@@ -190,7 +197,11 @@ WORKDIR /app
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup
-RUN apk add --no-cache ca-certificates chromium openssl sudo
+RUN if [ "$INSTALL_CHROMIUM" = "1" ]; then \
+      apk add --no-cache ca-certificates chromium openssl sudo; \
+    else \
+      apk add --no-cache ca-certificates openssl sudo; \
+    fi
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -265,7 +276,7 @@ RUN adduser -D -u 1001 omuser \
 
 USER omuser
 
-EXPOSE ${CONTAINER_PORT}
+EXPOSE ${CONTAINER_PORT} ${DOCUMENTS_COLLAB_PORT}
 
 WORKDIR /app/apps/mercato
 CMD ["yarn", "start"]

@@ -20,7 +20,7 @@ export async function acquireFolderHierarchyMutationLock(
   scope: FolderHierarchyMutationScope,
 ): Promise<void> {
   if (!em.isInTransaction()) {
-    throw new Error('Folder hierarchy mutation lock requires an active transaction')
+    throw new Error('[internal] Folder hierarchy mutation lock requires an active transaction')
   }
 
   // SqlEntityManager.execute forwards the active transaction context. Calling the

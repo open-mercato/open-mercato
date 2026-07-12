@@ -37,7 +37,7 @@ export function TemplatePreview({ preview, isLoading }: { preview: TemplatePrevi
           <AlertDescription>{t('documents.templates.preview.unresolvedBody', { tokens: preview.unresolvedTokens.join(', ') })}</AlertDescription>
         </Alert>
       ) : null}
-      <PreviewSurface html={preview.contentHtml} fallbackLabel={t('documents.links.restrictedRecord')} />
+      <PreviewSurface html={preview.contentHtml} fallbackLabel={t('documents.editor.entityRef.fallbackLabel')} />
     </div>
   )
 }

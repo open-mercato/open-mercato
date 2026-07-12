@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -39,7 +40,7 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
   const mutationContextId = `documents-share-dialog:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<ShareMutationContext>({
     contextId: mutationContextId,
-    blockedMessage: t('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+    blockedMessage: t('ui.forms.flash.saveBlocked'),
   })
 
   const mutationContext = React.useCallback((resourceKind: string, resourceId: string) => ({
@@ -134,7 +135,9 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
       await loadShares()
       flash(t('documents.share.dialog.success.update'), 'success')
     } catch (caught) {
-      flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.update'), 'error')
+      if (!surfaceRecordConflict(caught, t, { onRefresh: () => { void loadShares() } })) {
+        flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.update'), 'error')
+      }
     }
   }, [canManage, documentId, loadShares, mutationContext, runMutation, t])
 
@@ -160,9 +163,11 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
       setShares((current) => current.filter((row) => row.id !== share.id))
       flash(t('documents.share.dialog.success.remove'), 'success')
     } catch (caught) {
-      flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.remove'), 'error')
+      if (!surfaceRecordConflict(caught, t, { onRefresh: () => { void loadShares() } })) {
+        flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.remove'), 'error')
+      }
     }
-  }, [canManage, documentId, mutationContext, runMutation, t])
+  }, [canManage, documentId, loadShares, mutationContext, runMutation, t])
 
   const changePrincipalType = React.useCallback((nextType: DocumentSharePrincipalType) => {
     setPrincipalType(nextType)

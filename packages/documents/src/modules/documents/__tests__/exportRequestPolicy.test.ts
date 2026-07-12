@@ -10,6 +10,7 @@ import {
   DOCX_MAX_EMBEDDED_IMAGE_BYTES,
   PDF_MAX_EMBEDDED_IMAGE_BYTES,
   isAllowedPdfAssetRequest,
+  POST,
   sanitizeDocxExportContent,
   sanitizePdfExportContent,
 } from '../api/[id]/export/route'
@@ -110,6 +111,22 @@ describe('document DOCX export resource policy', () => {
     )
 
     expect(html).toBe('<p>Safe</p>')
+  })
+
+  it('returns a 400 validation response for a malformed JSON snapshot body', async () => {
+    const response = await POST(
+      new Request('http://localhost/api/documents/00000000-0000-4000-8000-000000000000/export?format=docx', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{invalid json',
+      }),
+      { params: { id: '00000000-0000-4000-8000-000000000000' } },
+    )
+
+    expect(response.status).toBe(400)
+    const body = await response.json()
+    expect(typeof body.error).toBe('string')
+    expect(Array.isArray(body.details)).toBe(true)
   })
 })
 

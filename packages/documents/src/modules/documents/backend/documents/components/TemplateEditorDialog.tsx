@@ -4,6 +4,7 @@ import * as React from 'react'
 import { apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -115,7 +116,9 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
       onSaved()
       onOpenChange(false)
     } catch (error) {
-      flash(error instanceof Error ? error.message : t(editingTemplate ? 'documents.templates.error.update' : 'documents.templates.error.create'), 'error')
+      if (!surfaceRecordConflict(error, t, { onRefresh: onSaved })) {
+        flash(error instanceof Error ? error.message : t(editingTemplate ? 'documents.templates.error.update' : 'documents.templates.error.create'), 'error')
+      }
     } finally { setIsSubmitting(false) }
   }, [bodyHtml, description, isActive, mutationContextId, name, onOpenChange, onSaved, retryLastMutation, runMutation, slots, t, template, templateDetail.template])
 

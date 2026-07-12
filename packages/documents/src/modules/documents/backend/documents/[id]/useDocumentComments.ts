@@ -8,8 +8,12 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { DOCUMENTS_COMMENT_LIST_PAGE_SIZE } from '../../../lib/historyPolicy'
-import { captureCommentAnchor, type CommentAnchor } from './CommentAnchorNavigation'
+import {
+  DOCUMENTS_COMMENT_LIST_PAGE_SIZE,
+  DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT,
+} from '../../../lib/historyPolicy'
+import { readNumber, readRecord } from '../documentUi'
+import type { CommentAnchor } from './CommentAnchorNavigation'
 import {
   findCommentById,
   readCommentItems,
@@ -54,15 +58,21 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
   const reload = React.useCallback(async () => {
     setState((current) => current.status === 'ready' ? current : { status: 'loading' })
     try {
-      const call = await apiCall<unknown>(
-        `/api/documents/${encodeURIComponent(documentId)}/comments?page=1&pageSize=${DOCUMENTS_COMMENT_LIST_PAGE_SIZE}`,
-      )
-      if (!call.ok) return setState({ status: 'error', message: t('documents.comments.error.load') })
-      setState({
-        status: 'ready',
-        comments: readCommentItems(call.result),
-        userLabels: readUserLabels(call.result, t('documents.users.unknown')),
-      })
+      const maxPages = Math.ceil(DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT / DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
+      let comments: DocumentComment[] = []
+      let userLabels: UserLabels = {}
+      for (let page = 1; page <= maxPages; page += 1) {
+        const call = await apiCall<unknown>(
+          `/api/documents/${encodeURIComponent(documentId)}/comments?page=${page}&pageSize=${DOCUMENTS_COMMENT_LIST_PAGE_SIZE}`,
+        )
+        if (!call.ok) return setState({ status: 'error', message: t('documents.comments.error.load') })
+        comments = [...readCommentItems(call.result), ...comments]
+        userLabels = { ...userLabels, ...readUserLabels(call.result, t('documents.users.unknown')) }
+        const root = readRecord(call.result)
+        const totalPages = Math.max(1, root ? readNumber(root, 'totalPages', 'total_pages') ?? 1 : 1)
+        if (page >= totalPages) break
+      }
+      setState({ status: 'ready', comments, userLabels })
     } catch (error) {
       setState({ status: 'error', message: error instanceof Error ? error.message : t('documents.comments.error.load') })
     }
@@ -120,7 +130,9 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
     setIsSubmitting(true)
     try {
       const grantAccessTo = await resolveGrantAccessTo()
-      const anchor = pendingAnchor ?? (editor ? captureCommentAnchor(editor) : null)
+      const anchor = pendingAnchor ?? (editor
+        ? (await import('./CommentAnchorNavigation')).captureCommentAnchor(editor)
+        : null)
       const mentions = pendingMentions.map(({ userId }) => ({ userId }))
       await runMutation({
         operation: () => apiCallOrThrow(

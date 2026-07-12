@@ -70,7 +70,7 @@ describe('document export download', () => {
     URL.revokeObjectURL = jest.fn()
     const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    await downloadDocumentExport('doc/id', 'docx')
+    await downloadDocumentExport('doc/id', 'docx', null, 'Export failed')
 
     expect(global.fetch).toHaveBeenCalledWith(
       '/api/documents/doc%2Fid/export?format=docx',
@@ -90,7 +90,7 @@ describe('document export download', () => {
     URL.createObjectURL = jest.fn(() => 'blob:should-not-exist')
     const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    await expect(downloadDocumentExport('document-id', 'docx')).rejects.toThrow(
+    await expect(downloadDocumentExport('document-id', 'docx', null, 'Export failed')).rejects.toThrow(
       'The export service is temporarily unavailable.',
     )
     expect(click).not.toHaveBeenCalled()

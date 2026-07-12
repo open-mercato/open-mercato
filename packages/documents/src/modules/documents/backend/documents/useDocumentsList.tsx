@@ -6,6 +6,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import {
@@ -126,7 +127,11 @@ export function useDocumentsList() {
       })
       flash(t('documents.list.success.delete'), 'success')
       refresh()
-    } catch (error) { flash(error instanceof Error ? error.message : t('documents.list.error.delete'), 'error') }
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
+        flash(error instanceof Error ? error.message : t('documents.list.error.delete'), 'error')
+      }
+    }
   }, [confirm, mutationContextId, refresh, retryLastMutation, runMutation, t])
 
   const moveDocument = React.useCallback(async (row: DocumentRow, folderId: string | null) => {
@@ -151,7 +156,9 @@ export function useDocumentsList() {
       flash(t('documents.folders.success.moveDocument'), 'success')
       refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('documents.folders.error.moveDocument'), 'error')
+      if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
+        flash(error instanceof Error ? error.message : t('documents.folders.error.moveDocument'), 'error')
+      }
     }
   }, [mutationContextId, refresh, retryLastMutation, runMutation, t])
 
@@ -174,7 +181,11 @@ export function useDocumentsList() {
       })
       flash(t(isRename ? 'documents.folders.success.rename' : 'documents.folders.success.create'), 'success')
       refresh()
-    } catch (error) { flash(error instanceof Error ? error.message : t(isRename ? 'documents.folders.error.rename' : 'documents.folders.error.create'), 'error') }
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
+        flash(error instanceof Error ? error.message : t(isRename ? 'documents.folders.error.rename' : 'documents.folders.error.create'), 'error')
+      }
+    }
   }, [mutationContextId, refresh, retryLastMutation, runMutation, t])
 
   const deleteFolder = React.useCallback(async (folder: FolderRow) => {
@@ -188,7 +199,11 @@ export function useDocumentsList() {
       if (selectedFolderId === folder.id) setSelectedFolderId(null)
       flash(t('documents.folders.success.delete'), 'success')
       refresh()
-    } catch (error) { flash(error instanceof Error ? error.message : t('documents.folders.error.delete'), 'error') }
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
+        flash(error instanceof Error ? error.message : t('documents.folders.error.delete'), 'error')
+      }
+    }
   }, [confirm, mutationContextId, refresh, retryLastMutation, runMutation, selectedFolderId, t])
 
   return {

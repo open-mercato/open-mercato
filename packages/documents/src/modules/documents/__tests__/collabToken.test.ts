@@ -167,6 +167,7 @@ describe('collab tokens', () => {
     })
     delete process.env.DOCUMENTS_COLLAB_JWT_SECRET_V2
 
+    expect(isCollabTokenV2Ready()).toBe(false)
     expect(verifyCollabTokenV2(token)).toBeNull()
     expect(() => mintCollabTokenV2({
       ...claims,

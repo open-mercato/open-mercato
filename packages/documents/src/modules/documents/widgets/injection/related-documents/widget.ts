@@ -8,6 +8,7 @@ const widget: InjectionWidgetModule<Record<string, unknown>, Record<string, unkn
     id: 'documents.injection.related-documents',
     title: 'Related documents',
     description: 'Lists and creates documents related to the current record.',
+    features: ['documents.view'],
     requiredModules: ['documents'],
     priority: 80,
     enabled: true,

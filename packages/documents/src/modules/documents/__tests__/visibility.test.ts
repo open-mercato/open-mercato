@@ -78,6 +78,24 @@ describe('visible document page query', () => {
     ))).toBe(true)
   })
 
+  it('escapes LIKE wildcards in the search term so % and _ match literally', async () => {
+    const query = makeQueryDouble([])
+
+    await getVisibleDocumentPage({
+      em: makeEntityManager(query),
+      ...scope,
+      managerOverride: false,
+      page: 1,
+      pageSize: 10,
+      search: ' 50%_off\\deal ',
+    })
+
+    expect(query.andWhere).toHaveBeenCalledWith(
+      'document.title ilike ?',
+      ['%50\\%\\_off\\\\deal%'],
+    )
+  })
+
   it('keeps the same single-query shape for a 100-row page', async () => {
     const rows = Array.from({ length: 100 }, (_, index) => ({
       id: `${String(index).padStart(8, '0')}-0000-4000-8000-000000000000`,

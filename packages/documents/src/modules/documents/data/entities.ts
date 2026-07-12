@@ -11,6 +11,11 @@ export type DocumentEntityLinkSource = 'chip' | 'template' | 'related-panel'
 @Index({ name: 'documents_scope_idx', properties: ['organizationId', 'tenantId', 'deletedAt'] })
 @Index({ name: 'documents_folder_idx', properties: ['folderId'] })
 @Index({ name: 'documents_owner_idx', properties: ['ownerUserId'] })
+@Index({
+  name: 'documents_list_sort_idx',
+  expression:
+    'create index "documents_list_sort_idx" on "documents" ("organization_id", "tenant_id", "updated_at") where "deleted_at" is null',
+})
 export class Document {
   [OptionalProps]?: 'folderId' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
 

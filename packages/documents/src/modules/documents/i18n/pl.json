@@ -91,6 +91,7 @@
   "documents.editor.colors.red": "Czerwony",
   "documents.editor.colors.selectNamed": "Wybierz {color}",
   "documents.editor.colors.yellow": "Żółty",
+  "documents.editor.entityRef.fallbackLabel": "Rekord",
   "documents.editor.error.imageUpload": "Nie udało się przesłać obrazu.",
   "documents.editor.error.load": "Nie udało się załadować dokumentu.",
   "documents.editor.error.loadContent": "Nie udało się załadować treści dokumentu.",

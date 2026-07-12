@@ -2288,6 +2288,15 @@
           "unique": false
         },
         {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "documents_list_sort_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"documents_list_sort_idx\" on \"documents\" (\"organization_id\", \"tenant_id\", \"updated_at\") where \"deleted_at\" is null"
+        },
+        {
           "columnNames": [
             "owner_user_id"
           ],

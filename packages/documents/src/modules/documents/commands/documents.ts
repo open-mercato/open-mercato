@@ -318,50 +318,41 @@ const instantiateDocumentCommand: CommandHandler<
     const template = await loadTemplate(requestEm, input)
     const sourceRequest = ctx.request
     if (!sourceRequest) throw new Error('[internal] template instantiation requires the source request')
-    const prepareAuthoritativeRender = (
-      authoritativeTemplate: DocumentTemplate,
-      features: readonly string[],
-    ) => prepareTemplateRender({
+    // The authoritative render performs up to 20 loopback HTTP verifications,
+    // so it must complete before the transaction acquires aggregate locks. It
+    // enforces the preview-digest CAS against caller-controlled values, and
+    // the in-transaction revalidation below pins its inputs at commit: the
+    // locked template revision check rejects any template edited after this
+    // render (monotonic versions), and slot features plus module availability
+    // are re-asserted against a fresh post-lock ACL.
+    const prepared = await prepareTemplateRender({
       request: sourceRequest,
-      template: authoritativeTemplate,
+      template,
       title: input.title,
       locale: input.locale,
       effectiveDate: input.effectiveDate,
       templateUpdatedAt: input.templateUpdatedAt,
       slots: input.slots,
-      userFeatures: features,
+      userFeatures: previewFeatures,
       expectedDigest: input.previewDigest,
       rejectUnresolved: true,
     })
-    // Keep the preflight outside the transaction so invalid input does not
-    // acquire aggregate locks. Its snapshots are deliberately discarded: the
-    // locked revalidation below is the sole persistence authority.
-    await prepareAuthoritativeRender(template, previewFeatures)
+    const uniqueLinkSlots = dedupeTemplateLinkSlots(prepared.verifiedSlots)
     const em = resolveDocumentsCommandEntityManager(ctx)
     let aggregate!: Awaited<ReturnType<typeof loadAggregate>>
     let document: Document | null = null
     let content: DocumentContent | null = null
     const links: DocumentEntityLink[] = []
-    let prepared!: Awaited<ReturnType<typeof prepareTemplateRender>>
-    let uniqueLinkSlots: InstantiateDocumentCommandInput['slots'] = []
     let before!: InstantiateSnapshot
     let after!: InstantiateSnapshot
 
     await withAtomicFlush(em, [
       async () => {
-        const lockedTemplate = await lockAndValidateTemplateRevision(em, input)
+        await lockAndValidateTemplateRevision(em, input)
         aggregate = await loadAggregate(em, input, true)
         const features = await resolveDocumentsCommandFeatures(ctx, scope)
         assertCommandFeature(features, 'documents.create')
         assertCommandFeature(features, 'documents.edit')
-        // Peer records are mutable authorization boundaries outside the
-        // Documents aggregate. Re-read every target only after the template
-        // and destination aggregate are locked and ACL is fresh. The preview
-        // digest then makes any changed label/href/token value fail closed,
-        // while deletion or record-level revocation is rejected by the peer
-        // API. Nothing from the preflight render may reach persistence.
-        prepared = await prepareAuthoritativeRender(lockedTemplate, features)
-        uniqueLinkSlots = dedupeTemplateLinkSlots(prepared.verifiedSlots)
         assertInstantiateSlotFeatures(uniqueLinkSlots, features)
         before = snapshotAggregate(input, aggregate)
         if (

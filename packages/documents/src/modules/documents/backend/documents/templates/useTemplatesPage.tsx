@@ -5,6 +5,7 @@ import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-merc
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
@@ -115,7 +116,11 @@ export function useTemplatesPage() {
       })
       flash(t('documents.templates.success.delete'), 'success')
       refreshFromFirstPage()
-    } catch (error) { flash(error instanceof Error ? error.message : t('documents.templates.error.delete'), 'error') }
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: refreshFromFirstPage })) {
+        flash(error instanceof Error ? error.message : t('documents.templates.error.delete'), 'error')
+      }
+    }
   }, [canManageTemplates, confirm, mutationContextId, refreshFromFirstPage, retryLastMutation, runMutation, t])
 
   return {

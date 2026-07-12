@@ -1,5 +1,6 @@
 import { raw } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Document, DocumentFolder } from '../data/entities'
 import type { DocumentEntityType } from '../data/validators'
@@ -226,7 +227,7 @@ function buildVisibleDocumentQuery(input: GetVisibleDocumentPageInput) {
   addDocumentVisibilityPredicate(query, input)
   addDocumentRelationPredicate(query, input)
   if (input.search?.trim()) {
-    query.andWhere('document.title ilike ?', [`%${input.search.trim()}%`])
+    query.andWhere('document.title ilike ?', [`%${escapeLikePattern(input.search.trim())}%`])
   }
   if (input.folderId) {
     query.andWhere({ folderId: input.folderId })

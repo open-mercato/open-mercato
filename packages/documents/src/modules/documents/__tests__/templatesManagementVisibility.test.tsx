@@ -6,6 +6,7 @@ const apiCallMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const runMutationMock = jest.fn()
 const retryLastMutationMock = jest.fn(async () => false)
+const surfaceRecordConflictMock = jest.fn()
 const mockDataTableProps = jest.fn()
 const translateMock = (key: string) => key
 
@@ -37,9 +38,14 @@ jest.mock('@open-mercato/ui/backend/confirm-dialog', () => ({
   }),
 }))
 
+jest.mock('@open-mercato/ui/backend/conflicts', () => ({
+  surfaceRecordConflict: (...args: unknown[]) => surfaceRecordConflictMock(...args),
+}))
+
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translateMock }))
 
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTemplatesPage } from '../backend/documents/templates/useTemplatesPage'
 import { TemplatesTable } from '../backend/documents/templates/TemplatesTable'
 
@@ -164,6 +170,24 @@ describe('templates management visibility', () => {
       { fallback: { items: [] } },
     )
     expect(result.current.page).toBe(1)
+  })
+
+  it('does not flash a duplicate error when a delete 409 is surfaced on the conflict banner', async () => {
+    const row = template('77777777-7777-4777-8777-777777777777', 'Contended template', true)
+    runMutationMock.mockRejectedValueOnce(new Error('Record changed by another user'))
+    surfaceRecordConflictMock.mockReturnValueOnce(true)
+
+    const { result } = renderHook(() => useTemplatesPage())
+    await waitFor(() => expect(result.current.canManageTemplates).toBe(true))
+
+    await act(async () => { await result.current.deleteTemplate(row) })
+
+    expect(surfaceRecordConflictMock).toHaveBeenCalledWith(
+      expect.any(Error),
+      translateMock,
+      { onRefresh: expect.any(Function) },
+    )
+    expect(flash).not.toHaveBeenCalled()
   })
 
   it('clears stale rows and pagination metadata after a load error', async () => {

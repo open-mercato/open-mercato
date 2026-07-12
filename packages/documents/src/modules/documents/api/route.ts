@@ -1,16 +1,15 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import { raw } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { DocumentShare } from '../data/entities'
 import { documentCreateSchema, documentEntityTypeSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { resolveUserLabels } from '../lib/userLabels'
 import { deriveDocumentCapabilities } from '../lib/capabilities'
 import { getVisibleDocumentPage } from '../lib/visibility'
+import { loadDocumentShareCounts } from '../lib/shareCounts'
 import { getEntityRegistryEntry } from '../lib/entityRegistry'
 import { verifyEntityRegistryTargetAccess } from '../lib/entityRegistry.server'
 import { isDocumentEntityRegistryModuleEnabled } from '../lib/entityRegistryAvailability.server'
@@ -198,28 +197,11 @@ export async function GET(request: Request): Promise<Response> {
         .map((document) => readString(document, 'ownerUserId', 'owner_user_id'))
         .filter((id): id is string => id !== null),
     )
-    const shareCounts = new Map<string, number>()
-    if (orderedIds.length > 0) {
-      const groupedShares = await ctx.em
-        .createQueryBuilder(DocumentShare, 'document_share')
-        .select([
-          'document_share.documentId',
-          raw('count(*) as "shareCount"'),
-        ])
-        .where({
-          documentId: { $in: orderedIds },
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          deletedAt: null,
-        })
-        .groupBy('document_share.documentId')
-        .execute<Array<{ documentId?: unknown; document_id?: unknown; shareCount?: unknown; share_count?: unknown }>>('all', false)
-      for (const row of groupedShares) {
-        const documentId = row.documentId ?? row.document_id
-        const count = Number(row.shareCount ?? row.share_count ?? 0)
-        if (typeof documentId === 'string' && Number.isFinite(count)) shareCounts.set(documentId, count)
-      }
-    }
+    const shareCounts = await loadDocumentShareCounts(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+      orderedIds,
+    )
     const visibleRowsById = new Map(visiblePage.rows.map((row) => [row.id, row]))
     const items = pageDocuments.map((document) => {
       const id = readString(document, 'id') ?? ''

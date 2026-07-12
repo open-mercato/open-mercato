@@ -40,6 +40,9 @@ export type OrganizationScope = {
   filterIds: string[] | null
   allowedIds: string[] | null
   tenantId: string | null
+  // True when an explicit organization selection could not be honored. Reads
+  // fall back to the caller's accessible organizations; writes must fail.
+  selectionRejected?: boolean
 }
 
 export type OrganizationScopeAcl = {

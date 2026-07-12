@@ -91,6 +91,7 @@
   "documents.editor.colors.red": "Rot",
   "documents.editor.colors.selectNamed": "{color} auswählen",
   "documents.editor.colors.yellow": "Gelb",
+  "documents.editor.entityRef.fallbackLabel": "Datensatz",
   "documents.editor.error.imageUpload": "Bild konnte nicht hochgeladen werden.",
   "documents.editor.error.load": "Dokument konnte nicht geladen werden.",
   "documents.editor.error.loadContent": "Dokumentinhalt konnte nicht geladen werden.",

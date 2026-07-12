@@ -1,5 +1,8 @@
 import { DocumentComment } from '../data/entities'
-import { DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT } from '../lib/historyLimits'
+import {
+  DOCUMENTS_COMMENT_LIST_PAGE_SIZE,
+  DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT,
+} from '../lib/historyLimits'
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
 const organizationId = '22222222-2222-4222-8222-222222222222'
@@ -120,10 +123,15 @@ describe('document comment history pagination', () => {
     expect(paginateNewestThreadRoots([1, 2, 3, 4, 5], 4, 2)).toEqual([])
   })
 
-  it('rejects list pages above the bounded per-document comment history', () => {
-    expect(commentListQuerySchema.safeParse({
+  it('clamps accepted and default list page sizes to the platform pageSize cap', () => {
+    expect(DOCUMENTS_COMMENT_LIST_PAGE_SIZE).toBeLessThanOrEqual(100)
+    expect(commentListQuerySchema.parse({})).toEqual({
+      page: 1,
+      pageSize: DOCUMENTS_COMMENT_LIST_PAGE_SIZE,
+    })
+    expect(commentListQuerySchema.parse({
       page: '1',
       pageSize: String(DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT + 1),
-    }).success).toBe(false)
+    }).pageSize).toBe(DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
   })
 })

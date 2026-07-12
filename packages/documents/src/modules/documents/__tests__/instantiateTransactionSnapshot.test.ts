@@ -354,9 +354,7 @@ describe('document instantiation transaction snapshots', () => {
       throw new Error('Unexpected read')
     })
     mockFindWithDecryption.mockResolvedValue([])
-    mockPrepareTemplateRender
-      .mockResolvedValueOnce(productRender('Pre-lock product'))
-      .mockResolvedValueOnce(productRender('Authoritative product'))
+    mockPrepareTemplateRender.mockResolvedValueOnce(productRender('Authoritative product'))
     mockMutateDocumentContentState.mockImplementation(async (
       em: EntityManager,
       _documentId: string,
@@ -390,7 +388,7 @@ describe('document instantiation transaction snapshots', () => {
       labelSnapshot: 'Authoritative product',
       hrefSnapshot: `/backend/catalog/products/${productId}`,
     })
-    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(2)
+    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(1)
     expect(mockMutateDocumentContentState).toHaveBeenCalledWith(
       harness.em,
       documentId,
@@ -403,7 +401,6 @@ describe('document instantiation transaction snapshots', () => {
       { id: contentId, existingContent: null },
     )
     expect(JSON.stringify(result)).not.toContain('Caller controlled product')
-    expect(JSON.stringify(result)).not.toContain('Pre-lock product')
   })
 
   it('rejects template link persistence when a stale wildcard grant names a disabled peer module', async () => {
@@ -426,7 +423,7 @@ describe('document instantiation transaction snapshots', () => {
     expect(mockMutateDocumentContentState).not.toHaveBeenCalled()
   })
 
-  it('aborts atomically when peer record access is revoked while waiting for aggregate locks', async () => {
+  it('runs the authoritative render before the aggregate transaction begins', async () => {
     const harness = buildHarness()
     harness.rbacService.loadAcl.mockResolvedValue({
       isSuperAdmin: false,
@@ -434,37 +431,41 @@ describe('document instantiation transaction snapshots', () => {
       organizations: null,
     })
     configureProductInstantiationReads(harness)
-    mockPrepareTemplateRender
-      .mockImplementationOnce(async () => {
-        harness.order.push('preflight-peer-read')
-        return productRender('Visible product')
-      })
-      .mockImplementationOnce(async () => {
-        harness.order.push('locked-peer-read')
-        throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
-      })
-
-    await expect(
-      instantiateDocumentCommand.execute(inputWithProduct(), harness.ctx),
-    ).rejects.toMatchObject({
-      status: 403,
-      body: { error: 'documents.links.targetRestricted' },
+    mockPrepareTemplateRender.mockImplementation(async () => {
+      harness.order.push('render')
+      return productRender('Atlas Runner')
     })
+    mockMutateDocumentContentState.mockImplementation(async (
+      _em: EntityManager,
+      _documentId: string,
+      scope: { tenantId: string; organizationId: string },
+      state: { yjsState: Buffer; contentHtml: string; contentText: string },
+      options: { id: string },
+    ) => Object.assign(new DocumentContent(), {
+      id: options.id,
+      ...scope,
+      documentId,
+      ...state,
+      createdAt: now,
+      updatedAt: now,
+      deletedAt: null,
+    }))
 
-    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(2)
-    expect(harness.rbacService.loadAcl.mock.invocationCallOrder[1]).toBeLessThan(
-      mockPrepareTemplateRender.mock.invocationCallOrder[1]!,
-    )
-    expect(harness.order.indexOf('preflight-peer-read')).toBeLessThan(harness.order.indexOf('begin'))
-    expect(harness.order.indexOf('lock-template')).toBeLessThan(harness.order.indexOf('locked-peer-read'))
-    expect(harness.order.indexOf('lock-document-slot')).toBeLessThan(harness.order.indexOf('locked-peer-read'))
-    expect(harness.em.create).not.toHaveBeenCalled()
-    expect(harness.em.persist).not.toHaveBeenCalled()
-    expect(mockMutateDocumentContentState).not.toHaveBeenCalled()
-    expect(harness.em.rollback).toHaveBeenCalledTimes(1)
+    await instantiateDocumentCommand.execute(inputWithProduct(), harness.ctx)
+
+    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(1)
+    expect(harness.order.indexOf('render')).toBeGreaterThanOrEqual(0)
+    expect(harness.order.indexOf('render')).toBeLessThan(harness.order.indexOf('begin'))
+    expect(harness.order.indexOf('begin')).toBeLessThan(harness.order.indexOf('lock-template'))
   })
 
-  it('aborts atomically when a peer record is deleted while waiting for aggregate locks', async () => {
+  it.each([
+    [403, 'documents.links.targetRestricted'],
+    [400, 'documents.links.targetMismatch'],
+  ])('rejects with %s before any transaction when the authoritative render fails', async (
+    status,
+    error,
+  ) => {
     const harness = buildHarness()
     harness.rbacService.loadAcl.mockResolvedValue({
       isSuperAdmin: false,
@@ -472,30 +473,20 @@ describe('document instantiation transaction snapshots', () => {
       organizations: null,
     })
     configureProductInstantiationReads(harness)
-    mockPrepareTemplateRender
-      .mockResolvedValueOnce(productRender('Existing product'))
-      .mockImplementationOnce(async () => {
-        harness.order.push('locked-peer-read')
-        throw new CrudHttpError(400, { error: 'documents.links.targetMismatch' })
-      })
+    mockPrepareTemplateRender.mockRejectedValueOnce(new CrudHttpError(status, { error }))
 
     await expect(
       instantiateDocumentCommand.execute(inputWithProduct(), harness.ctx),
-    ).rejects.toMatchObject({
-      status: 400,
-      body: { error: 'documents.links.targetMismatch' },
-    })
+    ).rejects.toMatchObject({ status, body: { error } })
 
-    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(2)
-    expect(harness.rbacService.loadAcl.mock.invocationCallOrder[1]).toBeLessThan(
-      mockPrepareTemplateRender.mock.invocationCallOrder[1]!,
-    )
-    expect(harness.order.indexOf('lock-template')).toBeLessThan(harness.order.indexOf('locked-peer-read'))
-    expect(harness.order.indexOf('lock-document-slot')).toBeLessThan(harness.order.indexOf('locked-peer-read'))
+    expect(mockPrepareTemplateRender).toHaveBeenCalledTimes(1)
+    expect(harness.em.begin).not.toHaveBeenCalled()
+    expect(harness.em.rollback).not.toHaveBeenCalled()
     expect(harness.em.create).not.toHaveBeenCalled()
     expect(harness.em.persist).not.toHaveBeenCalled()
     expect(mockMutateDocumentContentState).not.toHaveBeenCalled()
-    expect(harness.em.rollback).toHaveBeenCalledTimes(1)
+    expect(harness.order).not.toContain('lock-template')
+    expect(harness.order).not.toContain('lock-document-slot')
   })
 
   it('aborts before aggregate creation when the locked template revision changed after rendering', async () => {

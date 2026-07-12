@@ -5,6 +5,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   COLLAB_TOKEN_TTL_SECONDS,
+  isCollabTokenV2Ready,
   mintCollabTokenV2,
   verifyCollabTokenV2,
 } from '../../../lib/collabToken'
@@ -44,6 +45,18 @@ export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['documents.view'] },
 }
 
+let warnedCollabTokenSecretNotReady = false
+
+function warnCollabTokenSecretNotReadyOnce(): void {
+  if (warnedCollabTokenSecretNotReady) return
+  warnedCollabTokenSecretNotReady = true
+  console.warn(
+    '[documents] DOCUMENTS_COLLAB_JWT_SECRET_V2 is missing, shorter than 32 UTF-8 bytes, '
+    + 'or equal to DOCUMENTS_COLLAB_JWT_SECRET; collaboration tokens cannot be minted '
+    + 'and clients fall back to non-collaborative editing.',
+  )
+}
+
 export async function GET(request: Request, context: RouteContext): Promise<Response> {
   try {
     const params = await context.params
@@ -73,6 +86,33 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       ?? translations.translate('documents.users.unknown', 'Unknown user')
     const userColor = resolveCollaborationUserColor(userId)
     const readOnly = !projection.capabilities.canEdit
+    if (!isCollabTokenV2Ready()) {
+      // A misconfigured capability secret must degrade to the same graceful
+      // non-collaborative response as an unset NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+      // (url: null) instead of a 500 the client would classify as transient
+      // and retry until its fallback timer.
+      warnCollabTokenSecretNotReadyOnce()
+      return NextResponse.json(
+        {
+          token: '',
+          url: null,
+          documentId: id,
+          tier: projection.relationshipTier,
+          expiresInSec: COLLAB_TOKEN_TTL_SECONDS,
+          expiresAt: new Date(Date.now() + COLLAB_TOKEN_TTL_SECONDS * 1000).toISOString(),
+          userName,
+          userColor,
+          canEdit: projection.capabilities.canEdit,
+          readOnly,
+          user: {
+            id: userId,
+            name: userName,
+            color: userColor,
+          },
+        },
+        { headers: { 'Cache-Control': 'private, no-store' } },
+      )
+    }
     const token = mintCollabTokenV2({
       userId,
       tenantId: ctx.tenantId,

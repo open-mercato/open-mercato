@@ -23,8 +23,10 @@ import {
   resolveCollabAllowedOrigins,
   resolveCollabRoomEventAction,
   resolveDocumentsCollabRedisConfiguration,
+  resolveDocumentsCollabRedisExtensions,
   scheduleCollabConnectionExpiry,
   type CollabHealthResponse,
+  type DocumentsCollabRedisConfiguration,
 } from '../../../../server/documents-collab-server'
 import { Hocuspocus, MessageType, Server } from '@hocuspocus/server'
 import * as Y from 'yjs'
@@ -65,11 +67,56 @@ describe('documents collaboration Redis configuration', () => {
     })
   })
 
-  it('requires Redis explicitly in production and has a local-only default', () => {
-    expect(() => resolveDocumentsCollabRedisConfiguration({ NODE_ENV: 'production' }))
-      .toThrow('DOCUMENTS_COLLAB_REDIS_URL or REDIS_URL is required')
-    expect(resolveDocumentsCollabRedisConfiguration({ NODE_ENV: 'development' }))
-      .toMatchObject({ host: '127.0.0.1', port: 6379 })
+  it('treats unset, blank, and whitespace-only Redis URLs as not configured', () => {
+    expect(resolveDocumentsCollabRedisConfiguration({ NODE_ENV: 'production' })).toBeNull()
+    expect(resolveDocumentsCollabRedisConfiguration({ NODE_ENV: 'development' })).toBeNull()
+    expect(resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'production',
+      DOCUMENTS_COLLAB_REDIS_URL: '   ',
+      REDIS_URL: '',
+    })).toBeNull()
+  })
+
+  it('still rejects an explicitly configured but invalid Redis URL', () => {
+    expect(() => resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'production',
+      DOCUMENTS_COLLAB_REDIS_URL: 'http://not-redis.example.test',
+    })).toThrow('redis:// or rediss://')
+  })
+
+  it('warns about single-node mode instead of requiring Redis at startup', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const createRedisExtension = jest.fn(() => ({ kind: 'redis-extension' }))
+    try {
+      expect(resolveDocumentsCollabRedisExtensions({ NODE_ENV: 'production' }, createRedisExtension))
+        .toEqual([])
+      expect(createRedisExtension).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('single-node mode'))
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('activates the Redis extension when a URL is explicitly configured', () => {
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const createRedisExtension = jest.fn(
+      (configuration: DocumentsCollabRedisConfiguration) => ({ configuration }),
+    )
+    try {
+      const extensions = resolveDocumentsCollabRedisExtensions(
+        { NODE_ENV: 'production', REDIS_URL: 'redis://cache.example.test:6380/2' },
+        createRedisExtension,
+      )
+      expect(extensions).toHaveLength(1)
+      expect(createRedisExtension).toHaveBeenCalledWith(expect.objectContaining({
+        host: 'cache.example.test',
+        port: 6380,
+        options: expect.objectContaining({ db: 2 }),
+      }))
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
   })
 })
 
@@ -1685,5 +1732,98 @@ describe('documents collaboration v2 server contract', () => {
     expect(response.statusCode).toBe(405)
     expect(headers.get('Allow')).toBe('GET')
     expect(end).toHaveBeenCalledWith()
+  })
+})
+
+describe('documents collaboration read-only lastContext store fallback', () => {
+  const VIEWER_USER_ID = '55555555-5555-4555-8555-555555555555'
+  const editorContext = {
+    userId: USER_ID,
+    tenantId: TENANT_ID,
+    organizationId: ORGANIZATION_ID,
+    documentId: DOCUMENT_ID,
+    tier: 'editor' as const,
+    readOnly: false,
+    exp: null,
+  }
+  const viewerContext = {
+    ...editorContext,
+    userId: VIEWER_USER_ID,
+    tier: 'viewer' as const,
+    readOnly: true,
+  }
+
+  function makeStoreHooks() {
+    const persistContent = jest.fn(async () => ({
+      updatedAt: '2026-07-10T10:00:01.000Z',
+      collaborationGeneration: 1,
+    }))
+    const authorizeContext = jest.fn(async () => true)
+    const hooks = createCollabHooks({
+      verifyToken: () => null,
+      authorizeContext,
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => ({
+        yjsState: null,
+        contentHtml: null,
+        updatedAt: '2026-07-10T10:00:00.000Z',
+        collaborationGeneration: 1,
+      }),
+      initializeYjsState: async () => null,
+      persistContent,
+      allowedOrigins: null,
+    })
+    return { hooks, persistContent, authorizeContext }
+  }
+
+  it('persists editor-authored edits when a viewer is the last-seen store context', async () => {
+    const { hooks, persistContent, authorizeContext } = makeStoreHooks()
+    const document = new Y.Doc()
+
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context: editorContext, document })
+    document.getMap('edits').set('body', 'editor change')
+    await hooks.onStoreDocument({ documentName: DOCUMENT_ID, context: viewerContext, document })
+
+    expect(persistContent).toHaveBeenCalledTimes(1)
+    const call = persistContent.mock.calls[0] as unknown[]
+    expect(call[2]).toEqual({ tenantId: TENANT_ID, organizationId: ORGANIZATION_ID })
+    expect(Buffer.isBuffer((call[3] as { yjsState: unknown }).yjsState)).toBe(true)
+    expect(authorizeContext).toHaveBeenCalledWith(expect.objectContaining({
+      userId: USER_ID,
+      tier: 'editor',
+      readOnly: false,
+    }))
+  })
+
+  it('keeps skipping the store for a room that never had a writable context', async () => {
+    const { hooks, persistContent, authorizeContext } = makeStoreHooks()
+    const document = new Y.Doc()
+
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context: viewerContext, document })
+    await hooks.onStoreDocument({ documentName: DOCUMENT_ID, context: viewerContext, document })
+
+    expect(persistContent).not.toHaveBeenCalled()
+    expect(authorizeContext).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the remembered writable context from writable sync frames', async () => {
+    const { hooks, persistContent, authorizeContext } = makeStoreHooks()
+    const document = new Y.Doc()
+
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context: viewerContext, document })
+    await hooks.beforeSync({
+      type: 2,
+      payload: new Uint8Array([0]),
+      document,
+      connection: { readOnly: false },
+      context: editorContext,
+    })
+    await hooks.onStoreDocument({ documentName: DOCUMENT_ID, context: viewerContext, document })
+
+    expect(persistContent).toHaveBeenCalledTimes(1)
+    expect(authorizeContext).toHaveBeenCalledWith(expect.objectContaining({
+      userId: USER_ID,
+      readOnly: false,
+    }))
   })
 })

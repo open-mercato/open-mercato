@@ -142,6 +142,52 @@ describe('collaboration token route capabilities', () => {
     expect(verifyCollabTokenV2(String(body.token))).toMatchObject({ readOnly: false })
   })
 
+  it('degrades to the graceful non-collab response when the v2 secret is not ready', async () => {
+    delete process.env.DOCUMENTS_COLLAB_JWT_SECRET_V2
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      const response = await GET(request(), context())
+      const body = await response.json() as Record<string, unknown>
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+      expect(body).toMatchObject({
+        token: '',
+        url: null,
+        documentId: DOCUMENT_ID,
+        tier: 'owner',
+        canEdit: false,
+        readOnly: true,
+        userName: 'Generic collaborator',
+        user: {
+          id: USER_ID,
+          name: 'Generic collaborator',
+        },
+      })
+      expect(warnSpy).toHaveBeenCalledWith(
+        expect.stringContaining('DOCUMENTS_COLLAB_JWT_SECRET_V2'),
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('rejects a too-short v2 secret the same graceful way', async () => {
+    process.env.DOCUMENTS_COLLAB_JWT_SECRET_V2 = 'fewer-than-thirty-two-bytes'
+    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      const response = await GET(request(), context())
+      const body = await response.json() as Record<string, unknown>
+
+      expect(response.status).toBe(200)
+      expect(body).toMatchObject({ token: '', url: null })
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
   it('refuses API-key collaboration tokens until the sidecar can preserve the key subject', async () => {
     mockGetAuthFromRequest.mockResolvedValue({
       sub: 'api_key:55555555-5555-4555-8555-555555555555',

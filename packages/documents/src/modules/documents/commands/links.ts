@@ -101,15 +101,11 @@ function buildCanonicalLinkInput(
   }
 }
 
-function assertVerifiedLinkTargetUnchanged(
-  beforeLock: VerifiedEntityRegistrySelection,
-  afterLock: VerifiedEntityRegistrySelection,
+function assertVerifiedLinkTargetMatchesRow(
+  verified: VerifiedEntityRegistrySelection,
+  link: DocumentEntityLink,
 ): void {
-  if (
-    beforeLock.id !== afterLock.id
-    || beforeLock.label !== afterLock.label
-    || beforeLock.href !== afterLock.href
-  ) {
+  if (verified.id !== getDocumentEntityLinkEntityId(link)) {
     throw new CrudHttpError(409, { error: 'Record changed by another user' })
   }
 }
@@ -222,7 +218,12 @@ const createLinkCommand: CommandHandler<LinkCreateCommandInput, LinkCreateComman
     if (!request) {
       throw new CrudHttpError(503, { error: 'documents.links.targetUnavailable' })
     }
-    const verifiedBeforeLock = await verifyEntityRegistrySelection(request, input.link)
+    // The registry lookup is a loopback HTTP request; it must complete before
+    // the aggregate transaction so it never pins the PESSIMISTIC_WRITE lock or
+    // a second pool connection. Freshness at commit is preserved by the
+    // in-transaction re-checks below (fresh ACL, module availability, feature).
+    const verified = await verifyEntityRegistrySelection(request, input.link)
+    const canonicalInput = buildCanonicalLinkInput(input, verified)
     const writeEm = resolveDocumentsCommandEntityManager(ctx)
     let link: DocumentEntityLink | null = null
     let created = false
@@ -236,9 +237,6 @@ const createLinkCommand: CommandHandler<LinkCreateCommandInput, LinkCreateComman
           throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
         }
         assertCommandFeature(features, registryEntry.requiredFeature)
-        const verifiedAfterLock = await verifyEntityRegistrySelection(request, input.link)
-        assertVerifiedLinkTargetUnchanged(verifiedBeforeLock, verifiedAfterLock)
-        const canonicalInput = buildCanonicalLinkInput(input, verifiedAfterLock)
         const existing = await loadLinkByTarget(writeEm, canonicalInput, true)
         before = captureLinkState(existing, input.linkId)
         if (existing && !existing.deletedAt) {
@@ -422,6 +420,33 @@ const deleteLinkCommand: CommandHandler<LinkDeleteCommandInput, LinkDeleteComman
     )
     const em = resolveDocumentsCommandEntityManager(ctx)
     if (!after) throw new CrudHttpError(409, { error: 'Record changed by another user' })
+    // Re-verify the resurrected target over HTTP before the aggregate
+    // transaction so the loopback request never runs under the
+    // PESSIMISTIC_WRITE lock. The locked revalidation below pins the row to
+    // the undo snapshot (monotonic versions), so the state verified here is
+    // exactly the state that gets resurrected.
+    const preflightLink = await loadLinkById(
+      (ctx.container.resolve('em') as EntityManager).fork(),
+      input,
+      true,
+    )
+    if (!preflightLink) throw new CrudHttpError(409, { error: 'Record changed by another user' })
+    const preflightRegistryEntry = getEntityRegistryEntry(getDocumentEntityLinkType(preflightLink))
+    if (!preflightRegistryEntry) {
+      throw new CrudHttpError(400, { error: 'documents.links.invalidEntityType' })
+    }
+    if (!isDocumentEntityRegistryModuleEnabled(preflightRegistryEntry)) {
+      throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
+    }
+    if (!ctx.request) {
+      throw new CrudHttpError(503, { error: 'documents.links.targetUnavailable' })
+    }
+    const verified = await verifyEntityRegistrySelection(ctx.request, {
+      entityType: preflightRegistryEntry.type,
+      entityId: getDocumentEntityLinkEntityId(preflightLink),
+      label: preflightLink.labelSnapshot,
+      href: preflightLink.hrefSnapshot,
+    })
     let link: DocumentEntityLink | null = null
     await withAtomicFlush(em, [async () => {
       await lockDocumentAggregateRoot(em, input.documentId, {
@@ -441,15 +466,7 @@ const deleteLinkCommand: CommandHandler<LinkDeleteCommandInput, LinkDeleteComman
         throw new CrudHttpError(403, { error: 'documents.links.targetRestricted' })
       }
       assertCommandFeature(features, registryEntry.requiredFeature)
-      if (!ctx.request) {
-        throw new CrudHttpError(503, { error: 'documents.links.targetUnavailable' })
-      }
-      const verified = await verifyEntityRegistrySelection(ctx.request, {
-        entityType: registryEntry.type,
-        entityId: getDocumentEntityLinkEntityId(link),
-        label: link.labelSnapshot,
-        href: link.hrefSnapshot,
-      })
+      assertVerifiedLinkTargetMatchesRow(verified, link)
       await assertDocumentEntityLinkCapacity(em, input.documentId, {
         tenantId: input.tenantId,
         organizationId: input.organizationId,

@@ -12,6 +12,7 @@ import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -126,9 +127,11 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       flash(t('documents.list.success.delete'), 'success')
       router.push('/backend/documents')
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('documents.list.error.delete'), 'error')
+      if (!surfaceRecordConflict(error, t, { onRefresh: () => { void loadDocument() } })) {
+        flash(error instanceof Error ? error.message : t('documents.list.error.delete'), 'error')
+      }
     }
-  }, [confirm, documentId, mutationContextId, retryLastMutation, router, runMutation, state, t])
+  }, [confirm, documentId, loadDocument, mutationContextId, retryLastMutation, router, runMutation, state, t])
 
   if (state.status !== 'ready') {
     if (state.status === 'notFound') {

@@ -113,13 +113,11 @@ export type DocumentsCollabRedisConfiguration = {
 
 export function resolveDocumentsCollabRedisConfiguration(
   environment: NodeJS.ProcessEnv = process.env,
-): DocumentsCollabRedisConfiguration {
+): DocumentsCollabRedisConfiguration | null {
   const configured = environment.DOCUMENTS_COLLAB_REDIS_URL?.trim()
     || environment.REDIS_URL?.trim()
-    || (environment.NODE_ENV === 'production' ? '' : 'redis://127.0.0.1:6379')
-  if (!configured) {
-    throw new Error('[internal] DOCUMENTS_COLLAB_REDIS_URL or REDIS_URL is required in production')
-  }
+    || ''
+  if (!configured) return null
 
   let parsed: URL
   try {
@@ -152,6 +150,31 @@ export function resolveDocumentsCollabRedisConfiguration(
       maxRetriesPerRequest: null,
     },
   }
+}
+
+/**
+ * The Redis extension replicates updates and awareness across sidecar
+ * replicas. It is activated only when a Redis URL is explicitly configured:
+ * defaulting to a localhost instance could silently attach the sidecar to an
+ * unrelated Redis, and failing hard would block valid single-node
+ * deployments. Without Redis the sidecar runs in single-node mode and logs a
+ * prominent startup warning, because multi-instance deployments require
+ * Redis for cross-instance document sync.
+ */
+export function resolveDocumentsCollabRedisExtensions<RedisExtension>(
+  environment: NodeJS.ProcessEnv,
+  createRedisExtension: (configuration: DocumentsCollabRedisConfiguration) => RedisExtension,
+): RedisExtension[] {
+  const configuration = resolveDocumentsCollabRedisConfiguration(environment)
+  if (!configuration) {
+    console.warn(
+      '[documents-collab] DOCUMENTS_COLLAB_REDIS_URL and REDIS_URL are unset; '
+      + 'running in single-node mode. Multi-instance deployments require Redis '
+      + 'for cross-instance document sync.',
+    )
+    return []
+  }
+  return [createRedisExtension(configuration)]
 }
 
 export type CollabFinalDrainConsumeResult =
@@ -1281,6 +1304,21 @@ export function createCollabHooks(deps: CollabHooksDeps) {
   const roomResourceBudgets = new WeakMap<Y.Doc, { bytes: number; revision: number }>()
   const awarenessConnectionClientIds = new WeakMap<object, Set<number>>()
   const awarenessRoomClientOwners = new WeakMap<Y.Doc, Map<number, string>>()
+  // Hocuspocus hands onStoreDocument only the room's lastContext, which can be
+  // a read-only viewer even when the retained edits were authored by an
+  // editor. Remember the most recent writable authorization per room identity
+  // so a debounced store can still persist under a freshly re-validated
+  // writable context. The WeakMap releases the entry with the Y.Doc when
+  // Hocuspocus unloads or destroys the room.
+  const roomWritableContexts = new WeakMap<Y.Doc, CollabContext>()
+
+  const rememberWritableContext = (
+    document: Y.Doc | undefined,
+    context: CollabContext | undefined,
+  ): void => {
+    if (!document || !context || context.readOnly) return
+    roomWritableContexts.set(document, context)
+  }
 
   const isInvalidated = (documentName: string, document?: Y.Doc): boolean => (
     deps.isRoomInvalidated?.(documentName, document)
@@ -1450,7 +1488,10 @@ export function createCollabHooks(deps: CollabHooksDeps) {
     if (isInvalidated(context.documentId) || isFinalDrainPending(context.documentId)) {
       return false
     }
-    if (authorized) return true
+    if (authorized) {
+      rememberWritableContext(deps.resolveRoomDocument?.(context.documentId), context)
+      return true
+    }
 
     // A failed active refresh can follow an RBAC/role change that did not name
     // a document. Retire only the exact mapped room; the per-connection timer
@@ -1579,6 +1620,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       document: Y.Doc
     }): Promise<Y.Doc> {
       assertScopedContext(data.context)
+      rememberWritableContext(data.document, data.context)
 
       const container = await deps.resolveContainer()
       const em = container.resolve('em')
@@ -1643,7 +1685,9 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       payload: Uint8Array
       document: Y.Doc
       connection: { readOnly: boolean }
+      context?: CollabContext
     }): Promise<void> {
+      rememberWritableContext(data.document, data.context)
       // SyncStep1 contains only a state vector. Read-only SyncStep2/updates are
       // dropped by Hocuspocus and must not consume the writable room budget.
       if (data.connection.readOnly || (data.type !== 1 && data.type !== 2)) return
@@ -1668,8 +1712,21 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       }
       if (isInvalidated(data.documentName, data.document)) return
       if (data.context.readOnly) {
-        retireFailedStore(data)
-        return
+        // Edits retained by this room were necessarily authored by a writable
+        // connection: read-only sync frames are dropped before they reach the
+        // Y.Doc. Fall back to the room's last writable authorization so a
+        // viewer being the last-seen context cannot silently drop the
+        // debounced store; authorizeStoreAttempt below re-validates that
+        // context's live access before anything is persisted. A room with no
+        // recorded writable context has nothing a viewer could have authored.
+        const writableContext = roomWritableContexts.get(data.document)
+        if (!writableContext) {
+          retireFailedStore(data)
+          return
+        }
+        data = { ...data, context: writableContext }
+      } else {
+        rememberWritableContext(data.document, data.context)
       }
 
       let expectedUpdatedAt = loadedContentVersions.get(data.document)
@@ -2007,9 +2064,10 @@ export async function main(): Promise<void> {
   const runningServer: HocuspocusServer<CollabContext> = new Server<CollabContext>({
     port,
     ...COLLAB_SERVER_RUNTIME_CONFIGURATION,
-    extensions: [
-      new HocuspocusRedis(resolveDocumentsCollabRedisConfiguration()),
-    ],
+    extensions: resolveDocumentsCollabRedisExtensions(
+      process.env,
+      (configuration) => new HocuspocusRedis(configuration),
+    ),
     async onAuthenticate(data: onAuthenticatePayload<CollabContext>) {
       return await hooks.onAuthenticate({
         token: data.token,
@@ -2067,6 +2125,7 @@ export async function main(): Promise<void> {
         payload: data.payload,
         document: data.document,
         connection: data.connection,
+        context: data.context,
       })
     },
     async onLoadDocument(data: onLoadDocumentPayload<CollabContext>) {

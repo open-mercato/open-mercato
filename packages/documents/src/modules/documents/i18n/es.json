@@ -91,6 +91,7 @@
   "documents.editor.colors.red": "Rojo",
   "documents.editor.colors.selectNamed": "Seleccionar {color}",
   "documents.editor.colors.yellow": "Amarillo",
+  "documents.editor.entityRef.fallbackLabel": "Registro",
   "documents.editor.error.imageUpload": "No se pudo subir la imagen.",
   "documents.editor.error.load": "No se pudo cargar el documento.",
   "documents.editor.error.loadContent": "No se pudo cargar el contenido del documento.",

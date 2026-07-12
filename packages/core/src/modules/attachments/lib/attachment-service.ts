@@ -154,7 +154,13 @@ export class DefaultAttachmentService implements AttachmentService {
       throw new CrudHttpError(400, { error: 'Active content uploads are not allowed.' })
     }
 
-    const partition = await this.em.findOne(AttachmentPartition, { code: input.partitionCode })
+    const partition = await findOneWithDecryption(
+      this.em,
+      AttachmentPartition,
+      { code: input.partitionCode },
+      undefined,
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
     if (!partition) {
       throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
     }
@@ -247,7 +253,13 @@ export class DefaultAttachmentService implements AttachmentService {
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )
     if (!attachment) throw new CrudHttpError(404, { error: 'Attachment not found' })
-    const partition = await this.em.findOne(AttachmentPartition, { code: attachment.partitionCode })
+    const partition = await findOneWithDecryption(
+      this.em,
+      AttachmentPartition,
+      { code: attachment.partitionCode },
+      undefined,
+      { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
+    )
     if (!partition) throw new CrudHttpError(500, { error: 'Attachment partition is not configured' })
 
     const access = checkAttachmentAccess(input.auth, attachment, partition, { requireAuthForPublic: true })

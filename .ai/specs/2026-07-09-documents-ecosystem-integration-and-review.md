@@ -162,6 +162,18 @@ All routes are authenticated, tenant/organization scoped, feature checked, per-d
 - Trusted event emit options add optional tenant and organization fields. This
   is source- and runtime-compatible with existing emitters; Documents requires
   those fields only for its own projections.
+- Operational upgrade path: all documents env vars are OPTIONAL with `:-`
+  defaults in every compose file (`APP_URL` keeps its `http://localhost:3000`
+  default; a regression test forbids `:?` interpolation, which would break
+  every `docker compose` command for unconfigured users). Unset collab vars
+  degrade gracefully: the editor works, collaboration falls back to
+  single-user mode, and the collab-token route returns `url: null` instead of
+  erroring. Production Docker builds accept an unset collab URL and reject
+  only set-but-loopback values. PDF export requires Chromium in the runtime
+  image; the `INSTALL_CHROMIUM=1` build arg (default on) allows slim builds
+  where export returns a graceful 503. The `documents-collab` sidecar receives
+  `TENANT_DATA_ENCRYPTION_KEY` and `REDIS_URL` passthrough. All of this is
+  recorded in `UPGRADE_NOTES.md`.
 
 ## Security and privacy
 
@@ -341,3 +353,26 @@ Notifications dependency continues to use its existing DI service.
   assignment checks; added trusted event scope; hardened production sidecar,
   origin, Chromium, and manifest wiring; synchronized the create-app template;
   and completed the Documents UI accessibility/error-state fixes.
+- **2026-07-12:** Full-branch om-code-review (5-agent fan-out + full CI gate)
+  found no Critical issues; remediated all findings. Operational: removed all
+  `:?`-required compose interpolation (restored `APP_URL` default, added a
+  no-`:?` regression test), template/monorepo Dockerfiles accept unset collab
+  URLs (reject only set-but-loopback), `INSTALL_CHROMIUM` opt-out build arg,
+  sidecar `TENANT_DATA_ENCRYPTION_KEY`/`REDIS_URL` passthrough, and a new
+  `UPGRADE_NOTES.md` entry. Concurrency: entity-registry HTTP verification
+  moved before the `PESSIMISTIC_WRITE` transactions for link create, link
+  undo, and template instantiation — in-lock freshness is preserved by digest,
+  monotonic-version, and template-revision CAS checks (identical error
+  contracts), removing network I/O from lock scope. Platform: attachments
+  partition lookups switched to `findOneWithDecryption`; the duplicated
+  `OrganizationScope` type unified with shared as canonical and a core
+  re-export bridge. Documents fixes: declarative `requireFeatures` on the
+  principals route, escaped LIKE wildcards in title search, `readBody` in the
+  export route (malformed JSON now 400), dead notification href template
+  removed, `features` ACL gate on the related-documents injection widget,
+  nine 409 double-feedback catch sites gated behind `surfaceRecordConflict`,
+  yjs removed from the eager page chunk, translated entity-ref fallback
+  labels (4 locales), comments `pageSize` clamped to 100, idempotent
+  migration `down()` + reversibility test over all five migrations, new
+  partial list-sort index, share-count aggregation extracted to
+  `lib/shareCounts.ts`, and the package version aligned to 0.6.5.

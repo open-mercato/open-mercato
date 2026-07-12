@@ -91,6 +91,7 @@
   "documents.editor.colors.red": "Red",
   "documents.editor.colors.selectNamed": "Select {color}",
   "documents.editor.colors.yellow": "Yellow",
+  "documents.editor.entityRef.fallbackLabel": "Record",
   "documents.editor.error.imageUpload": "Failed to upload image.",
   "documents.editor.error.load": "Failed to load document.",
   "documents.editor.error.loadContent": "Failed to load document content.",

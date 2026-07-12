@@ -237,7 +237,7 @@ async function queryPrincipalPage(input: {
 }
 
 export const metadata = {
-  GET: { requireAuth: true },
+  GET: { requireAuth: true, requireFeatures: ['documents.view'] },
 }
 
 export async function GET(request: Request, context: RouteContext): Promise<Response> {

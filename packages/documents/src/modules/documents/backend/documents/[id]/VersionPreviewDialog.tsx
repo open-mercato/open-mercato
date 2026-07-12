@@ -120,7 +120,7 @@ export function VersionPreviewDialog({
         </DialogHeader>
         {loading ? <LoadingMessage label={t('documents.versions.preview.loading')} /> : null}
         {error ? <ErrorMessage label={error} /> : null}
-        {preview && !loading && !error ? <ReadOnlyVersion contentHtml={preview.contentHtml} fallbackLabel={t('documents.links.restrictedRecord')} /> : null}
+        {preview && !loading && !error ? <ReadOnlyVersion contentHtml={preview.contentHtml} fallbackLabel={t('documents.editor.entityRef.fallbackLabel')} /> : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('documents.actions.close')}</Button>
           {canRestore && preview ? (

@@ -251,7 +251,7 @@ describe('document-scoped principal picker route', () => {
       page: { page: 1, pageSize: 20 },
     }))
     expect(queryEngine.query.mock.calls[0]?.[1]).not.toHaveProperty('organizationIds')
-    expect(metadata.GET).toEqual({ requireAuth: true })
+    expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['documents.view'] })
     expect(JSON.stringify(metadata)).not.toContain('auth.roles')
     expect(JSON.stringify(openApi)).toContain('Document-scoped principal picker')
   })

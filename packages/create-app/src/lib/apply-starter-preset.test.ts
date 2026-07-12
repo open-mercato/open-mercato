@@ -237,18 +237,23 @@ test('template baseline installs every enabled Documents package', () => {
   assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
   assert.match(dockerfile, /EXPOSE \$\{CONTAINER_PORT\} \$\{DOCUMENTS_COLLAB_PORT\}/)
   assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /ARG INSTALL_CHROMIUM=1/)
+  assert.match(dockerfile, /if \[ "\$INSTALL_CHROMIUM" = "1" \]/)
   assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl/)
+  // Optional collab vars: empty defaults keep every `docker compose` command
+  // working when the documents env vars are unset (collab disabled at runtime).
   assert.match(
     fullAppCompose,
-    /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:\?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/,
+    /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:-\}/,
   )
   assert.doesNotMatch(fullAppCompose, /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL[^\n]*:-ws:\/\/localhost/)
   assert.match(
     fullAppCompose,
-    /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:\?Set DOCUMENTS_COLLAB_JWT_SECRET_V2/,
+    /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:-\}/,
   )
   assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
-  assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:\?Set APP_URL to the public application origin\}/)
+  assert.doesNotMatch(fullAppCompose, /\$\{[^}]*:\?/)
+  assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:-http:\/\/localhost:3000\}/)
   assert.match(
     fullAppCompose,
     /DOCUMENTS_COLLAB_ALLOWED_ORIGINS: \$\{DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-\$\{APP_URL\}\}/,
@@ -274,8 +279,10 @@ test('production image rejects non-browser collaboration endpoints', () => {
 
   assert.equal(validate('wss://collab.example.test/socket').status, 0)
   assert.equal(validate('ws://collab.internal.test:4101').status, 0)
+  // Unset/empty is allowed: the build proceeds and realtime collaboration
+  // simply stays disabled at runtime.
+  assert.equal(validate('').status, 0)
   for (const invalid of [
-    '',
     ' ',
     'https://collab.example.test',
     'ws://localhost:4101',

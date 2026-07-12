@@ -62,8 +62,8 @@ const commentResolveSchema = z.object({
 
 export const commentListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(10_000).default(1),
-  pageSize: z.coerce.number().int().min(1).max(DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
-    .default(DOCUMENTS_COMMENT_LIST_PAGE_SIZE),
+  pageSize: z.coerce.number().int().min(1).default(DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
+    .transform((value) => Math.min(value, DOCUMENTS_COMMENT_LIST_PAGE_SIZE)),
 })
 
 const commentMentionSchema = z.object({

@@ -49,10 +49,10 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
         user: input.collabResources.user,
         placeholder: t('documents.editor.placeholder'),
         fallbackUserLabel: t('documents.users.unknown'),
-        fallbackEntityRefLabel: t('documents.links.restrictedRecord'),
+        fallbackEntityRefLabel: t('documents.editor.entityRef.fallbackLabel'),
       }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
       : [...getDocumentEditorExtensions({
-        entityRefFallbackLabel: t('documents.links.restrictedRecord'),
+        entityRefFallbackLabel: t('documents.editor.entityRef.fallbackLabel'),
       }), ...getClientEditorExtras(), DocumentPagination, ...suggestions]
   }, [input.collabResources, input.editorMode, input.onEntitySuggestion, input.onSuggestionClose, input.readOnly, t])
 

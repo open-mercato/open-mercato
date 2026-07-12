@@ -27,6 +27,7 @@ import {
 import {
   handleDocumentsRouteError,
   loadScopedDocument,
+  readBody,
   resolveDocumentsContext,
   routeErrorSchema,
 } from '../../_shared'
@@ -472,7 +473,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   try {
-    const snapshot = docxSnapshotSchema.parse(await request.json())
+    const snapshot = docxSnapshotSchema.parse(await readBody(request))
     return await handleExport(request, context, snapshot)
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.export.post')

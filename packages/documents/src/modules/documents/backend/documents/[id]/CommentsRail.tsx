@@ -17,7 +17,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { jumpToCommentAnchor, type CommentAnchor } from './CommentAnchorNavigation'
+import type { CommentAnchor } from './CommentAnchorNavigation'
 import { CommentComposer } from './CommentComposer'
 import { CommentThreadList } from './CommentThreadList'
 import { resolveCommentsCapability, type DocumentTier } from './componentCapabilities'
@@ -81,9 +81,16 @@ export function CommentsRail({
               resolvingCommentId={comments.resolvingCommentId}
               labelFor={comments.labelFor}
               onJump={(comment) => {
-                if (!editor || comment.anchor === null || comment.anchor === 'changed' || !jumpToCommentAnchor(editor, comment.anchor)) {
-                  flash(t('documents.comments.anchor.changed'), 'info')
-                }
+                void (async () => {
+                  if (!editor || comment.anchor === null || comment.anchor === 'changed') {
+                    flash(t('documents.comments.anchor.changed'), 'info')
+                    return
+                  }
+                  const { jumpToCommentAnchor } = await import('./CommentAnchorNavigation')
+                  if (!jumpToCommentAnchor(editor, comment.anchor)) {
+                    flash(t('documents.comments.anchor.changed'), 'info')
+                  }
+                })()
               }}
               onReply={comments.startReply}
               onResolve={(comment) => void comments.resolveComment(comment)}

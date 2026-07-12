@@ -8,16 +8,10 @@ export const notificationTypes: NotificationTypeDefinition[] = [
     bodyKey: 'documents.notifications.comment.mentioned.body',
     icon: 'at-sign',
     severity: 'info',
-    actions: [
-      {
-        id: 'view',
-        labelKey: 'common.view',
-        variant: 'outline',
-        href: '/backend/documents/{sourceEntityId}',
-        icon: 'external-link',
-      },
-    ],
-    linkHref: '/backend/documents/{sourceEntityId}',
+    // sourceEntityId stores the comment id, so no {sourceEntityId} href template
+    // can resolve to the document URL; creation always passes an explicit
+    // document-scoped linkHref (see commands/interceptors.ts).
+    actions: [],
     expiresAfterHours: 168,
   },
 ]
