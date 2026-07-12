@@ -19,6 +19,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 const ENTITY_ID = 'agent_orchestrator:agent_task_definition'
@@ -109,6 +110,7 @@ export default function AgenticTasksPage() {
   const [mode, setMode] = React.useState<'list' | 'create' | 'edit'>('list')
   const [agents, setAgents] = React.useState<CrudFieldOption[]>([])
   const [workflows, setWorkflows] = React.useState<CrudFieldOption[]>([])
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const load = React.useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true)
@@ -495,6 +497,12 @@ export default function AgenticTasksPage() {
                     label: t('agent_orchestrator.tasks.list.actions.delete'),
                     destructive: true,
                     onSelect: async () => {
+                      const confirmed = await confirm({
+                        title: t('agent_orchestrator.tasks.confirmDelete.title'),
+                        text: t('agent_orchestrator.tasks.confirmDelete.text'),
+                        variant: 'destructive',
+                      })
+                      if (!confirmed) return
                       try {
                         await withScopedApiRequestHeaders(
                           buildOptimisticLockHeader(row.updatedAt),
@@ -513,6 +521,7 @@ export default function AgenticTasksPage() {
             )}
           />
         )}
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

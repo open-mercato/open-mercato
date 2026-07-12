@@ -15,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
+import { Pagination } from '@open-mercato/ui/primitives/pagination'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import {
   Dialog,
@@ -686,6 +687,31 @@ export default function AgentCaseloadPage() {
             onApprove={(row) => approveRows([row])}
             onReject={(row) => openReject([row])}
             onOpenDetail={openDetail}
+            footer={
+              total > 0 ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border px-4 py-2.5">
+                  <span className="text-xs tabular-nums text-muted-foreground">
+                    {t('agent_orchestrator.caseload.inbox.range', undefined, {
+                      from: Math.min((page - 1) * pageSize + 1, total),
+                      to: Math.min(page * pageSize, total),
+                      total,
+                    })}
+                  </span>
+                  {total > pageSize ? (
+                    <Pagination
+                      page={page}
+                      pageSize={pageSize}
+                      total={total}
+                      onPageChange={setPage}
+                      onPageSizeChange={(next) => { setPageSize(next); setPage(1) }}
+                      pageSizeOptions={[10, 20, 50]}
+                      showInfo={false}
+                      showFirstLast={false}
+                    />
+                  ) : null}
+                </div>
+              ) : null
+            }
           />
         ) : (
           <>
@@ -902,6 +928,7 @@ function ExceptionsInbox({
   onApprove,
   onReject,
   onOpenDetail,
+  footer,
 }: {
   toolbar: React.ReactNode
   rows: QueueRow[]
@@ -914,6 +941,7 @@ function ExceptionsInbox({
   onApprove: (row: QueueRow) => void
   onReject: (row: QueueRow) => void
   onOpenDetail: (row: QueueRow) => void
+  footer?: React.ReactNode
 }) {
   const t = useT()
   const [selectedId, setSelectedId] = React.useState<string | null>(rows[0]?.id ?? null)
@@ -968,6 +996,7 @@ function ExceptionsInbox({
             })}
           </ul>
         )}
+        {footer}
       </div>
 
       <div className="min-w-0 rounded-xl border border-border bg-card">

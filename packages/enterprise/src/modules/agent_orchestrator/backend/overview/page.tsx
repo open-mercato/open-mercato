@@ -257,7 +257,6 @@ export default function AgentFleetOverviewPage() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight text-foreground">{t('agent_orchestrator.overview.title', 'Fleet overview')}</h1>
             <div className="mt-2 flex flex-wrap items-center gap-2">
-              <ContextChip>{t('agent_orchestrator.overview.domain', 'Claims adjudication')}</ContextChip>
               <ContextChip>{t('agent_orchestrator.overview.period.week', 'last 7 days')}</ContextChip>
               <ContextChip>{t('agent_orchestrator.overview.processesHandled', '{count} processes handled', { count: (metrics?.runsTotal ?? 0).toLocaleString('en-US') })}</ContextChip>
             </div>
@@ -401,7 +400,16 @@ export default function AgentFleetOverviewPage() {
               <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1.5">
                   <div className="text-sm font-semibold text-foreground">{t('agent_orchestrator.overview.interventions.title', 'Where humans stepped in')}</div>
-                  <Info className="size-3.5 text-muted-foreground" />
+                  <span className="rounded-md border border-border bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                    {t('agent_orchestrator.common.sample', 'Sample')}
+                  </span>
+                  <span
+                    className="inline-flex"
+                    title={t('agent_orchestrator.overview.interventions.sampleHint')}
+                    aria-label={t('agent_orchestrator.overview.interventions.sampleHint')}
+                  >
+                    <Info className="size-3.5 text-muted-foreground" aria-hidden />
+                  </span>
                 </div>
                 <button type="button" onClick={() => router.push('/backend/audit')} className="inline-flex items-center gap-1 text-xs font-medium text-brand-violet transition-opacity hover:opacity-80">
                   {t('agent_orchestrator.overview.viewAll', 'View all')}

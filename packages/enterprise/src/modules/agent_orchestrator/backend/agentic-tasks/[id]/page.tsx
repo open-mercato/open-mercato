@@ -20,6 +20,7 @@ import {
   DialogTitle,
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -146,6 +147,7 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
     contextId: 'agent_orchestrator.tasks',
     blockedMessage: t('agent_orchestrator.tasks.flash.blocked'),
   })
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
 
   const loadDetail = React.useCallback(async () => {
     const call = await apiCall<{ task?: Record<string, unknown>; eventTriggers?: Array<Record<string, unknown>> }>(
@@ -269,6 +271,11 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
   }, [triggerBusy, triggerPattern, runMutation, retryLastMutation, taskId, t, loadDetail])
 
   const deleteTrigger = React.useCallback(async (trigger: TriggerRow) => {
+    const confirmed = await confirm({
+      text: t('agent_orchestrator.tasks.triggers.confirmDelete.text', undefined, { pattern: trigger.eventPattern }),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
     try {
       await runMutation({
         operation: () =>
@@ -292,7 +299,7 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
       }
       flash(err instanceof Error ? err.message : t('agent_orchestrator.tasks.triggers.error'), 'error')
     }
-  }, [runMutation, retryLastMutation, taskId, t, loadDetail])
+  }, [confirm, runMutation, retryLastMutation, taskId, t, loadDetail])
 
   const runColumns = React.useMemo<ColumnDef<TaskRunRow>[]>(
     () => [
@@ -544,6 +551,7 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
             </div>
           </DialogContent>
         </Dialog>
+        {ConfirmDialogElement}
       </PageBody>
     </Page>
   )

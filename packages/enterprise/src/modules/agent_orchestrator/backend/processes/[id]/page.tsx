@@ -8,25 +8,36 @@ import {
   Check,
   ChevronRight,
   CircleCheck,
-  Code2,
   Inbox,
   Info,
+  Code2,
   Wrench,
 } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
-import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { confidenceFace, confidencePctOf } from '../../../components/cockpitStatus'
 import {
-  buildSampleProcess,
+  formatConfidence,
+  formatCostMinor,
+  formatDurationMs,
+  mapProposal,
+  mapRun,
+  type ProposalView,
+  type RunView,
+} from '../../../components/types'
+import {
+  mapProcessProjection,
   type AgentProcessStatus,
   type ProcessActorKind,
   type ProcessDetailSectionKind,
+  type ProcessProjection,
+  type ProcessStage,
   type ProcessStateTone,
   type ProcessStep,
-  type ProcessView,
 } from '../../../components/processTypes'
 
 type StageState = 'done' | 'current' | 'upcoming'
@@ -97,35 +108,107 @@ function formatAge(iso: string | null, t: ReturnType<typeof useT>): string | nul
   return t('agent_orchestrator.process.relTimeM', undefined, { minutes })
 }
 
-function HeaderFact({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-medium text-foreground">{value}</p>
-    </div>
-  )
+function timeOf(iso: string | null): string {
+  if (!iso) return ''
+  const parsed = new Date(iso)
+  if (!Number.isFinite(parsed.getTime())) return ''
+  return `${String(parsed.getHours()).padStart(2, '0')}:${String(parsed.getMinutes()).padStart(2, '0')}`
 }
 
-function StageNode({ state, position }: { state: StageState; position: number }) {
-  if (state === 'done') {
-    return (
-      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-status-success-icon text-status-success-bg">
-        <Check className="size-3.5" />
-      </span>
-    )
+/** Calendar-day key used for the timeline's day dividers. */
+function dayKeyOf(iso: string | null): string {
+  if (!iso) return ''
+  return iso.slice(0, 10)
+}
+
+function dayLabelOf(dayKey: string, t: ReturnType<typeof useT>): string {
+  const today = new Date().toISOString().slice(0, 10)
+  const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  if (dayKey === today) return t('agent_orchestrator.process.today')
+  if (dayKey === yesterday) return t('agent_orchestrator.process.yesterday')
+  return dayKey
+}
+
+function summarize(proposal: ProposalView, t: ReturnType<typeof useT>): string {
+  if (proposal.rationale) return proposal.rationale
+  return t('agent_orchestrator.process.stepProposed')
+}
+
+/**
+ * Builds the propose/dispose timeline from real proposals (+ their runs for the
+ * confidence/latency/cost metrics). One agent step per proposal; disposed
+ * proposals additionally emit a system "disposed" step at their updatedAt.
+ */
+function buildSteps(
+  proposals: ProposalView[],
+  runsById: Map<string, RunView>,
+  t: ReturnType<typeof useT>,
+): ProcessStep[] {
+  const steps: ProcessStep[] = []
+  for (const proposal of proposals) {
+    const run = runsById.get(proposal.runId) ?? null
+    steps.push({
+      id: `${proposal.id}:proposed`,
+      runId: proposal.runId,
+      agentId: proposal.agentId,
+      stepId: proposal.stepId,
+      actor: proposal.agentId,
+      actorKind: 'agent',
+      summary: summarize(proposal, t),
+      time: timeOf(proposal.createdAt),
+      day: dayKeyOf(proposal.createdAt),
+      detail: {
+        confidence: formatConfidence(proposal.confidence ?? run?.confidence ?? null),
+        latency: formatDurationMs(run?.latencyMs ?? null),
+        cost: formatCostMinor(run?.costMinor ?? null, run?.currency ?? null),
+        sections: [],
+        payload: proposal.payload,
+      },
+    })
+    if (proposal.disposition !== 'pending') {
+      steps.push({
+        id: `${proposal.id}:disposed`,
+        runId: proposal.runId,
+        agentId: null,
+        stepId: proposal.stepId,
+        actor: t('agent_orchestrator.process.disposes'),
+        actorKind: 'system',
+        summary: t('agent_orchestrator.process.stepDisposed', undefined, {
+          disposition: t(`agent_orchestrator.disposition.${proposal.disposition}`),
+        }),
+        time: timeOf(proposal.updatedAt ?? proposal.createdAt),
+        day: dayKeyOf(proposal.updatedAt ?? proposal.createdAt),
+        detail: {
+          confidence: proposal.dispositionBy?.startsWith('rule:') ? 'auto' : null,
+          latency: null,
+          cost: null,
+          sections: [],
+          payload: {
+            disposition: proposal.disposition,
+            dispositionBy: proposal.dispositionBy,
+            dispositionReason: proposal.dispositionReason,
+          },
+        },
+      })
+    }
   }
-  if (state === 'current') {
-    return (
-      <span className="grid size-6 shrink-0 place-items-center rounded-full border-2 border-brand-violet text-xs font-semibold tabular-nums text-brand-violet">
-        {position}
-      </span>
-    )
+  return steps
+}
+
+/** Ordered distinct workflow step ids observed on the process's activity. */
+function buildStages(proposals: ProposalView[], currentStage: string | null): ProcessStage[] {
+  const seen = new Set<string>()
+  const stages: ProcessStage[] = []
+  for (const proposal of proposals) {
+    if (proposal.stepId && !seen.has(proposal.stepId)) {
+      seen.add(proposal.stepId)
+      stages.push({ key: proposal.stepId, label: proposal.stepId })
+    }
   }
-  return (
-    <span className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-xs tabular-nums text-muted-foreground">
-      {position}
-    </span>
-  )
+  if (currentStage && !seen.has(currentStage)) {
+    stages.push({ key: currentStage, label: currentStage })
+  }
+  return stages
 }
 
 const SECTION_META: Record<
@@ -160,15 +243,14 @@ function DetailMetric({
 
 function StepDetailPanel({
   step,
+  dayLabel,
   onOpenTrace,
 }: {
   step: ProcessStep
+  dayLabel: string
   onOpenTrace: () => void
 }) {
   const t = useT()
-  const dayLabel = t(
-    step.day === 'today' ? 'agent_orchestrator.process.today' : 'agent_orchestrator.process.yesterday',
-  )
   const roleLabel = t(
     step.actorKind === 'agent'
       ? 'agent_orchestrator.process.proposes'
@@ -232,6 +314,11 @@ function StepDetailPanel({
               </div>
             )
           })}
+          {step.detail.sections.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {t('agent_orchestrator.process.detail.payloadOnly')}
+            </p>
+          ) : null}
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border">
@@ -260,22 +347,118 @@ function StepDetailPanel({
   )
 }
 
+type ListResponse = { items?: Array<Record<string, unknown>> }
+
 export default function ProcessDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const router = useRouter()
   const processId = params?.id ?? ''
 
-  // Sample-driven until the AgentProcess projection + processes routes land
-  // (spec 2026-06-25, owner Patryk). When they do, swap to GET /processes/:id
-  // (header) + GET /proposals?processId=… (+ /runs/:id) for the timeline.
-  const view: ProcessView = React.useMemo(
-    () => buildSampleProcess(processId || 'CLM-2026-04417'),
-    [processId],
-  )
-  const { process } = view
+  const [projection, setProjection] = React.useState<ProcessProjection | null>(null)
+  const [degraded, setDegraded] = React.useState(false)
+  const [proposals, setProposals] = React.useState<ProposalView[]>([])
+  const [runsById, setRunsById] = React.useState<Map<string, RunView>>(new Map())
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [error, setError] = React.useState<string | null>(null)
 
-  const [selectedId, setSelectedId] = React.useState<string>(view.steps[0]?.id ?? '')
-  const selected = view.steps.find((step) => step.id === selectedId) ?? view.steps[0]
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      setError(null)
+      const [headerCall, proposalsCall] = await Promise.all([
+        apiCall<{ process?: Record<string, unknown> }>(
+          `/api/agent_orchestrator/processes/${encodeURIComponent(processId)}`,
+          undefined,
+          { fallback: {} },
+        ),
+        apiCall<ListResponse>(
+          `/api/agent_orchestrator/proposals?processId=${encodeURIComponent(processId)}&pageSize=100&sortField=createdAt&sortDir=asc`,
+          undefined,
+          { fallback: { items: [] } },
+        ),
+      ])
+      if (cancelled) return
+
+      const proposalRows = (Array.isArray(proposalsCall.result?.items) ? proposalsCall.result.items : [])
+        .map((row) => mapProposal(row))
+        .filter((row): row is ProposalView => !!row)
+
+      const header = headerCall.ok && headerCall.result?.process
+        ? mapProcessProjection(headerCall.result.process)
+        : null
+
+      if (!header && proposalRows.length === 0) {
+        setError(t('agent_orchestrator.process.detail.error'))
+        setIsLoading(false)
+        return
+      }
+
+      // Header degradation (spec): no projection row yet → render the process by
+      // its id from activity data alone, clearly hinted, instead of failing.
+      const fallbackHeader: ProcessProjection = {
+        processId,
+        workflowId: null,
+        workflowVersion: null,
+        subjectType: null,
+        subjectId: null,
+        subjectLabel: null,
+        subjectTitle: null,
+        subjectValueMinor: null,
+        subjectFraud: null,
+        subjectFacets: null,
+        status: proposalRows.some((p) => p.disposition === 'pending') ? 'waiting_on_you' : 'running',
+        currentStage: proposalRows[proposalRows.length - 1]?.stepId ?? null,
+        agentIds: Array.from(new Set(proposalRows.map((p) => p.agentId))),
+        costMinor: null,
+        currency: null,
+        runCount: new Set(proposalRows.map((p) => p.runId)).size,
+        pendingProposalCount: proposalRows.filter((p) => p.disposition === 'pending').length,
+        assigneeUserId: null,
+        teamId: null,
+        waitingSince: null,
+        openedAt: proposalRows[0]?.createdAt ?? null,
+        lastActivityAt: proposalRows[proposalRows.length - 1]?.updatedAt ?? null,
+      }
+      setProjection(header ?? fallbackHeader)
+      setDegraded(!header)
+      setProposals(proposalRows)
+
+      const runIds = Array.from(new Set(proposalRows.map((p) => p.runId))).filter(Boolean)
+      if (runIds.length > 0) {
+        const runsCall = await apiCall<ListResponse>(
+          `/api/agent_orchestrator/runs?ids=${runIds.map((id) => encodeURIComponent(id)).join(',')}&pageSize=${Math.min(runIds.length, 100)}`,
+          undefined,
+          { fallback: { items: [] } },
+        )
+        if (!cancelled && runsCall.ok) {
+          const map = new Map<string, RunView>()
+          for (const row of runsCall.result?.items ?? []) {
+            const run = mapRun(row)
+            if (run) map.set(run.id, run)
+          }
+          setRunsById(map)
+        }
+      }
+      if (!cancelled) setIsLoading(false)
+    }
+    if (processId) void load()
+    return () => {
+      cancelled = true
+    }
+  }, [processId, t])
+
+  const steps = React.useMemo(
+    () => buildSteps(proposals, runsById, t),
+    [proposals, runsById, t],
+  )
+  const stages = React.useMemo(
+    () => buildStages(proposals, projection?.currentStage ?? null),
+    [proposals, projection],
+  )
+
+  const [selectedId, setSelectedId] = React.useState<string>('')
+  const selected = steps.find((step) => step.id === selectedId) ?? steps[0]
 
   const openTrace = React.useCallback(() => {
     if (selected?.runId) {
@@ -285,7 +468,35 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
     router.push('/backend/traces')
   }, [router, selected])
 
-  const currentStageIndex = view.stages.findIndex((stage) => stage.label === process.currentStage)
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('agent_orchestrator.process.list.title')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (error || !projection) {
+    return (
+      <Page>
+        <PageBody>
+          <div className="mb-4">
+            <Button type="button" variant="outline" size="sm" onClick={() => router.push('/backend/processes')}>
+              {t('agent_orchestrator.process.back')}
+            </Button>
+          </div>
+          <ErrorMessage label={error ?? t('agent_orchestrator.process.detail.error')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  const process = projection
+  const currentStageIndex = stages.findIndex(
+    (stage) => stage.key === process.currentStage || stage.label === process.currentStage,
+  )
   const claimedValue = formatSubjectValue(process.subjectValueMinor, process.currency)
   const openedAge = formatAge(process.openedAt, t)
 
@@ -301,15 +512,10 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           </Button>
         </div>
 
-        {view.isSample ? (
+        {degraded ? (
           <div className="mb-4 flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 size-3.5 shrink-0" />
-            <p>
-              <span className="mr-1.5 rounded-md border border-border bg-card px-1.5 py-0.5 font-medium text-foreground">
-                {t('agent_orchestrator.process.preview')}
-              </span>
-              {t('agent_orchestrator.process.previewNote')}
-            </p>
+            <p>{t('agent_orchestrator.process.detail.degraded')}</p>
           </div>
         ) : null}
 
@@ -318,57 +524,57 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                {process.subjectType}{' '}
-                <span className="font-semibold text-foreground">{process.subjectLabel}</span>
+                {process.subjectType ?? t('agent_orchestrator.process.list.title')}{' '}
+                <span className="font-semibold text-foreground">
+                  {process.subjectLabel ?? process.processId.slice(0, 8).toUpperCase()}
+                </span>
               </p>
-              <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">{process.subjectTitle}</h1>
+              <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">
+                {process.subjectTitle ?? process.workflowId ?? process.processId}
+              </h1>
             </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => flash(t('agent_orchestrator.process.actionPreviewOnly'), 'success')}
-              >
-                {t('agent_orchestrator.process.actionPause')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => flash(t('agent_orchestrator.process.actionPreviewOnly'), 'success')}
-              >
-                {t('agent_orchestrator.process.actionReassign')}
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                onClick={() => flash(t('agent_orchestrator.process.actionPreviewOnly'), 'success')}
-              >
-                {t('agent_orchestrator.process.actionTakeOver')}
-              </Button>
+            <div className="flex flex-col items-end gap-1.5">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button type="button" variant="outline" size="sm" disabled>
+                  {t('agent_orchestrator.process.actionPause')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled>
+                  {t('agent_orchestrator.process.actionReassign')}
+                </Button>
+                <Button type="button" variant="outline" size="sm" disabled>
+                  {t('agent_orchestrator.process.actionTakeOver')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('agent_orchestrator.process.actionsComingSoon')}</p>
             </div>
           </div>
 
           <div className="mt-4 flex flex-wrap items-start gap-x-10 gap-y-4">
-            {process.subjectFacets?.policyholder ? (
-              <HeaderFact
-                label={t('agent_orchestrator.process.factPolicyholder')}
-                value={process.subjectFacets.policyholder}
-              />
-            ) : null}
-            {claimedValue ? (
-              <HeaderFact label={t('agent_orchestrator.process.factClaimed')} value={claimedValue} />
-            ) : null}
-            {openedAge ? (
-              <HeaderFact label={t('agent_orchestrator.process.factOpened')} value={openedAge} />
-            ) : null}
-            {process.subjectFacets?.ownerLabel ? (
-              <HeaderFact
-                label={t('agent_orchestrator.process.factOwner')}
-                value={process.subjectFacets.ownerLabel}
-              />
-            ) : null}
+            {(() => {
+              const facets = (process.subjectFacets ?? null) as { policyholder?: string | null; ownerLabel?: string | null } | null
+              return (
+                <>
+                  {facets?.policyholder ? (
+                    <HeaderFact
+                      label={t('agent_orchestrator.process.factPolicyholder')}
+                      value={facets.policyholder}
+                    />
+                  ) : null}
+                  {claimedValue ? (
+                    <HeaderFact label={t('agent_orchestrator.process.factClaimed')} value={claimedValue} />
+                  ) : null}
+                  {openedAge ? (
+                    <HeaderFact label={t('agent_orchestrator.process.factOpened')} value={openedAge} />
+                  ) : null}
+                  {facets?.ownerLabel ? (
+                    <HeaderFact
+                      label={t('agent_orchestrator.process.factOwner')}
+                      value={facets.ownerLabel}
+                    />
+                  ) : null}
+                </>
+              )
+            })()}
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 {t('agent_orchestrator.process.factState')}
@@ -380,39 +586,41 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
             </div>
           </div>
 
-          <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-3 border-t border-border pt-4">
-            {view.stages.map((stage, index) => {
-              const state: StageState =
-                currentStageIndex < 0
-                  ? 'upcoming'
-                  : index < currentStageIndex
-                    ? 'done'
-                    : index === currentStageIndex
-                      ? 'current'
-                      : 'upcoming'
-              return (
-                <React.Fragment key={stage.key}>
-                  <div className="flex items-center gap-2">
-                    <StageNode state={state} position={index + 1} />
-                    <span
-                      className={
-                        state === 'upcoming'
-                          ? 'text-sm text-muted-foreground'
-                          : state === 'current'
-                            ? 'text-sm font-semibold text-foreground'
-                            : 'text-sm text-foreground'
-                      }
-                    >
-                      {stage.label}
-                    </span>
-                  </div>
-                  {index < view.stages.length - 1 ? (
-                    <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                  ) : null}
-                </React.Fragment>
-              )
-            })}
-          </div>
+          {stages.length > 0 ? (
+            <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-3 border-t border-border pt-4">
+              {stages.map((stage, index) => {
+                const state: StageState =
+                  currentStageIndex < 0
+                    ? 'upcoming'
+                    : index < currentStageIndex
+                      ? 'done'
+                      : index === currentStageIndex
+                        ? 'current'
+                        : 'upcoming'
+                return (
+                  <React.Fragment key={stage.key}>
+                    <div className="flex items-center gap-2">
+                      <StageNode state={state} position={index + 1} />
+                      <span
+                        className={
+                          state === 'upcoming'
+                            ? 'text-sm text-muted-foreground'
+                            : state === 'current'
+                              ? 'text-sm font-semibold text-foreground'
+                              : 'text-sm text-foreground'
+                        }
+                      >
+                        {stage.label}
+                      </span>
+                    </div>
+                    {index < stages.length - 1 ? (
+                      <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                    ) : null}
+                  </React.Fragment>
+                )
+              })}
+            </div>
+          ) : null}
         </section>
 
         {/* Split view: activity trace ↔ selected step detail */}
@@ -433,74 +641,104 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
               </span>
             </div>
 
-            {/* Timeline: one continuous spine; nodes (incl. day markers) ride it.
-                The selectable highlight is a separate block to the RIGHT of the
-                spine, so it never overlaps the line, and its px-3 keeps a margin
-                after the time. */}
-            <div className="mt-4">
-              {view.steps.map((step) => {
-                const showDay = step.day !== lastDay
-                lastDay = step.day
-                const isSelected = step.id === selected?.id
-                const dayLabel = t(
-                  step.day === 'today'
-                    ? 'agent_orchestrator.process.today'
-                    : 'agent_orchestrator.process.yesterday',
-                )
-                return (
-                  <React.Fragment key={step.id}>
-                    {showDay ? (
-                      <div className="flex items-center gap-2">
-                        <span className="relative flex w-5 flex-none items-center justify-center self-stretch py-1.5">
-                          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
-                          <span className="relative size-1.5 rounded-full bg-muted-foreground ring-2 ring-card" />
-                        </span>
-                        <p className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          {dayLabel}
-                        </p>
-                      </div>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(step.id)}
-                      aria-pressed={isSelected}
-                      className="flex w-full items-stretch gap-2 text-left"
-                    >
-                      <span className="relative flex w-5 flex-none items-center justify-center">
-                        <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
-                        <span
-                          className={`relative rounded-full ring-2 ring-card ${ACTOR_DOT[step.actorKind]} ${isSelected ? 'size-3' : 'size-2.5'}`}
-                        />
-                      </span>
-                      <span
-                        className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isSelected ? 'bg-brand-violet-soft' : 'hover:bg-muted/50'}`}
+            {steps.length === 0 ? (
+              <p className="mt-4 text-sm text-muted-foreground">
+                {t('agent_orchestrator.process.detail.noActivity')}
+              </p>
+            ) : (
+              <div className="mt-4">
+                {steps.map((step) => {
+                  const showDay = step.day !== lastDay
+                  lastDay = step.day
+                  const isSelected = step.id === selected?.id
+                  return (
+                    <React.Fragment key={step.id}>
+                      {showDay ? (
+                        <div className="flex items-center gap-2">
+                          <span className="relative flex w-5 flex-none items-center justify-center self-stretch py-1.5">
+                            <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+                            <span className="relative size-1.5 rounded-full bg-muted-foreground ring-2 ring-card" />
+                          </span>
+                          <p className="py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                            {dayLabelOf(step.day, t)}
+                          </p>
+                        </div>
+                      ) : null}
+                      <button
+                        type="button"
+                        onClick={() => setSelectedId(step.id)}
+                        aria-pressed={isSelected}
+                        className="flex w-full items-stretch gap-2 text-left"
                       >
-                        {step.actorKind === 'system' ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src="/open-mercato.svg" alt="" className="size-7 shrink-0 rounded-md" />
-                        ) : (
-                          <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
-                            <Bot className="size-4" />
-                          </span>
-                        )}
-                        <span className="min-w-0 flex-1">
-                          <span className="flex items-center justify-between gap-2">
-                            <span className="truncate text-sm font-medium text-foreground">{step.actor}</span>
-                            <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{step.time}</span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-xs text-muted-foreground">{step.summary}</span>
+                        <span className="relative flex w-5 flex-none items-center justify-center">
+                          <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border" />
+                          <span
+                            className={`relative rounded-full ring-2 ring-card ${ACTOR_DOT[step.actorKind]} ${isSelected ? 'size-3' : 'size-2.5'}`}
+                          />
                         </span>
-                      </span>
-                    </button>
-                  </React.Fragment>
-                )
-              })}
-            </div>
+                        <span
+                          className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isSelected ? 'bg-brand-violet-soft' : 'hover:bg-muted/50'}`}
+                        >
+                          {step.actorKind === 'system' ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src="/open-mercato.svg" alt="" className="size-7 shrink-0 rounded-md" />
+                          ) : (
+                            <span className="grid size-7 shrink-0 place-items-center rounded-md bg-muted text-muted-foreground">
+                              <Bot className="size-4" />
+                            </span>
+                          )}
+                          <span className="min-w-0 flex-1">
+                            <span className="flex items-center justify-between gap-2">
+                              <span className="truncate text-sm font-medium text-foreground">{step.actor}</span>
+                              <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{step.time}</span>
+                            </span>
+                            <span className="mt-0.5 block truncate text-xs text-muted-foreground">{step.summary}</span>
+                          </span>
+                        </span>
+                      </button>
+                    </React.Fragment>
+                  )
+                })}
+              </div>
+            )}
           </section>
 
-          {selected ? <StepDetailPanel step={selected} onOpenTrace={openTrace} /> : null}
+          {selected ? (
+            <StepDetailPanel step={selected} dayLabel={dayLabelOf(selected.day, t)} onOpenTrace={openTrace} />
+          ) : null}
         </div>
       </PageBody>
     </Page>
+  )
+}
+
+function HeaderFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mt-0.5 truncate text-sm font-medium text-foreground">{value}</p>
+    </div>
+  )
+}
+
+function StageNode({ state, position }: { state: StageState; position: number }) {
+  if (state === 'done') {
+    return (
+      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-status-success-icon text-status-success-bg">
+        <Check className="size-3.5" />
+      </span>
+    )
+  }
+  if (state === 'current') {
+    return (
+      <span className="grid size-6 shrink-0 place-items-center rounded-full border-2 border-brand-violet text-xs font-semibold tabular-nums text-brand-violet">
+        {position}
+      </span>
+    )
+  }
+  return (
+    <span className="grid size-6 shrink-0 place-items-center rounded-full border border-border text-xs tabular-nums text-muted-foreground">
+      {position}
+    </span>
   )
 }
