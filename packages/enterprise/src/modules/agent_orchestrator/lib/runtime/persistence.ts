@@ -143,17 +143,49 @@ export async function createRun(
   return result.runId
 }
 
+/**
+ * Optional usage/cost stamp attached at a run's terminal transition (data-honesty
+ * spec §3.2). Absent fields leave the run columns untouched, so pre-existing
+ * callers are byte-for-byte unaffected. Cost is the caller-computed ESTIMATE
+ * from `modelPricing.ts` — stored once, never recomputed at read time.
+ */
+export type RunUsageStamp = {
+  inputTokens?: number | null
+  outputTokens?: number | null
+  costMinor?: number | null
+  currency?: string | null
+}
+
 export async function completeRun(
   commandBus: CommandBus,
   commandCtx: CommandRuntimeContext,
-  input: { runId: string; output: AgentResult; resultKind: 'informative' | 'actionable' },
+  input: {
+    runId: string
+    output: AgentResult
+    resultKind: 'informative' | 'actionable'
+    /** Proposal confidence for actionable results; informative runs have no confidence semantics. */
+    confidence?: number | null
+  } & RunUsageStamp,
 ): Promise<void> {
   await withAuditedCommand(() =>
     commandBus.execute<
-      { runId: string; status: 'ok'; output: AgentResult; resultKind: 'informative' | 'actionable' },
+      {
+        runId: string
+        status: 'ok'
+        output: AgentResult
+        resultKind: 'informative' | 'actionable'
+        confidence?: number | null
+      } & RunUsageStamp,
       { runId: string }
     >('agent_orchestrator.runs.complete', {
-      input: { runId: input.runId, status: 'ok', output: input.output, resultKind: input.resultKind },
+      input: {
+        runId: input.runId,
+        status: 'ok',
+        output: input.output,
+        resultKind: input.resultKind,
+        ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+        ...pickUsageStamp(input),
+      },
       ctx: commandCtx,
     }),
   )
@@ -162,14 +194,26 @@ export async function completeRun(
 export async function failRun(
   commandBus: CommandBus,
   commandCtx: CommandRuntimeContext,
-  input: { runId: string; errorMessage: string },
+  input: { runId: string; errorMessage: string } & RunUsageStamp,
 ): Promise<void> {
   await withAuditedCommand(() =>
-    commandBus.execute<{ runId: string; errorMessage: string }, { runId: string }>(
+    commandBus.execute<{ runId: string; errorMessage: string } & RunUsageStamp, { runId: string }>(
       'agent_orchestrator.runs.fail',
-      { input, ctx: commandCtx },
+      {
+        input: { runId: input.runId, errorMessage: input.errorMessage, ...pickUsageStamp(input) },
+        ctx: commandCtx,
+      },
     ),
   )
+}
+
+function pickUsageStamp(input: RunUsageStamp): RunUsageStamp {
+  const stamp: RunUsageStamp = {}
+  if (input.inputTokens !== undefined) stamp.inputTokens = input.inputTokens
+  if (input.outputTokens !== undefined) stamp.outputTokens = input.outputTokens
+  if (input.costMinor !== undefined) stamp.costMinor = input.costMinor
+  if (input.currency !== undefined) stamp.currency = input.currency
+  return stamp
 }
 
 export async function createProposal(

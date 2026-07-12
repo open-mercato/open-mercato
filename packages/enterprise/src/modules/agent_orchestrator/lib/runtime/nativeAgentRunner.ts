@@ -18,6 +18,7 @@ import { ContextResolverImpl, ContextModuleNotFoundError } from '../context/cont
 import { resolveContextModule } from '../context/registry'
 import { withRunContext } from './runContext'
 import { runWithProviderBudget } from './providerBudget'
+import { computeCostMinor } from './modelPricing'
 import {
   captureNativeRunTrace,
   isNativeTraceCaptureEnabled,
@@ -253,6 +254,39 @@ export class NativeAgentRunner {
     const modelStartMs = Date.now()
     let rawObject: unknown
     let fallbackUsage: { inputTokens?: number; outputTokens?: number } | null = null
+    // Usage + estimated-cost stamp for the terminal transition (data-honesty
+    // spec §3.2): tokens summed from the recorded steps (or the object-mode
+    // fallback usage), cost from the static pricing table for the model that
+    // actually answered (last step's resolved id beats the declared default).
+    // Null tokens or an unknown model keep cost null — the UI renders `—`.
+    const buildUsageStamp = (): {
+      inputTokens?: number | null
+      outputTokens?: number | null
+      costMinor?: number | null
+      currency?: string | null
+    } => {
+      const summed = stepRecords.reduce(
+        (acc, step) => ({
+          inputTokens: acc.inputTokens + step.usage.inputTokens,
+          outputTokens: acc.outputTokens + step.usage.outputTokens,
+        }),
+        { inputTokens: 0, outputTokens: 0 },
+      )
+      const inputTokens =
+        stepRecords.length > 0 ? summed.inputTokens : (fallbackUsage?.inputTokens ?? null)
+      const outputTokens =
+        stepRecords.length > 0 ? summed.outputTokens : (fallbackUsage?.outputTokens ?? null)
+      if (inputTokens == null && outputTokens == null) return {}
+      const resolvedModelId = [...stepRecords]
+        .reverse()
+        .find((step) => step.modelId && step.modelId !== 'unknown')?.modelId
+      const cost = computeCostMinor(resolvedModelId ?? entry.defaultModel ?? null, inputTokens, outputTokens)
+      return {
+        inputTokens,
+        outputTokens,
+        ...(cost ? { costMinor: cost.costMinor, currency: cost.currency } : {}),
+      }
+    }
     const scheduleTraceCapture = (): void => {
       if (!traceEnabled) return
       // Fire-and-forget: the capture catches internally, but a defensive catch
@@ -320,6 +354,7 @@ export class NativeAgentRunner {
         await failRun(this.commandBus, commandCtx, {
           runId,
           errorMessage: `[internal] agent run exceeded the ${runTimeoutMs}ms wall-clock deadline`,
+          ...buildUsageStamp(),
         })
         throw new AgentRunTimeoutError(agentId, runTimeoutMs)
       }
@@ -330,7 +365,7 @@ export class NativeAgentRunner {
         throw err
       }
       const message = err instanceof Error ? err.message : String(err)
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: message, ...buildUsageStamp() })
       scheduleTraceCapture()
       throw err
     } finally {
@@ -393,7 +428,7 @@ export class NativeAgentRunner {
         proposalId: null,
       })
       const detail = parsed.success ? 'guardrail block' : parsed.error.message
-      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail })
+      await failRun(this.commandBus, commandCtx, { runId, errorMessage: detail, ...buildUsageStamp() })
       scheduleTraceCapture()
       const blocked = verdict.blockedReason
       if (blocked) {
@@ -421,6 +456,10 @@ export class NativeAgentRunner {
       runId,
       output: result,
       resultKind: entry.resultKind,
+      // Actionable runs surface the proposal's confidence on the run row;
+      // informative runs have no confidence semantics → null (renders `—`).
+      confidence: result.kind === 'actionable' ? (result.proposal.confidence ?? null) : null,
+      ...buildUsageStamp(),
     })
 
     if (result.kind === 'actionable') {

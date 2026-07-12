@@ -10,6 +10,7 @@ import {
 } from '../../data/entities'
 import { traceIngestSchema, type TraceIngest, type TraceSpanIngest } from '../../data/validators'
 import { ARTIFACT_REFS, type ArtifactEncryptionRef, type ArtifactOffloader } from './artifactStore'
+import { computeCostMinor } from '../runtime/modelPricing'
 
 export type IngestScope = { tenantId: string; organizationId: string }
 
@@ -125,6 +126,17 @@ export async function ingestTrace(
     em.persist(run)
   }
   applyRunFields(run, payload)
+  // Estimated cost, null-only (data-honesty spec §3.2): when the envelope (or a
+  // prior ingest) supplied tokens + a model but no cost — the OpenCode/external
+  // path — compute the estimate from the static pricing table. Never overwrite
+  // a non-null cost (the native runner stamps it at completion).
+  if (run.costMinor == null && run.model && (run.inputTokens != null || run.outputTokens != null)) {
+    const cost = computeCostMinor(run.model, run.inputTokens, run.outputTokens)
+    if (cost) {
+      run.costMinor = cost.costMinor
+      run.currency = cost.currency
+    }
+  }
   if (payload.output !== undefined) {
     const { summary, key } = await offloadOrCap(payload.output, ARTIFACT_REFS.runOutput, offload)
     run.output = summary

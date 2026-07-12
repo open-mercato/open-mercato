@@ -312,3 +312,97 @@ describe('provider budget wiring', () => {
     }
   })
 })
+
+describe('confidence + usage/cost stamping (data-honesty §3.2)', () => {
+  it('stamps confidence from the proposal and computed cost on an actionable run', async () => {
+    const entry: AgentRegistryEntry = {
+      id: 'native.cost_stamp_agent',
+      moduleId: 'agent_orchestrator',
+      resultKind: 'actionable',
+      schema: z.object({
+        kind: z.literal('actionable'),
+        proposal: z.object({ confidence: z.number().optional() }).passthrough(),
+      }),
+      tools: [],
+      skills: [],
+      subAgents: [],
+      label: 'Cost stamp agent',
+      description: 'Actionable agent for stamping tests.',
+      instructions: 'propose',
+      runtime: 'native',
+      defaultModel: 'gpt-5-mini',
+    }
+    if (!getAgentEntry(entry.id)) registerFileAgent(entry)
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [],
+        finishReason: 'tool-calls',
+        usage: { inputTokens: 1_000_000, outputTokens: 0 },
+        response: { modelId: 'gpt-5-mini' },
+      })
+      await loop?.onStepFinish?.({
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: { inputTokens: 0, outputTokens: 1_000_000 },
+        response: { modelId: 'gpt-5-mini' },
+      })
+      return {
+        mode: 'generate',
+        object: { kind: 'actionable', proposal: { confidence: 0.83 } },
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }
+    })
+
+    const service = makeService()
+    await service.run('native.cost_stamp_agent', {}, runCtx)
+
+    expect(completeRunMock).toHaveBeenCalledTimes(1)
+    const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.confidence).toBe(0.83)
+    // Steps win over fallback usage: 1M in + 1M out.
+    expect(input.inputTokens).toBe(1_000_000)
+    expect(input.outputTokens).toBe(1_000_000)
+    // gpt-5-mini defaults: 0.25 + 2 USD per 1M → 2.25 USD → 225 cents.
+    expect(input.costMinor).toBe(225)
+    expect(input.currency).toBe('USD')
+  })
+
+  it('informative run: null confidence, fallback usage, no cost without a priced model', async () => {
+    registerNativeAgent('native.informative_stamp_agent')
+    runAiAgentObjectMock.mockResolvedValue(VALID_MODEL_OUTPUT)
+
+    const service = makeService()
+    await service.run('native.informative_stamp_agent', {}, runCtx)
+
+    const input = completeRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.confidence).toBeNull()
+    // Generate-mode fallback usage from VALID_MODEL_OUTPUT.
+    expect(input.inputTokens).toBe(9)
+    expect(input.outputTokens).toBe(3)
+    // No declared model and no step model id → unknown → cost stays absent.
+    expect(input.costMinor).toBeUndefined()
+  })
+
+  it('a failed model call still stamps the tokens consumed so far', async () => {
+    registerNativeAgent('native.failed_stamp_agent')
+    runAiAgentObjectMock.mockImplementation(async (args) => {
+      const loop = args.loop as { onStepFinish?: (event: unknown) => Promise<void> } | undefined
+      await loop?.onStepFinish?.({
+        toolCalls: [],
+        finishReason: 'stop',
+        usage: { inputTokens: 700, outputTokens: 50 },
+        response: { modelId: 'test-model' },
+      })
+      throw new Error('[internal] model exploded')
+    })
+
+    const service = makeService()
+    await expect(service.run('native.failed_stamp_agent', {}, runCtx)).rejects.toThrow('model exploded')
+
+    expect(failRunMock).toHaveBeenCalledTimes(1)
+    const input = failRunMock.mock.calls[0][2] as Record<string, unknown>
+    expect(input.inputTokens).toBe(700)
+    expect(input.outputTokens).toBe(50)
+  })
+})

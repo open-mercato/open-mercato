@@ -291,3 +291,63 @@ describe('ingestTrace — artifact offload (F1)', () => {
     expect((run.output as { offloaded?: boolean }).offloaded).toBe(false)
   })
 })
+
+describe('ingestTrace — estimated cost (null-only, data-honesty §3.2)', () => {
+  it('computes cost from tokens + a priced model when cost is absent', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = {
+      ...basePayload(),
+      model: 'gpt-5-mini',
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    }
+    await ingestTrace(em, SCOPE, payload)
+    const run = storeFor(AgentRun)[0]
+    // gpt-5-mini defaults: 0.25 + 2 USD per 1M → 225 cents.
+    expect(run.costMinor).toBe(225)
+    expect(run.currency).toBe('USD')
+  })
+
+  it('never overwrites a non-null cost (envelope-supplied or runner-stamped)', async () => {
+    const { em, storeFor } = createFakeEm()
+    const payload = {
+      ...basePayload(),
+      model: 'gpt-5-mini',
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+      costMinor: 999,
+      currency: 'EUR',
+    }
+    await ingestTrace(em, SCOPE, payload)
+    const run = storeFor(AgentRun)[0]
+    expect(run.costMinor).toBe(999)
+    expect(run.currency).toBe('EUR')
+
+    // Re-ingest without cost fields: the stored cost must survive.
+    await ingestTrace(em, SCOPE, {
+      ...basePayload(),
+      model: 'gpt-5-mini',
+      inputTokens: 1_000_000,
+      outputTokens: 1_000_000,
+    })
+    expect(run.costMinor).toBe(999)
+    expect(run.currency).toBe('EUR')
+  })
+
+  it('leaves cost null for an unknown or absent model', async () => {
+    const { em, storeFor } = createFakeEm()
+    await ingestTrace(em, SCOPE, {
+      ...basePayload(),
+      model: 'mystery-model-9000',
+      inputTokens: 500,
+      outputTokens: 500,
+    })
+    const withUnknownModel = storeFor(AgentRun)[0]
+    expect(withUnknownModel.costMinor ?? null).toBeNull()
+
+    const second = createFakeEm()
+    await ingestTrace(second.em, SCOPE, { ...basePayload(), inputTokens: 500, outputTokens: 500 })
+    const withoutModel = second.storeFor(AgentRun)[0]
+    expect(withoutModel.costMinor ?? null).toBeNull()
+  })
+})

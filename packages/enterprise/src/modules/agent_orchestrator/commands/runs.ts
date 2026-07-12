@@ -40,19 +40,45 @@ const createAgentRunSchema = z.object({
 })
 export type CreateAgentRunInput = z.infer<typeof createAgentRunSchema>
 
-const completeAgentRunSchema = z.object({
-  runId: z.string().uuid(),
-  status: z.enum(['ok', 'error']),
-  output: z.unknown().optional(),
-  resultKind: z.enum(['informative', 'actionable']).nullable().optional(),
+/**
+ * Data-honesty additive stamps (spec §3.2): confidence + token/cost fields are
+ * optional — an ABSENT field leaves the column untouched, so existing callers
+ * are byte-for-byte unaffected. Cost is an estimate computed by the caller
+ * (see `lib/runtime/modelPricing.ts`), stored once, never recomputed at read.
+ */
+const runUsageStampSchema = z.object({
+  inputTokens: z.number().int().nonnegative().nullable().optional(),
+  outputTokens: z.number().int().nonnegative().nullable().optional(),
+  costMinor: z.number().int().nonnegative().nullable().optional(),
+  currency: z.string().length(3).nullable().optional(),
 })
+
+const completeAgentRunSchema = z
+  .object({
+    runId: z.string().uuid(),
+    status: z.enum(['ok', 'error']),
+    output: z.unknown().optional(),
+    resultKind: z.enum(['informative', 'actionable']).nullable().optional(),
+    confidence: z.number().min(0).max(1).nullable().optional(),
+  })
+  .merge(runUsageStampSchema)
 export type CompleteAgentRunInput = z.infer<typeof completeAgentRunSchema>
 
-const failAgentRunSchema = z.object({
-  runId: z.string().uuid(),
-  errorMessage: z.string(),
-})
+const failAgentRunSchema = z
+  .object({
+    runId: z.string().uuid(),
+    errorMessage: z.string(),
+  })
+  .merge(runUsageStampSchema)
 export type FailAgentRunInput = z.infer<typeof failAgentRunSchema>
+
+/** Apply the optional usage/cost stamps; absent (undefined) fields leave columns untouched. */
+function applyUsageStamp(run: AgentRun, input: z.infer<typeof runUsageStampSchema>): void {
+  if (input.inputTokens !== undefined) run.inputTokens = input.inputTokens
+  if (input.outputTokens !== undefined) run.outputTokens = input.outputTokens
+  if (input.costMinor !== undefined) run.costMinor = input.costMinor
+  if (input.currency !== undefined) run.currency = input.currency
+}
 
 export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId: string }> = {
   id: 'agent_orchestrator.runs.create',
@@ -102,6 +128,8 @@ export const completeAgentRunCommand: CommandHandler<CompleteAgentRunInput, { ru
     run.status = input.status
     run.output = input.output ?? null
     run.resultKind = input.resultKind ?? null
+    if (input.confidence !== undefined) run.confidence = input.confidence
+    applyUsageStamp(run, input)
     // Forensic fact: stamped once at the terminal transition, never overwritten
     // (same flush as the status change — atomic per row).
     if (!run.completedAt) run.completedAt = new Date()
@@ -130,6 +158,8 @@ export const failAgentRunCommand: CommandHandler<FailAgentRunInput, { runId: str
     if (!run) throw new Error(`[internal] agent run not found: ${input.runId}`)
     run.status = 'error'
     run.errorMessage = input.errorMessage
+    // Failed runs still consumed tokens — stamp usage/cost when supplied.
+    applyUsageStamp(run, input)
     if (!run.completedAt) run.completedAt = new Date()
     run.updatedAt = new Date()
     await em.flush()
