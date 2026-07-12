@@ -13,7 +13,7 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.playground',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 10,
+  pagePriority: 30,
   pageOrder: 130,
   icon: playgroundIcon,
   breadcrumb: [{ label: 'Playground', labelKey: 'agent_orchestrator.nav.playground' }],

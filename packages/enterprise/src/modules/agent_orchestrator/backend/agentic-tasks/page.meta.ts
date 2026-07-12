@@ -14,7 +14,7 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.tasks',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 10,
+  pagePriority: 40,
   pageOrder: 160,
   icon: tasksIcon,
   breadcrumb: [{ label: 'Agentic Tasks', labelKey: 'agent_orchestrator.nav.tasks' }],

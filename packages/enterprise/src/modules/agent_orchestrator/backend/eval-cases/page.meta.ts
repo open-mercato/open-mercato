@@ -16,7 +16,7 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.evalCases',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 10,
+  pagePriority: 55,
   pageOrder: 175,
   icon: evalCasesIcon,
   breadcrumb: [{ label: 'Eval cases', labelKey: 'agent_orchestrator.nav.evalCases' }],

@@ -181,7 +181,17 @@ export default function AgentAuditPage() {
       accessorKey: 'operator',
       header: t('agent_orchestrator.audit.col.operator', 'Operator'),
       cell: ({ row }) => row.original.operator
-        ? <span className="text-sm text-foreground">{row.original.operator}</span>
+        ? (
+          <button
+            type="button"
+            onClick={() => router.push(`/backend/audit/by-instigator/${encodeURIComponent(row.original.operator ?? '')}`)}
+            title={t('agent_orchestrator.audit.actions.chains', 'On-behalf-of chains')}
+            aria-label={t('agent_orchestrator.audit.actions.chains', 'On-behalf-of chains')}
+            className="text-sm text-brand-violet transition-opacity hover:opacity-80"
+          >
+            {row.original.operator}
+          </button>
+        )
         : <span className="text-sm text-muted-foreground">—</span>,
     },
     {
@@ -192,7 +202,7 @@ export default function AgentAuditPage() {
         ? <span className="block truncate text-sm text-muted-foreground" title={row.original.reason}>{row.original.reason}</span>
         : <span className="text-sm text-muted-foreground">—</span>,
     },
-  ], [t])
+  ], [t, router])
 
   if (isLoading) {
     return (

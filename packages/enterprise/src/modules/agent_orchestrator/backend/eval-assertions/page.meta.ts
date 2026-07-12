@@ -15,7 +15,7 @@ export const metadata = {
   pageTitleKey: 'agent_orchestrator.nav.evalAssertions',
   pageGroup: 'Agents',
   pageGroupKey: 'agent_orchestrator.nav.group',
-  pagePriority: 10,
+  pagePriority: 50,
   pageOrder: 170,
   icon: evalIcon,
   breadcrumb: [{ label: 'Eval assertions', labelKey: 'agent_orchestrator.nav.evalAssertions' }],
