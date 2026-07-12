@@ -21,6 +21,7 @@ import {
 import { compensateWorkflow } from './compensation-handler'
 import { findWorkflowDefinition } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitWorkflowsEvent } from '../events'
 import type {
   WorkflowActivityJob,
   WorkflowActivityJobResumeSubWorkflowParent,
@@ -218,6 +219,9 @@ export async function startWorkflow(
     tenantId,
     organizationId,
   })
+
+  await emitInstanceLifecycleEvent(instance, 'workflows.instance.created')
+  await emitInstanceLifecycleEvent(instance, 'workflows.instance.started')
 
   return instance
 }
@@ -490,6 +494,13 @@ export async function executeWorkflow(
             },
           })
 
+          // Spec 2026-06-26: step/stage advances re-emit `started` with the
+          // destination stepId so projections can track stage transitions.
+          await emitInstanceLifecycleEvent(currentInstance, 'workflows.instance.started', {
+            stepId: selectedTransition.toStepId,
+            fromStepId: selectedTransition.fromStepId,
+          })
+
           if (transitionResult.pausedForActivities) {
             await logWorkflowEvent(trx, {
               workflowInstanceId: currentInstance.id,
@@ -673,6 +684,7 @@ async function persistFailedStatusAfterRollback(
       tenantId: instance.tenantId,
       organizationId: instance.organizationId,
     })
+    await emitInstanceLifecycleEvent(instance, 'workflows.instance.failed')
   }
   try {
     if (typeof (em as { fork?: unknown }).fork !== 'function') return
@@ -754,6 +766,10 @@ export async function completeWorkflow(
         // From the parent's perspective the sub-workflow did not succeed, so this
         // mirrors the normal-path enqueue below but always signals FAILED.
         await enqueueSubWorkflowParentResume(instance, 'FAILED')
+        // Terminal signal for external projections: the run did not succeed,
+        // regardless of whether compensation left it COMPENSATED or FAILED
+        // (payload `status` carries the actual post-compensation status).
+        await emitInstanceLifecycleEvent(instance, 'workflows.instance.failed')
         return
       } catch (error: any) {
         logger.error('Compensation failed with exception', { err: error })
@@ -805,6 +821,15 @@ export async function completeWorkflow(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+
+  await emitInstanceLifecycleEvent(
+    instance,
+    status === 'COMPLETED'
+      ? 'workflows.instance.completed'
+      : status === 'FAILED'
+        ? 'workflows.instance.failed'
+        : 'workflows.instance.cancelled'
+  )
 
   // If this instance is a child of a parked SUB_WORKFLOW step, enqueue a job to
   // resume the parent on the worker's own connection (never inline inside the
@@ -1150,6 +1175,47 @@ export async function updateWorkflowContext(
 }
 
 // findWorkflowDefinition is imported from ./find-definition
+
+type InstanceLifecycleEventId =
+  | 'workflows.instance.created'
+  | 'workflows.instance.started'
+  | 'workflows.instance.completed'
+  | 'workflows.instance.failed'
+  | 'workflows.instance.cancelled'
+
+/**
+ * Publish a declared `workflows.instance.*` lifecycle event to the event bus,
+ * alongside (never instead of) the internal `WorkflowEvent` audit row. Delivery
+ * is at-least-once and consumers must be idempotent; a bus failure must never
+ * break workflow execution, so this is strictly best-effort.
+ */
+async function emitInstanceLifecycleEvent(
+  instance: WorkflowInstance,
+  eventId: InstanceLifecycleEventId,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await emitWorkflowsEvent(
+      eventId,
+      {
+        id: instance.id,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        workflowId: instance.workflowId,
+        version: instance.version,
+        status: instance.status,
+        stepId: instance.currentStepId ?? null,
+        ...extra,
+      },
+      { persistent: true }
+    )
+  } catch (error) {
+    console.error(
+      `[WORKFLOW] Failed to emit ${eventId} for instance ${instance.id}:`,
+      error instanceof Error ? error.message : error
+    )
+  }
+}
 
 /**
  * Log workflow event to event sourcing table

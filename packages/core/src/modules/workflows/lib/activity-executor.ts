@@ -984,6 +984,8 @@ type AgentWorkflowBridgeLike = {
       userId?: string
       processId: string
       stepId: string
+      // Optional interpolated business-record descriptor (invokeAgentConfigSchema.subject).
+      subject?: unknown
     }
   }) => Promise<
     | { kind: 'informative'; data: unknown }
@@ -1014,7 +1016,7 @@ export async function executeInvokeAgent(
       .join('; ')
     throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
   }
-  const { agentId, input, onResult, outputMapping } = parsed.data
+  const { agentId, input, onResult, outputMapping, subject } = parsed.data
 
   // Fail fast when the optional agent_orchestrator peer is absent — the worker
   // would otherwise enqueue a job that can never run.
@@ -1061,6 +1063,7 @@ export async function executeInvokeAgent(
         userId: effectiveUserId,
         processId: context.workflowInstance.id,
         stepId,
+        ...(subject ? { subject } : {}),
       },
     })
     if (outcome.kind === 'informative') {
@@ -1104,6 +1107,7 @@ export async function executeInvokeAgent(
     input: (input ?? {}) as Record<string, any>,
     onResult,
     ...(outputMapping ? { outputMapping } : {}),
+    ...(subject ? { subject } : {}),
     tenantId: context.workflowInstance.tenantId,
     organizationId: context.workflowInstance.organizationId,
     userId: effectiveUserId,

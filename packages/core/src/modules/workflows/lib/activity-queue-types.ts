@@ -63,6 +63,9 @@ export interface WorkflowActivityJobInvokeAgent extends WorkflowActivityJobBase 
   // invokeAgentConfigSchema.outputMapping). Threaded through so the worker that
   // resumes the parked step can build the same context patch the inline path does.
   outputMapping?: Record<string, string>
+  // Optional already-interpolated business-record descriptor (see
+  // invokeAgentConfigSchema.subject); forwarded opaquely to the bridge ctx.
+  subject?: Record<string, any>
 }
 
 /**

@@ -133,6 +133,11 @@ export const invokeAgentConfigSchema = z.object({
   // Mirrors SUB_WORKFLOW's outputMapping. When omitted, the engine writes the
   // legacy fixed keys (disposition / agentProposalId / proposalPayload).
   outputMapping: z.record(z.string(), z.string()).optional(),
+  // Optional business-record descriptor ("what this process is about"), static
+  // or {{context.*}}-interpolated like the rest of the config. Forwarded opaquely
+  // to the agent_orchestrator bridge (additive; the enterprise module validates
+  // the shape) so its process projection can render a claim-centric caseload.
+  subject: z.record(z.string(), z.any()).optional(),
 })
 export type InvokeAgentConfig = z.infer<typeof invokeAgentConfigSchema>
 
