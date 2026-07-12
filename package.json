@@ -37,6 +37,7 @@
     "typecheck": "turbo run typecheck",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=2",
     "start": "turbo run start --filter=@open-mercato/app",
+    "documents:collab": "node ./packages/documents/dist/server/documents-collab-server.js",
     "generate": "turbo run generate --filter=@open-mercato/app",
     "reinstall": "turbo run reinstall --filter=@open-mercato/app",
     "db:generate": "yarn workspace @open-mercato/app db:generate",

@@ -3,6 +3,20 @@ import type { CommandInterceptorContext } from '@open-mercato/shared/lib/command
 const mockEmitDocumentsEvent = jest.fn()
 const mockCreateNotification = jest.fn()
 const mockDeleteNotifications = jest.fn()
+const mockLoggerError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: (...args: unknown[]) => mockLoggerError(...args),
+      child: () => logger,
+    }
+    return logger
+  },
+}))
 
 jest.mock('../events', () => ({
   emitDocumentsEvent: (...args: unknown[]) => mockEmitDocumentsEvent(...args),
@@ -44,15 +58,8 @@ function interceptorFor(commandId: string) {
 }
 
 describe('documents post-log command projections', () => {
-  let errorSpy: jest.SpyInstance
-
   beforeEach(() => {
     jest.clearAllMocks()
-    errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
-  })
-
-  afterEach(() => {
-    errorSpy.mockRestore()
   })
 
   it('targets only the commands that return custom projection descriptors', () => {
@@ -77,6 +84,8 @@ describe('documents post-log command projections', () => {
         projections: [{
           kind: 'event',
           eventId: 'documents.version.restored',
+          tenantId,
+          organizationId,
           payload: { id: documentId, documentId, tenantId, organizationId },
         }],
       },
@@ -86,8 +95,9 @@ describe('documents post-log command projections', () => {
     expect(mockEmitDocumentsEvent).toHaveBeenCalledWith(
       'documents.version.restored',
       expect.objectContaining({ documentId, userId: actorUserId }),
+      { tenantId, organizationId },
     )
-    expect(errorSpy).toHaveBeenCalled()
+    expect(mockLoggerError).toHaveBeenCalled()
   })
 
   it('keeps content replacement successful when reindexing fails and still projects the update event', async () => {
@@ -109,6 +119,8 @@ describe('documents post-log command projections', () => {
           {
             kind: 'event',
             eventId: 'documents.document.updated',
+            tenantId,
+            organizationId,
             payload: {
               id: documentId,
               tenantId,
@@ -130,8 +142,9 @@ describe('documents post-log command projections', () => {
     expect(mockEmitDocumentsEvent).toHaveBeenCalledWith(
       'documents.document.updated',
       expect.objectContaining({ id: documentId, contentEpochReset: true }),
+      { tenantId, organizationId },
     )
-    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledTimes(1)
   })
 
   it('attempts notification persistence even if the mention event fails and swallows both failures', async () => {
@@ -146,6 +159,8 @@ describe('documents post-log command projections', () => {
           {
             kind: 'event',
             eventId: 'documents.comment.mentioned',
+            tenantId,
+            organizationId,
             payload: {
               id: commentId,
               documentId,
@@ -173,6 +188,7 @@ describe('documents post-log command projections', () => {
     expect(mockEmitDocumentsEvent).toHaveBeenCalledWith(
       'documents.comment.mentioned',
       expect.objectContaining({ id: commentId, mentionedUserId: recipientUserId }),
+      { tenantId, organizationId },
     )
     expect(mockCreateNotification).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,7 +198,7 @@ describe('documents post-log command projections', () => {
       }),
       { tenantId, organizationId },
     )
-    expect(errorSpy).toHaveBeenCalledTimes(2)
+    expect(mockLoggerError).toHaveBeenCalledTimes(2)
   })
 
   it('projects undo descriptors from the persisted ActionLog payload', async () => {
@@ -199,6 +215,8 @@ describe('documents post-log command projections', () => {
               projectionsAfterUndo: [{
                 kind: 'event',
                 eventId: 'documents.document.shared',
+                tenantId,
+                organizationId,
                 payload: {
                   id: documentId,
                   documentId,
@@ -217,6 +235,7 @@ describe('documents post-log command projections', () => {
     expect(mockEmitDocumentsEvent).toHaveBeenCalledWith(
       'documents.document.shared',
       expect.objectContaining({ documentId, userId: actorUserId }),
+      { tenantId, organizationId },
     )
   })
 
@@ -249,6 +268,6 @@ describe('documents post-log command projections', () => {
       commentId,
       { tenantId, organizationId },
     )
-    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledTimes(1)
   })
 })

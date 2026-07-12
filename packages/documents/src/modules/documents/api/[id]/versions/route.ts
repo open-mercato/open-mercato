@@ -105,7 +105,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const labels = await resolveUserLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       versions.map((version) => version.createdByUserId),
     )

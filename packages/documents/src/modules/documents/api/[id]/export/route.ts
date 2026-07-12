@@ -500,7 +500,24 @@ export const openApi: OpenApiRouteDoc = {
         { status: 503, description: 'Export runtime is unavailable, overloaded, or timed out', schema: routeErrorSchema },
       ],
     },
+    POST: {
+      summary: 'Export a paginated DOCX document',
+      description: 'Returns a DOCX attachment using the editor pagination snapshot supplied by the client.',
+      query: exportQuerySchema,
+      requestBody: { contentType: 'application/json', schema: docxSnapshotSchema },
+      responses: [
+        { status: 200, description: 'Paginated DOCX export file', schema: fileResponseSchema, mediaType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' },
+      ],
+      errors: [
+        { status: 400, description: 'Invalid pagination snapshot or unsupported format', schema: routeErrorSchema },
+        { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
+        { status: 403, description: 'Forbidden', schema: routeErrorSchema },
+        { status: 404, description: 'Not found', schema: routeErrorSchema },
+        { status: 413, description: 'Document or generated export exceeds the safe resource bound', schema: routeErrorSchema },
+        { status: 503, description: 'Export runtime is unavailable, overloaded, or timed out', schema: routeErrorSchema },
+      ],
+    },
   },
 }
 
-export default { GET }
+export default { GET, POST }

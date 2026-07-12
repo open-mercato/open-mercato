@@ -6,7 +6,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
@@ -327,7 +327,7 @@ const updateFolderCommand: CommandHandler<FolderUpdateCommandInput, FolderComman
       if (input.redoExpectation) {
         assertFolderStateMatches(folder, input.redoExpectation.folder)
       } else {
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
           resourceId: folder.id,
           current: folder.updatedAt,
@@ -419,7 +419,7 @@ const deleteFolderCommand: CommandHandler<FolderDeleteCommandInput, FolderComman
       if (input.redoExpectation) {
         assertFolderStateMatches(folder, input.redoExpectation.folder)
       } else {
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: DOCUMENTS_ENTITY_IDS.documentFolder,
           resourceId: folder.id,
           current: folder.updatedAt,

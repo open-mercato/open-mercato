@@ -236,6 +236,8 @@ test('template baseline installs every enabled Documents package', () => {
   assert.doesNotMatch(dockerfile, /ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=ws:\/\/localhost:4101/)
   assert.match(dockerfile, /ENV NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL\}/)
   assert.match(dockerfile, /EXPOSE \$\{CONTAINER_PORT\} \$\{DOCUMENTS_COLLAB_PORT\}/)
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl/)
   assert.match(
     fullAppCompose,
     /NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=\$\{NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:\?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL/,
@@ -246,6 +248,12 @@ test('template baseline installs every enabled Documents package', () => {
     /DOCUMENTS_COLLAB_JWT_SECRET_V2: \$\{DOCUMENTS_COLLAB_JWT_SECRET_V2:\?Set DOCUMENTS_COLLAB_JWT_SECRET_V2/,
   )
   assert.doesNotMatch(fullAppCompose, /change-me-documents-collab-v2-secret/)
+  assert.match(fullAppCompose, /APP_URL: \$\{APP_URL:\?Set APP_URL to the public application origin\}/)
+  assert.match(
+    fullAppCompose,
+    /DOCUMENTS_COLLAB_ALLOWED_ORIGINS: \$\{DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-\$\{APP_URL\}\}/,
+  )
+  assert.doesNotMatch(fullAppCompose, /DOCUMENTS_COLLAB_ALLOWED_ORIGINS[^\n]*localhost/)
   assert.match(fullAppCompose, /documents-collab:[\s\S]*command: \["yarn", "documents:collab"\]/)
 })
 

@@ -15,7 +15,7 @@ import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import {
   findOneWithDecryption,
 } from '@open-mercato/shared/lib/encryption/find'
@@ -466,7 +466,7 @@ const updateDocumentCommand: CommandHandler<DocumentUpdateCommandInput, Document
         assertDocumentStateMatches(document, input.redoExpectation.document)
       }
       if (!input.redoExpectation) {
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: DOCUMENTS_ENTITY_IDS.document,
           resourceId: input.id,
           current: document.updatedAt,
@@ -549,7 +549,7 @@ const deleteDocumentCommand: CommandHandler<DocumentDeleteCommandInput, Document
     await withAtomicFlush(em, [async () => {
       document = await lockDocumentAggregateRoot(em, input.id, scope)
       await assertDocumentCommandCapability(ctx, em, input.id, scope, 'canDelete')
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(ctx.container, {
         resourceKind: DOCUMENTS_ENTITY_IDS.document,
         resourceId: input.id,
         current: document.updatedAt,

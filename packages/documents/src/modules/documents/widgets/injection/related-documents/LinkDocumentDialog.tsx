@@ -10,6 +10,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { normalizeDocuments, type DocumentRow } from '../../../backend/documents/documentsListTypes'
 import type { RelatedDocumentContext } from './context'
@@ -34,6 +35,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
   const [query, setQuery] = React.useState('')
   const [rows, setRows] = React.useState<DocumentRow[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [activeRowId, setActiveRowId] = React.useState<string | null>(null)
   const currentSearchContext = buildSearchContext(open, target, query)
   activeSearchContext.current = currentSearchContext
   const mutationContextId = `documents-related-widget:${target.entityType}:${target.entityId}`
@@ -47,6 +49,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
     activeRequest.current = null
     resultSearchContext.current = null
     setRows([])
+    setActiveRowId(null)
     setLoading(false)
   }, [])
 
@@ -88,7 +91,11 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
         .then((call) => {
           if (request.current !== requestId || activeSearchContext.current !== requestContext) return
           resultSearchContext.current = requestContext
-          setRows(call.ok ? normalizeDocuments(call.result, [], t('documents.list.unknownOwner')).filter((row) => row.capabilities.canEdit) : [])
+          const nextRows = call.ok
+            ? normalizeDocuments(call.result, [], t('documents.list.unknownOwner')).filter((row) => row.capabilities.canEdit)
+            : []
+          setRows(nextRows)
+          setActiveRowId(nextRows[0]?.id ?? null)
         })
         .catch(() => {
           if (!controller.signal.aborted && request.current === requestId && activeSearchContext.current === requestContext) {
@@ -131,17 +138,38 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
 
   const hasCurrentResults = resultSearchContext.current !== null && resultSearchContext.current === currentSearchContext
   const visibleRows = hasCurrentResults ? rows : []
+  const confirmActiveRow = React.useCallback(() => {
+    const row = visibleRows.find((candidate) => candidate.id === activeRowId) ?? visibleRows[0]
+    if (row) void linkDocument(row)
+  }, [activeRowId, linkDocument, visibleRows])
+  const dialogKeyDown = useDialogKeyHandler({
+    onConfirm: confirmActiveRow,
+    onCancel: () => handleOpenChange(false),
+    disabled: loading || visibleRows.length === 0,
+  })
+  const handleDialogKeyDown = React.useCallback((event: React.KeyboardEvent) => {
+    dialogKeyDown(event)
+    if (event.defaultPrevented || visibleRows.length === 0) return
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    event.preventDefault()
+    const currentIndex = visibleRows.findIndex((row) => row.id === activeRowId)
+    const offset = event.key === 'ArrowDown' ? 1 : -1
+    const nextIndex = currentIndex < 0
+      ? 0
+      : (currentIndex + offset + visibleRows.length) % visibleRows.length
+    setActiveRowId(visibleRows[nextIndex]?.id ?? null)
+  }, [activeRowId, dialogKeyDown, visibleRows])
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent size="lg">
+      <DialogContent size="lg" onKeyDown={handleDialogKeyDown}>
         <DialogHeader><DialogTitle>{t('documents.relatedDocuments.linkDialog.title')}</DialogTitle><DialogDescription>{t('documents.relatedDocuments.linkDialog.description')}</DialogDescription></DialogHeader>
         <div className="space-y-3">
           <div className="space-y-2"><Label htmlFor={inputId}>{t('documents.relatedDocuments.linkDialog.searchLabel')}</Label><Input id={inputId} value={query} onChange={(event) => changeQuery(event.target.value)} leftIcon={<Search />} placeholder={t('documents.relatedDocuments.linkDialog.searchPlaceholder')} /></div>
           {loading ? <LoadingMessage label={t('documents.relatedDocuments.loading')} /> : null}
           {!loading && query.trim() && visibleRows.length === 0 ? <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.relatedDocuments.linkDialog.empty')}</p> : null}
           {!loading && visibleRows.length > 0 ? <div className="max-h-72 space-y-2 overflow-y-auto">{visibleRows.map((row) => (
-            <Button key={row.id} type="button" variant="outline" className="h-auto w-full justify-between p-3 text-left" onClick={() => { void linkDocument(row) }}>
+            <Button key={row.id} type="button" variant={activeRowId === row.id ? 'secondary' : 'outline'} aria-current={activeRowId === row.id ? 'true' : undefined} className="h-auto w-full justify-between p-3 text-left" onFocus={() => setActiveRowId(row.id)} onClick={() => { void linkDocument(row) }}>
               <span className="min-w-0"><span className="block truncate font-medium">{row.title}</span><span className="block truncate text-xs text-muted-foreground">{row.ownerLabel}</span></span><Link2 />
             </Button>
           ))}</div> : null}

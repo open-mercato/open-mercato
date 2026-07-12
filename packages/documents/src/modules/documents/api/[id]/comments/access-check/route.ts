@@ -53,11 +53,12 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
         documentId,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         userId,
+        ctx.container,
       )
       if (!tier) withoutAccess.push(userId)
     }
     const labels = await resolveUserLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       withoutAccess,
     )

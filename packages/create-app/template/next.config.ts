@@ -42,6 +42,7 @@ const nextConfig: NextConfig = {
     '@open-mercato/cli',
     'puppeteer-core',
     'html-to-docx',
+    'yjs',
   ],
   // Mirror server-only env vars that client components must observe. Keep this
   // list minimal — anything added here is inlined into the client bundle.

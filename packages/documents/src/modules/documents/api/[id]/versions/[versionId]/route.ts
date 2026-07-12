@@ -53,7 +53,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     if (!version) throw new CrudHttpError(404, { error: 'documents.versions.notFound' })
 
     const labels = await resolveUserLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       [version.createdByUserId],
     )

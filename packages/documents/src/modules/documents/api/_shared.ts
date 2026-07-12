@@ -14,7 +14,7 @@ import {
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   Document,
   DocumentContent,
@@ -32,10 +32,14 @@ import {
 } from '../lib/permissions'
 import { hasResolvedDocumentsOrganizationAccess } from '../lib/organizationAccess'
 import { containsCanonicalUuid } from '../lib/displayLabels'
+import { resolveOrganizationScopeService } from '../lib/platformServices'
+
+const logger = createLogger('documents').child({ component: 'api' })
 
 export type DocumentsAuthContext = NonNullable<AuthContext> & {
   features: string[]
   roleIds: string[]
+  resolvedRoleIds: string[]
   organizationId: string
 }
 
@@ -251,7 +255,11 @@ export async function resolveDocumentsContext(
     userId: authenticatedActorUserId,
     isSuperAdmin: actorAcl.isSuperAdmin === true,
   }
-  const scope = await resolveOrganizationScopeForRequest({ container, auth: scopeAuth, request })
+  const organizationScopeService = resolveOrganizationScopeService(container)
+  if (!organizationScopeService) {
+    throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+  }
+  const scope = await organizationScopeService.resolveForRequest({ auth: scopeAuth, request })
   const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = resolveSelectedOrganization(scopeAuth, scope)
   if (!tenantId) {
@@ -266,7 +274,7 @@ export async function resolveDocumentsContext(
     throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
   }
   const roleIds = await resolveActiveSubjectRoleIds(
-    em,
+    container,
     { tenantId, organizationId },
     auth.sub,
   )
@@ -276,6 +284,7 @@ export async function resolveDocumentsContext(
     orgId: organizationId,
     organizationId,
     roleIds,
+    resolvedRoleIds: roleIds,
     // JWT/trusted-request claims are only authentication hints. The current
     // RBAC projection is authoritative for features and superadmin status so
     // a revoked grant cannot survive in a long-lived token.
@@ -365,7 +374,7 @@ export async function handleDocumentsRouteError(error: unknown, label: string): 
       { status: 400 },
     )
   }
-  console.error(`[documents] ${label} failed`, error)
+  logger.error(`${label} failed`, { err: error })
   return NextResponse.json(
     await localizeRouteErrorBody({ error: 'api.errors.internal' }),
     { status: 500 },

@@ -1,8 +1,8 @@
-import type { FilterQuery } from '@mikro-orm/core'
-import type { EntityManager } from '@mikro-orm/postgresql'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { sanitizeDocumentsDisplayLabel } from './displayLabels'
+import {
+  resolveAuthPrincipalService,
+  type DocumentsServiceContainer,
+} from './platformServices'
 
 export type UserLabel = { label: string; secondary?: string | null }
 
@@ -11,7 +11,7 @@ function cleanString(value: unknown): string | null {
 }
 
 export async function resolveUserLabels(
-  em: EntityManager,
+  container: DocumentsServiceContainer | null | undefined,
   scope: { tenantId: string; organizationId: string },
   userIds: string[],
 ): Promise<Map<string, UserLabel>> {
@@ -21,19 +21,15 @@ export async function resolveUserLabels(
   const labels = new Map<string, UserLabel>()
   if (uniqueUserIds.length === 0) return labels
 
-  const users = await findWithDecryption(em, User, {
-    id: { $in: uniqueUserIds },
-    tenantId: scope.tenantId,
-    deletedAt: null,
-    $or: [{ organizationId: null }, { organizationId: scope.organizationId }],
-  } as FilterQuery<User>, {}, scope)
+  const service = resolveAuthPrincipalService(container)
+  if (!service) return labels
+  const users = await service.resolveLabels({ type: 'user', ids: uniqueUserIds, scope })
 
   for (const user of users) {
-    const name = cleanString(user.name)
-    const email = cleanString(user.email)
-    const label = name ?? email
+    const label = cleanString(user.label)
+    const secondary = cleanString(user.secondary)
     if (!label) continue
-    labels.set(user.id, { label, secondary: name && email && email !== name ? email : null })
+    labels.set(user.id, { label, secondary: secondary && secondary !== label ? secondary : null })
   }
 
   return labels

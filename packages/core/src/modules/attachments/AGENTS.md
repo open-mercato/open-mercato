@@ -34,6 +34,10 @@ write time.
 
 ## Always
 
+- Cross-module consumers MUST resolve the public `attachmentService` DI contract
+  and import its type from `@open-mercato/core/modules/attachments`. Keep
+  attachment entities, partitions, storage drivers, quota accounting, file
+  security, and `checkAttachmentAccess` behind that boundary.
 - **MUST call `assertAttachmentScopeInvariant({ tenantId, organizationId })` from
   `lib/access.ts` before persisting any new `Attachment` row.** It throws on a
   partial-null scope and accepts both fully-scoped and fully-global rows. The
@@ -46,6 +50,9 @@ write time.
 
 ## Never
 
+- Never make a peer module construct `StorageDriverFactory` or read Attachment /
+  AttachmentPartition entities directly as a fallback. Missing service wiring
+  must fail closed.
 - **Never create a partial-null attachment** (one scope column set, the other null).
 - **Never read or expose attachment rows without `checkAttachmentAccess`** — bypassing
   it reintroduces the cross-tenant fail-open class.

@@ -3,8 +3,6 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import { z } from 'zod'
 import {
   deriveDocumentCapabilities,
@@ -12,6 +10,7 @@ import {
 } from '../lib/capabilities'
 import { resolveSubjectAccess } from '../lib/permissions'
 import { hasResolvedDocumentsOrganizationAccess } from '../lib/organizationAccess'
+import { resolveOrganizationScopeService } from '../lib/platformServices'
 
 export type DocumentsCommandScope = {
   tenantId: string
@@ -134,9 +133,9 @@ export async function resolveDocumentsCommandFeatures(
     // Organization grants are hierarchical. Re-resolve the selected child
     // against the freshly loaded parent grants instead of comparing raw ids,
     // while replacing any stale token superadmin bit with the live ACL value.
-    const organizationScope = await resolveOrganizationScope({
-      em: resolveDocumentsCommandEntityManager(ctx),
-      rbac: rbacService as RbacService,
+    const organizationScopeService = resolveOrganizationScopeService(ctx.container)
+    if (!organizationScopeService) return []
+    const organizationScope = await organizationScopeService.resolve({
       auth: {
         ...(ctx.auth ?? {}),
         sub: aclSubject,
@@ -146,6 +145,7 @@ export async function resolveDocumentsCommandFeatures(
       } as NonNullable<AuthContext>,
       selectedId: scope.organizationId,
       tenantId: scope.tenantId,
+      freshAcl: true,
     })
     if (!hasResolvedDocumentsOrganizationAccess(acl, scope.organizationId, organizationScope)) {
       return []
@@ -186,6 +186,7 @@ export async function assertDocumentCommandCapability(
       subject: resolveDocumentsCommandAclSubject(ctx),
       userId: resolveDocumentsCommandActor(ctx),
     },
+    ctx.container,
   )
   const capabilities = deriveDocumentCapabilities({
     relationshipTier,

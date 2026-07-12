@@ -243,8 +243,8 @@ export async function resolveOrganizationScope({
   tenantId: tenantIdOverride,
 }: {
   em: EntityManager
-  rbac: RbacService
-  auth: AuthContext
+  rbac: Pick<RbacService, 'loadAcl'>
+  auth: AuthContext | null | undefined
   selectedId?: string | null
   tenantId?: string | null
 }): Promise<OrganizationScope> {

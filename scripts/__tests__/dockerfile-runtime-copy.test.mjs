@@ -58,6 +58,15 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
     )
   }
 
+  const documentsManifestCopies = dockerfile.match(
+    /(?:COPY|COPY --from=builder) (?:\/app\/)?packages\/documents\/package\.json \.\/packages\/documents\//g,
+  ) ?? []
+  assert.equal(
+    documentsManifestCopies.length,
+    3,
+    'Dockerfile should copy the Documents manifest in builder, dev, and runner stages',
+  )
+
   const manifestCopyIndex = dockerfile.indexOf('COPY packages/shared/package.json ./packages/shared/')
   const installIndex = dockerfile.indexOf('RUN yarn install --immutable')
   const sourceCopyIndex = dockerfile.indexOf('COPY packages/ ./packages/')
@@ -66,4 +75,11 @@ test('Dockerfile installs dependencies from workspace manifests before copying s
   assert.ok(installIndex > manifestCopyIndex, 'expected immutable install after manifest copies')
   assert.ok(sourceCopyIndex > installIndex, 'expected full source copy after immutable install')
   assert.doesNotMatch(dockerfile, /^RUN yarn install$/m)
+})
+
+test('production runtime image includes Chromium for Documents PDF export', async () => {
+  const dockerfile = await readFile(new URL('../../Dockerfile', import.meta.url), 'utf8')
+
+  assert.match(dockerfile, /PUPPETEER_EXECUTABLE_PATH=\/usr\/bin\/chromium/)
+  assert.match(dockerfile, /apk add --no-cache ca-certificates chromium openssl sudo/)
 })

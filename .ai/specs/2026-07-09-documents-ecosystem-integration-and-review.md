@@ -1,7 +1,7 @@
 # Documents ecosystem integration
 
 - **Date:** 2026-07-09
-- **Status:** M6 implemented and Documents-scoped verification complete; M7 reliability and fidelity follow-up specified
+- **Status:** M6-M7 implemented; review remediations and repository verification complete
 - **Package:** `@open-mercato/documents`
 - **Module id:** `documents`
 - **Baseline:** `2026-07-08-documents-collaborative-editor.md` (M1-M5)
@@ -139,7 +139,7 @@ Migrations must have a reversible down path for Documents-owned schema. No migra
 
 All routes are authenticated, tenant/organization scoped, feature checked, per-document capability checked where applicable, and use optimistic locking for mutations.
 
-## Compatibility
+## Migration & Backward Compatibility
 
 - Existing M1-M5 routes and response fields remain available.
 - Existing templates and comments remain readable.
@@ -149,6 +149,19 @@ All routes are authenticated, tenant/organization scoped, feature checked, per-d
 - Ownership remains a relationship; action features still gate edit/share/delete operations.
 - The links response extension is additive; existing fields, URLs, stored HTML, and Yjs schema remain unchanged.
 - Pagination is presentation-only and never enters Yjs state, versions, exports, comments, undo history, or event payloads.
+- The reviewed attachment remediation adds the `attachmentService` DI key and
+  public `AttachmentService` type additively. Existing attachment APIs, entity
+  shapes, driver registrations, routes, ACL IDs, and storage layouts are
+  unchanged; existing consumers may continue using their current contracts.
+- Documents resolves the new service fail-closed. No data migration or stored
+  attachment backfill is required.
+- The Auth, API Keys, and Directory modules expose additive, request-scoped DI
+  read services for principal and organization-scope resolution. Existing
+  entities, RBAC methods, routes, ACL identifiers, and authentication payloads
+  remain unchanged.
+- Trusted event emit options add optional tenant and organization fields. This
+  is source- and runtime-compatible with existing emitters; Documents requires
+  those fields only for its own projections.
 
 ## Security and privacy
 
@@ -259,11 +272,20 @@ Integration fixtures must be created by the tests and cleaned up afterward. The 
 - `.ai/specs/2026-07-08-documents-collaborative-editor.md`
 - `.ai/specs/2026-07-09-documents-ecosystem-integration-and-review.md`
 - `.ai/specs/analysis/ANALYSIS-2026-07-09-documents-ecosystem-integration-and-review.md`
+- `Dockerfile`
+- `docker-compose.fullapp*.yml`
+- `package.json`
 - `apps/mercato/next.config.ts`
 - `apps/mercato/package.json`
 - `apps/mercato/src/modules.ts`
 - `apps/mercato/types/html-to-docx/index.d.ts`
 - `packages/documents/**`
+- `packages/core/src/modules/attachments/{AGENTS.md,di.ts,index.ts,lib/attachment-service.ts}`
+- `packages/core/src/modules/attachments/lib/__tests__/attachment-service.test.ts`
+- `packages/core/src/modules/{auth,api_keys,directory}/{di.ts,services/**}`
+- `packages/core/src/modules/directory/utils/organizationScope.ts`
+- `packages/shared/src/lib/auth/principal-service.ts`
+- `packages/shared/src/modules/events/types.ts`
 - `packages/create-app/src/lib/apply-starter-preset.test.ts`
 - `packages/create-app/template/.env.example`
 - `packages/create-app/template/Dockerfile`
@@ -272,15 +294,18 @@ Integration fixtures must be created by the tests and cleaned up afterward. The 
 - `packages/create-app/template/package.json.template`
 - `packages/create-app/template/src/modules.ts`
 - `packages/create-app/template/types/html-to-docx/index.d.ts`
+- `scripts/__tests__/{dockerfile-runtime-copy,fullapp-compose-app-allowed-origins}.test.mjs`
 - `yarn.lock` (required workspace and direct/transitive dependency resolution for the new package)
 
-Any Core, Shared, Events, Search, AI Assistant, storage provider, apps/docs, or generic app API change requires a separate spec and PR and is not part of this milestone.
+Any further Core, Shared, Events, Search, AI Assistant, storage provider, apps/docs, or generic app API change requires an explicit reviewed seam. The user approved the narrowly scoped Auth, Directory, and Attachments public contracts on 2026-07-12; this spec records their additive compatibility requirements.
 
-## Known architecture blocker
+## Resolved architecture blocker
 
-The cleaned diff no longer changes another module, but Documents still imports Core module internals for principal entities, RBAC/organization resolution, attachment storage, and API-key authorization. The Notifications dependency now uses its existing DI service. Some of the remaining coupling predates this milestone and M6 adds more command/collaboration consumers. It compiles against the unchanged platform, but it conflicts with `ARCHITECTURE.md` §4 (modules must not import another module's code).
-
-Do not hide this by restoring the discarded Core-wide remediation. Before the feature PR, replace the imports with existing public HTTP/DI contracts where practical. Any missing reusable principal/authorization boundary must be designed and reviewed as a small separate platform seam rather than folded into Documents through another broad refactor.
+The user approved narrow public platform seams on 2026-07-12. Auth, API Keys,
+Directory, and Attachments now own request-scoped DI services whose contracts
+live in Shared or are consumed structurally. Documents no longer imports peer
+module implementation code, and all missing-service paths fail closed. The
+Notifications dependency continues to use its existing DI service.
 
 ## Verification status
 
@@ -291,11 +316,14 @@ Do not hide this by restoring the discarded Core-wide remediation. Before the fe
 - [x] Create-app Documents template wiring test passes (12 tests).
 - [x] Documents integration/preview scenarios pass (22/22, one worker, zero retries, live v2 sidecar).
 - [x] Final diff contains only the expected manifest.
-- [ ] Direct Core-module imports are removed or covered by an explicitly approved public platform seam.
+- [x] Direct Core-module imports are removed and replaced by explicitly approved public platform seams.
 - [x] M7 causes reproduced in a running preview (60-second realtime rollover and rendered PDF fidelity).
 - [x] M7 architecture fused from independent plans without adding a dependency, schema change, or cross-module import.
 - [x] Cross-model gate explicitly waived by the user because Kimi is unavailable; Codex implementation and fresh Codex review remain required.
 - [x] M7 implementation and focused verification pass.
+- [x] Review remediation passes generation, package builds, repository tests,
+  package/app typechecks, app production build, i18n sync, Documents-related create-app parity,
+  deployment tests, and diff whitespace validation.
 
 ## Changelog
 
@@ -307,3 +335,9 @@ Do not hide this by restoring the discarded Core-wide remediation. Before the fe
 - **2026-07-12:** User explicitly waived the unavailable Kimi gate and added hover/focus identity for dormant collaborator carets to the M7 acceptance criteria.
 - **2026-07-12:** Completed M7 with immediate logical-close transport renewal, staged realtime status, hover/focus collaborator identity, non-persistent A4 page decorations, styled inert PDF HTML, and verified record-field snapshots. Documents typecheck, 101 suites/629 tests, package/sidecar builds, create-app wiring, a 1.3-minute TC-DOCUMENTS-017 browser run, and manual preview/PDF inspection passed.
 - **2026-07-12:** Removed Documents' direct Notifications implementation import in favor of the existing `notificationService` DI contract. The remaining Auth/Directory/Attachments imports still require reviewed platform seams; existing attachment upload cannot be safely proxied because it has broader authorization and different selected-organization/atomicity semantics.
+- **2026-07-12:** Completed the approved review remediation: introduced narrow
+  principal, organization-scope, and scoped-attachment DI services; serialized
+  tenant attachment quota reservation; enforced attachment ownership and
+  assignment checks; added trusted event scope; hardened production sidecar,
+  origin, Chromium, and manifest wiring; synchronized the create-app template;
+  and completed the Documents UI accessibility/error-state fixes.

@@ -73,11 +73,12 @@ ARG OPEN_MERCATO_DOCKER_REGISTRY_HOST=host.docker.internal
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PATH=/app/node_modules/.bin:$PATH \
-    PORT=${CONTAINER_PORT}
+    PORT=${CONTAINER_PORT} \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates openssl
+RUN apk add --no-cache ca-certificates chromium openssl
 RUN corepack enable
 
 COPY package.json yarn.lock .yarnrc.yml ./

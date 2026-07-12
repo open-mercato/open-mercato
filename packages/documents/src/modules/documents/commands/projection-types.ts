@@ -13,6 +13,8 @@ export type DocumentsProjectionDescriptor =
   | {
       kind: 'event'
       eventId: DocumentsProjectedEventId
+      tenantId: string
+      organizationId: string
       payload: EventPayload
     }
   | {

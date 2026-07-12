@@ -4,6 +4,7 @@ import type {
   CommandInterceptorUndoContext,
 } from '@open-mercato/shared/lib/commands/command-interceptor'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { emitDocumentsEvent } from '../events'
 import type {
@@ -11,6 +12,8 @@ import type {
   DocumentsProjectionDescriptor,
   DocumentsProjectionUndoPayload,
 } from './projection-types'
+
+const logger = createLogger('documents').child({ component: 'command-projections' })
 
 const PROJECTED_COMMAND_IDS = [
   'documents.content.replace',
@@ -63,12 +66,15 @@ async function emitProjectedEvent(
       : {}),
   }
   try {
-    await emitDocumentsEvent(descriptor.eventId, payload)
+    await emitDocumentsEvent(descriptor.eventId, payload, {
+      tenantId: descriptor.tenantId,
+      organizationId: descriptor.organizationId,
+    })
   } catch (error) {
-    console.error('[documents] command event projection failed', {
+    logger.error('Command event projection failed', {
       commandId: context.commandId,
       eventId: descriptor.eventId,
-      error,
+      err: error,
     })
   }
 }
@@ -101,11 +107,11 @@ async function emitMentionProjection(
       },
     )
   } catch (error) {
-    console.error('[documents] mention notification projection failed', {
+    logger.error('Mention notification projection failed', {
       commandId: context.commandId,
       commentId: descriptor.commentId,
       recipientUserId: descriptor.recipientUserId,
-      error,
+      err: error,
     })
   }
 }
@@ -130,10 +136,10 @@ async function emitDocumentIndexProjection(
       organizationId: descriptor.organizationId,
     })
   } catch (error) {
-    console.error('[documents] document index projection failed', {
+    logger.error('Document index projection failed', {
       commandId: context.commandId,
       documentId: descriptor.documentId,
-      error,
+      err: error,
     })
   }
 }
@@ -153,10 +159,10 @@ async function deleteMentionNotificationProjection(
       },
     )
   } catch (error) {
-    console.error('[documents] mention notification cleanup projection failed', {
+    logger.error('Mention notification cleanup projection failed', {
       commandId: context.commandId,
       commentId: descriptor.commentId,
-      error,
+      err: error,
     })
   }
 }

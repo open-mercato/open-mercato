@@ -7,6 +7,21 @@ describe('documents module dependencies', () => {
     expect(metadata.requires).toEqual(['attachments'])
   })
 
+  it('uses the public Attachments service boundary for document file routes', () => {
+    const moduleRoot = join(__dirname, '..')
+    const uploadRoute = readFileSync(join(moduleRoot, 'api', '[id]', 'attachments', 'route.ts'), 'utf8')
+    const readRoute = readFileSync(
+      join(moduleRoot, 'api', '[id]', 'attachments', '[attachmentId]', 'route.ts'),
+      'utf8',
+    )
+    const routes = `${uploadRoute}\n${readRoute}`
+
+    expect(routes).toContain('resolveAttachmentServicePort')
+    expect(routes).not.toContain('@open-mercato/core/modules/attachments')
+    expect(routes).not.toMatch(/@open-mercato\/core\/modules\/attachments\/(data|lib)\//)
+    expect(routes).not.toContain('new StorageDriverFactory')
+  })
+
   it('publishes a compiled collaboration sidecar contract for production workloads', () => {
     const packageRoot = join(__dirname, '..', '..', '..', '..')
     const packageJson = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as {

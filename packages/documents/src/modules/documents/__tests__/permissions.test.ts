@@ -1,7 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import {
   Document,
   DocumentShare,
@@ -137,13 +135,6 @@ class MockEntityManager {
 
   async findOne(entity: unknown, where: unknown): Promise<unknown> {
     const query = readQuery(where)
-    if (entity === ApiKey) {
-      return this.apiKeys.find((key) => (
-        query.id === key.id
-        && query.tenantId === key.tenantId
-        && (query.deletedAt !== null || key.deletedAt === null)
-      )) ?? null
-    }
     if (entity !== Document || !this.document) return null
     if (query.id !== this.document.id) return null
     if (query.tenantId !== this.document.tenantId) return null
@@ -154,25 +145,6 @@ class MockEntityManager {
 
   async find(entity: unknown, where: unknown): Promise<unknown[]> {
     const query = readQuery(where)
-    if (entity === UserRole) {
-      const roleQuery = readQuery(query.role)
-      return this.userRoles.filter((row) => {
-        if (query.user !== row.user) return false
-        if (query.deletedAt === null && row.deletedAt !== null) return false
-        if (roleQuery.tenantId !== row.role.tenantId) return false
-        if (roleQuery.deletedAt === null && row.role.deletedAt !== null) return false
-        return true
-      })
-    }
-    if (entity === Role) {
-      const idQuery = readQuery(query.id)
-      const ids = stringArray(idQuery.$in)
-      return this.roles.filter((role) => (
-        ids.includes(role.id)
-        && query.tenantId === role.tenantId
-        && (query.deletedAt !== null || role.deletedAt === null)
-      ))
-    }
     if (entity !== DocumentShare) return []
     const principalFilters = Array.isArray(query.$or)
       ? query.$or.map((filter) => readQuery(filter) as PrincipalFilter)
@@ -185,6 +157,50 @@ class MockEntityManager {
       if (query.deletedAt === null && share.deletedAt !== null) return false
       return principalFilters.some((filter) => principalMatches(share, filter))
     })
+  }
+}
+
+function mockServiceContainer(input: {
+  userRoles?: MockUserRoleRow[]
+  apiKeys?: MockApiKeyRow[]
+  roles?: MockRoleRow[]
+  missingAuth?: boolean
+  missingApiKeys?: boolean
+} = {}) {
+  const userRoles = input.userRoles ?? []
+  const apiKeys = input.apiKeys ?? []
+  const roles = input.roles ?? []
+  const authPrincipalService = {
+    principalExists: jest.fn(async () => false),
+    resolveLabels: jest.fn(async () => []),
+    listSuperAdminUserIds: jest.fn(async () => []),
+    resolveActiveUserRoleIds: jest.fn(async (userId: string, scope: { tenantId: string }) =>
+      userRoles.filter((row) => row.user === userId
+        && row.deletedAt === null
+        && row.role.tenantId === scope.tenantId
+        && row.role.deletedAt === null)
+        .map((row) => row.role.id)),
+    filterActiveRoleIds: jest.fn(async (ids: string[], scope: { tenantId: string }) =>
+      roles.filter((role) => ids.includes(role.id)
+        && role.tenantId === scope.tenantId
+        && role.deletedAt === null)
+        .map((role) => role.id)),
+  }
+  const apiKeyPrincipalService = {
+    resolveAssignedRoleIds: jest.fn(async (apiKeyId: string, scope: { tenantId: string }) => {
+      const key = apiKeys.find((candidate) => candidate.id === apiKeyId
+        && candidate.tenantId === scope.tenantId
+        && candidate.deletedAt === null)
+      if (!key || (key.expiresAt && key.expiresAt.getTime() <= Date.now())) return []
+      return key.rolesJson
+    }),
+  }
+  return {
+    resolve(name: string) {
+      if (name === 'authPrincipalService' && !input.missingAuth) return authPrincipalService
+      if (name === 'apiKeyPrincipalService' && !input.missingApiKeys) return apiKeyPrincipalService
+      throw new Error('missing')
+    },
   }
 }
 
@@ -252,7 +268,7 @@ describe('documents permission tiers', () => {
         }],
       ),
       DOCUMENT_ID,
-      makeCtx({ roleIds: [], roles: [] }),
+      makeCtx({ roleIds: [], roles: [], resolvedRoleIds: [ROLE_ID] } as Partial<NonNullable<AuthContext>>),
     )
     expect(result).toBe('commenter')
   })
@@ -273,7 +289,7 @@ describe('documents permission tiers', () => {
         }],
       ),
       DOCUMENT_ID,
-      makeCtx({ roleIds: [ROLE_ID] }),
+      makeCtx({ roleIds: [ROLE_ID], resolvedRoleIds: [ROLE_ID] } as Partial<NonNullable<AuthContext>>),
     )
     expect(result).toBe('editor')
   })
@@ -306,6 +322,11 @@ describe('documents permission tiers', () => {
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       USER_ID,
+      mockServiceContainer({ userRoles: [{
+        user: USER_ID,
+        role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: null },
+        deletedAt: null,
+      }] }),
     )
     expect(result).toBe('editor')
   })
@@ -331,6 +352,10 @@ describe('documents permission tiers', () => {
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       USER_ID,
+      mockServiceContainer({ userRoles: [
+        { user: USER_ID, role: { id: ROLE_ID, tenantId: TENANT_ID, deletedAt: new Date() }, deletedAt: null },
+        { user: USER_ID, role: { id: ROLE_ID, tenantId: 'tenant-2', deletedAt: null }, deletedAt: null },
+      ] }),
     )
 
     expect(result).toBeNull()
@@ -352,19 +377,19 @@ describe('documents permission tiers', () => {
     ]
 
     await expect(resolveActiveSubjectRoleIds(
-      mockEm(null, [], [], [activeKey], roles),
+      mockServiceContainer({ apiKeys: [activeKey], roles }),
       scope,
       `api_key:${API_KEY_ID}`,
     )).resolves.toEqual([KEY_ROLE_ID])
 
     await expect(resolveActiveSubjectRoleIds(
-      mockEm(null, [], [], [{ ...activeKey, deletedAt: new Date() }], roles),
+      mockServiceContainer({ apiKeys: [{ ...activeKey, deletedAt: new Date() }], roles }),
       scope,
       `api_key:${API_KEY_ID}`,
     )).resolves.toEqual([])
 
     await expect(resolveActiveSubjectRoleIds(
-      mockEm(null, [], [], [{ ...activeKey, expiresAt: new Date(Date.now() - 1) }], roles),
+      mockServiceContainer({ apiKeys: [{ ...activeKey, expiresAt: new Date(Date.now() - 1) }], roles }),
       scope,
       `api_key:${API_KEY_ID}`,
     )).resolves.toEqual([])
@@ -401,6 +426,7 @@ describe('documents permission tiers', () => {
         // Even stale claims cannot reintroduce the backing user's role.
         roleIds: [ROLE_ID],
         roles: [ROLE_ID],
+        resolvedRoleIds: [KEY_ROLE_ID],
       }),
     )
 
@@ -415,6 +441,14 @@ describe('documents permission tiers', () => {
       USER_ID,
     )
     expect(result).toBeNull()
+  })
+
+  it('fails closed for role shares when a principal provider is missing', async () => {
+    await expect(resolveActiveSubjectRoleIds(
+      mockServiceContainer({ missingAuth: true }),
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      `api_key:${API_KEY_ID}`,
+    )).resolves.toEqual([])
   })
 
   it('ignores a soft-deleted share', async () => {

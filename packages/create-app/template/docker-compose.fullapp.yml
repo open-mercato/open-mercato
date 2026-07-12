@@ -40,7 +40,7 @@ services:
       PORT: ${CONTAINER_PORT:-3000}
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
       # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
       NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL to the browser-reachable ws(s) endpoint before a production build}
@@ -99,10 +99,11 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: ${APP_URL:-http://localhost:3000}
-      NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
+      NEXT_PUBLIC_APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
       DOCUMENTS_COLLAB_PORT: ${DOCUMENTS_COLLAB_PORT:-4101}
-      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: ${DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-http://localhost:3000}
+      DOCUMENTS_COLLAB_REDIS_URL: redis://redis:6379
+      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: ${DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-${APP_URL}}
       DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:?Set DOCUMENTS_COLLAB_JWT_SECRET_V2 to a unique high-entropy shared secret}
       DOCUMENTS_COLLAB_JWT_SECRET: ${DOCUMENTS_COLLAB_JWT_SECRET:-}
       DOCUMENTS_COLLAB_APP_ROOT: /app

@@ -63,7 +63,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const userId = resolveActorUserId(ctx.auth)
     const [userLabels, translations] = await Promise.all([
       resolveUserLabels(
-        ctx.em,
+        ctx.container,
         { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
         [userId],
       ),

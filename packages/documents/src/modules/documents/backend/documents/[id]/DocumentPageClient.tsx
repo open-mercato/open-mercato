@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation'
 import { History, Trash2 } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
-import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
@@ -131,11 +131,18 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
   }, [confirm, documentId, mutationContextId, retryLastMutation, router, runMutation, state, t])
 
   if (state.status !== 'ready') {
-    const label = state.status === 'loading'
-      ? t('documents.editor.loading')
-      : state.status === 'notFound'
-        ? t('documents.editor.notFound')
-        : state.message
+    if (state.status === 'notFound') {
+      return (
+        <Page><PageBody>
+          <RecordNotFoundState
+            label={t('documents.editor.notFound')}
+            backHref="/backend/documents"
+            backLabel={t('documents.actions.backToList')}
+          />
+        </PageBody></Page>
+      )
+    }
+    const label = state.status === 'loading' ? t('documents.editor.loading') : state.message
     return (
       <Page><PageBody>
         {state.status === 'loading' ? <LoadingMessage label={label} /> : (

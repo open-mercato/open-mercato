@@ -4,12 +4,13 @@ import * as React from 'react'
 import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
+const apiCallOrThrowMock = jest.fn()
 const runMutationMock = jest.fn()
 const mockTranslate = (key: string) => key
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
-  apiCallOrThrow: jest.fn(),
+  apiCallOrThrow: (...args: unknown[]) => apiCallOrThrowMock(...args),
 }))
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
@@ -25,7 +26,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 jest.mock('@open-mercato/ui/primitives/dialog', () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogContent: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  DialogContent: ({ children, onKeyDown }: { children: React.ReactNode; onKeyDown?: React.KeyboardEventHandler<HTMLDivElement> }) => <div data-testid="dialog-content" onKeyDown={onKeyDown}>{children}</div>,
   DialogDescription: ({ children }: { children: React.ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -72,6 +73,7 @@ describe('LinkDocumentDialog search freshness', () => {
   beforeEach(() => {
     jest.useFakeTimers()
     apiCallMock.mockReset()
+    apiCallOrThrowMock.mockReset()
     runMutationMock.mockReset()
   })
 
@@ -131,6 +133,29 @@ describe('LinkDocumentDialog search freshness', () => {
     expect(screen.queryByText('Context document')).toBeNull()
     fireEvent.click(oldRow)
     expect(runMutationMock).not.toHaveBeenCalled()
+  })
+
+  it('supports Escape and Cmd/Ctrl+Enter for dialog actions', async () => {
+    const onOpenChange = jest.fn()
+    const onLinked = jest.fn()
+    apiCallMock.mockResolvedValue(documentResult('Keyboard document'))
+    apiCallOrThrowMock.mockResolvedValue({ ok: true, result: { id: 'link-id' } })
+    runMutationMock.mockImplementation(async ({ operation }: { operation: () => Promise<unknown> }) => operation())
+
+    render(<LinkDocumentDialog open target={TARGET} onOpenChange={onOpenChange} onLinked={onLinked} />)
+    fireEvent.change(screen.getByLabelText('documents.relatedDocuments.linkDialog.searchLabel'), { target: { value: 'keyboard' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+
+    fireEvent.keyDown(screen.getByTestId('dialog-content'), { key: 'Enter', metaKey: true })
+    await act(async () => { await flushPromises() })
+    expect(runMutationMock).toHaveBeenCalledTimes(1)
+    expect(onLinked).toHaveBeenCalledTimes(1)
+
+    fireEvent.keyDown(screen.getByTestId('dialog-content'), { key: 'Escape' })
+    expect(onOpenChange).toHaveBeenCalledWith(false)
   })
 
   it('clears the previous host results synchronously and aborts its in-flight reload', async () => {

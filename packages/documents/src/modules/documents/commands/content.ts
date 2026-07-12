@@ -8,7 +8,7 @@ import {
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import {
-  enforceCommandOptimisticLock,
+  enforceCommandOptimisticLockWithGuards,
   enforceRecordGoneIsConflict,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -157,6 +157,8 @@ function contentProjections(
     {
       kind: 'event',
       eventId: 'documents.document.updated',
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
       payload: {
         id: input.documentId,
         documentId: input.documentId,
@@ -207,7 +209,7 @@ const replaceDocumentContentCommand: CommandHandler<
             ...(input.expectedUpdatedAt ? { envValue: 'all' } : {}),
           })
         } else {
-          enforceCommandOptimisticLock({
+          await enforceCommandOptimisticLockWithGuards(ctx.container, {
             resourceKind: DOCUMENTS_ENTITY_IDS.documentContent,
             resourceId: current.id,
             current: current.updatedAt,

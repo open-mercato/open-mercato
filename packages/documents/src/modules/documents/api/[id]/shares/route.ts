@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
-import type { FilterQuery } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Role } from '@open-mercato/core/modules/auth/data/entities'
 import { DocumentShare } from '../../../data/entities'
 import { documentShareCreateSchema, documentShareUpdateSchema } from '../../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { sanitizeDocumentsDisplayLabel } from '../../../lib/displayLabels'
 import { resolveUserLabels } from '../../../lib/userLabels'
+import { resolveAuthPrincipalService } from '../../../lib/platformServices'
 import type {
   ShareCreateCommandInput,
   ShareDeleteCommandInput,
@@ -100,7 +99,7 @@ function cleanString(value: unknown): string | null {
 }
 
 async function resolvePrincipalLabels(
-  em: EntityManager,
+  container: Awaited<ReturnType<typeof resolveDocumentsContext>>['container'],
   scope: { tenantId: string; organizationId: string },
   shares: DocumentShare[],
 ): Promise<Map<string, PrincipalLabel>> {
@@ -109,26 +108,18 @@ async function resolvePrincipalLabels(
   const roleIds = [...new Set(shares.filter((s) => s.principalType === 'role').map((s) => s.principalId))]
 
   if (userIds.length > 0) {
-    const userLabels = await resolveUserLabels(em, scope, userIds)
+    const userLabels = await resolveUserLabels(container, scope, userIds)
     for (const [userId, label] of userLabels.entries()) {
       labels.set(userId, label)
     }
   }
 
   if (roleIds.length > 0) {
-    const roles = await findWithDecryption(
-      em,
-      Role,
-      {
-        id: { $in: roleIds },
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      } as FilterQuery<Role>,
-      undefined,
-      scope,
-    )
+    const roles = await resolveAuthPrincipalService(container)?.resolveLabels({
+      type: 'role', ids: roleIds, scope,
+    }) ?? []
     for (const role of roles) {
-      const name = cleanString(role.name)
+      const name = cleanString(role.label)
       if (name) labels.set(role.id, { label: name, secondary: null })
     }
   }
@@ -154,7 +145,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
     const labels = await resolvePrincipalLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       shares,
     )
@@ -235,7 +226,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     await assertCanShare(ctx, documentId)
     const input = documentShareUpdateSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
       resourceId: share.id,
       current: share.updatedAt,
@@ -283,7 +274,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     await assertCanShare(ctx, documentId)
     const input = shareDeleteSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentShare,
       resourceId: share.id,
       current: share.updatedAt,

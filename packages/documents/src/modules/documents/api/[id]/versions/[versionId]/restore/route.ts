@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentVersion } from '../../../../../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from '../../../../../lib/constants'
@@ -83,7 +83,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       organizationId: ctx.organizationId,
     })
     if (!currentContent) throw new CrudHttpError(404, { error: 'documents.content.notFound' })
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentContent,
       resourceId: currentContent.id,
       current: currentContent.updatedAt,

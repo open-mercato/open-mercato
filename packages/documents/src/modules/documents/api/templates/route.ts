@@ -4,8 +4,9 @@ import { randomUUID } from 'node:crypto'
 import type { FilterQuery } from '@mikro-orm/core'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
 import { DocumentTemplate } from '../../data/entities'
 import {
   documentTemplateContextSlotSchema,
@@ -146,8 +147,8 @@ export async function GET(request: Request): Promise<Response> {
       deletedAt: null,
       ...(query.search ? {
         $or: [
-          { name: { $ilike: `%${query.search}%` } },
-          { description: { $ilike: `%${query.search}%` } },
+          { name: { $ilike: `%${escapeLikePattern(query.search)}%` } },
+          { description: { $ilike: `%${escapeLikePattern(query.search)}%` } },
         ],
       } : {}),
       ...(query.isActive !== undefined ? { isActive: query.isActive } : {}),
@@ -225,7 +226,7 @@ export async function PUT(request: Request): Promise<Response> {
     const ctx = await resolveDocumentsContext(request, ['documents.templates.manage'])
     const input = documentTemplateUpdateSchema.parse(await readBody(request))
     const template = await loadScopedTemplate(ctx, input.id)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: template.id,
       current: template.updatedAt,
@@ -270,7 +271,7 @@ export async function DELETE(request: Request): Promise<Response> {
     const ctx = await resolveDocumentsContext(request, ['documents.templates.manage'])
     const input = templateDeleteSchema.parse(await readBody(request))
     const template = await loadScopedTemplate(ctx, input.id)
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: template.id,
       current: template.updatedAt,

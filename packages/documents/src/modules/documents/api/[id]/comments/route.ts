@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { randomUUID } from 'node:crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentComment } from '../../../data/entities'
 import { documentCommentCreateSchema } from '../../../data/validators'
@@ -268,7 +268,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const items = paginateNewestThreadRoots(roots, query.page, query.pageSize)
     const visibleCommentIds = collectSerializedCommentIds(items)
     const userLabels = await resolveUserLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       collectCommentLabelUserIds(comments.filter((comment) => visibleCommentIds.has(comment.id))),
     )
@@ -345,7 +345,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     if (!hasTier(tier, 'commenter') && comment.authorUserId !== userId) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
-    enforceCommandOptimisticLock({
+    await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentComment,
       resourceId: comment.id,
       current: comment.updatedAt,

@@ -5,8 +5,20 @@ import type { Editor } from '@tiptap/core'
 
 describe('document export download', () => {
   const originalFetch = global.fetch
+  const originalResponse = globalThis.Response
   const originalCreateObjectUrl = URL.createObjectURL
   const originalRevokeObjectUrl = URL.revokeObjectURL
+
+  beforeAll(() => {
+    if (typeof globalThis.Response === 'undefined') {
+      Object.defineProperty(globalThis, 'Response', { configurable: true, value: class Response {} })
+    }
+  })
+
+  afterAll(() => {
+    if (originalResponse) Object.defineProperty(globalThis, 'Response', { configurable: true, value: originalResponse })
+    else Reflect.deleteProperty(globalThis, 'Response')
+  })
 
   afterEach(() => {
     global.fetch = originalFetch
@@ -14,6 +26,23 @@ describe('document export download', () => {
     URL.revokeObjectURL = originalRevokeObjectUrl
     jest.restoreAllMocks()
   })
+
+  function mockResponse(options: {
+    status: number
+    headers: Record<string, string>
+    blob?: Blob
+    body?: string
+  }): Response {
+    const response = {
+      ok: options.status >= 200 && options.status < 300,
+      status: options.status,
+      headers: new Headers(options.headers),
+      blob: async () => options.blob ?? new Blob(),
+      text: async () => options.body ?? '',
+      clone: () => response,
+    }
+    return response as unknown as Response
+  }
 
   it('captures presentation page breaks without collaboration decorations', () => {
     const root = document.createElement('div')
@@ -29,14 +58,13 @@ describe('document export download', () => {
 
   it('downloads a verified DOCX response with the server filename', async () => {
     const blob = new Blob([new Uint8Array([0x50, 0x4b, 0x03, 0x04])])
-    global.fetch = jest.fn(async () => ({
-      ok: true,
+    global.fetch = jest.fn(async () => mockResponse({
       status: 200,
-      headers: new Headers({
+      headers: {
         'content-type': 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
         'content-disposition': 'attachment; filename="Quarterly plan.docx"',
-      }),
-      blob: async () => blob,
+      },
+      blob,
     })) as typeof fetch
     URL.createObjectURL = jest.fn(() => 'blob:document-export')
     URL.revokeObjectURL = jest.fn()
@@ -54,11 +82,10 @@ describe('document export download', () => {
   })
 
   it('surfaces a JSON export failure instead of downloading it', async () => {
-    global.fetch = jest.fn(async () => ({
-      ok: false,
+    global.fetch = jest.fn(async () => mockResponse({
       status: 503,
-      headers: new Headers({ 'content-type': 'application/json' }),
-      json: async () => ({ message: 'The export service is temporarily unavailable.' }),
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ message: 'The export service is temporarily unavailable.' }),
     })) as typeof fetch
     URL.createObjectURL = jest.fn(() => 'blob:should-not-exist')
     const click = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)

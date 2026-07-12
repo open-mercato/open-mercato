@@ -1,7 +1,10 @@
 FROM node:24-alpine AS builder
 
+ARG NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
+
 ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1
+    NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL}
 
 WORKDIR /app
 
@@ -25,6 +28,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -95,6 +99,7 @@ COPY packages/cli/package.json ./packages/cli/
 COPY packages/content/package.json ./packages/content/
 COPY packages/core/package.json ./packages/core/
 COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/documents/package.json ./packages/documents/
 COPY packages/enterprise/package.json ./packages/enterprise/
 COPY packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY packages/events/package.json ./packages/events/
@@ -178,13 +183,14 @@ ARG CONTAINER_PORT=3000
 
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
-    PORT=${CONTAINER_PORT}
+    PORT=${CONTAINER_PORT} \
+    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 WORKDIR /app
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup
-RUN apk add --no-cache ca-certificates openssl sudo
+RUN apk add --no-cache ca-certificates chromium openssl sudo
 
 # Enable Corepack for Yarn
 RUN corepack enable
@@ -203,6 +209,7 @@ COPY --from=builder /app/packages/cli/package.json ./packages/cli/
 COPY --from=builder /app/packages/content/package.json ./packages/content/
 COPY --from=builder /app/packages/core/package.json ./packages/core/
 COPY --from=builder /app/packages/create-app/package.json ./packages/create-app/
+COPY --from=builder /app/packages/documents/package.json ./packages/documents/
 COPY --from=builder /app/packages/enterprise/package.json ./packages/enterprise/
 COPY --from=builder /app/packages/eslint-plugin-ds/package.json ./packages/eslint-plugin-ds/
 COPY --from=builder /app/packages/events/package.json ./packages/events/

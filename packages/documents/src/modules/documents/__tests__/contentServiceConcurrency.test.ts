@@ -1,5 +1,20 @@
 import { LockMode } from '@mikro-orm/core'
 import { DocumentContent } from '../data/entities'
+
+const mockLoggerError = jest.fn()
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: () => {
+    const logger = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: (...args: unknown[]) => mockLoggerError(...args),
+      child: () => logger,
+    }
+    return logger
+  },
+}))
 import {
   loadDocumentContentForCollaboration,
   persistDocumentContent,
@@ -202,39 +217,33 @@ describe('document content persistence concurrency', () => {
     const { em } = makeEntityManager(content)
     const indexingError = new Error('search unavailable')
     const searchIndexer = { indexRecordById: jest.fn(async () => { throw indexingError }) }
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+    await expect(persistDocumentContent(
+      em as never,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      { contentHtml: '<p>Committed</p>', contentText: 'Committed', yjsState: Buffer.from([3]) },
+      {
+        searchIndexer,
+        expectedUpdatedAt: CURRENT_VERSION,
+        expectedCollaborationGeneration: 1,
+        requireExpectedVersion: true,
+      },
+    )).resolves.toEqual({
+      id: CONTENT_ID,
+      updatedAt: expect.any(Date),
+      collaborationGeneration: 1,
+    })
 
-    try {
-      await expect(persistDocumentContent(
-        em as never,
-        DOCUMENT_ID,
-        { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
-        { contentHtml: '<p>Committed</p>', contentText: 'Committed', yjsState: Buffer.from([3]) },
-        {
-          searchIndexer,
-          expectedUpdatedAt: CURRENT_VERSION,
-          expectedCollaborationGeneration: 1,
-          requireExpectedVersion: true,
-        },
-      )).resolves.toEqual({
-        id: CONTENT_ID,
-        updatedAt: expect.any(Date),
-        collaborationGeneration: 1,
-      })
-
-      expect(content.contentHtml).toBe('<p>Committed</p>')
-      expect(searchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
-      expect(errorSpy).toHaveBeenCalledWith(
-        '[documents] content search indexing failed after commit',
-        expect.objectContaining({
-          documentId: DOCUMENT_ID,
-          tenantId: TENANT_ID,
-          organizationId: ORGANIZATION_ID,
-          error: indexingError,
-        }),
-      )
-    } finally {
-      errorSpy.mockRestore()
-    }
+    expect(content.contentHtml).toBe('<p>Committed</p>')
+    expect(searchIndexer.indexRecordById).toHaveBeenCalledTimes(1)
+    expect(mockLoggerError).toHaveBeenCalledWith(
+      'Content search indexing failed after commit',
+      expect.objectContaining({
+        documentId: DOCUMENT_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        err: indexingError,
+      }),
+    )
   })
 })

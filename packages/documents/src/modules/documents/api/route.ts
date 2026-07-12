@@ -192,7 +192,7 @@ export async function GET(request: Request): Promise<Response> {
       .map((id) => hydratedById.get(id) ?? null)
       .filter((item): item is Record<string, unknown> => item !== null)
     const ownerLabels = await resolveUserLabels(
-      ctx.em,
+      ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       pageDocuments
         .map((document) => readString(document, 'ownerUserId', 'owner_user_id'))

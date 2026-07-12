@@ -9,12 +9,14 @@ import {
   isRbacDefaultCacheEnabled,
   resetRbacFallbackCache,
 } from '@open-mercato/core/modules/auth/services/rbacDefaultCache'
+import { DefaultAuthPrincipalService } from './services/principalService'
 
 export { resetRbacFallbackCache }
 
 export function register(container: AppContainer) {
   // Register or override core auth service
   container.register({ authService: asClass(AuthService).scoped() })
+  container.register({ authPrincipalService: asClass(DefaultAuthPrincipalService).scoped() })
   // RBAC service. The bare `asClass(...).scoped()` registration matches
   // develop and is the default. Setting `OM_RBAC_DEFAULT_CACHE=on` opts
   // into the in-process LRU fallback for deployments that don't wire a

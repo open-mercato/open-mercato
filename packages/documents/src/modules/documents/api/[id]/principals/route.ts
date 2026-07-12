@@ -12,13 +12,12 @@ import {
 } from '@open-mercato/shared/lib/query/types'
 import { sortRowsInMemory } from '@open-mercato/shared/lib/query/encrypted-sort'
 import { resolveSearchMinTokenLength } from '@open-mercato/shared/lib/search/config'
-import { listSuperAdminUserIds } from '@open-mercato/core/modules/auth/lib/grantChecks'
-import { resolveIsSuperAdmin } from '@open-mercato/core/modules/auth/lib/tenantAccess'
 import {
   firstSafeDocumentsDisplayLabel,
   sanitizeDocumentsDisplayLabel,
 } from '../../../lib/displayLabels'
 import { resolveUserLabels } from '../../../lib/userLabels'
+import { resolveAuthPrincipalService } from '../../../lib/platformServices'
 import {
   handleDocumentsRouteError,
   resolveDocumentCapabilityProjection,
@@ -254,9 +253,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       : projection.capabilities.canShare
     if (!allowed) throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
 
-    const isSuperAdmin = await resolveIsSuperAdmin({ auth: ctx.auth, container: ctx.container })
-    const excludedIds: string[] = !isSuperAdmin && query.type === 'user'
-      ? Array.from(await listSuperAdminUserIds(ctx.em, ctx.tenantId))
+    const authPrincipalService = resolveAuthPrincipalService(ctx.container)
+    if (!authPrincipalService) throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+    const excludedIds: string[] = !ctx.auth.isSuperAdmin && query.type === 'user'
+      ? await authPrincipalService.listSuperAdminUserIds(ctx.tenantId)
       : []
     const queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
     const result = await queryPrincipalPage({
@@ -277,7 +277,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       ?? (query.type === 'user' ? 'Unknown user' : 'Unknown role')
     const userLabels = query.type === 'user'
       ? await resolveUserLabels(
-          ctx.em,
+          ctx.container,
           { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
           result.items.flatMap((item) => {
             const id = readString(item, 'id')

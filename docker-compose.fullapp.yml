@@ -119,6 +119,7 @@ services:
       context: .
       args:
         - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL to the browser-reachable ws(s) endpoint before a production build}
     image: open-mercato/app:${DEPLOY_ENV:-local}
     # Without a restart policy the app stays down after a daemon/host reboot
     # while mcp and opencode (restart: unless-stopped) wait on it forever.
@@ -160,7 +161,9 @@ services:
       HOSTNAME: 0.0.0.0
       DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
       JWT_SECRET: ${JWT_SECRET:-JWT}
-      APP_URL: ${APP_URL:-http://localhost:3000}
+      APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
+      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: ${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL to the browser-reachable ws(s) endpoint before a production build}
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:?Set DOCUMENTS_COLLAB_JWT_SECRET_V2 to a unique high-entropy shared secret}
       # Additional trusted app/dev origins for the Open Mercato origin allowlist (resolveAllowedDevOrigins)
       APP_ALLOWED_ORIGINS: ${APP_ALLOWED_ORIGINS:-}
       CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
@@ -210,6 +213,43 @@ services:
       redis:
         condition: service_healthy
       meilisearch:
+        condition: service_healthy
+    networks:
+      - mercato-network-fullapp
+
+  documents-collab:
+    build:
+      context: .
+      args:
+        - CONTAINER_PORT=${CONTAINER_PORT:-3000}
+        - NEXT_PUBLIC_DOCUMENTS_COLLAB_URL=${NEXT_PUBLIC_DOCUMENTS_COLLAB_URL:?Set NEXT_PUBLIC_DOCUMENTS_COLLAB_URL to the browser-reachable ws(s) endpoint before a production build}
+    image: open-mercato/app:${DEPLOY_ENV:-local}
+    command: ["yarn", "documents:collab"]
+    working_dir: /app
+    ports:
+      - "${DOCUMENTS_COLLAB_PORT:-4101}:${DOCUMENTS_COLLAB_PORT:-4101}"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@mercato-postgres-${DEPLOY_ENV:-local}:5432/${POSTGRES_DB:-open-mercato}
+      JWT_SECRET: ${JWT_SECRET:-JWT}
+      APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
+      NEXT_PUBLIC_APP_URL: ${APP_URL:?Set APP_URL to the public application origin}
+      DOCUMENTS_COLLAB_PORT: ${DOCUMENTS_COLLAB_PORT:-4101}
+      DOCUMENTS_COLLAB_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: ${DOCUMENTS_COLLAB_ALLOWED_ORIGINS:-${APP_URL}}
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: ${DOCUMENTS_COLLAB_JWT_SECRET_V2:?Set DOCUMENTS_COLLAB_JWT_SECRET_V2 to a unique high-entropy shared secret}
+      DOCUMENTS_COLLAB_JWT_SECRET: ${DOCUMENTS_COLLAB_JWT_SECRET:-}
+      DOCUMENTS_COLLAB_APP_ROOT: /app/apps/mercato
+      TENANT_DATA_ENCRYPTION: ${TENANT_DATA_ENCRYPTION:-true}
+      TENANT_DATA_ENCRYPTION_FALLBACK_KEY: ${TENANT_DATA_ENCRYPTION_FALLBACK_KEY:-dev-tenant-encryption-fallback-key-32chars}
+      CACHE_REDIS_URL: redis://mercato-redis-${DEPLOY_ENV:-local}:6379
+      CACHE_STRATEGY: redis
+    depends_on:
+      app:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     networks:
       - mercato-network-fullapp

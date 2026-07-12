@@ -5,10 +5,13 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { assertOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { DocumentContent } from '../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from './constants'
 import { nextDocumentVersion } from './versioning'
 import { assertDocumentContentResourceLimits } from './resourceLimits'
+
+const logger = createLogger('documents').child({ component: 'content-service' })
 
 export type DocumentScope = {
   tenantId: string
@@ -304,11 +307,11 @@ export async function persistDocumentContent(
     // The content transaction is already committed. Search is a retryable
     // projection and must not make Hocuspocus retain a stale CAS token or tell
     // an HTTP caller that the canonical write failed.
-    console.error('[documents] content search indexing failed after commit', {
+    logger.error('Content search indexing failed after commit', {
       documentId,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
-      error,
+      err: error,
     })
   }
   return persisted

@@ -200,6 +200,8 @@ describe('documents content replace command', () => {
       {
         kind: 'event',
         eventId: 'documents.document.updated',
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
         payload: {
           id: DOCUMENT_ID,
           documentId: DOCUMENT_ID,

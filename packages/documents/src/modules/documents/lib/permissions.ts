@@ -4,9 +4,12 @@ import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { forbidden } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { Role, UserRole } from '@open-mercato/core/modules/auth/data/entities'
-import { ApiKey } from '@open-mercato/core/modules/api_keys/data/entities'
 import { Document, DocumentShare } from '../data/entities'
+import {
+  resolveApiKeyPrincipalService,
+  resolveAuthPrincipalService,
+  type DocumentsServiceContainer,
+} from './platformServices'
 
 export type DocumentTier = 'owner' | 'editor' | 'commenter' | 'viewer'
 
@@ -20,6 +23,7 @@ export const TIER_RANK: Record<DocumentTier, number> = {
 type DocumentsPermissionContext = NonNullable<AuthContext> & {
   features?: string[]
   roleIds?: string[]
+  resolvedRoleIds?: string[]
   organizationId?: string | null
 }
 
@@ -56,72 +60,32 @@ function hasDocumentsManage(ctx: DocumentsPermissionContext): boolean {
 }
 
 export async function resolveActiveUserRoleIds(
-  em: EntityManager,
+  container: DocumentsServiceContainer | null | undefined,
   scope: { tenantId: string; organizationId: string },
   userId: string,
 ): Promise<string[]> {
-  const userRoles = await findWithDecryption(
-    em,
-    UserRole,
-    {
-      user: userId,
-      deletedAt: null,
-      role: {
-        tenantId: scope.tenantId,
-        deletedAt: null,
-      },
-    } as FilterQuery<UserRole>,
-    { fields: ['role'] as const },
-    scope,
-  )
-  return Array.from(
-    new Set(
-      userRoles
-        .map((row) => String((row.role as { id?: string })?.id ?? row.role))
-        .map((value) => value.trim())
-        .filter((value) => value.length > 0),
-    ),
-  )
+  const service = resolveAuthPrincipalService(container)
+  if (!service) return []
+  return normalizeStrings(await service.resolveActiveUserRoleIds(userId, scope))
 }
 
 export async function resolveActiveSubjectRoleIds(
-  em: EntityManager,
+  container: DocumentsServiceContainer | null | undefined,
   scope: { tenantId: string; organizationId: string },
   subject: string,
 ): Promise<string[]> {
   if (!subject.startsWith('api_key:')) {
-    return resolveActiveUserRoleIds(em, scope, subject)
+    return resolveActiveUserRoleIds(container, scope, subject)
   }
 
   const apiKeyId = subject.slice('api_key:'.length).trim()
   if (!apiKeyId) return []
-  const apiKey = await findOneWithDecryption(
-    em,
-    ApiKey,
-    {
-      id: apiKeyId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    },
-    undefined,
-    scope,
-  )
-  if (!apiKey || (apiKey.expiresAt && apiKey.expiresAt.getTime() <= Date.now())) return []
-
-  const grantedRoleIds = normalizeStrings(apiKey.rolesJson)
-  if (grantedRoleIds.length === 0) return []
-  const roles = await findWithDecryption(
-    em,
-    Role,
-    {
-      id: { $in: grantedRoleIds },
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    } as FilterQuery<Role>,
-    { fields: ['id'] as const },
-    scope,
-  )
-  return Array.from(new Set(roles.map((role) => String(role.id))))
+  const apiKeyService = resolveApiKeyPrincipalService(container)
+  const authService = resolveAuthPrincipalService(container)
+  if (!apiKeyService || !authService) return []
+  const assigned = normalizeStrings(await apiKeyService.resolveAssignedRoleIds(apiKeyId, scope))
+  if (assigned.length === 0) return []
+  return normalizeStrings(await authService.filterActiveRoleIds(assigned, scope))
 }
 
 function maxShareTier(shares: DocumentShare[]): DocumentTier | null {
@@ -166,11 +130,9 @@ export async function resolvePermission(
 
   // Never trust role ids/names carried by the request token. Role shares are
   // resolved from active UserRole links to active roles in the current tenant.
-  const roleIds = await resolveActiveSubjectRoleIds(
-    em,
-    { tenantId: ctx.tenantId, organizationId },
-    ctx.sub,
-  )
+  // Only consume the server-projected role set. Raw token roleIds/roles are
+  // authentication hints and can outlive an assignment revocation.
+  const roleIds = normalizeStrings(permissionCtx.resolvedRoleIds)
   const principals: Array<FilterQuery<DocumentShare>> = [
     { principalType: 'user', principalId: userId },
   ]
@@ -200,6 +162,7 @@ export async function resolveUserAccess(
   documentId: string,
   scope: { tenantId: string; organizationId: string },
   userId: string,
+  container?: DocumentsServiceContainer | null,
 ): Promise<DocumentTier | null> {
   const document = await findOneWithDecryption(
     em,
@@ -216,7 +179,7 @@ export async function resolveUserAccess(
   if (!document) return null
   if (document.ownerUserId === userId) return 'owner'
 
-  const roleIds = await resolveActiveUserRoleIds(em, scope, userId)
+  const roleIds = await resolveActiveUserRoleIds(container, scope, userId)
 
   const principals: Array<FilterQuery<DocumentShare>> = [
     { principalType: 'user', principalId: userId },
@@ -247,6 +210,7 @@ export async function resolveSubjectAccess(
   documentId: string,
   scope: { tenantId: string; organizationId: string },
   identity: { subject: string; userId: string },
+  container?: DocumentsServiceContainer | null,
 ): Promise<DocumentTier | null> {
   const document = await findOneWithDecryption(
     em,
@@ -263,7 +227,7 @@ export async function resolveSubjectAccess(
   if (!document) return null
   if (document.ownerUserId === identity.userId) return 'owner'
 
-  const roleIds = await resolveActiveSubjectRoleIds(em, scope, identity.subject)
+  const roleIds = await resolveActiveSubjectRoleIds(container, scope, identity.subject)
   const principals: Array<FilterQuery<DocumentShare>> = [
     { principalType: 'user', principalId: identity.userId },
   ]

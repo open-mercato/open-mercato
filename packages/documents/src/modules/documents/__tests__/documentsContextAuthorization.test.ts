@@ -1,5 +1,3 @@
-import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
-
 const TENANT_ID = '11111111-1111-4111-8111-111111111111'
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222'
 const OTHER_ORGANIZATION_ID = '33333333-3333-4333-8333-333333333333'
@@ -22,10 +20,6 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
-}))
-
 type Acl = {
   isSuperAdmin: boolean
   features: string[]
@@ -38,19 +32,7 @@ const activeUserRoles: Array<{
   deletedAt: Date | null
 }> = []
 
-const em = {
-  findOne: jest.fn(async () => null),
-  find: jest.fn(async (entity: unknown, where: Record<string, unknown>) => {
-    if (entity !== UserRole) return []
-    const role = where.role as { tenantId?: string; deletedAt?: null } | undefined
-    return activeUserRoles.filter((assignment) => (
-      assignment.user === where.user
-      && assignment.deletedAt === null
-      && assignment.role.tenantId === role?.tenantId
-      && assignment.role.deletedAt === null
-    ))
-  }),
-}
+const em = { findOne: jest.fn(async () => null), find: jest.fn(async () => []) }
 
 const rbacService = {
   loadAcl: jest.fn<Promise<Acl>, [string, { tenantId: string | null; organizationId: string | null }]>(
@@ -62,6 +44,26 @@ const container = {
   resolve: jest.fn((name: string) => {
     if (name === 'em') return em
     if (name === 'rbacService') return rbacService
+    if (name === 'organizationScopeService') return {
+      resolve: jest.fn(),
+      resolveFresh: jest.fn(),
+      resolveForRequest: (input: unknown) => mockResolveOrganizationScopeForRequest(input),
+    }
+    if (name === 'authPrincipalService') return {
+      principalExists: jest.fn(),
+      resolveLabels: jest.fn(),
+      filterActiveRoleIds: jest.fn(async (ids: string[]) => ids),
+      listSuperAdminUserIds: jest.fn(async () => []),
+      resolveActiveUserRoleIds: jest.fn(async (userId: string, scope: { tenantId: string }) =>
+        activeUserRoles.filter((assignment) => assignment.user === userId
+          && assignment.deletedAt === null
+          && assignment.role.tenantId === scope.tenantId
+          && assignment.role.deletedAt === null)
+          .map((assignment) => assignment.role.id)),
+    }
+    if (name === 'apiKeyPrincipalService') return {
+      resolveAssignedRoleIds: jest.fn(async () => []),
+    }
     throw new Error(`Unexpected dependency: ${name}`)
   }),
 }

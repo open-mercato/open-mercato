@@ -5,7 +5,6 @@ const PRINCIPAL_ID = '44444444-4444-4444-8444-444444444444'
 
 const mockResolveDocumentsContext = jest.fn()
 const mockResolveDocumentCapabilityProjection = jest.fn()
-const mockResolveIsSuperAdmin = jest.fn()
 const mockListSuperAdminUserIds = jest.fn()
 const mockResolveUserLabels = jest.fn()
 
@@ -28,21 +27,23 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
-jest.mock('@open-mercato/core/modules/auth/lib/tenantAccess', () => ({
-  resolveIsSuperAdmin: (...args: unknown[]) => mockResolveIsSuperAdmin(...args),
-}))
-
-jest.mock('@open-mercato/core/modules/auth/lib/grantChecks', () => ({
-  listSuperAdminUserIds: (...args: unknown[]) => mockListSuperAdminUserIds(...args),
-}))
-
 jest.mock('../lib/userLabels', () => ({
   resolveUserLabels: (...args: unknown[]) => mockResolveUserLabels(...args),
 }))
 
 const queryEngine = { query: jest.fn() }
 const container = {
-  resolve: jest.fn((token: string) => token === 'queryEngine' ? queryEngine : undefined),
+  resolve: jest.fn((token: string) => {
+    if (token === 'queryEngine') return queryEngine
+    if (token === 'authPrincipalService') return {
+      principalExists: jest.fn(),
+      resolveActiveUserRoleIds: jest.fn(),
+      filterActiveRoleIds: jest.fn(),
+      resolveLabels: jest.fn(),
+      listSuperAdminUserIds: (...args: unknown[]) => mockListSuperAdminUserIds(...args),
+    }
+    throw new Error('missing')
+  }),
 }
 
 type PrincipalsRoute = typeof import('../api/[id]/principals/route')
@@ -61,7 +62,7 @@ beforeEach(() => {
   jest.clearAllMocks()
   mockResolveDocumentsContext.mockResolvedValue({
     container,
-    auth: { sub: PRINCIPAL_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID },
+    auth: { sub: PRINCIPAL_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID, isSuperAdmin: false },
     em: {},
     tenantId: TENANT_ID,
     organizationId: ORGANIZATION_ID,
@@ -70,8 +71,7 @@ beforeEach(() => {
     relationshipTier: 'owner',
     capabilities: { canComment: true, canShare: true },
   })
-  mockResolveIsSuperAdmin.mockResolvedValue(false)
-  mockListSuperAdminUserIds.mockResolvedValue(new Set())
+  mockListSuperAdminUserIds.mockResolvedValue([])
   mockResolveUserLabels.mockResolvedValue(new Map([
     [PRINCIPAL_ID, { label: 'Ada Lovelace', secondary: 'ada@example.test' }],
   ]))
@@ -295,12 +295,11 @@ describe('document-scoped principal picker route', () => {
 
     expect(response.status).toBe(403)
     expect(queryEngine.query).not.toHaveBeenCalled()
-    expect(mockResolveIsSuperAdmin).not.toHaveBeenCalled()
   })
 
   it('excludes protected super-admin users before query, pagination, and count', async () => {
     const protectedUserId = '60000000-0000-4000-8000-000000000001'
-    mockListSuperAdminUserIds.mockResolvedValueOnce(new Set([protectedUserId]))
+    mockListSuperAdminUserIds.mockResolvedValueOnce([protectedUserId])
     queryEngine.query.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 })
 
     const userResponse = await GET(
@@ -316,7 +315,13 @@ describe('document-scoped principal picker route', () => {
   })
 
   it('lets a freshly resolved super-admin enumerate protected principals without exclusion lookups', async () => {
-    mockResolveIsSuperAdmin.mockResolvedValueOnce(true)
+    mockResolveDocumentsContext.mockResolvedValueOnce({
+      container,
+      auth: { sub: PRINCIPAL_ID, tenantId: TENANT_ID, orgId: ORGANIZATION_ID, isSuperAdmin: true },
+      em: {},
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+    })
 
     const response = await GET(request('mode=share&type=user'), context())
 

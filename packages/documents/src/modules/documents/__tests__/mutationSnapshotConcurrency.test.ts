@@ -27,7 +27,6 @@ jest.mock('../lib/permissions', () => ({
   resolveUserAccess: jest.fn(),
 }))
 
-import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { resolveUserAccess } from '../lib/permissions'
 import { assertDocumentCommandCapability } from '../commands/shared'
 import { Document, DocumentComment, DocumentShare, DocumentTemplate } from '../data/entities'
@@ -74,7 +73,15 @@ function fakeEntityManager(onCreate?: (entity: unknown, data: Record<string, unk
 
 function commandContext(em: EntityManager): CommandRuntimeContext {
   return {
-    container: { resolve: () => em },
+    container: { resolve: (name: string) => name === 'authPrincipalService'
+      ? {
+          principalExists: jest.fn(async () => true),
+          resolveActiveUserRoleIds: jest.fn(),
+          filterActiveRoleIds: jest.fn(),
+          resolveLabels: jest.fn(),
+          listSuperAdminUserIds: jest.fn(),
+        }
+      : em },
     auth: { sub: USER_ID },
     organizationScope: null,
     selectedOrganizationId: ORGANIZATION_ID,
@@ -215,7 +222,6 @@ describe('documents transactional mutation snapshots', () => {
       if (entity === Document) return document
       if (entity === DocumentComment) return comment
       if (entity === DocumentShare) return share
-      if (entity === User) return { id: PRINCIPAL_ID }
       return null
     })
     ;(resolveUserAccess as jest.Mock)

@@ -6,7 +6,7 @@ import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/c
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { DocumentContent, DocumentVersion } from '../data/entities'
 import { documentVersionLabelSchema } from '../data/validators'
@@ -289,6 +289,8 @@ function buildVersionRestoredProjection(
   return {
     kind: 'event',
     eventId: 'documents.version.restored',
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     payload: {
       id: input.documentId,
       documentId: input.documentId,
@@ -394,7 +396,7 @@ const restoreVersionCommand: CommandHandler<RestoreVersionCommandInput, RestoreV
         await lockDocumentAggregateRoot(em, input.documentId, scope)
         await assertDocumentCommandCanEdit(ctx, em, input.documentId, scope)
         currentContent = await loadLockedContent(em, input)
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: DOCUMENTS_ENTITY_IDS.documentContent,
           resourceId: currentContent.id,
           current: currentContent.updatedAt,

@@ -8,7 +8,7 @@ import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   assertOptimisticLock,
   buildOptimisticLockConflictBody,
-  enforceCommandOptimisticLock,
+  enforceCommandOptimisticLockWithGuards,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
@@ -364,7 +364,7 @@ const deleteLinkCommand: CommandHandler<LinkDeleteCommandInput, LinkDeleteComman
         link = await loadLinkById(em, input, false, true)
         if (!link) throw new CrudHttpError(404, { error: 'documents.links.notFound' })
         before = captureLinkState(link, input.linkId)
-        enforceCommandOptimisticLock({
+        await enforceCommandOptimisticLockWithGuards(ctx.container, {
           resourceKind: DOCUMENTS_ENTITY_IDS.documentEntityLink,
           resourceId: link.id,
           current: link.updatedAt,

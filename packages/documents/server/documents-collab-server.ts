@@ -4,9 +4,6 @@ import { randomUUID } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
-import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
-import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
-import { resolveOrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import {
   Connection as HocuspocusConnection,
   IncomingMessage as HocuspocusIncomingMessage,
@@ -55,6 +52,7 @@ import { Document, DocumentContent } from '@open-mercato/documents/modules/docum
 import { deriveDocumentCapabilities } from '@open-mercato/documents/modules/documents/lib/capabilities'
 import { resolveUserAccess } from '@open-mercato/documents/modules/documents/lib/permissions'
 import { resolveUserLabels } from '@open-mercato/documents/modules/documents/lib/userLabels'
+import { resolveOrganizationScopeService } from '@open-mercato/documents/modules/documents/lib/platformServices'
 import {
   hasResolvedDocumentsOrganizationAccess,
   type ResolvedDocumentsOrganizationScope,
@@ -1230,36 +1228,21 @@ export async function authorizeCollabContext(
       // Organization hierarchy resolution performs its own ACL read. Route it
       // through the same fail-closed fresh-load primitive so no secondary
       // lookup can revive a warm sidecar cache after a role/ACL revocation.
-      const freshRbacService = {
-        loadAcl: async (
-          userId: string,
-          requestedScope: { tenantId: string | null; organizationId: string | null },
-        ) => {
-          const refreshedAcl = await loadFreshCollabAcl(
-            rbacService,
-            userId,
-            requestedScope,
-          )
-          if (!refreshedAcl) {
-            throw new Error('[internal] documents collab: fresh ACL service unavailable')
-          }
-          acl = refreshedAcl
-          return refreshedAcl
-        },
-      } as RbacService
-      organizationScope = await resolveOrganizationScope({
-        em,
-        rbac: freshRbacService,
+      const organizationScopeService = resolveOrganizationScopeService(container)
+      if (!organizationScopeService) return false
+      const freshAuthorization = await organizationScopeService.resolveFresh({
         auth: {
           sub: context.userId,
           userId: context.userId,
           tenantId: context.tenantId,
           orgId: context.organizationId,
           isSuperAdmin: false,
-        } as NonNullable<AuthContext>,
+        },
         selectedId: context.organizationId,
         tenantId: context.tenantId,
       })
+      organizationScope = freshAuthorization.scope
+      acl = freshAuthorization.acl
       if (!hasResolvedDocumentsOrganizationAccess(
         acl,
         context.organizationId,
@@ -1277,6 +1260,7 @@ export async function authorizeCollabContext(
           context.documentId,
           scope,
           context.userId,
+          container,
         )
     return isCollabAuthorizationCurrent(context, {
       relationshipTier,
@@ -1968,9 +1952,8 @@ export async function main(): Promise<void> {
     },
     resolveAwarenessName: async (context) => {
       const container = await createRequestContainer()
-      const em = container.resolve('em') as EntityManager
       const labels = await resolveUserLabels(
-        em,
+        container,
         {
           tenantId: context.tenantId,
           organizationId: context.organizationId,

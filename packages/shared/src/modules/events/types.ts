@@ -62,6 +62,10 @@ export interface EventPayload {
 export interface EmitOptions {
   /** If true, the event will be persisted to a queue for async processing */
   persistent?: boolean
+  /** Trusted tenant scope passed to subscribers independently of payload data. */
+  tenantId?: string | null
+  /** Trusted organization scope passed to subscribers independently of payload data. */
+  organizationId?: string | null
 }
 
 // =============================================================================

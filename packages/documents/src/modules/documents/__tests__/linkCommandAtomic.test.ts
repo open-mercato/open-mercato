@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => {
   const actual = jest.requireActual('@open-mercato/shared/lib/crud/optimistic-lock-command')
   return {
     ...actual,
-    enforceCommandOptimisticLock: (...args: unknown[]) => mockEnforceCommandOptimisticLock(...args),
+    enforceCommandOptimisticLockWithGuards: (...args: unknown[]) => mockEnforceCommandOptimisticLock(...args),
   }
 })
 

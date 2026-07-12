@@ -25,8 +25,12 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args),
 }))
 
-jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
-  resolveOrganizationScopeForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
+jest.mock('../lib/platformServices', () => ({
+  ...jest.requireActual('../lib/platformServices'),
+  resolveOrganizationScopeService: () => ({
+    resolve: jest.fn(), resolveFresh: jest.fn(),
+    resolveForRequest: (...args: unknown[]) => mockResolveOrganizationScopeForRequest(...args),
+  }),
 }))
 
 jest.mock('@open-mercato/shared/lib/crud/mutation-guard', () => ({

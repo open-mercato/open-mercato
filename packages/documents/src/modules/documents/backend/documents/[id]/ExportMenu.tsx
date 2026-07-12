@@ -5,6 +5,7 @@ import { FileDown, FileText } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import { ActionsDropdown, type ActionItem } from '@open-mercato/ui/backend/forms'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 
 type ExportMenuProps = {
@@ -45,34 +46,31 @@ export async function downloadDocumentExport(
   documentId: string,
   format: ExportFormat,
   snapshot: DocxPaginationSnapshot | null = null,
+  errorMessage = 'Export failed',
 ): Promise<void> {
   const hasSnapshot = format === 'docx' && snapshot !== null
-  const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}/export?format=${format}`, {
-    method: hasSnapshot ? 'POST' : 'GET',
-    credentials: 'same-origin',
-    headers: {
-      'x-om-forbidden-redirect': '0',
-      'x-om-unauthorized-redirect': '0',
-      ...(hasSnapshot ? { 'content-type': 'application/json' } : {}),
+  const call = await apiCallOrThrow<Blob>(
+    `/api/documents/${encodeURIComponent(documentId)}/export?format=${format}`,
+    {
+      method: hasSnapshot ? 'POST' : 'GET',
+      credentials: 'same-origin',
+      headers: {
+        'x-om-forbidden-redirect': '0',
+        'x-om-unauthorized-redirect': '0',
+        ...(hasSnapshot ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(hasSnapshot ? { body: JSON.stringify(snapshot) } : {}),
     },
-    ...(hasSnapshot ? { body: JSON.stringify(snapshot) } : {}),
-  })
+    { parse: (response) => response.blob(), errorMessage },
+  )
+  const response = call.response
   const expectedContentType = format === 'docx'
     ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
     : 'application/pdf'
   const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase()
-  if (!response.ok || contentType !== expectedContentType) {
-    let message: string | null = null
-    if (contentType === 'application/json') {
-      const payload = await response.json().catch(() => null) as { error?: unknown; message?: unknown } | null
-      message = typeof payload?.message === 'string'
-        ? payload.message
-        : typeof payload?.error === 'string' ? payload.error : null
-    }
-    throw new Error(message || `Export failed (${response.status})`)
-  }
+  if (contentType !== expectedContentType || !call.result) throw new Error(errorMessage)
 
-  const blob = await response.blob()
+  const blob = call.result
   const objectUrl = URL.createObjectURL(blob)
   try {
     const link = document.createElement('a')
@@ -90,7 +88,7 @@ export function ExportMenu({ documentId, editor }: ExportMenuProps) {
   const t = useT()
   const download = React.useCallback((format: ExportFormat) => {
     const snapshot = format === 'docx' ? buildDocxPaginationSnapshot(editor) : null
-    void downloadDocumentExport(documentId, format, snapshot).catch((error) => {
+    void downloadDocumentExport(documentId, format, snapshot, t('documents.export.error')).catch((error) => {
       flash(error instanceof Error ? error.message : t('documents.export.runtimeUnavailable'), 'error')
     })
   }, [documentId, editor, t])

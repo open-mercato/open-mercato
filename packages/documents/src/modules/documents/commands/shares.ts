@@ -1,7 +1,6 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { Role, User } from '@open-mercato/core/modules/auth/data/entities'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -27,6 +26,7 @@ import {
   resolveDocumentsCommandScope,
 } from './shared'
 import { nextDocumentVersion } from './mutation-helpers'
+import { resolveAuthPrincipalService, type DocumentsServiceContainer } from '../lib/platformServices'
 
 const scopeSchema = z.object({
   tenantId: z.string().uuid(),
@@ -219,28 +219,16 @@ async function loadShareByPrincipal(
   )
 }
 
-async function assertPrincipalExists(em: EntityManager, input: ShareCreateCommandInput): Promise<void> {
+async function assertPrincipalExists(
+  container: DocumentsServiceContainer,
+  input: ShareCreateCommandInput,
+): Promise<void> {
   const scope = { tenantId: input.tenantId, organizationId: input.organizationId }
-  const principal = input.share.principalType === 'role'
-    ? await findOneWithDecryption(
-        em,
-        Role,
-        { id: input.share.principalId, tenantId: input.tenantId, deletedAt: null },
-        undefined,
-        scope,
-      )
-    : await findOneWithDecryption(
-        em,
-        User,
-        {
-          id: input.share.principalId,
-          tenantId: input.tenantId,
-          deletedAt: null,
-          $or: [{ organizationId: null }, { organizationId: input.organizationId }],
-        },
-        undefined,
-        scope,
-      )
+  const principal = await resolveAuthPrincipalService(container)?.principalExists({
+    type: input.share.principalType,
+    id: input.share.principalId,
+    scope,
+  }) ?? false
   if (!principal) {
     throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
   }
@@ -255,6 +243,8 @@ function shareEventProjection(
   return {
     kind: 'event',
     eventId,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     payload: {
       id: input.documentId,
       shareId: state.id,
@@ -325,7 +315,7 @@ export const createShareCommand: CommandHandler<ShareCreateCommandInput, ShareCo
     const em = ctx.container.resolve('em') as EntityManager
     assertActor(input, ctx)
     await authorizeShareMutation(ctx, em, input)
-    await assertPrincipalExists(em, input)
+    await assertPrincipalExists(ctx.container, input)
     return null
   },
   async execute(rawInput, ctx) {
@@ -344,7 +334,7 @@ export const createShareCommand: CommandHandler<ShareCreateCommandInput, ShareCo
       await loadLockedDocument(em, input)
       assertActor(input, ctx)
       await authorizeShareMutation(ctx, em, input)
-      await assertPrincipalExists(em, input)
+      await assertPrincipalExists(ctx.container, input)
       share = await loadShareByPrincipal(em, input, true)
       if (share && share.id !== input.shareId) {
         throw new CrudHttpError(409, { error: 'Record changed by another user' })

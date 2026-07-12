@@ -1,4 +1,3 @@
-import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import * as Y from 'yjs'
 
 const mockResolveUserAccess = jest.fn()
@@ -39,11 +38,7 @@ function harness(organizations: string[], persistedOrganizations: Array<{
   descendantIds: string[]
 }>) {
   const authorizationOrder: string[] = []
-  const em = {
-    find: jest.fn(async (entity: unknown) => (
-      entity === Organization ? persistedOrganizations : []
-    )),
-  }
+  const em = { find: jest.fn(async () => []) }
   const rbacService = {
     invalidateUserCache: jest.fn(async () => {
       authorizationOrder.push('invalidate')
@@ -57,12 +52,41 @@ function harness(organizations: string[], persistedOrganizations: Array<{
       }
     }),
   }
+  const organizationScopeService = {
+    resolveForRequest: jest.fn(),
+    resolve: jest.fn(),
+    resolveFresh: jest.fn(async () => {
+      await rbacService.invalidateUserCache(USER_ID)
+      const acl = await rbacService.loadAcl(USER_ID, {
+        tenantId: TENANT_ID,
+        organizationId: CHILD_ORGANIZATION_ID,
+      })
+      const allowedIds = acl.organizations.flatMap((id) => {
+        const organization = persistedOrganizations.find((item) => item.id === id)
+        return organization ? [id, ...organization.descendantIds] : []
+      })
+      return {
+        acl,
+        scope: {
+          selectedId: allowedIds.includes(CHILD_ORGANIZATION_ID) ? CHILD_ORGANIZATION_ID : null,
+          filterIds: allowedIds,
+          allowedIds,
+          tenantId: TENANT_ID,
+        },
+      }
+    }),
+  }
   return {
     em,
     rbacService,
     authorizationOrder,
     container: {
-      resolve: (name: string) => name === 'em' ? em : rbacService,
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'rbacService') return rbacService
+        if (name === 'organizationScopeService') return organizationScopeService
+        throw new Error('missing')
+      },
     },
   }
 }
@@ -102,6 +126,7 @@ describe('Documents collaboration organization hierarchy', () => {
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: CHILD_ORGANIZATION_ID },
       USER_ID,
+      container,
     )
   })
 

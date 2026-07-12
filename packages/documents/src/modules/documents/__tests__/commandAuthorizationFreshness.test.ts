@@ -216,6 +216,7 @@ describe('documents command lock-time authorization freshness', () => {
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       { subject: USER_ID, userId: USER_ID },
+      harness.ctx.container,
     )
 
     mockResolveSubjectAccess.mockResolvedValueOnce('editor')

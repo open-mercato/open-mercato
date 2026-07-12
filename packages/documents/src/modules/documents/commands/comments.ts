@@ -1,7 +1,6 @@
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
@@ -30,6 +29,7 @@ import {
   resolveDocumentsCommandScope,
 } from './shared'
 import { nextDocumentVersion } from './mutation-helpers'
+import { resolveAuthPrincipalService, type DocumentsServiceContainer } from '../lib/platformServices'
 
 const scopeSchema = z.object({
   tenantId: z.string().uuid(),
@@ -300,23 +300,16 @@ async function loadMentionShare(
 }
 
 async function assertUserPrincipal(
-  em: EntityManager,
+  container: DocumentsServiceContainer,
   input: { tenantId: string; organizationId: string },
   userId: string,
 ): Promise<void> {
-  const user = await findOneWithDecryption(
-    em,
-    User,
-    {
-      id: userId,
-      tenantId: input.tenantId,
-      deletedAt: null,
-      $or: [{ organizationId: null }, { organizationId: input.organizationId }],
-    },
-    undefined,
-    { tenantId: input.tenantId, organizationId: input.organizationId },
-  )
-  if (!user) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
+  const exists = await resolveAuthPrincipalService(container)?.principalExists({
+    type: 'user',
+    id: userId,
+    scope: { tenantId: input.tenantId, organizationId: input.organizationId },
+  }) ?? false
+  if (!exists) throw new CrudHttpError(400, { error: 'Share principal not found in this organization' })
 }
 
 async function hasDocumentCapability(
@@ -478,6 +471,8 @@ function shareProjection(
   return {
     kind: 'event',
     eventId,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     payload: {
       id: input.documentId,
       shareId: state.id,
@@ -498,6 +493,8 @@ function resolutionProjection(
   return {
     kind: 'event',
     eventId: 'documents.comment.resolved',
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     payload: {
       id: state.id,
       documentId: input.documentId,
@@ -518,6 +515,8 @@ function mentionProjections(
     {
       kind: 'event',
       eventId: 'documents.comment.mentioned',
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
       payload: {
         id: input.commentId,
         documentId: input.documentId,
@@ -546,6 +545,8 @@ function commentCreatedProjection(
   return {
     kind: 'event',
     eventId: 'documents.comment.created',
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
     payload: {
       id: input.commentId,
       documentId: input.documentId,
@@ -610,9 +611,9 @@ export const createCommentCommand: CommandHandler<CommentCreateCommandInput, Com
       for (const mentionedUserId of mentionUserIds) {
         const grantIdentity = grantIdentityByUserId.get(mentionedUserId)
         if (!grantIdentity || !canShare) continue
-        const tier = await resolveUserAccess(em, input.documentId, input, mentionedUserId)
+        const tier = await resolveUserAccess(em, input.documentId, input, mentionedUserId, ctx.container)
         if (tier) continue
-        await assertUserPrincipal(em, input, mentionedUserId)
+        await assertUserPrincipal(ctx.container, input, mentionedUserId)
         let share = await loadMentionShare(em, input, mentionedUserId, true)
         const shareFallback = {
           shareId: share?.id ?? grantIdentity.shareId,
@@ -669,7 +670,7 @@ export const createCommentCommand: CommandHandler<CommentCreateCommandInput, Com
         })
       }
       for (const mentionedUserId of mentionUserIds) {
-        const tier = await resolveUserAccess(em, input.documentId, input, mentionedUserId)
+        const tier = await resolveUserAccess(em, input.documentId, input, mentionedUserId, ctx.container)
         if (tier) notifyMentionedIds.push(mentionedUserId)
       }
     }], { transaction: true, label: 'documents.comment.create' })
