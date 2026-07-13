@@ -9,6 +9,9 @@ import {
   sendMessageEmailToExternal,
   sendMessageEmailToRecipient,
 } from '../lib/email-sender'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'send-email' })
 
 export const MESSAGES_EMAIL_QUEUE_NAME = 'messages-email'
 
@@ -191,7 +194,7 @@ export default async function handle(
 
   const message = await resolveMessageScope(em, payload)
   if (!message) {
-    console.error('[messages:send-email] Message not found', payload.messageId)
+    logger.error('Message not found', { messageId: payload.messageId })
     return
   }
 
@@ -243,7 +246,7 @@ export default async function handle(
         tenantId: message.tenantId,
         organizationId: message.organizationId ?? null,
       })
-      console.error('[messages:send-email] External email send failed', error)
+      logger.error('External email send failed', { err: error })
     }
     return
   }
@@ -253,7 +256,7 @@ export default async function handle(
     recipientUserId: payload.recipientUserId,
   })
   if (!recipientRecord) {
-    console.error('[messages:send-email] Recipient row not found', payload)
+    logger.error('Recipient row not found', { messageId: payload.messageId, recipientUserId: payload.recipientUserId })
     return
   }
 
@@ -324,6 +327,6 @@ export default async function handle(
       tenantId: message.tenantId,
       organizationId: message.organizationId ?? null,
     })
-    console.error('[messages:send-email] Recipient email send failed', error)
+    logger.error('Recipient email send failed', { err: error })
   }
 }

@@ -19,6 +19,9 @@ import { TimerBar } from '../../../lib/timesheets-ui/TimerBar'
 import { AddRowDropdown } from '../../../lib/timesheets-ui/AddRowDropdown'
 import { CreateProjectDialog } from '../../../lib/timesheets-ui/CreateProjectDialog'
 import { ProjectColorDot } from '../../../lib/timesheets-ui/ProjectColorDot'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 // --- Types ---
 
@@ -341,7 +344,7 @@ export default function MyTimesheetsPage() {
       setDirty({})
       setRawText({})
     } catch (error) {
-      console.error('staff.timesheets.my.load', error)
+      logger.error('staff.timesheets.my.load', { err: error })
       flash(t('staff.timesheets.my.errors.load', 'Failed to load timesheets.'), 'error')
     } finally {
       isInitialLoadRef.current = false
@@ -446,7 +449,7 @@ export default function MyTimesheetsPage() {
       flash(t('staff.timesheets.my.saved', 'Timesheet saved.'), 'success')
       await loadData()
     } catch (error) {
-      console.error('staff.timesheets.my.save', error)
+      logger.error('staff.timesheets.my.save', { err: error })
       flash(t('staff.timesheets.my.errors.save', 'Failed to save timesheets.'), 'error')
     } finally {
       setIsSaving(false)
@@ -563,7 +566,7 @@ export default function MyTimesheetsPage() {
         return [...prev, project]
       })
     } catch (error) {
-      console.error('staff.timesheets.my.addRow', error)
+      logger.error('staff.timesheets.my.addRow', { err: error })
       flash(t('staff.timesheets.my.addRow.error', 'Could not add the project. Please try again.'), 'error')
     }
   }, [t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
@@ -610,7 +613,7 @@ export default function MyTimesheetsPage() {
         return next
       })
     } catch (error) {
-      console.error('staff.timesheets.my.removeRow', error)
+      logger.error('staff.timesheets.my.removeRow', { err: error })
       flash(t('staff.timesheets.my.removeRow.error', 'Could not remove the project. Please try again.'), 'error')
     }
   }, [confirm, t, runMutation, mutationContextId, staffMemberId, retryLastMutation])
@@ -637,7 +640,7 @@ export default function MyTimesheetsPage() {
         mutationPayload: payload,
       })
     } catch (error) {
-      console.error('staff.timesheets.my.createProject.visibility', error)
+      logger.error('staff.timesheets.my.createProject.visibility', { err: error })
     }
     setProjects((prev) => [...prev, project])
     setCreateDialogOpen(false)

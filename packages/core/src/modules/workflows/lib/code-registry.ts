@@ -8,6 +8,9 @@
 
 import type { CodeWorkflowDefinition } from '@open-mercato/shared/modules/workflows'
 import { workflowDefinitionDataSchema } from '../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 const codeWorkflowRegistry = new Map<string, CodeWorkflowDefinition>()
 
@@ -19,17 +22,15 @@ export function registerCodeWorkflows(workflows: CodeWorkflowDefinition[]): void
   for (const wf of workflows) {
     const validation = workflowDefinitionDataSchema.safeParse(wf.definition)
     if (!validation.success) {
-      console.warn(
-        `[workflows] Code workflow "${wf.workflowId}" failed validation:`,
-        validation.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
-      )
+      logger.warn('Code workflow failed validation', {
+        workflowId: wf.workflowId,
+        issues: validation.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '),
+      })
       continue
     }
 
     if (codeWorkflowRegistry.has(wf.workflowId)) {
-      console.warn(
-        `[workflows] Duplicate code workflow ID "${wf.workflowId}" from module "${wf.moduleId}" — overwriting`,
-      )
+      logger.warn('Duplicate code workflow ID — overwriting', { workflowId: wf.workflowId, moduleId: wf.moduleId })
     }
 
     codeWorkflowRegistry.set(wf.workflowId, wf)

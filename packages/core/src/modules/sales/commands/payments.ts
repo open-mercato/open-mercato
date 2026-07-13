@@ -43,6 +43,9 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType } from '../../notifications/lib/notificationBuilder'
 import { notificationTypes } from '../notifications'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export type PaymentAllocationSnapshot = {
   id: string
@@ -543,7 +546,7 @@ const createPaymentCommand: CommandHandler<
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
-      console.error('[sales.payments.create] Failed to create notification:', err)
+      logger.error('sales.payments.create Failed to create notification', { err })
     }
 
     return { paymentId: payment.id, orderTotals: totals, orderPaymentMethodIdBefore, orderPaymentMethodCodeBefore }

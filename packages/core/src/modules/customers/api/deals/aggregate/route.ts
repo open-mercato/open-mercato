@@ -14,6 +14,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { fetchStuckDealIds } from '../../../lib/stuckDeals'
 import { findMatchingEntityIdsBySearchTokensAcrossSources } from '../../utils'
 import { E } from '#generated/entities.ids.generated'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.deals.view'] },
@@ -379,7 +382,7 @@ export async function GET(req: Request) {
         // Swallow — partial totals are still useful and we'll fall back to currency-native
         // sums. Logging at warn level so operators can correlate missing-rate disclosures in
         // the UI (`convertedAll: false` / `missingRateCurrencies`) with the underlying error.
-        console.warn('[customers.deals.aggregate] exchange-rate lookup failed; falling back to per-currency totals', err)
+        logger.warn('exchange-rate lookup failed; falling back to per-currency totals', { component: 'deals.aggregate', err })
       }
     }
 

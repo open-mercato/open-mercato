@@ -18,6 +18,9 @@ import {
 import { PlannerAvailabilityRule } from '../data/entities'
 import { parseAvailabilityRuleWindow } from '../lib/availabilitySchedule'
 import { assertAvailabilityWriteAccess, resolveAvailabilityActorId } from './access'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'availability' })
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -137,7 +140,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('planner.availability.date-specific.replace failed', err)
+    logger.error('Date-specific availability replace failed', { err })
     return NextResponse.json(
       { error: translate('planner.availability.errors.updateDateSpecific', 'Failed to save date-specific availability.') },
       { status: 400 },

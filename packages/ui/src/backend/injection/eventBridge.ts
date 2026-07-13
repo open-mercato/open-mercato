@@ -2,6 +2,9 @@
 import { useEffect, useRef } from 'react'
 import type { AppEventPayload } from '@open-mercato/shared/modules/widgets/injection'
 import { APP_EVENT_DOM_NAME } from './useAppEvent'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui').child({ component: 'EventBridge' })
 
 const SSE_ENDPOINT = '/api/events/stream'
 const HEARTBEAT_TIMEOUT = 45_000 // Expect heartbeat every 30s, allow 45s grace
@@ -60,7 +63,7 @@ export function useEventBridge(): void {
     function resetHeartbeatTimer() {
       if (heartbeatTimer.current) clearTimeout(heartbeatTimer.current)
       heartbeatTimer.current = setTimeout(() => {
-        console.warn('[EventBridge] Heartbeat timeout — reconnecting')
+        logger.warn('Heartbeat timeout — reconnecting')
         disconnect()
         scheduleReconnect()
       }, HEARTBEAT_TIMEOUT)

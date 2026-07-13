@@ -1,9 +1,12 @@
 import type { QueuedJob, JobContext, WorkerMeta } from '@open-mercato/queue'
 import { getCliModules } from '@open-mercato/shared/modules/registry'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from '../../../single-delivery'
 
 export const EVENTS_QUEUE_NAME = 'events'
+
+const logger = createLogger('events')
 
 const DEFAULT_CONCURRENCY = 1
 const envConcurrency = process.env.WORKERS_EVENTS_CONCURRENCY
@@ -133,7 +136,7 @@ export default async function handle(
     const result = results[i]
     if (result.status === 'rejected') {
       const sub = subscribers[i]
-      console.error(`[events] Subscriber "${sub.id}" failed for event "${event}":`, result.reason)
+      logger.error('Subscriber failed for event', { event, subscriberId: sub.id, err: result.reason })
       errors.push({ subscriberId: sub.id, error: result.reason })
     }
   }

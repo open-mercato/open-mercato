@@ -8,6 +8,7 @@ import {
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import type { ShippingCarrierService } from '../../lib/shipping-service'
 import { isShipmentIdempotencyConflictError } from '../../lib/shipment-idempotency'
+import { shippingCarrierUpstreamErrorResponse } from '../../lib/upstream-error-response'
 import { createShipmentSchema } from '../../data/validators'
 import { shippingCarriersTag } from '../openapi'
 
@@ -90,8 +91,7 @@ export async function POST(req: Request) {
         { status: 409 },
       )
     }
-    const message = error instanceof Error ? error.message : 'Failed to create shipment'
-    return NextResponse.json({ error: message }, { status: 502 })
+    return shippingCarrierUpstreamErrorResponse('shipments.create', error)
   }
 }
 

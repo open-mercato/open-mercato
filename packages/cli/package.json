@@ -56,10 +56,10 @@
     "node": "24.x"
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.1.4",
-    "@mikro-orm/decorators": "^7.1.4",
-    "@mikro-orm/migrations": "^7.1.4",
-    "@mikro-orm/postgresql": "^7.1.4",
+    "@mikro-orm/core": "^7.1.5",
+    "@mikro-orm/decorators": "^7.1.5",
+    "@mikro-orm/migrations": "^7.1.5",
+    "@mikro-orm/postgresql": "^7.1.5",
     "@open-mercato/queue": "workspace:*",
     "@open-mercato/shared": "workspace:*",
     "@open-mercato/telemetry": "workspace:*",

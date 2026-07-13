@@ -149,6 +149,8 @@ Open **http://localhost:3000/backend** and sign in with the credentials printed 
 
 The compact runtime also serves a splash page at **http://localhost:4000** with live startup progress. Press `d` while `yarn dev` is running to toggle raw log output.
 
+On memory-constrained machines you can lower `yarn dev`'s footprint by narrowing which workspace packages the watcher tracks with `OM_WATCH_SCOPE` (e.g. `OM_WATCH_SCOPE=auto-optimized yarn dev`). The active mode is printed with an emoji at startup. See [Choosing which packages the watcher tracks](../appendix/troubleshooting#choosing-which-packages-the-watcher-tracks-watch-scope) for the full reference.
+
 ---
 
 ## Upgrading an existing checkout

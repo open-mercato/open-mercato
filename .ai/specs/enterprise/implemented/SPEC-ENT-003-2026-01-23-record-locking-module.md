@@ -462,6 +462,7 @@ Stored under `moduleId: 'record_locks'`, `name: 'settings'`:
 | `strategy` | `'optimistic'` / `'pessimistic'` | `'optimistic'` |
 | `timeoutSeconds` | number (30-3600) | `300` |
 | `heartbeatSeconds` | number (5-300) | `30` |
+| `maxActiveLocksPerUser` | number (1-500) | `50` |
 | `enabledResources` | string[] | `['*']` |
 | `allowForceUnlock` | boolean | `true` |
 | `allowIncomingOverride` | boolean | `true` |
@@ -499,6 +500,7 @@ Used by guarded mutations (set by widget `onBeforeSave`, read by service `readRe
 | Scenario | HTTP Status | Code |
 |----------|-------------|------|
 | Lock contention (pessimistic) | `423` | `record_locked` |
+| Per-user active lock quota exceeded | `429` | `record_lock_quota_exceeded` |
 | Optimistic conflict | `409` | `record_lock_conflict` |
 | Force release unavailable | `409` | `record_force_release_unavailable` |
 

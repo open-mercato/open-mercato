@@ -22,6 +22,9 @@ import {
 } from '../data/entities'
 import { parseDuration } from './duration'
 import { logWorkflowEvent } from './event-logger'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -281,7 +284,7 @@ export async function executeStep(
       }
     } catch (updateError) {
       // Swallow update errors to preserve original error
-      console.error('Failed to update step instance with error:', updateError)
+      logger.error('Failed to update step instance with error', { err: updateError })
     }
 
     return {

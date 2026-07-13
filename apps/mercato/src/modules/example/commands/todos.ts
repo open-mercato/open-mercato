@@ -214,8 +214,14 @@ const updateTodoCommand: CommandHandler<Record<string, unknown>, Todo> = {
   isUndoable: true,
   async prepare(rawInput, ctx) {
     const { parsed } = parseWithCustomFields(todoUpdateSchema, rawInput)
+    const scope = ensureScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Todo, { id: parsed.id, deletedAt: null } as FilterQuery<Todo>)
+    const existing = await em.findOne(Todo, {
+      id: parsed.id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    } as FilterQuery<Todo>)
     if (!existing) throw new CrudHttpError(404, { error: 'Todo not found' })
     const custom = await loadTodoCustomSnapshot(
       em,
@@ -356,8 +362,14 @@ const deleteTodoCommand: CommandHandler<{ body?: Record<string, unknown>; query?
   isUndoable: true,
   async prepare(input, ctx) {
     const id = requireId(input, 'Todo id required')
+    const scope = ensureScope(ctx)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const existing = await em.findOne(Todo, { id, deletedAt: null } as FilterQuery<Todo>)
+    const existing = await em.findOne(Todo, {
+      id,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    } as FilterQuery<Todo>)
     if (!existing) return {}
     const custom = await loadTodoCustomSnapshot(
       em,

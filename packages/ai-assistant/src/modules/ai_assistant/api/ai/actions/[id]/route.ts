@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -8,6 +9,8 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import { AiPendingActionRepository } from '../../../../data/repositories/AiPendingActionRepository'
 import { hasRequiredFeatures } from '../../../../lib/auth'
 import { serializePendingActionForClient } from '../../../../lib/pending-action-client'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * GET `/api/ai/actions/:id` — reconnect/polling endpoint for the Phase 3 WS-C
@@ -132,7 +135,7 @@ export async function GET(req: NextRequest, context: RouteContext): Promise<Resp
 
     return NextResponse.json(serializePendingActionForClient(row))
   } catch (error) {
-    console.error('[AI Pending Action GET] Failure:', error)
+    logger.error('AI Pending Action GET — Failure', { err: error })
     return jsonError(
       500,
       error instanceof Error ? error.message : 'Failed to load pending action.',

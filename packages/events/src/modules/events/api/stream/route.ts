@@ -9,6 +9,7 @@
  */
 
 import { resolveRequestContext } from '@open-mercato/shared/lib/api/context'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { registerCrossProcessEventListener, registerGlobalEventTap } from '../../../../bus'
 
@@ -18,6 +19,8 @@ export const metadata = {
 
 const HEARTBEAT_INTERVAL_MS = 30_000
 const MAX_PAYLOAD_BYTES = 4096
+
+const logger = createLogger('events').child({ component: 'stream' })
 
 type SseConnection = {
   tenantId: string
@@ -123,7 +126,7 @@ async function broadcastEventToConnections(eventName: string, payload: Record<st
   if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
     ssePayload = buildTruncatedPayload(eventName, data, organizationId)
     if (new TextEncoder().encode(ssePayload).length > MAX_PAYLOAD_BYTES) {
-      console.warn(`[events:stream] Event ${eventName} payload exceeds ${MAX_PAYLOAD_BYTES} bytes, skipping`)
+      logger.warn('Event payload exceeds size limit, skipping', { event: eventName, maxBytes: MAX_PAYLOAD_BYTES })
       return
     }
   }

@@ -15,6 +15,9 @@ import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getModules } from '@open-mercato/shared/lib/i18n/server'
 import { assertEntityAclForRequest } from '../lib/entityAcl'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'records' })
 
 let declaredCustomEntityIds: Set<string> | null = null
 function isDeclaredCustomEntity(entityId: string): boolean {
@@ -348,7 +351,7 @@ export async function GET(req: Request) {
     return NextResponse.json(payload)
   } catch (e) {
     if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
-    try { console.error('[entities.records.GET] Error', e) } catch {}
+    logger.error('Records GET failed', { err: e })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }
@@ -434,7 +437,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true, item: { entityId, recordId: id } })
   } catch (e) {
     if (isCrudHttpError(e)) return NextResponse.json(e.body, { status: e.status })
-    try { console.error('[entities.records.POST] Error', e) } catch {}
+    logger.error('Records POST failed', { err: e })
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

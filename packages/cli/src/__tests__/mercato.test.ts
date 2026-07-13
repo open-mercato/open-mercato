@@ -359,7 +359,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -408,7 +407,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -460,7 +458,6 @@ describe('init command failure output', () => {
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
       generateOpenApi: jest.fn().mockResolvedValue(undefined),
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/db', () => ({
       dbMigrate: jest.fn().mockResolvedValue(undefined),
@@ -569,7 +566,6 @@ describe('generate post-step structural cache purge', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateOpenApi,
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
@@ -619,7 +615,6 @@ describe('generate post-step structural cache purge', () => {
       generateModuleDi,
       generateModulePackageSources,
       generateOpenApi,
-      generateModuleFacts: jest.fn().mockResolvedValue(undefined),
     }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({

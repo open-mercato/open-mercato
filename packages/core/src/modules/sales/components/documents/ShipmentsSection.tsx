@@ -23,6 +23,9 @@ import { ShipmentDialog } from './ShipmentDialog'
 import { handleSectionMutationError, readRowUpdatedAt } from './optimisticLock'
 import { extractCustomFieldValues } from './customFieldHelpers'
 import type { OrderLine, ShipmentRow, ShipmentItem } from './shipmentTypes'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 const ADDRESS_SNAPSHOT_KEY = 'shipmentAddressSnapshot'
 const ADDRESS_FORMAT: 'line_first' = 'line_first'
@@ -353,7 +356,7 @@ export function SalesShipmentsSection({
         .filter((entry): entry is ShipmentRow => Boolean(entry))
       setShipments(mapped)
     } catch (err) {
-      console.error('sales.shipments.load', err)
+      logger.error('sales.shipments.load', { err })
       setError(t('sales.documents.shipments.errorLoad', 'Failed to load shipments.'))
     } finally {
       setLoading(false)
@@ -425,7 +428,7 @@ export function SalesShipmentsSection({
         if (handleSectionMutationError(err, t, () => void loadShipments())) {
           return
         }
-        console.error('sales.shipments.delete', err)
+        logger.error('sales.shipments.delete', { err })
         flash(t('sales.documents.shipments.errorDelete', 'Failed to delete shipment.'), 'error')
       }
     },
