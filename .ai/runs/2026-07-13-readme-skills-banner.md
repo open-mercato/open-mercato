@@ -32,4 +32,4 @@
 
 ### Phase 1: Add banner to README
 
-- [ ] 1.1 Insert skills banner into README.md
+- [x] 1.1 Insert skills banner into README.md — e52d331a6
