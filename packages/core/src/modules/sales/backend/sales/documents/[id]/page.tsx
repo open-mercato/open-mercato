@@ -37,6 +37,7 @@ import { mapCrudServerErrorToFormErrors } from '@open-mercato/ui/backend/utils/s
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { cn } from '@open-mercato/shared/lib/utils'
+import { ContactEmailDisplay } from '@open-mercato/core/modules/sales/components/ContactEmailDisplay'
 import { DocumentCustomerCard } from '@open-mercato/core/modules/sales/components/DocumentCustomerCard'
 import { SalesDocumentAddressesSection } from '@open-mercato/core/modules/sales/components/documents/AddressesSection'
 import { SalesDocumentItemsSection } from '@open-mercato/core/modules/sales/components/documents/ItemsSection'
@@ -3974,21 +3975,9 @@ export default function SalesDocumentDetailPage({
   ]
 
   const renderEmailDisplay = React.useCallback(
-    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => {
-      const emailValue = typeof value === 'string' ? value.trim() : ''
-      if (!emailValue.length) {
-        return <span className="text-sm text-muted-foreground">{emptyLabel}</span>
-      }
-      return (
-        <a
-          className="inline-flex items-center gap-2 text-sm text-primary hover:text-primary/80 hover:underline"
-          href={`mailto:${emailValue}`}
-        >
-          <Mail className="h-4 w-4" aria-hidden />
-          <span className="truncate">{emailValue}</span>
-        </a>
-      )
-    },
+    ({ value, emptyLabel }: { value: string | null | undefined; emptyLabel: string }) => (
+      <ContactEmailDisplay value={value} emptyLabel={emptyLabel} />
+    ),
     []
   )
 
