@@ -34,6 +34,15 @@ export const ISO_COUNTRIES: IsoCountry[] = [...RAW_COUNTRIES].sort((a, b) =>
 
 export const COUNTRY_PRIORITY: string[] = ['PL', 'DE', 'ES', 'FR', 'IT', 'US', 'GB', 'CA']
 
+const ENGLISH_COUNTRY_NAME_OVERRIDES: Record<string, string> = {
+  TR: 'Turkey',
+}
+
+function isEnglishLocale(locale?: string): boolean {
+  if (!locale) return true
+  return locale.toLowerCase().split(/[-_]/)[0] === 'en'
+}
+
 const displayNameCache = new Map<string, Intl.DisplayNames>()
 
 function getDisplayNames(locale: string): Intl.DisplayNames | null {
@@ -53,6 +62,10 @@ function getDisplayNames(locale: string): Intl.DisplayNames | null {
 
 export function resolveCountryName(code: string, options: { locale?: string } = {}): string {
   const normalized = code.toUpperCase()
+  if (isEnglishLocale(options.locale)) {
+    const override = ENGLISH_COUNTRY_NAME_OVERRIDES[normalized]
+    if (override) return override
+  }
   const fallback = ISO_COUNTRIES.find((entry) => entry.code === normalized)?.name ?? normalized
   const displayNames = getDisplayNames(options.locale ?? 'en')
   if (!displayNames) return fallback
