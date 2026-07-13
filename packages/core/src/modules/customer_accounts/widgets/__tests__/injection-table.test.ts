@@ -8,20 +8,21 @@ import { injectionTable } from '../injection-table'
 
 const CRUD_FORM_PREFIX = 'crud-form:'
 
-// Suffixes CrudForm appends after the normalized entity id (see CrudFormInjectionSpots).
-const CRUD_FORM_SUFFIXES = [
-  'fields',
-  'header',
-  'footer',
-  'sidebar',
-  'before-fields',
-  'after-fields',
+// The suffix grammar CrudFormInjectionSpots can append after the entity id. CrudForm normalizes
+// every ':' in the entity id to '.', so the entity id is always the first ':'-delimited token and
+// anything after it must match one of these shapes.
+const CRUD_FORM_SUFFIX_PATTERNS = [
+  /^$/,
+  /^(fields|header|footer|sidebar|before-fields|after-fields)$/,
+  /^group:[^:]+$/,
+  /^field:[^:]+:(before|after)$/,
 ]
 
-function entitySegmentOf(spotId: string): string {
+function isReachableCrudFormSpot(spotId: string): boolean {
   const rest = spotId.slice(CRUD_FORM_PREFIX.length)
-  const suffix = CRUD_FORM_SUFFIXES.find((candidate) => rest.endsWith(`:${candidate}`))
-  return suffix ? rest.slice(0, -(suffix.length + 1)) : rest
+  const separatorIndex = rest.indexOf(':')
+  const suffix = separatorIndex === -1 ? '' : rest.slice(separatorIndex + 1)
+  return CRUD_FORM_SUFFIX_PATTERNS.some((pattern) => pattern.test(suffix))
 }
 
 function expectSingleGroupWidget(
@@ -65,15 +66,28 @@ describe('customer_accounts injection table', () => {
     }
   })
 
-  // Regression guard for #3952: CrudForm builds its spot id as `crud-form:${entityId}` with
-  // every ':' normalized to '.', so a registered key whose entity segment still contains ':'
-  // is unreachable by construction — no host can ever request it. Two such keys shipped as
-  // dead "backward compatible" registrations.
+  // Regression guard for #3952: CrudForm builds its spot id as `crud-form:${entityId}` with every
+  // ':' normalized to '.', so a key carrying an un-normalized (colon-form) entity id is unreachable
+  // by construction — no host can ever request it. Two such keys shipped as dead "backward
+  // compatible" registrations.
   it('registers crud-form spots only in the normalized form CrudForm can emit', () => {
     const unreachable = Object.keys(injectionTable)
       .filter((spotId) => spotId.startsWith(CRUD_FORM_PREFIX))
-      .filter((spotId) => entitySegmentOf(spotId).includes(':'))
+      .filter((spotId) => !isReachableCrudFormSpot(spotId))
 
     expect(unreachable).toEqual([])
+  })
+
+  it('accepts the structured crud-form suffixes CrudFormInjectionSpots can emit', () => {
+    for (const spotId of [
+      'crud-form:customers.person',
+      'crud-form:customers.person:fields',
+      'crud-form:customers.person:group:details',
+      'crud-form:customers.person:field:email:before',
+    ]) {
+      expect(isReachableCrudFormSpot(spotId)).toBe(true)
+    }
+
+    expect(isReachableCrudFormSpot('crud-form:customers:customer_person_profile:fields')).toBe(false)
   })
 })
