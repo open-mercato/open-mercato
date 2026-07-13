@@ -1,6 +1,7 @@
 {
   "name": "@open-mercato/shared",
   "version": "0.6.5",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "scripts": {
@@ -47,6 +48,10 @@
       "types": "./src/lib/events/patterns.ts",
       "default": "./dist/lib/events/patterns.js"
     },
+    "./lib/logger": {
+      "types": "./src/lib/logger/index.ts",
+      "default": "./dist/lib/logger/index.js"
+    },
     "./modules/generators": {
       "types": "./src/modules/generators/index.ts",
       "default": "./dist/modules/generators/index.js"
@@ -89,20 +94,21 @@
     }
   },
   "dependencies": {
-    "@mikro-orm/core": "^7.1.4",
-    "@mikro-orm/decorators": "^7.1.4",
-    "@mikro-orm/postgresql": "^7.1.4",
+    "@mikro-orm/core": "^7.1.5",
+    "@mikro-orm/decorators": "^7.1.5",
+    "@mikro-orm/postgresql": "^7.1.5",
     "@open-mercato/cache": "workspace:*",
+    "@types/sanitize-html": "^2.16.1",
     "dotenv": "^17.4.2",
+    "pino": "^10.3.1",
     "rate-limiter-flexible": "^11.2.0",
-    "re2js": "2.8.3",
+    "re2js": "2.8.5",
     "reflect-metadata": "^0.2.2",
     "sanitize-html": "^2.17.5",
     "undici": "^8.4.1"
   },
   "devDependencies": {
     "@types/jest": "^30.0.0",
-    "@types/sanitize-html": "^2.16.1",
     "jest": "^30.4.2",
     "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"

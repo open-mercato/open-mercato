@@ -12,6 +12,9 @@ import {
 import { User } from '@open-mercato/core/modules/auth/data/entities'
 import { E } from '#generated/entities.ids.generated'
 import { createStaffCrudOpenApi, createPagedListResponseSchema, defaultOkResponseSchema } from './openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -159,7 +162,7 @@ const crud = makeCrudRoute({
           if (!('author_email' in record)) record.author_email = meta.email
         })
       } catch (err) {
-        console.warn('[staff.comments] failed to enrich author metadata', err)
+        logger.warn('staff.comments failed to enrich author metadata', { err })
       }
     },
   },

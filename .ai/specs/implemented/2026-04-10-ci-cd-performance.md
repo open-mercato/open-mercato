@@ -4,6 +4,8 @@
 **Status:** Draft  
 **Scope:** All GitHub Actions workflows, Turborepo configuration, Docker build pipeline, integration test architecture
 
+> 2026-06-24 update: PR package preview publishing changed after this analysis. Normal PRs no longer publish npm snapshots automatically; pkg.pr.new previews use manual `Package Previews` dispatches, GitHub CLI, or the `om-auto-publish-pr` skill, and the previous npm snapshot preview path moved to manual `NPM Snapshot Preview` dispatches.
+
 ---
 
 ## 1. What the CI/CD System Currently Does

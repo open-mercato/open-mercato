@@ -130,7 +130,7 @@ When in doubt about whether an action mutates state, treat it as mutating and as
 
 2. **Do pages export `metadata` with `requireAuth`?**
    ```typescript
-   export const metadata = { requireAuth: true, features: ['<module_id>.view'] }
+   export const metadata = { requireAuth: true, requireFeatures: ['<module_id>.view'] }
    ```
    Proposed fix: Add metadata export.
 
@@ -209,12 +209,16 @@ When in doubt about whether an action mutates state, treat it as mutating and as
 **Checklist**:
 
 1. **Is the file in the correct path?**
-   `src/modules/<module_id>/api/<method>/<route-path>.ts`
-   Method folders: `get/`, `post/`, `put/`, `delete/`
+   `src/modules/<module_id>/api/<resource>/route.ts` — all HTTP methods live in a single `route.ts`. Use path-based folders (`<resource>/`, `<resource>/[id]/`), never per-method `get/`/`post/`/`put/`/`delete/` folders.
 
-2. **Does it export a default handler?**
+2. **Does it export per-method handlers plus `metadata`?**
    ```typescript
-   export default handler
+   export const metadata = {
+     GET: { requireAuth: true, requireFeatures: ['<module_id>.view'] },
+     POST: { requireAuth: true, requireFeatures: ['<module_id>.manage'] },
+   }
+   export async function GET(req: Request) { /* ... */ }
+   export async function POST(req: Request) { /* ... */ }
    ```
 
 3. **Does it export `openApi`?**
@@ -290,7 +294,7 @@ export const metadata = { icon: <Trophy className="size-4" /> }
 1. **Check browser network tab** — look for the POST/PUT request and response
 2. **Is the zod schema matching the form fields?** Mismatched field names cause silent failures
 3. **Are required fields filled?** Check form validation
-4. **Does the API route handle the HTTP method?** Check `api/post/` or `api/put/` exists
+4. **Does the API route handle the HTTP method?** Check `api/<resource>/route.ts` exports a `POST`/`PUT` handler (and lists it in `metadata`)
 
 ---
 

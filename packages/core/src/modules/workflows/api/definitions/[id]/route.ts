@@ -24,8 +24,11 @@ import { getCodeWorkflow } from '../../../lib/code-registry'
 import { createGenericOptimisticLockReader } from '@open-mercato/shared/lib/crud/optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from '@open-mercato/shared/lib/crud/optimistic-lock-store'
 import { validateCrudMutationGuard, runCrudMutationGuardAfterSuccess } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 registerOptimisticLockReaderIfAbsent({
   'workflows.definition': createGenericOptimisticLockReader({
@@ -102,7 +105,7 @@ export async function GET(
 
     return NextResponse.json({ data: serializeWorkflowDefinition(definition) })
   } catch (error) {
-    console.error('Error getting workflow definition:', error)
+    logger.error('Error getting workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to get workflow definition' },
       { status: 500 }
@@ -201,7 +204,7 @@ export async function PUT(
       let savedOverride: WorkflowDefinition
       if (existingOverride) {
         try {
-          enforceCommandOptimisticLock({
+          await enforceCommandOptimisticLockWithGuards(container, {
             resourceKind: 'workflows.definition',
             resourceId: existingOverride.id,
             current: existingOverride.updatedAt ?? null,
@@ -269,7 +272,7 @@ export async function PUT(
           )
         }
       } catch (eventError) {
-        console.error('Failed to emit workflows.definition.customized event:', eventError)
+        logger.error('Failed to emit workflows.definition.customized event', { err: eventError })
       }
 
       if (guardResult?.shouldRunAfterSuccess) {
@@ -308,7 +311,7 @@ export async function PUT(
     }
 
     try {
-      enforceCommandOptimisticLock({
+      await enforceCommandOptimisticLockWithGuards(container, {
         resourceKind: 'workflows.definition',
         resourceId: definition.id,
         current: definition.updatedAt ?? null,
@@ -376,7 +379,7 @@ export async function PUT(
       message: 'Workflow definition updated successfully',
     })
   } catch (error) {
-    console.error('Error updating workflow definition:', error)
+    logger.error('Error updating workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to update workflow definition' },
       { status: 500 }
@@ -496,7 +499,7 @@ export async function DELETE(
       message: 'Workflow definition deleted successfully',
     })
   } catch (error) {
-    console.error('Error deleting workflow definition:', error)
+    logger.error('Error deleting workflow definition', { err: error })
     return NextResponse.json(
       { error: 'Failed to delete workflow definition' },
       { status: 500 }

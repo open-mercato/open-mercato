@@ -14,6 +14,7 @@ import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOllama } from 'ai-sdk-ollama'
 import type { EmbeddingProviderId, EmbeddingProviderConfig } from '../types'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../types'
+import { assertSafeOllamaBaseUrl, UnsafeOllamaBaseUrlError } from '../lib/ollama-url-safety'
 
 export type EmbeddingServiceOptions = {
   apiKey?: string
@@ -67,6 +68,15 @@ export class EmbeddingService {
   }
 
   updateConfig(config: EmbeddingProviderConfig): void {
+    if (
+      config.providerId === this.config.providerId &&
+      config.model === this.config.model &&
+      config.dimension === this.config.dimension &&
+      config.outputDimensionality === this.config.outputDimensionality &&
+      config.baseUrl === this.config.baseUrl
+    ) {
+      return
+    }
     this.config = config
     this.clientCache.clear()
   }
@@ -157,6 +167,16 @@ export class EmbeddingService {
       }
       case 'ollama': {
         const baseURL = this.config.baseUrl ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
+        try {
+          assertSafeOllamaBaseUrl(baseURL)
+        } catch (err) {
+          if (err instanceof UnsafeOllamaBaseUrlError) {
+            throw new Error(
+              `[vector.embedding] Ollama base URL rejected (${err.reason}). Set OLLAMA_BASE_URL or OM_SEARCH_OLLAMA_BASE_URL_ALLOWLIST.`,
+            )
+          }
+          throw err
+        }
         client = createOllama({ baseURL })
         break
       }

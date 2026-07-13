@@ -1,3 +1,15 @@
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import {
+  FetchTimeoutError,
+  type FetchWithTimeoutInit,
+  resolveTimeoutMs,
+} from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import {
+  safeOutboundFetch,
+  type HostLookup,
+  type SafeOutboundFetchOptions,
+  type UrlSafetyReason,
+} from '@open-mercato/shared/lib/url-safety'
 import { dedupeStrings, labelFromLocalizedRecord, safeRecord, type AkeneoAttribute, type AkeneoAttributeOption, type AkeneoCategory, type AkeneoChannel, type AkeneoCredentialShape, type AkeneoFamily, type AkeneoFamilyVariant, type AkeneoLocale, type AkeneoProduct, type AkeneoProductModel } from './shared'
 
 type TokenState = {
@@ -31,14 +43,39 @@ type AkeneoMediaFile = {
   }
 }
 
+export type AkeneoClientDeps = {
+  lookupHost?: HostLookup
+  allowPrivate?: boolean
+  fetchImpl?: SafeOutboundFetchOptions['fetchImpl']
+}
+
+export class UnsafeAkeneoUrlError extends Error {
+  public readonly reason: string
+
+  constructor(reason: UrlSafetyReason, message?: string) {
+    super(message ?? `Akeneo URL rejected: ${reason}`)
+    this.name = 'UnsafeAkeneoUrlError'
+    this.reason = reason
+  }
+}
+
 type AkeneoClient = ReturnType<typeof createAkeneoClient>
 
+const AKENEO_URL_SUBJECT = 'Akeneo URL'
 const DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS = ['*.cloud.akeneo.com', '*.akeneo.cloud'] as const
 const ALLOWED_AKENEO_HOSTS_ENV_KEYS = [
   'OM_INTEGRATION_AKENEO_ALLOWED_HOSTS',
   'OPENMERCATO_AKENEO_ALLOWED_HOSTS',
   'AKENEO_ALLOWED_HOSTS',
 ] as const
+const ALLOW_PRIVATE_AKENEO_URLS_ENV_KEYS = [
+  'OM_INTEGRATION_AKENEO_ALLOW_PRIVATE_URLS',
+  'OPENMERCATO_AKENEO_ALLOW_PRIVATE_URLS',
+  'AKENEO_ALLOW_PRIVATE_URLS',
+] as const
+
+const akeneoUrlErrorFactory = (reason: UrlSafetyReason, message: string) =>
+  new UnsafeAkeneoUrlError(reason, message)
 
 function normalizeBaseUrl(url: string): string {
   return url.trim().replace(/\/+$/g, '')
@@ -58,6 +95,16 @@ function readAllowedAkeneoHostPatterns(env: NodeJS.ProcessEnv = process.env): st
   }
 
   return [...DEFAULT_ALLOWED_AKENEO_HOST_PATTERNS]
+}
+
+function isAllowPrivateAkeneoUrlsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  for (const key of ALLOW_PRIVATE_AKENEO_URLS_ENV_KEYS) {
+    const raw = env[key]
+    if (typeof raw === 'string' && raw.trim().length > 0) {
+      return parseBooleanWithDefault(raw, false)
+    }
+  }
+  return false
 }
 
 function matchesAkeneoHostPattern(hostname: string, pattern: string): boolean {
@@ -224,7 +271,52 @@ function clampAkeneoRetryAfterMs(retryAfterHeader: string | null, env: NodeJS.Pr
   return Math.min(Math.max(requestedMs, 0), cap)
 }
 
-export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
+async function safeAkeneoFetchWithTimeout(
+  input: string,
+  init: FetchWithTimeoutInit = {},
+  deps: AkeneoClientDeps = {},
+): Promise<Response> {
+  const { timeoutMs, signal, ...rest } = init
+  const effectiveTimeout = resolveTimeoutMs(timeoutMs)
+  const controller = new AbortController()
+  const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
+    controller.abort(new FetchTimeoutError(input, effectiveTimeout))
+  }, effectiveTimeout)
+
+  const onExternalAbort = () => {
+    controller.abort((signal as AbortSignal | undefined)?.reason)
+  }
+
+  if (signal) {
+    if (signal.aborted) {
+      clearTimeout(timer)
+      throw signal.reason instanceof Error ? signal.reason : new DOMException('Aborted', 'AbortError')
+    }
+    signal.addEventListener('abort', onExternalAbort, { once: true })
+  }
+
+  try {
+    return await safeOutboundFetch(input, { ...rest, signal: controller.signal }, {
+      errorFactory: akeneoUrlErrorFactory,
+      subject: AKENEO_URL_SUBJECT,
+      allowPrivate: deps.allowPrivate ?? isAllowPrivateAkeneoUrlsEnabled(),
+      lookupHost: deps.lookupHost,
+      fetchImpl: deps.fetchImpl,
+    })
+  } catch (err) {
+    if ((err as { name?: string } | null)?.name === 'AbortError') {
+      const reason = (controller.signal as AbortSignal & { reason?: unknown }).reason
+      if (reason instanceof FetchTimeoutError) throw reason
+      if (reason instanceof Error) throw reason
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+    if (signal) signal.removeEventListener('abort', onExternalAbort)
+  }
+}
+
+export function createAkeneoClient(credentialsInput: Record<string, unknown>, deps: AkeneoClientDeps = {}) {
   const credentials = coerceCredentials(credentialsInput)
   const akeneoBaseUrl = new URL(`${credentials.apiUrl}/`)
   const tokenEndpointUrl = new URL('/api/oauth/v1/token', akeneoBaseUrl).toString()
@@ -250,9 +342,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
   }
 
   async function acquirePasswordGrantToken(): Promise<TokenState> {
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await safeAkeneoFetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
-      signal: AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -264,7 +356,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         username: credentials.username,
         password: credentials.password,
       }),
-    })
+    }, deps)
 
     if (!response.ok) {
       const message = await response.text()
@@ -289,9 +381,9 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
 
   async function refreshAccessToken(current: TokenState): Promise<TokenState> {
     if (!current.refreshToken) return acquirePasswordGrantToken()
-    const response = await fetch(tokenEndpointUrl, {
+    const response = await safeAkeneoFetchWithTimeout(tokenEndpointUrl, {
       method: 'POST',
-      signal: AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         'content-type': 'application/json',
@@ -302,7 +394,7 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         client_secret: credentials.clientSecret,
         refresh_token: current.refreshToken,
       }),
-    })
+    }, deps)
 
     if (!response.ok) {
       return acquirePasswordGrantToken()
@@ -338,15 +430,15 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await safeAkeneoFetchWithTimeout(url, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         accept: 'application/json',
         authorization: `Bearer ${token}`,
         ...init.headers,
       },
-    })
+    }, deps)
 
     if (response.status === 401 && !retried) {
       await ensureToken(true)
@@ -387,14 +479,14 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
     const url = resolveAkeneoRequestUrl(pathOrUrl)
     const token = await ensureToken()
 
-    const response = await fetch(url, {
+    const response = await safeAkeneoFetchWithTimeout(url, {
       ...init,
-      signal: init.signal ?? AbortSignal.timeout(resolveAkeneoRequestTimeoutMs()),
+      timeoutMs: resolveAkeneoRequestTimeoutMs(),
       headers: {
         authorization: `Bearer ${token}`,
         ...init.headers,
       },
-    })
+    }, deps)
 
     if (response.status === 401 && !retried) {
       await ensureToken(true)
@@ -478,11 +570,11 @@ export function createAkeneoClient(credentialsInput: Record<string, unknown>) {
         version: typeof result.pim_version === 'string' ? result.pim_version : null,
       }
     } catch {
-      const attrs = await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
+      await readList<AkeneoAttribute>('/api/rest/v1/attributes', {
         limit: 1,
         pagination_type: 'page',
       })
-      return { version: attrs.items.length >= 0 ? null : null }
+      return { version: null }
     }
   }
 

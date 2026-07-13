@@ -16,6 +16,14 @@ import {
   type StaffTeamMemberSelfCreateInput,
   type StaffTeamMemberCreateInput,
 } from '../../../data/validators'
+import {
+  resolveUserFeatures,
+  runStaffMutationGuardAfterSuccess,
+  runStaffMutationGuards,
+} from '../../guards'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['staff.leave_requests.send'] },
@@ -78,7 +86,7 @@ export async function GET(req: Request) {
     })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
-    console.error('staff.teamMembers.self.load failed', err)
+    logger.error('staff.teamMembers.self.load failed', { err })
     return NextResponse.json({ member: null })
   }
 }
@@ -102,6 +110,30 @@ export async function POST(req: Request) {
       throw new CrudHttpError(409, { error: translate('staff.teamMembers.self.exists', 'Team member profile already exists.') })
     }
 
+    const tenantId = auth.tenantId ?? ''
+    const organizationId = ctx.selectedOrganizationId ?? null
+    const guardResult = await runStaffMutationGuards(
+      ctx.container,
+      {
+        tenantId,
+        organizationId,
+        userId: auth.sub,
+        resourceKind: 'staff.team_member',
+        resourceId: auth.sub,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+        mutationPayload: parsed,
+      },
+      resolveUserFeatures(auth),
+    )
+    if (!guardResult.ok) {
+      return NextResponse.json(
+        guardResult.errorBody ?? { error: 'Operation blocked by guard' },
+        { status: guardResult.errorStatus ?? 422 },
+      )
+    }
+
     const commandBus = (ctx.container.resolve('commandBus') as CommandBus)
     const selfInput: StaffTeamMemberCreateInput = {
       ...parsed,
@@ -119,6 +151,20 @@ export async function POST(req: Request) {
         ctx,
       },
     )
+
+    if (guardResult.afterSuccessCallbacks.length) {
+      await runStaffMutationGuardAfterSuccess(guardResult.afterSuccessCallbacks, {
+        tenantId,
+        organizationId,
+        userId: auth.sub,
+        resourceKind: 'staff.team_member',
+        resourceId: result?.memberId ?? auth.sub,
+        operation: 'create',
+        requestMethod: req.method,
+        requestHeaders: req.headers,
+      })
+    }
+
     const response = NextResponse.json({ id: result?.memberId ?? null }, { status: 201 })
     if (logEntry?.undoToken && logEntry?.id && logEntry?.commandId) {
       response.headers.set(
@@ -140,7 +186,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('staff.teamMembers.self.create failed', err)
+    logger.error('staff.teamMembers.self.create failed', { err })
     return NextResponse.json({ error: translate('staff.teamMembers.form.errors.create', 'Failed to create team member.') }, { status: 400 })
   }
 }

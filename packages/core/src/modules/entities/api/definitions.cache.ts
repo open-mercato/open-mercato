@@ -1,4 +1,7 @@
 import type { CacheStrategy } from '@open-mercato/cache'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('entities').child({ component: 'definitions-cache' })
 
 const CACHE_PREFIX = 'entities:definitions'
 export const ENTITY_DEFINITIONS_CACHE_TTL_MS = 5 * 60 * 1000
@@ -54,6 +57,6 @@ export async function invalidateDefinitionsCache(
   try {
     await cache.deleteByTags(targets)
   } catch (err) {
-    console.warn('[entities.definitions.cache] Failed to invalidate cache', err)
+    logger.warn('Failed to invalidate cache', { err })
   }
 }

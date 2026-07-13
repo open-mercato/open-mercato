@@ -7,6 +7,7 @@ import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
   getRecipientUserIdsForFeature: jest.fn(),
+  getScopedNotificationRecipientUserIds: jest.fn(),
 }))
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
@@ -48,6 +49,15 @@ const buildEm = () => {
         where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
       }),
     }),
+    updateTable: () => ({
+      set: () => {
+        const chain: any = {
+          where: () => chain,
+          executeTakeFirst: async () => ({ numUpdatedRows: BigInt(1) }),
+        }
+        return chain
+      },
+    }),
   })
   return em
 }
@@ -55,6 +65,12 @@ const buildEm = () => {
 describe('notification service', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+    recipients.getScopedNotificationRecipientUserIds.mockImplementation(
+      async (_db: unknown, _tenantId: string, _organizationId: string | null, recipientUserIds: string[]) => recipientUserIds,
+    )
   })
 
   it('creates a notification and emits event', async () => {
@@ -80,6 +96,23 @@ describe('notification service', () => {
         tenantId: baseCtx.tenantId,
       })
     )
+  })
+
+  it('rejects a notification whose recipient is outside the caller scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+
+    recipients.getScopedNotificationRecipientUserIds.mockResolvedValue([])
+    em.create.mockImplementation((_entity, data: Notification) => ({ id: 'note-invalid', ...data }))
+
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.create(baseNotificationInput, baseCtx)).rejects.toMatchObject({ status: 404 })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('reuses grouped notification instead of creating duplicates', async () => {
@@ -151,6 +184,36 @@ describe('notification service', () => {
         count: 2,
       }),
     )
+  })
+
+  it('rejects an entire batch when any recipient is outside the caller scope', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const recipients = jest.requireMock('../lib/notificationRecipients') as {
+      getScopedNotificationRecipientUserIds: jest.Mock
+    }
+
+    recipients.getScopedNotificationRecipientUserIds.mockResolvedValue([
+      'e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0',
+    ])
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: `note-${data.recipientUserId}`,
+      ...data,
+    }))
+
+    const service = createNotificationService({ em, eventBus })
+
+    await expect(service.createBatch(
+      {
+        type: 'system',
+        title: 'Hello',
+        recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
+      },
+      baseCtx,
+    )).rejects.toMatchObject({ status: 404 })
+    expect(em.create).not.toHaveBeenCalled()
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalled()
   })
 
   it('returns empty list when no recipients match feature', async () => {
@@ -377,5 +440,152 @@ describe('notification service', () => {
         tenantId: baseCtx.tenantId,
       })
     )
+  })
+
+  it('rejects an already-actioned notification without dispatching the command', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    const container = { resolve: jest.fn() }
+    const service = createNotificationService({ em, eventBus, commandBus, container })
+
+    const notification: Notification = {
+      id: 'note-actioned',
+      recipientUserId: baseCtx.userId ?? null,
+      tenantId: baseCtx.tenantId,
+      status: 'actioned',
+      readAt: new Date(),
+      sourceEntityId: '1f9d8d1c-319f-48d4-b803-77665b6b2510',
+      actionData: {
+        actions: [{ id: 'approve', label: 'Approve', commandId: 'sales.approve' }],
+        primaryActionId: 'approve',
+      },
+    } as Notification
+
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
+
+    await expect(
+      service.executeAction(notification.id, { actionId: 'approve', payload: {} }, baseCtx)
+    ).rejects.toMatchObject({ status: 409 })
+
+    expect(commandBus.execute).not.toHaveBeenCalled()
+  })
+
+  it('releases the claim when the dispatched command fails so the action can be retried', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const commandError = new Error('command exploded')
+    const commandBus = { execute: jest.fn().mockRejectedValue(commandError) }
+    const container = { resolve: jest.fn() }
+
+    // Capture every UPDATE ... SET payload so we can assert the claim is rolled back.
+    const setPayloads: Array<Record<string, unknown>> = []
+    em.getKysely.mockReturnValue({
+      selectFrom: () => ({
+        select: () => ({
+          where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
+        }),
+      }),
+      updateTable: () => ({
+        set: (payload: Record<string, unknown>) => {
+          setPayloads.push(payload)
+          const chain: any = {
+            where: () => chain,
+            executeTakeFirst: async () => ({ numUpdatedRows: BigInt(1) }),
+          }
+          return chain
+        },
+      }),
+    })
+
+    const service = createNotificationService({ em, eventBus, commandBus, container })
+
+    const notification: Notification = {
+      id: 'note-retry',
+      recipientUserId: baseCtx.userId ?? null,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      readAt: null,
+      actionedAt: null,
+      actionTaken: null,
+      sourceEntityId: '1f9d8d1c-319f-48d4-b803-77665b6b2510',
+      actionData: {
+        actions: [{ id: 'approve', label: 'Approve', commandId: 'sales.approve' }],
+        primaryActionId: 'approve',
+      },
+    } as Notification
+
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValue(notification)
+
+    await expect(
+      service.executeAction(notification.id, { actionId: 'approve', payload: {} }, baseCtx)
+    ).rejects.toBe(commandError)
+
+    // First UPDATE claims the notification; the second releases it back to its
+    // prior, retryable state instead of leaving it locked as `actioned`.
+    expect(setPayloads).toHaveLength(2)
+    expect(setPayloads[0]).toMatchObject({ status: 'actioned', action_taken: 'approve' })
+    expect(setPayloads[1]).toMatchObject({ status: 'unread', actioned_at: null, action_taken: null })
+
+    // The failed action did not persist an actioned state or emit the actioned event.
+    expect(em.flush).not.toHaveBeenCalled()
+    expect(eventBus.emit).not.toHaveBeenCalledWith(NOTIFICATION_EVENTS.ACTIONED, expect.anything())
+  })
+
+  it('executes the target command at most once for duplicate concurrent requests', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    const commandBus = { execute: jest.fn().mockResolvedValue({ result: { ok: true } }) }
+    const container = { resolve: jest.fn() }
+
+    // Both requests load the notification before either has actioned it, so the
+    // in-memory status guard cannot stop the race — only the atomic DB claim can.
+    const buildPending = (): Notification => ({
+      id: 'note-race',
+      recipientUserId: baseCtx.userId ?? null,
+      tenantId: baseCtx.tenantId,
+      status: 'unread',
+      readAt: null,
+      sourceEntityId: '1f9d8d1c-319f-48d4-b803-77665b6b2510',
+      actionData: {
+        actions: [{ id: 'approve', label: 'Approve', commandId: 'sales.approve' }],
+        primaryActionId: 'approve',
+      },
+    } as Notification)
+    ;(findOneWithDecryption as jest.Mock).mockImplementation(async () => buildPending())
+
+    // Atomic claim: the first conditional UPDATE wins (1 row), the second loses (0 rows).
+    let claims = 0
+    em.getKysely.mockReturnValue({
+      selectFrom: () => ({
+        select: () => ({
+          where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
+        }),
+      }),
+      updateTable: () => ({
+        set: () => {
+          const chain: any = {
+            where: () => chain,
+            executeTakeFirst: async () => ({ numUpdatedRows: BigInt(claims++ === 0 ? 1 : 0) }),
+          }
+          return chain
+        },
+      }),
+    })
+
+    const service = createNotificationService({ em, eventBus, commandBus, container })
+    const input = { actionId: 'approve', payload: {} }
+
+    const outcomes = await Promise.allSettled([
+      service.executeAction('note-race', input, baseCtx),
+      service.executeAction('note-race', input, baseCtx),
+    ])
+
+    const fulfilled = outcomes.filter((o) => o.status === 'fulfilled')
+    const rejected = outcomes.filter((o) => o.status === 'rejected') as PromiseRejectedResult[]
+    expect(fulfilled).toHaveLength(1)
+    expect(rejected).toHaveLength(1)
+    expect(rejected[0].reason).toMatchObject({ status: 409 })
+    expect(commandBus.execute).toHaveBeenCalledTimes(1)
   })
 })

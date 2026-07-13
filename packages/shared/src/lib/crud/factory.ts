@@ -71,10 +71,13 @@ import { mergeAdvancedFilters } from './advanced-filter-integration'
 import { parseExtensionHeaders } from '../umes/extension-headers'
 import { createGenericOptimisticLockReader } from './optimistic-lock'
 import { registerOptimisticLockReaderIfAbsent } from './optimistic-lock-store'
+import { createLogger } from '../logger'
 
 type RbacServiceLike = {
   getGrantedFeatures: (userId: string, opts: { tenantId: string | null; organizationId: string | null }) => Promise<string[]>
 }
+
+const logger = createLogger('shared').child({ component: 'crud' })
 
 function resolveSortParams(queryParams: Record<string, unknown>) {
   const rawSortField = queryParams.sortField ?? queryParams.sort ?? 'id'
@@ -189,9 +192,13 @@ export type CrudListCustomFieldDecorator = {
 
 export type ListConfig<TList> = {
   schema: z.ZodType<TList>
-  // Optional: use the QueryEngine when entityId + fields are provided
+  // Optional: use the QueryEngine when entityId + fields are provided.
+  // A function form lets a route narrow the projection per request — e.g. drop
+  // large detail-only JSONB columns from grid listings while still selecting
+  // them for single-document fetches (`?id=`). Returning fewer columns avoids
+  // fetching and decrypting blobs the list never renders (#2233).
   entityId?: any
-  fields?: any[]
+  fields?: any[] | ((query: TList, ctx: CrudCtx) => any[])
   sortFieldMap?: Record<string, any>
   buildFilters?: (query: TList, ctx: CrudCtx) => Where<any> | Promise<Where<any>>
   transformItem?: (item: any) => any
@@ -540,8 +547,7 @@ function handleError(err: unknown): Response {
 
   const message = err instanceof Error ? err.message : undefined
   const stack = err instanceof Error ? err.stack : undefined
-  // eslint-disable-next-line no-console
-  console.error('[crud] unexpected error', { message, stack, err })
+  logger.error('Unexpected CRUD error', { message, stack, err })
   const body: Record<string, unknown> = {
     error: 'Internal server error',
     message: 'Something went wrong. Please try again later.',
@@ -611,7 +617,7 @@ async function runGuardAfterSuccessCallbacks(
     try {
       await guard.afterSuccess!({ ...base, metadata: guardMeta })
     } catch (error) {
-      console.error(`[mutation-guard] afterSuccess failed for guard ${guard.id}`, error)
+      logger.error('Mutation guard afterSuccess failed', { guardId: guard.id, err: error })
     }
   }
 }
@@ -701,8 +707,7 @@ export async function flushPendingCrudAccessLogs(): Promise<void> {
 
 function logForbidden(details: Record<string, unknown>) {
   try {
-    // eslint-disable-next-line no-console
-    console.warn('[crud] Forbidden request', details)
+    logger.warn('Forbidden request', details)
   } catch {}
 }
 
@@ -820,7 +825,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
           payloads.map((payload) =>
             Promise.resolve(service.log(payload)).catch((err) => {
               try {
-                console.error('[crud] failed to record access log', { err, payload })
+                logger.error('Failed to record access log', { err, payload })
               } catch {}
               return undefined
             }),
@@ -829,7 +834,7 @@ export async function logCrudAccess(options: LogCrudAccessOptions): Promise<LogC
       }
     } catch (err) {
       try {
-        console.error('[crud] failed to record access logs (batch)', { err, count: payloads.length })
+        logger.error('Failed to record access logs (batch)', { err, count: payloads.length })
       } catch {}
     }
   })()
@@ -1081,7 +1086,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       })
       return decoratedItems
     } catch (err) {
-      console.warn('[crud] failed to decorate custom fields', err)
+      logger.warn('Failed to decorate custom fields', { err })
       endProfile({
         result: 'error',
         entityIds: entityIds.length,
@@ -1654,8 +1659,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
           finishProfile({ result: 'empty_scope', cacheStatus, itemCount: 0, total: 0 })
           return response
         }
+        const resolvedListFields = typeof opts.list.fields === 'function'
+          ? (opts.list.fields as (query: any, ctx: CrudCtx) => any[])(validated as any, ctx)
+          : opts.list.fields
         const queryOpts: any = {
-          fields: opts.list.fields!,
+          fields: resolvedListFields!,
           includeCustomFields: true,
           sort,
           page,
@@ -1702,7 +1710,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
               }
             }
           } catch (err) {
-            console.warn('[CRUD] Translation overlay failed:', err)
+            logger.warn('Translation overlay failed', { err })
           }
           profiler.mark('translation_overlays_complete', { itemCount: transformedItems.length })
         }
@@ -1933,7 +1941,7 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
             }
           }
         } catch (err) {
-          console.warn('[CRUD] Translation overlay (fallback) failed:', err)
+          logger.warn('Translation overlay (fallback) failed', { err })
         }
         profiler.mark('fallback_translation_overlays_complete', { itemCount: Array.isArray(list) ? list.length : 0 })
       }

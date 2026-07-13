@@ -113,9 +113,18 @@ const ADDRESS_TYPE_DEFAULTS: DictionaryDefault[] = [
 const ACTIVITY_TYPE_DEFAULTS: DictionaryDefault[] = [
   { value: 'call', label: 'Call', color: '#2563eb', icon: 'lucide:phone-call' },
   { value: 'email', label: 'Email', color: '#16a34a', icon: 'lucide:mail' },
+  { value: 'event', label: 'Event', color: '#6366f1', icon: 'lucide:calendar' },
   { value: 'meeting', label: 'Meeting', color: '#f59e0b', icon: 'lucide:users' },
   { value: 'note', label: 'Note', color: '#a855f7', icon: 'lucide:notebook' },
   { value: 'task', label: 'Task', color: '#ef4444', icon: 'lucide:check-square' },
+]
+
+export const INTERACTION_STATUS_DEFAULTS: DictionaryDefault[] = [
+  { value: 'planned', label: 'Planned', color: '#2563eb', icon: 'lucide:circle' },
+  { value: 'in_progress', label: 'In progress', color: '#f59e0b', icon: 'lucide:activity' },
+  { value: 'waiting', label: 'Waiting / blocked', color: '#a855f7', icon: 'lucide:pause-circle' },
+  { value: 'done', label: 'Done', color: '#22c55e', icon: 'lucide:check-circle' },
+  { value: 'canceled', label: 'Canceled', color: '#6b7280', icon: 'lucide:x-circle' },
 ]
 
 const JOB_TITLE_DEFAULTS: DictionaryDefault[] = [
@@ -1148,6 +1157,17 @@ async function seedCustomerDictionaries(em: EntityManager, { tenantId, organizat
       tenantId,
       organizationId,
       kind: 'activity_type',
+      value: entry.value,
+      label: entry.label,
+      color: entry.color,
+      icon: entry.icon,
+    })
+  }
+  for (const entry of INTERACTION_STATUS_DEFAULTS) {
+    await ensureDictionaryEntry(em, {
+      tenantId,
+      organizationId,
+      kind: 'interaction_status',
       value: entry.value,
       label: entry.label,
       color: entry.color,

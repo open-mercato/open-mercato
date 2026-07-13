@@ -1,7 +1,7 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { runWorker } from '@open-mercato/queue/worker'
+import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -11,6 +11,7 @@ import { getRedisUrl, getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/
 import { resolveInitDerivedSecrets } from './lib/init-secrets'
 import {
   resolveAutoSpawnWorkersMode,
+  resolveLazySpawnMode,
   resolveLazyPollMs,
   resolveLazyRestart,
 } from './lib/auto-spawn-workers'
@@ -27,7 +28,7 @@ import {
   resolveLazySchedulerPollMs,
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
-import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import { probeEnabledSchedules, startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
 import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
@@ -41,6 +42,7 @@ import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
+import { quotePostgresIdentifier } from './lib/db/identifiers'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -66,10 +68,17 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
   const allWorkers: ModuleWorker[] = []
   for (const mod of modules) {
     if (mod.workers) {
-      allWorkers.push(...mod.workers)
+      allWorkers.push(...mod.workers.map((worker) => ({
+        ...worker,
+        moduleId: worker.moduleId ?? mod.id,
+      })))
     }
   }
   return allWorkers
+}
+
+function shouldEmbedLocalSchedulerInSharedWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanToken(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) === true
 }
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
@@ -909,7 +918,7 @@ export async function run(argv = process.argv) {
             await client.query('BEGIN')
             try {
               for (const t of dropTargets) {
-                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
                 dropped += 1
               }
               await client.query('COMMIT')
@@ -1080,6 +1089,11 @@ export async function run(argv = process.argv) {
         '--email', email,
         '--password', password,
         '--roles', roles,
+        // `mercato init` is the dev/demo bootstrap flow — it explicitly wants
+        // the derived admin@/employee@ demo accounts. Standalone callers of
+        // `mercato auth setup` must opt in themselves; without this flag the
+        // setup command no longer seeds those accounts by default.
+        '--include-demo-users',
       ]
       if (skipPasswordPolicy) {
         setupArgs.push('--skip-password-policy')
@@ -1277,8 +1291,8 @@ export async function run(argv = process.argv) {
 
       if (!subcommand || subcommand === 'help' || subcommand === '--help' || subcommand === '-h') {
         console.log('Usage: yarn mercato module <add|enable|eject> ...')
-        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
-        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+        console.log('  yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
+        console.log('  yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
         console.log('  yarn mercato module eject <moduleId>')
         return 0
       }
@@ -1286,14 +1300,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'add') {
         const { createResolver } = await import('./lib/resolver')
         const { addOfficialModule } = await import('./lib/module-install')
-        const { packageSpec, eject, moduleId } = parseModuleInstallArgs(commandArgs)
+        const { packageSpec, eject, moduleId, allowThirdParty } = parseModuleInstallArgs(commandArgs)
 
         if (!packageSpec) {
-          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module add <packageSpec> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
-        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined)
+        const result = await addOfficialModule(createResolver(), packageSpec, eject, moduleId ?? undefined, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1304,14 +1318,14 @@ export async function run(argv = process.argv) {
       if (subcommand === 'enable') {
         const packageName = commandArgs.find((arg) => !arg.startsWith('-'))
         if (!packageName) {
-          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject]')
+          console.error('Usage: yarn mercato module enable <packageName> [--module <moduleId>] [--eject] [--allow-third-party]')
           return 1
         }
 
         const { createResolver } = await import('./lib/resolver')
         const { enableOfficialModule } = await import('./lib/module-install')
-        const { moduleId, eject } = parseModuleInstallArgs(commandArgs)
-        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject)
+        const { moduleId, eject, allowThirdParty } = parseModuleInstallArgs(commandArgs)
+        const result = await enableOfficialModule(createResolver(), packageName, moduleId ?? undefined, eject, allowThirdParty)
         console.log(`\n✅ Module "${result.moduleId}" enabled from ${result.from}.\n`)
         console.log('Next steps:')
         console.log('  1. Review generated files if needed: .mercato/generated/')
@@ -1538,6 +1552,7 @@ export async function run(argv = process.argv) {
         command: 'worker',
         run: async (args: string[]) => {
           const isAllQueues = args.includes('--all')
+          const runSchedulerInWorker = isAllQueues && args.includes('--with-scheduler')
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
@@ -1605,6 +1620,26 @@ export async function run(argv = process.argv) {
             })
 
             await Promise.all(workerPromises)
+
+            if (runSchedulerInWorker) {
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              if (queueStrategy !== 'local') {
+                throw new Error('[worker] --with-scheduler is supported only with QUEUE_STRATEGY=local.')
+              }
+              const schedulerContainer = await createRequestContainer()
+              const localScheduler = schedulerContainer.resolve('localSchedulerService') as {
+                start?: () => Promise<void>
+                stop?: () => Promise<void>
+              } | undefined
+              if (!localScheduler?.start || !localScheduler.stop) {
+                throw new Error('[worker] Local scheduler service is unavailable.')
+              }
+              await localScheduler.start()
+              registerWorkerShutdownHook(async () => {
+                await localScheduler.stop?.()
+              })
+              console.log('[worker] Local scheduler started in the shared worker process.')
+            }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')
 
@@ -2061,6 +2096,13 @@ export async function run(argv = process.argv) {
             while (!stopping) {
               envReloader.reload()
               const runtimeEnv = buildServerProcessEnvironment(process.env)
+              // buildServerProcessEnvironment forces NODE_ENV=production, so the
+              // logging facade's dev defaults (pretty output, debug level) never
+              // apply to the spawned Next.js/worker/scheduler processes on their
+              // own — default them here for the dev command, respecting explicit
+              // user overrides.
+              if (runtimeEnv.OM_LOG_PRETTY === undefined) runtimeEnv.OM_LOG_PRETTY = '1'
+              if (runtimeEnv.OM_LOG_LEVEL === undefined) runtimeEnv.OM_LOG_LEVEL = 'debug'
               const autoSpawnWorkersMode = resolveAutoSpawnWorkersMode(process.env)
               // Guard the default-on events single-delivery: if this process runs
               // no events worker, fall back to safe inline dual-dispatch so
@@ -2071,6 +2113,13 @@ export async function run(argv = process.argv) {
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const embedSchedulerInSharedWorker =
+                shouldEmbedLocalSchedulerInSharedWorker(process.env)
+                && queueStrategy === 'local'
+                && autoSpawnWorkersMode === 'lazy'
+                && resolveLazySpawnMode(process.env) === 'shared'
+                && autoSpawnSchedulerMode !== 'off'
+                && schedulerCommand.status === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2109,7 +2158,11 @@ export async function run(argv = process.argv) {
                   if (discoveredWorkerQueues.length === 0) {
                     console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
                   } else if (autoSpawnWorkersMode === 'lazy') {
-                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                    const lazySpawnMode = resolveLazySpawnMode(process.env)
+                    const lazyModeHint = lazySpawnMode === 'shared'
+                      ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                      : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                    console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                     activeLazySupervisor = startLazyWorkerSupervisor({
                       mercatoBin,
                       appDir,
@@ -2117,6 +2170,24 @@ export async function run(argv = process.argv) {
                       workers: discoveredWorkers,
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                      spawnMode: lazySpawnMode,
+                      ...(embedSchedulerInSharedWorker
+                        ? {
+                            sharedWorkerArgs: ['--with-scheduler'],
+                            shouldStartSharedWorker: async () => {
+                              const schedules = await probeEnabledSchedules(runtimeEnv)
+                              return !schedules.error && schedules.enabledSchedules > 0
+                            },
+                            ...(resolveLazySchedulerRestart(process.env)
+                              ? {
+                                  shouldRestartSharedWorker: async () => {
+                                    const schedules = await probeEnabledSchedules(runtimeEnv)
+                                    return !schedules.error && schedules.enabledSchedules > 0
+                                  },
+                                }
+                              : {}),
+                          }
+                        : {}),
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2130,7 +2201,9 @@ export async function run(argv = process.argv) {
                   }
                 }
 
-                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                if (embedSchedulerInSharedWorker && activeLazySupervisor) {
+                  console.log('[server] Local scheduler will run inside the lazy shared worker process.')
+                } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
                   if (schedulerCommand.status !== 'ok') {
                     console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
@@ -2314,7 +2387,11 @@ export async function run(argv = process.argv) {
               if (discoveredWorkerQueues.length === 0) {
                 console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
               } else if (autoSpawnWorkersMode === 'lazy') {
-                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched).`)
+                const lazySpawnMode = resolveLazySpawnMode(process.env)
+                const lazyModeHint = lazySpawnMode === 'shared'
+                  ? 'shared worker mode — one `queue worker --all` process; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=per-queue to change'
+                  : 'per-queue worker mode — one process per queue; set OM_AUTO_SPAWN_WORKERS_LAZY_MODE=shared to change'
+                console.log(`[server] Lazy worker auto-spawn enabled — workers will start on first job (${discoveredWorkerQueues.length} queue(s) watched, ${lazyModeHint}).`)
                 activeLazySupervisor = startLazyWorkerSupervisor({
                   mercatoBin,
                   appDir,
@@ -2322,6 +2399,7 @@ export async function run(argv = process.argv) {
                   workers: discoveredWorkers,
                   pollMs: resolveLazyPollMs(process.env),
                   restartOnUnexpectedExit: resolveLazyRestart(process.env),
+                  spawnMode: lazySpawnMode,
                 })
               } else {
                 console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')

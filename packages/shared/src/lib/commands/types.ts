@@ -4,6 +4,29 @@ import { randomUUID } from 'crypto'
 import type { AuthContext } from '../auth/server'
 import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 
+/**
+ * Bulk-import / backfill deferral flags. When a command runs under a context that
+ * carries this, the command bus and data engine suppress the heavy per-record side
+ * effects flagged below so a large backfill can defer them to a single batched pass.
+ *
+ * IMPORTANT — the caller owns restoring whatever it suppresses. With `skipReindex`
+ * the `query_index` projection (and its search tokens) is stale for every record
+ * written under this context until the caller runs a batched `query_index rebuild`
+ * for the affected entity types at end-of-run.
+ *
+ * Concurrency: these flags are read from the context and threaded as a local
+ * parameter through the side-effect flush — no shared engine state is mutated — so
+ * two commands running concurrently with different flags never clobber each other.
+ */
+export type BulkImportSuppression = {
+  /** Skip the inline `query_index.upsert_one` / `delete_one` reindex (rebuild after the run). */
+  skipReindex?: boolean
+  /** Skip the per-record `<module>.<entity>.<action>` domain event emission. */
+  skipEvents?: boolean
+  /** Advisory: handlers that fan out per-record notifications SHOULD honor this and skip them. */
+  skipNotifications?: boolean
+}
+
 export type CommandRuntimeContext = {
   container: AwilixContainer
   auth: AuthContext | null
@@ -12,6 +35,13 @@ export type CommandRuntimeContext = {
   organizationIds: string[] | null
   request?: Request
   syncOrigin?: string | null
+  /**
+   * See {@link BulkImportSuppression}. Set by bulk backfill callers to defer heavy
+   * per-record side effects (reindex, events, notifications). The caller MUST rebuild
+   * the `query_index` for the affected entity types after the run when `skipReindex`
+   * is set. Unset for normal (interactive) writes — they get all side effects.
+   */
+  bulkImport?: BulkImportSuppression
   /**
    * Marks a trusted server-side invocation (CLI seeding, tenant setup) that runs
    * without an authenticated end-user actor. Commands that gate writes behind a

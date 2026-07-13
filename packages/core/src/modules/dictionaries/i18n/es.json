@@ -80,6 +80,7 @@
   "dictionaries.config.success.delete": "Diccionario eliminado.",
   "dictionaries.config.success.update": "Diccionario actualizado.",
   "dictionaries.customFields.allowInlineCreate": "Permitir creación en línea dentro de los formularios",
+  "dictionaries.customFields.allowMultiple": "Permitir seleccionar varias entradas",
   "dictionaries.customFields.defaultValue": "Valor predeterminado",
   "dictionaries.customFields.defaultValueNone": "Sin valor predeterminado",
   "dictionaries.customFields.defaultValueStale": "No se encontró la entrada predeterminada; puede haber sido eliminada o renombrada.",

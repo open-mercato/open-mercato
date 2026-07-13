@@ -45,6 +45,9 @@ import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/l
 import { E } from '#generated/entities.ids.generated'
 import { findWithDecryption, findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isMissingDealStageTransitionTable, warnMissingDealStageTransitionTable } from '../lib/dealStageTransitionTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const DEAL_ENTITY_ID = 'customers:customer_deal'
 const dealCrudIndexer: CrudIndexerConfig<CustomerDeal> = {
@@ -772,7 +775,7 @@ const updateDealCommand: CommandHandler<DealUpdateInput, { dealId: string }> = {
           )
         }
       } catch (err) {
-        console.warn('[customers.deals.update] deal closure event emit failed', closureEvent, err)
+        logger.warn('Deal closure event emit failed', { component: 'deals.update', closureEvent, err })
       }
     }
 

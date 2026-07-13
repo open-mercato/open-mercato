@@ -38,6 +38,9 @@ import {
 import type { ProductMediaItem } from '@open-mercato/core/modules/catalog/components/products/ProductMediaManager'
 import { buildAttachmentImageUrl, slugifyAttachmentFileName } from '@open-mercato/core/modules/attachments/lib/imageUrls'
 import { fetchOptionSchemaTemplate } from '../../../optionSchemaClient'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('catalog')
 
 type ProductResponse = {
   items?: Array<{
@@ -83,7 +86,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
         const items = Array.isArray(payload.items) ? payload.items : []
         setPriceKinds(items.map((item) => normalizePriceKindSummary(item)).filter((item): item is PriceKindSummary => !!item))
       } catch (err) {
-        console.error('catalog.price-kinds.fetch failed', err)
+        logger.error('catalog.price-kinds.fetch failed', { err })
         setPriceKinds([])
       }
     }
@@ -121,7 +124,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
           }),
         )
       } catch (err) {
-        console.error('sales.tax-rates.fetch failed', err)
+        logger.error('sales.tax-rates.fetch failed', { err })
         setTaxRates([])
       }
     }
@@ -191,7 +194,7 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
           setInitialValues(base)
         }
       } catch (err) {
-        console.error('catalog.variants.loadProduct failed', err)
+        logger.error('catalog.variants.loadProduct failed', { err })
         if (!cancelled) {
           const message = err instanceof Error && err.message ? err.message : t('catalog.variants.form.errors.load', 'Failed to load product context.')
           setError(message)
@@ -367,6 +370,8 @@ export default function CreateVariantPage({ params }: { params?: { productId?: s
               name,
               sku: values.sku?.trim() || undefined,
               barcode: values.barcode?.trim() || undefined,
+              gtinType: values.gtinType ?? null,
+              hsCode: values.hsCode?.trim() || null,
               isDefault: Boolean(values.isDefault),
               isActive: values.isActive !== false,
               optionValues: Object.keys(values.optionValues ?? {}).length ? values.optionValues : undefined,

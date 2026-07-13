@@ -13,16 +13,21 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
 import { deleteCrud } from '@open-mercato/ui/backend/utils/crud'
 import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { renderDictionaryColor, renderDictionaryIcon } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { Package } from 'lucide-react'
 import { useOrganizationScopeVersion } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '@open-mercato/shared/lib/time'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('resources').child({ component: 'resource-types-page' })
 
 const PAGE_SIZE = 50
 const DESCRIPTION_CLASSNAME = 'line-clamp-3 whitespace-pre-line text-sm text-foreground'
 const SUBTEXT_CLASSNAME = 'line-clamp-2 text-xs text-muted-foreground'
+const RESOURCE_TYPES_MUTATION_CONTEXT_ID = 'resources.resource-types.list'
 
 type ResourceTypeRow = {
   id: string
@@ -40,6 +45,13 @@ type ResourceTypesResponse = {
   totalPages?: number
 }
 
+type ResourceTypesMutationContext = {
+  formId: string
+  resourceKind: string
+  resourceId?: string
+  retryLastMutation: () => Promise<boolean>
+}
+
 export default function ResourcesResourceTypesPage() {
   const translate = useT()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -53,6 +65,27 @@ export default function ResourcesResourceTypesPage() {
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
   const [reloadToken, setReloadToken] = React.useState(0)
+  const { runMutation, retryLastMutation } = useGuardedMutation<ResourceTypesMutationContext>({
+    contextId: RESOURCE_TYPES_MUTATION_CONTEXT_ID,
+    blockedMessage: translate('ui.forms.flash.saveBlocked', 'Save blocked by validation'),
+  })
+  const runResourceTypeMutation = React.useCallback(
+    async <T,>(
+      operation: () => Promise<T>,
+      mutationPayload: Record<string, unknown>,
+      resourceId?: string,
+    ): Promise<T> => runMutation({
+      operation,
+      mutationPayload,
+      context: {
+        formId: RESOURCE_TYPES_MUTATION_CONTEXT_ID,
+        resourceKind: 'resources.resourceType',
+        resourceId,
+        retryLastMutation,
+      },
+    }),
+    [retryLastMutation, runMutation],
+  )
 
   const translations = React.useMemo(() => ({
     title: translate('resources.resourceTypes.page.title', 'Resource types'),
@@ -178,6 +211,7 @@ export default function ResourcesResourceTypesPage() {
       const params = new URLSearchParams({
         page: String(page),
         pageSize: String(PAGE_SIZE),
+        withResourceCounts: 'true',
       })
       const sort = sorting[0]
       if (sort?.id) {
@@ -197,7 +231,7 @@ export default function ResourcesResourceTypesPage() {
       setTotal(typeof payload.total === 'number' ? payload.total : items.length)
       setTotalPages(typeof payload.totalPages === 'number' ? payload.totalPages : Math.max(1, Math.ceil(items.length / PAGE_SIZE)))
     } catch (error) {
-      console.error('resources.resource-types.list', error)
+      logger.error('Failed to list resource types', { err: error })
       flash(translations.errors.load, 'error')
     } finally {
       setIsLoading(false)
@@ -230,16 +264,20 @@ export default function ResourcesResourceTypesPage() {
     if (!confirmed) return
     try {
       const headers = buildOptimisticLockHeader(entry.updatedAt)
-      await withScopedApiRequestHeaders(headers, () => (
-        deleteCrud('resources/resource-types', entry.id, { errorMessage: translations.errors.delete })
-      ))
+      await runResourceTypeMutation(
+        () => withScopedApiRequestHeaders(headers, () => (
+          deleteCrud('resources/resource-types', entry.id, { errorMessage: translations.errors.delete })
+        )),
+        { operation: 'deleteResourceType', id: entry.id, updatedAt: entry.updatedAt ?? null },
+        entry.id,
+      )
       flash(translations.messages.deleted, 'success')
       handleRefresh()
     } catch (error) {
-      console.error('resources.resource-types.delete', error)
+      logger.error('Failed to delete resource type', { err: error })
       flash(translations.errors.delete, 'error')
     }
-  }, [confirm, handleRefresh, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])
+  }, [confirm, handleRefresh, runResourceTypeMutation, translations.actions.deleteConfirm, translations.errors.delete, translations.errors.deleteAssigned, translations.messages.deleted])
 
   return (
     <Page>

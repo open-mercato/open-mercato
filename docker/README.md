@@ -132,9 +132,13 @@ yarn docker:mercato eject currencies
 yarn docker:mercato test:integration
 ```
 
-> **Tip:** You can override which compose file is targeted by setting `DOCKER_COMPOSE_FILE`:
+> **Tip — custom compose file**: If you run a personalised stack (e.g. `docker-compose.fullapp.dev.local.yml`),
+> the `docker:*` commands discover it automatically **without any extra configuration**, as long as the file name
+> matches `docker-compose.*dev*.local.yml` and lives in the repo root. Add it to `.gitignore` to keep it local.
+>
+> You can also force a specific compose file at any time with `DOCKER_COMPOSE_FILE`:
 > ```
-> DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:generate
+> DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
 > ```
 
 ### Script Compatibility Matrix
@@ -153,7 +157,7 @@ yarn docker:mercato test:integration
 | `lint` | works | `yarn docker:lint` | unsupported-by-design | Dev deps not in production image |
 | `typecheck` | works | `yarn docker:typecheck` | unsupported-by-design | Dev deps not in production image |
 | `test` | works | `yarn docker:test` | unsupported-by-design | Dev deps not in production image |
-| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; use container |
+| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; external skills need network (`npx skills add`, skip with `--no-external`); use container |
 | `clean:generated` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `clean:packages` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `mcp:serve` | works | works-with-wrapper | unsupported-by-design | Use `docker compose exec app yarn mcp:serve` |
@@ -167,6 +171,17 @@ The helper checks for a running `app` service. Ensure the stack is up:
 ```
 docker compose -f docker-compose.fullapp.dev.yml ps
 ```
+
+If you started the stack with a **custom compose file**, either name it `docker-compose.*dev*.local.yml`
+(auto-discovered) or set `DOCKER_COMPOSE_FILE` before the command:
+```
+DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+```
+
+**Compose file fails to parse / probe warning**
+
+If you see `[docker-exec] Warning: skipping "…" — compose probe failed`, the compose file has a
+configuration or interpolation error. Fix the file, or point directly to a working one via `DOCKER_COMPOSE_FILE`.
 
 **Command times out or hangs**
 
