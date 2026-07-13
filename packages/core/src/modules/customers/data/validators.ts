@@ -428,7 +428,9 @@ const interactionParticipantSchema = z.object({
 
 const interactionLinkedEntitySchema = z.object({
   id: z.string().uuid(),
-  type: z.enum(['company', 'deal', 'offer']),
+  // 'resource' links calendar events to bookable resources (rooms, cars,
+  // equipment) from the optional resources module (#3552).
+  type: z.enum(['company', 'deal', 'offer', 'resource']),
   label: z.string().trim().max(500),
 })
 
