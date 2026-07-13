@@ -1,0 +1,179 @@
+---
+title: Exporting Data
+description: Download list endpoints as CSV, JSON, XML, or Markdown files over the REST API.
+---
+
+import OpenApiExplorerBanner from '@site/src/components/OpenApiExplorerBanner';
+
+<OpenApiExplorerBanner />
+
+Most list endpoints in Open Mercato can return a downloadable file instead of a paginated JSON page. Export is a **cross-cutting capability of the CRUD factory**: you do not call a separate `/export` route — you add a `format` query parameter to the same list URL you already use. This page documents that contract plus the two bespoke export endpoints (custom entity records and audit logs).
+
+```bash
+export BASE_URL="http://localhost:3000/api"
+export API_KEY="<paste your API key secret here>"
+```
+
+All `curl` examples reuse these variables. Provision the API key with the same features the underlying list endpoint requires (see [Managing API keys](../user-guide/api-keys)).
+
+## How exporting works
+
+- **Same URL, extra parameter.** Add `?format=csv` (or `json`, `xml`, `markdown`) to any list endpoint. When `format` is present, the handler serializes the rows to a file and returns them as an attachment instead of the usual `{ items, total, page, pageSize, totalPages }` body.
+- **Filters carry over.** Export reuses the exact query the grid would run — `search`, `sortField`/`sortDir`, `?ids=`, and every custom-field (`cf_*`) filter apply. "Export what you see" is the mental model.
+- **Synchronous download.** There is no export job to poll. The handler fetches the full result set page-by-page inside the request (batched, default 1000 rows per page), serializes it once, and returns the file. Large exports therefore hold the whole result set in memory for the duration of the request — keep filters tight for very large tables.
+- **Auth is inherited.** Export shares the list endpoint's `GET` guard (`requireAuth` + `requireFeatures`). There is no separate export permission, and tenant/organization scoping is applied exactly as for a normal list.
+
+The serializers live in `packages/shared/src/lib/crud/exporters.ts`; the CRUD factory wires them into every list route in `packages/shared/src/lib/crud/factory.ts`.
+
+## Exporting any CRUD list endpoint
+
+Export is **enabled by default** on every list endpoint built with `makeCrudRoute`. A route only turns it off with `list.export.enabled = false`, or narrows the offered formats with `list.export.formats` (see [Configuring export on a route](#configuring-export-on-a-route)).
+
+### Query parameters
+
+| Parameter | Values | Description |
+|-----------|--------|-------------|
+| `format` | `csv` \| `json` \| `xml` \| `markdown` | **Required to trigger an export.** Case-insensitive; MIME aliases (`application/json`, `application/xml`, `text/markdown`) and `md` are also accepted. An unknown/unavailable value falls through to a normal JSON list response. |
+| `exportScope` | `view` (default) \| `full` | `view` exports the grid projection (the same columns the list shows). `full` exports the full raw records — all fields, including flattened custom fields, with internal `_meta`/enricher fields removed. `export_scope` is accepted as a snake-case alias. |
+| `full` | `true` \| `false` | Alias for `exportScope=full`. |
+| `all` | `true` \| `false` | Bypasses pagination; the admin UI sets it on full exports. |
+
+Every filter, search, and sort parameter the list endpoint already supports also applies to the export.
+
+### Available formats
+
+| `format` | Content-Type | File extension |
+|----------|--------------|----------------|
+| `csv` | `text/csv; charset=utf-8` | `.csv` |
+| `json` | `application/json; charset=utf-8` | `.json` |
+| `xml` | `application/xml; charset=utf-8` | `.xml` |
+| `markdown` | `text/markdown; charset=utf-8` | `.md` |
+
+- **CSV** — comma-delimited with RFC-style quoting (values containing `"`, `,`, or newlines are quoted). The delimiter is fixed at `,`.
+- **JSON** — an array of objects keyed by the human-readable column headers, pretty-printed with two-space indentation.
+- **XML** — a `<records>` document with one `<record>` per row; tags are sanitized from the field names.
+- **Markdown** — a GitHub-style pipe table.
+
+### Response
+
+The body is the serialized file. Two headers describe it:
+
+- `content-type` — per the table above.
+- `content-disposition: attachment; filename="<name>.<ext>"` — the filename defaults to the entity name, with a `_full` suffix on full-scope exports (for example `people.csv` or `people_full.json`). A route can override it via `list.export.filename`.
+
+When the query index backing the list is known to be incomplete, the response also carries an `x-om-partial-index` header with a JSON payload describing the gap, so clients can warn that the export may be missing rows.
+
+### Examples
+
+Export the current filtered view of a list as CSV:
+
+```bash
+curl -X GET "$BASE_URL/customers/people?format=csv&search=acme&sortField=created_at&sortDir=desc" \
+  -H "X-Api-Key: $API_KEY" \
+  -o people.csv
+```
+
+Export full raw records as JSON:
+
+```bash
+curl -X GET "$BASE_URL/customers/people?format=json&exportScope=full&all=true" \
+  -H "X-Api-Key: $API_KEY" \
+  -o people_full.json
+```
+
+Export a specific subset by id as Markdown:
+
+```bash
+curl -X GET "$BASE_URL/catalog/products?format=markdown&ids=$PRODUCT_A,$PRODUCT_B" \
+  -H "X-Api-Key: $API_KEY" \
+  -o products.md
+```
+
+The same pattern works for any `makeCrudRoute` list, e.g. `catalog/products`, `sales/<document>`, `customers/companies`, and `customers/deals`.
+
+### Column selection
+
+There is no per-request column-selection parameter. The exported columns are fixed by the route:
+
+- `view` scope uses `list.export.columns` if configured, otherwise the legacy `list.csv` headers/rows, otherwise every key on the projected record.
+- `full` scope emits every field on the raw record (custom-field `cf_` prefixes stripped), minus `_meta` and `_`-prefixed enricher fields, which are always removed from exports.
+
+## Exporting custom entity records
+
+Custom (EAV) entity records have their own list endpoint, and it supports the same `format` parameter. See the [Entities & Custom Fields API](./entities) for the full endpoint.
+
+- **Endpoint:** `GET /entities/records`
+- **Feature:** `entities.records.view`
+- **Required:** `entityId` (which custom entity to export)
+- **Export parameters:** `format=csv|json|xml|markdown`, `exportScope=full`, `full=true`, `all=true` — plus the endpoint's own paging, sorting, `search`, and `cf_*` filters.
+- **Filename:** `<entityId>[_full].<ext>`.
+
+```bash
+curl -X GET "$BASE_URL/entities/records?entityId=example.todo&format=csv" \
+  -H "X-Api-Key: $API_KEY" \
+  -o todos.csv
+```
+
+Implementation: `packages/core/src/modules/entities/api/records.ts`.
+
+## Exporting audit logs
+
+The audit-log changelog has a dedicated export endpoint that always returns CSV.
+
+- **Endpoint:** `GET /audit-logs/actions/export`
+- **Feature:** `audit_logs.view_self` (holders of `audit_logs.view_tenant` can widen the scope to other actors and organizations; without it the export is scoped to the caller's own actions)
+- **Format:** CSV only — there is no `format` parameter.
+- **Filename:** `changelog-export.csv`
+- **Columns:** `When`, `User`, `Action`, `Field`, `Old Value`, `New Value`, `Source` (one row per field change, or a single summary row when an action recorded no field-level changes).
+
+Filter parameters (all optional):
+
+| Parameter | Description |
+|-----------|-------------|
+| `organizationId` | Limit to a specific organization (must be in the caller's allowed scope). |
+| `actorUserId` | Filter by actor. Single UUID or comma-separated list (tenant administrators only). |
+| `resourceKind` / `resourceId` | Filter by resource type (e.g. `order`, `product`) and/or a specific record. |
+| `actionType` | `create`, `edit`, `delete`, `assign`, … — single value or comma-separated list. |
+| `fieldName` | Only entries where the given field(s) changed. |
+| `includeRelated` | `true`/`false` — include changes to child entities linked via parent resource. |
+| `undoableOnly` | `true`/`false` — only undoable actions. |
+| `limit` | Max rows (default 1000, capped at 1000). |
+| `sortField` | `createdAt` \| `user` \| `action` \| `field` \| `source`. |
+| `sortDir` | `asc` \| `desc`. |
+| `before` / `after` | ISO-8601 timestamps bounding the range. |
+
+```bash
+curl -X GET "$BASE_URL/audit-logs/actions/export?resourceKind=order&actionType=edit,delete&after=2026-01-01T00:00:00Z" \
+  -H "X-Api-Key: $API_KEY" \
+  -o changelog.csv
+```
+
+Implementation: `packages/core/src/modules/audit_logs/api/audit-logs/actions/export/route.ts`.
+
+## Configuring export on a route
+
+Module authors control export behavior through the `list.export` block passed to `makeCrudRoute`. See the [CRUD Factory reference](../framework/api/crud-factory#export-configuration) for the full option set.
+
+```ts
+list: {
+  entityId: E.customers.person,
+  export: {
+    enabled: true,                 // default true; set false to disable export entirely
+    formats: ['csv', 'json'],      // default: all four; restrict the offered set
+    filename: 'customers_export',  // string or (format) => string
+    columns: [                     // view-scope column projection
+      { field: 'id', header: 'ID' },
+      { field: 'display_name', header: 'Name' },
+      { field: 'cf:priority', header: 'Priority' },
+    ],
+    batchSize: 1000,               // rows per in-request fetch page (clamped 100–10000)
+  },
+}
+```
+
+## Notes and limitations
+
+- **Synchronous, in-memory.** Exports are not backed by a queue or background job. The whole result set is fetched and held in memory before the file is returned — apply filters for very large datasets.
+- **Fixed CSV delimiter.** CSV always uses `,`; there is no delimiter option.
+- **Stripped fields.** Response-enricher output (`_`-prefixed) and internal `_meta` are never included in exports.
+- **Not the same as Data Sync.** The `data_sync` module also uses the word "export" to mean pushing data *out* to an external system. That is a separate, asynchronous feature (`POST /api/data_sync/run`) documented in the [Integrations & Data Sync API](./integrations-data-sync) — not a file download.
