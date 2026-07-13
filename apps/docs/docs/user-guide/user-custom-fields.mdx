@@ -21,6 +21,7 @@ export const entities = [
     entityId('auth', 'user'),
     [
       cf.text('job_title', { label: 'Job title', formEditable: true, filterable: true }),
+      cf.phone('work_phone', { label: 'Work phone', formEditable: true, filterable: true }),
       cf.enum('language_pref', {
         label: 'Preferred language',
         options: ['en', 'pl', 'es'],

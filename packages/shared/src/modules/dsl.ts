@@ -24,6 +24,7 @@ export const cf = {
   boolean: (key: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind'> = {}): CustomFieldDefinition => ({ key, kind: 'boolean', ...opts }),
   select: (key: string, options: string[], opts: Omit<CustomFieldDefinition, 'key' | 'kind' | 'options'> = {}): CustomFieldDefinition => ({ key, kind: 'select', options, ...opts }),
   currency: (key: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind'> = {}): CustomFieldDefinition => ({ key, kind: 'currency', ...opts }),
+  phone: (key: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind'> = {}): CustomFieldDefinition => ({ key, kind: 'phone', ...opts }),
   date: (key: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind'> = {}): CustomFieldDefinition => ({ key, kind: 'date', ...opts }),
   datetime: (key: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind'> = {}): CustomFieldDefinition => ({ key, kind: 'datetime', ...opts }),
   dictionary: (key: string, dictionaryId: string, opts: Omit<CustomFieldDefinition, 'key' | 'kind' | 'dictionaryId'> = {}): CustomFieldDefinition => ({ key, kind: 'dictionary', dictionaryId, ...opts }),
