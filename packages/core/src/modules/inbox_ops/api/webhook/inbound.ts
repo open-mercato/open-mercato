@@ -12,6 +12,9 @@ import { InboxSettings, InboxEmail } from '../../data/entities'
 import { parseInboundEmail } from '../../lib/emailParser'
 import { checkRateLimit } from '../../lib/rateLimiter'
 import { emitInboxOpsEvent } from '../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'webhook' })
 
 export const metadata = {
   POST: { requireAuth: false },
@@ -145,7 +148,7 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
   if (customSig) {
     const webhookSecret = process.env.INBOX_OPS_WEBHOOK_SECRET
     if (!webhookSecret) {
-      console.error('[inbox_ops:webhook] INBOX_OPS_WEBHOOK_SECRET not configured')
+      logger.error('INBOX_OPS_WEBHOOK_SECRET not configured')
       return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
     }
     const timestamp = req.headers.get('x-webhook-timestamp') || ''
@@ -168,7 +171,7 @@ async function verifyAndParse(req: Request, rawBody: string): Promise<
   if (svixId) {
     const signingSecret = process.env.RESEND_WEBHOOK_SIGNING_SECRET
     if (!signingSecret) {
-      console.error('[inbox_ops:webhook] RESEND_WEBHOOK_SIGNING_SECRET not configured')
+      logger.error('RESEND_WEBHOOK_SIGNING_SECRET not configured')
       return { ok: false, response: NextResponse.json({ error: 'Service unavailable' }, { status: 503 }) }
     }
     const headers: Record<string, string> = {
@@ -204,7 +207,7 @@ export async function POST(req: Request) {
   const hasCustomSecret = Boolean(process.env.INBOX_OPS_WEBHOOK_SECRET)
   const hasResendSecret = Boolean(process.env.RESEND_WEBHOOK_SIGNING_SECRET)
   if (!hasCustomSecret && !hasResendSecret) {
-    console.error('[inbox_ops:webhook] Neither INBOX_OPS_WEBHOOK_SECRET nor RESEND_WEBHOOK_SIGNING_SECRET is configured')
+    logger.error('Neither INBOX_OPS_WEBHOOK_SECRET nor RESEND_WEBHOOK_SIGNING_SECRET is configured')
     return NextResponse.json({ error: 'Service unavailable' }, { status: 503 })
   }
 
@@ -351,7 +354,7 @@ export async function POST(req: Request) {
         toAddress,
       })
     } catch (eventError) {
-      console.error('[inbox_ops:webhook] Failed to emit deduplicated event:', eventError)
+      logger.error('Failed to emit deduplicated event', { err: eventError })
     }
     return NextResponse.json({ ok: true })
   }
@@ -393,7 +396,7 @@ export async function POST(req: Request) {
       subject: parsed.subject,
     })
   } catch (eventError) {
-    console.error('[inbox_ops:webhook] Failed to emit email.received event:', eventError)
+    logger.error('Failed to emit email.received event', { err: eventError })
   }
 
   return NextResponse.json({ ok: true })

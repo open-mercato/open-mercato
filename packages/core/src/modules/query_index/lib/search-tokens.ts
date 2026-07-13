@@ -2,6 +2,9 @@ import { type Kysely, type Transaction, sql } from 'kysely'
 import { resolveSearchConfig, type SearchConfig } from '@open-mercato/shared/lib/search/config'
 import { tokenizeText } from '@open-mercato/shared/lib/search/tokenize'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('query_index').child({ component: 'search-tokens' })
 
 const INSERT_BATCH_SIZE = 500
 
@@ -42,8 +45,7 @@ export const isSearchDebugEnabled = (): boolean => {
 const debug = (event: string, payload: Record<string, unknown>) => {
   if (!isSearchDebugEnabled()) return
   try {
-    // eslint-disable-next-line no-console
-    console.debug(`[search-tokens] ${event}`, payload)
+    logger.debug('Search token event', { event, payload })
   } catch {
     // ignore
   }

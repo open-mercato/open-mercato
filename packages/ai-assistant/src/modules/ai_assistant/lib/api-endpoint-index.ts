@@ -8,10 +8,13 @@
  * fan-out have been removed.
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { OpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import { buildOpenApiDocument } from '@open-mercato/shared/lib/openapi'
 import type { Module } from '@open-mercato/shared/modules/registry'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+
+const logger = createLogger('ai_assistant').child({ component: 'api-index' })
 
 const DEFAULT_OPENAPI_FETCH_TIMEOUT_MS = 10_000
 
@@ -128,7 +131,7 @@ export async function loadRichOpenApiSpec(): Promise<OpenApiDocument | null> {
       if (!doc.paths || Object.keys(doc.paths).length === 0) {
         return null
       }
-      console.error(`[API Index] Rich OpenAPI spec built from ${modulesWithApis.length} modules (Tier 2)`)
+      logger.debug('Rich OpenAPI spec built from module registry', { modules: modulesWithApis.length, tier: 2 })
       rawSpecCache = doc
       return doc
     }
@@ -171,12 +174,12 @@ async function loadRawOpenApiSpec(): Promise<OpenApiDocument | null> {
       const jsonPath = path.join(appRoot.generatedDir, 'openapi.generated.json')
       if (fs.existsSync(jsonPath)) {
         const doc = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as OpenApiDocument
-        console.error(`[API Index] Raw OpenAPI spec loaded from ${jsonPath}`)
+        logger.debug('Raw OpenAPI spec loaded from generated JSON', { jsonPath })
         return doc
       }
     }
   } catch (error) {
-    console.error('[API Index] Raw spec from JSON failed:', error instanceof Error ? error.message : error)
+    logger.warn('Raw spec from generated JSON failed', { err: error })
   }
 
   // Tier 2: Module registry
@@ -191,7 +194,7 @@ async function loadRawOpenApiSpec(): Promise<OpenApiDocument | null> {
         version: '1.0.0',
         servers: [{ url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000' }],
       })
-      console.error(`[API Index] Raw OpenAPI spec built from ${modulesWithApis.length} modules`)
+      logger.debug('Raw OpenAPI spec built from module registry', { modules: modulesWithApis.length })
       return doc
     }
   } catch {
@@ -211,11 +214,11 @@ async function loadRawOpenApiSpec(): Promise<OpenApiDocument | null> {
     })
     if (response.ok) {
       const doc = (await response.json()) as OpenApiDocument
-      console.error('[API Index] Raw OpenAPI spec fetched via HTTP')
+      logger.debug('Raw OpenAPI spec fetched via HTTP')
       return doc
     }
   } catch (error) {
-    console.error('[API Index] Raw spec HTTP fetch failed:', error instanceof Error ? error.message : error)
+    logger.warn('Raw spec HTTP fetch failed', { err: error })
   }
 
   return null
@@ -251,21 +254,21 @@ async function parseApiEndpointsFromGeneratedJson(): Promise<ApiEndpoint[]> {
     }
 
     if (!appRoot) {
-      console.error('[API Index] Could not find app root')
+      logger.warn('Could not find app root')
       return []
     }
 
     const jsonPath = path.join(appRoot.generatedDir, 'openapi.generated.json')
     if (!fs.existsSync(jsonPath)) {
-      console.error('[API Index] openapi.generated.json not found - run yarn generate')
+      logger.warn('openapi.generated.json not found - run yarn generate')
       return []
     }
 
     const doc = JSON.parse(fs.readFileSync(jsonPath, 'utf-8')) as OpenApiDocument
-    console.error(`[API Index] Loaded OpenAPI from ${jsonPath}`)
+    logger.debug('Loaded OpenAPI from generated JSON', { jsonPath })
     return extractEndpoints(doc)
   } catch (error) {
-    console.error('[API Index] Error reading generated JSON:', error instanceof Error ? error.message : error)
+    logger.error('Error reading generated OpenAPI JSON', { err: error })
     return []
   }
 }
@@ -282,9 +285,7 @@ async function parseApiEndpointsFromModules(): Promise<ApiEndpoint[]> {
     const modulesWithApis = modules.filter((m) => m.apis && m.apis.length > 0)
 
     if (modulesWithApis.length > 0) {
-      console.error(
-        `[API Index] Found ${modules.length} modules, ${modulesWithApis.length} with APIs`
-      )
+      logger.debug('Modules discovered for OpenAPI generation', { modules: modules.length, withApis: modulesWithApis.length })
 
       // Generate OpenAPI spec from modules
       const doc = buildOpenApiDocument(modules, {
@@ -319,22 +320,22 @@ async function parseApiEndpointsFromHttp(): Promise<ApiEndpoint[]> {
   const openApiUrl = `${baseUrl}/api/docs/openapi`
 
   try {
-    console.error(`[API Index] Fetching OpenAPI spec from ${openApiUrl}...`)
+    logger.debug('Fetching OpenAPI spec', { openApiUrl })
     const response = await fetchWithTimeout(openApiUrl, {
       timeoutMs: resolveOpenapiFetchTimeoutMs(),
     })
 
     if (!response.ok) {
-      console.error(`[API Index] Failed to fetch OpenAPI spec: ${response.status} ${response.statusText}`)
+      logger.warn('Failed to fetch OpenAPI spec', { status: response.status, statusText: response.statusText })
       return []
     }
 
     const doc = (await response.json()) as OpenApiDocument
-    console.error(`[API Index] Successfully fetched OpenAPI spec`)
+    logger.debug('Successfully fetched OpenAPI spec')
     return extractEndpoints(doc)
   } catch (error) {
-    console.error('[API Index] Could not fetch OpenAPI spec:', error instanceof Error ? error.message : error)
-    console.error('[API Index] Make sure the app is running at', baseUrl)
+    logger.warn('Could not fetch OpenAPI spec', { err: error })
+    logger.warn('OpenAPI fetch fallback requires the app to be running', { baseUrl })
     return []
   }
 }
@@ -346,19 +347,19 @@ async function parseApiEndpoints(): Promise<ApiEndpoint[]> {
   // Try generated JSON first (works in CLI context without Next.js)
   const fromJson = await parseApiEndpointsFromGeneratedJson()
   if (fromJson.length > 0) {
-    console.error(`[API Index] Loaded ${fromJson.length} endpoints from generated JSON`)
+    logger.debug('Loaded endpoints from generated JSON', { count: fromJson.length })
     return fromJson
   }
 
   // Try loading from module registry (works in Next.js context)
   const fromModules = await parseApiEndpointsFromModules()
   if (fromModules.length > 0) {
-    console.error(`[API Index] Loaded ${fromModules.length} endpoints from modules registry`)
+    logger.debug('Loaded endpoints from modules registry', { count: fromModules.length })
     return fromModules
   }
 
   // Fall back to HTTP fetch (requires running Next.js app)
-  console.error('[API Index] Generated JSON and modules not available, falling back to HTTP fetch...')
+  logger.debug('Generated JSON and modules not available, falling back to HTTP fetch')
   return parseApiEndpointsFromHttp()
 }
 
@@ -403,7 +404,7 @@ function extractEndpoints(doc: OpenApiDocument): ApiEndpoint[] {
     }
   }
 
-  console.error(`[API Index] Parsed ${endpoints.length} endpoints from OpenAPI spec`)
+  logger.debug('Parsed endpoints from OpenAPI spec', { count: endpoints.length })
   return endpoints
 }
 

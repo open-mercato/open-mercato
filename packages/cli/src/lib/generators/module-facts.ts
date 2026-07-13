@@ -54,25 +54,26 @@ export interface ModuleFacts {
 
 export interface ExtractModuleFactsOptions {
   moduleId: string
-  coreSrcRoot: string
+  /**
+   * Parent modules directory joined with `moduleId` to locate the module source.
+   * Legacy input; prefer the explicit per-module `moduleRoot` for modules that do
+   * not live under a single shared root (auto-discovery). One of `moduleRoot` /
+   * `coreSrcRoot` must be provided.
+   */
+  coreSrcRoot?: string
+  /** Explicit module source directory. When set it overrides `coreSrcRoot + moduleId`. */
+  moduleRoot?: string
   coreVersion?: string | null
   registryPath?: string | null
   registrySource?: string | null
 }
 
-export const MODULE_FACTS_ALLOWLIST = [
-  'auth',
-  'catalog',
-  'currencies',
-  'customer_accounts',
-  'customers',
-  'data_sync',
-  'integrations',
-  'sales',
-  'workflows',
-] as const
-
-export type ModuleFactsModuleId = (typeof MODULE_FACTS_ALLOWLIST)[number]
+/** A discovered module and the source directory its facts are extracted from. */
+export interface ModuleFactSource {
+  moduleId: string
+  moduleRoot: string
+  from?: string
+}
 
 function readSourceFile(filePath: string): ts.SourceFile | null {
   if (!fs.existsSync(filePath)) return null
@@ -723,8 +724,12 @@ function extractModuleMeta(indexFilePath: string | null): { title: string | null
 }
 
 export function extractModuleFacts(options: ExtractModuleFactsOptions): ModuleFacts {
-  const { moduleId, coreSrcRoot, coreVersion = null } = options
-  const moduleRoot = path.join(coreSrcRoot, moduleId)
+  const { moduleId, coreVersion = null } = options
+  const moduleRoot = options.moduleRoot
+    ?? (options.coreSrcRoot ? path.join(options.coreSrcRoot, moduleId) : null)
+  if (!moduleRoot) {
+    throw new Error(`[internal] extractModuleFacts requires moduleRoot or coreSrcRoot for module "${moduleId}"`)
+  }
 
   const entitiesFilePath =
     resolveConventionFile(path.join(moduleRoot, 'data'), 'entities') ??
@@ -924,10 +929,17 @@ export function renderModuleFactsJson(factsByModule: Record<string, ModuleFacts>
 }
 
 export interface ExtractAllModuleFactsOptions {
-  coreSrcRoot: string
+  /**
+   * Discovered module sources (auto-discovery path). When provided, each entry's
+   * explicit `moduleRoot` is used and `coreSrcRoot`/`moduleIds` are ignored.
+   */
+  sources?: readonly ModuleFactSource[]
+  /** Legacy shared-root path. Used only when `sources` is not provided. */
+  coreSrcRoot?: string
   registryPath?: string | null
   registrySource?: string | null
   coreVersion?: string | null
+  /** @deprecated Legacy explicit module-id list; only consulted when `sources` is absent. */
   moduleIds?: readonly string[]
 }
 
@@ -938,20 +950,28 @@ export interface ExtractAllModuleFactsResult {
 }
 
 export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): ExtractAllModuleFactsResult {
-  const moduleIds = options.moduleIds ?? MODULE_FACTS_ALLOWLIST
+  const sources: ModuleFactSource[] = options.sources
+    ? [...options.sources]
+    : (options.coreSrcRoot
+        ? (options.moduleIds ?? []).map((moduleId) => ({
+            moduleId,
+            moduleRoot: path.join(options.coreSrcRoot as string, moduleId),
+          }))
+        : [])
+
   const factsByModule: Record<string, ModuleFacts> = {}
   const markdownByModule: Record<string, string> = {}
   const warnings: string[] = []
-  for (const moduleId of moduleIds) {
+  for (const source of sources) {
     const facts = extractModuleFacts({
-      moduleId,
-      coreSrcRoot: options.coreSrcRoot,
+      moduleId: source.moduleId,
+      moduleRoot: source.moduleRoot,
       coreVersion: options.coreVersion ?? null,
       registryPath: options.registryPath ?? null,
       registrySource: options.registrySource ?? null,
     })
-    factsByModule[moduleId] = facts
-    markdownByModule[moduleId] = renderModuleFactsMarkdown(facts)
+    factsByModule[source.moduleId] = facts
+    markdownByModule[source.moduleId] = renderModuleFactsMarkdown(facts)
     warnings.push(...facts.warnings)
   }
   return { factsByModule, markdownByModule, warnings }

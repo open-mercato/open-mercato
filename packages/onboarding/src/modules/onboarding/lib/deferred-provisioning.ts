@@ -9,6 +9,9 @@ import { OnboardingService } from '@open-mercato/onboarding/modules/onboarding/l
 import { sendWorkspaceReadyEmail } from '@open-mercato/onboarding/modules/onboarding/lib/ready-email'
 import { isUniqueViolation } from '@open-mercato/shared/lib/crud/errors'
 import { PREPARATION_CLAIM_STALE_MS } from '@open-mercato/onboarding/modules/onboarding/lib/preparation-claim'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('onboarding').child({ component: 'verify' })
 
 const VECTOR_REINDEX_ENQUEUE_TIMEOUT_MS = 5_000
 const SEED_EXAMPLES_TIMEOUT_MS = 15_000
@@ -39,7 +42,7 @@ async function runModuleSetupHook(args: {
   run: () => Promise<void>
 }) {
   const startedAt = Date.now()
-  console.info('[onboarding.verify] module hook started', {
+  logger.info('Module hook started', {
     moduleId: args.moduleId,
     phase: args.phase,
     timeoutMs: args.timeoutMs,
@@ -49,7 +52,7 @@ async function runModuleSetupHook(args: {
       args.run(),
       createTimeoutPromise(`module ${args.moduleId} ${args.phase}`, args.timeoutMs),
     ])
-    console.info('[onboarding.verify] module hook completed', {
+    logger.info('Module hook completed', {
       moduleId: args.moduleId,
       phase: args.phase,
       durationMs: Math.max(0, Date.now() - startedAt),
@@ -62,18 +65,18 @@ async function runModuleSetupHook(args: {
       // re-run that lands before completion collides on an already-seeded row.
       // The workspace is already provisioned and the collision is expected and
       // harmless — log at info so genuine failures still stand out.
-      console.info('[onboarding.verify] module hook skipped (already seeded)', {
+      logger.info('Module hook skipped (already seeded)', {
         moduleId: args.moduleId,
         phase: args.phase,
         durationMs: Math.max(0, Date.now() - startedAt),
       })
     } else {
-      console.error('[onboarding.verify] module hook failed', {
+      logger.error('Module hook failed', {
         moduleId: args.moduleId,
         phase: args.phase,
         durationMs: Math.max(0, Date.now() - startedAt),
         timeoutMs: args.timeoutMs,
-        error,
+        err: error,
       })
     }
     throw error
@@ -168,10 +171,10 @@ async function enqueueQueryIndexRebuild(args: {
         { persistent: true, deliverInline: false },
       )
     } catch (error) {
-      console.error('[onboarding.verify] failed to enqueue query index rebuild', {
+      logger.error('Failed to enqueue query index rebuild', {
         entityType,
         tenantId: args.tenantId,
-        error,
+        err: error,
       })
     }
   }
@@ -199,7 +202,7 @@ export async function runDeferredProvisioning(args: {
     new Date(claimedAt.getTime() - PREPARATION_CLAIM_STALE_MS),
   )
   if (!claimed) {
-    console.info('[onboarding.verify] deferred provisioning skipped (already claimed or completed)', {
+    logger.info('Deferred provisioning skipped (already claimed or completed)', {
       requestId: args.requestId,
       tenantId: args.tenantId,
     })
@@ -245,17 +248,17 @@ export async function runDeferredProvisioning(args: {
         })
       } catch (error) {
         if (isUniqueViolation(error)) {
-          console.info('[onboarding.verify] deferred seedExamples skipped (already applied)', {
+          logger.info('Deferred seedExamples skipped (already applied)', {
             moduleId: mod.id,
             tenantId: args.tenantId,
             organizationId: args.organizationId,
           })
         } else {
-          console.error('[onboarding.verify] deferred seedExamples failed', {
+          logger.error('Deferred seedExamples failed', {
             moduleId: mod.id,
             tenantId: args.tenantId,
             organizationId: args.organizationId,
-            error,
+            err: error,
           })
         }
       }
@@ -290,11 +293,11 @@ export async function runDeferredProvisioning(args: {
     requestId: args.requestId,
     tenantId: args.tenantId,
   }).catch((error) => {
-    console.error('[onboarding.verify] ready email failed', {
+    logger.error('Ready email failed', {
       requestId: args.requestId,
       tenantId: args.tenantId,
       organizationId: args.organizationId,
-      error,
+      err: error,
     })
   })
 
@@ -303,7 +306,7 @@ export async function runDeferredProvisioning(args: {
     tenantId: args.tenantId,
     organizationId: args.organizationId,
   }).catch((error) => {
-    console.warn('[onboarding.verify] vector reindex enqueue did not complete promptly', {
+    logger.warn('Vector reindex enqueue did not complete promptly', {
       tenantId: args.tenantId,
       organizationId: args.organizationId,
       reason: error instanceof Error ? error.message : String(error),
