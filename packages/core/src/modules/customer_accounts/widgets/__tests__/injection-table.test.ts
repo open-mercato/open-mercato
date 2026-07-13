@@ -6,6 +6,24 @@ import type { ModuleInjectionSlot, ModuleInjectionTable } from '@open-mercato/sh
 
 import { injectionTable } from '../injection-table'
 
+const CRUD_FORM_PREFIX = 'crud-form:'
+
+// Suffixes CrudForm appends after the normalized entity id (see CrudFormInjectionSpots).
+const CRUD_FORM_SUFFIXES = [
+  'fields',
+  'header',
+  'footer',
+  'sidebar',
+  'before-fields',
+  'after-fields',
+]
+
+function entitySegmentOf(spotId: string): string {
+  const rest = spotId.slice(CRUD_FORM_PREFIX.length)
+  const suffix = CRUD_FORM_SUFFIXES.find((candidate) => rest.endsWith(`:${candidate}`))
+  return suffix ? rest.slice(0, -(suffix.length + 1)) : rest
+}
+
 function expectSingleGroupWidget(
   table: ModuleInjectionTable,
   spotId: string,
@@ -25,12 +43,8 @@ function expectSingleGroupWidget(
 }
 
 describe('customer_accounts injection table', () => {
-  it('registers the account-status widget on current v2 and legacy customer person form spots', () => {
-    for (const spotId of [
-      'customers.person',
-      'crud-form:customers.person',
-      'crud-form:customers:customer_person_profile:fields',
-    ]) {
+  it('registers the account-status widget on the spots the person detail host requests', () => {
+    for (const spotId of ['customers.person', 'crud-form:customers.person']) {
       expectSingleGroupWidget(
         injectionTable,
         spotId,
@@ -40,12 +54,8 @@ describe('customer_accounts injection table', () => {
     }
   })
 
-  it('registers the company-users widget on current v2 and legacy customer company form spots', () => {
-    for (const spotId of [
-      'customers.company',
-      'crud-form:customers.company',
-      'crud-form:customers:customer_company_profile:fields',
-    ]) {
+  it('registers the company-users widget on the spots the company detail host requests', () => {
+    for (const spotId of ['customers.company', 'crud-form:customers.company']) {
       expectSingleGroupWidget(
         injectionTable,
         spotId,
@@ -53,5 +63,17 @@ describe('customer_accounts injection table', () => {
         'customer_accounts.widgets.portalUsers',
       )
     }
+  })
+
+  // Regression guard for #3952: CrudForm builds its spot id as `crud-form:${entityId}` with
+  // every ':' normalized to '.', so a registered key whose entity segment still contains ':'
+  // is unreachable by construction — no host can ever request it. Two such keys shipped as
+  // dead "backward compatible" registrations.
+  it('registers crud-form spots only in the normalized form CrudForm can emit', () => {
+    const unreachable = Object.keys(injectionTable)
+      .filter((spotId) => spotId.startsWith(CRUD_FORM_PREFIX))
+      .filter((spotId) => entitySegmentOf(spotId).includes(':'))
+
+    expect(unreachable).toEqual([])
   })
 })
