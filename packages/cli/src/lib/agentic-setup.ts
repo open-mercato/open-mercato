@@ -409,8 +409,8 @@ function generateCodex(config: AgenticConfig): void {
 
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.codex', 'mcp.json.example'))
 
-  // Symlink .codex/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.codex', 'skills'), join('..', '.ai', 'skills'))
+  // No .codex/skills directory: Codex reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
 }
 
 function generateCursor(config: AgenticConfig): void {
@@ -424,8 +424,8 @@ function generateCursor(config: AgenticConfig): void {
   copyFile(srcDir, 'hooks/entity-migration-check.mjs', join(targetDir, '.cursor', 'hooks', 'entity-migration-check.mjs'))
   copyFile(srcDir, 'mcp.json.example', join(targetDir, '.cursor', 'mcp.json.example'))
 
-  // Symlink .cursor/skills → ../.ai/skills
-  ensureSkillsLink(join(targetDir, '.cursor', 'skills'), join('..', '.ai', 'skills'))
+  // No .cursor/skills directory: Cursor reads the canonical .agents/skills/,
+  // which scripts/install-skills.sh populates.
 }
 
 function ensureSkillsLink(linkPath: string, target: string): void {
@@ -518,6 +518,7 @@ export async function runAgenticSetup(
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
 
+  persistAgentSelection(targetDir, selectedIds)
   installSkills(targetDir)
 
   console.log('')
@@ -537,6 +538,24 @@ export async function runAgenticSetup(
   console.log('   tracker, or validation commands. Re-run `yarn install-skills` anytime to')
   console.log('   refresh the external open-mercato/skills subset.')
   console.log('')
+}
+
+/**
+ * Persist the agent selection so later `yarn install-skills` runs keep honoring
+ * it: agents the user did not pick go into `agents.ignore` in tiers.json and
+ * never get a skills directory of their own.
+ */
+function persistAgentSelection(targetDir: string, selectedIds: string[]): void {
+  const manifestPath = join(targetDir, '.ai', 'skills', 'tiers.json')
+  if (!existsSync(manifestPath)) return
+  const ignore = SELECTABLE.map((tool) => tool.id).filter((id) => !selectedIds.includes(id))
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf-8')) as Record<string, unknown>
+  if (ignore.length > 0) {
+    manifest.agents = { ignore }
+  } else {
+    delete manifest.agents
+  }
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`)
 }
 
 function installSkills(targetDir: string): void {
