@@ -26,7 +26,7 @@ Separately, `scripts/watch-packages.mjs` emits `[watch] watch scope: ...` lines 
 
 ### Scope
 
-- `apps/mercato/scripts/dev-runtime-log-policy.mjs` — recognize the structured-log pretty format for the KMS/Vault fallback lines (strip the `HH:MM:SS.mmm LEVEL ` prefix before matching), cover the new message texts (`[shared:kms] Vault read|write error|failed`, `No tenant DEK found in Vault`, bare `TypeError: fetch failed` stack head, `Secret fingerprint (sha256, truncated):`, `Source: dev default secret`), keep all old-format matches for backward compatibility.
+- `apps/mercato/scripts/dev-runtime-log-policy.mjs` — recognize the structured-log pretty format for the KMS/Vault fallback lines (strip the `HH:MM:SS.mmm LEVEL` prefix before matching), cover the new message texts (`[shared:kms] Vault read|write error|failed`, `No tenant DEK found in Vault`, bare `TypeError: fetch failed` stack head, `Secret fingerprint (sha256, truncated):`, `Source: dev default secret`), keep all old-format matches for backward compatibility.
 - `scripts/dev-orchestration-log-policy.mjs` — add `[watch] watch scope: ...` lines to `isIgnorableConsolidatedWatchLine`.
 - Unit tests in `apps/mercato/scripts/__tests__/dev-runtime-log-policy.test.mjs` and `scripts/__tests__/dev-orchestration-log-policy.test.mjs` (run via `yarn test:scripts`).
 - Template mirror: `packages/create-app/template/scripts/dev-runtime-log-policy.mjs` and `packages/create-app/template/scripts/dev-orchestration-log-policy.mjs` are byte-identical copies today and must stay in sync (create-app Template Sync Checklist).
@@ -63,13 +63,13 @@ Separately, `scripts/watch-packages.mjs` emits `[watch] watch scope: ...` lines 
 
 ### Phase 1: Runtime log-policy fix (apps/mercato)
 
-- [ ] 1.1 Extend dev-runtime-log-policy predicates for structured-log format
-- [ ] 1.2 Extend dev-runtime-log-policy unit tests
+- [x] 1.1 Extend dev-runtime-log-policy predicates for structured-log format — 73146de34
+- [x] 1.2 Extend dev-runtime-log-policy unit tests — 73146de34
 
 ### Phase 2: Orchestration log-policy fix (root scripts)
 
-- [ ] 2.1 Ignore watch-scope announcements in isIgnorableConsolidatedWatchLine + tests
+- [x] 2.1 Ignore watch-scope announcements in isIgnorableConsolidatedWatchLine + tests — 59abc32ea
 
 ### Phase 3: Template sync
 
-- [ ] 3.1 Mirror updated policy files into packages/create-app/template/scripts
+- [x] 3.1 Mirror updated policy files into packages/create-app/template/scripts — 6c73c8b3b
