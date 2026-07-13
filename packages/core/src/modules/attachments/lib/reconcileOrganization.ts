@@ -1,6 +1,9 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { Attachment } from '../data/entities'
+
+const logger = createLogger('attachments').child({ component: 'reconcileOrganization' })
 
 /**
  * Virtual entity id for library attachments — these are not attached to a
@@ -144,11 +147,10 @@ export async function reconcileAttachmentOrganizations(opts: {
         }
       } catch (error) {
         resolvable = false
-        console.warn(
-          '[attachments] org reconcile: cannot resolve parent organization for entity',
+        logger.warn('org reconcile: cannot resolve parent organization for entity', {
           entityId,
           error,
-        )
+        })
         break
       }
     }
