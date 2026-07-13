@@ -25,6 +25,11 @@ describe('isValidCredentialUrl', () => {
     expect(isValidCredentialUrl('ftp://example.com')).toBe(false)
     expect(isValidCredentialUrl('')).toBe(false)
   })
+
+  it('rejects URLs containing embedded credentials', () => {
+    expect(isValidCredentialUrl('https://user:token@example.com/path')).toBe(false)
+    expect(isValidCredentialUrl('https://user@example.com/path')).toBe(false)
+  })
 })
 
 describe('collectCredentialUrlValidationErrors', () => {

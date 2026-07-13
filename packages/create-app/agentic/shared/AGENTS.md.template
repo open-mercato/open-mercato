@@ -79,6 +79,9 @@ Skills come from two places. Repo-local skills (module scaffolding, UI design, t
 | Write a spec | `om-spec-writing` (external — `yarn install-skills`), `.ai/specs/SPEC-000-template.md` |
 | Implement a spec (or selected phases) | `.ai/skills/om-implement-spec/SKILL.md` |
 | Create / run integration tests | `om-integration-tests` (external — `yarn install-skills`) |
+| Prepare / reuse a local test environment (shared descriptor for QA + integration tests) | `om-prepare-test-env` (external — invoked by `om-integration-tests` when no environment is running) |
+| Configure or re-configure the agent PR pipeline (`.ai/agentic.config.json`, tracker, labels, QA gate) | `om-setup-agent-pipeline` (external) |
+| Sync installed pipeline artifacts after `yarn install-skills` refreshed the collection | `om-apply-upgrade-notes` (external) |
 | Upgrade framework from 0.4.10 to 0.5.0 | `.ai/skills/om-auto-upgrade-0.4.10-to-0.5.0/SKILL.md` |
 
 ### Agent Automation / Auto-Skills
@@ -92,10 +95,10 @@ These skills are installed from the shared collection by `yarn install-skills` (
 | Run a long multi-step spec implementation with resumable checkpoints | `om-auto-create-pr-loop` (external) |
 | Resume a checkpointed PR started by `om-auto-create-pr-loop` | `om-auto-continue-pr-loop` (external) |
 | Automated code review on a PR (with optional autofix) | `om-auto-review-pr` (external) |
-| Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external) |
+| Fix a GitHub issue by number and open a PR | `om-auto-fix-issue` (external — drives the chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`, all installed alongside it) |
 | Propose disabling unused built-in modules after the user adds a new module (classic-mode slimdown) | `.ai/skills/om-trim-unused-modules/SKILL.md` |
 
-Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills read `.ai/agentic.config.json` (base branch `auto`, resolved via the tracker descriptor's **default-branch** operation; pipeline labels off by default; the standalone validation-gate command list) and perform every GitHub interaction through the tracker descriptor `.ai/trackers/github.md` — enable the full label pipeline by setting `labels.enabled: true` and running the tracker's **ensure-label-taxonomy** operation once.
+Invoke these as slash commands in your agent CLI (Claude Code, Codex, …), for example `/auto-create-pr add rate-limiting to the products API` or `/auto-fix-issue 42`. The skills read `.ai/agentic.config.json` (base branch `auto`, resolved via the tracker descriptor's **default-branch** operation; pipeline labels off by default; the standalone validation-gate command list) and perform every GitHub interaction through the tracker descriptor `.ai/trackers/github.md`. That config ships preconfigured, so the skills work without any setup step — run `/om-setup-agent-pipeline` when you want to tailor it: enable the full label pipeline (`labels.enabled: true` plus the tracker's **ensure-label-taxonomy** operation) and the QA gate, switch tracker, or change the validation commands. After `yarn install-skills` refreshes the external collection, run `/om-apply-upgrade-notes` to bring the installed artifacts (tracker descriptor, config) up to date with the new skill versions.
 
 ## Module Anatomy
 
@@ -291,6 +294,10 @@ import type { ApiInterceptor } from '@open-mercato/shared/lib/crud/api-intercept
 | `yarn initialize` | Bootstrap DB + first admin account |
 | `yarn build` | Build for production |
 | `yarn mercato eject <module>` | Copy a core module into `src/modules/` |
+| `yarn test:integration:ephemeral` | Run Playwright integration tests against a fresh ephemeral app + DB (reuses a healthy running env) — always prefer this over plain `yarn test:integration` |
+| `yarn test:integration:ephemeral:start` | Start the ephemeral app only (manual QA or iterative test loops; admin@acme.com / secret) — the `om-prepare-test-env` skill wraps this and shares the env via `.ai/qa/test-env.json` |
+| `yarn mercato test:integration <filter>` | Run small filtered test batches against the running ephemeral env (fast iteration) |
+| `npx playwright show-report .ai/qa/test-results/html` | Open the HTML integration test report |
 
 ## Architecture Rules
 

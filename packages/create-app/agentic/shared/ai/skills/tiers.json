@@ -5,6 +5,7 @@
     "source": "open-mercato/skills",
     "description": "Skills installed from the shared open-mercato/skills collection via `npx skills add` (see scripts/install-skills.sh). Only the subset this standalone app ships is installed. A folder under .ai/skills/ matching one of these names is a repo-local override read by the external skill, never symlinked into the harness directories.",
     "skills": [
+      "om-apply-upgrade-notes",
       "om-auto-continue-pr",
       "om-auto-continue-pr-loop",
       "om-auto-create-pr",
@@ -12,9 +13,15 @@
       "om-auto-fix-issue",
       "om-auto-review-pr",
       "om-code-review",
+      "om-fix",
       "om-integration-tests",
+      "om-open-pr",
       "om-prepare-issue",
-      "om-spec-writing"
+      "om-prepare-test-env",
+      "om-root-cause",
+      "om-setup-agent-pipeline",
+      "om-spec-writing",
+      "om-verify-in-repo"
     ]
   },
   "tiers": {

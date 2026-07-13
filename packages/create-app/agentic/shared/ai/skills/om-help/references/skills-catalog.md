@@ -60,8 +60,11 @@ Skills for modifying or extending behavior without touching core module source.
 | `om-auto-create-pr-loop` | Long multi-step implementation with step-level resumability | — | `om-auto-review-pr` |
 | `om-auto-continue-pr-loop` | Resume a PR started by `om-auto-create-pr-loop` | — | `om-auto-review-pr` |
 | `om-auto-review-pr` | Automated PR review + approve/request-changes | `om-auto-create-pr` | — |
-| `om-auto-fix-issue` | Fix a GitHub issue end-to-end | — | `om-auto-create-pr` |
+| `om-auto-fix-issue` | Fix a GitHub issue end-to-end (drives `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr`) | — | `om-auto-create-pr` |
 | `om-prepare-issue` | Capture a feature to build later — write the spec, ship a docs-only spec PR, open a tracking issue | `om-spec-writing` | `om-implement-spec` |
+| `om-prepare-test-env` | Boot a reusable local test environment (shared descriptor for QA + integration tests) | — | `om-integration-tests` |
+| `om-setup-agent-pipeline` | Tailor `.ai/agentic.config.json` (labels, QA gate, tracker, validation commands) — the scaffold ships working defaults | — | any auto-skill |
+| `om-apply-upgrade-notes` | Sync installed pipeline artifacts after `yarn install-skills` refreshed the external collection | — | — |
 
 ---
 
