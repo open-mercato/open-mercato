@@ -96,6 +96,20 @@ export interface LlmProvider {
   readonly defaultModel: string
   /** Curated list of models shown in the UI dropdown for this provider. */
   readonly defaultModels: readonly LlmModelInfo[]
+  /**
+   * True when this provider is an OpenAI-compatible gateway whose model ids
+   * are themselves `vendor/model` strings (e.g. OpenRouter's
+   * `anthropic/claude-sonnet-4.5`, Requesty's `openai/gpt-4o-mini`, a LiteLLM
+   * proxy relaying `anthropic/…`).
+   *
+   * The routing layer uses this to suppress intra-tier slash provider-splitting:
+   * when a resolution tier explicitly selects such a configured gateway, that
+   * tier's model token's leading `vendor/` is part of the gateway model id, not
+   * a pin to the native `vendor` adapter. Omitted / `undefined` is treated as
+   * `false` — native adapters (Anthropic, OpenAI, Google) and non-gateway
+   * OpenAI-compatible backends (DeepInfra, Together, …) leave it unset.
+   */
+  readonly usesVendorPrefixedModelIds?: boolean
 
   /**
    * Returns true when the provider has all required configuration present
