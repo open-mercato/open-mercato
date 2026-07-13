@@ -159,7 +159,7 @@ export function createAsyncQueue<T = unknown>(
           const mod = (await import('bullmq-otel')) as unknown as BullMQOtelModule
           return new mod.BullMQOtel('open-mercato')
         } catch {
-          console.warn(`[queue:${name}] bullmq-otel not available; using built-in trace carrier`)
+          packageLogger.warn('bullmq-otel not available; using built-in trace carrier', { queue: name })
           return undefined
         }
       })()

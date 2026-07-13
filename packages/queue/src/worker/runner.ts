@@ -76,7 +76,7 @@ function registerShutdownHandlers(): void {
     try {
       await shutdownTelemetry()
     } catch (error) {
-      console.error('[worker] Error flushing telemetry during shutdown:', error)
+      logger.error('Error flushing telemetry during shutdown', { err: error })
     }
 
     if (!hasError) {
