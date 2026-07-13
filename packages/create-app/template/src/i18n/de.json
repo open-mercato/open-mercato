@@ -717,6 +717,8 @@
   "ui.dataTable.export.label": "Exportieren",
   "ui.dataTable.fieldset.label": "Columns",
   "ui.dataTable.loading": "Loading table…",
+  "ui.dataTable.rowDetail.expand": "Zeile ausklappen",
+  "ui.dataTable.rowDetail.collapse": "Zeile einklappen",
   "ui.dataTable.pagination.cache.ariaLabel": "Cache {status}",
   "ui.dataTable.pagination.cache.srOnly": "Cache {status}",
   "ui.dataTable.pagination.cache.title": "Cache {status}",
