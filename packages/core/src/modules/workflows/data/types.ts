@@ -9,6 +9,7 @@ export interface JsonSchema {
   title?: string
   properties?: Record<string, JsonSchemaField>
   required?: string[]
+  fields?: UserTaskFormField[]
 }
 
 export interface JsonSchemaField {
@@ -17,7 +18,19 @@ export interface JsonSchemaField {
   enum?: string[]
   format?: string
   description?: string
+  placeholder?: string
+  default?: unknown
   maxLength?: number
+}
+
+export interface UserTaskFormField {
+  name: string
+  type: string
+  label: string
+  required?: boolean
+  placeholder?: string
+  options?: unknown[]
+  defaultValue?: unknown
 }
 
 // API response shape (serialized — string dates, proper formSchema/formData types)

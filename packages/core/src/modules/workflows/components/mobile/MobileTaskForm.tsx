@@ -18,6 +18,7 @@ import { Separator } from '@open-mercato/ui/primitives/separator'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { UserTaskResponse, UserTaskStatus, JsonSchemaField } from '../../data/types'
+import { normalizeUserTaskFormSchema } from '../../lib/user-task-form-schema'
 
 interface MobileTaskFormProps {
   task: UserTaskResponse
@@ -47,6 +48,7 @@ export function MobileTaskForm({
   getStatusBadgeClass,
 }: MobileTaskFormProps) {
   const t = useT()
+  const normalizedFormSchema = normalizeUserTaskFormSchema(task.formSchema) ?? task.formSchema
 
   const fieldValue = (fieldName: string): string | number => {
     const val = formData[fieldName]
@@ -59,8 +61,9 @@ export function MobileTaskForm({
     const fieldType = fieldSchema.type || 'string'
     const fieldTitle = fieldSchema.title || fieldName
     const fieldDescription = fieldSchema.description
-    const required = task.formSchema?.required?.includes(fieldName) || false
+    const required = normalizedFormSchema?.required?.includes(fieldName) || false
     const enumValues = fieldSchema.enum
+    const placeholder = fieldSchema.placeholder || fieldSchema.description
 
     if (enumValues && Array.isArray(enumValues)) {
       return (
@@ -101,6 +104,7 @@ export function MobileTaskForm({
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => onFieldChange(fieldName, e.target.value)}
+                placeholder={placeholder}
                 required={required}
                 rows={4}
                 className="text-base"
@@ -120,6 +124,7 @@ export function MobileTaskForm({
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value)}
+              placeholder={placeholder}
               required={required}
               className="h-11 text-base"
             />
@@ -140,6 +145,7 @@ export function MobileTaskForm({
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
+              placeholder={placeholder}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
               className="h-11 text-base"
@@ -178,6 +184,7 @@ export function MobileTaskForm({
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => onFieldChange(fieldName, e.target.value)}
+              placeholder={placeholder}
               required={required}
               className="h-11 text-base"
             />
@@ -246,19 +253,19 @@ export function MobileTaskForm({
 
       {isCompletable && (
         <form onSubmit={onSubmit} className="space-y-4">
-          {task.formSchema?.properties && (
+          {normalizedFormSchema?.properties && (
             <>
               <Separator />
               <h2 className="text-base font-semibold">{t('workflows.tasks.detail.sections.form')}</h2>
               <div className="space-y-4">
-                {Object.keys(task.formSchema!.properties!).map((fieldName) =>
-                  renderFormField(fieldName, task.formSchema!.properties![fieldName])
+                {Object.keys(normalizedFormSchema.properties!).map((fieldName) =>
+                  renderFormField(fieldName, normalizedFormSchema.properties![fieldName])
                 )}
               </div>
             </>
           )}
 
-          {!task.formSchema?.properties && (
+          {!normalizedFormSchema?.properties && (
             <div className="bg-status-info-bg border border-status-info-border rounded-lg p-3">
               <p className="text-sm text-status-info-text">{t('workflows.tasks.detail.noFormSchema')}</p>
             </div>

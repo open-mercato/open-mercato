@@ -66,6 +66,7 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🐛 Render workflow user task forms from visual-editor field schemas and enforce required completion data. *(@pmadajthey)*
 - 🔧 Remove duplicate CommandRuntimeContext import breaking develop build. (#4022) *(@pat-lewczuk)*
 - 🐛 Restore bulk-deal command dispatch in standalone CI. (#4020) *(@patzick)*
 - 🔧 Throttle query-index status refresh (#3888). (#4017) *(@haxiorz)*

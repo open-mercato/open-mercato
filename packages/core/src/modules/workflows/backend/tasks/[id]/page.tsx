@@ -27,6 +27,7 @@ import { useIsMobile } from '@open-mercato/ui/hooks/useIsMobile'
 import type { UserTaskResponse, UserTaskStatus } from '../../../data/types'
 import { RecordNotFoundState, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { normalizeUserTaskFormSchema } from '../../../lib/user-task-form-schema'
 
 const logger = createLogger('workflows')
 
@@ -78,10 +79,12 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     // Validate required fields. Radix Select doesn't expose HTML `required`,
     // so we enforce constraint validation here and surface it visually via
     // `invalidField` + aria-invalid on the offending field.
-    if (task.formSchema?.required) {
-      for (const requiredField of task.formSchema.required) {
+    const normalizedFormSchema = normalizeUserTaskFormSchema(task.formSchema) ?? task.formSchema
+
+    if (normalizedFormSchema?.required) {
+      for (const requiredField of normalizedFormSchema.required) {
         if (!formData[requiredField] || formData[requiredField] === '') {
-          const fieldSchema = task.formSchema.properties?.[requiredField]
+          const fieldSchema = normalizedFormSchema.properties?.[requiredField]
           const fieldLabel = fieldSchema?.title ?? requiredField
           flash(t('workflows.tasks.detail.validation.requiredField', { field: fieldLabel }), 'error')
           setInvalidField(requiredField)
@@ -137,8 +140,10 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
     const fieldType = fieldSchema.type || 'string'
     const fieldTitle = fieldSchema.title || fieldName
     const fieldDescription = fieldSchema.description
-    const required = task?.formSchema?.required?.includes(fieldName) || false
+    const normalizedFormSchema = normalizeUserTaskFormSchema(task?.formSchema) ?? task?.formSchema
+    const required = normalizedFormSchema?.required?.includes(fieldName) || false
     const enumValues = fieldSchema.enum
+    const placeholder = fieldSchema.placeholder || fieldSchema.description
 
     const inputClasses = "w-full px-3 py-2 border border-border rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     const labelClasses = "block text-sm font-medium text-foreground mb-1"
@@ -235,6 +240,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
                 id={fieldName}
                 value={fieldValue(fieldName)}
                 onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+                placeholder={placeholder}
                 required={required}
                 rows={4}
                 className={inputClasses}
@@ -256,6 +262,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              placeholder={placeholder}
               required={required}
             />
           </div>
@@ -277,6 +284,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value ? Number(e.target.value) : '')}
+              placeholder={placeholder}
               required={required}
               step={fieldType === 'integer' ? 1 : 'any'}
             />
@@ -320,6 +328,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
               id={fieldName}
               value={fieldValue(fieldName)}
               onChange={(e) => handleFieldChange(fieldName, e.target.value)}
+              placeholder={placeholder}
               required={required}
             />
           </div>
@@ -390,6 +399,7 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
   const isCompletable = task.status === 'PENDING' || task.status === 'IN_PROGRESS'
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date() && isCompletable
+  const normalizedFormSchema = normalizeUserTaskFormSchema(task.formSchema) ?? task.formSchema
 
   if (isMobile) {
     return (
@@ -507,16 +517,16 @@ export default function UserTaskDetailPage({ params }: { params: { id: string } 
 
               {/* Dynamic Form */}
               <form onSubmit={handleSubmit} className="space-y-6">
-                {task.formSchema?.properties && (
+                {normalizedFormSchema?.properties && (
                   <div className="space-y-4">
                     <h2 className="text-lg font-semibold">{t('workflows.tasks.detail.sections.form')}</h2>
-                    {Object.keys(task.formSchema!.properties!).map((fieldName) =>
-                      renderFormField(fieldName, task.formSchema!.properties![fieldName])
+                    {Object.keys(normalizedFormSchema!.properties!).map((fieldName) =>
+                      renderFormField(fieldName, normalizedFormSchema!.properties![fieldName])
                     )}
                   </div>
                 )}
 
-                {!task.formSchema?.properties && (
+                {!normalizedFormSchema?.properties && (
                   <div className="bg-status-info-bg border border-status-info-border rounded-lg p-4">
                     <p className="text-sm text-status-info-text">
                       {t('workflows.tasks.detail.noFormSchema')}
