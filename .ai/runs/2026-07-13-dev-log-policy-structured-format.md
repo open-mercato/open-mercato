@@ -59,6 +59,8 @@ Separately, `scripts/watch-packages.mjs` emits `[watch] watch scope: ...` lines 
 
 ## Progress
 
+PR: #4158
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Runtime log-policy fix (apps/mercato)
