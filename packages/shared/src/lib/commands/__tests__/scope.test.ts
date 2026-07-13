@@ -1,6 +1,21 @@
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
+
 
 type ScopeShape = NonNullable<CommandRuntimeContext['organizationScope']>
 
@@ -154,17 +169,14 @@ describe('ensureOrganizationScope', () => {
   describe('fail-open-by-omission hardening (#2441)', () => {
     const originalNodeEnv = process.env.NODE_ENV
     const originalStrict = process.env.OM_ENFORCE_ORG_SCOPE_STRICT
-    let warnSpy: jest.SpyInstance
-
     beforeEach(() => {
       // The scope loggers suppress output under NODE_ENV==='test'; flip it so the
       // observability signal becomes assertable, then restore in afterEach.
       process.env.NODE_ENV = 'development'
-      warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      loggerWarn.mockClear()
     })
 
     afterEach(() => {
-      warnSpy.mockRestore()
       if (originalNodeEnv === undefined) delete process.env.NODE_ENV
       else process.env.NODE_ENV = originalNodeEnv
       if (originalStrict === undefined) delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
@@ -175,8 +187,8 @@ describe('ensureOrganizationScope', () => {
       delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
       const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
       expect(() => ensureOrganizationScope(ctx, 'org-b')).not.toThrow()
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[scope] Unscoped organization command executed without organization context',
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Unscoped organization command executed without organization context',
         expect.objectContaining({ targetOrganizationId: 'org-b', strictEnforcement: false })
       )
     })
@@ -185,8 +197,8 @@ describe('ensureOrganizationScope', () => {
       process.env.OM_ENFORCE_ORG_SCOPE_STRICT = 'true'
       const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
       expect(() => ensureOrganizationScope(ctx, 'org-b')).toThrow(CrudHttpError)
-      expect(warnSpy).toHaveBeenCalledWith(
-        '[scope] Unscoped organization command executed without organization context',
+      expect(loggerWarn).toHaveBeenCalledWith(
+        'Unscoped organization command executed without organization context',
         expect.objectContaining({ targetOrganizationId: 'org-b', strictEnforcement: true })
       )
     })
@@ -195,7 +207,7 @@ describe('ensureOrganizationScope', () => {
       delete process.env.OM_ENFORCE_ORG_SCOPE_STRICT
       const ctx = buildCtx({ orgId: null, selectedOrganizationId: null, organizationScope: null })
       expect(() => ensureOrganizationScope(ctx, '')).not.toThrow()
-      expect(warnSpy).not.toHaveBeenCalled()
+      expect(loggerWarn).not.toHaveBeenCalled()
     })
   })
 })

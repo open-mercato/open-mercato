@@ -10,7 +10,7 @@ import { getStatusSchema } from '../../data/validators'
 import type { PaymentGatewayService } from '../../lib/gateway-service'
 import { paymentGatewaysTag } from '../openapi'
 
-const gatewayTransactionResourceKind = 'payment_gateways:gateway_transaction'
+const gatewayTransactionResourceKind = 'payment_gateways.gateway_transaction'
 
 export const metadata = {
   path: '/payment_gateways/status',

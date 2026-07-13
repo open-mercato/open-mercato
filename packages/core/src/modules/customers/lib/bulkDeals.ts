@@ -17,6 +17,9 @@ import type { ProgressService, ProgressServiceContext } from '../../progress/lib
 // customers.deals.update"). Importing the command module here registers the handlers
 // through the worker's own import graph, so the dispatch always resolves.
 import '../commands/deals'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const CUSTOMERS_DEALS_BULK_UPDATE_STAGE_QUEUE = 'customers-deals-bulk-update-stage'
 export const CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE = 'customers-deals-bulk-update-owner'
@@ -169,7 +172,7 @@ async function runBulkDealUpdate(params: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       failedItems.push({ id, message })
-      console.warn(`[${logTag}] failed to update deal`, { jobId: progressJobId, id, error })
+      logger.warn('Failed to update deal', { component: logTag, jobId: progressJobId, id, err: error })
     }
 
     await progressService.updateProgress(

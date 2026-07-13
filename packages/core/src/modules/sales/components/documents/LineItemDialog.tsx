@@ -55,6 +55,9 @@ import {
   extractCustomFieldValues,
 } from "./customFieldHelpers";
 import { canonicalizeUnitCode } from "@open-mercato/shared/lib/units/unitCodes";
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ProductOption = {
   id: string;
@@ -620,7 +623,7 @@ export function LineItemDialog({
       setTaxRates(parsed);
       return parsed;
     } catch (err) {
-      console.error("sales.tax-rates.fetch", err);
+      logger.error('sales.tax-rates.fetch', { err });
       taxRatesRef.current = [];
       defaultTaxRateRef.current = null;
       setTaxRates([]);
@@ -854,7 +857,7 @@ export function LineItemDialog({
             defaultSalesUnit = defaultSalesUnit ?? matchedUom.defaultSalesUnit;
           }
         } catch (err) {
-          console.error("sales.document.items.loadProductUnits.hydration", err);
+          logger.error('sales.document.items.loadProductUnits.hydration', { err });
         }
       }
       if (baseUnit) {
@@ -885,7 +888,7 @@ export function LineItemDialog({
           });
         }
       } catch (err) {
-        console.error("sales.document.items.loadUnits", err);
+        logger.error('sales.document.items.loadUnits', { err });
       }
       if (defaultSalesUnit && !map.has(defaultSalesUnit)) {
         map.set(defaultSalesUnit, {
@@ -1053,7 +1056,7 @@ export function LineItemDialog({
         setPriceOptions(mapped);
         return mapped;
       } catch (err) {
-        console.error("sales.document.items.loadPrices", err);
+        logger.error('sales.document.items.loadPrices', { err });
         return [];
       } finally {
         setPriceLoading(false);
@@ -1201,7 +1204,7 @@ export function LineItemDialog({
       setLineStatuses(mapped);
       return mapped;
     } catch (err) {
-      console.error("sales.lines.statuses.load", err);
+      logger.error('sales.lines.statuses.load', { err });
       setLineStatuses([]);
       return [];
     } finally {
@@ -2824,7 +2827,7 @@ export function LineItemDialog({
           }
           setDeletedCatalogReference(false);
         } catch (err) {
-          console.error("sales.document.items.verifyCatalogReference", err);
+          logger.error('sales.document.items.verifyCatalogReference', { err });
         }
       })();
       void loadProductUnits(initialLine.productId, resolvedProductOption).then(

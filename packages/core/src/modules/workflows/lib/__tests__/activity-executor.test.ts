@@ -2,6 +2,19 @@
  * Activity Executor Unit Tests
  */
 
+const mockLoggerInstance = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+  child: jest.fn(),
+}
+mockLoggerInstance.child.mockImplementation(() => mockLoggerInstance)
+
+jest.mock('@open-mercato/shared/lib/logger', () => ({
+  createLogger: jest.fn(() => mockLoggerInstance),
+}))
+
 import { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
 import { WorkflowInstance } from '../../data/entities'
@@ -92,7 +105,7 @@ describe('Activity Executor (Unit Tests)', () => {
         throw new Error('emailService not registered')
       })
 
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
+      mockLoggerInstance.info.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -105,11 +118,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.output.sent).toBe(true)
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.via).toBe('console')
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('Send email to user@example.com')
+      expect(mockLoggerInstance.info).toHaveBeenCalledWith(
+        'Send email activity invoked',
+        expect.objectContaining({ subject: 'Welcome!' }),
       )
-
-      consoleSpy.mockRestore()
     })
 
     test('should execute SEND_EMAIL with email service if available', async () => {
@@ -191,7 +203,7 @@ describe('Activity Executor (Unit Tests)', () => {
         throw new Error('emailService not registered')
       })
 
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation()
+      mockLoggerInstance.info.mockClear()
 
       const result = await activityExecutor.executeActivity(
         mockEm,
@@ -203,11 +215,10 @@ describe('Activity Executor (Unit Tests)', () => {
       expect(result.success).toBe(true)
       expect(result.output.to).toBe('user@example.com')
       expect(result.output.subject).toBe('Hello John Doe')
-      expect(consoleSpy).toHaveBeenCalledWith(
-        expect.stringContaining('user@example.com: Hello John Doe')
+      expect(mockLoggerInstance.info).toHaveBeenCalledWith(
+        'Send email activity invoked',
+        expect.objectContaining({ subject: 'Hello John Doe' }),
       )
-
-      consoleSpy.mockRestore()
     })
   })
 
@@ -972,7 +983,7 @@ describe('Activity Executor (Unit Tests)', () => {
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
       const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
       const prevNodeEnv = process.env.NODE_ENV
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       try {
         process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
         delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
@@ -990,11 +1001,11 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('SSRF protection is bypassed')
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('SSRF protection is bypassed'),
+          expect.any(Object),
         )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
@@ -1034,7 +1045,7 @@ describe('Activity Executor (Unit Tests)', () => {
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
       const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
       const prevNodeEnv = process.env.NODE_ENV
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       try {
         process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS = 'true'
         delete process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
@@ -1050,11 +1061,11 @@ describe('Activity Executor (Unit Tests)', () => {
         expect(result.success).toBe(false)
         expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
         expect(global.fetch).not.toHaveBeenCalled()
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('ignored in production')
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('ignored in production'),
+          expect.any(Object),
         )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
@@ -1094,7 +1105,7 @@ describe('Activity Executor (Unit Tests)', () => {
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
       const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
       const prevNodeEnv = process.env.NODE_ENV
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       try {
         delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
@@ -1112,11 +1123,11 @@ describe('Activity Executor (Unit Tests)', () => {
           'http://10.255.255.1/health',
           expect.any(Object)
         )
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('deprecated')
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated'),
+          expect.any(Object),
         )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {
@@ -1156,7 +1167,7 @@ describe('Activity Executor (Unit Tests)', () => {
       const prev = process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
       const prevLegacy = process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS
       const prevNodeEnv = process.env.NODE_ENV
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      mockLoggerInstance.warn.mockClear()
       try {
         delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS = 'true'
@@ -1172,11 +1183,11 @@ describe('Activity Executor (Unit Tests)', () => {
         expect(result.success).toBe(false)
         expect(result.error).toContain('CALL_WEBHOOK rejected unsafe URL')
         expect(global.fetch).not.toHaveBeenCalled()
-        expect(warnSpy).toHaveBeenCalledWith(
-          expect.stringContaining('deprecated and ignored in production')
+        expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+          expect.stringContaining('deprecated and ignored in production'),
+          expect.any(Object),
         )
       } finally {
-        warnSpy.mockRestore()
         if (prev === undefined) {
           delete process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS
         } else {

@@ -10,6 +10,9 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { isOrganizationReadAccessAllowed } from '@open-mercato/core/modules/directory/utils/organizationScopeGuard'
 import { CustomerDeal, CustomerDealPersonLink, CustomerEntity } from '../../../../data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -143,7 +146,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(error)) {
       return NextResponse.json(error.body, { status: error.status })
     }
-    console.error('[customers.deals.people.GET]', error)
+    logger.error('customers.deals.people.GET', { err: error })
     return NextResponse.json({ error: translate('customers.errors.deal_people_load_failed', 'Failed to load linked people') }, { status: 500 })
   }
 }

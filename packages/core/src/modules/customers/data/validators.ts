@@ -406,7 +406,17 @@ export const todoLinkWithTodoCreateSchema = scopedSchema.extend({
 
 // --- Interaction schemas ---
 
+/**
+ * @deprecated Interaction statuses are now dictionary-backed and tenant-configurable
+ * (the `interaction-statuses` dictionary). This frozen 3-value list is kept only for
+ * backward compatibility; it is no longer the validation source (the API accepts any
+ * `z.string().max(50)`). For open/terminal semantics use `lib/interactionStatus.ts`
+ * (`isOpenInteractionStatus` / `isTerminalInteractionStatus` / `INTERACTION_STATUS_*`);
+ * for the seeded default set use `INTERACTION_STATUS_DEFAULTS` in `cli.ts`. Do not expand
+ * this list — adding members would break exhaustive consumers.
+ */
 export const interactionStatusValues = ['planned', 'done', 'canceled'] as const
+/** @deprecated See {@link interactionStatusValues}. */
 export type InteractionStatus = typeof interactionStatusValues[number]
 
 const interactionParticipantSchema = z.object({
@@ -449,7 +459,11 @@ const interactionCreateBaseSchema = scopedSchema.extend({
   interactionType: z.string().trim().min(1).max(100),
   title: z.string().trim().max(500).optional().nullable(),
   body: z.string().trim().max(10000).optional().nullable(),
-  status: z.enum(interactionStatusValues).optional().default('planned'),
+  // Lenient like `deal_status` (status: z.string().max(50)). The `interaction-statuses`
+  // dictionary drives the UI dropdown; the API accepts any string <=50 chars so existing
+  // rows, external writers, and the dispatch-crm MCP keep working. Open/terminal semantics
+  // live in lib/interactionStatus.ts, not in this validator.
+  status: z.string().max(50).optional().default('planned'),
   date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
   time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
   phoneNumber: interactionPhoneNumberSchema,
@@ -516,7 +530,7 @@ const interactionUpdateBaseSchema = z
         interactionType: z.string().trim().min(1).max(100).optional(),
         title: z.string().trim().max(500).optional().nullable(),
         body: z.string().trim().max(10000).optional().nullable(),
-        status: z.enum(interactionStatusValues).optional(),
+        status: z.string().max(50).optional(),
         date: z.string().trim().min(1, ACTIVITY_DATE_REQUIRED_MESSAGE_KEY).optional(),
         time: z.string().trim().min(1, ACTIVITY_TIME_REQUIRED_MESSAGE_KEY).optional(),
         phoneNumber: interactionPhoneNumberSchema,

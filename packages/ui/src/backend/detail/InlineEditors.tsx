@@ -20,6 +20,9 @@ import { format } from 'date-fns/format'
 import { LoadingMessage } from './LoadingMessage'
 import { mapCrudServerErrorToFormErrors } from '../utils/serverErrors'
 import { MarkdownPreview } from '../markdown'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('ui')
 
 function resolveInlineErrorMessage(err: unknown, fallbackMessage: string): string {
   const { message, fieldErrors } = mapCrudServerErrorToFormErrors(err)
@@ -791,7 +794,7 @@ export function InlineSelectEditor({
       setEditing(false)
     } catch (err) {
       const message = err instanceof Error ? err.message : t('ui.detail.inline.error', 'Failed to save value.')
-      console.error(message, err)
+      logger.error(message, { err })
     } finally {
       setSaving(false)
     }

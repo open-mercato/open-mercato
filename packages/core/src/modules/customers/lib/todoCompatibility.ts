@@ -13,6 +13,9 @@ import {
   resolveExampleIntegrationHref,
 } from './interactionCompatibility'
 import { hydrateCanonicalInteractions, loadCustomerSummaries } from './interactionReadModel'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export type CustomerTodoRow = {
   id: string
@@ -360,7 +363,7 @@ export async function resolveLegacyTodoDetails(
         })
       }
     } catch (err) {
-      console.warn(`[customers.todoCompatibility] Failed to resolve details for source="${source}"`, err)
+      logger.warn('Failed to resolve todo details', { component: 'todoCompatibility', source, err })
       continue
     }
   }

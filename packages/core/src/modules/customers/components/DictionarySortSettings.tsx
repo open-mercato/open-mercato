@@ -20,6 +20,9 @@ import {
   type DictionaryEntrySortMode,
 } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 import type { CustomerDictionaryKind } from '../lib/dictionaries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const SAVE_CONTEXT_ID = 'customers-dictionary-sort-modes'
 
@@ -90,6 +93,11 @@ export function DictionarySortSettings() {
       description: t('customers.config.dictionaries.sections.activityTypes.description', 'Define the activity types used for customer interactions.'),
     },
     {
+      kind: 'interaction-statuses',
+      title: t('customers.config.dictionaries.sections.interactionStatuses.title', 'Interaction statuses'),
+      description: t('customers.config.dictionaries.sections.interactionStatuses.description', 'Manage the statuses available for tasks and logged interactions.'),
+    },
+    {
       kind: 'address-types',
       title: t('customers.config.dictionaries.sections.addressTypes.title', 'Address types'),
       description: t('customers.config.dictionaries.sections.addressTypes.description', 'Define the available address types.'),
@@ -144,7 +152,7 @@ export function DictionarySortSettings() {
         }
         if (!cancelled) setSortModes(next)
       } catch (err) {
-        console.error('customers.dictionarySorting.load failed', err)
+        logger.error('customers.dictionarySorting.load failed', { err })
         if (!cancelled) {
           const message = err instanceof Error && err.message
             ? err.message

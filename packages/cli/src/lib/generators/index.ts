@@ -4,4 +4,3 @@ export { generateModuleEntities, type ModuleEntitiesOptions } from './module-ent
 export { generateModuleDi, type ModuleDiOptions } from './module-di'
 export { generateModulePackageSources, type ModulePackageSourcesOptions } from './module-package-sources'
 export { generateOpenApi, type GenerateOpenApiOptions } from './openapi'
-export { generateModuleFacts, type ModuleFactsOptions } from './module-facts-generate'

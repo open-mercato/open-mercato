@@ -84,14 +84,17 @@ yarn test
 # Run a single unit test
 yarn test path/to/test.spec.ts
 
-# Run integration tests (spins up fresh ephemeral app + DB, runs Playwright)
+# Run integration tests (preferred: provisions/reuses an ephemeral app + DB, runs Playwright)
 yarn test:integration:ephemeral
 
-# Start ephemeral app only (for manual QA exploration)
-mercato test ephemeral
+# Start ephemeral app only (manual QA exploration or iterative test loops; admin@acme.com / secret)
+yarn test:integration:ephemeral:start
+
+# Iterate against the running ephemeral env with small filtered batches
+yarn mercato test:integration <filter>
 
 # View HTML integration test report
-mercato test coverage
+npx playwright show-report .ai/qa/test-results/html
 
 # Generate code from modules
 yarn generate
@@ -655,18 +658,21 @@ Grab the `d="..."` path values from the lucide icon you want — for example by 
 
 ## Agent Automation / Auto-Skills
 
-This project ships four auto-* Claude Code skills under `.ai/skills/` that let you delegate whole units of work to an autonomous agent. They work inside your own repository (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts).
+These auto-* agent skills let you delegate whole units of work to an autonomous agent. They are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection — `create-mercato-app` installs them automatically during agentic setup; run **`yarn install-skills`** to refresh them or to install them later if scaffolding skipped the step (`npx skills add`; re-runs refresh via `npx skills update`). After install they are available by name from whichever harness directory your CLI reads (`.claude/skills/<name>` for Claude Code, `.agents/skills/` for Codex, mirrored into `.codex/skills/`); the matching `.ai/skills/<name>/` folder holds the standalone override the skill reads on top of its built-in workflow (any default branch name, optional pipeline labels, and a validation gate that probes `package.json` for available scripts). Repo-specific settings live in `.ai/agentic.config.json`. The `claude "…"` invocations below are examples for Claude Code — other harnesses invoke the same skills by name with their own slash-command syntax.
 
 | Skill | When to use | Invocation |
 |-------|-------------|------------|
 | `om-auto-create-pr` | Delegate an arbitrary task end-to-end and receive it as a PR against your default branch | `claude "/om-auto-create-pr <task description>"` |
 | `om-auto-continue-pr` | Resume an in-progress agent PR that wasn't finished in one run | `claude "/om-auto-continue-pr <PR#>"` |
 | `om-auto-review-pr` | Run a thorough automated code review on a PR (with optional autofix) | `claude "/om-auto-review-pr <PR#>"` |
-| `om-auto-fix-github` | Fix a GitHub issue by number and open a PR linked to it | `claude "/om-auto-fix-github <issue#>"` |
-| `om-trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) | `claude "/om-trim-unused-modules"` |
+| `om-auto-fix-issue` | Fix a GitHub issue by number and open a PR linked to it (drives the installed chain `om-verify-in-repo` → `om-root-cause` → `om-fix` → `om-open-pr` → `om-auto-review-pr`) | `claude "/om-auto-fix-issue <issue#>"` |
+| `om-setup-agent-pipeline` | Tailor the agent PR pipeline — the scaffold ships a working `.ai/agentic.config.json` (GitHub tracker, labels off), so run this only to enable the label pipeline + QA gate, switch tracker, or change validation commands | `claude "/om-setup-agent-pipeline"` |
+| `om-apply-upgrade-notes` | Re-sync the installed pipeline artifacts (tracker descriptor, config) after `yarn install-skills` refreshed the external collection | `claude "/om-apply-upgrade-notes"` |
+| `om-trim-unused-modules` | Propose disabling built-in modules you don't use (classic-mode slimdown after adding your own module) — ships locally, installed by tier | `claude "/om-trim-unused-modules"` |
 
 Notes:
 
+- The external skills install automatically when the app is scaffolded, including the chain steps the skills above invoke (`om-prepare-test-env` for integration tests, the autofix chain steps); run `yarn install-skills` to refresh them or if that step was skipped (and `yarn install-skills --list` to see the local tier catalog). It is offline-safe: pass `--no-external` to skip the network step.
 - The skills probe `gh repo view --json defaultBranchRef` for your repo's default branch; no assumption that it's `main` or `develop`.
 - Pipeline labels (`review`, `qa`, `merge-queue`, etc.) are opt-in — the skills detect which labels exist in your repo via `gh label list` and skip gracefully when they're missing. If you want the full workflow, the skill README in each skill folder has a `gh label create` snippet you can paste in once.
 - The validation gate runs `yarn typecheck`, `yarn test`, `yarn generate`, and `yarn build` only when the corresponding `package.json` script exists.

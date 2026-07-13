@@ -1,3 +1,4 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { NextResponse, type NextRequest } from 'next/server'
 import { z } from 'zod'
 import type { EntityManager } from '@mikro-orm/postgresql'
@@ -7,6 +8,8 @@ import { createApiKey } from '@open-mercato/core/modules/api_keys/services/apiKe
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+
+const logger = createLogger('ai_assistant')
 
 export const metadata = {
   POST: { requireAuth: true, requireFeatures: ['api_keys.create'] },
@@ -84,7 +87,7 @@ export async function POST(req: NextRequest) {
       roles: roleIds,
     })
   } catch (error) {
-    console.error('[MCP Key] Error:', error)
+    logger.error('MCP Key — Error', { err: error })
     return NextResponse.json(
       { error: 'Failed to create MCP API key' },
       { status: 500 },

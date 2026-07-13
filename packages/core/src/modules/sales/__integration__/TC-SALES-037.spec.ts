@@ -8,6 +8,7 @@ import {
   setRoleAclFeatures,
 } from '@open-mercato/core/helpers/integration/authFixtures'
 import { getTokenScope } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { createSalesOrderFixture, deleteSalesEntityIfExists } from '@open-mercato/core/helpers/integration/salesFixtures'
 
 /**
  * TC-SALES-037: RBAC / feature gating on sales document queries.
@@ -127,6 +128,90 @@ test.describe('TC-SALES-037 sales RBAC / feature gating', () => {
       expect(createResponse.status(), 'view-only role POST /api/sales/orders should be 403').toBe(403)
       expect(requiredFeatures(await readJson(createResponse)), '403 should require the manage feature').toContain('sales.orders.manage')
     } finally {
+      await deleteUserIfExists(request, adminToken, userId)
+      await deleteRoleIfExists(request, adminToken, roleId)
+    }
+  })
+
+  test('a role with no sales features cannot access sales notes', async ({ request }) => {
+    test.slow()
+    const adminToken = await getAuthToken(request, 'admin')
+    const scope = getTokenScope(adminToken)
+    const stamp = Date.now()
+    const email = `qa-sales-notes-denied-${stamp}@acme.com`
+    const password = `QaNotesDenied1!${stamp}`
+    let roleId: string | null = null
+    let userId: string | null = null
+    let orderId: string | null = null
+    let noteId: string | null = null
+
+    try {
+      orderId = await createSalesOrderFixture(request, adminToken)
+      const createNote = await apiRequest(request, 'POST', '/api/sales/notes', {
+        token: adminToken,
+        data: {
+          contextType: 'order',
+          contextId: orderId,
+          body: `QA sales note ACL ${stamp}`,
+        },
+      })
+      expect(createNote.status(), 'admin should create fixture sales note').toBe(201)
+      noteId = String(((await readJson(createNote)) as { id?: unknown }).id ?? '')
+      expect(noteId, 'fixture note id should be returned').toBeTruthy()
+
+      roleId = await createRoleFixture(request, adminToken, {
+        name: `QA Sales Notes Denied ${stamp}`,
+        tenantId: scope.tenantId ?? undefined,
+      })
+      await setRoleAclFeatures(request, adminToken, { roleId, features: [] })
+      userId = await createUserFixture(request, adminToken, {
+        email,
+        password,
+        organizationId: scope.organizationId!,
+        roles: [roleId],
+        name: `QA Sales Notes Denied ${stamp}`,
+      })
+
+      const deniedToken = await getAuthToken(request, email, password)
+
+      const list = await apiRequest(
+        request,
+        'GET',
+        `/api/sales/notes?contextType=order&contextId=${encodeURIComponent(orderId)}`,
+        { token: deniedToken },
+      )
+      expect(list.status(), 'zero-sales role GET /api/sales/notes should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(list)), '403 should cite order view').toContain('sales.orders.view')
+
+      const create = await apiRequest(request, 'POST', '/api/sales/notes', {
+        token: deniedToken,
+        data: {
+          contextType: 'order',
+          contextId: orderId,
+          body: `QA blocked note ${stamp}`,
+        },
+      })
+      expect(create.status(), 'zero-sales role POST /api/sales/notes should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(create)), '403 should cite order manage').toContain('sales.orders.manage')
+
+      const update = await apiRequest(request, 'PUT', '/api/sales/notes', {
+        token: deniedToken,
+        data: { id: noteId, body: `QA blocked note update ${stamp}` },
+      })
+      expect(update.status(), 'zero-sales role PUT /api/sales/notes should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(update)), '403 should cite order manage').toContain('sales.orders.manage')
+
+      const del = await apiRequest(
+        request,
+        'DELETE',
+        `/api/sales/notes?id=${encodeURIComponent(noteId)}`,
+        { token: deniedToken },
+      )
+      expect(del.status(), 'zero-sales role DELETE /api/sales/notes should be 403').toBe(403)
+      expect(requiredFeatures(await readJson(del)), '403 should cite order manage').toContain('sales.orders.manage')
+    } finally {
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/notes', noteId)
+      await deleteSalesEntityIfExists(request, adminToken, '/api/sales/orders', orderId)
       await deleteUserIfExists(request, adminToken, userId)
       await deleteRoleIfExists(request, adminToken, roleId)
     }
