@@ -24,6 +24,8 @@ export type CustomFieldDefDto = {
   // attachments-specific config
   maxAttachmentSizeMb?: number
   acceptExtensions?: string[]
+  // phone-specific config
+  defaultCountryIso2?: string
   // optional validation rules
   validation?: Array<
     | { rule: 'required'; message: string }

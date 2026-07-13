@@ -417,6 +417,8 @@ export async function GET(req: Request) {
         // attachments config passthrough
         maxAttachmentSizeMb: typeof d.configJson?.maxAttachmentSizeMb === 'number' ? d.configJson.maxAttachmentSizeMb : undefined,
         acceptExtensions: Array.isArray(d.configJson?.acceptExtensions) ? d.configJson.acceptExtensions : undefined,
+        // phone config passthrough
+        defaultCountryIso2: typeof d.configJson?.defaultCountryIso2 === 'string' ? d.configJson.defaultCountryIso2 : undefined,
         entityId,
         fieldset: normalizedFieldset ?? effectiveFieldsets[0],
         fieldsets: effectiveFieldsets.length > 0 ? effectiveFieldsets : undefined,
