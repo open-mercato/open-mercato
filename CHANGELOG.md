@@ -1,4 +1,63 @@
 
+# 0.6.7 (2026-07-13)
+
+## Highlights
+<!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
+
+## ✨ Features
+- ✨ Adopt skills mixin in the standalone create-app template (stacked on #4008). (#4026) *(@pkarw)*
+- ✨ Install shared om-* skills from open-mercato/skills (mixin). (#4008) *(@pkarw)*
+- ✨ Configurable, dictionary-backed CRM interaction statuses (supersedes #3341). (#3675) *(@matgren, via @patzick)*
+
+## 🐛 Fixes
+- 🔐 Restrict event catalog access (#3860). (#4136) *(@haxiorz)*
+- 🔐 Honor trusted SSE organization scope (#3861). (#4135) *(@haxiorz)*
+- 💰 Invalidate order cache after return mutations. (#4130) *(@andrzejewsky)*
+- 🔧 Back tenant-context AsyncLocalStorage with globalThis to survive bundler duplication. (#4126) *(@pkarw)*
+- 🔧 Surface drain-child diagnostics + pin absolute sqlite cache path in standalone CI. (#4118) *(@pkarw)*
+- 🔧 Use a cross-process cache strategy in standalone integration lanes. (#4117) *(@pkarw)*
+- 💰 Drop Stripe metadata-trust scope fallback + dead helper (#3866, #3865). (#4115) *(@haxiorz)*
+- 🐛 Annotate unauthenticated override probe (#3864). (#4114) *(@haxiorz)*
+- 🔐 Scope todo command snapshots (#3863). (#4113) *(@haxiorz)*
+- 🔐 Restrict email body access (#3868). (#4111) *(@haxiorz)*
+- 🔐 Require manage permission for proposal translation (#3867). (#4110) *(@haxiorz)*
+- 🔐 Redact integration credential URL userinfo (#3870). (#4108) *(@haxiorz)*
+- 🔐 Validate direct notification recipient scope (#3873). (#4100) *(@haxiorz)*
+- 🔐 Guard message enrichment by participant (#3872). (#4099) *(@haxiorz)*
+- 🐛 Return 400 for invalid notification restore status. (#4090) *(@haxiorz)*
+- 💰 Align payment gateway status guard resource kind (#3881). (#4081) *(@haxiorz)*
+- 🔐 Prevent planner availability authorization regression (#3883). (#4079) *(@haxiorz)*
+- 🔧 Harden MCP dev config loading (#4039). (#4077) *(@haxiorz)*
+- 🔧 Safely quote discovered table names (#4040). (#4069) *(@haxiorz)*
+- 🔐 Secure attachment temp files (#4045). (#4067) *(@haxiorz)*
+- 🐛 Route vendor-prefixed model ids to OpenAI-compatible gateways (OpenRouter) (supersedes #4009). (#4029) *(@jtomaszewski, via @pkarw)*
+- 🔄 Back data_sync adapter registry with globalThis to survive bundler duplication (supersedes #3999). (#4025) *(@KamilGrocholski, via @pkarw)*
+- 🐛 Calendar activity types from dictionary + CrudForm event editor with resources/staff (#3552). (#3747) *(@zielivia)*
+
+## 🛠️ Improvements
+- 🛠️ Share scheduler with lazy worker in dev mode. (#4125) *(@andrzejewsky)*
+- 🛠️ Retire legacy core.<module>.md redirect-stub layer (#3754). (#4080) *(@adeptofvoltron)*
+- 🛠️ Bump js-yaml from 3.14.2 to 3.15.0. (#4075) *(@pkarw)*
+
+## 📝 Specs & Documentation
+- 📝 Add Exporting Data REST API guide (#59). (#4144) *(@DarrenStasiakDev4You)*
+- 📝 Ephemeral-first test-env run mode in monorepo and create-app template. (#4095) *(@pkarw)*
+
+## 👥 Contributors
+
+- @pkarw
+- @matgren
+- @haxiorz
+- @andrzejewsky
+- @jtomaszewski
+- @KamilGrocholski
+- @zielivia
+- @adeptofvoltron
+- @DarrenStasiakDev4You
+- @patzick
+
+---
+
 # 0.6.6 (2026-07-10)
 
 ## Highlights
