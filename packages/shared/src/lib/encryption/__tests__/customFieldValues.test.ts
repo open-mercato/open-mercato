@@ -79,6 +79,23 @@ describe('customFieldValues encryption helpers', () => {
     expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'currency' })).toBe('true')
     expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'dictionary' })).toBe('true')
     expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'email' })).toBe('true')
+    expect(await decryptCustomFieldValue(booleanText, 'tenant-1', service, cache, { kind: 'phone' })).toBe('true')
+  })
+
+  it('keeps an all-digit phone value a string instead of coercing it to a number (#62)', async () => {
+    const service = {
+      isEnabled: () => true,
+      getDek: async () => ({ key: fixedKey }),
+    } as any
+    const cache = new Map<string | null, string | null>()
+
+    const digitsOnly = await encryptCustomFieldValue('15551234567', 'tenant-1', service, cache)
+    const decrypted = await decryptCustomFieldValue(digitsOnly, 'tenant-1', service, cache, { kind: 'phone' })
+    expect(decrypted).toBe('15551234567')
+    expect(typeof decrypted).toBe('string')
+
+    const formatted = await encryptCustomFieldValue('+1 212 555 1234', 'tenant-1', service, cache)
+    expect(await decryptCustomFieldValue(formatted, 'tenant-1', service, cache, { kind: 'phone' })).toBe('+1 212 555 1234')
   })
 
   it('still parses typed kinds (integer/float/boolean) so legacy round-trip stays correct', async () => {
