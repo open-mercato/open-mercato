@@ -105,11 +105,20 @@ test('summarize copes with zero samples', () => {
 })
 
 test('renderReportTable orders reports by startedAt and renders a chronological delta', () => {
+  const metadata = {
+    nodeVersion: 'v24.13.1',
+    nextVersion: '16.2.9',
+    activeModuleCount: 2,
+    activeModuleIds: ['auth', 'customers'],
+    backgroundServices: { workers: 'lazy', workerSpawnMode: 'shared', scheduler: 'lazy', schedulerEmbeddedInSharedWorker: true },
+    watch: { scope: 'all', packages: [] },
+  }
   const reports = [
     {
       label: 'baseline',
       durationMs: 90_000,
       startedAt: '2026-05-27T06:00:00.000Z',
+      metadata,
       summary: {
         peakTotalMb: 3072.5,
         meanTotalMb: 2800.1,
@@ -121,6 +130,7 @@ test('renderReportTable orders reports by startedAt and renders a chronological 
       label: 'after-2102',
       durationMs: 90_000,
       startedAt: '2026-05-27T06:30:00.000Z',
+      metadata,
       summary: {
         peakTotalMb: 1900.0,
         meanTotalMb: 1750.0,
@@ -139,9 +149,14 @@ test('renderReportTable orders reports by startedAt and renders a chronological 
 })
 
 test('renderReportTable falls back to alphabetic order when startedAt is missing', () => {
+  const metadata = {
+    nodeVersion: 'v24.13.1', nextVersion: '16.2.9', activeModuleCount: 1, activeModuleIds: ['auth'],
+    backgroundServices: { workers: 'lazy', workerSpawnMode: 'shared', scheduler: 'lazy', schedulerEmbeddedInSharedWorker: true },
+    watch: { scope: 'all', packages: [] },
+  }
   const reports = [
-    { label: 'b-second', durationMs: 90_000, summary: { peakTotalMb: 200, meanTotalMb: 180, sampleCount: 1, peakTopProcesses: [] } },
-    { label: 'a-first', durationMs: 90_000, summary: { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] } },
+    { label: 'b-second', durationMs: 90_000, metadata, summary: { peakTotalMb: 200, meanTotalMb: 180, sampleCount: 1, peakTopProcesses: [] } },
+    { label: 'a-first', durationMs: 90_000, metadata, summary: { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] } },
   ]
   const table = renderReportTable(reports)
   // `a-first` < `b-second`, so the delta line reads `b-second − a-first`.
@@ -157,12 +172,54 @@ test('renderReportTable exposes metadata and warns about non-comparable environm
     label,
     durationMs: 1_000,
     startedAt: label === 'a' ? '2026-05-27T06:00:00.000Z' : '2026-05-27T06:01:00.000Z',
-    metadata: { nodeVersion, nextVersion: '16.2.9', activeModuleCount: 50, observationPhase: 'browse' },
+    metadata: {
+      nodeVersion,
+      nextVersion: '16.2.9',
+      activeModuleCount: 50,
+      activeModuleIds: ['auth'],
+      observationPhase: 'browse',
+      backgroundServices: { workers: 'lazy', workerSpawnMode: 'shared', scheduler: 'lazy' },
+      watch: { scope: 'all', packages: [] },
+    },
     summary: { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] },
   })
   const table = renderReportTable([makeReport('a', 'v24.13.1'), makeReport('b', 'v25.3.0')])
   assert.match(table, /v24\.13\.1; Next 16\.2\.9; 50 modules; phase browse/)
   assert.match(table, /non-comparable/)
+})
+
+test('renderReportTable rejects missing metadata and same-count module or runtime drift', () => {
+  const summary = { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] }
+  const baseMetadata = {
+    nodeVersion: 'v24.13.1',
+    nextVersion: '16.2.9',
+    activeModuleCount: 1,
+    activeModuleIds: ['auth'],
+    backgroundServices: { workers: 'lazy', workerSpawnMode: 'shared', scheduler: 'lazy' },
+    watch: { scope: 'all', packages: [] },
+  }
+  const missing = renderReportTable([
+    { label: 'legacy', durationMs: 1_000, summary },
+    { label: 'current', durationMs: 1_000, metadata: baseMetadata, summary },
+  ])
+  assert.match(missing, /missing or different/)
+  assert.doesNotMatch(missing, /\*\*Delta:/)
+
+  const drifted = renderReportTable([
+    { label: 'base', durationMs: 1_000, metadata: baseMetadata, summary },
+    {
+      label: 'candidate',
+      durationMs: 1_000,
+      metadata: {
+        ...baseMetadata,
+        activeModuleIds: ['customers'],
+        backgroundServices: { ...baseMetadata.backgroundServices, workers: 'off' },
+      },
+      summary,
+    },
+  ])
+  assert.match(drifted, /non-comparable/)
+  assert.doesNotMatch(drifted, /\*\*Delta:/)
 })
 
 test('parseArgs supports both positional label and --label, plus --report mode', () => {

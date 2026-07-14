@@ -30,11 +30,18 @@ async function tryBootstrap(mode: Exclude<CliBootstrapMode, 'none'>): Promise<bo
     const appDir = resolver.getAppDir()
 
     if (mode === 'dev-supervisor') {
-      const { loadDevSupervisorManifest, registerDevSupervisorManifest } = await import(
+      const {
+        canUseLightweightDevSupervisor,
+        loadDevSupervisorManifest,
+        registerDevSupervisorManifest,
+      } = await import(
         './lib/dev-supervisor-manifest.js'
       )
-      registerDevSupervisorManifest(loadDevSupervisorManifest(appDir))
-      return true
+      const manifest = loadDevSupervisorManifest(appDir)
+      if (canUseLightweightDevSupervisor(manifest)) {
+        registerDevSupervisorManifest(manifest)
+        return true
+      }
     }
 
     const { bootstrapFromAppRoot } = await import('@open-mercato/shared/lib/bootstrap/dynamicLoader')

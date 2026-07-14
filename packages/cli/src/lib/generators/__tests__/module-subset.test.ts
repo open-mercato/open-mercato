@@ -1131,12 +1131,56 @@ export default async function handle(): Promise<void> {}
         concurrency: 3,
       }],
       schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
     })
     expect(first.filesWritten).toContain(manifestPath)
 
     const second = await generateModuleRegistryCli({ resolver, quiet: true })
     expect(second.filesUnchanged).toContain(manifestPath)
     expect(second.filesWritten).not.toContain(manifestPath)
+  })
+
+  it('falls back to full bootstrap for worker overrides and computed scheduler commands', async () => {
+    scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
+    scaffoldModule(tmpDir, 'scheduler', 'pkg', ['cli.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'events', 'workers', 'dispatch.ts'),
+      `export const metadata = { id: 'events:dispatch', queue: 'events', concurrency: 3 }\nexport default async function dispatch() {}\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'scheduler', 'cli.ts'),
+      `const command = 'start'\nexport default [{ command, run() {} }]\n`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/core', devSupervisorRequiresFullBootstrap: true },
+      { id: 'scheduler', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8'))).toMatchObject({
+      schedulerStartStatus: 'missing-command',
+      requiresFullBootstrap: true,
+    })
+  })
+
+  it('falls back to full bootstrap when app code registers programmatic worker overrides', async () => {
+    scaffoldModule(tmpDir, 'events', 'pkg', ['workers/dispatch.ts'])
+    touchFile(
+      path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'events', 'workers', 'dispatch.ts'),
+      `export const metadata = { id: 'events:dispatch', queue: 'events', concurrency: 3 }\nexport default async function dispatch() {}\n`,
+    )
+    touchFile(
+      path.join(tmpDir, 'app', 'src', 'bootstrap-overrides.ts'),
+      `import { applyWorkerOverrides as overrideWorkers } from '@open-mercato/shared/modules/overrides'\noverrideWorkers({ 'events:dispatch': null })\n`,
+    )
+    const resolver = createMockResolver(tmpDir, [
+      { id: 'events', from: '@open-mercato/core' },
+    ])
+
+    await generateModuleRegistryCli({ resolver, quiet: true })
+    const manifestPath = path.join(tmpDir, 'output', 'generated', 'dev-supervisor.generated.json')
+    expect(JSON.parse(fs.readFileSync(manifestPath, 'utf8')).requiresFullBootstrap).toBe(true)
   })
 
   it('handles disabling a module that was previously enabled', async () => {

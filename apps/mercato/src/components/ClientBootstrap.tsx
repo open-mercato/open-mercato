@@ -7,6 +7,7 @@ const logger = createLogger('app').child({ component: 'ClientBootstrap' })
 
 export type ClientBootstrapProfile =
   | 'public'
+  | 'login'
   | 'backend'
   | 'backend-dashboard'
   | 'backend-messages'
@@ -28,6 +29,7 @@ const BACKEND_PREFIX = '/backend'
 export function resolveClientBootstrapProfile(pathname: string | null): ClientBootstrapProfile {
   const path = pathname?.split('?')[0].replace(/\/+$/, '') || '/'
 
+  if (path === '/login') return 'login'
   if (path === BACKEND_PREFIX) return 'backend-dashboard'
   if (path === `${BACKEND_PREFIX}/messages` || path.startsWith(`${BACKEND_PREFIX}/messages/`)) {
     return 'backend-messages'
@@ -43,7 +45,8 @@ export function resolveClientBootstrapProfile(pathname: string | null): ClientBo
 }
 
 export function profileUsesComponentOverrides(profile: ClientBootstrapProfile): boolean {
-  return profile === 'backend'
+  return profile === 'login'
+    || profile === 'backend'
     || profile === 'backend-dashboard'
     || profile === 'backend-messages'
     || profile === 'backend-checkout'
@@ -51,16 +54,18 @@ export function profileUsesComponentOverrides(profile: ClientBootstrapProfile): 
     || profile === 'checkout'
 }
 
-function groupsForProfile(profile: ClientBootstrapProfile): ClientRegistryGroup[] {
+export function groupsForProfile(profile: ClientBootstrapProfile): ClientRegistryGroup[] {
   switch (profile) {
     case 'backend-dashboard':
-      return ['translations', 'injection', 'notifications', 'dashboard']
+      return ['translations', 'injection', 'notifications', 'messages', 'dashboard']
     case 'backend-messages':
       return ['translations', 'injection', 'notifications', 'messages']
     case 'backend-checkout':
-      return ['translations', 'injection', 'notifications', 'payments']
+      return ['translations', 'injection', 'notifications', 'messages', 'payments']
     case 'backend':
-      return ['translations', 'injection', 'notifications']
+      // Message composers are embedded across backend modules (customers,
+      // sales, catalog, staff, and others), not only under /backend/messages.
+      return ['translations', 'injection', 'notifications', 'messages']
     case 'portal':
       // Injection tables include the translations table, which is materialized
       // at module evaluation time. Register translations first so a later

@@ -20,6 +20,7 @@ export type DevSupervisorManifest = {
   version: typeof DEV_SUPERVISOR_MANIFEST_VERSION
   workers: DevSupervisorWorkerDescriptor[]
   schedulerStartStatus: DevSupervisorSchedulerStartStatus
+  requiresFullBootstrap: boolean
 }
 
 let registeredManifest: DevSupervisorManifest | null = null
@@ -96,7 +97,15 @@ function parseManifest(value: unknown, filePath: string): DevSupervisorManifest 
     version: DEV_SUPERVISOR_MANIFEST_VERSION,
     workers: manifest.workers.map((worker, index) => parseWorkerDescriptor(worker, index, filePath)),
     schedulerStartStatus,
+    // Version-1 manifests produced before this safety marker existed cannot
+    // prove that worker/CLI overrides were accounted for. Preserve the old
+    // full-bootstrap behavior until `yarn generate` writes an explicit false.
+    requiresFullBootstrap: manifest.requiresFullBootstrap !== false,
   }
+}
+
+export function canUseLightweightDevSupervisor(manifest: DevSupervisorManifest): boolean {
+  return manifest.requiresFullBootstrap === false
 }
 
 export function loadDevSupervisorManifest(appDir: string): DevSupervisorManifest {

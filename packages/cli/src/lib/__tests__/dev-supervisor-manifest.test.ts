@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  canUseLightweightDevSupervisor,
   DEV_SUPERVISOR_MANIFEST_FILE,
   getRegisteredDevSupervisorManifest,
   loadDevSupervisorManifest,
@@ -41,6 +42,7 @@ describe('dev supervisor manifest', () => {
         },
       ],
       schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
     })
 
     const manifest = loadDevSupervisorManifest(appDir)
@@ -55,8 +57,10 @@ describe('dev supervisor manifest', () => {
         },
       ],
       schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
     })
 
+    expect(canUseLightweightDevSupervisor(manifest)).toBe(true)
     registerDevSupervisorManifest(manifest)
     expect(getRegisteredDevSupervisorManifest()).toBe(manifest)
   })
@@ -98,5 +102,30 @@ describe('dev supervisor manifest', () => {
       schedulerStartStatus: 'maybe',
     })
     expect(() => loadDevSupervisorManifest(appDir)).toThrow(/schedulerStartStatus is invalid/)
+  })
+
+  it('preserves the full-bootstrap fallback marker', () => {
+    writeManifest(appDir, {
+      version: 1,
+      workers: [],
+      schedulerStartStatus: 'ok',
+      requiresFullBootstrap: true,
+    })
+
+    const manifest = loadDevSupervisorManifest(appDir)
+    expect(manifest.requiresFullBootstrap).toBe(true)
+    expect(canUseLightweightDevSupervisor(manifest)).toBe(false)
+  })
+
+  it('treats a legacy version-1 manifest without the safety marker as full-bootstrap only', () => {
+    writeManifest(appDir, {
+      version: 1,
+      workers: [],
+      schedulerStartStatus: 'ok',
+    })
+
+    const manifest = loadDevSupervisorManifest(appDir)
+    expect(manifest.requiresFullBootstrap).toBe(true)
+    expect(canUseLightweightDevSupervisor(manifest)).toBe(false)
   })
 })

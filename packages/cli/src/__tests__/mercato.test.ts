@@ -968,6 +968,7 @@ describe('server dev managed process exits', () => {
         },
       ],
       schedulerStartStatus: 'missing-module',
+      requiresFullBootstrap: false,
     })
     const mercato = await import('../mercato')
     mercato.registerCliModules([eventsWorkerFixture as Module])
@@ -1107,6 +1108,7 @@ describe('server dev managed process exits', () => {
       version: 1,
       workers: [],
       schedulerStartStatus: 'ok',
+      requiresFullBootstrap: false,
     })
     const mercato = await import('../mercato')
 

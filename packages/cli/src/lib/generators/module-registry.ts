@@ -2813,26 +2813,124 @@ function sourceDeclaresCliCommand(filePath: string, commandName: string): boolea
     return false
   }
   const sourceFile = ts.createSourceFile(filePath, sourceText, ts.ScriptTarget.Latest, true)
-  let found = false
-  const visit = (node: ts.Node): void => {
-    if (found) return
-    if (ts.isPropertyAssignment(node)) {
-      const propertyName = ts.isIdentifier(node.name) || ts.isStringLiteral(node.name)
-        ? node.name.text
-        : null
-      if (
-        propertyName === 'command'
-        && (ts.isStringLiteral(node.initializer) || ts.isNoSubstitutionTemplateLiteral(node.initializer))
-        && node.initializer.text === commandName
-      ) {
-        found = true
-        return
+  const declarations = new Map<string, ts.Expression>()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (ts.isIdentifier(declaration.name) && declaration.initializer) {
+        declarations.set(declaration.name.text, declaration.initializer)
       }
     }
-    ts.forEachChild(node, visit)
   }
-  visit(sourceFile)
-  return found
+
+  const expressionDeclaresCommand = (expression: ts.Expression, seen = new Set<string>()): boolean => {
+    if (ts.isParenthesizedExpression(expression) || ts.isAsExpression(expression) || ts.isSatisfiesExpression(expression)) {
+      return expressionDeclaresCommand(expression.expression, seen)
+    }
+    if (ts.isIdentifier(expression)) {
+      if (seen.has(expression.text)) return false
+      const initializer = declarations.get(expression.text)
+      if (!initializer) return false
+      const nextSeen = new Set(seen)
+      nextSeen.add(expression.text)
+      return expressionDeclaresCommand(initializer, nextSeen)
+    }
+    if (ts.isArrayLiteralExpression(expression)) {
+      return expression.elements.some((element) => (
+        ts.isSpreadElement(element)
+          ? expressionDeclaresCommand(element.expression, seen)
+          : expressionDeclaresCommand(element, seen)
+      ))
+    }
+    if (!ts.isObjectLiteralExpression(expression)) return false
+    return expression.properties.some((property) => {
+      if (!ts.isPropertyAssignment(property)) return false
+      const propertyName = ts.isIdentifier(property.name) || ts.isStringLiteralLike(property.name)
+        ? property.name.text
+        : null
+      return propertyName === 'command'
+        && (ts.isStringLiteralLike(property.initializer) || ts.isNoSubstitutionTemplateLiteral(property.initializer))
+        && property.initializer.text === commandName
+    })
+  }
+
+  return sourceFile.statements.some((statement) => (
+    ts.isExportAssignment(statement)
+    && !statement.isExportEquals
+    && expressionDeclaresCommand(statement.expression)
+  ))
+}
+
+function appDeclaresProgrammaticDevSupervisorOverrides(appDir: string): boolean {
+  const srcDir = path.join(appDir, 'src')
+  const pending = [srcDir]
+  while (pending.length > 0) {
+    const current = pending.pop()!
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name)
+      if (entry.isDirectory()) {
+        if (entry.name !== '__tests__' && entry.name !== 'node_modules') pending.push(entryPath)
+        continue
+      }
+      if (!/\.[cm]?tsx?$/.test(entry.name) || /(?:^|\.)test\.[cm]?tsx?$/.test(entry.name)) continue
+
+      let sourceText: string
+      try {
+        sourceText = fs.readFileSync(entryPath, 'utf8')
+      } catch {
+        continue
+      }
+      const sourceFile = ts.createSourceFile(entryPath, sourceText, ts.ScriptTarget.Latest, true)
+      const directImports = new Set<string>()
+      const namespaceImports = new Set<string>()
+      for (const statement of sourceFile.statements) {
+        if (
+          !ts.isImportDeclaration(statement)
+          || !ts.isStringLiteralLike(statement.moduleSpecifier)
+          || statement.moduleSpecifier.text !== '@open-mercato/shared/modules/overrides'
+        ) continue
+        const bindings = statement.importClause?.namedBindings
+        if (bindings && ts.isNamespaceImport(bindings)) namespaceImports.add(bindings.name.text)
+        if (bindings && ts.isNamedImports(bindings)) {
+          for (const element of bindings.elements) {
+            const importedName = element.propertyName?.text ?? element.name.text
+            if (importedName === 'applyWorkerOverrides' || importedName === 'applyCliOverrides') {
+              directImports.add(element.name.text)
+            }
+          }
+        }
+      }
+      let found = false
+      const visit = (node: ts.Node): void => {
+        if (found) return
+        if (ts.isCallExpression(node)) {
+          if (ts.isIdentifier(node.expression) && directImports.has(node.expression.text)) {
+            found = true
+            return
+          }
+          if (
+            ts.isPropertyAccessExpression(node.expression)
+            && ts.isIdentifier(node.expression.expression)
+            && namespaceImports.has(node.expression.expression.text)
+            && ['applyWorkerOverrides', 'applyCliOverrides'].includes(node.expression.name.text)
+          ) {
+            found = true
+            return
+          }
+        }
+        ts.forEachChild(node, visit)
+      }
+      visit(sourceFile)
+      if (found) return true
+    }
+  }
+  return false
 }
 
 function renderAstI18nLocaleRegistryFile(options: {
@@ -4052,6 +4150,8 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   const devSupervisorWorkers: DevSupervisorWorkerDescriptor[] = []
   let schedulerStartStatus: DevSupervisorSchedulerStartStatus = 'missing-module'
+  let requiresFullBootstrap = enabled.some((entry) => entry.devSupervisorRequiresFullBootstrap === true)
+    || appDeclaresProgrammaticDevSupervisorOverrides(resolver.getAppDir())
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -4161,9 +4261,12 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
         imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
         cliImportName = importName
         if (modId === 'scheduler') {
-          schedulerStartStatus = sourceDeclaresCliCommand(cliResolved.absolutePath, 'start')
-            ? 'ok'
-            : 'missing-command'
+          if (sourceDeclaresCliCommand(cliResolved.absolutePath, 'start')) {
+            schedulerStartStatus = 'ok'
+          } else {
+            schedulerStartStatus = 'missing-command'
+            requiresFullBootstrap = true
+          }
         }
       }
     }
@@ -4368,6 +4471,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     version: DEV_SUPERVISOR_MANIFEST_VERSION,
     workers: devSupervisorWorkers,
     schedulerStartStatus,
+    requiresFullBootstrap,
   }, null, 2)}\n`
   writeGeneratedFile({
     outFile: devSupervisorOutFile,

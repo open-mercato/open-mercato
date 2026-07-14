@@ -1,11 +1,12 @@
 import {
+  groupsForProfile,
   profileUsesComponentOverrides,
   resolveClientBootstrapProfile,
 } from '../ClientBootstrap'
 
 describe('client bootstrap route profiles', () => {
   it.each([
-    ['/login', 'public'],
+    ['/login', 'login'],
     ['/start', 'public'],
     ['/example', 'public'],
     ['/backend', 'backend-dashboard'],
@@ -27,9 +28,17 @@ describe('client bootstrap route profiles', () => {
 
   it('limits component overrides to extensible application surfaces', () => {
     expect(profileUsesComponentOverrides('public')).toBe(false)
+    expect(profileUsesComponentOverrides('login')).toBe(true)
     expect(profileUsesComponentOverrides('message')).toBe(false)
     expect(profileUsesComponentOverrides('backend')).toBe(true)
     expect(profileUsesComponentOverrides('portal')).toBe(true)
     expect(profileUsesComponentOverrides('checkout')).toBe(true)
   })
+
+  it.each(['backend', 'backend-dashboard', 'backend-messages', 'backend-checkout'] as const)(
+    'loads message client registrations for the %s profile',
+    (profile) => {
+      expect(groupsForProfile(profile)).toContain('messages')
+    },
+  )
 })

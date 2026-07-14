@@ -3,8 +3,11 @@
 import * as React from 'react'
 import type { ComponentType } from 'react'
 import type { ComponentOverride } from '@open-mercato/shared/modules/widgets/component-registry'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { ClientBootstrapProfile } from '@/components/ClientBootstrap'
 import { profileUsesComponentOverrides } from '@/components/ClientBootstrap'
+
+const logger = createLogger('app').child({ component: 'ComponentOverridesBootstrap' })
 
 type OverrideProvider = ComponentType<{
   overrides: ComponentOverride[]
@@ -42,9 +45,31 @@ export function ComponentOverridesBootstrap({
   profile: ClientBootstrapProfile
   children: React.ReactNode
 }) {
-  if (!profileUsesComponentOverrides(profile)) return <>{children}</>
+  const enabled = profileUsesComponentOverrides(profile)
+  const [loaded, setLoaded] = React.useState<LoadedOverrides | null>(null)
+  // Start fetching during the first browser render so the override contract is
+  // ready as early as possible, while keeping hydration itself unsuspended.
+  const pending = enabled && typeof window !== 'undefined' ? loadOverrides() : null
 
-  const { Provider, overrides } = React.use(loadOverrides())
+  React.useEffect(() => {
+    if (!enabled) {
+      setLoaded(null)
+      return
+    }
+    let active = true
+    void (pending ?? loadOverrides()).then((result) => {
+      if (active) setLoaded(result)
+    }).catch((err) => {
+      logger.error('Failed to load component overrides', { err })
+    })
+    return () => {
+      active = false
+    }
+  }, [enabled, pending])
+
+  if (!enabled || !loaded) return <>{children}</>
+
+  const { Provider, overrides } = loaded
   return <Provider overrides={overrides}>{children}</Provider>
 }
 

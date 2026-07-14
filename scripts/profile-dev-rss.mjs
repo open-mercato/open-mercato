@@ -135,7 +135,37 @@ export function renderReportTable(reports) {
       `| \`${r.label}\` | ${environment} | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} |`,
     )
   }
-  if (sorted.length >= 2) {
+  const comparableSignatures = sorted.map((report) => {
+    const metadata = report.metadata
+    if (
+      !metadata?.nodeVersion
+      || !metadata?.nextVersion
+      || !Array.isArray(metadata?.activeModuleIds)
+      || !metadata?.backgroundServices
+      || !metadata?.watch
+    ) return null
+    return JSON.stringify({
+      nodeVersion: metadata.nodeVersion,
+      nextVersion: metadata.nextVersion,
+      activeModuleIds: [...metadata.activeModuleIds].sort(),
+      backgroundServices: {
+        workers: metadata.backgroundServices.workers ?? null,
+        workerSpawnMode: metadata.backgroundServices.workerSpawnMode ?? null,
+        scheduler: metadata.backgroundServices.scheduler ?? null,
+        schedulerEmbeddedInSharedWorker: metadata.backgroundServices.schedulerEmbeddedInSharedWorker ?? null,
+      },
+      watch: {
+        scope: metadata.watch.scope ?? null,
+        packages: Array.isArray(metadata.watch.packages) ? [...metadata.watch.packages].sort() : null,
+      },
+    })
+  })
+  const reportsComparable = sorted.length < 2 || (
+    comparableSignatures.every((signature) => signature !== null)
+    && new Set(comparableSignatures).size === 1
+  )
+
+  if (sorted.length >= 2 && reportsComparable) {
     const baseline = sorted[0]
     const candidate = sorted[sorted.length - 1]
     if (baseline.summary?.peakTotalMb != null && candidate.summary?.peakTotalMb != null) {
@@ -146,14 +176,9 @@ export function renderReportTable(reports) {
       )
     }
   }
-  const comparableSignatures = new Set(sorted.flatMap((report) => {
-    const metadata = report.metadata
-    if (!metadata?.nodeVersion || !metadata?.nextVersion || !Number.isFinite(metadata?.activeModuleCount)) return []
-    return [`${metadata.nodeVersion}|${metadata.nextVersion}|${metadata.activeModuleCount}`]
-  }))
-  if (comparableSignatures.size > 1) {
+  if (sorted.length >= 2 && !reportsComparable) {
     lines.push('')
-    lines.push('**Warning:** these reports use different Node, Next.js, or active-module configurations; treat the RSS delta as non-comparable.')
+    lines.push('**Warning:** these reports have missing or different Node, Next.js, active-module, background-service, or watch configurations; the RSS delta is non-comparable and was not calculated.')
   }
   return lines.join('\n')
 }
