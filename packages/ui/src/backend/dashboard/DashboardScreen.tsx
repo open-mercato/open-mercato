@@ -96,6 +96,8 @@ function generateId(): string {
 
 export function DashboardScreen() {
   const t = useT()
+  const tRef = React.useRef(t)
+  tRef.current = t
   const organizationScopeVersion = useOrganizationScopeVersion()
   const [loading, setLoading] = React.useState(true)
   const [error, setError] = React.useState<string | null>(null)
@@ -162,11 +164,11 @@ export function DashboardScreen() {
         setSettingsId(null)
         return
       }
-      setError(t('dashboard.loadError'))
+      setError(tRef.current('dashboard.loadError'))
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [])
 
   React.useEffect(() => {
     load()

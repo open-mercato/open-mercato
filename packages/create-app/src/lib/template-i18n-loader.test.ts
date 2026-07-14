@@ -13,8 +13,8 @@ test('standalone dictionary loader stays aligned with the main app locale-shard 
   assert.equal(templateSource, appSource)
   assert.match(templateSource, /modules\.i18n\.loaders\.generated/)
   assert.doesNotMatch(templateSource, /modules\.i18n\.generated['"]/)
-  assert.match(templateSource, /loadI18nModules\(locale\)/)
-  assert.match(templateSource, /registerLoadedLocaleModules\(locale, localeModules\)/)
+  assert.match(templateSource, /loadLocaleModules\(locale\)/)
+  assert.match(templateSource, /registerLoadedLocaleModules\(locale, localeModules, registerLocaleModules\)/)
 })
 
 test('standalone dictionary loader preserves all supported app dictionary fallbacks', () => {

@@ -165,10 +165,21 @@ export function ClientBootstrapProvider({
   children: React.ReactNode
 }) {
   const promise = bootstrapProfile(profile)
-  if (groupsForProfile(profile).length > 0) {
-    // React.use suspends both SSR and hydration until synchronous registry
-    // consumers can observe a complete profile. The rejected promise is
-    // evicted above so a boundary retry requests a fresh lazy chunk.
+  const hasRegistryGroups = groupsForProfile(profile).length > 0
+
+  React.useEffect(() => {
+    if (!hasRegistryGroups) return
+    // Start registration during the first client render, but do not suspend
+    // hydration behind lazy registry chunks. Server-rendered controls remain
+    // visible while hydration is pending, and blocking here would let users
+    // interact with DOM that React has not attached to yet.
+    void promise.catch(() => {})
+  }, [hasRegistryGroups, promise])
+
+  if (hasRegistryGroups && typeof window === 'undefined') {
+    // Server registry consumers still need a complete profile before render.
+    // The rejected promise is evicted above so a boundary retry requests a
+    // fresh lazy chunk.
     React.use(promise)
   }
   return <>{children}</>
