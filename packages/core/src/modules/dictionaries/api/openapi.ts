@@ -62,6 +62,9 @@ export const dictionaryEntryListResponseSchema = z.object({
   limit: z.number().int(),
   offset: z.number().int(),
   hasMore: z.boolean(),
+  sortMode: dictionaryEntrySortModeSchema.describe(
+    'Sort mode that ordered this page. Clients assembling multiple pages must re-apply it across the combined set.',
+  ),
 })
 
 export const dictionaryEntriesQuerySchema = z.object({

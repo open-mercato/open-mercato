@@ -162,6 +162,10 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
       limit,
       offset,
       hasMore: offset + sortedEntries.length < total,
+      // Page membership comes from the database ordering, while the page itself
+      // is ordered in memory. A client assembling several pages has to re-apply
+      // the same comparator, so it needs the mode that produced this ordering.
+      sortMode,
     }
 
     if (cache && cacheKey) {
