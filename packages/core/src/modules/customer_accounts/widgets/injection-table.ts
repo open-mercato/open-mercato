@@ -19,10 +19,8 @@ const companyUsersWidget = {
 export const injectionTable: ModuleInjectionTable = {
   'customers.person': [accountStatusWidget],
   'crud-form:customers.person': [accountStatusWidget],
-  'crud-form:customers:customer_person_profile:fields': [accountStatusWidget],
   'customers.company': [companyUsersWidget],
   'crud-form:customers.company': [companyUsersWidget],
-  'crud-form:customers:customer_company_profile:fields': [companyUsersWidget],
   // Step 4.10 — Portal AiChat injection example.
   // Mapped to the portal profile page's `pageAfter('profile')` spot;
   // third-party modules targeting other portal pages can copy this entry.

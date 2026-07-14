@@ -57,6 +57,7 @@ type ActivityTypeDictionaryEntry = {
   value?: unknown
   label?: unknown
   color?: unknown
+  icon?: unknown
 }
 
 export type UseCalendarItemsResult = {
@@ -66,6 +67,7 @@ export type UseCalendarItemsResult = {
   truncated: boolean
   typeLabels: Record<string, string>
   typeColors: Record<string, string | null>
+  typeIcons: Record<string, string | null>
   refetch: () => void
 }
 
@@ -76,6 +78,7 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
   const [truncated, setTruncated] = React.useState(false)
   const [typeLabels, setTypeLabels] = React.useState<Record<string, string>>({})
   const [typeColors, setTypeColors] = React.useState<Record<string, string | null>>({})
+  const [typeIcons, setTypeIcons] = React.useState<Record<string, string | null>>({})
   const [reloadToken, setReloadToken] = React.useState(0)
 
   const fromTime = range.from.getTime()
@@ -93,18 +96,22 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
       const entries = Array.isArray(call.result?.items) ? call.result.items : []
       const labels: Record<string, string> = {}
       const colors: Record<string, string | null> = {}
+      const icons: Record<string, string | null> = {}
       for (const entry of entries) {
         if (typeof entry?.value !== 'string' || entry.value.length === 0) continue
         labels[entry.value] = typeof entry.label === 'string' && entry.label.length > 0 ? entry.label : entry.value
         colors[entry.value] = typeof entry.color === 'string' && entry.color.length > 0 ? entry.color : null
+        icons[entry.value] = typeof entry.icon === 'string' && entry.icon.length > 0 ? entry.icon : null
       }
       setTypeLabels(labels)
       setTypeColors(colors)
+      setTypeIcons(icons)
     }
     loadActivityTypes().catch(() => {
       if (cancelled || controller.signal.aborted) return
       setTypeLabels({})
       setTypeColors({})
+      setTypeIcons({})
     })
     return () => {
       cancelled = true
@@ -158,5 +165,5 @@ export function useCalendarItems(range: CalendarRange): UseCalendarItemsResult {
     setReloadToken((token) => token + 1)
   }, [])
 
-  return { items, isLoading, error, truncated, typeLabels, typeColors, refetch }
+  return { items, isLoading, error, truncated, typeLabels, typeColors, typeIcons, refetch }
 }

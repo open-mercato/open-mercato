@@ -471,6 +471,7 @@ export function DictionaryEntriesEditor({ dictionaryId, dictionaryName, readOnly
             <AppearanceSelector
               icon={appearance.icon}
               color={appearance.color}
+              previewLabel={formState.label.trim() || formState.value.trim()}
               onIconChange={(next) => {
                 appearance.setIcon(next)
                 setFormState((prev) => ({ ...prev, icon: next }))

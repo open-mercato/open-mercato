@@ -1,11 +1,14 @@
 
-# 0.6.6 (2026-07-10)
+# 0.6.6 (2026-07-13)
 
 ## Highlights
 <!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
 
 ## ✨ Features
 - ✨ Expose a scoped staff member directory service for optional scheduling integrations.
+- ✨ Adopt skills mixin in the standalone create-app template (stacked on #4008). (#4026) *(@pkarw)*
+- ✨ Install shared om-* skills from open-mercato/skills (mixin). (#4008) *(@pkarw)*
+- ✨ Configurable, dictionary-backed CRM interaction statuses (supersedes #3341). (#3675) *(@matgren, via @patzick)*
 - ✨ First-class bulk-import side-effect suppression. (#4014) *(@KamilGrocholski)*
 - ✨ Document OM_WATCH_SCOPE dev-memory lever + emoji watch-mode log. (#3962) *(@pkarw)*
 - ✨ Auto-discover module fact-sheets beyond the core allowlist (#3752). (#3798) *(@adeptofvoltron)*
@@ -67,6 +70,29 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🔐 Restrict event catalog access (#3860). (#4136) *(@haxiorz)*
+- 🔐 Honor trusted SSE organization scope (#3861). (#4135) *(@haxiorz)*
+- 💰 Invalidate order cache after return mutations. (#4130) *(@andrzejewsky)*
+- 🔧 Back tenant-context AsyncLocalStorage with globalThis to survive bundler duplication. (#4126) *(@pkarw)*
+- 🔧 Surface drain-child diagnostics + pin absolute sqlite cache path in standalone CI. (#4118) *(@pkarw)*
+- 🔧 Use a cross-process cache strategy in standalone integration lanes. (#4117) *(@pkarw)*
+- 💰 Drop Stripe metadata-trust scope fallback + dead helper (#3866, #3865). (#4115) *(@haxiorz)*
+- 🐛 Annotate unauthenticated override probe (#3864). (#4114) *(@haxiorz)*
+- 🔐 Scope todo command snapshots (#3863). (#4113) *(@haxiorz)*
+- 🔐 Restrict email body access (#3868). (#4111) *(@haxiorz)*
+- 🔐 Require manage permission for proposal translation (#3867). (#4110) *(@haxiorz)*
+- 🔐 Redact integration credential URL userinfo (#3870). (#4108) *(@haxiorz)*
+- 🔐 Validate direct notification recipient scope (#3873). (#4100) *(@haxiorz)*
+- 🔐 Guard message enrichment by participant (#3872). (#4099) *(@haxiorz)*
+- 🐛 Return 400 for invalid notification restore status. (#4090) *(@haxiorz)*
+- 💰 Align payment gateway status guard resource kind (#3881). (#4081) *(@haxiorz)*
+- 🔐 Prevent planner availability authorization regression (#3883). (#4079) *(@haxiorz)*
+- 🔧 Harden MCP dev config loading (#4039). (#4077) *(@haxiorz)*
+- 🔧 Safely quote discovered table names (#4040). (#4069) *(@haxiorz)*
+- 🔐 Secure attachment temp files (#4045). (#4067) *(@haxiorz)*
+- 🐛 Route vendor-prefixed model ids to OpenAI-compatible gateways (OpenRouter) (supersedes #4009). (#4029) *(@jtomaszewski, via @pkarw)*
+- 🔄 Back data_sync adapter registry with globalThis to survive bundler duplication (supersedes #3999). (#4025) *(@KamilGrocholski, via @pkarw)*
+- 🐛 Calendar activity types from dictionary + CrudForm event editor with resources/staff (#3552). (#3747) *(@zielivia)*
 - 🔧 Remove duplicate CommandRuntimeContext import breaking develop build. (#4022) *(@pat-lewczuk)*
 - 🐛 Restore bulk-deal command dispatch in standalone CI. (#4020) *(@patzick)*
 - 🔧 Throttle query-index status refresh (#3888). (#4017) *(@haxiorz)*
@@ -312,6 +338,9 @@
 - 🐛 Surface per-field validation errors on signup form (#2081). (#2088) *(@pat-lewczuk)*
 
 ## 🛠️ Improvements
+- 🛠️ Share scheduler with lazy worker in dev mode. (#4125) *(@andrzejewsky)*
+- 🛠️ Retire legacy core.<module>.md redirect-stub layer (#3754). (#4080) *(@adeptofvoltron)*
+- 🛠️ Bump js-yaml from 3.14.2 to 3.15.0. (#4075) *(@pkarw)*
 - 🛠️ Structured logging facade backed by pino (fixes #3743). (#4003) *(@pat-lewczuk)*
 - 🛠️ Bump actions/cache from 5 to 6. (#3968) *(@pkarw)*
 - 🛠️ Bump mermaid from 11.12.2 to 11.16.0 in apps/docs. (#3967) *(@pkarw)*
@@ -394,6 +423,8 @@
 - 🧪 Migrate core integration specs to public helper imports. (#3237) *(@adeptofvoltron)*
 
 ## 📝 Specs & Documentation
+- 📝 Add Exporting Data REST API guide (#59). (#4144) *(@DarrenStasiakDev4You)*
+- 📝 Ephemeral-first test-env run mode in monorepo and create-app template. (#4095) *(@pkarw)*
 - 📝 Retire RELEASE_NOTES.md — migrate deprecations to UPGRADE_NOTES (#4024). (#4027) *(@adeptofvoltron)*
 - 📝 Remove obsolete ISSUE_LOG.md. (#4006) *(@pkarw)*
 - 📝 Add informational screenshots meta-label to auto-verify-pr-ui. (#3965) *(@adeptofvoltron)*
