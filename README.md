@@ -247,23 +247,17 @@ Each guide below is self-contained and covers all prerequisites, infrastructure 
 
 ---
 
-<div align="center">
-
 ### 🤖 Learn AI Engineering like we do!
 
-We've put all of our experience building this enterprise-grade ERP system into<br/>
-**[open-mercato/skills](https://github.com/open-mercato/skills)** — a set of re-usable, **technology-agnostic** agent skills:<br/>
-autonomous PR creation, code review, CI stabilization, spec writing, integration testing, merge management, and more.
+All of our experience building this enterprise-grade ERP is distilled into **[open-mercato/skills](https://github.com/open-mercato/skills)** — re-usable, **technology-agnostic** agent skills for autonomous PR creation, code review, CI stabilization, spec writing, integration testing, and merge management.
 
-Use them no matter which technology stack you're in — install them all with one command:
+Stack-agnostic — install them all with one command:
 
 ```bash
 npx skills add open-mercato/skills --skill '*'
 ```
 
 [![Open Mercato Skills](https://img.shields.io/badge/GitHub-open--mercato%2Fskills-181717?logo=github)](https://github.com/open-mercato/skills)
-
-</div>
 
 ---
 
