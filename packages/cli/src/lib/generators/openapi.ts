@@ -11,12 +11,10 @@ import * as path from 'node:path'
 import type { PackageResolver } from '../resolver'
 import { isModuleRouteFile } from './scanner'
 import {
-  calculateChecksum,
-  readChecksumRecord,
-  writeChecksumRecord,
   logGenerationResult,
   type GeneratorResult,
   createGeneratorResult,
+  writeGeneratedFile,
 } from '../utils'
 
 export interface GenerateOpenApiOptions {
@@ -600,28 +598,23 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   }
 
   const output = JSON.stringify(doc, null, 2)
-  const checksum = calculateChecksum(output)
-
-  // Check if unchanged
-  const existingChecksums = readChecksumRecord(checksumFile)
-  if (existingChecksums && existingChecksums.content === checksum && fs.existsSync(outFile)) {
-    result.filesUnchanged.push(outFile)
-    if (!quiet) {
-      console.log(`[OpenAPI] Skipped (unchanged): ${outFile}`)
-    }
-    return result
-  }
-
-  // Write the file
-  fs.writeFileSync(outFile, output)
-  writeChecksumRecord(checksumFile, { content: checksum, structure: '' })
-
-  result.filesWritten.push(outFile)
+  writeGeneratedFile({
+    outFile,
+    checksumFile,
+    content: output,
+    structureChecksum: '',
+    result,
+    quiet: true,
+  })
 
   if (!quiet) {
-    logGenerationResult(outFile, true)
-    const pathCount = Object.keys(doc.paths || {}).length
-    console.log(`[OpenAPI] Generated ${pathCount} API paths`)
+    if (result.filesWritten.length > 0) {
+      logGenerationResult(outFile, true)
+      const pathCount = Object.keys(doc.paths || {}).length
+      console.log(`[OpenAPI] Generated ${pathCount} API paths`)
+    } else {
+      console.log(`[OpenAPI] Skipped (unchanged): ${outFile}`)
+    }
   }
 
   return result

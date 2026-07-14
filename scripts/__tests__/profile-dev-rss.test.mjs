@@ -152,6 +152,19 @@ test('renderReportTable handles empty input', () => {
   assert.match(renderReportTable([]), /No reports found/)
 })
 
+test('renderReportTable exposes metadata and warns about non-comparable environments', () => {
+  const makeReport = (label, nodeVersion) => ({
+    label,
+    durationMs: 1_000,
+    startedAt: label === 'a' ? '2026-05-27T06:00:00.000Z' : '2026-05-27T06:01:00.000Z',
+    metadata: { nodeVersion, nextVersion: '16.2.9', activeModuleCount: 50, observationPhase: 'browse' },
+    summary: { peakTotalMb: 100, meanTotalMb: 90, sampleCount: 1, peakTopProcesses: [] },
+  })
+  const table = renderReportTable([makeReport('a', 'v24.13.1'), makeReport('b', 'v25.3.0')])
+  assert.match(table, /v24\.13\.1; Next 16\.2\.9; 50 modules; phase browse/)
+  assert.match(table, /non-comparable/)
+})
+
 test('parseArgs supports both positional label and --label, plus --report mode', () => {
   const { parseArgs } = __test__
   const baseline = parseArgs(['--spawn-dev', 'baseline'])
@@ -161,6 +174,9 @@ test('parseArgs supports both positional label and --label, plus --report mode',
   const withFlag = parseArgs(['--spawn-dev', '--label', 'after-2102', '--duration', '120000'])
   assert.equal(withFlag.label, 'after-2102')
   assert.equal(withFlag.durationMs, 120_000)
+
+  const withPhase = parseArgs(['--pid', '123', '--label', 'browse', '--phase', 'browse'])
+  assert.equal(withPhase.phase, 'browse')
 
   const reportArgs = parseArgs(['--report', '--out-dir', '/tmp/dev-rss'])
   assert.equal(reportArgs.report, true)

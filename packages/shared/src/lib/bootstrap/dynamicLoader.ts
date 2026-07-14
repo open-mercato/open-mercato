@@ -9,6 +9,34 @@ import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
+let activeBootstrapLoads = 0
+let esbuildRuntime: typeof import('esbuild') | null = null
+
+async function getEsbuildRuntime(): Promise<typeof import('esbuild')> {
+  if (esbuildRuntime) return esbuildRuntime
+
+  const loadedRuntime = await import('esbuild')
+  esbuildRuntime ??= loadedRuntime
+  return esbuildRuntime
+}
+
+async function withEsbuildLifecycle<T>(load: () => Promise<T>): Promise<T> {
+  activeBootstrapLoads += 1
+
+  try {
+    return await load()
+  } finally {
+    activeBootstrapLoads -= 1
+    if (activeBootstrapLoads === 0 && esbuildRuntime) {
+      // esbuild keeps a helper process alive after build(). Bootstrap compilation
+      // is a bounded phase, so release it once every concurrent loader is done.
+      // A later build() call transparently starts a fresh helper process.
+      esbuildRuntime.stop()
+      esbuildRuntime = null
+    }
+  }
+}
+
 /**
  * Compile a TypeScript file to JavaScript using esbuild bundler.
  * This bundles the file and all its dependencies, handling JSON imports properly.
@@ -31,7 +59,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
 
   if (needsCompile) {
     // Dynamically import esbuild only when needed
-    const esbuild = await import('esbuild')
+    const esbuild = await getEsbuildRuntime()
 
     // Plugin to resolve @/ alias to app root (works for @app modules)
     const aliasPlugin: import('esbuild').Plugin = {
@@ -120,7 +148,7 @@ async function compileAndImport(tsPath: string, allowRecovery: boolean = true): 
  * @returns The loaded bootstrap data
  * @throws Error if app root cannot be found or generated files are missing
  */
-export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+async function loadBootstrapDataWithActiveEsbuild(appRoot?: string): Promise<BootstrapData> {
   const resolved: AppRoot | null = appRoot
     ? {
         generatedDir: path.join(appRoot, '.mercato', 'generated'),
@@ -178,6 +206,10 @@ export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData
     interceptorEntries: [],
     componentOverrideEntries: [],
   }
+}
+
+export async function loadBootstrapData(appRoot?: string): Promise<BootstrapData> {
+  return withEsbuildLifecycle(() => loadBootstrapDataWithActiveEsbuild(appRoot))
 }
 
 /**

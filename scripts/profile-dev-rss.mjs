@@ -22,8 +22,11 @@ import {
   DEFAULT_MEMORY_TRACE_OUT_DIR,
   DEFAULT_PROFILE_INTERVAL_MS,
   TOP_PROCESS_LIMIT,
+  buildDevMemoryLifecycleMarkers,
+  collectDevMemoryMetadata,
   inferDevMemoryMarkerFromLine,
   kbToMb,
+  mergeDevMemoryMetadata,
   parsePsOutput,
   sampleProcessTreeMemory,
   summarizeMemorySamples,
@@ -37,8 +40,20 @@ const DEFAULT_OUT_DIR = DEFAULT_MEMORY_TRACE_OUT_DIR
 export { kbToMb, parsePsOutput, walkTree }
 export const summarize = summarizeMemorySamples
 
-export async function profile({ rootPid, durationMs, intervalMs, label, outDir, log, markers = [] }) {
+export async function profile({
+  rootPid,
+  durationMs,
+  intervalMs,
+  label,
+  outDir,
+  log,
+  markers = [],
+  phase = null,
+  rootDir = process.cwd(),
+  initialMetadata = null,
+}) {
   const startedAt = new Date().toISOString()
+  const metadataAtStart = initialMetadata ?? collectDevMemoryMetadata({ rootDir })
   const samples = []
   const deadline = Date.now() + durationMs
   log?.(`[profile] tracking pid=${rootPid} for ${durationMs}ms every ${intervalMs}ms → ${label}`)
@@ -59,6 +74,8 @@ export async function profile({ rootPid, durationMs, intervalMs, label, outDir, 
     await new Promise((resolve) => setTimeout(resolve, Math.min(intervalMs, remaining)))
   }
   const finishedAt = new Date().toISOString()
+  const reportMarkers = buildDevMemoryLifecycleMarkers(markers, { startedAt, finishedAt, phase })
+  const metadataAtEnd = collectDevMemoryMetadata({ rootDir })
   const report = {
     label,
     rootPid,
@@ -67,8 +84,9 @@ export async function profile({ rootPid, durationMs, intervalMs, label, outDir, 
     startedAt,
     finishedAt,
     samples,
-    markers,
-    summary: summarizeMemorySamples(samples, markers),
+    markers: reportMarkers,
+    metadata: mergeDevMemoryMetadata(metadataAtStart, metadataAtEnd, { phase }),
+    summary: summarizeMemorySamples(samples, reportMarkers),
   }
   fs.mkdirSync(outDir, { recursive: true })
   const outPath = path.join(outDir, `${label}.json`)
@@ -95,8 +113,8 @@ export function renderReportTable(reports) {
     return a.label.localeCompare(b.label)
   })
   const lines = []
-  lines.push('| Label | Peak total RSS (MB) | Mean total RSS (MB) | Peak class | Cgroup peak (MB) | Samples | Duration | Top process | Peak marker |')
-  lines.push('|-------|---------------------|---------------------|------------|------------------|---------|----------|-------------|-------------|')
+  lines.push('| Label | Environment | Peak total RSS (MB) | Mean total RSS (MB) | Peak class | Cgroup peak (MB) | Samples | Duration | Top process | Peak marker |')
+  lines.push('|-------|-------------|---------------------|---------------------|------------|------------------|---------|----------|-------------|-------------|')
   for (const r of sorted) {
     const topProc = r.summary?.peakTopProcesses?.[0]
     const topDesc = topProc
@@ -106,8 +124,15 @@ export function renderReportTable(reports) {
       ? `${r.summary.peakNearestMarkers.before.type}: ${truncate(r.summary.peakNearestMarkers.before.label, 36)}`
       : '_(none)_'
     const cgroupPeak = r.summary?.peakCgroup?.peakMb ?? r.summary?.peakCgroup?.currentMb ?? ''
+    const metadata = r.metadata ?? {}
+    const environment = [
+      metadata.nodeVersion ?? 'Node ?',
+      metadata.nextVersion ? `Next ${metadata.nextVersion}` : 'Next ?',
+      Number.isFinite(metadata.activeModuleCount) ? `${metadata.activeModuleCount} modules` : '? modules',
+      metadata.observationPhase ? `phase ${metadata.observationPhase}` : 'phase auto',
+    ].join('; ')
     lines.push(
-      `| \`${r.label}\` | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} |`,
+      `| \`${r.label}\` | ${environment} | ${r.summary?.peakTotalMb ?? '?'} | ${r.summary?.meanTotalMb ?? '?'} | ${r.summary?.peakDominantProcessClass ?? '?'} | ${cgroupPeak} | ${r.summary?.sampleCount ?? '?'} | ${formatMs(r.durationMs)} | ${topDesc} | ${peakMarker} |`,
     )
   }
   if (sorted.length >= 2) {
@@ -120,6 +145,15 @@ export function renderReportTable(reports) {
         `**Delta:** \`${candidate.label}\` − \`${baseline.label}\` = **${delta >= 0 ? '+' : ''}${delta} MB** peak total RSS.`,
       )
     }
+  }
+  const comparableSignatures = new Set(sorted.flatMap((report) => {
+    const metadata = report.metadata
+    if (!metadata?.nodeVersion || !metadata?.nextVersion || !Number.isFinite(metadata?.activeModuleCount)) return []
+    return [`${metadata.nodeVersion}|${metadata.nextVersion}|${metadata.activeModuleCount}`]
+  }))
+  if (comparableSignatures.size > 1) {
+    lines.push('')
+    lines.push('**Warning:** these reports use different Node, Next.js, or active-module configurations; treat the RSS delta as non-comparable.')
   }
   return lines.join('\n')
 }
@@ -179,6 +213,7 @@ function parseArgs(argv) {
     intervalMs: DEFAULT_INTERVAL_MS,
     outDir: DEFAULT_OUT_DIR,
     report: false,
+    phase: null,
     help: false,
     // Positional (first non-flag) becomes the label when --spawn-dev is set.
     positional: [],
@@ -213,6 +248,9 @@ function parseArgs(argv) {
       case '--report':
         args.report = true
         break
+      case '--phase':
+        args.phase = argv[++i]
+        break
       case '-h':
       case '--help':
         args.help = true
@@ -243,12 +281,14 @@ Options:
   --pid <pid>             Root PID to profile (mutually exclusive with --spawn-dev).
   --spawn-dev             Launch \`yarn dev\` as the profiled process.
   --report                Print Markdown comparison table for every JSON report in --out-dir.
+  --phase <name>          Tag the observation phase (for example browse or edit).
   -h, --help              Show this help.
 `)
 }
 
 async function spawnDevAndProfile(args, log) {
   const markers = []
+  const initialMetadata = collectDevMemoryMetadata({ rootDir: process.cwd() })
   // detached:true puts the child in its own process group so the SIGINT below
   // reaches every grandchild (turbo, per-package watchers, mercato server, etc.)
   // via the negative-pid signalling trick. Without it, only the immediate yarn
@@ -286,6 +326,8 @@ async function spawnDevAndProfile(args, log) {
       outDir: args.outDir,
       log,
       markers,
+      phase: args.phase,
+      initialMetadata,
     })
     return result
   } finally {
@@ -337,6 +379,7 @@ async function main() {
     label: args.label,
     outDir: args.outDir,
     log,
+    phase: args.phase,
   })
   return 0
 }
@@ -372,4 +415,5 @@ export const __test__ = {
   DEFAULT_INTERVAL_MS,
   DEFAULT_OUT_DIR,
   TOP_PROCESS_LIMIT,
+  collectDevMemoryMetadata,
 }

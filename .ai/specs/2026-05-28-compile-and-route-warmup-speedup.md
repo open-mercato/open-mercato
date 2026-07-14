@@ -8,6 +8,18 @@
 - **Workstream B — dev Turbopack cache (warmup left intentionally narrow).** Per maintainer direction, the dev warmup stays exactly the **three** requests it warms today — `GET /login`, `POST /api/auth/login`, `GET /backend` — issued **sequentially** by `runTargetedRouteWarmup` (`apps/mercato/scripts/dev.mjs:845`). This spec does **not** broaden the default warmup set. `instrumentation.ts` is a no-op (`apps/mercato/src/instrumentation.ts`). Develop already preserves the Turbopack compiler cache during greenfield cleanup and between warmup requests (`502719d15`, `scripts/dev-cache-purge.mjs`); the **remaining** Workstream B gap is that a no-op `yarn generate` on a dev restart still runs an unconditional structural cache purge (`runPostGenerateStructuralCachePurge`, `packages/cli/src/mercato.ts:644`) that bumps every `.generated.ts` mtime and discards an otherwise-reusable Turbopack cache.
 - The fix is additive and flag-gated: parallelize the generator suite, content-gate generated writes so unchanged output preserves the Turbopack cache, add a checksum skip for no-op `generate` (reusing the develop `generate-watch-structure` checksum), collapse the redundant second `build:packages` pass via stable cache inputs, keep the warmup set unchanged while making the no-op-restart cache reusable, and tune the Turbopack/Next dev levers. Each lands behind a flag and is validated with the existing `yarn dev:profile` harness plus a documented cold-compile procedure.
 
+### 2026-07-14 implementation scope
+
+The current implementation pass extends the compilation work with the remaining dev-memory sequence validated against the current module graph:
+
+1. make profiler classification and metadata trustworthy before comparing runs;
+2. make generator and package-build writes content-stable and invalidate only affected generated registries;
+3. remove redundant long-lived bootstrap/package-manager processes;
+4. introduce a lightweight generated manifest for the `mercato server dev` supervisor;
+5. partition server bootstrap, route manifests, and locale/client registries by runtime surface.
+
+The maintainer explicitly prohibited library updates and tooling changes. Therefore the investigated Next 16.3 experiment is excluded. The existing Next/Turbopack, esbuild, Yarn, module discovery conventions, CLI commands, and generated public export shapes remain in place.
+
 **Scope:**
 - Speed up `yarn build`, `yarn generate`, and `yarn typecheck` repeatable-compile time by 30–50% without changing generated-file contracts.
 - Preserve the Turbopack filesystem cache across dev restarts when module sources are unchanged, by making a no-op `yarn generate` stop invalidating it.
@@ -94,6 +106,17 @@ The default warmup stays exactly the three requests it warms today; this spec do
 | B1 — Persist Turbopack cache across no-op restarts | Pair with A2/A3: a no-op `yarn generate` on restart must not bump `.generated.ts` mtimes (no unconditional structural purge), so `.mercato/next/dev/cache/turbopack` survives and the first post-restart hit is a cache hit. Builds on develop's `502719d15` (greenfield purge already preserves the cache). Optionally set `turbopackFileSystemCache` explicitly. | `runPostGenerateStructuralCachePurge` (`packages/cli/src/mercato.ts:644`), `next.config.ts` |
 | B2 — Optional warmup route override (opt-in) | `OM_DEV_WARMUP_ROUTES` (comma-separated) lets a team append their own hot paths after auth. **Default unset → the existing three requests only.** No broadening of defaults. | `apps/mercato/scripts/dev.mjs` |
 | B3 — Dev lever sweep | Benchmark `preloadEntriesOnStart`, expand `optimizePackageImports` to additional barrel-heavy deps, and confirm `serverComponentsHmrCache` defaults — keep only levers that profile positively. | `apps/mercato/next.config.ts:23-40` |
+
+### Workstream C: Dev process and graph memory
+
+| Lever | Change | Compatibility boundary |
+|-------|--------|------------------------|
+| C1 — Profiler metadata | Classify the CLI supervisor, Next, package watcher, generator/esbuild service, workers, and scheduler separately; record versions, git revision, modes, cache state, and lifecycle markers additively. | Existing report fields remain readable. |
+| C2 — Content-stable package watcher | Build changed unbundled entries for ordinary edits, preserve byte-identical output mtimes, and touch only generated registries that reference the changed package. Add/remove/rename keeps the full discovery path. | Same `yarn dev` and watch-scope contract. |
+| C3 — Bootstrap/esbuild shutdown | Stop the bootstrap compiler after all generated modules are loaded; recreate it only if a later bootstrap genuinely needs it. | No generated import or bootstrap return-shape changes. |
+| C4 — Direct dev child processes | Spawn the existing Node watcher/app scripts directly instead of retaining redundant child Yarn/Corepack wrappers. | Top-level `yarn dev`, logs, signals, Windows support, and escape hatches remain unchanged. |
+| C5 — Lightweight supervisor manifest | Generate only the module/queue/scheduler metadata needed by `mercato server dev`, allowing that command to avoid the full runtime bootstrap. | Full bootstrap remains for app/worker processes; CLI command names and options stay unchanged. |
+| C6 — Runtime graph partitioning | Split API, backend-page, event/worker, route-loader, locale, and client registry graphs so a surface loads only the registrations it consumes. | URLs, registration ordering, override precedence, and generated public shapes remain stable or receive compatibility facades. |
 
 ### Design Decisions
 
@@ -296,6 +319,35 @@ Existing flags preserved: `OM_DEV_WARMUP_TENANT_ID` (`dev.mjs:173`), `OM_PACKAGE
 1. Benchmark `preloadEntriesOnStart`, `optimizePackageImports` expansion, Turbopack defaults; keep only positive levers.
 2. Prototype `OM_TSC_PROJECT_REFS` incremental typecheck on a subset; expand only if it profiles positively and typecheck stays correct.
 
+### Phase 6 — Measurement correctness and package invalidation (C1–C2)
+1. Correct profiler process classification and append reproducibility/lifecycle metadata.
+2. Preserve output mtimes for byte-identical package builds.
+3. Compile only changed unbundled TypeScript entries for ordinary `change` events; retain full discovery for structural events.
+4. Replace blanket generated-barrel touching with package-referencing invalidation.
+
+### Phase 7 — Low-risk process overhead (C3–C4)
+1. Stop the bootstrap esbuild service after its pending builds settle; cover repeated bootstrap and failure cleanup.
+2. Directly spawn the existing Node watcher and app dev scripts from the root orchestrator.
+3. Verify signal propagation, exit behavior, log classification, and Windows command handling.
+
+### Phase 8 — Lightweight dev supervisor (C5)
+1. Define a private generated manifest containing only module IDs, queue worker descriptors, and scheduler availability.
+2. Make `mercato server dev` consume this manifest without compiling/importing the full CLI bootstrap graph.
+3. Keep worker and application children on the existing full bootstrap path.
+
+### Phase 9 — Runtime graph partitioning (C6)
+1. Split the monolithic server bootstrap into foundation, API, backend-page, and event/worker profiles.
+2. Separate serialized route metadata from loader shards and load the matched module/path shard only.
+3. Remove duplicate all-locale imports and load only the resolved locale through the existing dictionary-loader seam.
+4. Scope message, payment, dashboard, notification, and component-override client registries to their consuming surfaces.
+5. Preserve compatibility facades for current generated exports until downstream consumers migrate.
+
+### Phase 10 — Runtime and browser verification
+1. Run focused unit tests, generation parity, package build, typecheck, and client-boundary checks.
+2. Start the app under the process-tree sampler using Node 24 with the same cache/warmup state recorded in the report.
+3. In the in-app browser, sign in as superadmin, navigate representative backend routes, create/edit a disposable customer record, and confirm HMR/edit behavior while sampling.
+4. Compare cold peak, post-warmup plateau, post-navigation plateau, and edit/recompile peak; do not keep an optimization that regresses correctness or memory.
+
 ### File Manifest
 
 | File | Action | Purpose |
@@ -340,6 +392,44 @@ The 30–50% target is carried by Workstream A (build/generate/typecheck) plus t
 | Dev restart first hit (no structural change) | recompile today | Turbopack cache hit | TBD |
 | Cold `/login` / `/backend/customers/people` (warmup off) | `8.1s` / `14.4s` | informational; no regression (improve only if lever sweep B3 profiles positively) | TBD |
 | Idle RSS (warmup set unchanged) | `~+460 MB` warmup delta (April) | no regression vs current | TBD |
+
+### 2026-07-14 implementation result
+
+This pass implemented the dev-memory sequence in Workstream C plus the content-stable write portion of A2/B1. It deliberately did **not** update dependencies, switch bundlers, edit Turbopack/Next/Yarn configuration, add TypeScript project references, change the default warmup set, or restructure the root build graph. A1/A3-A5 and B2-B3 therefore remain future work rather than being implied by this result.
+
+| Area | Result |
+|------|--------|
+| Generated writes | Byte-identical generator and package-watcher outputs preserve mtimes; structural cache purge runs only after a real generated-output change; explicit generated touches remain available. |
+| Package watch | Ordinary TypeScript edits rebuild changed entries and invalidate only generated registries that reference the package; structural events retain full rediscovery. |
+| Process overhead | The consolidated watcher and app runtime are direct Node children, bootstrap esbuild is reference-counted and stopped after final load, and `server dev` uses a lightweight generated supervisor manifest. |
+| Server graph | API/common bootstrap split; API bootstrap skips UI registries; route metadata is loader-free; full compatibility facades lazily resolve original route ordinals through first-segment shards. |
+| Locale/client graph | Locale JSON is split into per-locale shards; public/login/start omit generated client registries; backend/portal/pay surfaces request only their declared registry profile. |
+| Compatibility | Legacy route and i18n generated exports remain present; global route consumers still receive full ordered manifests; create-app template counterparts are mirrored. |
+
+#### Measured memory and runtime
+
+Both process-tree measurements used Node `24.13.1`, Next `16.2.9`, the same commit (`01911d00e28f44cf484d0b1d04860dcfef5370bf`), a 90-second sample window, the default three-request warmup, and the same 50-module app. The baseline run stopped after warmup/idle; the optimized run additionally exercised logged-in Dashboard, People, and Sales Orders pages in the in-app browser, so peak values are useful operational evidence but not a perfectly isolated A/B microbenchmark.
+
+| Measurement | Baseline | Optimized final | Delta |
+|-------------|----------|-----------------|-------|
+| Mean process-tree RSS | `8,604.43 MB` | `8,004.78 MB` | `-599.65 MB` (`-7.0%`) |
+| Peak process-tree RSS | `10,201.18 MB` | `13,282.41 MB` | `+3,081.23 MB` (`+30.2%`) |
+| Optimized warmup-phase peak | not phase-classified by the baseline profiler | `8,438.30 MB` | not directly comparable |
+| Optimized warm-plateau peak | not phase-classified by the baseline profiler | `13,282.41 MB` | Next/Turbopack dominated |
+| Optimized warmup duration | `22.0s` in the baseline runner | `10.7s` | `-11.3s` (`-51.4%`) |
+
+The memory acceptance target is **not achieved**. Mean RSS improved modestly and process/bootstrap overhead is now observable and smaller in the longer diagnostic run, but the full logged-in peak remains dominated by the Next/Turbopack process (`11,844.36 MB` at the final run's process-tree peak). Lazy generated imports reduce source graph breadth and generated loader size, but the catch-all filesystem entrypoints still allow Turbopack to trace a broad dependency graph. A further significant peak reduction requires a separately approved architectural/default change—for example removing default backend prewarm, segmenting catch-all Next filesystem routes, or evaluating a different bundler/toolchain—which was outside this pass's constraints.
+
+#### Validation
+
+- Runner: local, Node `24.13.1`.
+- Full monorepo typecheck: `21/21` tasks successful.
+- Focused CLI generator/supervisor contracts: `84/84` tests passed.
+- Focused app route/bootstrap/provider contracts: `59/59` tests passed.
+- Shared bootstrap lifecycle contracts: `3/3` tests passed.
+- Dev profiler/watcher/process contracts: `39/39` tests passed.
+- Generation, package builds, lint, client-boundary report, create-app parity, and browser/HMR smoke checks passed during the implementation pass.
+- No dependency manifest, lockfile, package-manager configuration, Turbo configuration, Next configuration, or TypeScript configuration changed.
 
 ## Risks & Impact Review
 
@@ -434,3 +524,9 @@ The 30–50% target is carried by Workstream A (build/generate/typecheck) plus t
 - Initial specification. Targets a further 30–50% on compilation (build/generate/typecheck pipeline) and dev route warmup, building on the implemented April 2, 2026 cold-start work without duplicating it. Grounded in static source analysis; measured columns gated on Phase 1.
 - Revised per maintainer review: Workstream B no longer broadens the dev warmup. The default warmup stays the existing three requests (`GET /login`, `POST /api/auth/login`, `GET /backend`); the broaden-warmup lever and the bounded-parallel batch (and `OM_DEV_WARMUP_CONCURRENCY`) are dropped. `OM_DEV_WARMUP_ROUTES` is retained as an opt-in (default unset) override only. Workstream B is now scoped to the no-op-restart Turbopack cache and the lever sweep.
 - Re-grounded against develop commits `4100aa7fb` and `502719d15`: the structural checksum now lives in `packages/cli/src/lib/generate-watch-structure.ts` (`calculateGenerateWatchStructureChecksum`); the post-generate touch is the named `runPostGenerateStructuralCachePurge` (`packages/cli/src/mercato.ts:644`); `runGeneratorSuite` moved to `mercato.ts:689-710`; warmup is `runTargetedRouteWarmup` at `dev.mjs:845`. `502719d15` (issue #1950) already preserves `.mercato/next/dev/cache/turbopack` during greenfield cleanup and between warmup requests, so B1 now targets only the remaining no-op-generate invalidation. Drifted file:line references updated throughout.
+
+### 2026-07-14
+- Implemented Workstream C and content-stable generation without dependency or toolchain updates.
+- Added compatibility-preserving API/backend route shards, locale shards, client registry profiles, server bootstrap profiles, and a lightweight supervisor manifest.
+- Verified the logged-in application in the in-app browser while sampling the complete dev process tree.
+- Recorded the measured mixed result: mean RSS improved by 7.0% and warmup time improved, but peak RSS regressed and remains Next/Turbopack dominated; the significant full-browser memory target remains open.

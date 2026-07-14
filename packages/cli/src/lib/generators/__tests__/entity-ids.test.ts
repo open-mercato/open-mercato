@@ -104,6 +104,38 @@ describe('generateEntityIds', () => {
     expect(registry).not.toContain("import * as sales_order from './entities/sales_order/index'")
   })
 
+  it('preserves every generated entity output mtime when the output bytes are unchanged', async () => {
+    const moduleEntry: ModuleEntry = { id: 'orders', from: '@open-mercato/core' }
+    const entitiesFile = path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'orders', 'data', 'entities.ts')
+    fs.mkdirSync(path.dirname(entitiesFile), { recursive: true })
+    fs.writeFileSync(entitiesFile, 'export class SalesOrder { id!: string; totalGross!: number }\n')
+
+    const resolver = createMockResolver(tmpDir, [moduleEntry])
+    const firstResult = await generateEntityIds({ resolver, quiet: true })
+    const outputDir = resolver.getOutputDir()
+    const generatedFiles = [
+      path.join(outputDir, 'entities.ids.generated.ts'),
+      path.join(outputDir, 'entity-fields-registry.ts'),
+      path.join(outputDir, 'entities', 'sales_order', 'index.ts'),
+    ]
+    const oldTime = new Date(Date.now() - 60_000)
+    for (const filePath of generatedFiles) {
+      fs.utimesSync(filePath, oldTime, oldTime)
+    }
+    const mtimesBefore = new Map(
+      generatedFiles.map((filePath) => [filePath, fs.statSync(filePath).mtimeMs]),
+    )
+
+    const secondResult = await generateEntityIds({ resolver, quiet: true })
+
+    expect(firstResult.filesWritten).toEqual(expect.arrayContaining(generatedFiles))
+    expect(secondResult.filesWritten).toEqual([])
+    expect(secondResult.filesUnchanged).toEqual(expect.arrayContaining(generatedFiles))
+    for (const filePath of generatedFiles) {
+      expect(fs.statSync(filePath).mtimeMs).toBe(mtimesBefore.get(filePath))
+    }
+  })
+
   it('reuses package generated entity metadata in standalone mode', async () => {
     const moduleEntry: ModuleEntry = { id: 'directory', from: '@open-mercato/core' }
     const packageRoot = path.join(tmpDir, 'node_modules', '@open-mercato', 'core')

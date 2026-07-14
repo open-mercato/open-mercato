@@ -50,7 +50,7 @@ describe('app bootstrap', () => {
     jest.doMock('@/.mercato/generated/bootstrap-registrations.generated', () => ({
       runBootstrapRegistrations: runBootstrapRegistrationsMock,
     }))
-    jest.doMock('@open-mercato/ai-assistant', () => ({}))
+    jest.doMock('@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-overrides', () => ({}))
     jest.doMock('@open-mercato/shared/modules/events', () => ({
       registerEventModuleConfigs: registerEventModuleConfigsMock,
     }))

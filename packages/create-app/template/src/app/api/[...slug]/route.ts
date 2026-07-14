@@ -1,9 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { findApiRouteManifestMatch, getApiRouteManifests, registerApiRouteManifests, type HttpMethod } from '@open-mercato/shared/modules/registry'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { apiRoutes } from '@/.mercato/generated/api-routes.generated'
+import { apiRouteFacades } from '@/.mercato/generated/api-route-shards.generated'
 import { resolveAuthFromRequestDetailed } from '@open-mercato/shared/lib/auth/server'
-import { bootstrap } from '@/bootstrap'
+import { bootstrap } from '@/bootstrap-api'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
@@ -20,7 +20,7 @@ import { withModuleResourceUsage } from '@open-mercato/shared/lib/modules/resour
 
 // Ensure all package registrations are initialized for API routes.
 bootstrap()
-registerApiRouteManifests(apiRoutes)
+registerApiRouteManifests(apiRouteFacades)
 
 const warnedDeprecatedRequireRoles = new Set<string>()
 

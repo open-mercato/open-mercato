@@ -103,4 +103,31 @@ describe('touchGeneratedBarrels', () => {
       fs.rmSync(root, { recursive: true, force: true })
     }
   })
+
+  it('touches only explicitly targeted generated files when a file list is provided', () => {
+    const root = makeTmp('touch-barrels-targeted-')
+    try {
+      const generatedDir = path.join(root, '.mercato', 'generated')
+      fs.mkdirSync(generatedDir, { recursive: true })
+      const changedFile = path.join(generatedDir, 'modules.app.generated.ts')
+      const unchangedFile = path.join(generatedDir, 'modules.runtime.generated.ts')
+      fs.writeFileSync(changedFile, 'app')
+      fs.writeFileSync(unchangedFile, 'runtime')
+      setMtime(changedFile, oneHourAgo)
+      setMtime(unchangedFile, oneHourAgo)
+
+      const result = touchGeneratedBarrels({
+        cwd: root,
+        files: [changedFile],
+        quiet: true,
+      })
+
+      expect(result.files).toEqual([changedFile])
+      expect(fs.statSync(changedFile).mtimeMs).toBeGreaterThan(oneHourAgo.getTime())
+      const unchangedMtimeDelta = Math.abs(fs.statSync(unchangedFile).mtimeMs - oneHourAgo.getTime())
+      expect(unchangedMtimeDelta).toBeLessThan(10)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

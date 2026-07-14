@@ -1,6 +1,6 @@
 import React from 'react'
 
-const backendRoutes = [
+const backendRouteMetadata = [
   {
     moduleId: 'auth',
     pattern: '/backend/auth/users',
@@ -8,15 +8,12 @@ const backendRoutes = [
   },
 ]
 
-const mockRegisterBackendRouteManifests = jest.fn()
-
-jest.mock('@/.mercato/generated/backend-routes.generated', () => ({
-  backendRoutes,
+jest.mock('@/.mercato/generated/backend-route-metadata.generated', () => ({
+  backendRouteMetadata,
 }))
 
 jest.mock('@open-mercato/shared/modules/registry', () => ({
   findRouteManifestMatch: jest.fn(() => undefined),
-  registerBackendRouteManifests: (...args: unknown[]) => mockRegisterBackendRouteManifests(...args),
 }))
 
 jest.mock('next/headers', () => ({
@@ -72,14 +69,12 @@ jest.mock('@/components/BackendHeaderChrome', () => ({
 describe('Backend layout route registry', () => {
   beforeEach(() => {
     jest.resetModules()
-    mockRegisterBackendRouteManifests.mockClear()
   })
 
-  it('registers backend route manifests at module load', async () => {
+  it('loads route metadata without importing the route loader graph', async () => {
     await jest.isolateModulesAsync(async () => {
-      await import('../layout')
+      const layout = await import('../layout')
+      expect(typeof layout.default).toBe('function')
     })
-
-    expect(mockRegisterBackendRouteManifests).toHaveBeenCalledWith(backendRoutes)
   })
 })

@@ -52,6 +52,9 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 ### Key Generated Files
 
 - `modules.generated.ts` — routes, APIs, subscribers, workers, CLI
+- `api-routes.generated.ts`, `backend-routes.generated.ts` — public compatibility manifests; runtime registration uses full metadata facades whose `load()` resolves through private request-prefix shards
+- `api-route-metadata.generated.ts`, `backend-route-metadata.generated.ts` — loader-free route metadata for shell/start-page consumers
+- `dev-supervisor.generated.json` — primitive worker descriptors and scheduler availability used by `mercato server dev`
 - `entities.generated.ts` — MikroORM entity registry
 - `di.generated.ts` — DI registrars
 - `entities.ids.generated.ts` — entity ID constants
@@ -65,12 +68,11 @@ Generated output goes to `apps/mercato/.mercato/generated/`.
 yarn generate              # Run all generators
 ```
 
-`yarn generate` now performs a best-effort post-step structural cache purge by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
+`yarn generate` performs a best-effort post-step structural cache purge only when generated output bytes changed, by invoking `yarn mercato configs cache structural --all-tenants` when the generated app exposes the `configs` cache CLI. A no-op generation preserves generated mtimes and the Turbopack cache. This post-step must never break generation; unavailable cache tooling must be treated as a skip.
 
-The structural cache purge does two things:
+The default structural cache purge deletes Redis cache keys matching `nav:*` so navigation/sidebar caches are rebuilt next render. It does not touch generated files.
 
-1. Deletes Redis cache keys matching `nav:*` so navigation/sidebar caches are rebuilt next render.
-2. Touches every `*.generated.ts` and `*.generated.checksum` file in the current app's `.mercato/generated/` directory by rewriting them with identical bytes. This advances mtime without changing content, which forces Turbopack's filesystem watcher to invalidate the import graph and recompile leaf files that imported a barrel. Without this, Turbopack can keep serving a cached compile error against a since-fixed module file until the dev server is restarted.
+For explicit stale-compiler recovery, `yarn mercato configs cache structural --all-tenants --touch-generated` additionally advances generated-file mtimes. This recovery path may target named generated files when the caller knows the affected registries; broad touching is not part of normal generation or package rebuilds.
 
 The dev escape hatch is `yarn dev:reset`, which clears the configured Next dev cache (`.mercato/next/dev`) plus legacy `.next` cache directories for the rare case where Turbopack's internal cache stays stuck after a structural purge.
 

@@ -43,6 +43,8 @@ import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
 import { quotePostgresIdentifier } from './lib/db/identifiers'
+import type { GeneratorResult } from './lib/utils'
+import { getRegisteredDevSupervisorManifest } from './lib/dev-supervisor-manifest'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -750,7 +752,7 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
  * so the watcher embedded in the server lifecycle can reuse the same closure
  * without re-importing the closure-scoped version inside `buildBaseModules`.
  */
-async function runGeneratorSuite(quiet: boolean): Promise<void> {
+async function runGeneratorSuite(quiet: boolean): Promise<GeneratorResult> {
   const { createResolver } = await import('./lib/resolver')
   const {
     generateEntityIds,
@@ -763,14 +765,34 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
-  await generateEntityIds({ resolver, quiet })
-  await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
-  await generateModuleRegistryCli({ resolver, quiet })
-  await generateModuleEntities({ resolver, quiet })
-  await generateModuleDi({ resolver, quiet })
-  await generateModulePackageSources({ resolver, quiet })
-  await generateOpenApi({ resolver, quiet })
+  const results = [
+    await generateEntityIds({ resolver, quiet }),
+    await generateModuleRegistry({ resolver, quiet }),
+    await generateModuleRegistryApp({ resolver, quiet }),
+    await generateModuleRegistryCli({ resolver, quiet }),
+    await generateModuleEntities({ resolver, quiet }),
+    await generateModuleDi({ resolver, quiet }),
+    await generateModulePackageSources({ resolver, quiet }),
+    await generateOpenApi({ resolver, quiet }),
+  ]
+
+  return results.reduce<GeneratorResult>((aggregate, result) => {
+    if (!result) return aggregate
+    aggregate.filesWritten.push(...result.filesWritten)
+    aggregate.filesUnchanged.push(...result.filesUnchanged)
+    aggregate.errors.push(...result.errors)
+    return aggregate
+  }, { filesWritten: [], filesUnchanged: [], errors: [] })
+}
+
+async function purgePostGenerateCachesIfChanged(result: GeneratorResult, quiet: boolean): Promise<void> {
+  if (result.filesWritten.length === 0) {
+    if (!quiet) {
+      console.log('[generate] Generated output unchanged; preserving structural and Turbopack caches.')
+    }
+    return
+  }
+  await runPostGenerateStructuralCachePurge(quiet)
 }
 
 /**
@@ -1777,8 +1799,8 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await runGeneratorSuite(quiet)
-          await runPostGenerateStructuralCachePurge(quiet)
+          const result = await runGeneratorSuite(quiet)
+          await purgePostGenerateCachesIfChanged(result, quiet)
           console.log('All generators completed.')
         },
       },
@@ -1797,8 +1819,8 @@ export async function run(argv = process.argv) {
             quiet,
             computeStructureChecksum: createGenerateWatchChecksumFn(),
             runGenerators: async () => {
-              await runGeneratorSuite(true)
-              await runPostGenerateStructuralCachePurge(true)
+              const result = await runGeneratorSuite(true)
+              await purgePostGenerateCachesIfChanged(result, true)
             },
           })
 
@@ -1928,6 +1950,10 @@ export async function run(argv = process.argv) {
           let lastRestartReason: string | null = null
           const generateWatcherMode: GenerateWatcherMode = resolveGenerateWatcherMode(process.env)
           const envReloader = createDevEnvReloader(appDir, process.env, initialProcessEnvironmentEntries)
+          // The CLI binary registers this primitive manifest before dispatching
+          // `server dev`. Direct `run()` callers keep the existing module-registry
+          // fallback for backward compatibility and focused unit tests.
+          const devSupervisorManifest = getRegisteredDevSupervisorManifest()
 
           function cleanup() {
             console.log('[server] Shutting down...')
@@ -2112,14 +2138,15 @@ export async function run(argv = process.argv) {
               applyEventsSingleDeliveryGuard({ processEnv: process.env, runtimeEnv, autoSpawnWorkersMode })
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
-              const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const schedulerStartStatus = devSupervisorManifest?.schedulerStartStatus
+                ?? lookupModuleCommand(getCliModules(), 'scheduler', 'start').status
               const embedSchedulerInSharedWorker =
                 shouldEmbedLocalSchedulerInSharedWorker(process.env)
                 && queueStrategy === 'local'
                 && autoSpawnWorkersMode === 'lazy'
                 && resolveLazySpawnMode(process.env) === 'shared'
                 && autoSpawnSchedulerMode !== 'off'
-                && schedulerCommand.status === 'ok'
+                && schedulerStartStatus === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2153,10 +2180,13 @@ export async function run(argv = process.argv) {
                 }
 
                 if (autoSpawnWorkersMode !== 'off') {
-                  const discoveredWorkers = getRegisteredCliWorkers()
+                  const discoveredWorkers = devSupervisorManifest?.workers ?? getRegisteredCliWorkers()
                   const discoveredWorkerQueues = [...new Set(discoveredWorkers.map((worker) => worker.queue))]
                   if (discoveredWorkerQueues.length === 0) {
-                    console.error('[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run `yarn generate` and verify `.mercato/generated/modules.cli.generated.ts` contains worker entries. Continuing without auto-spawned workers.')
+                    const workerRegistryFile = devSupervisorManifest
+                      ? 'dev-supervisor.generated.json'
+                      : 'modules.cli.generated.ts'
+                    console.error(`[server] AUTO_SPAWN_WORKERS is enabled, but no queues were discovered from CLI modules. Run \`yarn generate\` and verify \`.mercato/generated/${workerRegistryFile}\` contains worker entries. Continuing without auto-spawned workers.`)
                   } else if (autoSpawnWorkersMode === 'lazy') {
                     const lazySpawnMode = resolveLazySpawnMode(process.env)
                     const lazyModeHint = lazySpawnMode === 'shared'
@@ -2204,8 +2234,8 @@ export async function run(argv = process.argv) {
                 if (embedSchedulerInSharedWorker && activeLazySupervisor) {
                   console.log('[server] Local scheduler will run inside the lazy shared worker process.')
                 } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
-                  if (schedulerCommand.status !== 'ok') {
-                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
+                  if (schedulerStartStatus !== 'ok') {
+                    console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand({ status: schedulerStartStatus })}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
                     console.log('[server] Lazy scheduler auto-spawn enabled - scheduler will start when an enabled schedule exists.')
                     activeLazySchedulerSupervisor = startLazySchedulerSupervisor({
@@ -2248,8 +2278,8 @@ export async function run(argv = process.argv) {
                   quiet: false,
                   computeStructureChecksum: createGenerateWatchChecksumFn(),
                   runGenerators: async () => {
-                    await runGeneratorSuite(true)
-                    await runPostGenerateStructuralCachePurge(true)
+                    const result = await runGeneratorSuite(true)
+                    await purgePostGenerateCachesIfChanged(result, true)
                   },
                 })
               } else {
