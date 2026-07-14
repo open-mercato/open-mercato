@@ -7909,6 +7909,7 @@ __metadata:
     "@types/sanitize-html": "npm:^2.16.1"
     dotenv: "npm:^17.4.2"
     jest: "npm:^30.4.2"
+    pino: "npm:^10.3.1"
     rate-limiter-flexible: "npm:^11.2.0"
     re2js: "npm:2.8.5"
     reflect-metadata: "npm:^0.2.2"
@@ -20992,14 +20993,14 @@ __metadata:
   linkType: hard
 
 "js-yaml@npm:^3.13.1":
-  version: 3.14.2
-  resolution: "js-yaml@npm:3.14.2"
+  version: 3.15.0
+  resolution: "js-yaml@npm:3.15.0"
   dependencies:
     argparse: "npm:^1.0.7"
     esprima: "npm:^4.0.0"
   bin:
     js-yaml: bin/js-yaml.js
-  checksum: 10/172e0b6007b0bf0fc8d2469c94424f7dd765c64a047d2b790831fecef2204a4054eabf4d911eb73ab8c9a3256ab8ba1ee8d655b789bf24bf059c772acc2075a1
+  checksum: 10/2fdf3a1453ed93a8e06d6ca8054c0bec145cf40ab51f305d1071736a03668b95e40f47cfd0239d7d50019b4780a18cdaca3c935def935594c9876964c49f1185
   languageName: node
   linkType: hard
 
@@ -24649,7 +24650,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"pino@npm:10.3.1":
+"pino@npm:10.3.1, pino@npm:^10.3.1":
   version: 10.3.1
   resolution: "pino@npm:10.3.1"
   dependencies:

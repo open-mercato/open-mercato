@@ -14,10 +14,13 @@
  * `@open-mercato/shared/lib/bootstrap/dynamicLoader` and works in both the
  * monorepo and standalone apps.
  */
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import path from 'node:path'
 import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+
+const logger = createLogger('ai_assistant')
 
 const requireFromHere = createRequire(import.meta.url)
 
@@ -236,10 +239,7 @@ export async function ensureApiRouteManifestsRegistered(): Promise<number> {
     )
     return apiRoutes.length
   } catch (error) {
-    console.warn(
-      '[MCP Tools] Could not register api-routes manifest:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.warn('Could not register api-routes manifest', { err: error })
     return 0
   }
 }

@@ -4,7 +4,6 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { MODULE_FACTS_ALLOWLIST } from '../generators/module-facts'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot = path.resolve(__dirname, '..', '..', '..', '..', '..')
@@ -33,6 +32,10 @@ function runCommand(command: string, args: string[], cwd: string): string {
       ...process.env,
       FORCE_COLOR: '0',
       NODE_NO_WARNINGS: '1',
+      // Keep the test hermetic: agentic:init runs scripts/install-skills.sh,
+      // whose external step (`npx skills add`) needs the network. Local tier
+      // symlinks are still installed.
+      OM_SKIP_EXTERNAL_SKILLS: '1',
     },
   })
 }
@@ -93,6 +96,10 @@ function listRelativeFiles(rootDir: string): string[] {
 function mapSharedSourceToOutput(relativePath: string): string {
   if (relativePath === 'AGENTS.md.template') {
     return 'AGENTS.md'
+  }
+
+  if (relativePath.startsWith('scripts/')) {
+    return relativePath
   }
 
   if (!relativePath.startsWith('ai/')) {
@@ -205,18 +212,12 @@ function expectedGuideOutputNames(): string[] {
   }
 
   // Generated fact-sheet artifacts (spec 2026-06-27-ts-morph-module-fact-sheets):
-  // the module-facts.json sidecar is copied as-is, fact-sheets are filtered to the
-  // fixture's enabled modules, and every allowlisted module whose hand-written
-  // core.<module>.md guide no longer exists gets a legacy redirect stub.
+  // the module-facts.json sidecar is copied as-is and fact-sheets are filtered to the
+  // fixture's enabled modules. The legacy core.<module>.md redirect stubs are no longer
+  // emitted (#3754).
   collected.add('module-facts.json')
   for (const moduleId of FIXTURE_ENABLED_MODULES) {
     collected.add(normalizePath(path.join('modules', `${moduleId}.md`)))
-  }
-  for (const moduleId of MODULE_FACTS_ALLOWLIST) {
-    const legacyGuideSource = path.join(packagesRoot, 'core', 'src', 'modules', moduleId, 'agentic', 'standalone-guide.md')
-    if (!fs.existsSync(legacyGuideSource)) {
-      collected.add(`core.${moduleId}.md`)
-    }
   }
 
   return Array.from(collected).sort()
@@ -276,16 +277,32 @@ test.describe('TC-INT-008: CLI agentic init mirrors standalone scaffolding asset
       const cursorRulesSource = fs.readFileSync(path.join(appDir, '.cursor', 'rules', 'open-mercato.mdc'), 'utf8')
       expect(cursorRulesSource).toContain('sample-store')
 
-      const specWritingSkillSource = fs.readFileSync(
-        path.join(appDir, '.ai', 'skills', 'om-spec-writing', 'SKILL.md'),
-        'utf8',
-      )
-      expect(specWritingSkillSource).toContain('sample-store')
+      // om-spec-writing moved to the external open-mercato/skills collection
+      // (installed via `yarn install-skills`), so agentic:init must not ship a copy.
+      expect(fs.existsSync(path.join(appDir, '.ai', 'skills', 'om-spec-writing'))).toBe(false)
+      expect(fs.existsSync(path.join(appDir, 'scripts', 'install-skills.sh'))).toBe(true)
 
-      for (const toolDir of ['.claude', '.codex', '.cursor']) {
-        const skillsLinkPath = path.join(appDir, toolDir, 'skills')
-        expect(fs.lstatSync(skillsLinkPath).isSymbolicLink()).toBe(true)
-        expect(normalizePath(fs.readlinkSync(skillsLinkPath))).toBe('../.ai/skills')
+      // install-skills.sh (run by agentic:init) replaces the legacy directory-level
+      // .claude/skills and .codex/skills symlinks with real directories holding one
+      // symlink per default-tier local skill; .cursor/skills keeps the directory link.
+      const cursorSkillsLinkPath = path.join(appDir, '.cursor', 'skills')
+      expect(fs.lstatSync(cursorSkillsLinkPath).isSymbolicLink()).toBe(true)
+      expect(normalizePath(fs.readlinkSync(cursorSkillsLinkPath))).toBe('../.ai/skills')
+
+      const tiersManifest = JSON.parse(
+        fs.readFileSync(path.join(agenticRoot, 'shared', 'ai', 'skills', 'tiers.json'), 'utf8'),
+      ) as { default: string[]; tiers: Record<string, { skills: string[] }> }
+      const defaultTierSkills = tiersManifest.default.flatMap((tierName) => tiersManifest.tiers[tierName].skills)
+      expect(defaultTierSkills.length).toBeGreaterThan(0)
+
+      for (const toolDir of ['.claude', '.codex']) {
+        const harnessSkillsDir = path.join(appDir, toolDir, 'skills')
+        expect(fs.lstatSync(harnessSkillsDir).isDirectory()).toBe(true)
+        for (const skillName of defaultTierSkills) {
+          const skillLinkPath = path.join(harnessSkillsDir, skillName)
+          expect(fs.lstatSync(skillLinkPath).isSymbolicLink()).toBe(true)
+          expect(normalizePath(fs.readlinkSync(skillLinkPath))).toBe(`../../.ai/skills/${skillName}`)
+        }
       }
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true })

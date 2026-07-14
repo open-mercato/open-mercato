@@ -475,7 +475,7 @@ export default function EditDefinitionsPage({ params }: { params?: { entityId?: 
           setOrderDirty(true)
         }}
         orderNotice={orderDirty ? { dirty: true, saving: orderSaving, message: 'Reordered — will auto-save on blur' } : undefined}
-        addButtonLabel="Add Field"
+        addButtonLabel={t('entities.customFields.editor.addField', 'Add Field')}
         translate={t}
         listRef={listRef}
         listProps={{

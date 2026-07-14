@@ -28,6 +28,9 @@ import {
 } from '../lib/providers'
 import { isRecord } from '@open-mercato/shared/lib/utils'
 import { renderProviderFieldInput } from './ProviderFieldInput'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type PaymentMethodRow = {
   id: string
@@ -247,7 +250,7 @@ export function PaymentMethodsSettings() {
         })
       )
     } catch (err) {
-      console.error('sales.payment-methods.list failed', err)
+      logger.error('sales.payment-methods.list failed', { err })
       flash(translations.errors.load, 'error')
     } finally {
       setLoading(false)
@@ -306,7 +309,7 @@ export function PaymentMethodsSettings() {
       flash(translations.messages.deleted, 'success')
       await loadEntries()
     } catch (err) {
-      console.error('sales.payment-methods.delete failed', err)
+      logger.error('sales.payment-methods.delete failed', { err })
       const message =
         err instanceof Error ? err.message : translations.errors.delete
       flash(message, 'error')
@@ -344,7 +347,7 @@ export function PaymentMethodsSettings() {
       await loadEntries()
       closeDialog()
     } catch (err) {
-      console.error('sales.payment-methods.save failed', err)
+      logger.error('sales.payment-methods.save failed', { err })
       const message = err instanceof Error ? err.message : translations.errors.save
       flash(message, 'error')
     } finally {

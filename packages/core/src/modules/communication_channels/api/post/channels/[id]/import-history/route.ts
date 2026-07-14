@@ -12,6 +12,9 @@ import {
   queueImportHistorySchema,
 } from '../../../../../commands/queue-import-history'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('communication_channels').child({ component: 'import-history' })
 
 type RbacServiceLike = {
   loadAcl: (
@@ -169,7 +172,7 @@ export async function POST(req: Request, context: RouteContext): Promise<Respons
         { status: candidate.status },
       )
     }
-    console.error(`[import-history] failed to enqueue for channel ${id}:`, err)
+    logger.error('failed to enqueue for channel', { channelId: id, err })
     return NextResponse.json(
       { error: err instanceof Error ? err.message : 'Failed to queue import-history' },
       { status: 500 },

@@ -18,6 +18,9 @@ import { Organization } from '@open-mercato/core/modules/directory/data/entities
 import { organizationUpdateSchema } from '@open-mercato/core/modules/directory/data/validators'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import '@open-mercato/core/modules/directory/commands/organizations'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('directory').child({ component: 'organization-branding' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['directory.organizations.view'] },
@@ -265,7 +268,7 @@ export async function PUT(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('directory.organization-branding.update failed', err)
+    logger.error('Organization branding update failed', { err })
     return NextResponse.json(
       { error: resolved.translate('directory.branding.errors.save', 'Failed to update organization branding.') },
       { status: 400 },

@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { isS3KeyAddressableByScope, isS3KeyScopedToTenant } from '../../../../lib/key-scope'
 import { S3StorageDriver } from '../../../../lib/s3-driver'
 
 export const metadata = {
@@ -32,11 +33,6 @@ async function resolveDriver(tenantId: string, orgId: string): Promise<S3Storage
   return new S3StorageDriver(creds)
 }
 
-function isKeyScoped(key: string, orgId: string, tenantId: string): boolean {
-  const parts = key.split('/')
-  return parts.length >= 3 && parts[1] === `org_${orgId}` && parts[2] === `tenant_${tenantId}`
-}
-
 export async function POST(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -49,7 +45,11 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Invalid payload' }, { status: 400 })
   }
 
-  if (!isKeyScoped(parsed.data.key, auth.orgId, auth.tenantId)) {
+  const { key, operation, expiresIn, contentType } = parsed.data
+  const canAccessKey = operation === 'download'
+    ? isS3KeyAddressableByScope(key, auth.orgId, auth.tenantId)
+    : isS3KeyScopedToTenant(key, auth.orgId, auth.tenantId)
+  if (!canAccessKey) {
     return NextResponse.json({ error: 'Access denied: key is not scoped to this tenant.' }, { status: 403 })
   }
 
@@ -58,7 +58,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'S3 integration is not configured.' }, { status: 400 })
   }
 
-  const { key, operation, expiresIn, contentType } = parsed.data
   const url = await driver.getSignedUrl(key, operation, expiresIn, contentType)
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 

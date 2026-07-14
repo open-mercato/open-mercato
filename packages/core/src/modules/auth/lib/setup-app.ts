@@ -13,6 +13,9 @@ import { createKmsService } from '@open-mercato/shared/lib/encryption/kms'
 import { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'setup' })
 
 const DEFAULT_ROLE_NAMES = ['employee', 'admin', 'superadmin'] as const
 const DEMO_SUPERADMIN_EMAIL = 'superadmin@acme.com'
@@ -333,20 +336,20 @@ export async function setupInitialTenant(
           const kms = createKmsService()
           if (kms.isHealthy()) {
             if (isEncryptionDebugEnabled()) {
-              console.info('🔑 [encryption][setup] provisioning tenant DEK', { tenantId: String(tenant.id) })
+              logger.info('Provisioning tenant DEK', { tenantId: String(tenant.id) })
             }
             await kms.createTenantDek(String(tenant.id))
             if (isEncryptionDebugEnabled()) {
-              console.info('🔑 [encryption][setup] created tenant DEK during setup', { tenantId: String(tenant.id) })
+              logger.info('Created tenant DEK during setup', { tenantId: String(tenant.id) })
             }
           } else {
             if (isEncryptionDebugEnabled()) {
-              console.warn('⚠️ [encryption][setup] KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
+              logger.warn('KMS not healthy, skipping tenant DEK creation', { tenantId: String(tenant.id) })
             }
           }
         } catch (err) {
           if (isEncryptionDebugEnabled()) {
-            console.warn('⚠️ [encryption][setup] Failed to create tenant DEK', err)
+            logger.warn('Failed to create tenant DEK', { err })
           }
         }
       }
@@ -554,7 +557,7 @@ export async function ensureDefaultRoleAcls(
     }
   }
 
-  console.log('✅ Seeded default role features', {
+  logger.info('Seeded default role features', {
     superadmin: superadminFeatures,
     admin: adminFeatures,
     employee: employeeFeatures,
@@ -623,7 +626,7 @@ export async function ensureCustomRoleAcls(
     }
   }
   if (seeded > 0) {
-    console.log(`✅ Seeded custom role ACLs (${seeded} roles)`)
+    logger.info('Seeded custom role ACLs', { seeded })
   }
 }
 
@@ -697,10 +700,7 @@ export async function deactivateDemoUsersIfSelfOnboardingEnabled(em: EntityManag
         await em.persist(user).flush()
       }
     } catch (error) {
-      console.error(
-        `[auth.setup] failed to deactivate demo ${role} user (${email})`,
-        error,
-      )
+      logger.error('Failed to deactivate demo user', { role, email, err: error })
     }
   }
 }

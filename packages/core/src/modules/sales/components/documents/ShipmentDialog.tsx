@@ -25,6 +25,9 @@ import { formatMoney, normalizeNumber } from './lineItemUtils'
 import type { OrderLine, ShipmentRow } from './shipmentTypes'
 import { formatAddressString, type AddressFormatStrategy, type AddressValue } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { normalizeCustomFieldSubmitValue, extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ShippingMethodOption = {
   id: string
@@ -498,7 +501,7 @@ export function ShipmentDialog({
       setAddressError(null)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.addresses.load', err)
+      logger.error('sales.shipments.addresses.load', { err })
       setAddressError(
         t('sales.documents.shipments.addressLoadError', 'Failed to load addresses.'),
       )
@@ -583,7 +586,7 @@ export function ShipmentDialog({
         }
         return options
       } catch (err) {
-        console.error('sales.shipments.shipping-methods.load', err)
+        logger.error('sales.shipments.shipping-methods.load', { err })
         return []
       } finally {
         if (applyLoadingState) setShippingMethodLoading(false)
@@ -685,7 +688,7 @@ export function ShipmentDialog({
       setDocumentStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setDocumentStatuses([])
       return []
     } finally {
@@ -720,7 +723,7 @@ export function ShipmentDialog({
       setLineStatuses(mapped)
       return mapped
     } catch (err) {
-      console.error('sales.shipments.line-statuses.load', err)
+      logger.error('sales.shipments.line-statuses.load', { err })
       setLineStatuses([])
       return []
     } finally {
@@ -749,7 +752,7 @@ export function ShipmentDialog({
       )
       return mapped
     } catch (err) {
-      console.error('sales.shipments.statuses.load', err)
+      logger.error('sales.shipments.statuses.load', { err })
       setShipmentStatuses([])
       return []
     } finally {
@@ -1172,7 +1175,7 @@ export function ShipmentDialog({
               )
               emitSalesDocumentTotalsRefresh({ documentId: orderId, kind: 'order' })
             } catch (err) {
-              console.warn('sales.shipments.adjustment.create', err)
+              logger.warn('sales.shipments.adjustment.create', { err })
               flash(
                 t(
                   'sales.documents.shipments.shippingAdjustmentError',
@@ -1215,7 +1218,7 @@ export function ShipmentDialog({
           try {
             await onAddComment(note)
           } catch (err) {
-            console.warn('sales.shipments.comment', err)
+            logger.warn('sales.shipments.comment', { err })
           }
         }
         await onSaved()

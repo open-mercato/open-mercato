@@ -5,6 +5,9 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { SsoService } from '../../services/ssoService'
 import { ssoInitiateSchema } from '../../data/validators'
 import { emitSsoEvent } from '../../events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sso').child({ component: 'initiate' })
 
 export const metadata = {
   GET: { requireAuth: false },
@@ -50,10 +53,10 @@ export async function GET(req: Request) {
     })
     return res
   } catch (err) {
-    console.error('[SSO Initiate] Error:', err)
+    logger.error('SSO initiate error', { err })
     void emitSsoEvent('sso.login.failed', {
       reason: err instanceof Error ? err.message : 'initiate_failed',
-    }).catch((e) => console.error('[SSO Event]', e))
+    }).catch((eventError) => logger.error('SSO event emit failed', { err: eventError }))
     return NextResponse.redirect(toAbsoluteUrl(req, '/login?error=sso_failed'))
   }
 }

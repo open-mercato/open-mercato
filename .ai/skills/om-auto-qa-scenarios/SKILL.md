@@ -41,7 +41,7 @@ workflow.
 
 ### 0. Pre-flight and claim
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 0 verbatim. Branch name
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 0 verbatim. Branch name
 MUST use the `feat/` prefix (this is a new docs artifact, not a
 corrective change):
 
@@ -146,7 +146,7 @@ For PRs touching Next.js/UI surfaces, include perceived-performance checks in th
 
 ### 4. Draft the execution plan
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 3. The plan at
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 3. The plan at
 `$PLAN_PATH` MUST include:
 
 - Window (start date or PR floor, end date, base branch).
@@ -180,7 +180,7 @@ Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 3. The plan at
 
 ### 5. Isolated worktree, branch, first commit
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim. Branch
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` steps 4–5 verbatim. Branch
 base is always `develop`. Commit the plan first, then push.
 
 ### 6. Execute the phases
@@ -295,14 +295,14 @@ back to the full `om-auto-create-pr` step 7 gate.
 
 ### 8. Self-review and BC review
 
-Apply `.ai/skills/om-code-review/SKILL.md` to the diff. Because the change is
+Apply `.agents/skills/om-code-review/SKILL.md` to the diff. Because the change is
 docs-only, the only contract-surface risk is accidentally linking
 external resources in a way that leaks user or tenant data. Redact if
 needed.
 
 ### 9. Open the PR
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 9 with these specifics:
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 9 with these specifics:
 
 - Title: `docs(analysis): add auto-qa-scenarios report for {window caption}`.
 - Base: `develop`. Never merge directly.
@@ -325,13 +325,13 @@ other PRs; it does not itself require manual QA.
 
 ### 11. Auto-review pass
 
-Run `.ai/skills/om-auto-review-pr/SKILL.md` against the new PR in autofix
+Run `.agents/skills/om-auto-review-pr/SKILL.md` against the new PR in autofix
 mode. Apply fixes as new commits. Never rewrite history.
 
 ### 12. Summary comment
 
 Post the comprehensive summary comment required by
-`.ai/skills/om-auto-create-pr/SKILL.md` step 12. In the **How to verify**
+`.agents/skills/om-auto-create-pr/SKILL.md` step 12. In the **How to verify**
 section, recommend that the reviewer:
 
 - Open the HTML artifact directly in a browser.
@@ -340,7 +340,7 @@ section, recommend that the reviewer:
 
 ### 13. Cleanup
 
-Follow `.ai/skills/om-auto-create-pr/SKILL.md` step 13.
+Follow `.agents/skills/om-auto-create-pr/SKILL.md` step 13.
 
 ### 14. Resumability
 
