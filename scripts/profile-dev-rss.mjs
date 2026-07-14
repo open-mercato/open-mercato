@@ -147,7 +147,7 @@ export function renderReportTable(reports) {
     return JSON.stringify({
       nodeVersion: metadata.nodeVersion,
       nextVersion: metadata.nextVersion,
-      activeModuleIds: [...metadata.activeModuleIds].sort(),
+      activeModuleIds: [...metadata.activeModuleIds].sort((a, b) => a.localeCompare(b)),
       backgroundServices: {
         workers: metadata.backgroundServices.workers ?? null,
         workerSpawnMode: metadata.backgroundServices.workerSpawnMode ?? null,
@@ -156,7 +156,9 @@ export function renderReportTable(reports) {
       },
       watch: {
         scope: metadata.watch.scope ?? null,
-        packages: Array.isArray(metadata.watch.packages) ? [...metadata.watch.packages].sort() : null,
+        packages: Array.isArray(metadata.watch.packages)
+          ? [...metadata.watch.packages].sort((a, b) => a.localeCompare(b))
+          : null,
       },
     })
   })
