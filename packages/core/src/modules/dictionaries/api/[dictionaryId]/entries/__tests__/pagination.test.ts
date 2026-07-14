@@ -77,6 +77,16 @@ const makeRequest = (search = '') =>
 
 const findOptions = () => em.find.mock.calls[0][2] as { limit?: number; offset?: number; orderBy?: unknown }
 
+const useCache = () => {
+  const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn() }
+  container.resolve.mockImplementation((name: string) => {
+    if (name === 'em') return em
+    if (name === 'cache') return cache
+    throw new Error(`Unexpected container resolve: ${name}`)
+  })
+  return cache
+}
+
 describe('GET /api/dictionaries/[dictionaryId]/entries pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -152,22 +162,29 @@ describe('GET /api/dictionaries/[dictionaryId]/entries pagination', () => {
     expect(findOptions().offset).toBe(0)
   })
 
-  it('keys the cache by the requested page', async () => {
+  it('caches the default page so custom-field selects still hit the cache', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
-    const cache = { get: jest.fn().mockResolvedValue(null), set: jest.fn() }
-    container.resolve.mockImplementation((name: string) => {
-      if (name === 'em') return em
-      if (name === 'cache') return cache
-      throw new Error(`Unexpected container resolve: ${name}`)
-    })
+    const cache = useCache()
     const { GET } = await loadRoute()
 
-    await GET(makeRequest('?limit=25&offset=50'), { params: { dictionaryId } })
+    await GET(makeRequest(), { params: { dictionaryId } })
 
     expect(cache.set).toHaveBeenCalledTimes(1)
     const [key] = cache.set.mock.calls[0]
     expect(key).toBe(
-      `dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=label_asc:limit=25:offset=50`,
+      `dictionaries:entries:${dictionaryId}:org=${organizationId}:sort=label_asc:limit=500:offset=0`,
     )
+  })
+
+  it('never caches caller-paginated requests, so a reader cannot mint unbounded cache entries', async () => {
+    process.env.ENABLE_CRUD_API_CACHE = 'true'
+    const cache = useCache()
+    const { GET } = await loadRoute()
+
+    await GET(makeRequest('?limit=25&offset=50'), { params: { dictionaryId } })
+    await GET(makeRequest('?offset=1'), { params: { dictionaryId } })
+
+    expect(cache.get).not.toHaveBeenCalled()
+    expect(cache.set).not.toHaveBeenCalled()
   })
 })

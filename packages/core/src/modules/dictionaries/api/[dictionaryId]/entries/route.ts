@@ -114,7 +114,10 @@ export async function GET(req: Request, ctx: { params?: { dictionaryId?: string 
     // decrypted+sorted options payload. The entry writes flow through the
     // command bus (resourceKind dictionaries.entry), which already flushes the
     // matching collection tag post-commit — no new invalidation wiring needed.
-    const cache = isCrudCacheEnabled() ? resolveCrudCache(context.container) : null
+    // Only the default page is cached: keying the cache on caller-supplied
+    // pagination would let any reader mint unbounded distinct cache entries.
+    const isDefaultPage = limit === DICTIONARY_ENTRIES_MAX_LIMIT && offset === 0
+    const cache = isCrudCacheEnabled() && isDefaultPage ? resolveCrudCache(context.container) : null
     const cacheKey = cache
       ? buildEntriesCacheKey({ dictionaryId, organizationId: dictionaryOrgId, sortMode, limit, offset })
       : null
