@@ -5,11 +5,9 @@ import { addDays } from 'date-fns/addDays'
 import { format } from 'date-fns/format'
 import { isSameMonth } from 'date-fns/isSameMonth'
 import { isToday } from 'date-fns/isToday'
-import { CalendarDays } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { getVisibleRange } from '../../lib/calendar/range'
 import { eventDisplayTitle } from '../../lib/calendar/labels'
 import type { CalendarItem, MonthGridProps } from './types'
@@ -225,15 +223,6 @@ export function MonthGrid({ anchor, items, onItemClick, onDayOpen }: MonthGridPr
           ))}
         </div>
       ))}
-      {items.length === 0 ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
-          <EmptyState
-            icon={<CalendarDays className="h-6 w-6" aria-hidden="true" />}
-            title={t('customers.calendar.empty.month', 'Nothing scheduled this month')}
-            className="bg-background/90"
-          />
-        </div>
-      ) : null}
     </div>
   )
 }

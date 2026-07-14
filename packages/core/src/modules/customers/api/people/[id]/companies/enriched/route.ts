@@ -25,6 +25,9 @@ import {
   filterActivePersonCompanyLinks,
   withActiveCustomerPersonCompanyLinkFilter,
 } from '../../../../../lib/personCompanyLinkTable'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const paramsSchema = z.object({
   id: z.string().uuid(),
@@ -380,7 +383,7 @@ export async function GET(req: Request, ctx: { params?: { id?: string } }) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/people/[id]/companies/enriched] GET failed', err)
+    logger.error('/companies/enriched] GET failed', { component: 'people/[id', err })
     return NextResponse.json({ error: translate('customers.errors.internal', 'Internal server error') }, { status: 500 })
   }
 }

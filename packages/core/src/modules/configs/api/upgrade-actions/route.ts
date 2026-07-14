@@ -14,6 +14,9 @@ import {
   executeUpgradeActionResponseSchema,
   configErrorSchema,
 } from '../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('configs')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['configs.manage'] },
@@ -91,7 +94,7 @@ export async function GET(req: Request) {
       : []
     return NextResponse.json({ version, actions: payload })
   } catch (error) {
-    console.error('[configs.upgrade-actions] failed to load upgrade actions', error)
+    logger.error('failed to load upgrade actions', { component: 'upgrade-actions', err: error })
     return NextResponse.json({ error: 'Failed to load upgrade actions' }, { status: 500 })
   }
 }
@@ -137,7 +140,7 @@ export async function POST(req: Request) {
       version,
     })
   } catch (error) {
-    console.error('[configs.upgrade-actions] failed to execute upgrade action', error)
+    logger.error('failed to execute upgrade action', { component: 'upgrade-actions', err: error })
     const message = translate('upgrades.runFailed', 'We could not run this upgrade action.')
     const details = error instanceof Error ? error.message : null
     return NextResponse.json({ error: message, details }, { status: 500 })

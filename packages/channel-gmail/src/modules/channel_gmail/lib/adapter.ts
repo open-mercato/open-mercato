@@ -53,6 +53,9 @@ import {
 import { normalizeInboundGmailMessage } from './normalize-inbound'
 import { emailResolveContact } from '@open-mercato/core/modules/communication_channels/lib/email-contact'
 import { encodeCursor } from '@open-mercato/core/modules/communication_channels/lib/email-mime'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('channel_gmail')
 
 /**
  * Gmail `ChannelAdapter`. OAuth2-based, polling-driven (`realtimePush: false`).
@@ -705,9 +708,9 @@ function resolveGmailOAuthClient(input: RefreshCredentialsInput): GmailClientCre
   // Legacy path — DEPRECATED. Remove in the next minor release.
   if (!warnedLegacyClientPath) {
     warnedLegacyClientPath = true
-    console.warn(
-      '[channel-gmail] reading OAuth client config from credentials._client is deprecated;' +
-        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A).',
+    logger.warn(
+      'reading OAuth client config from credentials._client is deprecated;' +
+        ' pass via RefreshCredentialsInput.oauthClient instead (Spec A)',
     )
   }
   return parseClientCredentialsOrThrow(

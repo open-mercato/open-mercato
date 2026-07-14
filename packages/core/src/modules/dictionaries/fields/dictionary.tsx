@@ -15,6 +15,9 @@ import {
 } from '@open-mercato/ui/primitives/select'
 import { DictionarySelectControl } from '../components/DictionarySelectControl'
 import { useDictionaryEntries } from '../components/hooks/useDictionaryEntries'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('dictionaries').child({ component: 'dictionary-field' })
 
 type DictionaryFieldDefinition = {
   dictionaryId?: string
@@ -122,7 +125,7 @@ function DictionaryFieldDefEditor({ def, onChange }: { def: { configJson?: Dicti
         }
       } catch (err) {
         if (!cancelled) {
-          console.error('Failed to load dictionaries list', err)
+          logger.error('Failed to load dictionaries list', { err })
           setError(errorLoadLabel)
         }
       } finally {

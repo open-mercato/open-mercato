@@ -14,6 +14,9 @@ import { resolveOrganizationScopeFilter } from '@open-mercato/core/modules/direc
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WorkflowEvent, WorkflowInstance } from '../../../data/entities'
 import { workflowEventDetailSchema } from '../../openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export const metadata = {
   requireAuth: true,
@@ -118,7 +121,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     return NextResponse.json(response)
   } catch (error) {
-    console.error('Error getting workflow event:', error)
+    logger.error('Error getting workflow event', { err: error })
     return NextResponse.json(
       { error: 'Failed to get workflow event' },
       { status: 500 }

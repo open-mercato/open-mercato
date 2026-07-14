@@ -7,6 +7,9 @@ import * as actionExecutor from './action-executor'
 import type { RuleEvaluationContext } from './rule-evaluator'
 import type { ActionContext, ActionExecutionOutcome } from './action-executor'
 import { ruleEngineContextSchema, ruleDiscoveryOptionsSchema, directRuleExecutionContextSchema, ruleIdExecutionContextSchema } from '../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('business_rules').child({ component: 'rule-engine' })
 
 /**
  * Constants
@@ -156,7 +159,7 @@ async function getCachedRuleDiscovery(
       cache.get(getRuleDiscoveryCacheKey(options))
     )
   } catch (error) {
-    console.warn('[business_rules] Failed to read rule discovery cache:', error)
+    logger.warn('Failed to read rule discovery cache', { err: error })
     return null
   }
 
@@ -188,7 +191,7 @@ async function cacheRuleDiscovery(
       )
     )
   } catch (error) {
-    console.warn('[business_rules] Failed to write rule discovery cache:', error)
+    logger.warn('Failed to write rule discovery cache', { err: error })
   }
 }
 
@@ -213,7 +216,7 @@ export async function invalidateBusinessRuleDiscoveryCache(
   try {
     await runWithCacheTenant(normalizedTenantId, () => cache.deleteByTags(tags))
   } catch (error) {
-    console.warn('[business_rules] Failed to invalidate rule discovery cache:', error)
+    logger.warn('Failed to invalidate rule discovery cache', { err: error })
   }
 }
 

@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from '../../primitives/select'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
+import { useOptionalT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { useConfirmDialog } from '../confirm-dialog'
@@ -33,7 +34,6 @@ import {
 
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetConfig = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
-type Translate = (key: string, fallback: string, params?: Record<string, string | number>) => string
 
 function formatFallback(template: string, params?: Record<string, string | number>) {
   if (!params) return template
@@ -78,13 +78,8 @@ export type FieldDefinitionsEditorProps = {
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
   onSingleFieldsetPerRecordChange?: (value: boolean) => void
-  translate?: Translate
+  translate?: TranslateFn
 }
-
-const DEFAULT_KIND_OPTIONS = CUSTOM_FIELD_KINDS.map((k) => ({
-  value: k,
-  label: k.charAt(0).toUpperCase() + k.slice(1),
-}))
 
 const DEFAULT_VALUE_NONE = '__open_mercato_no_default__'
 
@@ -169,7 +164,7 @@ export function FieldDefinitionsEditor({
   definitions,
   errors,
   deletedKeys,
-  kindOptions = DEFAULT_KIND_OPTIONS,
+  kindOptions,
   orderNotice,
   infoNote,
   addButtonLabel,
@@ -194,7 +189,35 @@ export function FieldDefinitionsEditor({
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
-  const t = React.useCallback<Translate>((key, fallback, params) => (translate ? translate(key, fallback, params) : formatFallback(fallback, params)), [translate])
+  const contextT = useOptionalT()
+  const t = React.useCallback<TranslateFn>(
+    (key, fallbackOrParams, params) => {
+      if (translate) return translate(key, fallbackOrParams, params)
+      if (contextT) return contextT(key, fallbackOrParams, params)
+      return typeof fallbackOrParams === 'string'
+        ? formatFallback(fallbackOrParams, params)
+        : key
+    },
+    [translate, contextT],
+  )
+  const resolvedKindOptions = React.useMemo(
+    () =>
+      kindOptions ??
+      CUSTOM_FIELD_KINDS.map((kind) => ({
+        value: kind,
+        label: t(`entities.customFields.editor.kindOption.${kind}`, kind.charAt(0).toUpperCase() + kind.slice(1)),
+      })),
+    [kindOptions, t],
+  )
+  const resolvedInfoNote = infoNote !== undefined ? infoNote : (
+    <div className="text-xs text-muted-foreground mt-2">
+      {t(
+        'entities.customFields.editor.supportedKindsNote',
+        'Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), currency (fixed currencies list), relation (with related entity and options URL).',
+      )}
+    </div>
+  )
+  const resolvedAddButtonLabel = addButtonLabel ?? t('entities.customFields.editor.addField', 'Add Field')
   const resolvedActiveFieldset = React.useMemo(() => {
     if (!hasFieldsets) return activeFieldset ?? null
     if (activeFieldset === null) return null
@@ -253,7 +276,9 @@ export function FieldDefinitionsEditor({
     if (!onFieldsetsChange) return
     if (!resolvedActiveFieldset) return
     const confirmed = await confirm({
-      title: t('entities.customFields.editor.deleteFieldsetTitle', 'Delete fieldset "{{code}}"?', { code: resolvedActiveFieldset }),
+      title: t('entities.customFields.editor.deleteFieldsetTitle', 'Delete fieldset "{code}"?', {
+        code: resolvedActiveFieldset,
+      }),
       text: t('entities.customFields.editor.deleteFieldsetText', 'This will move its fields to Unassigned.'),
       variant: 'destructive',
     })
@@ -316,9 +341,7 @@ export function FieldDefinitionsEditor({
       {hasFieldsets ? (
         <div className="rounded border bg-card p-3 space-y-3">
           <div className="flex flex-wrap items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t('entities.customFields.fieldsetSelectorLabel', 'Fieldset')}
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">{t('entities.customFields.fieldsetSelectorLabel', 'Fieldset')}</label>
             <Select
               value={resolvedActiveFieldset || undefined}
               onValueChange={(value) => handleActiveFieldsetChange(value ?? '')}
@@ -340,7 +363,7 @@ export function FieldDefinitionsEditor({
               onClick={handleAddFieldset}
               className="text-xs"
             >
-              <Plus className="h-3.5 w-3.5" /> {t('entities.customFields.editor.addFieldset', 'Add')}
+              <Plus className="h-3.5 w-3.5" /> {t('entities.customFields.editor.add', 'Add')}
             </Button>
             <Button
               variant="outline"
@@ -349,7 +372,7 @@ export function FieldDefinitionsEditor({
               disabled={!resolvedActiveFieldset}
               className="text-xs"
             >
-              <Trash2 className="h-3.5 w-3.5" /> {t('entities.customFields.editor.deleteFieldset', 'Delete')}
+              <Trash2 className="h-3.5 w-3.5" /> {t('entities.customFields.editor.delete', 'Delete')}
             </Button>
           </div>
           {resolvedActiveFieldset && activeFieldsetConfig ? (
@@ -379,12 +402,12 @@ export function FieldDefinitionsEditor({
                   }
                 >
                   <SelectTrigger size="sm">
-                    <SelectValue placeholder={t('entities.customFields.editor.defaultIcon', 'Default')} />
+                    <SelectValue placeholder={t('entities.customFields.editor.defaultOption', 'Default')} />
                   </SelectTrigger>
                   <SelectContent>
                     {FIELDSET_ICON_OPTIONS.map((option) => (
                       <SelectItem key={option.value} value={option.value}>
-                        {t(`entities.customFields.editor.icons.${option.value}`, option.label)}
+                        {t(`entities.customFields.editor.iconOption.${option.value}`, option.label)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -410,9 +433,7 @@ export function FieldDefinitionsEditor({
               contentClassName="gap-1 [&_label]:text-xs [&_label]:font-normal"
             />
             {!canToggleSingleFieldset ? (
-              <span className="text-xs text-muted-foreground">
-                {t('entities.customFields.editor.singleFieldsetToggleHint', '(add at least two fieldsets to toggle)')}
-              </span>
+              <span className="text-xs text-muted-foreground">{t('entities.customFields.editor.singleFieldsetToggleHint', '(add at least two fieldsets to toggle)')}</span>
             ) : null}
           </div>
         </div>
@@ -435,8 +456,8 @@ export function FieldDefinitionsEditor({
         <div className="sticky top-0 z-sticky -mt-1 -mb-1">
           <div className="inline-flex items-center gap-2 text-xs px-2 py-1 rounded border border-status-warning-border bg-status-warning-bg text-status-warning-text shadow-sm">
             {orderNotice?.saving
-              ? t('entities.customFields.editor.savingOrder', 'Saving order...')
-              : (orderNotice?.message ?? t('entities.customFields.editor.reorderedSavingSoon', 'Reordered - saving soon'))}
+              ? t('entities.customFields.editor.savingOrder', 'Saving order…')
+              : (orderNotice?.message ?? t('entities.customFields.editor.reorderedSavingSoon', 'Reordered — saving soon'))}
           </div>
         </div>
       )}
@@ -475,7 +496,7 @@ export function FieldDefinitionsEditor({
           <FieldDefinitionCard
             definition={definition}
             error={errors?.[index]}
-            kindOptions={kindOptions}
+            kindOptions={resolvedKindOptions}
             onChange={(next) => onDefinitionChange(index, next)}
             onRemove={() => onRemoveField(index)}
             allowFieldsetSelection={hasFieldsets}
@@ -495,13 +516,9 @@ export function FieldDefinitionsEditor({
           size="sm"
           onClick={onAddField}
         >
-          <Plus className="h-4 w-4" /> {addButtonLabel ?? t('entities.customFields.editor.addField', 'Add Field')}
+          <Plus className="h-4 w-4" /> {resolvedAddButtonLabel}
         </Button>
-        {infoNote ?? (
-          <div className="text-xs text-muted-foreground mt-2">
-            {t('entities.customFields.editor.supportedKinds', 'Supported kinds: text, multiline, integer, float, boolean, select (with options/optionsUrl), currency (fixed currencies list), relation (with related entity and options URL).')}
-          </div>
-        )}
+        {resolvedInfoNote}
         {deletedKeys && deletedKeys.length > 0 && onRestoreField ? (
           <div className="text-xs text-muted-foreground mt-2">
             {t('entities.customFields.editor.restoreDeletedFields', 'Restore deleted fields:')}{' '}
@@ -538,7 +555,7 @@ type FieldDefinitionCardProps = {
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
   onTranslate?: () => void
-  translate?: Translate
+  translate?: TranslateFn
 }
 
 const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
@@ -570,7 +587,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     () => (typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''),
     [local.configJson?.fieldset],
   )
-  const t = React.useCallback<Translate>((key, fallback, params) => (translate ? translate(key, fallback, params) : formatFallback(fallback, params)), [translate])
+  const t = React.useCallback<TranslateFn>(
+    (key, fallbackOrParams, params) => {
+      if (translate) return translate(key, fallbackOrParams, params)
+      return typeof fallbackOrParams === 'string'
+        ? formatFallback(fallbackOrParams, params)
+        : key
+    },
+    [translate],
+  )
   React.useEffect(() => {
     localRef.current = definition
     setLocal(definition)
@@ -809,7 +834,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             <SelectContent>
               {kindOptions.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {t(`entities.customFields.editor.kinds.${option.value}`, option.label)}
+                  {option.label}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -905,12 +930,12 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 onValueChange={(value) => { apply({ configJson: { ...(local.configJson || {}), editor: value || undefined } }, true) }}
               >
                 <SelectTrigger>
-                  <SelectValue placeholder={t('entities.customFields.editor.defaultEditor', 'Default')} />
+                  <SelectValue placeholder={t('entities.customFields.editor.defaultOption', 'Default')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="markdown">{t('entities.userEntities.form.defaultEditor.options.markdown', 'Markdown (UIW)')}</SelectItem>
-                  <SelectItem value="simpleMarkdown">{t('entities.userEntities.form.defaultEditor.options.simpleMarkdown', 'Simple Markdown')}</SelectItem>
-                  <SelectItem value="htmlRichText">{t('entities.userEntities.form.defaultEditor.options.htmlRichText', 'HTML Rich Text')}</SelectItem>
+                  <SelectItem value="markdown">{t('entities.customFields.editor.editorMarkdown', 'Markdown (UIW)')}</SelectItem>
+                  <SelectItem value="simpleMarkdown">{t('entities.customFields.editor.editorSimpleMarkdown', 'Simple Markdown')}</SelectItem>
+                  <SelectItem value="htmlRichText">{t('entities.customFields.editor.editorHtmlRichText', 'HTML Rich Text')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -940,8 +965,8 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="default">{t('entities.customFields.editor.multiSelectDefault', 'Default')}</SelectItem>
-                        <SelectItem value="listbox">{t('entities.customFields.editor.multiSelectListbox', 'Listbox (searchable)')}</SelectItem>
+                        <SelectItem value="default">{t('entities.customFields.editor.defaultOption', 'Default')}</SelectItem>
+                        <SelectItem value="listbox">{t('entities.customFields.editor.listboxSearchable', 'Listbox (searchable)')}</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -1042,7 +1067,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
         {(local.kind === 'integer' || local.kind === 'float') && (
           <FormField label={t('entities.customFields.editor.unitsOptional', 'Units (optional)')} className="md:col-span-2">
             <Input
-              placeholder="kg, cm, etc."
+              placeholder={t('entities.customFields.editor.unitsPlaceholder', 'kg, cm, etc.')}
               value={typeof local.configJson?.unit === 'string' ? local.configJson.unit : ''}
               onChange={(event) => apply({ configJson: { ...(local.configJson || {}), unit: event.target.value } })}
               onBlur={commit}
@@ -1061,7 +1086,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
             onClick={() => {
               apply((current) => {
                 const list = Array.isArray(current.configJson?.validation) ? [...current.configJson.validation] : []
-                list.push({ rule: 'required', message: t('entities.customFields.editor.defaultRequiredMessage', 'This field is required') } as any)
+                list.push({ rule: 'required', message: t('entities.customFields.editor.ruleRequiredMessage', 'This field is required') } as any)
                 return { configJson: { ...(current.configJson || {}), validation: list } }
               }, true)
             }}
@@ -1108,10 +1133,10 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 <Input
                   placeholder={
                     rule?.rule === 'regex'
-                      ? t('entities.customFields.editor.patternPlaceholder', 'Pattern (e.g. ^[a-z]+$)')
+                      ? t('entities.customFields.editor.rulePatternPlaceholder', 'Pattern (e.g. ^[a-z]+$)')
                       : (['lt','lte','gt','gte'].includes(rule?.rule)
-                        ? t('entities.customFields.editor.numberPlaceholder', 'Number')
-                        : t('entities.customFields.editor.noParameterPlaceholder', '-'))
+                        ? t('entities.customFields.editor.ruleNumberPlaceholder', 'Number')
+                        : t('entities.customFields.editor.noParameterPlaceholder', '—'))
                   }
                   value={rule?.param ?? ''}
                   onChange={(event) => {
@@ -1129,7 +1154,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
               </div>
               <div className="md:col-span-4">
                 <Input
-                  placeholder={t('entities.customFields.editor.errorMessagePlaceholder', 'Error message')}
+                  placeholder={t('entities.customFields.editor.ruleErrorMessagePlaceholder', 'Error message')}
                   value={rule?.message || ''}
                   onChange={(event) => {
                     const message = event.target.value
@@ -1326,7 +1351,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>{t('entities.customFields.editor.addOptionTitle', 'Add option')}</DialogTitle>
+          <DialogTitle>{t('entities.customFields.editor.addOption', 'Add option')}</DialogTitle>
           <DialogDescription>{t('entities.customFields.editor.addOptionDescription', 'Provide the stored value and optional label shown to users.')}</DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -1372,9 +1397,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     >
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{editingGroupCode ? t('entities.customFields.editor.editGroupTitle', 'Edit group') : t('entities.customFields.editor.newGroupTitle', 'New group')}</DialogTitle>
+          <DialogTitle>
+            {editingGroupCode
+              ? t('entities.customFields.editor.editGroup', 'Edit group')
+              : t('entities.customFields.editor.newGroup', 'New group')}
+          </DialogTitle>
           <DialogDescription>
-            {editingGroupCode ? t('entities.customFields.editor.editGroupDescription', 'Update the selected group for this fieldset.') : t('entities.customFields.editor.newGroupDescription', 'Add a reusable group for this fieldset.')}
+            {editingGroupCode
+              ? t('entities.customFields.editor.editGroupDescription', 'Update the selected group for this fieldset.')
+              : t('entities.customFields.editor.newGroupDescription', 'Add a reusable group for this fieldset.')}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">
@@ -1387,21 +1418,21 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                 if (groupError) setGroupError(null)
               }}
               disabled={!!editingGroupCode}
-              placeholder="e.g. buying_committee"
+              placeholder={t('entities.customFields.editor.groupCodePlaceholder', 'e.g. buying_committee')}
             />
           </FormField>
           <FormField label={t('entities.customFields.editor.label', 'Label')}>
             <Input
               value={groupDraft.title}
               onChange={(event) => setGroupDraft((prev) => ({ ...prev, title: event.target.value }))}
-              placeholder="Buying committee"
+              placeholder={t('entities.customFields.editor.groupLabelPlaceholder', 'Buying committee')}
             />
           </FormField>
           <FormField label={t('entities.customFields.editor.hint', 'Hint')}>
             <Input
               value={groupDraft.hint}
               onChange={(event) => setGroupDraft((prev) => ({ ...prev, hint: event.target.value }))}
-              placeholder="Visible to merchandisers"
+              placeholder={t('entities.customFields.editor.groupHintPlaceholder', 'Visible to merchandisers')}
             />
           </FormField>
           {currentFieldsetValue && groupOptions.length > 0 ? (
@@ -1423,7 +1454,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-muted-foreground hover:text-foreground"
                         onClick={() => handleEditGroupEntry(group)}
-                        aria-label={t('entities.customFields.editor.editGroupAria', 'Edit {{code}}', { code: group.code })}
+                        aria-label={t('entities.customFields.editor.editGroupAria', 'Edit {code}', { code: group.code })}
                       >
                         <Pencil className="h-4 w-4" />
                       </IconButton>
@@ -1432,7 +1463,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-destructive hover:text-destructive/80"
                         onClick={() => handleRemoveGroupEntry(group.code)}
-                        aria-label={t('entities.customFields.editor.deleteGroupAria', 'Delete {{code}}', { code: group.code })}
+                        aria-label={t('entities.customFields.editor.deleteGroupAria', 'Delete {code}', { code: group.code })}
                       >
                         <Trash2 className="h-4 w-4" />
                       </IconButton>

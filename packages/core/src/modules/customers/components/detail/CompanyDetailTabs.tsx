@@ -14,6 +14,7 @@ import {
   Plus,
 } from 'lucide-react'
 import type { SectionAction } from '@open-mercato/ui/backend/detail'
+import { useDealsAccess } from './useDealsAccess'
 
 export type CompanyTabId =
   | 'people'
@@ -87,6 +88,7 @@ export function CompanyDetailTabs({
   children,
 }: CompanyDetailTabsProps) {
   const t = useT()
+  const { canViewDeals } = useDealsAccess()
 
   const builtInTabs: TabDef[] = React.useMemo(
     () => [
@@ -96,12 +98,16 @@ export function CompanyDetailTabs({
         icon: <Users className="size-4" />,
         badge: <CountBadge count={peopleCount} />,
       },
-      {
-        id: 'deals',
-        label: t('customers.companies.detail.tabs.deals', 'Deals'),
-        icon: <Handshake className="size-4" />,
-        badge: <CountBadge count={dealsCount} />,
-      },
+      ...(canViewDeals
+        ? [
+            {
+              id: 'deals' as CompanyTabId,
+              label: t('customers.companies.detail.tabs.deals', 'Deals'),
+              icon: <Handshake className="size-4" />,
+              badge: <CountBadge count={dealsCount} />,
+            },
+          ]
+        : []),
       {
         id: 'activity-log',
         label: t('customers.companies.detail.tabs.activityLog', 'Activity log'),
@@ -121,7 +127,7 @@ export function CompanyDetailTabs({
         badge: <CountBadge count={filesCount} />,
       },
     ],
-    [t, peopleCount, dealsCount, activitiesCount, filesCount],
+    [t, canViewDeals, peopleCount, dealsCount, activitiesCount, filesCount],
   )
 
   const allTabs: TabDef[] = React.useMemo(

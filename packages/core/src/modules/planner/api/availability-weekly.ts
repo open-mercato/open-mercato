@@ -14,6 +14,9 @@ import {
   validateCrudMutationGuard,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
 import { assertAvailabilityWriteAccess, resolveAvailabilityActorId } from './access'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('planner').child({ component: 'availability' })
 
 export const metadata = {
   POST: { requireAuth: true },
@@ -99,7 +102,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('planner.availability.weekly.replace failed', err)
+    logger.error('Weekly availability replace failed', { err })
     return NextResponse.json(
       { error: translate('planner.availability.errors.updateWeekly', 'Failed to save weekly availability.') },
       { status: 400 },

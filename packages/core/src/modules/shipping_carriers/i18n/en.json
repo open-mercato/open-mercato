@@ -69,6 +69,7 @@
   "shipping_carriers.create.summary.targetPoint": "Locker point",
   "shipping_carriers.create.summary.to": "To",
   "shipping_carriers.create.title": "Create carrier shipment",
+  "shipping_carriers.errors.upstreamFailed": "Carrier provider request failed. Try again later.",
   "shipping_carriers.feature.manage": "Manage shipping carrier operations",
   "shipping_carriers.feature.view": "View shipping carrier shipments",
   "shipping_carriers.status.cancelled": "Cancelled",
