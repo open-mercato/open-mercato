@@ -1,4 +1,5 @@
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import { isRecord } from '@open-mercato/shared/lib/utils'
 import type { SalesNote } from '../data/entities'
 
 export type HistoryEntry = {
@@ -41,10 +42,6 @@ const USER_EDITABLE_LINE_FIELDS = [
   'customFields',
   'statusEntryId',
 ] as const
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value)
-}
 
 function readSnapshotLines(snapshot: unknown): Array<Record<string, unknown>> {
   if (!isRecord(snapshot) || !Array.isArray(snapshot.lines)) return []
