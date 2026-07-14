@@ -97,7 +97,11 @@ describe('tasks list last_run projection', () => {
     expect(sql).toContain('distinct on (task_definition_id)')
     expect(sql).toContain('tenant_id = ?')
     expect(sql).toContain('organization_id = ?')
-    expect(params).toEqual([['task-a'], scope.tenantId, scope.organizationId])
+    // Ids bind as FLAT scalars (`in (?, ?)`), never as one array param —
+    // the ORM's raw-execute layer expands array bindings per element, which
+    // made the previous `= any(?)` reach Postgres as a malformed array literal.
+    expect(sql).toContain('task_definition_id in (?)')
+    expect(params).toEqual(['task-a', scope.tenantId, scope.organizationId])
   })
 
   it('skips the query entirely for an empty page', async () => {

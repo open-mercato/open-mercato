@@ -1,10 +1,14 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
+import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAgentEntry, ensureAgentsLoaded } from '../../../lib/sdk/defineAgent'
 import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
+import { getAgentIconMap } from '../../../lib/settings/agentSettings'
+import { AGENT_ICON_NAMES } from '../../../data/agentIcons'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -29,6 +33,7 @@ const agentDetailSchema = z.object({
   subAgents: z.array(z.string()),
   label: z.string(),
   description: z.string(),
+  icon: z.enum(AGENT_ICON_NAMES).nullable(),
   instructions: z.string(),
   defaultProvider: z.string().nullable(),
   defaultModel: z.string().nullable(),
@@ -46,6 +51,19 @@ export async function GET(req: Request, ctx: RouteContext) {
   await Promise.all([ensureAgentsLoaded(), ensureSkillsLoaded()])
   const entry = getAgentEntry(id)
   if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
+
+  // Tenant presentation icon (best-effort — never fails the definition read).
+  let icon: string | null = null
+  if (auth.tenantId && auth.orgId) {
+    try {
+      const container = await createRequestContainer()
+      const em = (container.resolve('em') as EntityManager).fork()
+      const iconByAgent = await getAgentIconMap(em, { tenantId: auth.tenantId, organizationId: auth.orgId })
+      icon = iconByAgent.get(entry.id) ?? null
+    } catch {
+      icon = null
+    }
+  }
   const skillDetails = entry.skills.map((skillId) => {
     const skill = getSkillEntry(skillId)
     if (skill) {
@@ -80,6 +98,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     subAgents: entry.subAgents,
     label: entry.label,
     description: entry.description,
+    icon,
     instructions: entry.instructions,
     defaultProvider: entry.defaultProvider ?? null,
     defaultModel: entry.defaultModel ?? null,

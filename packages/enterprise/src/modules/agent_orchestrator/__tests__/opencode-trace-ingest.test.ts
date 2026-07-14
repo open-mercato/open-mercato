@@ -24,10 +24,6 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 jest.mock('@open-mercato/core/modules/auth/data/entities', () => ({ UserRole: class UserRole {} }))
 
-const ingestTraceMock = jest.fn(async () => ({ runId: 'run-123', created: false, spansAppended: 0, toolCallsAppended: 0 }))
-jest.mock('../lib/trace/traceIngestionService', () => ({
-  ingestTrace: (...args: unknown[]) => ingestTraceMock(...args),
-}))
 
 import { OpenCodeAgentRunner, type OpenCodeRunnerClient } from '../lib/runtime/openCodeAgentRunner'
 import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../lib/sdk/defineAgent'
@@ -94,9 +90,32 @@ function registerExampleFileAgent(): AgentRegistryEntry {
   return entry
 }
 
+type RecordedCommand = { id: string; input: unknown }
+
+type IngestCommandInput = {
+  tenantId: string
+  organizationId: string
+  payload: {
+    runtime: string
+    externalRunId: string
+    agentId: string
+    latencyMs?: number
+    spans: Array<{ name: string; kind: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }>
+  }
+}
+
+function findIngestInput(bus: { executed: RecordedCommand[] }): IngestCommandInput | undefined {
+  return bus.executed.find((call) => call.id === 'agent_orchestrator.trace.ingest')?.input as
+    | IngestCommandInput
+    | undefined
+}
+
 function makeHarness() {
+  const executed: RecordedCommand[] = []
   const commandBus = {
-    async execute<I, O>(_id: string, _opts: { input: I }): Promise<{ result: O }> {
+    executed,
+    async execute<I, O>(id: string, opts: { input: I }): Promise<{ result: O }> {
+      executed.push({ id, input: opts.input })
       return { result: { runId: 'run-123' } as unknown as O }
     },
   }
@@ -195,17 +214,16 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     const result = await runner.run(entry, { subject: 'payouts stuck' }, runCtx)
     expect(result.kind).toBe('actionable')
 
-    // Assert the run ingested its trace with the correct payload. We check "was
-    // called" + the first call rather than an exact count: `ingestTrace` is
-    // idempotent on (runtime, externalRunId) — a duplicate ingest appends nothing
-    // — and a strict count is fragile under CI async timing.
-    expect(ingestTraceMock).toHaveBeenCalled()
-    const [, scope, payload] = ingestTraceMock.mock.calls[0] as [
-      unknown,
-      { tenantId: string; organizationId: string },
-      { runtime: string; externalRunId: string; agentId: string; spans: Array<{ name: string; kind: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }> },
-    ]
-    expect(scope).toEqual({ tenantId: 'tenant-1', organizationId: 'org-1' })
+    // Assert the run ingested its trace through the audited command with the
+    // correct payload. Ingest is idempotent on (runtime, externalRunId), so we
+    // assert the first recorded call rather than an exact count.
+    const ingestInput = findIngestInput(commandBus)
+    expect(ingestInput).toBeTruthy()
+    expect({ tenantId: ingestInput!.tenantId, organizationId: ingestInput!.organizationId }).toEqual({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    const payload = ingestInput!.payload
     expect(payload.runtime).toBe('opencode')
     expect(payload.externalRunId).toBe('ses_trace_1')
     expect(payload.agentId).toBe(FILE_AGENT_ID)
@@ -261,19 +279,15 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
 
     await runner.run(entry, { subject: 'legacy parts' }, runCtx)
 
-    // Called + first-call payload (see the note in the previous test): ingest is
-    // idempotent on (runtime, externalRunId), so exact call count is not asserted.
-    expect(ingestTraceMock).toHaveBeenCalled()
-    const [, , payload] = ingestTraceMock.mock.calls[0] as [
-      unknown,
-      unknown,
-      { spans: Array<{ name: string; toolCalls?: Array<{ toolName: string; responseSummary?: unknown }> }> },
-    ]
-    const loadSkillSpan = payload.spans.find((s) => s.name === 'load_skill')
+    // First recorded ingest command (see the note in the previous test): ingest
+    // is idempotent on (runtime, externalRunId), so exact call count is not asserted.
+    const ingestInput = findIngestInput(commandBus)
+    expect(ingestInput).toBeTruthy()
+    const loadSkillSpan = ingestInput!.payload.spans.find((s) => s.name === 'load_skill')
     expect(loadSkillSpan?.toolCalls?.[0]?.responseSummary).toEqual({ ok: true })
   })
 
-  it('writes no trace when the run observed no tool calls', async () => {
+  it('still stamps run latency (empty span list) when the run observed no tool calls', async () => {
     const entry = registerExampleFileAgent()
     const { commandBus, container } = makeHarness()
     // A client that submits the outcome but emits no tool parts.
@@ -309,6 +323,13 @@ describe('OpenCodeAgentRunner — trace ingestion (#3628)', () => {
     })
 
     await runner.run(entry, { subject: 'no tools' }, runCtx)
-    expect(ingestTraceMock).not.toHaveBeenCalled()
+    // No tool calls → no spans, but the wall-clock latency still lands on the
+    // run row via the same ingest path (data-honesty: DURATION must not be `—`
+    // for a successful OpenCode run).
+    const ingestInput = findIngestInput(commandBus)
+    expect(ingestInput).toBeTruthy()
+    expect(ingestInput!.payload.spans).toEqual([])
+    expect(typeof ingestInput!.payload.latencyMs).toBe('number')
+    expect(ingestInput!.payload.latencyMs).toBeGreaterThanOrEqual(0)
   })
 })

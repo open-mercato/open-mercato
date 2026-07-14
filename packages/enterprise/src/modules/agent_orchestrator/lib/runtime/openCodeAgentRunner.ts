@@ -21,8 +21,9 @@ import {
   shapeResult,
 } from './persistence'
 import type { AgentRunSessionStore } from './agentRunSessionStore'
-import { ingestTrace } from '../trace/traceIngestionService'
-import { createArtifactOffloader } from '../trace/artifactStore'
+import { withAuditedCommand } from '../identity/agentWriteScope'
+import type { IngestTraceCommandInput } from '../../commands/trace'
+import type { IngestTraceResult } from '../trace/traceIngestionService'
 import type { TraceSpanIngest } from '../../data/validators'
 
 /**
@@ -198,6 +199,7 @@ export class OpenCodeAgentRunner {
     try {
       const message = this.buildMessage(sessionToken, input)
 
+      const startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
         sessionId: session.id,
         message,
@@ -225,11 +227,15 @@ export class OpenCodeAgentRunner {
       }
 
       const result = shapeResult(entry.resultKind, parsed.data)
+      const latencyMs = Math.max(0, Math.round(Date.now() - startedAtMs))
 
       await completeRun(this.commandBus, commandCtx, {
         runId,
         output: result,
         resultKind: entry.resultKind,
+        // Actionable runs surface the proposal's confidence on the run row;
+        // informative runs have no confidence semantics → null (renders `—`).
+        confidence: result.kind === 'actionable' ? (result.proposal.confidence ?? null) : null,
       })
 
       if (result.kind === 'actionable') {
@@ -245,12 +251,13 @@ export class OpenCodeAgentRunner {
         })
       }
 
-      await this.ingestSessionTrace({
+      await this.ingestSessionTrace(commandCtx, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         agentId,
         externalRunId: session.id,
         toolCalls: capturedToolCalls,
+        latencyMs,
       })
 
       return result
@@ -274,20 +281,25 @@ export class OpenCodeAgentRunner {
    * Persist the tool/skill calls observed during the run as trace spans + tool
    * calls, correlating on `(runtime='opencode', externalRunId=session.id)` so the
    * upsert lands on the run row this runner already created (it appends spans
-   * without clobbering the run's status/output). Best-effort: a trace-ingest
-   * failure must never fail an otherwise-successful run, and a run with no
-   * observed tool calls writes nothing.
+   * without clobbering the run's status/output). Goes through the audited
+   * `trace.ingest` command — the same path the HMAC webhook uses — so inline
+   * deterministic eval assertions (and LLM-judge sampling) run for OpenCode runs
+   * exactly like for externally-ingested ones. Best-effort: a trace-ingest
+   * failure must never fail an otherwise-successful run.
    */
-  private async ingestSessionTrace(args: {
-    tenantId: string
-    organizationId: string
-    agentId: string
-    externalRunId: string
-    toolCalls: CapturedToolCall[]
-  }): Promise<void> {
-    if (args.toolCalls.length === 0) return
+  private async ingestSessionTrace(
+    commandCtx: ReturnType<typeof buildCommandContext>,
+    args: {
+      tenantId: string
+      organizationId: string
+      agentId: string
+      externalRunId: string
+      toolCalls: CapturedToolCall[]
+      latencyMs?: number | null
+    },
+  ): Promise<void> {
+    if (args.toolCalls.length === 0 && args.latencyMs == null) return
     try {
-      const em = this.container.resolve<EntityManager>('em').fork()
       const spans: TraceSpanIngest[] = args.toolCalls.map((toolCall, index) => ({
         externalSpanId: `${toolCall.id}-${index}`,
         sequence: index,
@@ -305,12 +317,24 @@ export class OpenCodeAgentRunner {
           },
         ],
       }))
-      const scope = { tenantId: args.tenantId, organizationId: args.organizationId }
-      await ingestTrace(
-        em,
-        scope,
-        { runtime: 'opencode', externalRunId: args.externalRunId, agentId: args.agentId, spans },
-        { offloadArtifact: createArtifactOffloader(this.container, scope) },
+      await withAuditedCommand(() =>
+        this.commandBus.execute<IngestTraceCommandInput, IngestTraceResult>(
+          'agent_orchestrator.trace.ingest',
+          {
+            input: {
+              tenantId: args.tenantId,
+              organizationId: args.organizationId,
+              payload: {
+                runtime: 'opencode',
+                externalRunId: args.externalRunId,
+                agentId: args.agentId,
+                spans,
+                ...(args.latencyMs != null ? { latencyMs: args.latencyMs } : {}),
+              },
+            },
+            ctx: commandCtx,
+          },
+        ),
       )
     } catch (err) {
       console.warn(`[internal] failed to ingest OpenCode trace for "${args.agentId}":`, err)

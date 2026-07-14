@@ -715,7 +715,7 @@ export default function ProcessDetailPage({ params }: { params?: { id?: string }
                           />
                         </span>
                         <span
-                          className={`flex flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isSelected ? 'bg-brand-violet-soft' : 'hover:bg-muted/50'}`}
+                          className={`flex min-w-0 flex-1 items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isSelected ? 'bg-brand-violet-soft' : 'hover:bg-muted/50'}`}
                         >
                           {step.actorKind === 'system' ? (
                             // eslint-disable-next-line @next/next/no-img-element

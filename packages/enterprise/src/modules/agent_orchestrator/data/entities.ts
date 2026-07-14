@@ -1466,3 +1466,47 @@ export class AgentProcess {
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
 }
+
+/**
+ * Per-(tenant, organization) presentation settings for an agent DEFINITION.
+ * Agent definitions themselves are code/file-authored (see `defineAgent`), so
+ * they are global and carry no per-tenant state — this table holds the tenant's
+ * editable overrides for how an agent is presented in the cockpit. Today it
+ * carries a single `icon` (a lucide icon name from `data/agentIcons.ts`) that
+ * replaces the auto-generated initials avatar across the agent presentation
+ * surfaces (agents list, overview "Agent trust" card, agent detail). Seeded
+ * with sensible defaults in `setup.ts` → `seedDefaults`, idempotently.
+ *
+ * Editable → carries `updated_at` for optimistic locking. Keyed by the agent
+ * definition id (a string like `deals.health_check`), referenced by id only —
+ * NOT an ORM relation — per the cross-module decoupling rule.
+ */
+@Entity({ tableName: 'agent_settings' })
+@Index({ name: 'agent_settings_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Unique({ name: 'agent_settings_org_agent_uq', properties: ['tenantId', 'organizationId', 'agentId'] })
+export class AgentSetting {
+  [OptionalProps]?: 'icon' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** Agent DEFINITION id (e.g. `deals.health_check`). Not an FK — decoupled. */
+  @Property({ name: 'agent_id', type: 'varchar', length: 100 })
+  agentId!: string
+
+  /** Lucide icon name from `AGENT_ICON_NAMES` (data/agentIcons.ts). Null = fall back to type glyph / initials. */
+  @Property({ name: 'icon', type: 'varchar', length: 64, nullable: true })
+  icon?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}

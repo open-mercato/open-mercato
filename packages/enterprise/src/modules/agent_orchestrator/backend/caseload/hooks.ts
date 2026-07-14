@@ -166,7 +166,10 @@ export function useInboxCursor(rows: readonly CursorRowLike[]): InboxCursor {
     setCursorState((prev) => advanceCursorAfterDispose(prev, rowsRef.current, disposedIds))
   }, [])
 
-  return { cursorId: cursor.cursorId, cursorIndex: cursor.cursorIndex, setCursor, moveCursor, clearCursor, advanceAfterDispose }
+  return React.useMemo(
+    () => ({ cursorId: cursor.cursorId, cursorIndex: cursor.cursorIndex, setCursor, moveCursor, clearCursor, advanceAfterDispose }),
+    [cursor.cursorId, cursor.cursorIndex, setCursor, moveCursor, clearCursor, advanceAfterDispose],
+  )
 }
 
 /**
@@ -472,7 +475,7 @@ export function useDeferredApprove<T>(onCommit: (id: string, payload: T) => void
   const undo = React.useCallback((id: string) => manager.undo(id), [manager])
   const flushAll = React.useCallback(() => manager.flushAll(), [manager])
 
-  return { pendingUndo, defer, undo, flushAll }
+  return React.useMemo(() => ({ pendingUndo, defer, undo, flushAll }), [pendingUndo, defer, undo, flushAll])
 }
 
 /**

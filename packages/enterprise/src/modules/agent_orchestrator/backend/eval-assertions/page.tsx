@@ -21,6 +21,7 @@ import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { scorers } from '../../lib/eval/scorers'
 
 const ENTITY_ID = 'agent_orchestrator:agent_eval_assertion'
 
@@ -39,7 +40,8 @@ type AssertionRow = {
 
 type FormValues = {
   id?: string
-  key: string
+  key?: string
+  judgeKey?: string
   title: string
   description?: string
   appliesTo: string
@@ -151,7 +153,8 @@ export default function EvalAssertionsPage() {
   const formSchema = React.useMemo(
     () =>
       z.object({
-        key: z.string().min(1, 'agent_orchestrator.evalAssertions.form.errors.keyRequired'),
+        key: z.string().optional(),
+        judgeKey: z.string().optional(),
         title: z.string().min(1, 'agent_orchestrator.evalAssertions.form.errors.titleRequired'),
         description: z.string().optional(),
         appliesTo: z.string().min(1),
@@ -190,10 +193,37 @@ export default function EvalAssertionsPage() {
     [agents, t],
   )
 
+  // The deterministic key doubles as the built-in scorer id (`config.scorer`
+  // overrides are an API-only escape hatch) — an unknown key is silently
+  // skipped at evaluation time, so the form offers ONLY the real scorer
+  // registry instead of a free-text field.
+  const scorerOptions = React.useMemo<CrudFieldOption[]>(
+    () =>
+      Object.keys(scorers).map((key) => ({
+        value: key,
+        label: `${key} — ${t(`agent_orchestrator.evalAssertions.scorer.${key}`, key)}`,
+      })),
+    [t],
+  )
+
   const fields = React.useMemo<CrudField[]>(
     () => [
       { id: 'title', label: t('agent_orchestrator.evalAssertions.form.title'), type: 'text', required: true },
-      { id: 'key', label: t('agent_orchestrator.evalAssertions.form.key'), type: 'text', required: true },
+      {
+        id: 'key',
+        label: t('agent_orchestrator.evalAssertions.form.key'),
+        type: 'select',
+        options: scorerOptions,
+        description: t('agent_orchestrator.evalAssertions.form.scorerKeyHint'),
+        visibleWhen: { field: 'type', equals: 'deterministic' },
+      },
+      {
+        id: 'judgeKey',
+        label: t('agent_orchestrator.evalAssertions.form.key'),
+        type: 'text',
+        description: t('agent_orchestrator.evalAssertions.form.judgeKeyHint'),
+        visibleWhen: { field: 'type', equals: 'llm_judge' },
+      },
       { id: 'description', label: t('agent_orchestrator.evalAssertions.form.description'), type: 'textarea' },
       { id: 'appliesTo', label: t('agent_orchestrator.evalAssertions.form.appliesTo'), type: 'combobox', options: appliesToOptions, seedOptions: appliesToOptions, allowCustomValues: true, required: true },
       {
@@ -288,12 +318,16 @@ export default function EvalAssertionsPage() {
     [t, toggleEnabled],
   )
 
+  function effectiveKey(values: FormValues): string {
+    return (values.type === 'llm_judge' ? values.judgeKey : values.key)?.trim() ?? ''
+  }
+
   function buildBody(values: FormValues) {
     const type = values.type
     const severity = type === 'llm_judge' ? 'warn' : values.severity
     const rubric = typeof values.rubric === 'string' ? values.rubric.trim() : ''
     const body: Record<string, unknown> = {
-      key: values.key,
+      key: effectiveKey(values),
       title: values.title,
       description: values.description?.trim() ? values.description.trim() : undefined,
       appliesTo: values.appliesTo,
@@ -311,6 +345,7 @@ export default function EvalAssertionsPage() {
       ? {
           id: editing!.id,
           key: editing!.key,
+          judgeKey: editing!.key,
           title: editing!.title,
           description: editing!.description ?? undefined,
           appliesTo: editing!.appliesTo,
@@ -340,9 +375,11 @@ export default function EvalAssertionsPage() {
             cancelHref="/backend/eval-assertions"
             disableOptimisticLock
             onSubmit={async (values) => {
-              if (!values.key.trim()) {
+              if (!effectiveKey(values)) {
                 const message = t('agent_orchestrator.evalAssertions.form.errors.keyRequired')
-                throw createCrudFormError(message, { key: message })
+                throw createCrudFormError(message, {
+                  [values.type === 'llm_judge' ? 'judgeKey' : 'key']: message,
+                })
               }
               const body = buildBody(values)
               try {

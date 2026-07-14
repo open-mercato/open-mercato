@@ -1,4 +1,5 @@
 import { z, type ZodTypeAny } from 'zod'
+import { AGENT_ICON_NAMES } from './agentIcons'
 
 /**
  * A single proposed action emitted by an actionable agent. `payload` is shaped
@@ -1136,3 +1137,15 @@ export const processListQuerySchema = z
   })
   .passthrough()
 export type ProcessListQuery = z.infer<typeof processListQuerySchema>
+
+// Per-agent presentation settings (agent_settings). `icon` is a stable lucide
+// name from the canonical vocabulary; `null` clears it back to the type/initials
+// fallback. Keep the enum sourced from AGENT_ICON_NAMES so validator, seed, and
+// client renderer never drift.
+export const agentIconNameSchema = z.enum(AGENT_ICON_NAMES)
+
+export const agentSettingUpdateSchema = z.object({
+  agentId: z.string().min(1).max(100),
+  icon: agentIconNameSchema.nullable(),
+})
+export type AgentSettingUpdate = z.infer<typeof agentSettingUpdateSchema>

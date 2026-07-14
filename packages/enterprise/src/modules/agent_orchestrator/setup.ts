@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
 import { seedAgentOrchestratorExamples } from './lib/seeds'
 import { seedDefaultEvalAssertions } from './lib/eval/defaultAssertions'
+import { seedDefaultAgentIcons } from './lib/settings/agentSettings'
 import { syncGroundingSets } from './lib/guardrails/syncGroundingSets'
 import { AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE } from './lib/queue'
 
@@ -115,6 +116,15 @@ export const setup: ModuleSetupConfig = {
   // of the box. Idempotent — re-running creates nothing new.
   seedDefaults: async (ctx) => {
     await seedDefaultEvalAssertions(ctx.em, {
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+    })
+
+    // Per-agent presentation icons → `agent_settings`. Idempotent: only inserts
+    // rows for agent ids that have none yet, so a tenant's later edits survive
+    // re-running setup. Gives a stock tenant recognisable agent glyphs (instead
+    // of initials) out of the box across the agents list + overview trust card.
+    await seedDefaultAgentIcons(ctx.em, {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
     })

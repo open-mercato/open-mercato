@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet, Zap, Info, Cpu, SquareCode, Globe, Eye, Lock } from 'lucide-react'
+import { Download, Filter, Bot, ShieldCheck, Pencil, Wallet } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { RowActions } from '@open-mercato/ui/backend/RowActions'
@@ -24,6 +24,7 @@ import {
   type AgentRuntime,
   type AgentWindowMetricsView,
 } from '../../components/types'
+import { Chip, TYPE_ICON, RUNTIME_ICON, AUTONOMY_ICON, agentAvatarIcon } from '../../components/agentChips'
 
 const RUNTIME_LABEL: Record<AgentRuntime, string> = {
   'in-process': 'In Process',
@@ -148,7 +149,12 @@ export default function AgentsRegistryPage() {
         const agent = row.original
         return (
           <div className="flex items-center gap-2.5">
-            <Avatar label={agent.label || agent.id} size="sm" />
+            <Avatar
+              label={agent.label || agent.id}
+              size="sm"
+              variant="monochrome"
+              icon={agentAvatarIcon(agent.icon, agent.resultKind)}
+            />
             <div className="min-w-0">
               <div className="truncate text-sm font-medium text-foreground">{agent.label || agent.id}</div>
             </div>
@@ -365,18 +371,6 @@ function titleCase(value: string): string {
   return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
-const TYPE_ICON: Record<string, React.ComponentType<{ className?: string }>> = { actionable: Zap, informative: Info }
-const RUNTIME_ICON: Record<string, React.ComponentType<{ className?: string }>> = { 'in-process': Cpu, native: Cpu, opencode: SquareCode, external: Globe }
-const AUTONOMY_ICON: Record<string, React.ComponentType<{ className?: string }>> = { auto: Bot, review: Eye, gated: Lock }
-
-function Chip({ icon: Icon, children }: { icon?: React.ComponentType<{ className?: string }>; children: React.ReactNode }) {
-  return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-xs font-medium text-foreground">
-      {Icon ? <Icon className="size-3.5 shrink-0 text-muted-foreground" /> : null}
-      {children}
-    </span>
-  )
-}
 
 function PendingChip({ label }: { label: string }) {
   return (

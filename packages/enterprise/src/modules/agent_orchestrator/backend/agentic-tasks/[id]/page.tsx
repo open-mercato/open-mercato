@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { Bot, Play, Plus, Trash2, Workflow as WorkflowIcon } from 'lucide-react'
+import { Bot, Copy, Play, Plus, Trash2, Workflow as WorkflowIcon } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
@@ -402,6 +402,22 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
     [t, locale, router],
   )
 
+  const [origin, setOrigin] = React.useState('')
+  React.useEffect(() => {
+    setOrigin(window.location.origin)
+  }, [])
+  const copyToClipboard = React.useCallback(
+    async (value: string) => {
+      try {
+        await navigator.clipboard.writeText(value)
+        flash(t('agent_orchestrator.tasks.api.copied'), 'success')
+      } catch {
+        flash(t('agent_orchestrator.tasks.api.copyFailed'), 'error')
+      }
+    },
+    [t],
+  )
+
   if (isLoading) {
     return (
       <Page>
@@ -424,6 +440,21 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
 
   const TargetIcon = task.targetType === 'agent' ? Bot : WorkflowIcon
   const targetId = task.targetType === 'agent' ? task.targetAgentId : task.targetWorkflowId
+
+  // API trigger facts — the primary machine entry point for agentic tasks.
+  // `origin` resolves client-side only, so the snippet shows the real host.
+  const apiPath = `/api/agent_orchestrator/tasks/${task.id}/run`
+  const apiUrl = `${origin}${apiPath}`
+  const inputExample =
+    task.inputDefaults && typeof task.inputDefaults === 'object' && !Array.isArray(task.inputDefaults)
+      ? (task.inputDefaults as Record<string, unknown>)
+      : {}
+  const curlExample = [
+    `curl -X POST '${apiUrl}' \\`,
+    `  -H 'x-api-key: <YOUR_API_KEY>' \\`,
+    `  -H 'content-type: application/json' \\`,
+    `  -d '${JSON.stringify({ input: inputExample, idempotencyKey: 'unique-key-123' })}'`,
+  ].join('\n')
 
   return (
     <Page>
@@ -477,6 +508,41 @@ export default function AgenticTaskDetailPage({ params }: { params?: { id?: stri
               </div>
             </div>
           ) : null}
+        </section>
+
+        <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold text-foreground">{t('agent_orchestrator.tasks.api.title')}</h2>
+              <p className="mt-0.5 text-sm text-muted-foreground">{t('agent_orchestrator.tasks.api.description')}</p>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs font-semibold text-foreground">POST</span>
+            <code className="min-w-0 flex-1 truncate rounded-md border border-border bg-muted px-2 py-1 font-mono text-xs text-muted-foreground">
+              {apiUrl}
+            </code>
+            <Button type="button" variant="outline" size="sm" onClick={() => void copyToClipboard(apiUrl)}>
+              <Copy className="mr-2 size-4" />
+              {t('agent_orchestrator.tasks.api.copyUrl')}
+            </Button>
+          </div>
+          <div className="mt-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {t('agent_orchestrator.tasks.api.curlTitle')}
+              </p>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void copyToClipboard(curlExample)}>
+                <Copy className="mr-2 size-3.5" />
+                {t('agent_orchestrator.tasks.api.copyCurl')}
+              </Button>
+            </div>
+            <pre className="mt-1.5 overflow-x-auto rounded-md border border-border bg-muted p-3 font-mono text-xs leading-relaxed text-muted-foreground">
+              {curlExample}
+            </pre>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground">{t('agent_orchestrator.tasks.api.authNote')}</p>
+          <p className="mt-1 text-xs text-muted-foreground">{t('agent_orchestrator.tasks.api.responseNote')}</p>
         </section>
 
         <section className="rounded-xl border border-border bg-card p-5 shadow-sm">

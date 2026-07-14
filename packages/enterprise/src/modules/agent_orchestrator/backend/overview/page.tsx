@@ -27,13 +27,14 @@ import {
 } from '../../components/types'
 import { subjectRefOf } from '../../components/subjectRef'
 import { useCoalescedReload } from '../../components/useCoalescedReload'
+import { agentAvatarIcon } from '../../components/agentChips'
 
 type Health = 'good' | 'watch' | 'poor' | 'new'
 type ListResponse = { items?: Array<Record<string, unknown>>; total?: number }
 
 type Sla = 'breach' | 'risk' | 'ok'
 type Verb = 'do' | 'review'
-type TrustRow = { id: string; label: string; runs: number; overridePct: number | null; status: Health }
+type TrustRow = { id: string; label: string; icon: string | null; resultKind: 'informative' | 'actionable'; runs: number; overridePct: number | null; status: Health }
 type StuckRow = { id: string; processId: string | null; claim: string; agentLabel: string; waitingMin: number | null; waitingFor: Verb; sla: Sla }
 type AgentWindowMetrics = { totalRuns: number; overrideRate: number | null; disposedProposals: number }
 
@@ -113,6 +114,7 @@ export default function AgentFleetOverviewPage() {
   const [pendingRuns, setPendingRuns] = React.useState<Map<string, RunView>>(new Map())
   const [agentLabels, setAgentLabels] = React.useState<Map<string, string>>(new Map())
   const [agentKinds, setAgentKinds] = React.useState<Map<string, string>>(new Map())
+  const [agentIcons, setAgentIcons] = React.useState<Map<string, string | null>>(new Map())
   const [agentIds, setAgentIds] = React.useState<string[]>([])
   const [agentMetrics, setAgentMetrics] = React.useState<Map<string, AgentWindowMetrics>>(new Map())
   const [trustState, setTrustState] = React.useState<PanelState>('ok')
@@ -145,6 +147,7 @@ export default function AgentFleetOverviewPage() {
           : []
         const labels = new Map<string, string>()
         const kinds = new Map<string, string>()
+        const icons = new Map<string, string | null>()
         const ids: string[] = []
         if (agentsRes.ok) {
           for (const item of agentsRes.items) {
@@ -152,6 +155,7 @@ export default function AgentFleetOverviewPage() {
             if (agent) {
               labels.set(agent.id, agent.label || agent.id)
               kinds.set(agent.id, agent.resultKind)
+              icons.set(agent.id, agent.icon)
               ids.push(agent.id)
             }
           }
@@ -212,6 +216,7 @@ export default function AgentFleetOverviewPage() {
         setPendingRuns(runs)
         setAgentLabels(labels)
         setAgentKinds(kinds)
+        setAgentIcons(icons)
         setAgentIds(ids)
         setAgentMetrics(perAgent)
         // The trust panel needs both the registry and its metrics; surface the
@@ -278,10 +283,11 @@ export default function AgentFleetOverviewPage() {
           else if ((overridePct ?? 0) > 15) status = 'watch'
           else status = 'good'
         }
-        return { id, label: agentLabels.get(id) || id, runs: runsCount, overridePct, status }
+        const resultKind: 'informative' | 'actionable' = agentKinds.get(id) === 'actionable' ? 'actionable' : 'informative'
+        return { id, label: agentLabels.get(id) || id, icon: agentIcons.get(id) ?? null, resultKind, runs: runsCount, overridePct, status }
       })
       .sort((a, b) => b.runs - a.runs)
-  }, [agentIds, agentMetrics, agentLabels])
+  }, [agentIds, agentMetrics, agentLabels, agentIcons, agentKinds])
 
   const stuck = React.useMemo<StuckRow[]>(() => {
     return pendingProposals
@@ -497,7 +503,7 @@ export default function AgentFleetOverviewPage() {
                         >
                           <td className="px-2 py-2.5">
                             <div className="flex items-center gap-2.5">
-                              <Avatar label={row.label} size="sm" />
+                              <Avatar label={row.label} size="sm" variant="monochrome" icon={agentAvatarIcon(row.icon, row.resultKind)} />
                               <div className="min-w-0">
                                 <div className="truncate text-sm font-medium text-foreground">{row.label}</div>
                                 <div className="truncate font-mono text-xs text-muted-foreground">{row.id}</div>

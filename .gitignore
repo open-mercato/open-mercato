@@ -142,6 +142,7 @@ docker/opencode/opencode.jsonc
 # generated them (shell, ports, process tools) — keep them local, never commit
 .ai/scripts/test-env-*
 .agents/
+.ai/cezar/
 
 apps/mercato/data/
 

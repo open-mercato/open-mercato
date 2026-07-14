@@ -498,7 +498,7 @@ export default function AgentCaseloadPage() {
   // proposal.* event must not wipe an operator's half-built selection).
   // They also commit any approve still inside its undo window — the operator
   // saw it confirmed, so leaving the queue must not silently drop it.
-  React.useEffect(() => { setSelectedIds(new Set()); deferredApprove.flushAll() }, [segment, page, view, deferredApprove])
+  React.useEffect(() => { setSelectedIds(new Set()); deferredApprove.flushAll() }, [segment, page, view, deferredApprove.flushAll])
   React.useEffect(() => {
     setSelectedIds((prev) => intersectSelection(prev, pageRows.filter((row) => row.isPending).map((row) => row.id)))
   }, [pageRows])

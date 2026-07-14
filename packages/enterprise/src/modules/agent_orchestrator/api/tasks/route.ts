@@ -88,14 +88,26 @@ export async function attachLastRunProjection(
     .map((item) => (typeof item.id === 'string' ? item.id : null))
     .filter((id): id is string => !!id)
   if (ids.length === 0) return
-  const rows = (await em.getConnection().execute(
-    `select distinct on (task_definition_id)
-       task_definition_id, status, completed_at
-     from agent_task_runs
-     where task_definition_id = any(?) and tenant_id = ? and organization_id = ?
-     order by task_definition_id, created_at desc`,
-    [ids, scope.tenantId, scope.organizationId],
-  )) as Array<{ task_definition_id: string; status: string; completed_at: Date | string | null }>
+  // Scalar placeholders only — an array binding through the ORM's raw-execute
+  // layer gets expanded per element, so `= any(?)` reaches Postgres as a bare
+  // uuid where an array literal is expected ("malformed array literal").
+  const idPlaceholders = ids.map(() => '?').join(', ')
+  let rows: Array<{ task_definition_id: string; status: string; completed_at: Date | string | null }> = []
+  try {
+    rows = (await em.getConnection().execute(
+      `select distinct on (task_definition_id)
+         task_definition_id, status, completed_at
+       from agent_task_runs
+       where task_definition_id in (${idPlaceholders}) and tenant_id = ? and organization_id = ?
+       order by task_definition_id, created_at desc`,
+      [...ids, scope.tenantId, scope.organizationId],
+    )) as Array<{ task_definition_id: string; status: string; completed_at: Date | string | null }>
+  } catch (err) {
+    // The Last-run column is a cosmetic enrichment — it must never take the
+    // whole task list down. Fail soft: log and render the list without it.
+    console.warn('[internal] agentic-tasks last-run projection failed:', err)
+    rows = []
+  }
   const byDefinition = new Map(rows.map((row) => [row.task_definition_id, row]))
   for (const item of items) {
     const row = typeof item.id === 'string' ? byDefinition.get(item.id) : undefined

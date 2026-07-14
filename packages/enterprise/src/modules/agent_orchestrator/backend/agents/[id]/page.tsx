@@ -31,6 +31,7 @@ import {
 } from '../../../components/types'
 import { subjectRefOf } from '../../../components/subjectRef'
 import { SkillDrawer } from '../../../components/SkillDrawer'
+import { agentAvatarIcon } from '../../../components/agentChips'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
 type Autonomy = 'auto' | 'review' | 'gated'
@@ -221,7 +222,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
         <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div className="flex flex-wrap items-start justify-between gap-4 p-5">
             <div className="flex min-w-0 items-start gap-3">
-              <Avatar label={agent.label || agent.id} size="lg" />
+              <Avatar label={agent.label || agent.id} size="lg" variant="monochrome" icon={agentAvatarIcon(agent.icon, agent.resultKind)} />
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="text-lg font-semibold text-foreground">{agent.label || agent.id}</h1>

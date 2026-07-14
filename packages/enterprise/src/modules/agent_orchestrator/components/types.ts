@@ -3,6 +3,7 @@
  * shapes returned by the area-01/03 list APIs, normalized to camelCase for the
  * React layer. No new entities — these are pure read projections.
  */
+import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
 
 export type ProposalView = {
   id: string
@@ -188,6 +189,8 @@ export type AgentView = {
   description: string
   resultKind: 'informative' | 'actionable'
   runtime: AgentRuntime
+  /** Tenant-configured presentation icon (lucide name), or null for the fallback glyph. */
+  icon: AgentIconName | null
   tools: string[]
   skills: string[]
   /** Optional example input for the Playground "Insert sample" button. */
@@ -521,6 +524,7 @@ export function mapAgent(item: Record<string, unknown>): AgentView | null {
     description: asString(item.description) ?? '',
     resultKind,
     runtime,
+    icon: isAgentIconName(item.icon) ? item.icon : null,
     tools: Array.isArray(item.tools) ? item.tools.filter((tool): tool is string => typeof tool === 'string') : [],
     skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string') : [],
     sampleInput: item.sampleInput,
