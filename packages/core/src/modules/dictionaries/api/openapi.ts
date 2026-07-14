@@ -5,6 +5,7 @@ import {
   updateDictionaryEntrySchema,
   reorderDictionaryEntriesSchema,
   setDefaultDictionaryEntrySchema,
+  DICTIONARY_ENTRIES_MAX_LIMIT,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
 import { dictionaryEntrySortModeSchema } from '@open-mercato/core/modules/dictionaries/lib/entrySort'
 
@@ -57,6 +58,21 @@ export const dictionaryEntrySchema = z.object({
 
 export const dictionaryEntryListResponseSchema = z.object({
   items: z.array(dictionaryEntrySchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+  hasMore: z.boolean(),
+})
+
+export const dictionaryEntriesQuerySchema = z.object({
+  limit: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(DICTIONARY_ENTRIES_MAX_LIMIT)
+    .optional()
+    .describe(`Maximum entries to return. Defaults to and is capped at ${DICTIONARY_ENTRIES_MAX_LIMIT}.`),
+  offset: z.coerce.number().int().min(0).optional().describe('Number of entries to skip. Defaults to 0.'),
 })
 
 export const dictionaryEntryResponseSchema = dictionaryEntrySchema
