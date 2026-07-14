@@ -9,6 +9,7 @@ import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/er
 import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { ActionLog } from '@open-mercato/core/modules/audit_logs/data/entities'
+import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { buildHistoryEntries } from '../../lib/historyHelpers'
 import { SalesNote } from '../../data/entities'
@@ -71,6 +72,16 @@ export async function GET(req: Request) {
       throw new CrudHttpError(400, {
         error: translate('sales.documents.errors.organization_required', 'Organization context is required'),
       })
+    }
+
+    const requiredFeature = query.kind === 'order' ? 'sales.orders.view' : 'sales.quotes.view'
+    const rbac = container.resolve('rbacService') as RbacService
+    const hasAccess = await rbac.userHasAllFeatures(auth.sub, [requiredFeature], {
+      tenantId: auth.tenantId,
+      organizationId,
+    })
+    if (!hasAccess) {
+      throw new CrudHttpError(403, { error: translate('api.errors.forbidden', 'Forbidden') })
     }
 
     const resourceKind = query.kind === 'order' ? 'sales.order' : 'sales.quote'
@@ -178,6 +189,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 200, description: 'History entries', schema: documentHistoryResponseSchema },
         { status: 400, description: 'Invalid query', schema: z.object({ error: z.string() }) },
         { status: 401, description: 'Unauthorized', schema: z.object({ error: z.string() }) },
+        { status: 403, description: 'Forbidden', schema: z.object({ error: z.string() }) },
         { status: 404, description: 'Document not found', schema: z.object({ error: z.string() }) },
       ],
     },
