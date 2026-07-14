@@ -16,12 +16,16 @@ import { fileURLToPath } from 'node:url'
 //   - --legacy-links restores the historical .claude + .codex per-skill layout
 //   - agents.ignore / --ignore-agents suppress an agent's directory entirely
 //   - a repo-local override of an external skill is never symlinked anywhere
+//   - external skills reach every agent that cannot read the canonical directory
 const monorepoScript = fileURLToPath(new URL('../../../../scripts/install-skills.sh', import.meta.url))
 const monorepoValidator = fileURLToPath(new URL('../../../../scripts/validate-skills-tiers.sh', import.meta.url))
 const standaloneScript = fileURLToPath(new URL('../../agentic/shared/scripts/install-skills.sh', import.meta.url))
 
 const LOCAL_SKILLS = ['om-alpha', 'om-beta']
 const EXTERNAL_SKILL = 'om-code-review'
+// The shape `npx skills add` leaves behind: a real directory in the canonical
+// dir, not a symlink into .ai/skills/ the way a local tier skill is.
+const INSTALLED_EXTERNAL_SKILL = 'om-auto-review-pr'
 
 const jqMissing = spawnSync('jq', ['--version']).status !== 0
 const skip = jqMissing ? 'jq is required by install-skills.sh but is not installed' : false
@@ -76,6 +80,15 @@ function runInstall(appDir: string, args: string[] = []): ReturnType<typeof spaw
   })
 }
 
+// Stand in for the external collection without going to the network: the tests
+// run with --no-external, so seeding the directory the skills CLI would have
+// written lets the link layer be asserted offline.
+function seedInstalledExternalSkill(appDir: string, name = INSTALLED_EXTERNAL_SKILL): void {
+  const skillDir = path.join(appDir, '.agents', 'skills', name)
+  fs.mkdirSync(skillDir, { recursive: true })
+  fs.writeFileSync(path.join(skillDir, 'SKILL.md'), `# ${name}\n`)
+}
+
 function readLink(appDir: string, ...segments: string[]): string {
   return fs.readlinkSync(path.join(appDir, ...segments)).split(path.sep).join('/')
 }
@@ -110,15 +123,91 @@ for (const variant of ['monorepo', 'standalone'] as const) {
     }
   })
 
+  test(`[${variant}] external skills are linked for agents that cannot read the canonical dir`, { skip }, () => {
+    const appDir = createFixture(variant)
+    try {
+      seedInstalledExternalSkill(appDir)
+
+      const result = runInstall(appDir)
+      assert.equal(result.status, 0, result.stderr)
+
+      // The skills CLI does not reliably write this link (vercel-labs/skills#744),
+      // so the installer owns it: without it Claude Code loses every shared skill.
+      assert.equal(
+        readLink(appDir, '.claude', 'skills', INSTALLED_EXTERNAL_SKILL),
+        `../../.agents/skills/${INSTALLED_EXTERNAL_SKILL}`,
+      )
+      // The canonical copy stays a real directory — it is never replaced by a link.
+      assert.equal(fs.lstatSync(path.join(appDir, '.agents', 'skills', INSTALLED_EXTERNAL_SKILL)).isSymbolicLink(), false)
+      // Codex and Cursor read the canonical directory, so they still get nothing.
+      assert.equal(exists(appDir, '.codex', 'skills'), false)
+      assert.equal(exists(appDir, '.cursor', 'skills'), false)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test(`[${variant}] --ignore-agents suppresses external links too`, { skip }, () => {
+    const appDir = createFixture(variant)
+    try {
+      seedInstalledExternalSkill(appDir)
+
+      const result = runInstall(appDir, ['--ignore-agents', 'claude-code'])
+      assert.equal(result.status, 0, result.stderr)
+
+      assert.equal(exists(appDir, '.claude', 'skills'), false)
+      assert.equal(exists(appDir, '.agents', 'skills', INSTALLED_EXTERNAL_SKILL), true)
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
+  test(`[${variant}] a link to a dropped external skill is pruned on re-run`, { skip }, () => {
+    const appDir = createFixture(variant)
+    try {
+      seedInstalledExternalSkill(appDir)
+      assert.equal(runInstall(appDir).status, 0)
+      assert.equal(exists(appDir, '.claude', 'skills', INSTALLED_EXTERNAL_SKILL), true)
+
+      // The collection stops shipping the skill: `skills update` drops it from the
+      // canonical dir, leaving the agent link dangling.
+      fs.rmSync(path.join(appDir, '.agents', 'skills', INSTALLED_EXTERNAL_SKILL), { recursive: true, force: true })
+
+      const result = runInstall(appDir)
+      assert.equal(result.status, 0, result.stderr)
+      // lstat, not exists: a dangling symlink is invisible to exists().
+      assert.equal(
+        fs.lstatSync(path.join(appDir, '.claude', 'skills', INSTALLED_EXTERNAL_SKILL), { throwIfNoEntry: false }),
+        undefined,
+      )
+      // Local tier skills are untouched by the prune.
+      for (const skill of LOCAL_SKILLS) {
+        assert.equal(readLink(appDir, '.claude', 'skills', skill), `../../.agents/skills/${skill}`)
+      }
+    } finally {
+      fs.rmSync(appDir, { recursive: true, force: true })
+    }
+  })
+
   test(`[${variant}] --legacy-links restores the per-agent layout`, { skip }, () => {
     const appDir = createFixture(variant)
     try {
+      seedInstalledExternalSkill(appDir)
+
       const result = runInstall(appDir, ['--legacy-links'])
       assert.equal(result.status, 0, result.stderr)
 
       for (const skill of LOCAL_SKILLS) {
         assert.equal(readLink(appDir, '.claude', 'skills', skill), `../../.ai/skills/${skill}`)
         assert.equal(readLink(appDir, '.codex', 'skills', skill), `../../.ai/skills/${skill}`)
+      }
+      // External skills only exist in the canonical dir, so both legacy agents
+      // link there even when tier skills fall back to the .ai/skills/ layout.
+      for (const agentDir of ['.claude', '.codex']) {
+        assert.equal(
+          readLink(appDir, agentDir, 'skills', INSTALLED_EXTERNAL_SKILL),
+          `../../.agents/skills/${INSTALLED_EXTERNAL_SKILL}`,
+        )
       }
     } finally {
       fs.rmSync(appDir, { recursive: true, force: true })

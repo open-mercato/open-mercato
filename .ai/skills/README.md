@@ -113,7 +113,7 @@ A skill is duplicated into an agent's own directory **only when that agent canno
 | Codex | `.codex/skills/` | yes | no |
 | Cursor | `.cursor/skills/` | yes | no |
 
-The support column follows the universal-agent list of the [`skills` CLI](https://github.com/vercel-labs/skills). An agent that cannot read the canonical directory keeps its symlinks automatically — dropping them would make its skills silently disappear. Re-check the table when an agent gains support.
+The support column follows the universal-agent list of the [`skills` CLI](https://github.com/vercel-labs/skills). An agent that cannot read the canonical directory keeps its symlinks, written by `install-skills.sh` itself for both local tier skills and the external collection — dropping them would make its skills silently disappear. Re-check the table when an agent gains support.
 
 Two escape hatches:
 

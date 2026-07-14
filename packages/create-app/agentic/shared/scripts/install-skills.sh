@@ -22,7 +22,7 @@ set -eu
 # cannot read the canonical project-level .agents/skills/ directory:
 #
 #   agent id     project directory   reads .agents/skills/   per-agent symlinks
-#   claude-code  .claude/skills      no                      yes (automatic)
+#   claude-code  .claude/skills      no                      yes (written by this script)
 #   codex        .codex/skills       yes                     no
 #   cursor       .cursor/skills      yes                     no
 #
@@ -423,6 +423,18 @@ sweep_harness() {
   done
 }
 
+# Drop links to skills the external collection no longer ships: their target
+# under .agents/skills/ is gone, so the link dangles.
+prune_broken_links() {
+  harness_dir="$1"
+  [ -d "${harness_dir}" ] || return 0
+  for entry in "${harness_dir}"/*; do
+    [ -L "${entry}" ] || continue
+    [ -e "${entry}" ] && continue
+    rm -f "${entry}"
+  done
+}
+
 print_list() {
   for tier in ${all_tier_names}; do
     count=$(tier_skill_count "${tier}")
@@ -578,16 +590,37 @@ install_agent_links() {
       ln -sfn "../../.agents/skills/${skill}" "${harness_dir}/${skill}"
     fi
   done
+  link_external_skills "${harness_dir}"
   sweep_harness "${harness_dir}" "${selected_skills}"
+  prune_broken_links "${harness_dir}"
+}
+
+# Mirror every external skill (a real directory under the canonical dir) into an
+# agent's own directory. Local tier skills are symlinks and are skipped here.
+#
+# `npx skills add --agent <id>` is supposed to write these links itself, but it
+# only does so reliably for an agent directory that already exists (see
+# vercel-labs/skills#744) and the canonical layout no longer pre-creates one. So
+# the script owns this layer end to end: an agent that cannot read
+# .agents/skills/ would otherwise silently lose the whole shared collection.
+link_external_skills() {
+  harness_dir="$1"
+  [ -d "${agents_dir}" ] || return 0
+  for entry in "${agents_dir}"/*; do
+    [ -L "${entry}" ] && continue
+    [ -d "${entry}" ] || continue
+    external_name=$(basename "${entry}")
+    ln -sfn "../../.agents/skills/${external_name}" "${harness_dir}/${external_name}"
+  done
 }
 
 # Mix in the external shared collection (open-mercato/skills). Only the explicit
 # subset this app ships (external.skills) is installed — never the whole
-# collection. The npx CLI copies each skill into .agents/skills/ and symlinks
-# the directory of every agent passed with --agent that cannot read the
-# canonical path. This runs BEFORE the local symlinks are written:
-# `skills update --project` owns .agents/skills/ and would otherwise prune
-# entries it does not know about.
+# collection. The npx CLI copies each skill into .agents/skills/. This runs BEFORE
+# the link layer is written: `skills update --project` owns .agents/skills/ and
+# would otherwise prune entries it does not know about. The agent directories are
+# written afterwards by install_agent_links, which does not rely on the CLI's own
+# symlinking.
 external_source=$(jq -r '.external.source // empty' "${manifest}")
 external_status="none"
 # The skills CLI matches each --skill value against skill names verbatim (no
@@ -619,17 +652,6 @@ if [ -n "${external_source}" ] && [ -n "${external_skill_args}" ]; then
     else
       echo "install-skills: warning: could not update external skills to latest;" >&2
       echo "  the installed versions are kept. Re-run when online to refresh." >&2
-    fi
-    # Codex reads .agents/skills/ natively, so it needs no links of its own —
-    # except under --legacy-links, where the historical mirror is restored.
-    if [ "${legacy_links}" -eq 1 ] && is_link_agent codex && [ -d "${agents_dir}" ]; then
-      codex_dir=$(agent_dir codex)
-      mkdir -p "${codex_dir}"
-      for external_entry in "${agents_dir}"/*; do
-        [ -L "${external_entry}" ] && continue
-        [ -d "${external_entry}" ] || continue
-        ln -sfn "../../.agents/skills/$(basename "${external_entry}")" "${codex_dir}/$(basename "${external_entry}")"
-      done
     fi
   else
     external_status="FAILED"
