@@ -93,7 +93,7 @@ export type DictionaryEntryCommandConfig<TCreate, TUpdate> = {
   labels?: DictionaryEntryCommandLabels
 }
 
-function toScopeEnsurer(fn: EnsureScopeFn | undefined): EnsureScopeFn {
+export function toScopeEnsurer(fn: EnsureScopeFn | undefined): EnsureScopeFn {
   return typeof fn === 'function' ? fn : ensureDictionaryEntryScope
 }
 

@@ -1,4 +1,7 @@
-import { ensureDictionaryEntryScope } from '@open-mercato/core/modules/dictionaries/commands/factory'
+import {
+  ensureDictionaryEntryScope,
+  toScopeEnsurer,
+} from '@open-mercato/core/modules/dictionaries/commands/factory'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 
@@ -100,5 +103,25 @@ describe('ensureDictionaryEntryScope', () => {
     const ctx = buildCtx({ auth: null, organizationScope: null })
 
     expect(() => ensureDictionaryEntryScope(ctx, targetScope)).not.toThrow()
+  })
+})
+
+describe('toScopeEnsurer', () => {
+  it('falls back to the fail-closed ensurer when a registrar omits ensureScope (#3846)', () => {
+    const ctx = buildCtx({
+      selectedOrganizationId: null,
+      orgId: null,
+      organizationScope: buildOrganizationScope({ allowedIds: ['org-attacker'] }),
+    })
+
+    expect(() => toScopeEnsurer(undefined)(ctx, targetScope)).toThrow(CrudHttpError)
+  })
+
+  it('uses the ensurer a registrar provides', () => {
+    const provided = jest.fn()
+
+    toScopeEnsurer(provided)(buildCtx({}), targetScope)
+
+    expect(provided).toHaveBeenCalledWith(expect.anything(), targetScope)
   })
 })
