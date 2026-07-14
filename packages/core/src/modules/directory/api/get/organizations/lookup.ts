@@ -57,25 +57,37 @@ async function resolveTenantFromHost(container: AppContainer, req: Request): Pro
   }
 }
 
-export async function GET(req: Request) {
-  const url = new URL(req.url)
-  const slug = url.searchParams.get('slug') || ''
-  const parsed = orgLookupQuerySchema.safeParse({ slug })
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid slug.' }, { status: 400 })
-  }
-
-  const rateLimiterService = getCachedRateLimiterService()
-  const clientIp = rateLimiterService ? getClientIp(req, rateLimiterService.trustProxyDepth) : null
-  if (rateLimiterService && clientIp) {
+// Fail-open, like auth's checkAuthRateLimit: this resolver sits on the unauthenticated
+// portal bootstrap path, so a limiter outage must degrade to unlimited lookups rather
+// than 500 the portal.
+async function enforceOrgLookupRateLimit(req: Request): Promise<NextResponse | null> {
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (!rateLimiterService) return null
+    const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+    if (!clientIp) return null
     const { translate } = await resolveTranslations()
-    const rateLimitResponse = await checkRateLimit(
+    return await checkRateLimit(
       rateLimiterService,
       orgLookupIpRateLimitConfig,
       clientIp,
       translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
     )
-    if (rateLimitResponse) return rateLimitResponse
+  } catch {
+    return null
+  }
+}
+
+export async function GET(req: Request) {
+  // Consume the limit before validation or DB work, so junk input cannot bypass it.
+  const rateLimitResponse = await enforceOrgLookupRateLimit(req)
+  if (rateLimitResponse) return rateLimitResponse
+
+  const url = new URL(req.url)
+  const slug = url.searchParams.get('slug') || ''
+  const parsed = orgLookupQuerySchema.safeParse({ slug })
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Invalid slug.' }, { status: 400 })
   }
 
   const container = await createRequestContainer()

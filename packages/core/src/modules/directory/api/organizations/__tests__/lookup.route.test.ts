@@ -128,4 +128,22 @@ describe('GET /api/directory/organizations/lookup', () => {
     expect(res.status).toBe(400)
     expect(findOne).not.toHaveBeenCalled()
   })
+
+  it('rate limits invalid slugs too, so the limiter cannot be bypassed with junk input', async () => {
+    consume.mockResolvedValue({ allowed: false, msBeforeNext: 30_000, remainingPoints: 0 })
+
+    const res = await GET(makeRequest(''))
+
+    expect(res.status).toBe(429)
+    expect(consume).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails open when the limiter throws, so a limiter outage cannot break the portal bootstrap', async () => {
+    consume.mockRejectedValue(new Error('rate limiter unavailable'))
+
+    const res = await GET(makeRequest('acme'))
+
+    expect(res.status).toBe(200)
+    expect(findOne).toHaveBeenCalled()
+  })
 })
