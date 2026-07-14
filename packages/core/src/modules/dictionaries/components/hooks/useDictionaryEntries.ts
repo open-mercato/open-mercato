@@ -113,7 +113,7 @@ export const dictionaryEntriesQueryOptions = (dictionaryId: string, scopeVersion
     // dictionary — every dictionary at or below the server ceiling — keeps the
     // server's ordering untouched.
     const parsed =
-      pages.entries.length && pages.pageCount > 1
+      pages.pageCount > 1
         ? sortDictionaryEntries(pages.entries, resolveDictionaryEntrySortMode(pages.sortMode))
         : pages.entries
     const normalized = normalizeDictionaryEntries(
