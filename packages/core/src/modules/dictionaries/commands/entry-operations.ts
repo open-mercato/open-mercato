@@ -6,6 +6,7 @@ import {
   type ReorderDictionaryEntriesCommandInput,
   type SetDefaultDictionaryEntryCommandInput,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
+import { ensureDictionaryEntryScope } from '@open-mercato/core/modules/dictionaries/commands/factory'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
@@ -37,14 +38,7 @@ const dictionaryCrudEvents: CrudEventsConfig = {
 }
 
 function ensureScope(ctx: CommandRuntimeContext, scope: DictionaryScope): void {
-  const tenantId = ctx.auth?.tenantId ?? null
-  if (tenantId && tenantId !== scope.tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (organizationId && organizationId !== scope.organizationId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
+  ensureDictionaryEntryScope(ctx, scope)
 }
 
 async function requireDictionary(

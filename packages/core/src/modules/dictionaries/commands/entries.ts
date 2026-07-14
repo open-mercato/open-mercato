@@ -4,21 +4,12 @@ import {
   dictionaryEntryCommandCreateSchema,
   dictionaryEntryCommandUpdateSchema,
 } from '@open-mercato/core/modules/dictionaries/data/validators'
-import { registerDictionaryEntryCommands } from '@open-mercato/core/modules/dictionaries/commands/factory'
-import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import {
+  ensureDictionaryEntryScope,
+  registerDictionaryEntryCommands,
+} from '@open-mercato/core/modules/dictionaries/commands/factory'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
-
-function ensureScope(ctx: CommandRuntimeContext, scope: { tenantId: string; organizationId: string }): void {
-  const tenantId = ctx.auth?.tenantId ?? null
-  if (tenantId && tenantId !== scope.tenantId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-  const organizationId = ctx.selectedOrganizationId ?? ctx.auth?.orgId ?? null
-  if (organizationId && organizationId !== scope.organizationId) {
-    throw new CrudHttpError(403, { error: 'Forbidden' })
-  }
-}
 
 async function ensureDictionary(em: EntityManager, id: string): Promise<Dictionary> {
   const dictionary = await em.findOne(Dictionary, {
@@ -37,12 +28,12 @@ registerDictionaryEntryCommands({
   translationKeyPrefix: 'dictionaries.entries',
   createSchema: dictionaryEntryCommandCreateSchema,
   updateSchema: dictionaryEntryCommandUpdateSchema,
-  ensureScope,
+  ensureScope: ensureDictionaryEntryScope,
   duplicateError: 'An entry with this value already exists.',
   resolveDictionaryForCreate: async ({ em, ctx, parsed }) => {
     const dictionary = await ensureDictionary(em, parsed.dictionaryId)
     const scope = { tenantId: dictionary.tenantId, organizationId: dictionary.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
     return { dictionary, scope }
   },
   resolveEntry: async ({ em, ctx, id }) => {
@@ -54,7 +45,7 @@ registerDictionaryEntryCommands({
       throw new CrudHttpError(404, { error: 'Dictionary not found' })
     }
     const scope = { tenantId: entry.tenantId, organizationId: entry.organizationId }
-    ensureScope(ctx, scope)
+    ensureDictionaryEntryScope(ctx, scope)
     return { entry, dictionary: entry.dictionary, scope }
   },
   ensureDictionaryForUndo: async ({ em, snapshot }) => {
