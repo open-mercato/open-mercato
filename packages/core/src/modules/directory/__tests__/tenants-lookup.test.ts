@@ -102,4 +102,16 @@ describe('GET /api/directory/tenants/lookup', () => {
 
     expect(res.status).toBe(404)
   })
+
+  it('fails open when the limiter throws, so a limiter outage cannot break the login bootstrap', async () => {
+    checkRateLimit.mockRejectedValue(new Error('rate limiter unavailable') as never)
+
+    const res = await GET(lookupRequest(tenantId))
+
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toEqual({
+      ok: true,
+      tenant: { id: tenantId, name: 'Acme Corp' },
+    })
+  })
 })

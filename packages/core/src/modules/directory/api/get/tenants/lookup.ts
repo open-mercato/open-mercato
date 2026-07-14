@@ -36,20 +36,31 @@ const tenantLookupIpRateLimitConfig = readEndpointRateLimitConfig('DIRECTORY_TEN
   keyPrefix: 'directory-tenant-lookup',
 })
 
-export async function GET(req: Request) {
-  // Consume the limit before validation or DB work, so junk input cannot bypass it.
-  const rateLimiterService = getCachedRateLimiterService()
-  const clientIp = rateLimiterService ? getClientIp(req, rateLimiterService.trustProxyDepth) : null
-  if (rateLimiterService && clientIp) {
+// Fail-open, like auth's checkAuthRateLimit: this resolver sits on the unauthenticated
+// login bootstrap path, so a limiter outage must degrade to unlimited lookups rather
+// than 500 the login screen.
+async function enforceTenantLookupRateLimit(req: Request): Promise<NextResponse | null> {
+  try {
+    const rateLimiterService = getCachedRateLimiterService()
+    if (!rateLimiterService) return null
+    const clientIp = getClientIp(req, rateLimiterService.trustProxyDepth)
+    if (!clientIp) return null
     const { translate } = await resolveTranslations()
-    const rateLimitResponse = await checkRateLimit(
+    return await checkRateLimit(
       rateLimiterService,
       tenantLookupIpRateLimitConfig,
       clientIp,
       translate('api.errors.rateLimit', 'Too many requests. Please try again later.'),
     )
-    if (rateLimitResponse) return rateLimitResponse
+  } catch {
+    return null
   }
+}
+
+export async function GET(req: Request) {
+  // Consume the limit before validation or DB work, so junk input cannot bypass it.
+  const rateLimitResponse = await enforceTenantLookupRateLimit(req)
+  if (rateLimitResponse) return rateLimitResponse
 
   const url = new URL(req.url)
   const tenantId = url.searchParams.get('tenantId') || url.searchParams.get('tenant') || ''
