@@ -23,8 +23,16 @@ const orgLookupQuerySchema = z.object({
 
 // Unauthenticated pre-auth portal resolver: an anonymous caller can probe any
 // slug, so cap probes per IP to keep slug enumeration bounded and noisy.
+//
+// The cap matches the sibling tenant lookup (60/min/IP) because the legitimate
+// call pattern is the same: useTenantContext resolves the org on every portal
+// page mount without caching, and a whole workforce behind one NAT egress IP —
+// or one reverse proxy — shares this budget. A tripped lookup renders as a
+// missing organization, so the cap must clear real portal traffic by a wide
+// margin. Tune per deployment with RATE_LIMIT_DIRECTORY_ORG_LOOKUP_POINTS /
+// _DURATION / _BLOCK_DURATION.
 const orgLookupIpRateLimitConfig = readEndpointRateLimitConfig('DIRECTORY_ORG_LOOKUP', {
-  points: 20,
+  points: 60,
   duration: 60,
   blockDuration: 60,
   keyPrefix: 'directory-org-lookup',

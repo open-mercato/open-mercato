@@ -30,7 +30,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
-const consume = jest.fn(async () => ({ allowed: true, msBeforeNext: 0, remainingPoints: 19 }))
+const consume = jest.fn(async () => ({ allowed: true, msBeforeNext: 0, remainingPoints: 59 }))
 let rateLimiterService: unknown = { trustProxyDepth: 1, consume }
 
 jest.mock('@open-mercato/core/bootstrap', () => ({
@@ -54,7 +54,7 @@ describe('GET /api/directory/organizations/lookup', () => {
     jest.clearAllMocks()
     domainMappingServiceRegistered = true
     rateLimiterService = { trustProxyDepth: 1, consume }
-    consume.mockResolvedValue({ allowed: true, msBeforeNext: 0, remainingPoints: 19 })
+    consume.mockResolvedValue({ allowed: true, msBeforeNext: 0, remainingPoints: 59 })
     findOne.mockResolvedValue(makeOrganization())
     resolveByHostname.mockResolvedValue(null)
   })
@@ -136,6 +136,13 @@ describe('GET /api/directory/organizations/lookup', () => {
 
     expect(res.status).toBe(429)
     expect(consume).toHaveBeenCalledTimes(1)
+  })
+
+  it('caps at 60 lookups per minute per IP, so a workforce behind one NAT egress IP is not throttled', async () => {
+    await GET(makeRequest('acme'))
+
+    const [, config] = consume.mock.calls[0]
+    expect(config).toMatchObject({ points: 60, duration: 60 })
   })
 
   it('fails open when the limiter throws, so a limiter outage cannot break the portal bootstrap', async () => {
