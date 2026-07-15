@@ -114,6 +114,27 @@ describe('Queue - async strategy', () => {
     await queue.close()
   })
 
+  it('threads queue retry and stalled-job options to BullMQ', async () => {
+    const queue = createQueue<{ value: number }>('test-queue', 'async', {
+      attempts: 5,
+      maxStalledCount: 10,
+    })
+
+    await queue.enqueue({ value: 42 })
+    await queue.process(async () => {})
+
+    expect(queueAdd).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ payload: { value: 42 } }),
+      expect.objectContaining({ attempts: 5 }),
+    )
+    expect(workerCtor).toHaveBeenCalledWith(
+      'test-queue',
+      expect.any(Function),
+      expect.objectContaining({ maxStalledCount: 10 }),
+    )
+  })
+
   it('removeQueuedJobsByScope removes only queued jobs matching tenant scope', async () => {
     const removeMatching = jest.fn(async () => {})
     const removeAutoIndex = jest.fn(async () => {})

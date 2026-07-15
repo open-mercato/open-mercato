@@ -91,6 +91,10 @@ export type AsyncQueueOptions = {
   connection?: RedisConnectionOptions
   /** Number of concurrent job processors. Defaults to 1 */
   concurrency?: number
+  /** Number of attempts for newly enqueued jobs. Defaults to 3. */
+  attempts?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. Defaults to 1. */
+  maxStalledCount?: number
 }
 
 /**
@@ -250,6 +254,8 @@ export type WorkerMeta = {
   id?: string
   /** Worker concurrency (default: 1) */
   concurrency?: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }
 
 /**
@@ -265,4 +271,6 @@ export type WorkerDescriptor<T = unknown> = {
   handler: JobHandler<T>
   /** Concurrency level */
   concurrency: number
+  /** Number of stalled-job recoveries BullMQ permits before failing a job. */
+  maxStalledCount?: number
 }

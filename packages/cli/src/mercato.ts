@@ -1606,6 +1606,7 @@ export async function run(argv = process.argv) {
                 effectiveByQueue.get(queue) ??
                 concurrencyOverride ??
                 Math.max(...queueWorkers.map((w) => w.concurrency), 1)
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
 
               console.log(`[worker] Starting "${queue}" with ${queueWorkers.length} handler(s), concurrency: ${concurrency}`)
 
@@ -1614,6 +1615,7 @@ export async function run(argv = process.argv) {
                 queueName: queue,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                maxStalledCount,
                 background: true,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
@@ -1657,6 +1659,7 @@ export async function run(argv = process.argv) {
               // never check out more pooled connections than the worker pool holds.
               const budgetPlan = await resolveWorkerBudgetPlan([{ queue: queueName!, concurrency: requested }])
               const concurrency = budgetPlan.entries[0]?.effective ?? requested
+              const maxStalledCount = Math.max(...queueWorkers.map((w) => w.maxStalledCount ?? 1), 1)
 
               console.log(`[worker] Found ${queueWorkers.length} worker(s) for queue "${queueName}"`)
 
@@ -1665,6 +1668,7 @@ export async function run(argv = process.argv) {
                 queueName: queueName!,
                 connection: queueRedisUrl ? { url: queueRedisUrl } : undefined,
                 concurrency,
+                maxStalledCount,
                 handler: createPerJobWorkerHandler(queueWorkers, createRequestContainer),
               })
             } else {

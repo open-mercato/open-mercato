@@ -1,0 +1,2 @@
+export const DATA_SYNC_QUEUE_ATTEMPTS = 3
+export const DATA_SYNC_MAX_STALLED_COUNT = 10
