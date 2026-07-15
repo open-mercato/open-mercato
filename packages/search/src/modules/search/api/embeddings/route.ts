@@ -271,7 +271,12 @@ export async function POST(req: Request) {
       // Save-time availability guard: never persist a provider the probe reports unreachable.
       const probe = resolveProbe(container)
       if (probe) {
-        const availability = await probe.checkAvailability(newConfig.providerId)
+        const availability = await probe.checkAvailability(
+          newConfig.providerId,
+          newConfig.providerId === 'ollama'
+            ? { force: true, baseUrl: newConfig.baseUrl }
+            : undefined,
+        )
         if (!availability.available) {
           return NextResponse.json(
             {

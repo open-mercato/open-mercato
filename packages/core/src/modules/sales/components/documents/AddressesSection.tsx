@@ -890,8 +890,12 @@ export function SalesDocumentAddressesSection({
         if (res?.result?.id) billingId = res.result.id
       }
 
-      payload.shippingAddressSnapshot = shippingSnapshot ?? null
-      payload.billingAddressSnapshot = billingSnapshot ?? null
+      if (shippingSnapshot || !shippingId) {
+        payload.shippingAddressSnapshot = shippingSnapshot ?? null
+      }
+      if (billingSnapshot || !billingId) {
+        payload.billingAddressSnapshot = billingSnapshot ?? null
+      }
       payload.shippingAddressId = shippingSnapshot ? null : shippingId
       payload.billingAddressId = billingSnapshot ? null : billingId
 
