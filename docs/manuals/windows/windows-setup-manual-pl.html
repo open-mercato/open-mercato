@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<title>Open Mercato — Instrukcja uruchomienia i rozwiązywania problemów (Windows)</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", -apple-system, Helvetica, Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1a1a2e; margin: 0; }
+  h1 { font-size: 20pt; margin: 0 0 2mm; color: #0f1e46; }
+  .subtitle { color: #556; margin: 0 0 8mm; font-size: 11pt; }
+  h2 { font-size: 14pt; color: #0f1e46; border-bottom: 2px solid #2b50aa; padding-bottom: 1.5mm; margin: 9mm 0 3mm; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #2b50aa; margin: 5mm 0 1.5mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f0f2f7; padding: 0.5mm 1.2mm; border-radius: 2px; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: #f0f2f7; border: 1px solid #dde2ee; border-radius: 3px; padding: 2.5mm 3mm; overflow-x: auto; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm; font-size: 9.5pt; page-break-inside: auto; }
+  th { background: #0f1e46; color: #fff; text-align: left; padding: 1.8mm 2.5mm; font-weight: 600; }
+  td { border: 1px solid #ccd3e0; padding: 1.6mm 2.5mm; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tr:nth-child(even) td { background: #f7f8fc; }
+  .note { background: #eef4ff; border-left: 3px solid #2b50aa; padding: 2mm 3mm; margin: 2.5mm 0; page-break-inside: avoid; }
+  .warn { background: #fff7e8; border-left: 3px solid #d97706; padding: 2mm 3mm; margin: 2.5mm 0; page-break-inside: avoid; }
+  ul, ol { margin: 1mm 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; }
+  .faq-q { font-weight: 700; color: #0f1e46; margin-top: 3.5mm; page-break-after: avoid; }
+  .footer { margin-top: 10mm; padding-top: 2mm; border-top: 1px solid #ccd3e0; color: #778; font-size: 8.5pt; }
+  .kbd { border: 1px solid #aab; border-bottom-width: 2px; border-radius: 3px; padding: 0 1.5mm; font-family: Consolas, monospace; font-size: 9pt; background: #fafbff; }
+</style>
+</head>
+<body>
+
+<h1>Open Mercato w systemie Windows</h1>
+<p class="subtitle">Środowisko developerskie jednym poleceniem — instrukcja uruchomienia i rozwiązywania problemów</p>
+
+<h2>1. Co to jest</h2>
+<p>Dwukrotne kliknięcie pliku <code>start-windows.bat</code> zamienia komputer z systemem Windows w kompletne środowisko developerskie Open Mercato działające w Dockerze: <strong>aplikacja</strong> (port 3000, hot reload), <strong>serwer MCP</strong> (port 3001), <strong>agent AI OpenCode</strong> (port 4096) oraz PostgreSQL, Redis i Meilisearch. Baza danych jest tworzona i wypełniana danymi automatycznie. Asystent AI (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> w aplikacji) działa od razu — wystarczy podać podczas instalacji klucz API dostawcy LLM.</p>
+<p>Każdy krok jest idempotentny: ponowne uruchomienie <code>start-windows.bat</code> jest zawsze bezpieczne — pomija to, co już zrobione, i naprawia to, czego brakuje.</p>
+
+<h2>2. Wymagania</h2>
+<table>
+  <tr><th>Wymaganie</th><th>Szczegóły</th></tr>
+  <tr><td>Windows</td><td>Windows 10 2004+ (kompilacja 19041, w tym 22H2/Enterprise) lub Windows 11</td></tr>
+  <tr><td>Wirtualizacja CPU</td><td>Intel VT-x / AMD-V włączone w BIOS/UEFI (zwykle już włączone)</td></tr>
+  <tr><td>Pamięć / dysk</td><td>Zalecane 12 GB+ RAM; ok. 20 GB wolnego miejsca na dysku</td></tr>
+  <tr><td>Środowisko kontenerów</td><td>Docker Desktop <em>lub</em> Rancher Desktop — instalowane automatycznie, jeśli brakuje</td></tr>
+  <tr><td>Uprawnienia administratora</td><td><strong>Wyłącznie</strong> do jednorazowej instalacji Dockera/WSL2. Później niepotrzebne; niepotrzebne w ogóle, gdy dział IT zainstalował je wcześniej (zob. <code>-NoAdmin</code>)</td></tr>
+  <tr><td>Klucz API LLM</td><td>Jeden z: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
+</table>
+<div class="note"><strong>Niepotrzebne:</strong> Node.js, winget / Instalator aplikacji, Visual Studio Build Tools, znajomość WSL. Wszystko działa w kontenerach; gdy winget jest niedostępny, instalatory pobierane są bezpośrednio z oficjalnych źródeł.</div>
+
+<h2>3. Szybki start</h2>
+<h3>A. Masz już repozytorium (git clone lub ZIP)</h3>
+<ol>
+  <li>Kliknij dwukrotnie <code>start-windows.bat</code> w katalogu głównym repozytorium.</li>
+  <li>Jeśli trzeba zainstalować Dockera/WSL2, zatwierdź monit UAC (administrator). Jeśli Windows poprosi o restart — zrestartuj; <strong>instalacja wznowi się automatycznie po zalogowaniu</strong>.</li>
+  <li>Na pytanie o dostawcę LLM wybierz go i wklej klucz API (wpisywanie jest ukryte). To wymagane — klucz zasila asystenta AI.</li>
+  <li>Poczekaj. <strong>Pierwsze uruchomienie trwa około 10 minut</strong> (do ~20 na wolnych dyskach) — instalowane są zależności i wypełniana baza danych. Każdy kolejny start zajmuje sekundy.</li>
+  <li>Na końcu zielone podsumowanie wyświetli wszystkie adresy oraz <strong>login i hasło superadministratora</strong>. Otwórz <code>http://localhost:3000/backend</code> i zaloguj się.</li>
+</ol>
+<h3>B. Zupełnie czysta maszyna (bez Gita, bez repozytorium)</h3>
+<p>Pobierz sam plik <code>start-windows.bat</code> i kliknij go dwukrotnie. Skrypt pobierze launcher, zainstaluje Git (lub pobierze repozytorium jako ZIP), sklonuje projekt do <code>%USERPROFILE%\open-mercato</code> i będzie kontynuował jak wyżej.</p>
+
+<h2>4. Co się dzieje krok po kroku</h2>
+<table>
+  <tr><th>Krok</th><th>Przewidywany czas</th></tr>
+  <tr><td>Kontrola wstępna (wersja Windows, wirtualizacja, polityki AppLocker)</td><td>natychmiast</td></tr>
+  <tr><td>Raport wymagań + instalacja braków (Git, WSL2, Docker/Rancher)</td><td>kontrola natychmiast; instalacje 5–15 min</td></tr>
+  <tr><td>Kontrola restartu (automatyczne wznowienie po zalogowaniu)</td><td>natychmiast</td></tr>
+  <tr><td>Start silnika kontenerów</td><td>30–90 s; pierwsze uruchomienie do 5 min</td></tr>
+  <tr><td>Pobranie repozytorium (tylko tryb samodzielny)</td><td>1–3 min</td></tr>
+  <tr><td>Generowanie <code>.env</code> (sekrety tworzone raz, nigdy nie nadpisywane)</td><td>natychmiast</td></tr>
+  <tr><td>Pytanie o dostawcę LLM</td><td>czeka na Ciebie</td></tr>
+  <tr><td><code>docker compose up</code> (pierwszy raz buduje obrazy)</td><td>sekundy; pierwszy raz 10+ min</td></tr>
+  <tr><td>Zdrowie bazy, gotowość aplikacji, usługi AI</td><td>pierwszy start łącznie ~10 min; kolejne — sekundy</td></tr>
+</table>
+<p>Podczas dłuższych operacji konsola pokazuje animowany wskaźnik z czasem i opisem bieżącej czynności. Postęp budowania widać też na żywo pod adresem <code>http://localhost:4000</code> (strona jest pusta do zakończenia instalacji zależności — to normalne).</p>
+
+<h2>5. Po instalacji — adresy i codzienne polecenia</h2>
+<table>
+  <tr><th>Usługa</th><th>Adres</th></tr>
+  <tr><td>Panel administracyjny</td><td><code>http://localhost:3000/backend</code></td></tr>
+  <tr><td>Strona postępu budowania</td><td><code>http://localhost:4000</code></td></tr>
+  <tr><td>Zdrowie serwera MCP</td><td><code>http://localhost:3001/health</code></td></tr>
+  <tr><td>Zdrowie agenta OpenCode</td><td><code>http://localhost:4096/global/health</code></td></tr>
+  <tr><td>Keycloak (dev SSO)</td><td><code>http://localhost:8080</code> (admin/admin)</td></tr>
+</table>
+<table>
+  <tr><th>Czynność</th><th>Polecenie</th></tr>
+  <tr><td>Start / restart środowiska</td><td><code>start-windows.bat</code></td></tr>
+  <tr><td>Zatrzymanie (dane zachowane)</td><td><code>stop-windows.bat</code></td></tr>
+  <tr><td>Status wszystkich usług</td><td><code>powershell scripts\windows\start-dev.ps1 -Status</code></td></tr>
+  <tr><td>Podgląd logów aplikacji</td><td><code>powershell scripts\windows\start-dev.ps1 -Logs</code></td></tr>
+  <tr><td>Przebudowa obrazu Dockera (po zmianach w Dockerfile)</td><td><code>powershell scripts\windows\start-dev.ps1 -Rebuild</code></td></tr>
+  <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong></td><td><code>powershell scripts\windows\start-dev.ps1 -Reset</code></td></tr>
+  <tr><td>Uruchomienie bez uprawnień administratora</td><td><code>powershell scripts\windows\start-dev.ps1 -NoAdmin</code></td></tr>
+  <tr><td>Preferuj/zainstaluj Rancher Desktop zamiast Docker Desktop</td><td><code>powershell scripts\windows\start-dev.ps1 -Runtime rancher</code></td></tr>
+  <tr><td>Uruchomienie testowe bez żadnych zmian</td><td><code>powershell scripts\windows\start-dev.ps1 -DryRun</code></td></tr>
+</table>
+
+<h2>6. Rozwiązywanie problemów</h2>
+<div class="note"><strong>Zasada pierwsza:</strong> pełny zapis instalacji znajduje się w <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, a logi kontenerów są dostępne jednym poleceniem: <code>docker compose -f docker-compose.fullapp.dev.yml logs -f app</code> (zamiast <code>app</code> także <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
+
+<h3>Problemy z instalacją</h3>
+<table>
+  <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
+  <tr><td>„Pakiet aplikacji nie jest obsługiwany…" przy ręcznej instalacji winget</td><td><strong>Nie instaluj</strong> winget — nie jest potrzebny. Launcher pobiera oficjalne instalatory bezpośrednio. Po prostu uruchom ponownie <code>start-windows.bat</code>.</td></tr>
+  <tr><td>Pobieranie nie działa (proxy firmowe / sieć odcięta)</td><td>Ustaw <code>HTTPS_PROXY</code> dla sesji albo umieść oficjalne instalatory (Git for Windows, Docker Desktop lub Rancher Desktop, <code>wsl_update_x64.msi</code>) w folderze <code>installers</code> obok <code>start-windows.bat</code> (lub wskaż je zmienną <code>OM_INSTALLERS_DIR</code>). Launcher zweryfikuje je i użyje bez dostępu do sieci.</td></tr>
+  <tr><td>„CPU virtualization appears disabled"</td><td>Włącz Intel VT-x / AMD-V (SVM) w BIOS/UEFI. Na komputerach firmowych — zgłoś do IT.</td></tr>
+  <tr><td>„PowerShell is running in ConstrainedLanguage mode"</td><td>Polityka AppLocker/WDAC ogranicza PowerShell. Poproś IT o dopuszczenie tego skryptu lub uruchomienie go ze ścieżki wyłączonej z polityki.</td></tr>
+  <tr><td>Całkowity brak uprawnień administratora</td><td>Poproś IT o instalację <em>albo</em> Docker Desktop (backend WSL2; dodanie konta do grupy <code>docker-users</code>), <em>albo</em> Rancher Desktop (silnik dockerd/moby). Następnie uruchom <code>start-dev.ps1 -NoAdmin</code> — reszta działa bez podniesionych uprawnień (przy braku Gita repozytorium pobierane jest jako ZIP).</td></tr>
+  <tr><td>Przypadkowo anulowany monit UAC</td><td>Po prostu uruchom ponownie <code>start-windows.bat</code>.</td></tr>
+</table>
+
+<h3>Problemy z silnikiem i kontenerami</h3>
+<table>
+  <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
+  <tr><td>„Docker engine did not become ready within 5 minutes"</td><td>Otwórz Docker Desktop z menu Start i dokończ okna pierwszego uruchomienia (logowanie można pominąć). Jeśli pojawia się <em>„WSL 2 installation is incomplete"</em>: uruchom <code>wsl --update</code> w konsoli administratora lub zainstaluj <code>https://aka.ms/wsl2kernel</code>, po czym uruchom ponownie.</td></tr>
+  <tr><td>Zainstalowane jednocześnie Docker Desktop i Rancher Desktop</td><td>Launcher używa tego, który już działa, w przeciwnym razie Docker Desktop, i sam pilnuje właściwego kontekstu docker CLI. Wymuś wybór: <code>-Runtime docker</code> lub <code>-Runtime rancher</code>.</td></tr>
+  <tr><td>Rancher Desktop: <code>docker compose</code> nie działa</td><td>Rancher musi używać silnika <strong>dockerd (moby)</strong> (launcher sam o to prosi przez <code>rdctl</code>). W interfejsie Ranchera: Preferences → Container Engine → dockerd (moby).</td></tr>
+  <tr><td>„WARNING: DOCKER_INSECURE_NO_IPTABLES_RAW is set"</td><td>Niegroźny komunikat sieciowy Docker Desktop — można zignorować. Nie zatrzymuje instalacji.</td></tr>
+  <tr><td>„The '&lt;usługa&gt;' container is crash-looping"</td><td>Launcher wypisuje ostatnie linie logów wadliwego kontenera — tam jest właściwy błąd. Najczęstsza przyczyna: dane w <code>.env</code> nie pasują już do istniejącego wolumenu bazy → uruchom <code>-Reset</code> (usuwa dane) albo przywróć poprzedni <code>.env</code>. Zatrzymaj restartowanie przez <code>stop-windows.bat</code>, napraw przyczynę, uruchom ponownie.</td></tr>
+  <tr><td>„Port 3000/3001/4096… already in use"</td><td>Port zajmuje inny proces (launcher podaje jego nazwę). Zamknij go albo zmień porty w pliku <code>.env</code> w katalogu głównym repo: <code>APP_PORT</code>, <code>MCP_PORT</code>, <code>OPENCODE_PORT</code>, <code>OM_DEV_SPLASH_PORT</code>, <code>KEYCLOAK_PORT</code> — launcher uwzględni je automatycznie.</td></tr>
+</table>
+
+<h3>Problemy z aplikacją i AI</h3>
+<table>
+  <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
+  <tr><td>Pierwsze uruchomienie „wygląda na zawieszone"</td><td>Prawie nigdy nie jest: pierwszy start instaluje zależności, buduje ~20 pakietów i wypełnia bazę w kontenerze (~10 min, do ~20). Obserwuj <code>http://localhost:4000</code> lub logi aplikacji. Gdy coś naprawdę się zepsuje, launcher zgłosi to wprost.</td></tr>
+  <tr><td>Przeglądarka nie otwiera <code>http://localhost:3000</code></td><td>Sprawdź stan kontenera aplikacji: <code>-Status</code>. Jeśli zapora/klient VPN filtruje localhost, zezwól na lokalne połączenia na portach 3000/4000.</td></tr>
+  <tr><td>Czat AI (Ctrl+K) zwraca błędy autoryzacji / MCP „disconnected"</td><td>Klucz MCP rotuje po resecie bazy, a kontener OpenCode czyta go tylko przy starcie. Wykonaj: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode</code>. Weryfikacja: <code>curl http://localhost:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
+  <tr><td>Czat AI zgłasza błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>. Po zmianie: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</td></tr>
+  <tr><td>Dane logowania z podsumowania nie działają</td><td>Jeśli plik <code>.env</code> został utworzony na nowo przy zachowaniu starego wolumenu bazy, wyświetlone hasło może różnić się od zapisanego w bazie (domyślne: <code>password</code>). Najczystsze rozwiązanie: <code>-Reset</code> i świeży start.</td></tr>
+  <tr><td>Po restarcie samego kontenera <code>app</code> narzędzia AI działają dziwnie</td><td>Przebudowa aplikacji nadpisuje współdzielone wolumeny pod działającym serwerem MCP. Zrestartuj także jego: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</td></tr>
+</table>
+
+<h2>7. FAQ — najczęstsze pytania</h2>
+<p class="faq-q">Ile to trwa?</p>
+<p>Pierwsze uruchomienie na czystej maszynie: łącznie ~15–35 minut (instalatory + ewentualny restart + ~10 min pierwszego startu). Każdy kolejny start: poniżej minuty plus rozruch silnika.</p>
+<p class="faq-q">Czy potrzebuję uprawnień administratora?</p>
+<p>Tylko raz — do instalacji Dockera/WSL2. Jeśli IT zainstalowało je wcześniej — nigdy; użyj <code>-NoAdmin</code>.</p>
+<p class="faq-q">Nie wolno nam używać Docker Desktop (licencja). Co teraz?</p>
+<p>Użyj Rancher Desktop — jest w pełni wspierany. <code>-Runtime rancher</code> zainstaluje go, a istniejąca instalacja zostanie wykryta automatycznie. Musi działać na silniku dockerd (moby).</p>
+<p class="faq-q">Gdzie znajdę dane logowania?</p>
+<p>W zielonym podsumowaniu na końcu instalacji oraz w pliku <code>.env</code> w katalogu głównym (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). Nie trafiają do żadnych plików logów.</p>
+<p class="faq-q">Gdzie są moje dane i jak je wyczyścić?</p>
+<p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Pełne czyszczenie: <code>powershell scripts\windows\start-dev.ps1 -Reset</code> (wymaga wpisania potwierdzenia).</p>
+<p class="faq-q">Jak zaktualizować kod do najnowszej wersji?</p>
+<p>Z Gitem: <code>git pull</code>, potem <code>start-windows.bat</code>. Przy instalacji z ZIP: pobierz świeży ZIP i uruchom launcher w nim (dane są w wolumenach Dockera, nie w folderze).</p>
+<p class="faq-q">Czy mogę później zmienić dostawcę AI?</p>
+<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), a następnie: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</p>
+<p class="faq-q">Jakie porty są używane?</p>
+<p>3000 (aplikacja), 4000 (strona postępu), 3001 (MCP), 4096 (OpenCode), 8080 (Keycloak). Wszystkie można zmienić w <code>.env</code>.</p>
+<p class="faq-q">Czy działa offline?</p>
+<p>Instalatory można podłożyć z wyprzedzeniem (folder <code>installers</code>), ale pierwszy start wymaga internetu (obrazy Dockera, pakiety npm). Po pierwszym udanym starcie codzienna praca odbywa się lokalnie.</p>
+<p class="faq-q">Jak wszystko usunąć?</p>
+<p><code>-Reset</code> (usuwa kontenery i wolumeny z danymi), skasuj folder repozytorium, a w razie potrzeby odinstaluj Docker/Rancher Desktop w Ustawieniach Windows.</p>
+
+<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v1.0 · lipiec 2026 · Źródła: <code>start-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, specyfikacja <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+
+</body>
+</html>

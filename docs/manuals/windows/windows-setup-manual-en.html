@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Open Mercato — Windows Setup &amp; Troubleshooting Manual</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body { font-family: "Segoe UI", -apple-system, Helvetica, Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: #1a1a2e; margin: 0; }
+  h1 { font-size: 20pt; margin: 0 0 2mm; color: #0f1e46; }
+  .subtitle { color: #556; margin: 0 0 8mm; font-size: 11pt; }
+  h2 { font-size: 14pt; color: #0f1e46; border-bottom: 2px solid #2b50aa; padding-bottom: 1.5mm; margin: 9mm 0 3mm; page-break-after: avoid; }
+  h3 { font-size: 11.5pt; color: #2b50aa; margin: 5mm 0 1.5mm; page-break-after: avoid; }
+  p { margin: 0 0 2.5mm; }
+  code { font-family: Consolas, "Courier New", monospace; font-size: 9.5pt; background: #f0f2f7; padding: 0.5mm 1.2mm; border-radius: 2px; }
+  pre { font-family: Consolas, "Courier New", monospace; font-size: 9pt; background: #f0f2f7; border: 1px solid #dde2ee; border-radius: 3px; padding: 2.5mm 3mm; overflow-x: auto; page-break-inside: avoid; }
+  pre code { background: none; padding: 0; }
+  table { border-collapse: collapse; width: 100%; margin: 2mm 0 4mm; font-size: 9.5pt; page-break-inside: auto; }
+  th { background: #0f1e46; color: #fff; text-align: left; padding: 1.8mm 2.5mm; font-weight: 600; }
+  td { border: 1px solid #ccd3e0; padding: 1.6mm 2.5mm; vertical-align: top; }
+  tr { page-break-inside: avoid; }
+  tr:nth-child(even) td { background: #f7f8fc; }
+  .note { background: #eef4ff; border-left: 3px solid #2b50aa; padding: 2mm 3mm; margin: 2.5mm 0; page-break-inside: avoid; }
+  .warn { background: #fff7e8; border-left: 3px solid #d97706; padding: 2mm 3mm; margin: 2.5mm 0; page-break-inside: avoid; }
+  ul, ol { margin: 1mm 0 3mm; padding-left: 6mm; }
+  li { margin-bottom: 1mm; }
+  .faq-q { font-weight: 700; color: #0f1e46; margin-top: 3.5mm; page-break-after: avoid; }
+  .footer { margin-top: 10mm; padding-top: 2mm; border-top: 1px solid #ccd3e0; color: #778; font-size: 8.5pt; }
+  .kbd { border: 1px solid #aab; border-bottom-width: 2px; border-radius: 3px; padding: 0 1.5mm; font-family: Consolas, monospace; font-size: 9pt; background: #fafbff; }
+</style>
+</head>
+<body>
+
+<h1>Open Mercato on Windows</h1>
+<p class="subtitle">One-command development environment — Setup &amp; Troubleshooting Manual</p>
+
+<h2>1. What this is</h2>
+<p>A single double-click of <code>start-windows.bat</code> turns a Windows machine into a complete Open Mercato development environment running in Docker: the <strong>application</strong> (port 3000, hot reload), the <strong>MCP server</strong> (port 3001), the <strong>OpenCode AI agent</strong> (port 4096), plus PostgreSQL, Redis, and Meilisearch. The database is created and seeded automatically. The AI assistant (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> in the app) works out of the box once you provide an LLM provider API key during setup.</p>
+<p>Every step is idempotent: re-running <code>start-windows.bat</code> is always safe, skips what is already done, and repairs what is missing.</p>
+
+<h2>2. Requirements</h2>
+<table>
+  <tr><th>Requirement</th><th>Details</th></tr>
+  <tr><td>Windows</td><td>Windows 10 2004+ (build 19041, incl. 22H2/Enterprise) or Windows 11</td></tr>
+  <tr><td>CPU virtualization</td><td>Intel VT-x / AMD-V enabled in BIOS/UEFI (usually already on)</td></tr>
+  <tr><td>Memory / disk</td><td>12 GB+ RAM recommended; ~20 GB free disk</td></tr>
+  <tr><td>Container runtime</td><td>Docker Desktop <em>or</em> Rancher Desktop — installed automatically if missing</td></tr>
+  <tr><td>Administrator rights</td><td><strong>Only</strong> for the one-time install of Docker/WSL2. Not needed afterwards, and not needed at all when IT pre-installed the runtime (see <code>-NoAdmin</code>)</td></tr>
+  <tr><td>LLM API key</td><td>One of: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
+</table>
+<div class="note"><strong>Not needed:</strong> Node.js, winget / App Installer, Visual Studio Build Tools, WSL knowledge. Everything runs inside containers; installers are downloaded directly from official sources when winget is unavailable.</div>
+
+<h2>3. Quick start</h2>
+<h3>A. You have the repository (git clone or ZIP)</h3>
+<ol>
+  <li>Double-click <code>start-windows.bat</code> in the repository root.</li>
+  <li>If Docker/WSL2 must be installed, approve the UAC (administrator) prompt. If Windows asks to restart — restart; <strong>setup resumes automatically after you log back in</strong>.</li>
+  <li>When asked, pick your LLM provider and paste its API key (input is hidden). This is required — it powers the AI assistant.</li>
+  <li>Wait. The <strong>first boot takes about 10 minutes</strong> (up to ~20 on slow disks) while dependencies install and the database is seeded. Every later start takes seconds.</li>
+  <li>At the end a green summary prints all URLs and the <strong>superadmin login and password</strong>. Open <code>http://localhost:3000/backend</code> and sign in.</li>
+</ol>
+<h3>B. Completely clean machine (no Git, no repo)</h3>
+<p>Download just <code>start-windows.bat</code> and double-click it. It fetches the launcher, installs Git (or falls back to a ZIP download of the repository), clones into <code>%USERPROFILE%\open-mercato</code>, and continues as above.</p>
+
+<h2>4. What happens, step by step</h2>
+<table>
+  <tr><th>Step</th><th>Expected duration</th></tr>
+  <tr><td>Preflight (Windows version, virtualization, AppLocker check)</td><td>instant</td></tr>
+  <tr><td>Prerequisites report + install of anything missing (Git, WSL2, Docker/Rancher)</td><td>checks instant; installs 5–15 min</td></tr>
+  <tr><td>Reboot check (auto-resume after login if needed)</td><td>instant</td></tr>
+  <tr><td>Container engine start</td><td>30–90 s; first-ever launch up to 5 min</td></tr>
+  <tr><td>Repository download (standalone mode only)</td><td>1–3 min</td></tr>
+  <tr><td><code>.env</code> generation (secrets created once, never overwritten)</td><td>instant</td></tr>
+  <tr><td>LLM provider prompt</td><td>waits for you</td></tr>
+  <tr><td><code>docker compose up</code> (first run builds images)</td><td>seconds; first run 10+ min</td></tr>
+  <tr><td>Database health, application readiness, AI services</td><td>first boot ~10 min total; later runs seconds</td></tr>
+</table>
+<p>During long waits the console shows a spinner with elapsed time and a plain-language status. Build progress is also live at <code>http://localhost:4000</code> (blank until the dependency install finishes — that is expected).</p>
+
+<h2>5. After setup — URLs and daily commands</h2>
+<table>
+  <tr><th>Service</th><th>URL</th></tr>
+  <tr><td>Admin app</td><td><code>http://localhost:3000/backend</code></td></tr>
+  <tr><td>Build/status splash</td><td><code>http://localhost:4000</code></td></tr>
+  <tr><td>MCP server health</td><td><code>http://localhost:3001/health</code></td></tr>
+  <tr><td>OpenCode agent health</td><td><code>http://localhost:4096/global/health</code></td></tr>
+  <tr><td>Keycloak (dev SSO)</td><td><code>http://localhost:8080</code> (admin/admin)</td></tr>
+</table>
+<table>
+  <tr><th>Action</th><th>Command</th></tr>
+  <tr><td>Start / restart the stack</td><td><code>start-windows.bat</code></td></tr>
+  <tr><td>Stop (data preserved)</td><td><code>stop-windows.bat</code></td></tr>
+  <tr><td>Status of all services</td><td><code>powershell scripts\windows\start-dev.ps1 -Status</code></td></tr>
+  <tr><td>Follow application logs</td><td><code>powershell scripts\windows\start-dev.ps1 -Logs</code></td></tr>
+  <tr><td>Rebuild the Docker image (after Dockerfile changes)</td><td><code>powershell scripts\windows\start-dev.ps1 -Rebuild</code></td></tr>
+  <tr><td>Full reset — <strong>DELETES all data</strong></td><td><code>powershell scripts\windows\start-dev.ps1 -Reset</code></td></tr>
+  <tr><td>Run without administrator rights</td><td><code>powershell scripts\windows\start-dev.ps1 -NoAdmin</code></td></tr>
+  <tr><td>Prefer/install Rancher Desktop instead of Docker Desktop</td><td><code>powershell scripts\windows\start-dev.ps1 -Runtime rancher</code></td></tr>
+  <tr><td>Test run with zero changes</td><td><code>powershell scripts\windows\start-dev.ps1 -DryRun</code></td></tr>
+</table>
+
+<h2>6. Troubleshooting</h2>
+<div class="note"><strong>First rule:</strong> the setup transcript is at <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, and container logs are one command away: <code>docker compose -f docker-compose.fullapp.dev.yml logs -f app</code> (replace <code>app</code> with <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
+
+<h3>Installation problems</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+  <tr><td>"App package is not supported…" when installing winget manually</td><td>Do <strong>not</strong> install winget — it is not needed. The launcher downloads official installers directly. Just run <code>start-windows.bat</code> again.</td></tr>
+  <tr><td>Downloads fail (corporate proxy / air-gapped network)</td><td>Either set <code>HTTPS_PROXY</code> for the session, or place the official installers (Git for Windows, Docker Desktop or Rancher Desktop, <code>wsl_update_x64.msi</code>) in an <code>installers</code> folder next to <code>start-windows.bat</code> (or point <code>OM_INSTALLERS_DIR</code> at them). The launcher validates and uses them with no network access.</td></tr>
+  <tr><td>"CPU virtualization appears disabled"</td><td>Enable Intel VT-x / AMD-V (SVM) in BIOS/UEFI. On managed machines, ask IT.</td></tr>
+  <tr><td>"PowerShell is running in ConstrainedLanguage mode"</td><td>An AppLocker/WDAC policy restricts PowerShell. Ask IT to allow this script or run it from an exempted path.</td></tr>
+  <tr><td>No administrator rights at all</td><td>Ask IT to install <em>either</em> Docker Desktop (WSL2 backend; add your account to the <code>docker-users</code> group) <em>or</em> Rancher Desktop (dockerd/moby engine). Then run <code>start-dev.ps1 -NoAdmin</code> — everything else works unprivileged (the repo is fetched as ZIP if Git is missing).</td></tr>
+  <tr><td>UAC prompt cancelled by mistake</td><td>Just run <code>start-windows.bat</code> again.</td></tr>
+</table>
+
+<h3>Engine and container problems</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+  <tr><td>"Docker engine did not become ready within 5 minutes"</td><td>Open Docker Desktop from the Start menu and finish first-run dialogs (sign-in can be skipped). If it says <em>"WSL 2 installation is incomplete"</em>: run <code>wsl --update</code> in an elevated prompt or install <code>https://aka.ms/wsl2kernel</code>, then re-run.</td></tr>
+  <tr><td>Both Docker Desktop and Rancher Desktop installed</td><td>The launcher uses whichever is already running, else Docker Desktop, and keeps the docker CLI context aligned. Force a choice with <code>-Runtime docker</code> or <code>-Runtime rancher</code>.</td></tr>
+  <tr><td>Rancher Desktop: <code>docker compose</code> not working</td><td>Rancher must run the <strong>dockerd (moby)</strong> engine (the launcher requests this itself via <code>rdctl</code>). In the Rancher UI: Preferences → Container Engine → dockerd (moby).</td></tr>
+  <tr><td>"WARNING: DOCKER_INSECURE_NO_IPTABLES_RAW is set"</td><td>Benign Docker Desktop networking notice — safe to ignore. It does not stop setup.</td></tr>
+  <tr><td>"The '&lt;service&gt;' container is crash-looping"</td><td>The launcher prints the failing container's last log lines — the real error is there. Most common: <code>.env</code> credentials no longer match an existing database volume → run <code>-Reset</code> (deletes data) or restore the old <code>.env</code>. Stop the restart churn with <code>stop-windows.bat</code>, fix, re-run.</td></tr>
+  <tr><td>"Port 3000/3001/4096… already in use"</td><td>Another process owns the port (the launcher names it). Close it, or override ports in the repo-root <code>.env</code>: <code>APP_PORT</code>, <code>MCP_PORT</code>, <code>OPENCODE_PORT</code>, <code>OM_DEV_SPLASH_PORT</code>, <code>KEYCLOAK_PORT</code> — the launcher follows these automatically.</td></tr>
+</table>
+
+<h3>Application and AI problems</h3>
+<table>
+  <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
+  <tr><td>First boot "looks stuck"</td><td>It almost never is: the first boot installs dependencies, builds ~20 packages, and seeds the database inside the container (~10 min, up to ~20). Watch <code>http://localhost:4000</code> or the app logs. The launcher fails loudly if something actually breaks.</td></tr>
+  <tr><td>Browser cannot reach <code>http://localhost:3000</code></td><td>Confirm the app container is running/healthy: <code>-Status</code>. If a firewall/VPN client filters localhost, allow local connections to ports 3000/4000.</td></tr>
+  <tr><td>AI chat (Ctrl+K) answers with authorization errors / MCP "disconnected"</td><td>The MCP key rotates when the database is reset — the OpenCode container reads it only at start. Run: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode</code>. Verify with <code>curl http://localhost:4096/mcp</code> → should show <code>"status":"connected"</code>.</td></tr>
+  <tr><td>AI chat gives provider/model errors</td><td>Check your provider key in the repo-root <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>) and <code>OM_AI_PROVIDER</code>. After changing them: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</td></tr>
+  <tr><td>Login credentials from the summary do not work</td><td>If you recreated <code>.env</code> while keeping the old database volume, the printed password may differ from the seeded one (default: <code>password</code>). Cleanest fix: <code>-Reset</code> then a fresh run.</td></tr>
+  <tr><td>Restarted only the <code>app</code> container and AI tools act strangely</td><td>The app rebuild rewrites shared volumes under the MCP server. Restart it too: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</td></tr>
+</table>
+
+<h2>7. FAQ</h2>
+<p class="faq-q">How long does it take?</p>
+<p>First run on a clean machine: ~15–35 minutes total (installers + possible reboot + ~10 min first boot). Every later start: under a minute plus engine startup.</p>
+<p class="faq-q">Do I need administrator rights?</p>
+<p>Only once, to install Docker/WSL2. If IT pre-installed them, never — use <code>-NoAdmin</code>.</p>
+<p class="faq-q">We are not allowed to use Docker Desktop (licensing). What now?</p>
+<p>Use Rancher Desktop — fully supported. <code>-Runtime rancher</code> installs it, or the launcher auto-detects an existing one. It must use the dockerd (moby) engine.</p>
+<p class="faq-q">Where are my login credentials?</p>
+<p>In the green summary at the end of setup, and in the repo-root <code>.env</code> (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). They are not written to any log file.</p>
+<p class="faq-q">Where does my data live? How do I wipe it?</p>
+<p>In named Docker volumes (they survive stops and reboots). Wipe everything with <code>powershell scripts\windows\start-dev.ps1 -Reset</code> (asks for typed confirmation).</p>
+<p class="faq-q">How do I update to the latest code?</p>
+<p>With Git: <code>git pull</code>, then <code>start-windows.bat</code>. Installed from ZIP: download a fresh ZIP and run the launcher inside it (data lives in Docker volumes, not in the folder).</p>
+<p class="faq-q">Can I change the AI provider later?</p>
+<p>Yes — edit the repo-root <code>.env</code> (provider key + <code>OM_AI_PROVIDER</code>, optionally <code>OM_AI_MODEL</code>), then restart: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</p>
+<p class="faq-q">Which ports are used?</p>
+<p>3000 (app), 4000 (build splash), 3001 (MCP), 4096 (OpenCode), 8080 (Keycloak). All overridable in <code>.env</code>.</p>
+<p class="faq-q">Does it work offline?</p>
+<p>Installers can be pre-seeded (the <code>installers</code> folder), but the first boot needs the internet for Docker images and npm packages. After the first successful boot, day-to-day work is local.</p>
+<p class="faq-q">How do I remove everything?</p>
+<p><code>-Reset</code> (removes containers and data volumes), delete the repository folder, and uninstall Docker/Rancher Desktop from Windows Settings if no longer needed.</p>
+
+<div class="footer">Open Mercato — Windows one-command dev environment · Manual v1.0 · July 2026 · Sources: <code>start-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, spec <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+
+</body>
+</html>
