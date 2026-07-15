@@ -278,7 +278,7 @@ export function ChangeLotStatusDialog({
             </FormField>
           </div>
 
-          <DialogFooter className="flex-row items-center justify-between border-t px-6 py-4">
+          <DialogFooter bordered={false} className="flex-row items-center justify-between border-t px-6 py-4">
             <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
               <KbdShortcut keys={['⌘', 'Enter']} />
               <span>/</span>
