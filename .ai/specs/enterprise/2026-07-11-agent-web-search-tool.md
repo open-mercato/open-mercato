@@ -1,8 +1,8 @@
 # Web Search & Fetch Tools for File-Defined Agents (ACL-Gated MCP `defineAiTool`)
 
-> Status: **DRAFT — full spec, Open Questions resolved**
+> Status: **IN PROGRESS — Phases 1–3 implemented; provider strategy pivoted (2026-07-15, see Provider Licensing Pivot)**
 > Scope: Enterprise (`packages/enterprise/src/modules/agent_orchestrator`)
-> Date: 2026-07-11
+> Date: 2026-07-11 (updated 2026-07-15)
 
 ## TLDR
 
@@ -16,22 +16,94 @@ tools** for deal-research agents **without** breaking those invariants: two `def
 **server-side in the OM process** (already allowed net) — never inside the sandbox and never via
 OpenCode's native web tools. Agents opt in by declaring the tools `// @ref` in `AGENT.md`.
 
-**Provider strategy: SearXNG-first, adapter-based.** OpenCode's own "free" web search either hits
-**Exa's public unauthenticated MCP** (native `websearch`) or delegates to the **model's built-in
-search tool** (the `opencode-websearch` plugin) — both send queries to a third party and **bypass
-the very ACL/trace guarantees this module exists to enforce**. Instead we define a small
-`WebSearchProvider` interface in a dedicated package and ship **SearXNG** (self-hosted, AGPL-3.0, no
-API keys, JSON output) as the default provider, so egress stays inside infrastructure we own. Keyed
-providers (Exa/Tavily API) are optional drop-in adapters behind the same interface.
+**Provider strategy (pivoted 2026-07-15): bring-your-own-key, bundle nothing.** The original draft
+shipped **SearXNG** (self-hosted metasearch) as the default provider. SearXNG is **AGPL-3.0**;
+*calling* a separately-deployed instance over HTTP does not contaminate our MIT code, but
+**bundling/shipping** its container as the product default does (AGPL distribution). Research also
+found **no permissively-licensed self-hostable web-metasearch engine exists** to swap to — the whole
+category is AGPL. So the default flips to: **ship the `WebSearchProvider` interface plus several
+adapters, bundle no provider container and no credentials, and default the search provider to the
+model-native adapter (Flavor B)** — it reuses the agent's own LLM `web_search` (the LLM key the
+platform already has), so search works out of the box with **no separate search vendor, no bundled
+software, and full ACL/guardrail/trace governance**. Operators can switch to a keyed API (Tavily /
+Brave / Exa) or their own SearXNG. `web_fetch` is always on because it is our own MIT code (HTTP GET
+→ text, no index, no discovery). Egress remains opt-in per agent via the default-off
+`agent_orchestrator.web_search` ACL grant. This eliminates the AGPL distribution problem at the root
+and sidesteps every provider's ToS/attribution clause (the *operator* accepts a provider's terms when
+they add a key). See **Provider Licensing Pivot** and **Provider Menu & Model-Native Search** below.
 
 ## Decisions Locked (Open Questions gate — resolved 2026-07-11)
 
 | # | Decision | Choice |
 |---|----------|--------|
-| Q1 | Provider | **SearXNG-first adapter** — `WebSearchProvider` interface, SearXNG default, Exa/Tavily optional keyed adapters |
+| Q1 | Provider | ~~SearXNG-first adapter~~ → **PIVOTED 2026-07-15: model-native default, bundle nothing.** `WebSearchProvider` interface + adapters; **default = model-native adapter (Flavor B)** — reuses the agent's LLM `web_search`, so search works with no separate vendor or bundled software, still governed. Operators may switch to keyed APIs (Tavily/Brave/Exa) or their own SearXNG (never shipped). `web_fetch` always on. See Provider Licensing Pivot. |
 | Q2 | Scope | **Search + fetch** — both `web_search` (discovery) and `web_fetch` (retrieve one URL → readable text); fetch adds an SSRF surface to guardrail |
-| Q3 | Placement | **Dedicated package** — `packages/search-provider-searxng` (adapter + interface), per root `AGENTS.md` external-provider rule; `defineAiTool` wrappers live in `agent_orchestrator` |
+| Q3 | Placement | **Dedicated package(s)** — the `WebSearchProvider` interface + adapters live in provider package(s); `defineAiTool` wrappers live in `agent_orchestrator`. (Interface currently ships in `packages/search-provider-searxng`; the pivot extracts the interface + keyed/model adapters — see Pivot § Implementation delta.) |
 | Q4/Q5 | Governance | **New ACL feature + permissive guardrails** — new grantable `agent_orchestrator.web_search` feature re-checked per MCP call; guardrails optional with sane permissive defaults (still SSRF-safe for fetch) |
+
+## Provider Licensing Pivot (2026-07-15)
+
+**Trigger.** SearXNG is **AGPL-3.0**. The team rejected it as the shipped default.
+
+**Legal analysis (verified).** AGPL §13 ("remote network interaction") obliges whoever *modifies and
+operates* the program to offer source to network users. Consequences:
+- **Calling** a separately-deployed, unmodified SearXNG over HTTP from our MIT code is **not**
+  contaminating — a REST client is not a derivative work; any source-offer duty falls on the
+  *operator*, only if they modified it.
+- **Bundling/shipping** a SearXNG container as the product default **is** the exposure — that is
+  distribution of the AGPL work.
+- Research finding: **there is no permissively-licensed (MIT/Apache/BSD) self-hostable web-metasearch
+  engine** to switch to (the category — SearXNG/4get/LibreY — is AGPL; Whoogle is MIT but defunct;
+  YaCy is GPL). Content-index engines (Meilisearch/Typesense/OpenSearch) index *your* data, not the
+  public web, so they do not solve discovery.
+
+**Decision.** **Bundle nothing; default to the model-native adapter (Flavor B).** Ship the interface
++ adapters, no provider container, no credentials. The **default provider is model-native** — our
+`web_search` tool calls the agent's own LLM provider with its native `web_search` enabled, reusing
+the LLM key the platform already holds. This gives out-of-box search with **no separate search
+vendor, no AGPL software, and full governance** (the call still flows through our ACL/guardrails/
+traces). When the agent's model does not support native `web_search`, the tool returns
+`not_configured` so the agent degrades gracefully; operators then select a keyed provider or their
+own SearXNG. Keep `web_fetch` always on (our MIT code, no provider dependency). Egress stays opt-in
+per agent via the default-off `agent_orchestrator.web_search` ACL grant. Document SearXNG only as an
+*optional, operator-supplied, never-bundled* self-host endpoint (calling it is non-contaminating).
+
+**Implementation delta from Phases 1–3 (all additive / behavior-preserving):**
+- Rename/repurpose `packages/search-provider-searxng` → the SearXNG adapter becomes **one optional
+  adapter**, not the default. Extract the `WebSearchProvider` interface + shared bits (SSRF guard,
+  HTML→text, errors) into a neutral home (e.g. `packages/web-search/` or keep the interface where it
+  is and add sibling adapter packages). *(Naming finalized in the pivot phase below.)*
+- Add a **Tavily** keyed adapter (reference default recommendation) and a **model-native adapter**
+  (Option B — wraps the agent's LLM provider `web_search`, reusing the existing key).
+- Change the DI default: `webSearchProvider` resolves from a **provider-selection config**
+  (`OM_AGENT_WEB_SEARCH_PROVIDER` = `model` | `tavily` | `brave` | `exa` | `searxng` | `none`),
+  **defaulting to `model`** (the model-native adapter). When the resolved agent model lacks native
+  `web_search`, the adapter returns `not_configured`.
+- `web_fetch` no longer depends on any provider being configured (it uses the built-in fetch path).
+
+## Provider Menu & Model-Native Search
+
+Three integration flavors sit behind the SAME `agent_orchestrator.web_search` ACL gate; all keep
+`web_fetch` (ours) unchanged:
+
+| Flavor | Mechanism | Governed by ACL + guardrails + traces? | Extra key/infra | When |
+|--------|-----------|:--:|:--:|------|
+| **A — Keyed search adapter** (Tavily / Brave / Exa) | Our MCP tool calls the search API server-side via a `WebSearchProvider` adapter | ✅ Yes | One search key | Dedicated, governed search; recommended keyed upgrade |
+| **B — Model-search-as-adapter** ⭐ **DEFAULT** | A `WebSearchProvider` adapter makes a minimal call to the agent's LLM provider with its native `web_search` enabled, returns the results | ✅ Yes | None (reuses LLM key) | **Default** — no separate helper, no bundled software, keeps governance |
+| **C — Pure model-native** | The LLM provider's `web_search` runs on the agent's own generation turns (enabled at model/loop config, not via our MCP tool) | ❌ **No** — runs on the vendor's infra, bypasses our MCP/ACL/guardrails/traces | None | Simplicity over control; opt-in, documented tradeoff |
+
+**B is the DEFAULT provider.** It avoids a separate *search vendor* by reusing the LLM provider's
+built-in search (`~$10/1k` on the existing Anthropic/OpenAI bill), yet every search still flows
+through our `defineAiTool` → so ACL, domain allow/deny, rate limits, and trace rows all apply. It
+needs no bundled software (no AGPL exposure) and no new key. **Fallback:** when the agent's resolved
+model does not support native `web_search`, the adapter returns `not_configured` and the operator
+selects a keyed provider (A). **C** is the lowest-effort but re-introduces the exact ungoverned-
+egress posture this module was designed to avoid (it is why OpenCode's native `websearch` stays
+disabled), and it only works on turns of that specific model — offer it only as a clearly-labeled
+opt-in. Ship B (default) + A (keyed upgrades) as first-class adapters.
+
+**Avoid as defaults:** Serper/SerpApi (active Google SERP-scraping litigation), Bing Web Search API
+(retired Aug 2025), Google Custom Search (closed to new customers, sunset Jan 2027).
 
 ## Problem Statement
 
@@ -46,11 +118,16 @@ guarantees while giving research agents real web reach.
 
 **Goals**
 - Read-only `web_search` + `web_fetch` available to agents that explicitly opt in and are ACL-granted.
-- Egress runs server-side through a provider we own by default (SearXNG); no third-party dependency required.
+- Egress runs server-side through a **swappable provider**, **defaulting to the model-native adapter**
+  (reuses the agent's LLM `web_search`); operators may switch to a keyed API or their own SearXNG.
+  **No provider container or credential is bundled** in the product.
+- `web_fetch` always works (our MIT code); `web_search` works out of the box via the model-native
+  default and falls back to `not_configured` when the model lacks native search.
 - Every call is ACL-checked per invocation and emits a trace row.
 - Zero change to the sandbox no-net rule and zero change to the file-agent renderer/allowlist logic.
 
 **Non-Goals**
+- **Bundling/shipping any search provider** (no AGPL container, no default credentials) — see Pivot.
 - Enabling OpenCode's native `websearch`/`webfetch` (explicitly stays disabled in `opencode.jsonc`).
 - Allowing local `tools/*.ts` or skill scripts to reach the network (sandbox invariant unchanged).
 - Mutation/write capability of any kind (`isMutation: false` only).
@@ -68,10 +145,15 @@ OpenCode file-agent  ──MCP──▶  open-mercato MCP server
                                    │  trace row per call
                                    ▼
                         defineAiTool wrappers (agent_orchestrator)
-                                   │  DI-resolved WebSearchProvider
+                                   │  DI-resolved WebSearchProvider (operator-selected; default = none)
                                    ▼
-                 packages/search-provider-searxng  ──HTTP──▶  self-hosted SearXNG (JSON)
-                 (optional keyed adapters: Exa / Tavily)
+        ┌──────────────────────────┼───────────────────────────┐
+        ▼                          ▼                           ▼
+  model-native adapter ⭐    Tavily / Brave / Exa        (optional) operator's own
+  DEFAULT — reuses the      keyed API adapter           SearXNG over HTTP — never bundled
+  agent's LLM key (B)       (A, keyed upgrade)          (A-variant)
+
+  web_fetch: always on — built-in HTTP GET → text (our MIT code, no provider)
 ```
 
 - The sandbox (`isolated-vm`) is **untouched** — the tool executes in the OM server process, which
@@ -101,12 +183,20 @@ export interface WebSearchProvider {
 }
 ```
 
-- **SearXNG adapter (default):** calls a configured instance's `/search?format=json`; base URL is an
-  ops/env setting; no credentials. `fetch` retrieves the URL server-side and returns readable text
-  (HTML→text), size-capped.
-- **Keyed adapters (optional):** Exa / Tavily behind the same interface; API keys handled via the
-  module encryption path (never plaintext), following the integration-provider credential pattern.
-- Zod-validated inputs/outputs; TS types via `z.infer`. No `any`.
+Adapters behind this interface (post-pivot — none bundled/enabled by default):
+- **Tavily (recommended default to document):** keyed API purpose-built for agents (returns cleaned,
+  extracted content). Flavor A.
+- **Brave / Exa (keyed alternatives):** Brave = independent crawler/index (no Google-scraping legal
+  risk, needs an attribution string); Exa = semantic/neural index. Flavor A.
+- **Model-native adapter:** wraps the agent's LLM provider `web_search` (Anthropic/OpenAI) — reuses
+  the existing LLM key, no separate search vendor, still governed. Flavor B.
+- **SearXNG adapter (optional, operator-supplied):** calls an operator's own instance's
+  `/search?format=json`; base URL is an ops/env setting; no credentials. **Never bundled** — the
+  container is not shipped; only the client adapter code remains.
+- **`fetch` (all providers / provider-less):** retrieves the URL server-side, returns readable text
+  (HTML→text), size-capped — implemented once in our code, independent of the search provider.
+- API keys handled via the module encryption path (never plaintext), following the
+  integration-provider credential pattern. Zod-validated inputs/outputs; TS types via `z.infer`. No `any`.
 
 ### `defineAiTool` wrappers (`agent_orchestrator`)
 
@@ -158,9 +248,11 @@ Feeds the operations cockpit and evals like any other tool call.
   - `ai-tools.ts` — `web_search` + `web_fetch` `defineAiTool` wrappers (DI-resolved provider)
   - `acl.ts` — new `agent_orchestrator.web_search` feature
   - guardrail config + trace wiring
-  - `di.ts` — register default `WebSearchProvider` (SearXNG), config-selected
+  - `di.ts` — register `WebSearchProvider` from `OM_AGENT_WEB_SEARCH_PROVIDER` selection (default `none`)
 - `docker/opencode/opencode.jsonc` — **unchanged** (native web tools stay disabled; asserted by test)
-- Ops: self-hosted SearXNG container (JSON output enabled) + base-URL config; optional keyed-adapter creds (encrypted)
+- Ops: **no bundled provider**; operator picks a provider + supplies a key (Tavily/Brave/Exa) or uses
+  the model-native adapter (existing LLM key), or points at their own SearXNG (never shipped). Keys
+  encrypted.
 - `apps/mercato/src/modules/agent_examples/agents/` — one opt-in demo agent declaring the tools
 - Docs: module `AGENTS.md` + `om-create-opencode-agent` SKILL.md note the governed egress path and Ask-First history
 
@@ -194,6 +286,15 @@ Feeds the operations cockpit and evals like any other tool call.
 
 ### Phase 4 — Integration tests (below)
 
+### Phase 5 — Provider Licensing Pivot (2026-07-15, post-Phase-3)
+12. **Model-native adapter (Flavor B) as the DEFAULT** — new adapter wraps the agent's resolved LLM provider `web_search` (reuses the existing LLM key); returns `not_configured` when the model lacks native search. Unit tests (mocked provider call).
+13. **Extract the neutral interface** — move `WebSearchProvider` + shared SSRF/HTML→text/errors out of the SearXNG-named package into a neutral home so the default carries no AGPL association; SearXNG adapter kept as an optional sibling.
+14. **Change DI provider selection** — `OM_AGENT_WEB_SEARCH_PROVIDER` (`model` default | `tavily` | `brave` | `exa` | `searxng` | `none`); demote SearXNG to one opt-in adapter, never the default.
+15. **Tavily adapter** (Flavor A) — reference keyed upgrade; encrypted key config; unit tests (mocked API).
+16. **Decouple `web_fetch`** from provider configuration — it uses the built-in fetch path regardless of the selected search provider.
+17. **Docs** — provider menu + Flavor A/B/C tradeoff table in module AGENTS.md; "default = model-native; no provider bundled; SearXNG never shipped" note; env matrix (`OM_AGENT_WEB_SEARCH_PROVIDER` + per-provider keys).
+18. Update integration tests: default (model-native) path stubbed; keyed-adapter path stubbed; assert `not_configured` fallback when the model lacks native search.
+
 ## Integration Test Coverage
 
 Per-feature, self-contained (fixtures created in setup, cleaned in teardown; no seeded-data reliance):
@@ -212,8 +313,12 @@ Per-feature, self-contained (fixtures created in setup, cleaned in teardown; no 
 
 ## Open Risks / Follow-ups
 
-- **SearXNG ops dependency:** default provider needs a running instance; document deploy + health,
-  and define behavior when it's down (clean tool error, not agent failure).
+- **No default provider (by design):** `web_search` is disabled until an operator configures one;
+  the tool returns `not_configured` and the agent must degrade gracefully (say so, return empty
+  findings). Document the provider menu + env matrix. Any configured provider that is down surfaces a
+  clean tool error, not an agent failure.
+- **Model-native (Flavor C) governance gap:** pure provider-native search bypasses our ACL/guardrails/
+  traces — only offer it as a labeled opt-in; prefer Flavor B (adapter) when governance matters.
 - **`web_fetch` abuse surface:** even guardrailed, arbitrary-URL retrieval is the riskiest part;
   SSRF suite must be treated as security-critical (`risk-high`).
 - **Per-tenant provider config** (keyed adapters, per-tenant SearXNG) — deferred to a follow-up if
@@ -262,6 +367,7 @@ provider-unhealthy, timeout) — never a crash.
 | Phase 2 — Tools + ACL + guardrails | Done | 2026-07-11 | `web_search`/`web_fetch` `defineAiTool`s (isMutation:false, `requiredFeatures:['agent_orchestrator.web_search']`) + default-off ACL feature + domain/rate guardrails + DI provider registration; 23 unit tests pass; enterprise typecheck + lint + generate green. Tracing is automatic (runner captures tool calls). |
 | Phase 3 — Wiring, opt-in, verification | Done | 2026-07-11 | Renderer verified UNCHANGED (regression test + real generated artifact both emit `open-mercato_agent_orchestrator_web_{search,fetch}`); opt-in example agent `deal_web_researcher` added + `yarn generate` re-emitted `docker/opencode/agents/deals_web_researcher.md`; docs updated (module AGENTS.md Web Egress + rule-10 exception, om-create-opencode-agent SKILL.md). Full suite 317/317 green. |
 | Phase 4 — Integration tests | Not Started | — | — |
+| Phase 5 — Provider Licensing Pivot | Not Started | — | Default = model-native adapter (Flavor B); extract neutral interface, add Tavily keyed adapter, demote SearXNG to opt-in, decouple `web_fetch`, docs. See Pivot section. |
 
 ### Phase 1 — Detailed Progress
 - [x] Step 1: Scaffold package (`package.json`, `tsconfig`, `build.mjs`, `watch.mjs`, `jest.config.cjs`) + `WebSearchProvider` interface + zod schemas (`types.ts`) + typed errors (`errors.ts`)
@@ -292,3 +398,15 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   search + fetch, dedicated package, new ACL feature + permissive (SSRF-always-on) guardrails.
   Scope-cohesion review: KEEP-AS-ONE. Folded in rate-limit persistence (cache), ACL v1 tradeoff,
   provider-naming note, and Data Model / Tool Contract / Compliance sections.
+- 2026-07-11 — Phases 1–3 implemented (SearXNG default). Provider package, ACL-gated tools,
+  guardrails, renderer verification, example agent, docs.
+- 2026-07-15 — **Provider Licensing Pivot.** SearXNG (AGPL-3.0) rejected as bundled default;
+  verified that *calling* it over HTTP is non-contaminating but *shipping* the container is, and that
+  no permissive self-hostable web-metasearch exists. Pivoted to **bundle-nothing** with the
+  **model-native adapter (Flavor B) as the DEFAULT** (`OM_AGENT_WEB_SEARCH_PROVIDER=model`): search
+  reuses the agent's own LLM `web_search` — no separate vendor, no bundled software, full
+  ACL/guardrail/trace governance — and falls back to `not_configured` when the model lacks native
+  search. Keyed adapters (Tavily/Brave/Exa) are opt-in upgrades; SearXNG demoted to an optional
+  operator-supplied never-bundled adapter; `web_fetch` always on (our MIT code). Added Provider
+  Licensing Pivot, Provider Menu & Model-Native Search (Flavors A/B/C), and Phase 5. Flavor C (pure
+  native) remains ungoverned and opt-in only.
