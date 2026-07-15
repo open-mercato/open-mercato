@@ -1,6 +1,6 @@
 import type { AwilixContainer } from 'awilix'
 import type { McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
-import { WebSearchProviderError, type WebSearchProvider } from '@open-mercato/search-provider-searxng'
+import { WebSearchProviderError, type WebSearchProvider } from '@open-mercato/web-search'
 import {
   webFetchTool,
   webSearchTool,
@@ -107,46 +107,49 @@ describe('web_search tool', () => {
 })
 
 describe('web_fetch tool', () => {
+  // web_fetch is provider-INDEPENDENT (uses the shared fetchUrl directly), so it
+  // works with an empty container. A literal-IP URL exercises the path without DNS.
+  const realFetch = global.fetch
+  afterEach(() => {
+    global.fetch = realFetch
+  })
+
   it('is declared read-only and gated by the web_search feature', () => {
     expect(webFetchTool.name).toBe(WEB_FETCH_TOOL_ID)
     expect(webFetchTool.isMutation).toBe(false)
     expect(webFetchTool.requiredFeatures).toEqual(['agent_orchestrator.web_search'])
   })
 
-  it('returns readable text on the happy path', async () => {
-    const provider = stubProvider()
-    const ctx = makeCtx(makeContainer({ webSearchProvider: provider }))
-    const result = (await webFetchTool.handler({ url: 'https://a.example/doc' }, ctx)) as {
+  it('returns readable text on the happy path (no search provider needed)', async () => {
+    global.fetch = jest.fn(async () => new Response('<title>T</title><p>hello</p>', { status: 200 })) as unknown as typeof fetch
+    const ctx = makeCtx(makeContainer({}))
+    const result = (await webFetchTool.handler({ url: 'http://93.184.216.34/doc' }, ctx)) as {
       ok: boolean
       text: string
     }
     expect(result.ok).toBe(true)
-    expect(result.text).toBe('body text')
-    expect(provider.fetch).toHaveBeenCalledWith('https://a.example/doc', expect.objectContaining({ maxBytes: 65536 }))
+    expect(result.text).toBe('hello')
   })
 
   it('blocks a denied domain before any egress', async () => {
-    process.env.OM_AGENT_WEB_SEARCH_DENY_DOMAINS = 'blocked.example'
-    const provider = stubProvider()
-    const ctx = makeCtx(makeContainer({ webSearchProvider: provider }))
-    const result = (await webFetchTool.handler({ url: 'https://blocked.example/x' }, ctx)) as {
+    process.env.OM_AGENT_WEB_SEARCH_DENY_DOMAINS = '93.184.216.34'
+    global.fetch = jest.fn() as unknown as typeof fetch
+    const ctx = makeCtx(makeContainer({}))
+    const result = (await webFetchTool.handler({ url: 'http://93.184.216.34/x' }, ctx)) as {
       ok: boolean
       code: string
     }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('domain_blocked')
-    expect(provider.fetch).not.toHaveBeenCalled()
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 
-  it('maps an SSRF error from the provider to error data', async () => {
-    const provider = stubProvider({
-      fetch: jest.fn(async () => {
-        throw new WebSearchProviderError('ssrf_blocked', 'blocked non-public address')
-      }),
-    })
-    const ctx = makeCtx(makeContainer({ webSearchProvider: provider }))
-    const result = (await webFetchTool.handler({ url: 'https://a.example/x' }, ctx)) as { ok: boolean; code: string }
+  it('blocks a private/SSRF target (literal IP, no network)', async () => {
+    global.fetch = jest.fn() as unknown as typeof fetch
+    const ctx = makeCtx(makeContainer({}))
+    const result = (await webFetchTool.handler({ url: 'http://127.0.0.1/x' }, ctx)) as { ok: boolean; code: string }
     expect(result.ok).toBe(false)
     expect(result.code).toBe('ssrf_blocked')
+    expect(global.fetch).not.toHaveBeenCalled()
   })
 })

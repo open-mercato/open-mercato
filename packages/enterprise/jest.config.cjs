@@ -12,8 +12,8 @@ module.exports = {
     '^@open-mercato/core/(.*)$': '<rootDir>/../core/src/$1',
     '^@open-mercato/shared/(.*)$': '<rootDir>/../shared/src/$1',
     '^@open-mercato/ui/(.*)$': '<rootDir>/../ui/src/$1',
-    '^@open-mercato/search-provider-searxng$': '<rootDir>/../search-provider-searxng/src/index.ts',
-    '^@open-mercato/search-provider-searxng/(.*)$': '<rootDir>/../search-provider-searxng/src/$1',
+    '^@open-mercato/web-search$': '<rootDir>/../web-search/src/index.ts',
+    '^@open-mercato/web-search/(.*)$': '<rootDir>/../web-search/src/$1',
     '^(\\.{1,2}/.*)\\.js$': '$1',
   },
   transform: {

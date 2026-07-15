@@ -67,4 +67,4 @@ await esbuild.build({
   plugins: [addJsExtension],
 })
 
-console.log('search-provider-searxng built successfully')
+console.log('web-search built successfully')

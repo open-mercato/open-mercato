@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import type { AiToolDefinition, McpToolContext } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
-import { isWebSearchProviderError, type WebSearchProvider } from '@open-mercato/search-provider-searxng'
+import { fetchUrl, isWebSearchProviderError, type WebSearchProvider } from '@open-mercato/web-search'
 import { getCurrentRunId } from '../runtime/runContext'
 import { hostnameOf, isHostAllowed, resolveWebSearchConfig } from './config'
 import { enforceWebSearchRateLimit } from './guardrails'
@@ -62,9 +62,10 @@ function toToolError(err: unknown) {
 
 /**
  * Read-only web search. Egress runs server-side through the DI-resolved provider
- * (SearXNG by default) — never the isolated-vm sandbox and never OpenCode's
- * native web tools. Errors are returned as data (never thrown) so one failed
- * lookup cannot crash the agent loop; propose-only holds (`isMutation: false`).
+ * (model-native by default — reuses the agent's own LLM `web_search`) — never the
+ * isolated-vm sandbox and never OpenCode's native web tools. Errors are returned
+ * as data (never thrown) so one failed lookup cannot crash the agent loop;
+ * propose-only holds (`isMutation: false`).
  */
 export const webSearchTool: AiToolDefinition = {
   name: WEB_SEARCH_TOOL_ID,
@@ -107,10 +108,12 @@ export const webSearchTool: AiToolDefinition = {
 }
 
 /**
- * Read-only single-URL retrieval → readable text. Layered guardrails: the
- * always-on SSRF guard in the provider blocks private/metadata targets at the
- * socket boundary; this handler additionally enforces the domain allow/deny list
- * and the call budget before egress. `isMutation: false` — retrieval only.
+ * Read-only single-URL retrieval → readable text. Provider-INDEPENDENT: it uses
+ * the shared `fetchUrl` (our MIT code) directly, so it works even when no search
+ * provider is configured. Layered guardrails: the always-on SSRF guard inside
+ * `fetchUrl` blocks private/metadata targets at the socket boundary; this handler
+ * additionally enforces the domain allow/deny list and the call budget before
+ * egress. `isMutation: false` — retrieval only.
  */
 export const webFetchTool: AiToolDefinition = {
   name: WEB_FETCH_TOOL_ID,
@@ -123,10 +126,6 @@ export const webFetchTool: AiToolDefinition = {
   tags: ['read', 'agent_orchestrator', 'web'],
   async handler(rawInput, ctx) {
     const { url } = webFetchInput.parse(rawInput)
-    const provider = resolveProvider(ctx)
-    if (!provider) {
-      return { ok: false as const, code: 'not_configured' as const, error: 'web fetch provider is not configured' }
-    }
     const config = resolveWebSearchConfig()
     const host = hostnameOf(url)
     if (!host || !isHostAllowed(host, config)) {
@@ -141,7 +140,7 @@ export const webFetchTool: AiToolDefinition = {
       return { ok: false as const, code: 'rate_limited' as const, error: gate.error }
     }
     try {
-      const result = await provider.fetch(url, { maxBytes: config.maxBytes, timeoutMs: config.timeoutMs })
+      const result = await fetchUrl(url, { maxBytes: config.maxBytes, timeoutMs: config.timeoutMs })
       return { ok: true as const, ...result }
     } catch (err) {
       return toToolError(err)

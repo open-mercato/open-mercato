@@ -367,7 +367,7 @@ provider-unhealthy, timeout) — never a crash.
 | Phase 2 — Tools + ACL + guardrails | Done | 2026-07-11 | `web_search`/`web_fetch` `defineAiTool`s (isMutation:false, `requiredFeatures:['agent_orchestrator.web_search']`) + default-off ACL feature + domain/rate guardrails + DI provider registration; 23 unit tests pass; enterprise typecheck + lint + generate green. Tracing is automatic (runner captures tool calls). |
 | Phase 3 — Wiring, opt-in, verification | Done | 2026-07-11 | Renderer verified UNCHANGED (regression test + real generated artifact both emit `open-mercato_agent_orchestrator_web_{search,fetch}`); opt-in example agent `deal_web_researcher` added + `yarn generate` re-emitted `docker/opencode/agents/deals_web_researcher.md`; docs updated (module AGENTS.md Web Egress + rule-10 exception, om-create-opencode-agent SKILL.md). Full suite 317/317 green. |
 | Phase 4 — Integration tests | Not Started | — | — |
-| Phase 5 — Provider Licensing Pivot | Not Started | — | Default = model-native adapter (Flavor B); extract neutral interface, add Tavily keyed adapter, demote SearXNG to opt-in, decouple `web_fetch`, docs. See Pivot section. |
+| Phase 5 — Provider Licensing Pivot | Done | 2026-07-15 | Renamed package `search-provider-searxng` → **`@open-mercato/web-search`** (neutral) + extracted shared `fetchUrl`. Added **model-native adapter (DEFAULT, Flavor B)** + **Tavily** adapter; `OM_AGENT_WEB_SEARCH_PROVIDER` selection (default `model`); demoted SearXNG to opt-in; **`web_fetch` decoupled** (uses shared `fetchUrl`, works with no provider). 39 web-search unit tests pass; full agent_orchestrator suite 747/747; typecheck + lint + build green. Docs updated. |
 
 ### Phase 1 — Detailed Progress
 - [x] Step 1: Scaffold package (`package.json`, `tsconfig`, `build.mjs`, `watch.mjs`, `jest.config.cjs`) + `WebSearchProvider` interface + zod schemas (`types.ts`) + typed errors (`errors.ts`)
@@ -410,3 +410,11 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   operator-supplied never-bundled adapter; `web_fetch` always on (our MIT code). Added Provider
   Licensing Pivot, Provider Menu & Model-Native Search (Flavors A/B/C), and Phase 5. Flavor C (pure
   native) remains ungoverned and opt-in only.
+- 2026-07-15 — **Phase 5 implemented.** Package renamed `search-provider-searxng` →
+  `@open-mercato/web-search` (neutral) with shared `fetchUrl` extracted; model-native adapter
+  (default) + Tavily adapter added; `OM_AGENT_WEB_SEARCH_PROVIDER` selection (default `model`);
+  SearXNG demoted to opt-in; `web_fetch` decoupled from the search provider. Tests: 39 web-search
+  unit tests + full agent_orchestrator suite 747/747; typecheck/lint/build green. Known limitations
+  (follow-ups): model-native uses the module default model (does not yet hydrate per-tenant
+  `ai_agent_runtime_overrides`); requires provider keys in the `mcp:serve-http` env; `brave`/`exa`
+  adapters recognized but not implemented.

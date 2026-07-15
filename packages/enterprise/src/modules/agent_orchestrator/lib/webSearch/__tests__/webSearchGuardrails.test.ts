@@ -4,7 +4,9 @@ import { enforceWebSearchRateLimit } from '../guardrails'
 import type { WebSearchRuntimeConfig } from '../config'
 
 const baseConfig: WebSearchRuntimeConfig = {
+  provider: 'model',
   baseUrl: 'https://searxng.internal',
+  tavilyApiKey: null,
   maxResults: 10,
   maxBytes: 64 * 1024,
   timeoutMs: 10_000,

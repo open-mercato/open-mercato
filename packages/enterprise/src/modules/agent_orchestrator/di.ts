@@ -44,7 +44,7 @@ import { AgentWorkflowBridgeService } from './lib/runtime/invokeAgentForWorkflow
 import { ContextResolverImpl } from './lib/context/contextResolver'
 import { DocumentIngestServiceImpl } from './lib/context/documentIngest'
 import { resolveDefaultOcrProvider } from './lib/context/documentOcrProvider'
-import { resolveDefaultWebSearchProvider } from './lib/webSearch/webSearchProvider'
+import { resolveWebSearchProvider } from './lib/webSearch/webSearchProvider'
 import type { DispositionService } from './lib/disposition/dispositionService'
 
 export function register(container: AppContainer) {
@@ -135,13 +135,14 @@ export function register(container: AppContainer) {
     // carrying provenance (source attachment id + page/region locator) + confidence,
     // which the ContextResolver folds into the bundle as citable `document` sources.
     agentDocumentOcrProvider: asFunction(() => resolveDefaultOcrProvider(container)).scoped(),
-    // Web egress overlay (spec 2026-07-11-agent-web-search-tool): the default
-    // provider is a self-hosted SearXNG client built from `OM_AGENT_WEB_SEARCH_*`
-    // env; null when unconfigured (the tools then return `not_configured`). A test
-    // or enterprise deployment can re-register `webSearchProvider` with its own
-    // instance. The network call runs in THIS server process (allowed net), never
-    // the isolated-vm sandbox.
-    webSearchProvider: asFunction(() => resolveDefaultWebSearchProvider()).scoped(),
+    // Web egress overlay (spec 2026-07-11-agent-web-search-tool, Phase 5): the
+    // DEFAULT provider is model-native (reuses the agent's own LLM `web_search`);
+    // `OM_AGENT_WEB_SEARCH_PROVIDER` switches to a keyed adapter (Tavily) or the
+    // operator's own SearXNG. Null when the selection lacks required config → the
+    // search tool returns `not_configured`. `web_fetch` is independent of this. The
+    // network call runs in THIS server process (allowed net), never the sandbox. A
+    // deployment can re-register `webSearchProvider` with its own instance.
+    webSearchProvider: asFunction(() => resolveWebSearchProvider(container)).scoped(),
     agentDocumentIngestService: asFunction(
       () => new DocumentIngestServiceImpl(container, { provider: resolveDefaultOcrProvider(container) }),
     ).scoped(),

@@ -7762,13 +7762,15 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/enterprise@workspace:packages/enterprise"
   dependencies:
+    "@ai-sdk/anthropic": "npm:^4.0.1"
+    "@ai-sdk/openai": "npm:^4.0.2"
     "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
     "@open-mercato/queue": "workspace:*"
     "@open-mercato/scheduler": "workspace:*"
-    "@open-mercato/search-provider-searxng": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
+    "@open-mercato/web-search": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"
     "@simplewebauthn/server": "npm:^13.3.2"
     "@simplewebauthn/types": "npm:^12.0.0"
@@ -7776,6 +7778,7 @@ __metadata:
     "@types/qrcode": "npm:^1.5.5"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
+    ai: "npm:^7.0.4"
     jest: "npm:^30.4.2"
     openid-client: "npm:^6.8.4"
     otpauth: "npm:9.5.1"
@@ -7890,21 +7893,6 @@ __metadata:
       optional: true
     ioredis:
       optional: true
-  languageName: unknown
-  linkType: soft
-
-"@open-mercato/search-provider-searxng@workspace:*, @open-mercato/search-provider-searxng@workspace:packages/search-provider-searxng":
-  version: 0.0.0-use.local
-  resolution: "@open-mercato/search-provider-searxng@workspace:packages/search-provider-searxng"
-  dependencies:
-    "@types/jest": "npm:^30.0.0"
-    "@types/node": "npm:^26.0.1"
-    esbuild: "npm:^0.28.1"
-    glob: "npm:^13.0.6"
-    jest: "npm:^30.4.2"
-    ts-jest: "npm:^29.4.11"
-    typescript: "npm:^6.0.3"
-    zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
 
@@ -8045,6 +8033,21 @@ __metadata:
     react: ">=18.0.0"
     react-dom: ">=18.0.0"
     react-is: ">=18.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/web-search@workspace:*, @open-mercato/web-search@workspace:packages/web-search":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-search@workspace:packages/web-search"
+  dependencies:
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
 

@@ -50,9 +50,15 @@ See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.
 Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web-search-tool.md`). Two `defineAiTool`s on the existing `open-mercato` MCP server; agents opt in via `tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]` in `AGENT.md` (example: `apps/mercato/src/modules/agent_examples/agents/deal_web_researcher/`).
 
 - **Egress runs server-side** in the OM process via the DI-resolved `webSearchProvider` (`lib/webSearch/`) — never the `isolated-vm` sandbox and never OpenCode's native web tools (still disabled in `docker/opencode/opencode.jsonc`). The sandbox no-net rule and the renderer are untouched; the tools are ordinary `open-mercato_agent_orchestrator_*` ids that ride the existing allowlist.
-- **Provider = SearXNG by default** (`@open-mercato/search-provider-searxng`, self-hosted, no key). Keyed adapters (Exa/Tavily) can re-register `webSearchProvider`.
+- **`web_search` provider (selectable via `OM_AGENT_WEB_SEARCH_PROVIDER`):**
+  - **`model` (DEFAULT)** — the model-native adapter (`lib/webSearch/adapters/modelNativeProvider.ts`): our tool makes a one-shot `generateText` call to the agent's OWN LLM provider (`anthropic`/`openai`) with its native `web_search` enabled, reusing the existing LLM key. **No bundled software, no separate search vendor, still fully governed.** Falls back with a clean error when the resolved model has no native search (only anthropic/openai supported). **Requires `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` in the `mcp:serve-http` process env.**
+  - **`tavily`** — keyed API (`adapters/tavilyProvider.ts`), needs `OM_AGENT_WEB_SEARCH_TAVILY_API_KEY`.
+  - **`searxng`** — operator's OWN instance (`@open-mercato/web-search`), needs `OM_AGENT_WEB_SEARCH_BASE_URL`. **Never bundled** (SearXNG is AGPL — we ship only the client adapter, not the container).
+  - **`brave`/`exa`** — recognized, not yet implemented (→ `not_configured`). **`none`** — search disabled.
+  - Licensing rationale + provider menu: see spec Provider Licensing Pivot (2026-07-15).
+- **`web_fetch` is provider-INDEPENDENT** — it uses the shared `fetchUrl` (our MIT code: HTTP GET → text) directly, so it works even when no search provider is configured. No licensing dependency.
 - **Gates:** default-off `agent_orchestrator.web_search` ACL feature (re-checked per MCP call via `requiredFeatures`); always-on SSRF at the socket boundary (blocks private/loopback/link-local/metadata + DNS-rebinding); domain allow/deny; per-run + per-tenant rate ceilings via `rateLimiterService`; result/byte caps. Both tools are `isMutation: false`.
-- **Ops env:** `OM_AGENT_WEB_SEARCH_BASE_URL` (SearXNG instance with JSON output; unset → tools return `not_configured`), plus optional `OM_AGENT_WEB_SEARCH_{MAX_RESULTS,TIMEOUT_MS,ALLOW_DOMAINS,DENY_DOMAINS,RATE_PER_RUN,RATE_PER_TENANT_PER_MINUTE}` and `OM_AGENT_WEB_FETCH_MAX_BYTES`.
+- **Ops env:** `OM_AGENT_WEB_SEARCH_PROVIDER` (default `model`) + per-provider key (`OM_AGENT_WEB_SEARCH_TAVILY_API_KEY` / `OM_AGENT_WEB_SEARCH_BASE_URL`), plus optional `OM_AGENT_WEB_SEARCH_{MAX_RESULTS,TIMEOUT_MS,ALLOW_DOMAINS,DENY_DOMAINS,RATE_PER_RUN,RATE_PER_TENANT_PER_MINUTE}` and `OM_AGENT_WEB_FETCH_MAX_BYTES`.
 
 ## Validation Commands
 
