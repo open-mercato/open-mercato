@@ -3,6 +3,7 @@
 import * as React from 'react'
 import { Search } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import {
   Dialog,
   DialogContent,
@@ -13,6 +14,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DocumentEntityType } from '../../../lib/entityRegistry'
 import { sanitizeDocumentsDisplayLabel } from '../../../lib/displayLabels'
@@ -59,6 +61,11 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
   }, [search.activeIndex, search.items, selectItem])
 
   const handleSearchKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
+    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && search.items.length === 0) {
+      event.preventDefault()
+      search.setActiveIndex(-1)
+      return
+    }
     if (event.key === 'ArrowDown') {
       event.preventDefault()
       search.setActiveIndex((index) => Math.min(index + 1, search.items.length - 1))
@@ -87,23 +94,32 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
           <DialogTitle>{t('documents.entityPicker.title')}</DialogTitle>
           <DialogDescription>{t('documents.entityPicker.description')}</DialogDescription>
         </DialogHeader>
-        {search.availableEntries.length > 0 ? (
+        {!search.isRegistryReady ? (
+          <div role="status" aria-live="polite">
+            <LoadingMessage label={t('documents.entityPicker.loadingRegistry')} />
+          </div>
+        ) : search.availableEntries.length > 0 ? (
           <div className="space-y-4">
-            <div className="flex flex-wrap gap-2" role="tablist" aria-label={t('documents.entityPicker.typeTabs')}>
+            <SegmentedControl
+              value={search.activeEntry?.type}
+              onValueChange={(value) => {
+                const entry = search.availableEntries.find((candidate) => candidate.type === value)
+                if (!entry) return
+                search.setActiveType(entry.type)
+                search.setActiveIndex(-1)
+              }}
+              aria-label={t('documents.entityPicker.typeTabs')}
+              className="max-w-full flex-wrap"
+            >
               {search.availableEntries.map((entry) => (
-                <Button
+                <SegmentedControlItem
                   key={entry.type}
-                  type="button"
-                  size="sm"
-                  variant={entry.type === search.activeEntry?.type ? 'secondary' : 'ghost'}
-                  role="tab"
-                  aria-selected={entry.type === search.activeEntry?.type}
-                  onClick={() => { search.setActiveType(entry.type); search.setActiveIndex(-1) }}
+                  value={entry.type}
                 >
                   {t(entry.labelKey)}
-                </Button>
+                </SegmentedControlItem>
               ))}
-            </div>
+            </SegmentedControl>
             <div className="space-y-2">
               <Label htmlFor={inputId}>{t('documents.entityPicker.searchLabel')}</Label>
               <Input
@@ -116,7 +132,7 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
                 aria-expanded={hasQuery}
                 aria-controls={listId}
                 aria-autocomplete="list"
-                aria-activedescendant={search.activeIndex >= 0 ? `${listId}-option-${search.activeIndex}` : undefined}
+                aria-activedescendant={search.activeIndex >= 0 && search.activeIndex < search.items.length ? `${listId}-option-${search.activeIndex}` : undefined}
                 onKeyDown={handleSearchKeyDown}
               />
             </div>
@@ -127,9 +143,13 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityP
               hasQuery={hasQuery}
               isLoading={search.isLoading}
               hasSearched={search.hasSearched}
+              hasError={search.hasError}
               prompt={t('documents.entityPicker.prompt')}
               loadingLabel={t('documents.entityPicker.loading')}
               emptyLabel={t('documents.entityPicker.noMatches')}
+              errorLabel={t('documents.entityPicker.error.search')}
+              retryLabel={t('documents.actions.retry')}
+              onRetry={search.retry}
               onActiveIndexChange={search.setActiveIndex}
               onSelect={selectItem}
             />

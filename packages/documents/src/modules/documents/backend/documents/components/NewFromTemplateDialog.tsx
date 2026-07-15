@@ -15,6 +15,7 @@ import {
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
+import { Radio, RadioGroup } from '@open-mercato/ui/primitives/radio'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { TemplatePreview } from './TemplatePreview'
@@ -52,7 +53,12 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
           <DialogDescription>{t('documents.templates.instantiate.description')}</DialogDescription>
         </DialogHeader>
         {flow.isLoading ? <LoadingMessage label={t('documents.templates.instantiate.loading')} /> : null}
-        {flow.loadError ? <ErrorMessage label={flow.loadError} /> : null}
+        {flow.loadError ? (
+          <ErrorMessage
+            label={flow.loadError}
+            action={<Button type="button" size="sm" variant="outline" onClick={flow.retryTemplates}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : null}
         {!flow.isLoading && !flow.loadError ? (
           <div className="grid gap-6 lg:grid-cols-2">
             <div className="space-y-5">
@@ -60,7 +66,13 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
                 <Label htmlFor={templateSearchId}>{t('documents.templates.search.label')}</Label>
                 <Input id={templateSearchId} value={flow.templateSearch} onChange={(event) => flow.setTemplateSearch(event.target.value)} leftIcon={<Search />} placeholder={t('documents.templates.list.searchPlaceholder')} />
               </div>
-              <div className="max-h-48 space-y-2 overflow-y-auto" role="listbox" aria-label={t('documents.templates.instantiate.template')}>
+              <RadioGroup
+                className="max-h-48 overflow-y-auto"
+                value={flow.selectedTemplateId ?? ''}
+                onValueChange={flow.setSelectedTemplateId}
+                aria-label={t('documents.templates.instantiate.template')}
+                orientation="vertical"
+              >
                 {flow.templates.length === 0 ? (
                   <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.templates.instantiate.empty')}</p>
                 ) : null}
@@ -68,22 +80,22 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
                   const compatible = props.presetContext
                     ? template.contextSlots.some((slot) => slot.entityType === props.presetContext?.entityType)
                     : false
+                  const optionId = `${templateSearchId}-${template.id}`
                   return (
-                    <Button
+                    <Label
                       key={template.id}
-                      type="button"
-                      variant={template.id === flow.selectedTemplateId ? 'secondary' : 'outline'}
-                      className="h-auto w-full justify-between p-3 text-left"
-                      role="option"
-                      aria-selected={template.id === flow.selectedTemplateId}
-                      onClick={() => flow.setSelectedTemplateId(template.id)}
+                      htmlFor={optionId}
+                      className={`flex w-full cursor-pointer items-center justify-between gap-3 rounded-md border p-3 text-left font-normal transition-colors ${template.id === flow.selectedTemplateId ? 'border-accent-indigo bg-accent-indigo/5' : 'border-border bg-background hover:bg-muted/50'}`}
                     >
-                      <span className="min-w-0"><span className="block truncate font-medium">{template.name}</span>{template.description ? <span className="block truncate text-xs text-muted-foreground">{template.description}</span> : null}</span>
+                      <span className="flex min-w-0 items-center gap-3">
+                        <Radio id={optionId} value={template.id} />
+                        <span className="min-w-0"><span className="block truncate font-medium">{template.name}</span>{template.description ? <span className="block truncate text-xs text-muted-foreground">{template.description}</span> : null}</span>
+                      </span>
                       {compatible ? <Tag variant="info">{t('documents.templates.compatible')}</Tag> : null}
-                    </Button>
+                    </Label>
                   )
                 })}
-              </div>
+              </RadioGroup>
               {flow.selectedTemplate ? (
                 <>
                   <div className="space-y-2">
@@ -100,7 +112,14 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
             </div>
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">{t('documents.templates.preview.title')}</h3>
-              {flow.previewError ? <Alert variant="destructive"><AlertDescription>{flow.previewError}</AlertDescription></Alert> : null}
+              {flow.previewError ? (
+                <Alert variant="destructive">
+                  <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                    <span>{flow.previewError}</span>
+                    <Button type="button" size="sm" variant="outline" onClick={flow.retryPreview}>{t('documents.actions.retry')}</Button>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <TemplatePreview preview={flow.preview} isLoading={flow.isPreviewLoading} />
             </div>
           </div>

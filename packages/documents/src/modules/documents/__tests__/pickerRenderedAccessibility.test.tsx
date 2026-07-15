@@ -7,10 +7,14 @@ const apiCallMock = jest.fn()
 
 const translations: Record<string, string> = {
   'documents.actions.cancel': 'Cancel',
+  'documents.actions.retry': 'Retry',
   'documents.entities.customerPerson': 'Customer',
+  'documents.entities.deal': 'Deal',
   'documents.entityPicker.description': 'Search records from other modules and insert a reference.',
   'documents.entityPicker.empty': 'No record types are available.',
+  'documents.entityPicker.error.search': 'Failed to search records.',
   'documents.entityPicker.loading': 'Searching...',
+  'documents.entityPicker.loadingRegistry': 'Loading available record types...',
   'documents.entityPicker.noMatches': 'No matching records',
   'documents.entityPicker.prompt': 'Start typing to search.',
   'documents.entityPicker.searchLabel': 'Search',
@@ -179,10 +183,78 @@ describe('rendered Documents pickers', () => {
     })
     expect(screen.getByRole('option', { name: /Ada Lovelace/ })).toBeTruthy()
 
-    fireEvent.keyDown(screen.getByRole('tab', { name: 'Customer' }), { key: 'Enter' })
+    fireEvent.keyDown(screen.getByRole('radio', { name: 'Customer' }), { key: 'Enter' })
     fireEvent.keyDown(screen.getByRole('button', { name: 'Cancel' }), { key: 'Enter' })
 
     expect(onPick).not.toHaveBeenCalled()
+  })
+
+  it('keeps the combobox active index unset when an empty result receives arrow keys', async () => {
+    apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } })
+    render(<EntityPicker open onOpenChange={jest.fn()} onPick={jest.fn()} typeFilter={['customer-person']} />)
+    const input = screen.getByRole('combobox', { name: 'Search' })
+
+    fireEvent.change(input, { target: { value: 'Nobody' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(screen.getByText('No matching records')).toBeTruthy()
+
+    fireEvent.keyDown(input, { key: 'ArrowUp' })
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+
+    expect(input.getAttribute('aria-activedescendant')).toBeNull()
+    expect(document.querySelector('[role="option"]')).toBeNull()
+  })
+
+  it('renders a retry action for transient entity-search failures', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 503, result: { error: 'unavailable' } })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { items: [{ id: ADA_ID, displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' }] },
+      })
+    render(<EntityPicker open onOpenChange={jest.fn()} onPick={jest.fn()} typeFilter={['customer-person']} />)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Search' }), { target: { value: 'Ada' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(screen.getByText('Failed to search records.')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(screen.getByRole('option', { name: /Ada Lovelace/ })).toBeTruthy()
+  })
+
+  it('uses the shared keyboard-navigable segmented control for record types', () => {
+    render(
+      <EntityPicker
+        open
+        onOpenChange={jest.fn()}
+        onPick={jest.fn()}
+        typeFilter={['customer-person', 'deal']}
+      />,
+    )
+
+    const group = screen.getByRole('radiogroup', { name: 'Record types' })
+    const customer = within(group).getByRole('radio', { name: 'Customer' })
+    const deal = within(group).getByRole('radio', { name: 'Deal' })
+    expect(customer.getAttribute('aria-checked')).toBe('true')
+
+    act(() => {
+      customer.focus()
+      fireEvent.keyDown(customer, { key: 'ArrowRight' })
+      jest.runOnlyPendingTimers()
+      fireEvent.keyUp(customer, { key: 'ArrowRight' })
+    })
+
+    expect(deal.getAttribute('aria-checked')).toBe('true')
   })
 
   it('renders PrincipalPicker as a label-first combobox and supports keyboard choice without an ID field', async () => {

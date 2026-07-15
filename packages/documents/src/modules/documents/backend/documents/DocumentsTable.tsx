@@ -4,9 +4,11 @@ import * as React from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { ColumnDef } from '@tanstack/react-table'
-import { DataTable, RowActions } from '@open-mercato/ui'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import type { RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
 import { formatDateTime } from './documentUi'
@@ -57,7 +59,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
   ], [t])
   const actions = props.canManageTemplates || (props.hasTemplates && props.canInstantiateTemplate) || props.canCreateDocument
     ? <div className="flex flex-wrap items-center gap-2">
-        {props.canManageTemplates ? <Button asChild variant="outline"><Link href="/backend/documents/templates">{t('documents.templates.actions.manage')}</Link></Button> : null}
+        {props.canManageTemplates ? <LinkButton asChild variant="gray"><Link href="/backend/documents/templates">{t('documents.templates.actions.manage')}</Link></LinkButton> : null}
         {props.hasTemplates && props.canInstantiateTemplate ? <Button type="button" variant="outline" onClick={props.onNewFromTemplate}>{t('documents.templates.instantiate.title')}</Button> : null}
         {props.canCreateDocument ? <Button type="button" onClick={props.onCreate}>{t('documents.actions.create')}</Button> : null}
       </div>

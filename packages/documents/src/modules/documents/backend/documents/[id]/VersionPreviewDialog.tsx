@@ -34,7 +34,7 @@ type VersionPreviewDialogProps = {
   canRestore: boolean
   isRestoring: boolean
   onOpenChange: (open: boolean) => void
-  onRestore: (version: VersionPreview) => void
+  onRestore: (version: VersionPreview) => void | Promise<void>
 }
 
 export function normalizeVersionPreview(
@@ -83,6 +83,7 @@ export function VersionPreviewDialog({
   const [preview, setPreview] = React.useState<VersionPreview | null>(null)
   const [error, setError] = React.useState<string | null>(null)
   const [loading, setLoading] = React.useState(false)
+  const [loadAttempt, setLoadAttempt] = React.useState(0)
 
   React.useEffect(() => {
     if (!versionId) { setPreview(null); setError(null); return }
@@ -101,15 +102,15 @@ export function VersionPreviewDialog({
       .catch(() => { if (active) setError(t('documents.versions.preview.error')) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
-  }, [documentId, t, versionId])
+  }, [documentId, loadAttempt, t, versionId])
 
   return (
     <Dialog open={versionId !== null} onOpenChange={onOpenChange}>
       <DialogContent size="xl" onKeyDown={(event) => {
         if (event.key === 'Escape') onOpenChange(false)
-        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canRestore && preview) {
+        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && canRestore && preview && !isRestoring) {
           event.preventDefault()
-          onRestore(preview)
+          void onRestore(preview)
         }
       }}>
         <DialogHeader>
@@ -119,12 +120,17 @@ export function VersionPreviewDialog({
           </DialogDescription>
         </DialogHeader>
         {loading ? <LoadingMessage label={t('documents.versions.preview.loading')} /> : null}
-        {error ? <ErrorMessage label={error} /> : null}
+        {error ? (
+          <ErrorMessage
+            label={error}
+            action={<Button type="button" size="sm" variant="outline" onClick={() => setLoadAttempt((current) => current + 1)}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : null}
         {preview && !loading && !error ? <ReadOnlyVersion contentHtml={preview.contentHtml} fallbackLabel={t('documents.editor.entityRef.fallbackLabel')} /> : null}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>{t('documents.actions.close')}</Button>
           {canRestore && preview ? (
-            <Button type="button" onClick={() => onRestore(preview)} disabled={isRestoring}>
+            <Button type="button" onClick={() => { void onRestore(preview) }} disabled={isRestoring}>
               <RotateCcw />{t('documents.versions.actions.restore')}
             </Button>
           ) : null}

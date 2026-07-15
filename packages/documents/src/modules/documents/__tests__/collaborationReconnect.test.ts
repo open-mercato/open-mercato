@@ -4,6 +4,7 @@ import {
   COLLABORATION_OFFLINE_AFTER_MS,
   COLLABORATION_PROVIDER_RETRY,
   COLLABORATION_RECONNECT_GRACE_MS,
+  createCollaborationSocketLifecycle,
   createCollaborationStatusController,
   fetchCollabTokenAttempt,
   restartConnectedCollaborationSocket,
@@ -89,7 +90,7 @@ describe('collaboration reconnect behavior', () => {
     expect(statuses).toEqual(['connected', 'reconnecting'])
   })
 
-  it('returns to Live as soon as the idle transport reconnects without waiting for an edit', () => {
+  it('returns to Live only after authenticated sync, not merely a physical reconnect', () => {
     const statuses: string[] = []
     const controller = createCollaborationStatusController({
       onStatus: (status) => statuses.push(status),
@@ -101,6 +102,9 @@ describe('collaboration reconnect behavior', () => {
     expect(statuses).toEqual(['connected', 'reconnecting', 'offline'])
 
     applyCollaborationProviderStatus(controller, { status: 'connected' })
+    expect(statuses).toEqual(['connected', 'reconnecting', 'offline'])
+
+    controller.connected()
     expect(statuses).toEqual(['connected', 'reconnecting', 'offline', 'connected'])
   })
 
@@ -111,6 +115,30 @@ describe('collaboration reconnect behavior', () => {
     expect(close).toHaveBeenCalledTimes(1)
     expect(restartConnectedCollaborationSocket({ status: 'disconnected', webSocket: { close } })).toBe(false)
     expect(close).toHaveBeenCalledTimes(1)
+  })
+
+  it('reconnects once the physical socket closes after a logical room reset', async () => {
+    const close = jest.fn()
+    const connect = jest.fn(async () => undefined)
+    const websocket = {
+      status: 'connected',
+      webSocket: { close },
+      connect,
+    }
+    const lifecycle = createCollaborationSocketLifecycle(websocket)
+
+    expect(lifecycle.logicalClose()).toBe(true)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(connect).not.toHaveBeenCalled()
+
+    websocket.status = 'disconnected'
+    expect(lifecycle.disconnected()).toBe(true)
+    await Promise.resolve()
+    expect(connect).toHaveBeenCalledTimes(1)
+
+    lifecycle.dispose()
+    expect(lifecycle.disconnected()).toBe(false)
+    expect(connect).toHaveBeenCalledTimes(1)
   })
 
   it('uses fast bounded retries without limiting genuine network recovery', () => {
@@ -140,6 +168,10 @@ describe('collaboration reconnect behavior', () => {
       { ok: true, status: 200, result: VALID_TOKEN },
       'Unknown user',
     )).toMatchObject({ kind: 'ok', token: { token: 'signed-token' } })
+    expect(classifyCollabTokenResponse(
+      { ok: true, status: 200, result: { ...VALID_TOKEN, token: '', url: null } },
+      'Unknown user',
+    )).toMatchObject({ kind: 'ok', token: { token: '', url: null } })
   })
 
   it('suppresses redirect throwing so a real forbidden refresh is fatal', async () => {

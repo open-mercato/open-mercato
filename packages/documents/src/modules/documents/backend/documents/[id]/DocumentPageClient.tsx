@@ -15,6 +15,7 @@ import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimi
 import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { ShareDialog } from '../components/ShareDialog'
 import { normalizeDocumentContent, normalizeDocumentDetail, type DocumentContent, type DocumentDetail } from '../documentUi'
@@ -23,10 +24,19 @@ import type { CommentAnchor } from './CommentAnchorNavigation'
 import { ExportMenu } from './ExportMenu'
 import { RelatedRecordsPanel } from './RelatedRecordsPanel'
 import { DocumentNavigator } from './DocumentNavigator'
+import { DocumentEditorErrorBoundary } from './DocumentEditorErrorBoundary'
 import { VersionHistoryPanel } from './VersionHistoryPanel'
 
-function DocumentEditorLoading() {
+function DocumentEditorLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
+  if (error) {
+    return (
+      <ErrorMessage
+        label={t('documents.editor.error.load')}
+        action={<Button type="button" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+      />
+    )
+  }
   return <div role="status" aria-live="polite"><LoadingMessage label={t('documents.editor.loading')} /></div>
 }
 
@@ -94,19 +104,34 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
 
   const reloadEditor = React.useCallback(async () => {
     const requestId = ++requestSequence.current
-    setEditor(null)
     const contentCall = await apiCall<unknown>(`/api/documents/${encodeURIComponent(documentId)}/content`)
-    if (requestSequence.current !== requestId) return
-    if (contentCall.ok || contentCall.status === 404) {
-      setState((current) => current.status === 'ready' ? {
-        ...current,
-        content: contentCall.status === 404
-          ? { contentHtml: '', updatedAt: null }
-          : normalizeDocumentContent(contentCall.result),
-      } : current)
+    if (requestSequence.current !== requestId) {
+      throw new Error(t('documents.editor.error.loadContent'))
     }
+    if (!contentCall.ok && contentCall.status !== 404) {
+      throw new Error(t('documents.editor.error.loadContent'))
+    }
+    const nextContent = contentCall.status === 404
+      ? { contentHtml: '', updatedAt: null }
+      : normalizeDocumentContent(contentCall.result)
+    setState((current) => current.status === 'ready' ? {
+      ...current,
+      content: nextContent,
+    } : current)
+    setEditor(null)
     setEditorEpoch((current) => current + 1)
-  }, [documentId])
+  }, [documentId, t])
+
+  const handleContentConflict = React.useCallback(() => {
+    void reloadEditor().catch((error) => {
+      flash(error instanceof Error ? error.message : t('documents.editor.error.loadContent'), 'error')
+    })
+  }, [reloadEditor, t])
+
+  const retryEditorIsland = React.useCallback(() => {
+    setEditor(null)
+    setEditorEpoch((current) => current + 1)
+  }, [])
 
   const handleDelete = React.useCallback(async () => {
     if (state.status !== 'ready' || !state.document.capabilities.canDelete) return
@@ -155,7 +180,10 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       <Page><PageBody>
         {state.status === 'loading' ? <LoadingMessage label={label} /> : (
           <ErrorMessage label={label} action={(
-            <Button asChild variant="outline"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></Button>
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void loadDocument()}>{t('documents.actions.retry')}</Button>
+              <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
+            </div>
           )} />
         )}
       </PageBody></Page>
@@ -168,7 +196,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     <Page>
       <PageHeader title={t('documents.nav.document')} actions={(
         <>
-          <Button asChild variant="outline"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></Button>
+          <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
           <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={() => setShowVersions((value) => !value)} aria-pressed={showVersions}>
             <History />{t('documents.actions.versions')}
           </Button>
@@ -180,20 +208,33 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       <PageBody>
         <div className="flex flex-col gap-4 xl:flex-row">
           <div className="min-w-0 flex-1">
-            <DocumentEditorIsland
-              key={`${document.id}:${editorEpoch}`}
-              documentId={document.id}
-              title={document.title}
-              initialContentHtml={content.contentHtml}
-              documentUpdatedAt={document.updatedAt}
-              readOnly={!capabilities.canEdit}
-              onEditorReady={setEditor}
-              onComment={capabilities.canComment ? (anchor) => setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 })) : undefined}
-              onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
-                ...current,
-                document: { ...current.document, title, updatedAt },
-              } : current)}
-            />
+            <DocumentEditorErrorBoundary
+              resetKey={`${document.id}:${editorEpoch}`}
+              onRetry={retryEditorIsland}
+              fallback={(retry) => (
+                <ErrorMessage
+                  label={t('documents.editor.error.load')}
+                  action={<Button type="button" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+                />
+              )}
+            >
+              <DocumentEditorIsland
+                key={`${document.id}:${editorEpoch}`}
+                documentId={document.id}
+                title={document.title}
+                initialContentHtml={content.contentHtml}
+                contentUpdatedAt={content.updatedAt}
+                documentUpdatedAt={document.updatedAt}
+                readOnly={!capabilities.canEdit}
+                onEditorReady={setEditor}
+                onContentConflict={handleContentConflict}
+                onComment={capabilities.canComment ? (anchor) => setCommentFocusRequest((current) => ({ anchor, requestId: (current?.requestId ?? 0) + 1 })) : undefined}
+                onTitleChange={(title, updatedAt) => setState((current) => current.status === 'ready' ? {
+                  ...current,
+                  document: { ...current.document, title, updatedAt },
+                } : current)}
+              />
+            </DocumentEditorErrorBoundary>
           </div>
           <aside className="space-y-4 xl:sticky xl:top-[calc(var(--topbar-height,0px)+1rem)] xl:max-h-[calc(100dvh-var(--topbar-height,0px)-2rem)] xl:w-80 xl:shrink-0 xl:self-start xl:overflow-y-auto">
             <DocumentNavigator editor={editor} />

@@ -24,6 +24,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => translateMock,
+  useLocale: () => 'pl',
 }))
 jest.mock('next/navigation', () => ({
   useRouter: () => ({ push: routerPushMock }),
@@ -138,6 +139,8 @@ describe('useTemplateInstantiation preview freshness', () => {
       `/api/documents/templates/${TEMPLATE_ID}/preview`,
       expect.objectContaining({ method: 'POST' }),
     )
+    const previewRequest = apiCallMock.mock.calls.find(([url]) => url === `/api/documents/templates/${TEMPLATE_ID}/preview`)
+    expect(JSON.parse(String((previewRequest?.[1] as RequestInit | undefined)?.body))).toMatchObject({ locale: 'pl' })
 
     act(() => result.current.setTitle('Updated customer brief'))
 
@@ -187,11 +190,14 @@ describe('useTemplateInstantiation preview freshness', () => {
     expect(apiCallMock.mock.calls.some(([url]) => String(url).includes('page=2'))).toBe(false)
 
     act(() => result.current.setTemplateSearch('Description 101'))
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.templates).toEqual([])
     await act(async () => {
       jest.advanceTimersByTime(200)
       await flushPromises()
     })
     expect(result.current.templates).toEqual([expect.objectContaining({ id: template101.id, name: 'Template 101' })])
+    expect(result.current.isLoading).toBe(false)
     const searchCall = apiCallMock.mock.calls.find(([url]) => url === `${TEMPLATE_LIST_URL}&search=Description+101`)
     expect(searchCall?.[1]?.signal).toBeDefined()
     expect(searchCall?.[1]?.signal.aborted).toBe(false)
@@ -251,5 +257,36 @@ describe('useTemplateInstantiation preview freshness', () => {
 
     expect(result.current.templates).toEqual([expect.objectContaining({ name: 'Fresh template' })])
     expect(result.current.loadError).toBeNull()
+  })
+
+  it('retries a failed template list request and recovers in the same dialog', async () => {
+    let attempts = 0
+    apiCallMock.mockImplementation((url: string) => {
+      if (url !== TEMPLATE_LIST_URL) throw new Error(`Unexpected API call: ${url}`)
+      attempts += 1
+      if (attempts === 1) return Promise.reject(new Error('temporarily unavailable'))
+      return Promise.resolve({
+        ok: true,
+        result: { items: [templateRecord(1)], total: 1, page: 1, pageSize: 50, totalPages: 1 },
+      })
+    })
+
+    const { result } = renderHook(() => useTemplateInstantiation({ open: true, onOpenChange: jest.fn() }))
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+      await flushPromises()
+    })
+    expect(result.current.loadError).toBe('documents.templates.instantiate.error.load')
+
+    act(() => result.current.retryTemplates())
+    expect(result.current.isLoading).toBe(true)
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+      await flushPromises()
+    })
+
+    expect(result.current.loadError).toBeNull()
+    expect(result.current.templates).toEqual([expect.objectContaining({ name: 'Template 1' })])
+    expect(attempts).toBe(2)
   })
 })

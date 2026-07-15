@@ -68,6 +68,14 @@ export interface EmitOptions {
   tenantId?: string | null
   /** Trusted organization scope passed to subscribers independently of payload data. */
   organizationId?: string | null
+  /**
+   * Module that emitted a private cross-process coordination event.
+   *
+   * This is stamped by `createModuleEvents`; application inputs must not set or
+   * derive it from event payloads.
+   * @internal
+   */
+  emitterModuleId?: string
 }
 
 // =============================================================================

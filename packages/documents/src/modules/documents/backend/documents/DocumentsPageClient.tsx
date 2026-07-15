@@ -15,7 +15,7 @@ import { MoveDocumentDialog } from './MoveDocumentDialog'
 import type { DocumentRow } from './documentsListTypes'
 import { useDocumentsList } from './useDocumentsList'
 
-function NewFromTemplateDialogLoading() {
+function NewFromTemplateDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
   return (
     <Dialog open>
@@ -24,7 +24,14 @@ function NewFromTemplateDialogLoading() {
           <DialogTitle>{t('documents.templates.instantiate.title')}</DialogTitle>
           <DialogDescription>{t('documents.templates.instantiate.description')}</DialogDescription>
         </DialogHeader>
-        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.instantiate.loading')} /></div>
+        {error ? (
+          <ErrorMessage
+            label={t('documents.templates.instantiate.error.load')}
+            action={<Button type="button" size="sm" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : (
+          <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.instantiate.loading')} /></div>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -99,11 +106,10 @@ export function DocumentsPageClient() {
           state={folderDialog}
           onOpenChange={(open) => { if (!open) setFolderDialog(null) }}
           onSubmit={(name) => {
-            if (!folderDialog) return
-            void documents.saveFolder(folderDialog.mode === 'rename'
+            if (!folderDialog) return false
+            return documents.saveFolder(folderDialog.mode === 'rename'
               ? { folder: folderDialog.folder, name }
               : { parentFolderId: folderDialog.parentFolderId, name })
-            setFolderDialog(null)
           }}
         />
         {shareDocument ? (

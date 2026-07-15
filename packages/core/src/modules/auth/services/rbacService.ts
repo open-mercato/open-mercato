@@ -280,7 +280,7 @@ export class RbacService {
       const roleIds = Array.isArray(key.rolesJson) ? key.rolesJson.filter(Boolean) : []
       let isSuper = false
       const features: string[] = []
-      let organizations: string[] | null = key.organizationId ? [key.organizationId] : null
+      let roleOrganizations: string[] | null = []
       if (tenantId && roleIds.length) {
         const racls = await em.find(RoleAcl, { tenantId, role: { $in: roleIds as any } } as any)
         for (const acl of racls) {
@@ -288,18 +288,32 @@ export class RbacService {
           if (Array.isArray(acl.featuresJson)) {
             for (const f of acl.featuresJson) if (!features.includes(f)) features.push(f)
           }
-          if (organizations !== null) {
+          if (roleOrganizations !== null) {
             if (acl.organizationsJson == null) {
-              organizations = null
+              roleOrganizations = null
             } else if (Array.isArray(acl.organizationsJson) && acl.organizationsJson.includes('__all__')) {
-              organizations = null
+              roleOrganizations = null
             } else {
-              organizations = Array.from(new Set([...(organizations || []), ...acl.organizationsJson]))
+              roleOrganizations = Array.from(new Set([
+                ...roleOrganizations,
+                ...(Array.isArray(acl.organizationsJson) ? acl.organizationsJson : []),
+              ]))
             }
           }
         }
       }
-      const result = { isSuperAdmin: isSuper, features, organizations }
+      const keyOrganizationId = typeof key.organizationId === 'string' && key.organizationId.trim().length > 0
+        ? key.organizationId.trim()
+        : null
+      const organizations = keyOrganizationId
+        ? (roleOrganizations === null || roleOrganizations.includes(keyOrganizationId) ? [keyOrganizationId] : [])
+        : roleOrganizations
+      // A role-level super-admin grant still respects the API key's effective
+      // organization allowlist. Represent it as a wildcard feature whenever
+      // the key is restricted so downstream super-admin shortcuts cannot
+      // bypass the key or role organization bounds.
+      if (isSuper && organizations !== null && !features.includes('*')) features.push('*')
+      const result = { isSuperAdmin: isSuper && organizations === null, features, organizations }
       await this.setCache(cacheKey, result, userId, scope)
       return result
     }

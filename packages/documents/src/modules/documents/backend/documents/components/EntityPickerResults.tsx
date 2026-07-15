@@ -2,6 +2,7 @@
 
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { cn } from '@open-mercato/shared/lib/utils'
 import type { EntitySearchItem } from './useEntitySearch'
 
@@ -12,9 +13,13 @@ type EntityPickerResultsProps = {
   hasQuery: boolean
   isLoading: boolean
   hasSearched: boolean
+  hasError: boolean
   prompt: string
   loadingLabel: string
   emptyLabel: string
+  errorLabel: string
+  retryLabel: string
+  onRetry: () => void
   onActiveIndexChange: (index: number) => void
   onSelect: (item: EntitySearchItem) => void
 }
@@ -29,7 +34,13 @@ export function EntityPickerResults(props: EntityPickerResultsProps) {
       {props.hasQuery && !props.isLoading && props.hasSearched && props.items.length === 0 ? (
         <div className="px-3 py-8 text-center text-sm text-muted-foreground">{props.emptyLabel}</div>
       ) : null}
-      {!props.isLoading && props.items.map((item, index) => (
+      {props.hasQuery && !props.isLoading && props.hasError ? (
+        <ErrorMessage
+          label={props.errorLabel}
+          action={<Button type="button" size="sm" variant="outline" onClick={props.onRetry}>{props.retryLabel}</Button>}
+        />
+      ) : null}
+      {!props.isLoading && !props.hasError && props.items.map((item, index) => (
         <Button
           id={`${props.listId}-option-${index}`}
           key={item.id}

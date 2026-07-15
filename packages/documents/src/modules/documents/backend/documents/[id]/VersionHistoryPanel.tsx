@@ -24,7 +24,7 @@ import { restoreVersionWithObservedContentToken } from './restoreVersion'
 import type { VersionPreview } from './VersionPreviewDialog'
 import { normalizeVersion, type DocumentVersion } from './versionHistoryModel'
 
-function VersionPreviewDialogLoading() {
+function VersionPreviewDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
   return (
     <Dialog open>
@@ -33,7 +33,14 @@ function VersionPreviewDialogLoading() {
           <DialogTitle>{t('documents.versions.actions.preview')}</DialogTitle>
           <DialogDescription>{t('documents.versions.preview.loading')}</DialogDescription>
         </DialogHeader>
-        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.versions.preview.loading')} /></div>
+        {error ? (
+          <ErrorMessage
+            label={t('documents.versions.preview.error')}
+            action={<Button type="button" size="sm" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : (
+          <div role="status" aria-live="polite"><LoadingMessage label={t('documents.versions.preview.loading')} /></div>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -51,7 +58,7 @@ type VersionHistoryPanelProps = {
   tier?: DocumentTier
   canRestore?: boolean
   contentUpdatedAt?: string | null
-  onRestored?: () => void
+  onRestored?: () => void | Promise<void>
 }
 
 export { resolveVersionRestoreCapability } from './componentCapabilities'
@@ -73,6 +80,7 @@ export function VersionHistoryPanel({
   const [restoringVersionId, setRestoringVersionId] = React.useState<string | null>(null)
   const [previewVersionId, setPreviewVersionId] = React.useState<string | null>(null)
   const observedContentUpdatedAt = React.useRef<string | null>(contentUpdatedAt ?? null)
+  const restoreInFlight = React.useRef(false)
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const mutationContextId = `documents-versions:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -143,16 +151,17 @@ export function VersionHistoryPanel({
   }, [documentId, label, mayRestore, mutationContextId, reload, retryLastMutation, runMutation, t])
 
   const handleRestore = React.useCallback(async (version: VersionPreview) => {
-    if (!mayRestore) return
-    const confirmed = await confirm({
-      title: t('documents.versions.restore.confirmTitle'),
-      text: t('documents.versions.restore.confirmBody'),
-      confirmText: t('documents.versions.actions.restore'),
-      variant: 'default',
-    })
-    if (!confirmed) return
-    setRestoringVersionId(version.id)
+    if (!mayRestore || restoreInFlight.current) return
+    restoreInFlight.current = true
     try {
+      const confirmed = await confirm({
+        title: t('documents.versions.restore.confirmTitle'),
+        text: t('documents.versions.restore.confirmBody'),
+        confirmText: t('documents.versions.actions.restore'),
+        variant: 'default',
+      })
+      if (!confirmed) return
+      setRestoringVersionId(version.id)
       const call = await runMutation({
         operation: () => restoreVersionWithObservedContentToken({
           documentId,
@@ -164,15 +173,24 @@ export function VersionHistoryPanel({
         mutationPayload: { action: 'restore', versionId: version.id },
       })
       observedContentUpdatedAt.current = normalizeDocumentContent(call.result).updatedAt
-      setPreviewVersionId(null)
       await reload()
-      onRestored?.()
+      await onRestored?.()
+      setPreviewVersionId(null)
       flash(t('documents.versions.restored'), 'success')
     } catch (error) {
-      if (!surfaceRecordConflict(error, t, { onRefresh: onRestored })) {
+      if (!surfaceRecordConflict(error, t, {
+        onRefresh: onRestored ? () => {
+          void Promise.resolve(onRestored()).catch((refreshError) => {
+            flash(refreshError instanceof Error ? refreshError.message : t('documents.versions.error.restore'), 'error')
+          })
+        } : undefined,
+      })) {
         flash(error instanceof Error ? error.message : t('documents.versions.error.restore'), 'error')
       }
-    } finally { setRestoringVersionId(null) }
+    } finally {
+      restoreInFlight.current = false
+      setRestoringVersionId(null)
+    }
   }, [confirm, documentId, mayRestore, mutationContextId, onRestored, reload, retryLastMutation, runMutation, t])
 
   const versions = state.status === 'ready' ? state.versions : []
@@ -191,7 +209,12 @@ export function VersionHistoryPanel({
           </form>
         ) : null}
         {state.status === 'loading' ? <LoadingMessage label={t('documents.versions.loading')} /> : null}
-        {state.status === 'error' ? <ErrorMessage label={state.message} /> : null}
+        {state.status === 'error' ? (
+          <ErrorMessage
+            label={state.message}
+            action={<Button type="button" size="sm" variant="outline" onClick={() => void reload()}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : null}
         {state.status === 'ready' && versions.length === 0 ? <EmptyState size="sm" variant="subtle" title={t('documents.versions.empty')} icon={<History className="size-5" />} /> : null}
         {versions.map((version) => (
           <article key={version.id} className="space-y-3 rounded-lg border border-border bg-background p-3">
@@ -202,7 +225,7 @@ export function VersionHistoryPanel({
           </article>
         ))}
       </div>
-      {previewVersionId ? <VersionPreviewDialog documentId={documentId} versionId={previewVersionId} canRestore={mayRestore} isRestoring={restoringVersionId !== null} onOpenChange={(open) => { if (!open) setPreviewVersionId(null) }} onRestore={(version) => void handleRestore(version)} /> : null}
+      {previewVersionId ? <VersionPreviewDialog documentId={documentId} versionId={previewVersionId} canRestore={mayRestore} isRestoring={restoringVersionId !== null} onOpenChange={(open) => { if (!open) setPreviewVersionId(null) }} onRestore={handleRestore} /> : null}
       {ConfirmDialogElement}
     </section>
   )

@@ -3,8 +3,12 @@ import { join } from 'node:path'
 import { metadata } from '../index'
 
 describe('documents module dependencies', () => {
-  it('requires the attachment schema used by document migrations and runtime routes', () => {
-    expect(metadata.requires).toEqual(['attachments'])
+  it('declares every hard platform service used by document routes', () => {
+    expect(metadata.requires).toEqual(['auth', 'directory', 'attachments'])
+  })
+
+  it('does not promise ejection while the collaboration sidecar loads package-owned code', () => {
+    expect(metadata.ejectable).toBe(false)
   })
 
   it('uses the public Attachments service boundary for document file routes', () => {

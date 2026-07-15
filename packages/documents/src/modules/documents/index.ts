@@ -8,8 +8,10 @@ export const metadata: ModuleInfo = {
   description: 'Collaborative internal documents',
   author: 'Open Mercato',
   license: 'MIT',
-  ejectable: true,
-  requires: ['attachments'],
+  // The collaboration sidecar resolves package-owned entities and services.
+  // Keep ejection disabled until it can load an app-ejected implementation.
+  ejectable: false,
+  requires: ['auth', 'directory', 'attachments'],
 }
 
 export { features } from './acl'

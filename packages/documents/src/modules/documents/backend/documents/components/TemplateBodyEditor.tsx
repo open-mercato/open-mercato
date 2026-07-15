@@ -26,6 +26,7 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
   onChange: (html: string) => void
 }) {
   const t = useT()
+  const editorLabelId = React.useId()
   const [token, setToken] = React.useState<string | undefined>()
   const editor = useEditor({
     extensions: getDocumentEditorExtensions({
@@ -33,7 +34,14 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
     }),
     content: bodyHtml,
     editable: true,
-    editorProps: { attributes: { class: 'min-h-80 text-base leading-7 text-foreground focus-visible:outline-none' } },
+    editorProps: {
+      attributes: {
+        class: 'min-h-80 text-base leading-7 text-foreground focus-visible:outline-none',
+        role: 'textbox',
+        'aria-labelledby': editorLabelId,
+        'aria-multiline': 'true',
+      },
+    },
     onUpdate: ({ editor: updated }) => onChange(updated.getHTML()),
   }, [])
   React.useEffect(() => {
@@ -41,7 +49,7 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
   }, [bodyHtml, editor])
   return (
     <div className="space-y-3">
-      <Label>{t('documents.templates.fields.body')}</Label>
+      <Label id={editorLabelId}>{t('documents.templates.fields.body')}</Label>
       <div className="rounded-md border border-border bg-card">
         <div className="flex flex-wrap items-center gap-1 border-b border-border p-2">
           <EditorButton editor={editor} label={t('documents.editor.toolbar.bold')} active={editor?.isActive('bold') ?? false} onClick={(current) => { current.chain().focus().toggleBold().run() }}><Bold /></EditorButton>

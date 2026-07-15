@@ -114,6 +114,29 @@ export type DocumentsCollabRedisConfiguration = {
   }
 }
 
+const DEFAULT_DOCUMENTS_COLLAB_REDIS_PREFIX = 'open-mercato:documents:collab:development'
+const LEGACY_DOCUMENTS_COLLAB_REDIS_PREFIX = 'open-mercato:documents:collab'
+const DOCUMENTS_COLLAB_REDIS_PREFIX_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9._:-]{0,158}[A-Za-z0-9])?$/
+
+function resolveDocumentsCollabRedisPrefix(environment: NodeJS.ProcessEnv): string {
+  const configured = environment.DOCUMENTS_COLLAB_REDIS_PREFIX?.trim() ?? ''
+  if (!configured && environment.NODE_ENV === 'production') {
+    throw new Error(
+      '[internal] DOCUMENTS_COLLAB_REDIS_PREFIX is required in production when collaboration Redis is configured',
+    )
+  }
+  const prefix = configured || DEFAULT_DOCUMENTS_COLLAB_REDIS_PREFIX
+  if (
+    prefix === LEGACY_DOCUMENTS_COLLAB_REDIS_PREFIX
+    || !DOCUMENTS_COLLAB_REDIS_PREFIX_PATTERN.test(prefix)
+  ) {
+    throw new Error(
+      '[internal] DOCUMENTS_COLLAB_REDIS_PREFIX must be a deployment-scoped Redis key prefix using letters, numbers, dot, underscore, colon, or dash',
+    )
+  }
+  return prefix
+}
+
 export function resolveDocumentsCollabRedisConfiguration(
   environment: NodeJS.ProcessEnv = process.env,
 ): DocumentsCollabRedisConfiguration | null {
@@ -144,7 +167,7 @@ export function resolveDocumentsCollabRedisConfiguration(
   return {
     host: parsed.hostname,
     port,
-    prefix: 'open-mercato:documents:collab',
+    prefix: resolveDocumentsCollabRedisPrefix(environment),
     options: {
       ...(parsed.username ? { username: decodeURIComponent(parsed.username) } : {}),
       ...(parsed.password ? { password: decodeURIComponent(parsed.password) } : {}),
@@ -153,6 +176,67 @@ export function resolveDocumentsCollabRedisConfiguration(
       maxRetriesPerRequest: null,
     },
   }
+}
+
+type DocumentsCollabRedisStorePayload = Pick<
+  onStoreDocumentPayload,
+  'lastTransactionOrigin'
+>
+
+type DocumentsCollabRedisStoreExtension = {
+  onStoreDocument: (payload: onStoreDocumentPayload) => unknown
+}
+
+function isHocuspocusStoreLockContention(error: unknown): error is Error {
+  // @hocuspocus/extension-redis throws this cross-package error when another
+  // replica owns the room's store lock. Match by the stable error name rather
+  // than instanceof so duplicated Hocuspocus packages do not hide contention.
+  return error instanceof Error && error.name === 'SkipFurtherHooksError'
+}
+
+/**
+ * Redis replicas receive an authenticated source replica's Yjs update, but
+ * they do not receive its browser authorization context. Only a store caused
+ * by a local authenticated connection may compete for the distributed store
+ * lock. A receiving replica therefore mirrors the update in memory while the
+ * source replica remains responsible for making it durable. When two source
+ * replicas race, Hocuspocus otherwise swallows the Redis lock loser's
+ * SkipFurtherHooksError and may unload it even though a later Redis merge does
+ * not schedule store hooks. Queue a complete Hocuspocus store retry before
+ * propagating the sentinel so the room stays mapped and the retry still runs
+ * the Redis lock, live authorization, and optimistic merge hooks in order.
+ */
+export function isDocumentsCollabSourceStore(
+  payload: DocumentsCollabRedisStorePayload,
+): boolean {
+  const origin = payload.lastTransactionOrigin
+  return !(
+    origin
+    && typeof origin === 'object'
+    && 'source' in origin
+    && origin.source === 'redis'
+  )
+}
+
+export function enforceDocumentsCollabSourceStoreOwnership<
+  RedisExtension extends DocumentsCollabRedisStoreExtension,
+>(extension: RedisExtension): RedisExtension {
+  const onStoreDocument = extension.onStoreDocument.bind(extension)
+  extension.onStoreDocument = async (payload: onStoreDocumentPayload) => {
+    if (!isDocumentsCollabSourceStore(payload)) return
+    try {
+      return await onStoreDocument(payload)
+    } catch (error) {
+      if (isHocuspocusStoreLockContention(error)) {
+        // Register the retry synchronously. shouldUnloadDocument() observes
+        // the debounced work when Hocuspocus catches the sentinel on the
+        // current attempt, including when the last client just disconnected.
+        void payload.instance.storeDocumentHooks(payload.document, payload)
+      }
+      throw error
+    }
+  }
+  return extension
 }
 
 /**
@@ -210,10 +294,16 @@ export type CollabFinalDrainRegistry = {
   complete: (document: Y.Doc) => void
   /** Permanently withdraw a pending exception when another guard wins. */
   discard: (document: Y.Doc) => void
-  /** Begin a bounded auth ticket for one currently authenticating document. */
-  beginAuthorization: (documentName: string) => CollabAuthorizationTicket
-  /** Advance tickets only when this document currently has in-flight auth. */
-  bumpAuthorization: (documentName: string) => void
+  /** Begin a bounded auth ticket for one currently authenticating scoped document. */
+  beginAuthorization: (
+    documentName: string,
+    scope?: { tenantId: string; organizationId: string },
+  ) => CollabAuthorizationTicket
+  /** Advance only in-flight tickets for this exact document and scope. */
+  bumpAuthorization: (
+    documentName: string,
+    scope?: { tenantId: string; organizationId: string },
+  ) => void
   /** Verify no trusted access event crossed any authentication await. */
   isAuthorizationCurrent: (ticket: CollabAuthorizationTicket) => boolean
   /** Release the ticket and delete its document state when the last auth ends. */
@@ -248,6 +338,16 @@ type CollabAuthorizationState = {
 type InternalCollabAuthorizationTicket = CollabAuthorizationTicket & {
   expiry?: ReturnType<typeof setTimeout>
   released: boolean
+  stateKey: string
+}
+
+function collabAuthorizationStateKey(
+  documentName: string,
+  scope?: { tenantId: string; organizationId: string },
+): string {
+  return scope
+    ? `${documentName}\u0000${scope.tenantId}\u0000${scope.organizationId}`
+    : documentName
 }
 
 function liveCollabConnectionCount(document: Y.Doc): number | null {
@@ -322,10 +422,10 @@ export function createCollabFinalDrainRegistry(
     if (ticket.released) return
     ticket.released = true
     if (ticket.expiry) clearTimeout(ticket.expiry)
-    const state = authorizationStates.get(ticket.documentName)
+    const state = authorizationStates.get(ticket.stateKey)
     if (state !== ticket.state) return
     state.active = Math.max(0, state.active - 1)
-    if (state.active === 0) authorizationStates.delete(ticket.documentName)
+    if (state.active === 0) authorizationStates.delete(ticket.stateKey)
   }
   return {
     mark(document, readiness) {
@@ -373,17 +473,19 @@ export function createCollabFinalDrainRegistry(
     discard(document) {
       markedDocuments.delete(document)
     },
-    beginAuthorization(documentName) {
-      let state = authorizationStates.get(documentName)
+    beginAuthorization(documentName, scope) {
+      const stateKey = collabAuthorizationStateKey(documentName, scope)
+      let state = authorizationStates.get(stateKey)
       if (!state) {
         state = { active: 0, epoch: 0 }
-        authorizationStates.set(documentName, state)
+        authorizationStates.set(stateKey, state)
       }
       state.active += 1
       const ticket: InternalCollabAuthorizationTicket = {
         documentName,
         epoch: state.epoch,
         released: false,
+        stateKey,
         state,
       }
       ticket.expiry = setTimeout(() => {
@@ -392,13 +494,13 @@ export function createCollabFinalDrainRegistry(
       ticket.expiry.unref?.()
       return ticket
     },
-    bumpAuthorization(documentName) {
-      const state = authorizationStates.get(documentName)
+    bumpAuthorization(documentName, scope) {
+      const state = authorizationStates.get(collabAuthorizationStateKey(documentName, scope))
       if (state) state.epoch += 1
     },
     isAuthorizationCurrent(ticket) {
       const internalTicket = ticket as InternalCollabAuthorizationTicket
-      const state = authorizationStates.get(ticket.documentName)
+      const state = authorizationStates.get(internalTicket.stateKey)
       return !internalTicket.released
         && state === ticket.state
         && state.epoch === ticket.epoch
@@ -1310,6 +1412,7 @@ export function createCollabHooks(deps: CollabHooksDeps) {
   const loadedContentVersions = new WeakMap<Y.Doc, string>()
   const loadedCollaborationGenerations = new WeakMap<Y.Doc, number>()
   const roomResourceBudgets = new WeakMap<Y.Doc, { bytes: number; revision: number }>()
+  const roomScopes = new WeakMap<Y.Doc, CollabScope>()
   const awarenessConnectionClientIds = new WeakMap<object, Set<number>>()
   const awarenessRoomClientOwners = new WeakMap<Y.Doc, Map<number, string>>()
   // Hocuspocus hands onStoreDocument only the room's lastContext, which can be
@@ -1519,6 +1622,9 @@ export function createCollabHooks(deps: CollabHooksDeps) {
     establishConnectionAuthorization,
     releaseConnectionAuthorization,
     reauthorizeActiveConnection,
+    resolveRoomScope(document: Y.Doc): CollabScope | null {
+      return roomScopes.get(document) ?? null
+    },
     async onAuthenticate(data: {
       token?: string
       documentName: string
@@ -1541,7 +1647,10 @@ export function createCollabHooks(deps: CollabHooksDeps) {
         throw new Error('[internal] documents collab: room mismatch')
       }
       const authorizationTicket = deps.finalDrainRegistry
-        ?.beginAuthorization(data.documentName)
+        ?.beginAuthorization(data.documentName, {
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+        })
       let retainAuthorizationTicket = false
       try {
         assertRoomAcceptsAuthentication(data.documentName)
@@ -1628,6 +1737,10 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       document: Y.Doc
     }): Promise<Y.Doc> {
       assertScopedContext(data.context)
+      roomScopes.set(data.document, {
+        tenantId: data.context.tenantId,
+        organizationId: data.context.organizationId,
+      })
       rememberWritableContext(data.document, data.context)
 
       const container = await deps.resolveContainer()
@@ -1962,8 +2075,54 @@ export function resolveCollabRoomEventAction(event: string, payload?: unknown): 
 type DocumentsCrossProcessEventEnvelope = {
   event: string
   payload: unknown
+  options?: {
+    tenantId?: unknown
+    organizationId?: unknown
+    emitterModuleId?: unknown
+  }
   originPid?: unknown
   originInstanceId?: unknown
+}
+
+export type TrustedDocumentsCrossProcessEvent = {
+  action: Exclude<CollabRoomEventAction, 'ignore'>
+  documentId: string
+  scope: CollabScope
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null
+}
+
+/**
+ * Resolve only private Documents events stamped by the Documents module and
+ * carrying trusted envelope scope. Payload scope is intentionally ignored: it
+ * is application data and can be authored by a workflow.
+ */
+export function resolveTrustedDocumentsCrossProcessEvent(
+  envelope: DocumentsCrossProcessEventEnvelope,
+): TrustedDocumentsCrossProcessEvent | null {
+  if (envelope.options?.emitterModuleId !== 'documents') return null
+  const tenantId = nonEmptyString(envelope.options?.tenantId)
+  const organizationId = nonEmptyString(envelope.options?.organizationId)
+  if (!tenantId || !organizationId) return null
+  const action = resolveCollabRoomEventAction(envelope.event, envelope.payload)
+  if (action === 'ignore') return null
+  const documentId = eventDocumentId(envelope.payload)
+  if (!documentId) return null
+  return {
+    action,
+    documentId,
+    scope: { tenantId, organizationId },
+  }
+}
+
+export function isTrustedDocumentsCollabRoomScope(
+  event: TrustedDocumentsCrossProcessEvent,
+  roomScope: CollabScope | null,
+): boolean {
+  return roomScope?.tenantId === event.scope.tenantId
+    && roomScope.organizationId === event.scope.organizationId
 }
 
 /**
@@ -2081,7 +2240,9 @@ export async function main(): Promise<void> {
     ...COLLAB_SERVER_RUNTIME_CONFIGURATION,
     extensions: resolveDocumentsCollabRedisExtensions(
       process.env,
-      (configuration) => new HocuspocusRedis(configuration),
+      (configuration) => enforceDocumentsCollabSourceStoreOwnership(
+        new HocuspocusRedis(configuration),
+      ),
     ),
     async onAuthenticate(data: onAuthenticatePayload<CollabContext>) {
       return await hooks.onAuthenticate({
@@ -2171,6 +2332,7 @@ export async function main(): Promise<void> {
       }
     },
     async onStoreDocument(data: onStoreDocumentPayload<CollabContext>) {
+      if (!isDocumentsCollabSourceStore(data)) return
       return await hooks.onStoreDocument({
         documentName: data.documentName,
         context: data.lastContext,
@@ -2190,15 +2352,22 @@ export async function main(): Promise<void> {
 
   registerCrossProcessEventListener((envelope: DocumentsCrossProcessEventEnvelope) => {
     if (isOwnDocumentsCrossProcessEvent(envelope, CROSS_PROCESS_EVENT_INSTANCE_ID)) return
-    const action = resolveCollabRoomEventAction(envelope.event, envelope.payload)
-    if (action === 'ignore') return
-    const documentId = eventDocumentId(envelope.payload)
-    if (!documentId) return
-    // Invalidate only tickets that are currently authenticating. This stays
-    // bounded by active handshakes and also covers events for an unmapped room.
-    finalDrainRegistry.bumpAuthorization(documentId)
+    const trustedEvent = resolveTrustedDocumentsCrossProcessEvent(envelope)
+    if (!trustedEvent) return
+    const { action, documentId, scope } = trustedEvent
 
+    // Bump the exact scoped handshake epoch before consulting live room
+    // metadata. A room can be mapped during the narrow load transition before
+    // its scope WeakMap is observable here; scoped tickets still let the event
+    // reject that in-flight authentication without touching another tenant.
+    finalDrainRegistry.bumpAuthorization(documentId, scope)
     const roomDocument = runningServer.hocuspocus.documents.get(documentId)
+    if (
+      roomDocument
+      && !isTrustedDocumentsCollabRoomScope(trustedEvent, hooks.resolveRoomScope(roomDocument))
+    ) {
+      return
+    }
     if (roomDocument && action === 'reauth') {
       // Capture every exact connection queue before closeConnections removes
       // those logical connections synchronously. The one-shot store cannot

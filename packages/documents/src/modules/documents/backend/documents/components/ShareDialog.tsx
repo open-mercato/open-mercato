@@ -41,7 +41,7 @@ export function ShareDialog({
       <DialogContent
         size="lg"
         onKeyDown={(event) => {
-          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && !dialog.isSubmitting) {
             event.preventDefault()
             void dialog.addShare()
           }
@@ -70,6 +70,7 @@ export function ShareDialog({
             isLoading={dialog.isLoading}
             error={dialog.error}
             canManage={canManage}
+            onRetry={() => void dialog.reload()}
             onPermissionChange={dialog.changePermission}
             onRemove={dialog.removeShare}
           />

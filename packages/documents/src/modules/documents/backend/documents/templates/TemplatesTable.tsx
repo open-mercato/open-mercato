@@ -2,7 +2,8 @@
 
 import * as React from 'react'
 import type { ColumnDef } from '@tanstack/react-table'
-import { DataTable, RowActions } from '@open-mercato/ui'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { useT } from '@open-mercato/shared/lib/i18n/context'

@@ -45,6 +45,8 @@ export function useTemplatesPage() {
     setReloadToken((value) => value + 1)
   }, [])
   const changeSearch = React.useCallback((value: string) => {
+    setIsLoading(true)
+    setLoadError(null)
     setSearch(value)
     setPage(1)
   }, [])

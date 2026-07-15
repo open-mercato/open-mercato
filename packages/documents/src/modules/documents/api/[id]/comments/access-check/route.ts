@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { assertTier, resolveUserAccess } from '../../../../lib/permissions'
-import { resolveUserLabels } from '../../../../lib/userLabels'
 import {
   handleDocumentsRouteError,
   readBody,
@@ -23,6 +22,8 @@ const accessCheckResponseSchema = z.object({
   withoutAccessUsers: z.array(
     z.object({
       userId: z.string().uuid(),
+      // Keep the published nullable-string contract for generated clients;
+      // this route deliberately returns null values to avoid identity lookup.
       label: z.string().nullable(),
       secondary: z.string().nullable(),
     }),
@@ -42,7 +43,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
-    await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
+    await assertTier(ctx.em, documentId, ctx.auth, 'commenter')
     const input = accessCheckSchema.parse(await readBody(request))
     const uniqueUserIds = Array.from(new Set(input.userIds.map((userId) => userId.toLowerCase())))
     const withoutAccess: string[] = []
@@ -57,19 +58,14 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
       )
       if (!tier) withoutAccess.push(userId)
     }
-    const labels = await resolveUserLabels(
-      ctx.container,
-      { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
-      withoutAccess,
-    )
-    const withoutAccessUsers = withoutAccess.map((userId) => {
-      const label = labels.get(userId) ?? null
-      return {
-        userId,
-        label: label?.label ?? null,
-        secondary: label?.secondary ?? null,
-      }
-    })
+    // Keep the historical response shape for clients, but never turn this
+    // authorization probe into a user-directory/PII lookup. The caller
+    // already supplied these IDs and owns their local mention labels.
+    const withoutAccessUsers = withoutAccess.map((userId) => ({
+      userId,
+      label: null,
+      secondary: null,
+    }))
 
     return NextResponse.json({ withoutAccess, withoutAccessUsers })
   } catch (error) {

@@ -155,6 +155,126 @@ describe('RbacService', () => {
       const acl = await service.loadAcl(baseUser.id!, { tenantId: null, organizationId: null })
       expect(acl.isSuperAdmin).toBe(true)
     })
+
+    it('keeps an organization-bound API key restricted when its role grants all organizations', async () => {
+      const key: Partial<ApiKey> = {
+        id: 'key-org-bound',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      }
+      const roleAcl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['documents.manage'],
+        organizationsJson: null,
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => entity === ApiKey ? key : null)
+      em.find.mockImplementation(async (entity: any) => entity === RoleAcl ? [roleAcl] : [])
+
+      const acl = await service.loadAcl('api_key:key-org-bound', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-2',
+      })
+
+      expect(acl).toEqual({
+        isSuperAdmin: false,
+        features: ['documents.manage'],
+        organizations: ['org-1'],
+      })
+    })
+
+    it('applies role organization restrictions to a tenant-scoped API key', async () => {
+      const key: Partial<ApiKey> = {
+        id: 'key-tenant-bound',
+        tenantId: 'tenant-1',
+        organizationId: null,
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      }
+      const roleAcl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['documents.manage'],
+        organizationsJson: ['org-1'],
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => entity === ApiKey ? key : null)
+      em.find.mockImplementation(async (entity: any) => entity === RoleAcl ? [roleAcl] : [])
+
+      const acl = await service.loadAcl('api_key:key-tenant-bound', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-2',
+      })
+
+      expect(acl).toEqual({
+        isSuperAdmin: false,
+        features: ['documents.manage'],
+        organizations: ['org-1'],
+      })
+    })
+
+    it('returns no organization access when key and role bounds do not overlap', async () => {
+      const key: Partial<ApiKey> = {
+        id: 'key-no-overlap',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      }
+      const roleAcl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: false,
+        featuresJson: ['documents.manage'],
+        organizationsJson: ['org-2'],
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => entity === ApiKey ? key : null)
+      em.find.mockImplementation(async (entity: any) => entity === RoleAcl ? [roleAcl] : [])
+
+      const acl = await service.loadAcl('api_key:key-no-overlap', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+      })
+
+      expect(acl).toEqual({
+        isSuperAdmin: false,
+        features: ['documents.manage'],
+        organizations: [],
+      })
+    })
+
+    it('does not let an API-key super-admin role bypass its organization bound', async () => {
+      const key: Partial<ApiKey> = {
+        id: 'key-org-super',
+        tenantId: 'tenant-1',
+        organizationId: 'org-1',
+        rolesJson: ['role-a'],
+        deletedAt: null,
+      }
+      const roleAcl: Partial<RoleAcl> = {
+        tenantId: 'tenant-1',
+        isSuperAdmin: true,
+        featuresJson: [],
+        organizationsJson: null,
+      }
+
+      em.findOne.mockImplementation(async (entity: any) => entity === ApiKey ? key : null)
+      em.find.mockImplementation(async (entity: any) => entity === RoleAcl ? [roleAcl] : [])
+
+      const acl = await service.loadAcl('api_key:key-org-super', {
+        tenantId: 'tenant-1',
+        organizationId: 'org-2',
+      })
+
+      expect(acl).toEqual({
+        isSuperAdmin: false,
+        features: ['*'],
+        organizations: ['org-1'],
+      })
+    })
   })
 
   describe('getGrantedFeatures', () => {

@@ -50,6 +50,7 @@ export function RecordFieldsDialog({
   const open = linkId !== null && canInsert
   const [state, setState] = React.useState<LoadState>({ status: 'idle' })
   const [selectedFields, setSelectedFields] = React.useState<Set<string>>(() => new Set())
+  const [loadAttempt, setLoadAttempt] = React.useState(0)
 
   React.useEffect(() => {
     if (linkId !== null && !canInsert) onOpenChange(false)
@@ -81,7 +82,12 @@ export function RecordFieldsDialog({
       if (!controller.signal.aborted) setState({ status: 'error' })
     })
     return () => controller.abort()
-  }, [documentId, linkId, open, t])
+  }, [documentId, linkId, loadAttempt, open, t])
+
+  const retry = React.useCallback(() => {
+    setState({ status: 'loading' })
+    setLoadAttempt((current) => current + 1)
+  }, [])
 
   const fields = React.useMemo<RecordFieldSnapshot[]>(() => {
     if (state.status !== 'ready' || !state.record?.canOpen) return []
@@ -128,7 +134,12 @@ export function RecordFieldsDialog({
         </DialogHeader>
 
         {state.status === 'loading' ? <LoadingMessage label={t('documents.relatedRecords.loading')} /> : null}
-        {state.status === 'error' ? <ErrorMessage label={t('documents.relatedRecords.error.load')} /> : null}
+        {state.status === 'error' ? (
+          <ErrorMessage
+            label={t('documents.relatedRecords.error.load')}
+            action={<Button type="button" size="sm" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : null}
         {state.status === 'ready' && fields.length === 0 ? (
           <EmptyState
             size="sm"

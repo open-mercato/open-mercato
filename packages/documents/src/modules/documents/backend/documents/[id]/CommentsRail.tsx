@@ -70,7 +70,12 @@ export function CommentsRail({
         </div>
         <div className="space-y-4">
           {comments.state.status === 'loading' ? <LoadingMessage label={t('documents.comments.loading')} /> : null}
-          {comments.state.status === 'error' ? <ErrorMessage label={comments.state.message} /> : null}
+          {comments.state.status === 'error' ? (
+            <ErrorMessage
+              label={comments.state.message}
+              action={<Button type="button" size="sm" variant="outline" onClick={() => void comments.reload()}>{t('documents.actions.retry')}</Button>}
+            />
+          ) : null}
           {comments.state.status === 'ready' && comments.comments.length === 0 ? (
             <EmptyState size="sm" variant="subtle" title={t('documents.comments.empty')} icon={<MessageSquare className="size-5" />} />
           ) : null}
@@ -102,13 +107,14 @@ export function CommentsRail({
               ref={composerRef}
               documentId={documentId}
               body={comments.body}
+              pendingMentions={comments.pendingMentions}
               replyToName={comments.replyToName}
               isSubmitting={comments.isSubmitting}
               onBodyChange={comments.setBody}
               onMentionsChange={comments.setPendingMentions}
               onSubmit={() => void comments.submit()}
               onCancel={comments.resetComposer}
-              focusSignal={commentFocusRequest?.requestId ?? comments.parentCommentId?.length}
+              focusSignal={commentFocusRequest?.requestId ?? comments.parentCommentId ?? undefined}
             />
           ) : null}
         </div>

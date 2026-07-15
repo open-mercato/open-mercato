@@ -16,7 +16,7 @@ export function MoveDocumentDialog({ document, folders, open, onOpenChange, onMo
   folders: FolderRow[]
   open: boolean
   onOpenChange: (open: boolean) => void
-  onMove: (document: DocumentRow, folderId: string | null) => Promise<void>
+  onMove: (document: DocumentRow, folderId: string | null) => Promise<boolean | void>
 }) {
   const t = useT()
   const [value, setValue] = React.useState(ROOT_VALUE)
@@ -26,19 +26,25 @@ export function MoveDocumentDialog({ document, folders, open, onOpenChange, onMo
     if (document && open) setValue(document.folderId ?? ROOT_VALUE)
   }, [document, open])
   const submit = React.useCallback(async () => {
-    if (!document || saving) return
+    if (!document || saving || (document.folderId ?? ROOT_VALUE) === value) return
     setSaving(true)
     try {
-      await onMove(document, value === ROOT_VALUE ? null : value)
-      onOpenChange(false)
+      const result = await onMove(document, value === ROOT_VALUE ? null : value)
+      if (result !== false) onOpenChange(false)
     } finally {
       setSaving(false)
     }
   }, [document, onMove, onOpenChange, saving, value])
-  const onKeyDown = useDialogKeyHandler({ onConfirm: () => { void submit() }, onCancel: () => onOpenChange(false) })
+  const onKeyDown = useDialogKeyHandler({
+    onConfirm: () => { if (!saving) void submit() },
+    onCancel: () => { if (!saving) onOpenChange(false) },
+  })
+  const handleOpenChange = React.useCallback((nextOpen: boolean) => {
+    if (!saving) onOpenChange(nextOpen)
+  }, [onOpenChange, saving])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent onKeyDown={onKeyDown}>
         <DialogHeader>
           <DialogTitle>{t('documents.folders.moveDocument.title')}</DialogTitle>

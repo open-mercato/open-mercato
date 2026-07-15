@@ -208,7 +208,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_attachments_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_attachments_document_id_foreign",
+          "localTableName": "public.document_attachments",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {
@@ -500,7 +513,32 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_comments_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_comments_document_id_foreign",
+          "localTableName": "public.document_comments",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        },
+        "document_comments_parent_comment_id_foreign": {
+          "columnNames": [
+            "parent_comment_id"
+          ],
+          "constraintName": "document_comments_parent_comment_id_foreign",
+          "localTableName": "public.document_comments",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.document_comments",
+          "deleteRule": "set null"
+        }
+      },
       "comment": null
     },
     {
@@ -730,7 +768,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_contents_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_contents_document_id_foreign",
+          "localTableName": "public.document_contents",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {
@@ -1190,7 +1241,20 @@
         }
       ],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_entity_links_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_entity_links_document_id_foreign",
+          "localTableName": "public.document_entity_links",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {
@@ -1397,7 +1461,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_folders_parent_folder_id_foreign": {
+          "columnNames": [
+            "parent_folder_id"
+          ],
+          "constraintName": "document_folders_parent_folder_id_foreign",
+          "localTableName": "public.document_folders",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.document_folders",
+          "deleteRule": "set null"
+        }
+      },
       "comment": null
     },
     {
@@ -1637,7 +1714,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_shares_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_shares_document_id_foreign",
+          "localTableName": "public.document_shares",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {
@@ -2098,7 +2188,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "document_versions_document_id_foreign": {
+          "columnNames": [
+            "document_id"
+          ],
+          "constraintName": "document_versions_document_id_foreign",
+          "localTableName": "public.document_versions",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.documents",
+          "deleteRule": "cascade"
+        }
+      },
       "comment": null
     },
     {
@@ -2348,7 +2451,20 @@
       ],
       "checks": [],
       "triggers": [],
-      "foreignKeys": {},
+      "foreignKeys": {
+        "documents_folder_id_foreign": {
+          "columnNames": [
+            "folder_id"
+          ],
+          "constraintName": "documents_folder_id_foreign",
+          "localTableName": "public.documents",
+          "referencedColumnNames": [
+            "id"
+          ],
+          "referencedTableName": "public.document_folders",
+          "deleteRule": "set null"
+        }
+      },
       "comment": null
     }
   ],

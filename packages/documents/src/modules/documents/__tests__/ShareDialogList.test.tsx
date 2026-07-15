@@ -1,5 +1,6 @@
 /** @jest-environment jsdom */
 
+import type { ReactNode } from 'react'
 import { render, screen } from '@testing-library/react'
 
 const translations: Record<string, string> = {
@@ -17,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 }))
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: ReactNode }) => <div>{label}{action}</div>,
 }))
 
 import { ShareDialogList } from '../backend/documents/components/ShareDialogList'
@@ -51,5 +52,23 @@ describe('ShareDialogList', () => {
     expect(screen.queryByText(PRINCIPAL_ID)).toBeNull()
     expect(screen.getByRole('combobox', { name: 'Permission: Ada Lovelace' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Remove access: Ada Lovelace' })).toBeTruthy()
+  })
+
+  it('retries a failed share list load without reopening the dialog', () => {
+    const onRetry = jest.fn()
+    render(
+      <ShareDialogList
+        shares={[]}
+        isLoading={false}
+        error="Failed to load access"
+        canManage
+        onRetry={onRetry}
+        onPermissionChange={jest.fn(async () => undefined)}
+        onRemove={jest.fn(async () => undefined)}
+      />,
+    )
+
+    screen.getByRole('button', { name: 'documents.actions.retry' }).click()
+    expect(onRetry).toHaveBeenCalledTimes(1)
   })
 })

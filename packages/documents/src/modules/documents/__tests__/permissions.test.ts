@@ -164,12 +164,15 @@ function mockServiceContainer(input: {
   userRoles?: MockUserRoleRow[]
   apiKeys?: MockApiKeyRow[]
   roles?: MockRoleRow[]
+  manageUserIds?: string[]
   missingAuth?: boolean
   missingApiKeys?: boolean
+  missingRbac?: boolean
 } = {}) {
   const userRoles = input.userRoles ?? []
   const apiKeys = input.apiKeys ?? []
   const roles = input.roles ?? []
+  const manageUserIds = input.manageUserIds ?? []
   const authPrincipalService = {
     principalExists: jest.fn(async () => false),
     resolveLabels: jest.fn(async () => []),
@@ -195,10 +198,18 @@ function mockServiceContainer(input: {
       return key.rolesJson
     }),
   }
+  const rbacService = {
+    userHasAllFeatures: jest.fn(async (userId: string, required: string[]) => (
+      required.length === 1
+      && required[0] === 'documents.manage'
+      && manageUserIds.includes(userId)
+    )),
+  }
   return {
     resolve(name: string) {
       if (name === 'authPrincipalService' && !input.missingAuth) return authPrincipalService
       if (name === 'apiKeyPrincipalService' && !input.missingApiKeys) return apiKeyPrincipalService
+      if (name === 'rbacService' && !input.missingRbac) return rbacService
       throw new Error('missing')
     },
   }
@@ -433,14 +444,15 @@ describe('documents permission tiers', () => {
     expect(result).toBe('viewer')
   })
 
-  it('does not treat manage features as explicit recipient access', async () => {
+  it('treats the live documents.manage grant as recipient access', async () => {
     const result = await resolveUserAccess(
       mockEm(makeDocument()),
       DOCUMENT_ID,
       { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
       USER_ID,
+      mockServiceContainer({ manageUserIds: [USER_ID] }),
     )
-    expect(result).toBeNull()
+    expect(result).toBe('owner')
   })
 
   it('fails closed for role shares when a principal provider is missing', async () => {

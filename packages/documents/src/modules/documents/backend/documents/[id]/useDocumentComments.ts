@@ -15,6 +15,7 @@ import {
 import { readNumber, readRecord } from '../documentUi'
 import type { CommentAnchor } from './CommentAnchorNavigation'
 import {
+  bodyContainsPendingMention,
   findCommentById,
   readCommentItems,
   readUserLabels,
@@ -47,6 +48,9 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
   const [resolvingCommentId, setResolvingCommentId] = React.useState<string | null>(null)
   const [grantAccessNames, setGrantAccessNames] = React.useState<string[] | null>(null)
   const grantResolver = React.useRef<((share: boolean) => void) | null>(null)
+  const reloadSequence = React.useRef(0)
+  const activeReload = React.useRef<AbortController | null>(null)
+  const activeDocumentId = React.useRef<string | null>(null)
   const mutationContextId = `documents-comments:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -54,31 +58,72 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
     resourceId: string
     retryLastMutation: () => Promise<boolean>
   }>({ contextId: mutationContextId, blockedMessage: t('ui.forms.flash.saveBlocked') })
+  const activePendingMentions = React.useMemo(
+    () => pendingMentions.filter((mention) => bodyContainsPendingMention(body, mention)),
+    [body, pendingMentions],
+  )
 
   const reload = React.useCallback(async () => {
-    setState((current) => current.status === 'ready' ? current : { status: 'loading' })
+    const reloadId = ++reloadSequence.current
+    const controller = new AbortController()
+    activeReload.current?.abort()
+    activeReload.current = controller
+    const isCurrent = () => reloadSequence.current === reloadId && !controller.signal.aborted
+    const documentChanged = activeDocumentId.current !== documentId
+    activeDocumentId.current = documentId
+    setState((current) => !documentChanged && current.status === 'ready' ? current : { status: 'loading' })
     try {
       const maxPages = Math.ceil(DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT / DOCUMENTS_COMMENT_LIST_PAGE_SIZE)
-      let comments: DocumentComment[] = []
-      let userLabels: UserLabels = {}
-      for (let page = 1; page <= maxPages; page += 1) {
-        const call = await apiCall<unknown>(
-          `/api/documents/${encodeURIComponent(documentId)}/comments?page=${page}&pageSize=${DOCUMENTS_COMMENT_LIST_PAGE_SIZE}`,
-        )
-        if (!call.ok) return setState({ status: 'error', message: t('documents.comments.error.load') })
-        comments = [...readCommentItems(call.result), ...comments]
-        userLabels = { ...userLabels, ...readUserLabels(call.result, t('documents.users.unknown')) }
-        const root = readRecord(call.result)
-        const totalPages = Math.max(1, root ? readNumber(root, 'totalPages', 'total_pages') ?? 1 : 1)
-        if (page >= totalPages) break
+      const pathForPage = (page: number) => (
+        `/api/documents/${encodeURIComponent(documentId)}/comments?page=${page}&pageSize=${DOCUMENTS_COMMENT_LIST_PAGE_SIZE}`
+      )
+      const firstCall = await apiCall<unknown>(pathForPage(1), { signal: controller.signal })
+      if (!isCurrent()) return
+      if (!firstCall.ok) {
+        setState({ status: 'error', message: t('documents.comments.error.load') })
+        return
       }
+
+      const firstRoot = readRecord(firstCall.result)
+      const totalPages = Math.min(
+        maxPages,
+        Math.max(1, firstRoot ? readNumber(firstRoot, 'totalPages', 'total_pages') ?? 1 : 1),
+      )
+      const remainingCalls = totalPages > 1
+        ? await Promise.all(Array.from({ length: totalPages - 1 }, (_, index) => (
+            apiCall<unknown>(pathForPage(index + 2), { signal: controller.signal })
+          )))
+        : []
+      if (!isCurrent()) return
+      if (remainingCalls.some((call) => !call.ok)) {
+        setState({ status: 'error', message: t('documents.comments.error.load') })
+        return
+      }
+
+      const calls = [firstCall, ...remainingCalls]
+      const comments = [...calls].reverse().flatMap((call) => readCommentItems(call.result))
+      const userLabels = calls.reduce<UserLabels>((labels, call) => ({
+        ...labels,
+        ...readUserLabels(call.result, t('documents.users.unknown')),
+      }), {})
       setState({ status: 'ready', comments, userLabels })
     } catch (error) {
-      setState({ status: 'error', message: error instanceof Error ? error.message : t('documents.comments.error.load') })
+      if (isCurrent()) {
+        setState({ status: 'error', message: error instanceof Error ? error.message : t('documents.comments.error.load') })
+      }
+    } finally {
+      if (activeReload.current === controller) activeReload.current = null
     }
   }, [documentId, t])
 
-  React.useEffect(() => { void reload() }, [reload])
+  React.useEffect(() => {
+    void reload()
+    return () => {
+      reloadSequence.current += 1
+      activeReload.current?.abort()
+      activeReload.current = null
+    }
+  }, [reload])
   React.useEffect(() => () => { grantResolver.current?.(false) }, [])
 
   const labelFor = React.useCallback((userId: string) => {
@@ -107,7 +152,7 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
   }), [])
 
   const resolveGrantAccessTo = React.useCallback(async (): Promise<string[] | undefined> => {
-    const userIds = Array.from(new Set(pendingMentions.map((mention) => mention.userId.toLowerCase())))
+    const userIds = Array.from(new Set(activePendingMentions.map((mention) => mention.userId.toLowerCase())))
     if (userIds.length === 0) return undefined
     // Intentionally outside useGuardedMutation: access-check is read-shaped
     // (a POST only to carry the user-id list in the body) and mutates nothing.
@@ -122,9 +167,14 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
       flash(t('documents.comments.grant.noAccessInfo'), 'info')
       return []
     }
-    const share = await requestGrantAccess(withoutAccess.map((user) => user.label ?? labelFor(user.userId)))
+    const pendingMentionNames = new Map(
+      activePendingMentions.map((mention) => [mention.userId.toLowerCase(), mention.name]),
+    )
+    const share = await requestGrantAccess(withoutAccess.map((user) => (
+      pendingMentionNames.get(user.userId) ?? user.label ?? labelFor(user.userId)
+    )))
     return share ? withoutAccess.map((user) => user.userId) : []
-  }, [canShare, documentId, labelFor, pendingMentions, requestGrantAccess, t])
+  }, [activePendingMentions, canShare, documentId, labelFor, requestGrantAccess, t])
 
   const submit = React.useCallback(async () => {
     const trimmedBody = body.trim()
@@ -135,7 +185,7 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
       const anchor = pendingAnchor ?? (editor
         ? (await import('./CommentAnchorNavigation')).captureCommentAnchor(editor)
         : null)
-      const mentions = pendingMentions.map(({ userId }) => ({ userId }))
+      const mentions = activePendingMentions.map(({ userId }) => ({ userId }))
       await runMutation({
         operation: () => apiCallOrThrow(
           `/api/documents/${encodeURIComponent(documentId)}/comments`,
@@ -155,7 +205,7 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
     } finally {
       setIsSubmitting(false)
     }
-  }, [body, canComment, documentId, editor, mutationContextId, parentCommentId, pendingAnchor, pendingMentions, reload, resetComposer, resolveGrantAccessTo, retryLastMutation, runMutation, t])
+  }, [activePendingMentions, body, canComment, documentId, editor, mutationContextId, parentCommentId, pendingAnchor, reload, resetComposer, resolveGrantAccessTo, retryLastMutation, runMutation, t])
 
   const resolveComment = React.useCallback(async (comment: DocumentComment) => {
     if (!comment.canResolve) return

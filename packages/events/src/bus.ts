@@ -5,7 +5,10 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
-import { isCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
+import {
+  isCrossProcessBroadcastEvent,
+  isPrivateCrossProcessEventEmitter,
+} from '@open-mercato/shared/modules/events'
 import {
   inferModuleIdFromResourceId,
   withModuleResourceUsage,
@@ -50,9 +53,8 @@ function isSingleDeliveryEnabled(): boolean {
 type GlobalEventTap = (event: string, payload: EventPayload, options?: EmitOptions) => void | Promise<void>
 const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
 
-function hasTenantScope(payload: EventPayload): boolean {
-  return typeof (payload as Record<string, unknown>)?.tenantId === 'string'
-    && String((payload as Record<string, unknown>).tenantId).trim().length > 0
+function hasTrustedTenantScope(options?: EmitOptions): boolean {
+  return typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
@@ -311,7 +313,15 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       await deliver(event, payload, options, skipPersistentInline)
     }
 
-    if (isCrossProcessBroadcastEvent(event) && hasTenantScope(payload)) {
+    // Cross-process consumers use the envelope scope for authorization. Event
+    // payloads are application data and can be authored by workflows or other
+    // tenant-managed inputs, so they must never activate the bridge by
+    // themselves.
+    if (
+      isCrossProcessBroadcastEvent(event)
+      && hasTrustedTenantScope(options)
+      && isPrivateCrossProcessEventEmitter(event, options?.emitterModuleId)
+    ) {
       try {
         await publishCrossProcessEvent(event, payload, options)
       } catch (error) {

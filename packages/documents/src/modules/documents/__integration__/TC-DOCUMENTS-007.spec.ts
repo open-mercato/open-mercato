@@ -10,7 +10,6 @@ import {
 import {
   expectId,
   getTokenContext,
-  getTokenScope,
   readJsonSafe,
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -335,16 +334,18 @@ test.describe('TC-DOCUMENTS-007: labels', () => {
     let adminToken: string | null = null
     let owner: DocumentsTestUser | null = null
     let mentionTarget: DocumentsTestUser | null = null
+    let unsharedTarget: DocumentsTestUser | null = null
     let documentId: string | null = null
     let documentUpdatedAt: string | null = null
 
     try {
       adminToken = await getAuthToken(request, 'admin')
-      const adminUserId = getTokenScope(adminToken).userId
       owner = await createDocumentsUser(request, adminToken, 'owner', DOCUMENTS_OWNER_FEATURES)
       mentionTarget = await createDocumentsUser(request, adminToken, 'mention-target', DOCUMENTS_VIEW_FEATURES)
+      unsharedTarget = await createDocumentsUser(request, adminToken, 'unshared-target', DOCUMENTS_VIEW_FEATURES)
       const ownerUser = owner
       const mentionUser = mentionTarget
+      const unsharedUser = unsharedTarget
 
       const document = await createDocument(request, ownerUser.token, title)
       documentId = document.id
@@ -352,7 +353,7 @@ test.describe('TC-DOCUMENTS-007: labels', () => {
       await putContent(request, ownerUser.token, documentId, '<p>v1 body</p>', 'v1 body')
 
       await shareWithUser(request, ownerUser.token, documentId, mentionUser.id, 'viewer')
-      const adminShare = await shareWithUser(request, ownerUser.token, documentId, adminUserId, 'viewer')
+      const temporaryShare = await shareWithUser(request, ownerUser.token, documentId, unsharedUser.id, 'viewer')
 
       const listItemWithTwoShares = await readDocumentFromList(request, ownerUser.token, title, documentId)
       expect(listItemWithTwoShares.ownerLabel, 'document list ownerLabel should match the creator display name')
@@ -360,7 +361,7 @@ test.describe('TC-DOCUMENTS-007: labels', () => {
       expectNonUuidLabel(listItemWithTwoShares.ownerLabel, 'document list ownerLabel should not be a UUID')
       expect(listItemWithTwoShares.sharedWithCount, 'document list sharedWithCount should include two shares').toBe(2)
 
-      await deleteShare(request, ownerUser.token, documentId, adminShare.id, adminShare.updatedAt)
+      await deleteShare(request, ownerUser.token, documentId, temporaryShare.id, temporaryShare.updatedAt)
       const listItemWithOneShare = await readDocumentFromList(request, ownerUser.token, title, documentId)
       expect(listItemWithOneShare.sharedWithCount, 'document list sharedWithCount should drop after unsharing').toBe(1)
 
@@ -368,16 +369,19 @@ test.describe('TC-DOCUMENTS-007: labels', () => {
         request,
         'POST',
         `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
-        { token: ownerUser.token, data: { userIds: [adminUserId] } },
+        { token: ownerUser.token, data: { userIds: [unsharedUser.id] } },
       )
       const accessCheckBody = await readJsonSafe<AccessCheckBody>(accessCheckResponse)
       expect(accessCheckResponse.status(), 'POST comments access-check should return 200').toBe(200)
-      expect(accessCheckBody?.withoutAccess ?? [], 'unshared admin user should be reported without access')
-        .toContain(adminUserId)
+      expect(accessCheckBody?.withoutAccess ?? [], 'unshared user should be reported without access')
+        .toContain(unsharedUser.id)
       const withoutAccessUser = accessCheckBody?.withoutAccessUsers?.[0] ?? null
-      expect(sameId(withoutAccessUser?.userId, adminUserId), 'withoutAccessUsers should include the checked user id')
-        .toBe(true)
-      expectNonUuidLabel(withoutAccessUser?.label, 'withoutAccessUsers label should not be a UUID')
+      expect(
+        sameId(withoutAccessUser?.userId, unsharedUser.id),
+        'access-check should preserve its ID-only compatibility shape',
+      ).toBe(true)
+      expect(withoutAccessUser?.label, 'access-check should not return a user label').toBeNull()
+      expect(withoutAccessUser?.secondary, 'access-check should not return user secondary data').toBeNull()
 
       const newMentionResponse = await apiRequest(
         request,
@@ -466,6 +470,8 @@ test.describe('TC-DOCUMENTS-007: labels', () => {
       await deleteRoleIfExists(request, adminToken, owner?.roleId ?? null)
       await deleteUserIfExists(request, adminToken, mentionTarget?.id ?? null)
       await deleteRoleIfExists(request, adminToken, mentionTarget?.roleId ?? null)
+      await deleteUserIfExists(request, adminToken, unsharedTarget?.id ?? null)
+      await deleteRoleIfExists(request, adminToken, unsharedTarget?.roleId ?? null)
     }
   })
 })

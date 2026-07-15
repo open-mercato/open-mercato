@@ -3,6 +3,7 @@ import { register as registerAuthDi } from '../modules/auth/di'
 import { register as registerApiKeysDi } from '../modules/api_keys/di'
 import { register as registerDirectoryDi } from '../modules/directory/di'
 import { register as registerAttachmentsDi } from '../modules/attachments/di'
+import { register as registerNotificationsDi } from '../modules/notifications/di'
 import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 
 // The request container is created with InjectionMode.CLASSIC
@@ -20,6 +21,7 @@ describe('cross-module DI seams resolve under CLASSIC injection mode', () => {
     { register: registerApiKeysDi, seams: ['apiKeyPrincipalService'] },
     { register: registerDirectoryDi, seams: ['organizationScopeService'] },
     { register: registerAttachmentsDi, seams: ['attachmentService'] },
+    { register: registerNotificationsDi, seams: ['notificationService'] },
   ]
 
   const buildClassicContainer = (): AppContainer => {
@@ -30,6 +32,7 @@ describe('cross-module DI seams resolve under CLASSIC injection mode', () => {
       storageDriverFactory: asValue({}),
       moduleConfigService: asValue({}),
       eventBus: asValue({}),
+      commandBus: asValue({}),
     })
     return container as unknown as AppContainer
   }

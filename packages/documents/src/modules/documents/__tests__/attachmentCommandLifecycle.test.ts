@@ -33,9 +33,12 @@ jest.mock('@open-mercato/shared/lib/logger', () => {
 })
 
 import {
+  DOCUMENT_ATTACHMENT_UPLOAD_CONTEXT,
+  createDocumentAttachmentCommand,
   deleteDocumentAttachmentCommand,
   releaseAllDocumentAttachments,
   runAttachmentProviderCleanups,
+  type DocumentAttachmentCreateCommandInput,
   type DocumentAttachmentDeleteCommandInput,
 } from '../commands/attachments'
 
@@ -79,7 +82,23 @@ function makeHarness(expectedUpdatedAt: string) {
     commit: jest.fn(async () => { inTransaction = false; order.push('commit') }),
     rollback: jest.fn(async () => { inTransaction = false; order.push('rollback') }),
     isInTransaction: jest.fn(() => inTransaction),
+    create: jest.fn((_entity: unknown, data: Record<string, unknown>) => Object.assign(
+      new DocumentAttachment(),
+      data,
+      {
+        createdAt: CURRENT_UPDATED_AT,
+        updatedAt: CURRENT_UPDATED_AT,
+        deletedAt: null,
+      },
+    )),
+    persist: jest.fn(),
   } as unknown as EntityManager
+  attachmentService.createScoped.mockImplementation(async (params: {
+    persistLink?: (tx: EntityManager, attachmentId: string) => Promise<void> | void
+  }) => {
+    await params.persistLink?.(em, ATTACHMENT_ID)
+    return { id: ATTACHMENT_ID }
+  })
   const ctx = {
     container: {
       resolve: (name: string) => {
@@ -100,7 +119,18 @@ function makeHarness(expectedUpdatedAt: string) {
       headers: { [LOCK_HEADER]: expectedUpdatedAt },
     }),
   } satisfies CommandRuntimeContext
-  return { ctx, em, releaseScoped, providerCleanup, order }
+  return { ctx, em, attachmentService, releaseScoped, providerCleanup, order }
+}
+
+function createInput(): DocumentAttachmentCreateCommandInput {
+  return {
+    tenantId: TENANT_ID,
+    organizationId: ORGANIZATION_ID,
+    documentId: DOCUMENT_ID,
+    fileName: 'contract.png',
+    fileType: 'image/png',
+    fileSize: 4,
+  }
 }
 
 function input(): DocumentAttachmentDeleteCommandInput {
@@ -122,6 +152,91 @@ describe('document attachment command lifecycle', () => {
 
   afterEach(() => {
     jest.useRealTimers()
+  })
+
+  it('creates and audits an attachment link through the command without logging bytes', async () => {
+    const harness = makeHarness(CURRENT_UPDATED_AT.toISOString())
+    const buffer = Buffer.from('safe')
+    const ctx = {
+      ...harness.ctx,
+      [DOCUMENT_ATTACHMENT_UPLOAD_CONTEXT]: { buffer },
+    }
+
+    const result = await createDocumentAttachmentCommand.execute(createInput(), ctx)
+    const log = await createDocumentAttachmentCommand.buildLog?.({
+      input: createInput(),
+      result,
+      ctx,
+      snapshots: {},
+    })
+
+    expect(harness.attachmentService.validateUpload).toHaveBeenCalledWith({
+      fileName: 'contract.png',
+      fileSize: 4,
+    })
+    expect(harness.attachmentService.createScoped).toHaveBeenCalledWith(expect.objectContaining({
+      entityId: 'documents:document',
+      recordId: DOCUMENT_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      fileName: 'contract.png',
+      declaredMimeType: 'image/png',
+      buffer,
+    }))
+    expect(mockLockDocumentAggregateRoot).toHaveBeenCalledWith(
+      harness.em,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    )
+    expect(mockAssertDocumentCommandCapability).toHaveBeenCalledWith(
+      expect.objectContaining({ transactionalEm: harness.em }),
+      harness.em,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      'canEdit',
+    )
+    expect(result).toMatchObject({
+      id: ATTACHMENT_ID,
+      attachmentId: ATTACHMENT_ID,
+      updatedAt: CURRENT_UPDATED_AT.toISOString(),
+    })
+    expect(log).toMatchObject({
+      resourceKind: 'documents:document_attachment',
+      resourceId: result.linkId,
+      parentResourceId: DOCUMENT_ID,
+      relatedResourceId: ATTACHMENT_ID,
+      snapshotAfter: expect.objectContaining({
+        fileName: 'contract.png',
+        fileSize: 4,
+      }),
+    })
+    expect(JSON.stringify(log)).not.toContain(buffer.toString('base64'))
+    expect(createDocumentAttachmentCommand.isUndoable).toBe(false)
+  })
+
+  it('requires request-local upload bytes before invoking the provider', async () => {
+    const harness = makeHarness(CURRENT_UPDATED_AT.toISOString())
+
+    await expect(createDocumentAttachmentCommand.execute(createInput(), harness.ctx)).rejects.toMatchObject({
+      status: 400,
+    })
+
+    expect(harness.attachmentService.createScoped).not.toHaveBeenCalled()
+  })
+
+  it('rejects command metadata that does not match the request-local upload bytes', async () => {
+    const harness = makeHarness(CURRENT_UPDATED_AT.toISOString())
+    const ctx = {
+      ...harness.ctx,
+      [DOCUMENT_ATTACHMENT_UPLOAD_CONTEXT]: { buffer: Buffer.from('different-size') },
+    }
+
+    await expect(createDocumentAttachmentCommand.execute(createInput(), ctx)).rejects.toMatchObject({
+      status: 400,
+    })
+
+    expect(harness.attachmentService.validateUpload).not.toHaveBeenCalled()
+    expect(harness.attachmentService.createScoped).not.toHaveBeenCalled()
   })
 
   it('rejects a stale detach before provider or quota cleanup', async () => {

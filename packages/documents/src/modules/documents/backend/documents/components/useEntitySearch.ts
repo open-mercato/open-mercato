@@ -30,6 +30,10 @@ function buildResultContext(open: boolean, type: DocumentEntityType | null, quer
   return JSON.stringify([open, type, query.trim()])
 }
 
+function isPermanentlyUnavailableStatus(status: number | undefined): boolean {
+  return status === 403 || status === 404
+}
+
 export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]) {
   const typeFilterKey = typeFilter?.join('|') ?? ''
   const requestSequence = React.useRef(0)
@@ -37,7 +41,7 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
   const activeContext = React.useRef('')
   const resultContext = React.useRef<string | null>(null)
   const allEntries = React.useMemo(() => filterEntries(typeFilter), [typeFilterKey])
-  const { entries: moduleAvailableEntries } = useAvailableDocumentEntityRegistry(allEntries)
+  const { entries: moduleAvailableEntries, isRegistryReady } = useAvailableDocumentEntityRegistry(allEntries)
   const [unavailableTypes, setUnavailableTypes] = React.useState<Set<DocumentEntityType>>(() => new Set())
   const availableEntries = React.useMemo(
     () => moduleAvailableEntries.filter((entry) => !unavailableTypes.has(entry.type)),
@@ -50,6 +54,8 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
   const [items, setItems] = React.useState<EntitySearchItem[]>([])
   const [isLoading, setIsLoading] = React.useState(false)
   const [hasSearched, setHasSearched] = React.useState(false)
+  const [errorContext, setErrorContext] = React.useState<string | null>(null)
+  const [retryToken, setRetryToken] = React.useState(0)
   const [activeIndex, setActiveIndex] = React.useState(-1)
   const activeEntry = React.useMemo(
     () => availableEntries.find((entry) => entry.type === activeType) ?? availableEntries[0] ?? null,
@@ -66,6 +72,7 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
     setItems([])
     setIsLoading(false)
     setHasSearched(false)
+    setErrorContext(null)
     setActiveIndex(-1)
   }, [])
 
@@ -113,6 +120,7 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
       resultContext.current = null
       setIsLoading(true)
       setHasSearched(false)
+      setErrorContext(null)
       void apiCall<unknown>(
         buildSearchUrl(entry, query),
         {
@@ -124,8 +132,12 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
         if (requestSequence.current !== requestId || activeContext.current !== requestContext) return
         if (!call.ok) {
           resultContext.current = null
-          setUnavailableTypes((current) => new Set(current).add(entry.type))
           setItems([])
+          if (isPermanentlyUnavailableStatus(call.status)) {
+            setUnavailableTypes((current) => new Set(current).add(entry.type))
+          } else {
+            setErrorContext(requestContext)
+          }
           return
         }
         const next = readItemsArray(call.result).flatMap((rawItem) => {
@@ -133,13 +145,15 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
           return item ? [{ ...item, rawItem }] : []
         })
         resultContext.current = requestContext
+        setErrorContext(null)
         setItems(next)
         setHasSearched(true)
         setActiveIndex(next.length > 0 ? 0 : -1)
       }).catch(() => {
         if (!controller.signal.aborted && requestSequence.current === requestId && activeContext.current === requestContext) {
           resultContext.current = null
-          setUnavailableTypes((current) => new Set(current).add(entry.type))
+          setItems([])
+          setErrorContext(requestContext)
         }
       }).finally(() => {
         if (requestSequence.current === requestId) {
@@ -149,7 +163,7 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
       })
     }, DEBOUNCE_MS)
     return () => window.clearTimeout(timer)
-  }, [activeEntry, invalidateResults, open, searchValue])
+  }, [activeEntry, invalidateResults, open, retryToken, searchValue])
 
   React.useEffect(() => () => { activeRequest.current?.abort() }, [])
 
@@ -158,11 +172,25 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
     () => resultContext.current !== null && resultContext.current === activeContext.current,
     [],
   )
+  const retry = React.useCallback(() => {
+    if (!open || !activeEntry || !searchValue.trim()) return
+    requestSequence.current += 1
+    activeRequest.current?.abort()
+    activeRequest.current = null
+    resultContext.current = null
+    setItems([])
+    setIsLoading(false)
+    setHasSearched(false)
+    setErrorContext(null)
+    setActiveIndex(-1)
+    setRetryToken((token) => token + 1)
+  }, [activeEntry, open, searchValue])
 
   return {
-    allEntries, availableEntries, activeEntry, activeType, setActiveType,
+    allEntries, availableEntries, isRegistryReady, activeEntry, activeType, setActiveType,
     searchValue, setSearchValue, items: hasCurrentResult ? items : [], isLoading,
     hasSearched: hasCurrentResult && hasSearched,
+    hasError: errorContext !== null && errorContext === currentContext, retry,
     activeIndex: hasCurrentResult ? activeIndex : -1, setActiveIndex, isResultCurrent,
   }
 }

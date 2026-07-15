@@ -44,6 +44,7 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
   const [slots, setSlots] = React.useState<TemplateContextSlot[]>([])
   const [bodyHtml, setBodyHtml] = React.useState('<p></p>')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const submittingRef = React.useRef(false)
   const [formError, setFormError] = React.useState<string | null>(null)
   const mutationContextId = template ? `documents-template-editor:${template.id}` : 'documents-template-editor:new'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -84,10 +85,12 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
   }, [slots])
 
   const save = React.useCallback(async () => {
+    if (submittingRef.current) return
     const editingTemplate = templateDetail.template
     if (template && !editingTemplate) return
     if (!name.trim()) { setFormError(t('documents.templates.validation.nameRequired')); return }
     if (slots.some((slot) => !TEMPLATE_SLOT_KEY_PATTERN.test(slot.slot))) { setFormError(t('documents.templates.validation.fixSlots')); return }
+    submittingRef.current = true
     setIsSubmitting(true)
     setFormError(null)
     const payload = {
@@ -119,7 +122,10 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
       if (!surfaceRecordConflict(error, t, { onRefresh: onSaved })) {
         flash(error instanceof Error ? error.message : t(editingTemplate ? 'documents.templates.error.update' : 'documents.templates.error.create'), 'error')
       }
-    } finally { setIsSubmitting(false) }
+    } finally {
+      submittingRef.current = false
+      setIsSubmitting(false)
+    }
   }, [bodyHtml, description, isActive, mutationContextId, name, onOpenChange, onSaved, retryLastMutation, runMutation, slots, t, template, templateDetail.template])
 
   return (
@@ -133,7 +139,12 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
           <DialogDescription>{t('documents.templates.dialog.description')}</DialogDescription>
         </DialogHeader>
         {template && templateDetail.isLoading ? <LoadingMessage label={t('documents.templates.instantiate.loading')} /> : null}
-        {template && templateDetail.error ? <ErrorMessage label={t('documents.templates.error.load')} /> : null}
+        {template && templateDetail.error ? (
+          <ErrorMessage
+            label={t('documents.templates.error.load')}
+            action={<Button type="button" size="sm" variant="outline" onClick={templateDetail.retry}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : null}
         {!template || templateDetail.template ? (
           <>
             <div className="grid gap-6 xl:grid-cols-3">

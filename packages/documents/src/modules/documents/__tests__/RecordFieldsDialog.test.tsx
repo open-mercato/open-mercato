@@ -18,7 +18,7 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div>{label}{action}</div>,
 }))
 
 jest.mock('@open-mercato/ui/primitives/button', () => ({
@@ -197,5 +197,27 @@ describe('RecordFieldsDialog', () => {
     expect(screen.queryByText('Must not render')).toBeNull()
     fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', metaKey: true })
     expect(insertSnapshotMock).not.toHaveBeenCalled()
+  })
+
+  it('retries a failed field refresh and recovers without closing the dialog', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce(accessibleResponse())
+
+    render(
+      <RecordFieldsDialog
+        documentId={DOCUMENT_ID}
+        linkId={LINK_ID}
+        editor={editor}
+        canInsert
+        onOpenChange={jest.fn()}
+      />,
+    )
+
+    await screen.findByText('documents.relatedRecords.error.load')
+    fireEvent.click(screen.getByRole('button', { name: 'documents.actions.retry' }))
+
+    await screen.findByLabelText('documents.entityFields.name')
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
   })
 })

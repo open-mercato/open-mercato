@@ -56,6 +56,8 @@ describe('Documents events privacy contract', () => {
     }
     await emitDocumentsEvent('documents.document.updated', payload)
 
-    expect(emit).toHaveBeenCalledWith('documents.document.updated', payload, undefined)
+    expect(emit).toHaveBeenCalledWith('documents.document.updated', payload, {
+      emitterModuleId: 'documents',
+    })
   })
 })

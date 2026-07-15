@@ -1,5 +1,5 @@
 import { OptionalProps } from '@mikro-orm/core'
-import { Check, Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
+import { Check, Entity, Index, ManyToOne, PrimaryKey, Property, Unique } from '@mikro-orm/decorators/legacy'
 import { preserveMonotonicDocumentVersionOnUpdate } from '../lib/versioning'
 
 export type DocumentSharePrincipalType = 'user' | 'role'
@@ -31,7 +31,12 @@ export class Document {
   @Property({ type: 'varchar', length: 512 })
   title!: string
 
-  @Property({ name: 'folder_id', type: 'uuid', nullable: true })
+  @ManyToOne(() => DocumentFolder, {
+    fieldName: 'folder_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
   folderId?: string | null
 
   @Property({ name: 'owner_user_id', type: 'uuid' })
@@ -69,7 +74,7 @@ export class DocumentContent {
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
   @Property({ name: 'organization_id', type: 'uuid' })
@@ -124,7 +129,12 @@ export class DocumentFolder {
   @Property({ type: 'varchar', length: 256 })
   name!: string
 
-  @Property({ name: 'parent_folder_id', type: 'uuid', nullable: true })
+  @ManyToOne(() => DocumentFolder, {
+    fieldName: 'parent_folder_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
   parentFolderId?: string | null
 
   @Property({ name: 'owner_user_id', type: 'uuid' })
@@ -160,7 +170,7 @@ export class DocumentShare {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
   @Property({ name: 'principal_type', type: 'varchar', length: 16 })
@@ -209,10 +219,15 @@ export class DocumentComment {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
-  @Property({ name: 'parent_comment_id', type: 'uuid', nullable: true })
+  @ManyToOne(() => DocumentComment, {
+    fieldName: 'parent_comment_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'set null',
+  })
   parentCommentId?: string | null
 
   @Property({ name: 'author_user_id', type: 'uuid' })
@@ -258,7 +273,7 @@ export class DocumentVersion {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
   @Property({ type: 'varchar', length: 256, nullable: true })
@@ -293,7 +308,7 @@ export class DocumentAttachment {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
   @Property({ name: 'attachment_id', type: 'uuid' })
@@ -459,7 +474,7 @@ export class DocumentEntityLink {
   @Property({ name: 'tenant_id', type: 'uuid' })
   tenantId!: string
 
-  @Property({ name: 'document_id', type: 'uuid' })
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
   documentId!: string
 
   @Property({ name: 'customer_entity_id', type: 'uuid', nullable: true })

@@ -1,27 +1,32 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { randomUUID } from 'node:crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
-import { DocumentAttachment } from '../../../data/entities'
+import {
+  DOCUMENT_ATTACHMENT_UPLOAD_CONTEXT,
+  type DocumentAttachmentCreateCommandInput,
+  type DocumentAttachmentCreateCommandResult,
+} from '../../../commands/attachments'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { readAttachmentUploadForm, resolveAttachmentServicePort } from '../../../lib/attachmentServicePort'
 import { assertTier } from '../../../lib/permissions'
 import {
   handleDocumentsRouteError,
   loadScopedDocument,
-  resolveActorUserId,
   resolveDocumentsContext,
   routeErrorSchema,
   runMutationGuardAfterSuccess,
   validateMutationGuard,
 } from '../../_shared'
+import {
+  attachDocumentsOperationMetadata,
+  buildDocumentsCommandRuntimeContext,
+  resolveDocumentsCommandBus,
+} from '../../_commands'
 
 type RouteContext = {
   params: Promise<{ id: string }> | { id: string }
 }
-
-const DOCUMENT_ATTACHMENT_PARTITION_CODE = 'privateAttachments'
 
 const attachmentUploadBodySchema = z.object({
   file: z.string().min(1).describe('Binary file payload supplied as multipart form-data'),
@@ -81,46 +86,43 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     })
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const userId = resolveActorUserId(ctx.auth)
-    const linkState: { updatedAt: string | null } = { updatedAt: null }
-    const created = await attachmentService.createScoped({
-      entityId: DOCUMENTS_ENTITY_IDS.document,
-      recordId: documentId,
-      organizationId: ctx.organizationId,
+    const commandInput: DocumentAttachmentCreateCommandInput = {
+      documentId,
       tenantId: ctx.tenantId,
-      partitionCode: DOCUMENT_ATTACHMENT_PARTITION_CODE,
+      organizationId: ctx.organizationId,
       fileName: file.name,
-      declaredMimeType: file.type,
-      buffer,
-      assignments: [{ type: DOCUMENTS_ENTITY_IDS.document, id: documentId }],
-      persistLink: async (tx, attachmentId) => {
-        const link = tx.create(DocumentAttachment, {
-          id: randomUUID(),
-          tenantId: ctx.tenantId,
-          organizationId: ctx.organizationId,
-          documentId,
-          attachmentId,
-          createdByUserId: userId,
-        })
-        linkState.updatedAt = link.updatedAt.toISOString()
-        tx.persist(link)
-      },
+      fileType: file.type || null,
+      fileSize: file.size,
+    }
+    const commandContext = {
+      ...buildDocumentsCommandRuntimeContext(ctx),
+      [DOCUMENT_ATTACHMENT_UPLOAD_CONTEXT]: { buffer },
+    }
+    const { result, logEntry } = await resolveDocumentsCommandBus(ctx).execute<
+      DocumentAttachmentCreateCommandInput,
+      DocumentAttachmentCreateCommandResult
+    >('documents.attachment.create', {
+      input: commandInput,
+      ctx: commandContext,
     })
 
     await runMutationGuardAfterSuccess(ctx, guardResult, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
-      resourceId: documentId,
+      resourceId: result.linkId,
       operation: 'create',
     })
 
-    const url = `/api/documents/${encodeURIComponent(documentId)}/attachments/${encodeURIComponent(created.id)}`
-    if (!linkState.updatedAt) throw new Error('[internal] document attachment link was not persisted')
-    return NextResponse.json({
-      id: created.id,
-      attachmentId: created.id,
-      updatedAt: linkState.updatedAt,
+    const url = `/api/documents/${encodeURIComponent(documentId)}/attachments/${encodeURIComponent(result.attachmentId)}`
+    const response = NextResponse.json({
+      id: result.id,
+      attachmentId: result.attachmentId,
+      updatedAt: result.updatedAt,
       url,
     }, { status: 201 })
+    return attachDocumentsOperationMetadata(response, logEntry, {
+      resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,
+      resourceId: result.linkId,
+    })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.attachments.create')
   }

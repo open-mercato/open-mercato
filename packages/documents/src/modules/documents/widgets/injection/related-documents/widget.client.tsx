@@ -8,6 +8,7 @@ import type { InjectionWidgetComponentProps } from '@open-mercato/shared/modules
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatDateTime } from '../../../backend/documents/documentUi'
@@ -15,9 +16,26 @@ import { LinkDocumentDialog } from './LinkDocumentDialog'
 import { resolveRelatedDocumentActions, resolveRelatedDocumentContext } from './context'
 import { useRelatedDocuments } from './useRelatedDocuments'
 
+function NewFromTemplateDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
+  const t = useT()
+  if (error) {
+    return (
+      <ErrorMessage
+        label={t('documents.templates.instantiate.error.load')}
+        action={<Button type="button" size="sm" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+      />
+    )
+  }
+  return (
+    <div role="status" aria-live="polite">
+      <LoadingMessage label={t('documents.templates.instantiate.loading')} />
+    </div>
+  )
+}
+
 const NewFromTemplateDialog = dynamic(
   () => import('../../../backend/documents/components/NewFromTemplateDialog').then((module) => module.NewFromTemplateDialog),
-  { ssr: false, loading: () => null },
+  { ssr: false, loading: NewFromTemplateDialogLoading },
 )
 
 export default function RelatedDocumentsWidget({ context, data, disabled }: InjectionWidgetComponentProps<Record<string, unknown>, Record<string, unknown>>) {
@@ -47,7 +65,7 @@ export default function RelatedDocumentsWidget({ context, data, disabled }: Inje
         {related.status === 'ready' && related.items.length > 0 ? <div className="space-y-2">{related.items.map((row) => (
           <div key={row.id} className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border p-3">
             <div className="min-w-0"><Link className="block truncate text-sm font-medium hover:underline focus-visible:underline focus-visible:outline-none" href={`/backend/documents/${row.id}`}>{row.title}</Link><p className="truncate text-xs text-muted-foreground">{t('documents.relatedDocuments.meta', { owner: row.ownerLabel, updated: formatDateTime(row.updatedAt, t('documents.relatedDocuments.unknownDate')) })}</p></div>
-            <Button asChild type="button" size="sm" variant="ghost"><Link href={`/backend/documents/${row.id}`}><ExternalLink />{t('documents.actions.open')}</Link></Button>
+            <LinkButton asChild size="sm" variant="gray"><Link href={`/backend/documents/${row.id}`}><ExternalLink />{t('documents.actions.open')}</Link></LinkButton>
           </div>
         ))}</div> : null}
       </div>

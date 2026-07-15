@@ -140,12 +140,15 @@ export function createCollaborationStatusController(options: {
 }
 
 export function applyCollaborationProviderStatus(
-  controller: Pick<ReturnType<typeof createCollaborationStatusController>, 'connected' | 'disconnected'>,
+  controller: Pick<ReturnType<typeof createCollaborationStatusController>, 'disconnected'>,
   payload: unknown,
 ): void {
   const record = readRecord(payload)
-  if (readString(record ?? {}, 'status') === 'connected') controller.connected()
-  else controller.disconnected()
+  // A physical WebSocket can report `connected` before Hocuspocus has
+  // authenticated and synchronized the document. Only the provider's `synced`
+  // event may restore the user-facing Live state; otherwise an auth failure can
+  // leave the UI claiming Live while the server is rejecting the room.
+  if (readString(record ?? {}, 'status') !== 'connected') controller.disconnected()
 }
 
 export function restartConnectedCollaborationSocket(websocket: {
@@ -157,6 +160,52 @@ export function restartConnectedCollaborationSocket(websocket: {
   return true
 }
 
+type CollaborationWebsocketLifecycle = {
+  status: string
+  webSocket?: { close: () => void } | null
+  connect?: () => unknown
+}
+
+export function createCollaborationSocketLifecycle(
+  websocket: CollaborationWebsocketLifecycle,
+) {
+  let disposed = false
+  let reconnectInFlight = false
+
+  const ensureConnected = (): boolean => {
+    if (
+      disposed
+      || reconnectInFlight
+      || websocket.status !== 'disconnected'
+      || typeof websocket.connect !== 'function'
+    ) return false
+
+    reconnectInFlight = true
+    void Promise.resolve(websocket.connect()).catch(() => undefined).finally(() => {
+      reconnectInFlight = false
+    })
+    return true
+  }
+
+  return {
+    connected() {
+      reconnectInFlight = false
+    },
+    disconnected() {
+      reconnectInFlight = false
+      return ensureConnected()
+    },
+    logicalClose() {
+      return restartConnectedCollaborationSocket(websocket) || ensureConnected()
+    },
+    ensureConnected,
+    dispose() {
+      disposed = true
+      reconnectInFlight = false
+    },
+  }
+}
+
 export function normalizeCollabTokenPayload(
   payload: unknown,
   fallbackUserLabel: string | null,
@@ -165,6 +214,7 @@ export function normalizeCollabTokenPayload(
   const user = readRecord(root?.user)
   if (!root || !user) return null
   const token = readString(root, 'token')
+  const collaborationDisabled = root.url === null
   const documentId = readString(root, 'documentId', 'document_id')
   const tier = readString(root, 'tier')
   const expiresInSec = readNumber(root, 'expiresInSec', 'expires_in_sec')
@@ -175,14 +225,14 @@ export function normalizeCollabTokenPayload(
     fallbackUserLabel,
   )
   const color = readString(user, 'color') ?? readString(root, 'userColor', 'user_color')
-  if (!token || !documentId || !tier || !expiresInSec || !id || !name || !color) return null
+  if ((!token && !collaborationDisabled) || !documentId || !tier || !expiresInSec || !id || !name || !color) return null
   return {
-    token,
+    token: token ?? '',
     documentId,
     tier,
     expiresInSec,
     user: { id, name, color: resolveCollaborationUserColor(id) },
-    url: readString(root, 'url'),
+    url: collaborationDisabled ? null : readString(root, 'url'),
     canEdit: root.canEdit === true,
     readOnly: root.readOnly !== false,
   }
@@ -233,6 +283,8 @@ export function useDocumentCollaboration(documentId: string): CollabState {
     let initialRetryTimer: TimeoutHandle | null = null
     let tokenRetryTimer: TimeoutHandle | null = null
     let statusController: ReturnType<typeof createCollaborationStatusController> | null = null
+    let socketLifecycle: ReturnType<typeof createCollaborationSocketLifecycle> | null = null
+    let removeResumeListeners: (() => void) | null = null
     let lastTokenFailure: 'fatal' | 'transient' | null = null
     const clearInitialTimers = () => {
       if (initialTimer !== null) clearTimeout(initialTimer)
@@ -244,15 +296,18 @@ export function useDocumentCollaboration(documentId: string): CollabState {
       if (tokenRetryTimer !== null) clearTimeout(tokenRetryTimer)
       tokenRetryTimer = null
     }
-    const fallback = () => {
+    const fallback = (readOnly = false) => {
       if (!active || terminal) return
       terminal = true
       clearInitialTimers()
       clearTokenRetryTimer()
       statusController?.dispose()
+      socketLifecycle?.dispose()
+      removeResumeListeners?.()
+      removeResumeListeners = null
       if (local && resourcesRef.current === local) { resourcesRef.current = null; destroy(local) }
       local = null
-      setState({ mode: 'fallback' })
+      setState({ mode: 'fallback', readOnly })
     }
     const fetchToken = async (): Promise<CollabTokenAttempt> => {
       return fetchCollabTokenAttempt(documentId, fallbackUserLabel)
@@ -282,7 +337,11 @@ export function useDocumentCollaboration(documentId: string): CollabState {
         }, COLLABORATION_PROVIDER_RETRY.delay)
         return
       }
-      if (initial.kind === 'fatal' || !initial.token.url) { fallback(); return }
+      if (initial.kind === 'fatal') { fallback(true); return }
+      if (!initial.token.url) {
+        fallback(initial.token.readOnly || !initial.token.canEdit)
+        return
+      }
       const ydoc = new Y.Doc()
       const provider = new HocuspocusProvider({
         url: initial.token.url,
@@ -301,8 +360,24 @@ export function useDocumentCollaboration(documentId: string): CollabState {
       statusController = createCollaborationStatusController({
         onStatus: update,
       })
+      const websocket = provider.configuration.websocketProvider
+      socketLifecycle = createCollaborationSocketLifecycle(websocket)
+      const resume = () => socketLifecycle?.ensureConnected()
+      const resumeWhenVisible = () => {
+        if (document.visibilityState === 'visible') resume()
+      }
+      window.addEventListener('online', resume)
+      window.addEventListener('pageshow', resume)
+      document.addEventListener('visibilitychange', resumeWhenVisible)
+      removeResumeListeners = () => {
+        window.removeEventListener('online', resume)
+        window.removeEventListener('pageshow', resume)
+        document.removeEventListener('visibilitychange', resumeWhenVisible)
+      }
       const updatePresence = () => setState((current) => current.mode === 'collab' && current.resources === resources ? { ...current, presenceUsers: readCollaborationPresence(provider, fallbackUserLabel) } : current)
       provider.on('status', (payload: unknown) => {
+        const record = readRecord(payload)
+        if (readString(record ?? {}, 'status') === 'connected') socketLifecycle?.connected()
         if (statusController) applyCollaborationProviderStatus(statusController, payload)
       })
       provider.on('synced', () => {
@@ -314,7 +389,11 @@ export function useDocumentCollaboration(documentId: string): CollabState {
       provider.on('authenticationFailed', () => {
         const tokenFailure = lastTokenFailure
         lastTokenFailure = null
-        if (tokenFailure !== 'transient') { fallback(); return }
+        // A freshly minted token can still hit the sidecar's short-lived room
+        // drain fence after a share/unshare rollover. Only a definitive token
+        // endpoint rejection is fatal; sidecar auth rejection with a valid
+        // token must keep retrying until the old room has drained.
+        if (tokenFailure === 'fatal') { fallback(true); return }
         statusController?.disconnected()
         clearTokenRetryTimer()
         tokenRetryTimer = setTimeout(() => {
@@ -324,10 +403,13 @@ export function useDocumentCollaboration(documentId: string): CollabState {
           websocket.webSocket?.close()
         }, COLLABORATION_PROVIDER_RETRY.delay)
       })
-      provider.on('disconnect', () => statusController?.disconnected())
+      provider.on('disconnect', () => {
+        statusController?.disconnected()
+        socketLifecycle?.disconnected()
+      })
       provider.on('close', () => {
         statusController?.disconnected()
-        restartConnectedCollaborationSocket(provider.configuration.websocketProvider)
+        socketLifecycle?.logicalClose()
       })
       provider.awareness?.on('change', updatePresence)
       setState({
@@ -340,13 +422,15 @@ export function useDocumentCollaboration(documentId: string): CollabState {
     }
     setState({ mode: 'connecting' })
     initialTimer = setTimeout(fallback, COLLABORATION_INITIAL_TIMEOUT_MS)
-    void start().catch(fallback)
+    void start().catch(() => fallback(false))
     return () => {
       active = false
       terminal = true
       clearInitialTimers()
       clearTokenRetryTimer()
       statusController?.dispose()
+      socketLifecycle?.dispose()
+      removeResumeListeners?.()
       if (local) destroy(local)
       if (resourcesRef.current === local) resourcesRef.current = null
     }

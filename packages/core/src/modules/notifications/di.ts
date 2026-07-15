@@ -6,6 +6,8 @@ export function register(container: AppContainer): void {
   container.register({
     notificationService: asFunction(({ em, eventBus, commandBus }) =>
       createNotificationService({ em, eventBus, commandBus })
-    ).scoped(),
+    )
+      .scoped()
+      .proxy(),
   })
 }

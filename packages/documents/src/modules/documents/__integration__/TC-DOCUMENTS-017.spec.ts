@@ -1,3 +1,5 @@
+import { spawn, type ChildProcess } from 'node:child_process'
+import path from 'node:path'
 import {
   expect,
   type APIRequestContext,
@@ -29,6 +31,82 @@ type CreatedDocument = { id: string; updatedAt: string }
 type TestUser = { id: string; roleId: string; email: string; token: string }
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const PASSWORD = 'DocsRecovery1!Pass'
+const COLLAB_INTEGRATION_ENABLED = process.env.OM_DOCUMENTS_COLLAB_INTEGRATION === '1'
+
+type ManagedCollabSidecar = {
+  stop: () => Promise<void>
+}
+
+function formatSidecarOutput(chunks: string[]): string {
+  return chunks.join('').trim().slice(-4_000)
+}
+
+async function stopSidecarProcess(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return
+  child.kill('SIGTERM')
+  await Promise.race([
+    new Promise<void>((resolve) => child.once('exit', () => resolve())),
+    new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+  ])
+  if (child.exitCode === null && child.signalCode === null) {
+    child.kill('SIGKILL')
+  }
+}
+
+async function startManagedCollabSidecar(): Promise<ManagedCollabSidecar> {
+  const configuredUrl = process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL?.trim()
+  if (!configuredUrl) {
+    throw new Error('NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is required when OM_DOCUMENTS_COLLAB_INTEGRATION=1')
+  }
+  const collabUrl = new URL(configuredUrl)
+  if (collabUrl.protocol !== 'ws:' || !['127.0.0.1', 'localhost'].includes(collabUrl.hostname)) {
+    throw new Error('Documents collaboration integration requires a loopback ws:// URL')
+  }
+
+  const port = collabUrl.port || '80'
+  const appRoot = process.env.OM_TEST_APP_ROOT?.trim() || path.resolve(process.cwd(), 'apps/mercato')
+  const serverEntry = path.resolve(process.cwd(), 'packages/documents/dist/server/documents-collab-server.js')
+  const output: string[] = []
+  const child = spawn(process.execPath, [serverEntry], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      NODE_ENV: 'production',
+      APP_URL: BASE_URL,
+      NEXT_PUBLIC_APP_URL: BASE_URL,
+      DOCUMENTS_COLLAB_ALLOWED_ORIGINS: new URL(BASE_URL).origin,
+      DOCUMENTS_COLLAB_APP_ROOT: appRoot,
+      DOCUMENTS_COLLAB_PORT: port,
+      // This UI scenario needs one real sidecar. The dedicated
+      // test:multi-instance gate separately proves Redis replication.
+      DOCUMENTS_COLLAB_REDIS_URL: '',
+      REDIS_URL: '',
+    },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  child.stdout?.on('data', (chunk: Buffer) => output.push(chunk.toString()))
+  child.stderr?.on('data', (chunk: Buffer) => output.push(chunk.toString()))
+
+  const healthUrl = `http://${collabUrl.hostname}:${port}/healthz`
+  const deadline = Date.now() + 30_000
+  while (Date.now() < deadline) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+      throw new Error(`Documents collaboration sidecar exited during startup.\n${formatSidecarOutput(output)}`)
+    }
+    try {
+      const response = await fetch(healthUrl)
+      if (response.ok) {
+        return { stop: () => stopSidecarProcess(child) }
+      }
+    } catch {
+      // The process may still be binding the port.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+
+  await stopSidecarProcess(child)
+  throw new Error(`Timed out waiting for documents collaboration sidecar.\n${formatSidecarOutput(output)}`)
+}
 
 async function createCollaborator(
   request: APIRequestContext,
@@ -155,8 +233,106 @@ async function deleteDocument(
   }).catch(() => undefined)
 }
 
+async function forceSingleUserFallback(page: Page, documentId: string): Promise<void> {
+  const collabTokenPath = `/api/documents/${documentId}/collab-token`
+  await page.route(`**${collabTokenPath}`, async (route) => {
+    const response = await route.fetch()
+    const payload = await response.json() as Record<string, unknown>
+    await route.fulfill({
+      response,
+      json: { ...payload, token: '', url: null },
+    })
+  })
+}
+
 test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snapshots', () => {
+  test('persists single-user fallback edits and surfaces stale-content conflicts', async ({ page, request }) => {
+    const stamp = Date.now()
+    let token: string | null = null
+    let document: CreatedDocument | null = null
+
+    try {
+      token = await getAuthToken(request, 'admin')
+      document = await createDocument(request, token, `TC-DOCUMENTS-017 fallback ${stamp}`)
+      await login(page, 'admin')
+      await forceSingleUserFallback(page, document.id)
+      await page.goto(`/backend/documents/${document.id}`, { waitUntil: 'domcontentloaded' })
+
+      await expect(page.getByText('Realtime unavailable', { exact: true })).toBeVisible()
+      await expect(page.getByText('Realtime is unavailable — changes are saved in single-user mode.')).toBeVisible()
+      const editor = page.locator('.ProseMirror:visible').first()
+      await expect(editor).toBeVisible()
+
+      const persistedMarker = ` fallback-saved-${stamp}`
+      const initialSave = page.waitForResponse((response) => (
+        response.request().method() === 'PUT'
+        && new URL(response.url()).pathname === `/api/documents/${document!.id}/content`
+      ))
+      await appendEditorText(page, persistedMarker)
+      await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      expect((await initialSave).status()).toBe(200)
+      await expect(page.getByText('Saved', { exact: true })).toBeVisible()
+
+      const persistedResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${document.id}/content`,
+        { token },
+      )
+      const persisted = await readJsonSafe<{
+        contentHtml?: string
+        contentText?: string
+        updatedAt?: string
+      }>(persistedResponse)
+      expect(persistedResponse.status()).toBe(200)
+      expect(persisted?.contentText).toContain(persistedMarker.trim())
+
+      const externalMarker = `external-${stamp}`
+      const externalUpdate = await request.fetch(`/api/documents/${document.id}/content`, {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          [OPTIMISTIC_LOCK_HEADER_NAME]: expectId(persisted?.updatedAt, 'content updatedAt'),
+        },
+        data: {
+          contentHtml: `<p>${externalMarker}</p>`,
+          contentText: externalMarker,
+        },
+      })
+      expect(externalUpdate.status()).toBe(200)
+
+      const rejectedMarker = ` fallback-conflict-${stamp}`
+      const rejectedSave = page.waitForResponse((response) => (
+        response.request().method() === 'PUT'
+        && new URL(response.url()).pathname === `/api/documents/${document!.id}/content`
+      ))
+      await appendEditorText(page, rejectedMarker)
+      await expect(page.getByText('Unsaved changes', { exact: true })).toBeVisible()
+      await page.getByRole('button', { name: 'Save', exact: true }).click()
+      expect((await rejectedSave).status()).toBe(409)
+      await expect(page.getByTestId('record-conflict-banner')).toBeVisible()
+
+      const afterConflictResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/documents/${document.id}/content`,
+        { token },
+      )
+      const afterConflict = await readJsonSafe<{ contentText?: string }>(afterConflictResponse)
+      expect(afterConflict?.contentText).toBe(externalMarker)
+      expect(afterConflict?.contentText).not.toContain(rejectedMarker.trim())
+    } finally {
+      await deleteDocument(request, token, document)
+    }
+  })
+
   test('keeps realtime live and inserts authorized record fields into a paginated export', async ({ browser, page, request }) => {
+    test.skip(
+      !COLLAB_INTEGRATION_ENABLED,
+      'Realtime Documents coverage runs in CI with OM_DOCUMENTS_COLLAB_INTEGRATION=1 and a managed sidecar.',
+    )
     test.slow()
     test.setTimeout(120_000)
     const stamp = Date.now()
@@ -167,8 +343,10 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
     let secondContext: BrowserContext | null = null
     let collaborator: TestUser | null = null
     let collaboratorShare: { id: string; updatedAt: string } | null = null
+    let collabSidecar: ManagedCollabSidecar | null = null
 
     try {
+      collabSidecar = await startManagedCollabSidecar()
       token = await getAuthToken(request, 'admin')
       document = await createDocument(request, token, `TC-DOCUMENTS-017 ${stamp}`)
       companyId = await createCompanyFixture(request, token, companyName)
@@ -248,7 +426,7 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
 
       await page.getByRole('button', { name: 'Insert record' }).click()
       const picker = page.getByRole('dialog', { name: 'Insert record' })
-      await picker.getByRole('tab', { name: 'Company' }).click()
+      await picker.getByRole('radio', { name: 'Company' }).click()
       await picker.getByRole('combobox', { name: 'Search' }).fill(companyName)
       await picker.getByRole('option', { name: companyName }).click()
       const dialog = page.getByRole('dialog', { name: 'Insert data' })
@@ -355,6 +533,7 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
       expect(await readRealtimeStatuses(page)).toEqual(['Live'])
     } finally {
       await secondContext?.close().catch(() => undefined)
+      await collabSidecar?.stop().catch(() => undefined)
       await deleteDocument(request, token, document)
       await deleteEntityIfExists(request, token, '/api/customers/companies', companyId)
       await deleteUserIfExists(request, token, collaborator?.id ?? null)

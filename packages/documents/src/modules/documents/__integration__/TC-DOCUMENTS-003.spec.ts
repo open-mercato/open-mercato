@@ -15,7 +15,7 @@ import {
 } from '@open-mercato/core/helpers/integration/generalFixtures'
 
 export const integrationMeta = {
-  dependsOnModules: ['documents'],
+  dependsOnModules: ['documents', 'audit_logs'],
 }
 
 type MutationBody = {
@@ -27,6 +27,15 @@ type UploadBody = {
   id?: string
   attachmentId?: string
   url?: string
+}
+
+type AuditListBody = {
+  items?: Array<{
+    commandId?: string | null
+    snapshotAfter?: {
+      attachmentId?: string | null
+    } | null
+  }>
 }
 
 type DocumentsViewer = {
@@ -135,6 +144,22 @@ test.describe('TC-DOCUMENTS-003: doc-scoped image proxy', () => {
       const url = typeof uploadBody?.url === 'string' ? uploadBody.url : ''
       expect(url).toBe(`/api/documents/${documentId}/attachments/${attachmentId}`)
 
+      const auditResponse = await apiRequest(
+        request,
+        'GET',
+        `/api/audit_logs/audit-logs/actions?resourceKind=${encodeURIComponent('documents:document_attachment')}&pageSize=100`,
+        { token: adminToken },
+      )
+      const auditBody = await readJsonSafe<AuditListBody>(auditResponse)
+      expect(auditResponse.status(), 'attachment upload audit list should return 200').toBe(200)
+      expect(
+        auditBody?.items?.some((entry) => (
+          entry.commandId === 'documents.attachment.create'
+          && entry.snapshotAfter?.attachmentId === attachmentId
+        )),
+        'attachment upload should persist a redacted command audit entry',
+      ).toBe(true)
+
       const shareResponse = await apiRequest(
         request,
         'POST',
@@ -162,8 +187,12 @@ test.describe('TC-DOCUMENTS-003: doc-scoped image proxy', () => {
       expect(nonSharedReadResponse.status(), 'non-shared org user should be tier-denied').toBe(403)
     } finally {
       await deleteShareIfExists(request, adminToken, documentId, shareId)
-      await deleteAttachmentIfExists(request, adminToken, attachmentId)
       await deleteDocumentIfExists(request, adminToken, documentId)
+      // Document deletion owns document-attachment cleanup. Keep the generic
+      // attachment cleanup as a best-effort fallback only when document
+      // cleanup could not complete, rather than deleting the provider row
+      // before the Documents aggregate can release its link.
+      await deleteAttachmentIfExists(request, adminToken, attachmentId)
       await deleteUserIfExists(request, adminToken, viewer?.id ?? null)
       await deleteRoleIfExists(request, adminToken, viewer?.roleId ?? null)
       await deleteUserIfExists(request, adminToken, nonShared?.id ?? null)

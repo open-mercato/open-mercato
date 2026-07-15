@@ -83,4 +83,21 @@ describe('useTemplateDetail', () => {
     }))
     expect(result.current.error).toBe(false)
   })
+
+  it('retries a failed detail request and exposes the recovered template', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 503, result: null })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: templateDetail(FIRST_TEMPLATE_ID, '<p>Recovered body</p>'),
+      })
+
+    const { result } = renderHook(() => useTemplateDetail(true, FIRST_TEMPLATE_ID))
+    await waitFor(() => expect(result.current.error).toBe(true))
+
+    act(() => result.current.retry())
+
+    await waitFor(() => expect(result.current.template?.bodyHtml).toBe('<p>Recovered body</p>'))
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+  })
 })

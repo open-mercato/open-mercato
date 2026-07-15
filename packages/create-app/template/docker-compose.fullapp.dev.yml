@@ -104,6 +104,7 @@ services:
       NEXT_PUBLIC_APP_URL: ${APP_URL:-http://localhost:3000}
       DOCUMENTS_COLLAB_PORT: ${DOCUMENTS_COLLAB_PORT:-4101}
       DOCUMENTS_COLLAB_REDIS_URL: redis://redis:6379
+      DOCUMENTS_COLLAB_REDIS_PREFIX: ${DOCUMENTS_COLLAB_REDIS_PREFIX:-open-mercato:documents:collab:${DEPLOY_ENV:-local}}
       # Same Redis as the app so multi-instance collaboration sync works out of the box
       # (DOCUMENTS_COLLAB_REDIS_URL wins when both are set).
       REDIS_URL: redis://redis:6379

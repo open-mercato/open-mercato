@@ -1,7 +1,7 @@
 /** @jest-environment jsdom */
 
 import * as React from 'react'
-import { render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
 
@@ -20,11 +20,12 @@ jest.mock('../lib/editorConfig', () => ({
 
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
-  ErrorMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div>{label}{action}</div>,
 }))
 
 const translations: Record<string, string> = {
   'documents.actions.close': 'Close',
+  'documents.actions.retry': 'Retry',
   'documents.links.restrictedRecord': 'Restricted record',
   'documents.users.unknown': 'Unknown user',
   'documents.versions.actions.restore': 'Restore',
@@ -34,14 +35,16 @@ const translations: Record<string, string> = {
   'ui.dialog.close.ariaLabel': 'Close',
 }
 
+const translateMock = (key: string, params?: Record<string, unknown> | string) => {
+  if (key === 'documents.versions.preview.description') {
+    const values = typeof params === 'object' && params ? params : {}
+    return `Created by ${String(values.creator ?? '')}`
+  }
+  return translations[key] ?? (typeof params === 'string' ? params : key)
+}
+
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
-  useT: () => (key: string, params?: Record<string, unknown> | string) => {
-    if (key === 'documents.versions.preview.description') {
-      const values = typeof params === 'object' && params ? params : {}
-      return `Created by ${String(values.creator ?? '')}`
-    }
-    return translations[key] ?? (typeof params === 'string' ? params : key)
-  },
+  useT: () => translateMock,
 }))
 
 import {
@@ -93,5 +96,42 @@ describe('VersionPreviewDialog display labels', () => {
     expect(within(dialog).getByRole('heading', { name: 'Version preview' })).toBeTruthy()
     expect(within(dialog).getByText('Created by Unknown user')).toBeTruthy()
     expect(document.body.textContent).not.toContain(exposedId)
+  })
+
+  it('retries a failed preview request in place', async () => {
+    apiCallMock.mockReset().mockResolvedValue({ ok: false, status: 503, result: null })
+
+    render(<VersionPreviewDialog
+      documentId={documentId}
+      versionId={versionId}
+      canRestore={false}
+      isRestoring={false}
+      onOpenChange={jest.fn()}
+      onRestore={jest.fn()}
+    />)
+
+    const retry = await screen.findByRole('button', { name: 'Retry' })
+    apiCallMock.mockResolvedValue({ ok: true, result: legacyPreviewPayload() })
+    fireEvent.click(retry)
+    await screen.findByText('Created by Unknown user')
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not restore again from the keyboard while a restore is pending', async () => {
+    const onRestore = jest.fn()
+    render(<VersionPreviewDialog
+      documentId={documentId}
+      versionId={versionId}
+      canRestore
+      isRestoring
+      onOpenChange={jest.fn()}
+      onRestore={onRestore}
+    />)
+
+    await screen.findByText('Created by Unknown user')
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Enter', metaKey: true })
+
+    expect(onRestore).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: 'Restore' })).toHaveProperty('disabled', true)
   })
 })

@@ -13,6 +13,20 @@ export type PendingMention = { userId: string; name: string }
 export type AccessCheckUser = { userId: string; label: string | null; secondary: string | null }
 export type NormalizedCommentAnchor = DocumentCommentAnchor | 'changed' | null
 
+const MENTION_WORD_CHARACTER = /[\p{L}\p{N}_]/u
+
+export function bodyContainsPendingMention(body: string, mention: PendingMention): boolean {
+  const token = `@${mention.name}`
+  let index = body.indexOf(token)
+  while (index >= 0) {
+    const before = index > 0 ? body[index - 1] ?? '' : ''
+    const after = body[index + token.length] ?? ''
+    if (!MENTION_WORD_CHARACTER.test(before) && !MENTION_WORD_CHARACTER.test(after)) return true
+    index = body.indexOf(token, index + token.length)
+  }
+  return false
+}
+
 export type DocumentComment = {
   id: string
   documentId: string

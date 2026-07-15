@@ -6,6 +6,7 @@ import { normalizeTemplateDetail, type TemplateRow } from './templateUi'
 
 export function useTemplateDetail(open: boolean, templateId: string | null) {
   const requestId = React.useRef(0)
+  const [loadAttempt, setLoadAttempt] = React.useState(0)
   const [state, setState] = React.useState<{
     templateId: string | null
     template: TemplateRow | null
@@ -37,12 +38,17 @@ export function useTemplateDetail(open: boolean, templateId: string | null) {
     })
 
     return () => { controller.abort() }
-  }, [open, templateId])
+  }, [loadAttempt, open, templateId])
+
+  const retry = React.useCallback(() => {
+    setLoadAttempt((current) => current + 1)
+  }, [])
 
   const matchesRequest = state.templateId === templateId
   return {
     template: matchesRequest ? state.template : null,
     isLoading: Boolean(open && templateId) && (!matchesRequest || state.status === 'loading'),
     error: matchesRequest && state.status === 'error',
+    retry,
   }
 }

@@ -78,11 +78,13 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       forceDownload,
     })
     const headers: Record<string, string> = {
-      'Cache-Control': 'private, max-age=60',
+      'Cache-Control': 'private, no-store, max-age=0, must-revalidate',
       'Content-Security-Policy': "default-src 'none'; sandbox",
       'Content-Type': result.contentType,
       'Content-Disposition': result.contentDisposition,
       'Content-Length': String(result.buffer.length),
+      'Expires': '0',
+      'Pragma': 'no-cache',
       'X-Content-Type-Options': 'nosniff',
     }
 

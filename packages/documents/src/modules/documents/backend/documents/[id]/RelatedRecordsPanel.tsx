@@ -12,6 +12,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { LinkButton } from '@open-mercato/ui/primitives/link-button'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Tag } from '@open-mercato/ui/primitives/tag'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
@@ -175,9 +176,9 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
                     </Button>
                   ) : null}
                   {item.canOpen && item.href ? (
-                    <Button asChild type="button" size="2xs" variant="ghost">
+                    <LinkButton asChild size="sm" variant="gray">
                       <Link href={item.href}><ExternalLink />{t('documents.actions.open')}</Link>
-                    </Button>
+                    </LinkButton>
                   ) : null}
                   {canEdit ? (
                     <Button type="button" size="2xs" variant="ghost" onClick={() => void handleUnlink(item)}>

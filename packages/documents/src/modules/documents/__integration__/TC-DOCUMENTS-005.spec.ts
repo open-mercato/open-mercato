@@ -332,6 +332,16 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
         },
       )
       expect(viewerCommentResponse.status(), 'viewer comment POST should be tier-denied').toBe(403)
+      const viewerAccessCheckResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
+        { token: viewer.token, data: { userIds: [mentionTarget.id] } },
+      )
+      expect(
+        viewerAccessCheckResponse.status(),
+        'viewer should not enumerate mentioned-user document access',
+      ).toBe(403)
 
       const comments = await listComments(request, commenter.token, documentId)
       expect(findComment(comments, commentId), 'created comment should appear in threaded list').not.toBeNull()
@@ -355,7 +365,7 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
       )
       expect(withoutAccessBeforeGrant).toContain(mentionTarget.id)
 
-      const mentionCommentResponse = await apiRequest(
+      const commenterGrantAttempt = await apiRequest(
         request,
         'POST',
         `/api/documents/${encodeURIComponent(documentId)}/comments`,
@@ -369,8 +379,26 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
           },
         },
       )
+      expect(
+        commenterGrantAttempt.status(),
+        'commenter-tier documents.share must not grant mention access',
+      ).toBe(403)
+
+      const mentionCommentResponse = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(documentId)}/comments`,
+        {
+          token: commenter.token,
+          data: {
+            body: `ping @[${mentionTarget.id}]`,
+            anchor: null,
+            parentCommentId: null,
+          },
+        },
+      )
       const mentionCommentBody = await readJsonSafe<MutationBody>(mentionCommentResponse)
-      expect(mentionCommentResponse.status(), 'mention comment POST should return 201').toBe(201)
+      expect(mentionCommentResponse.status(), 'notify-only mention comment POST should return 201').toBe(201)
       const mentionCommentId = expectId(mentionCommentBody?.id, 'mention comment response should include id')
       const notificationPath = `/api/notifications?sourceEntityId=${encodeURIComponent(mentionCommentId)}`
 
@@ -405,7 +433,10 @@ test.describe('TC-DOCUMENTS-005: comments, mentions, versions', () => {
           },
         },
       )
-      expect(managerGrantAttempt.status(), 'manager should still be allowed to create the comment').toBe(201)
+      expect(
+        managerGrantAttempt.status(),
+        'manager without documents.share must not grant mention access',
+      ).toBe(403)
       expect(
         await checkMentionAccess(request, adminToken, documentId, [managerMentionTarget.id]),
         'documents.manage must not substitute for the documents.share action feature',

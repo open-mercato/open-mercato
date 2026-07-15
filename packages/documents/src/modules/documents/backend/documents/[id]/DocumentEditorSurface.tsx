@@ -15,6 +15,7 @@ import { RecordFieldsDialog } from './RecordFieldsDialog'
 import { EDITOR_PRESENCE_STYLES } from './editorPresenceStyles'
 import { canCreateSelectionComment, type CollabResources, type ConnectionStatus, type DocumentEditorIslandProps, type EditorMode, type PresenceUser } from './editorTypes'
 import { useDocumentEditor } from './useDocumentEditor'
+import { useFallbackContentPersistence } from './useFallbackContentPersistence'
 import { useDocumentTitle } from './useDocumentTitle'
 import { useEditorInsertions } from './useEditorInsertions'
 
@@ -31,9 +32,15 @@ export function DocumentEditorSurface(input: Props) {
   const t = useT()
   const [outlineOpen, setOutlineOpen] = React.useState(false)
   const [suggestionRange, setSuggestionRange] = React.useState<{ from: number; to: number } | null>(null)
-  const effectiveReadOnly = input.readOnly || input.mode === 'preview' || input.transport === 'fallback'
+  const effectiveReadOnly = input.readOnly || input.mode === 'preview'
   const openSuggestion = React.useCallback((range: { from: number; to: number }) => setSuggestionRange(range), [])
   const closeSuggestion = React.useCallback(() => setSuggestionRange(null), [])
+  const fallbackPersistence = useFallbackContentPersistence({
+    documentId: input.documentId,
+    initialUpdatedAt: input.contentUpdatedAt ?? null,
+    enabled: input.transport === 'fallback' && !input.readOnly,
+    onConflictRefresh: input.onContentConflict,
+  })
   const editorModel = useDocumentEditor({
     documentId: input.documentId,
     initialContentHtml: input.initialContentHtml,
@@ -41,6 +48,7 @@ export function DocumentEditorSurface(input: Props) {
     collabResources: input.collabResources,
     readOnly: effectiveReadOnly,
     onEditorReady: input.onEditorReady,
+    onUpdate: fallbackPersistence.onEditorUpdate,
     onEntitySuggestion: openSuggestion,
     onSuggestionClose: closeSuggestion,
   })
@@ -64,7 +72,7 @@ export function DocumentEditorSurface(input: Props) {
 
   const status = input.transport === 'fallback' ? 'offline' : input.connectionStatus
   const notice = input.transport === 'fallback'
-    ? t('documents.editor.realtime.readOnlyFallback')
+    ? t(input.readOnly ? 'documents.editor.realtime.readOnlyFallback' : 'documents.editor.realtime.singleUserFallback')
     : input.readOnly
       ? t('documents.editor.readOnly')
       : input.mode === 'preview'
@@ -83,9 +91,23 @@ export function DocumentEditorSurface(input: Props) {
       <div className="overflow-hidden rounded-lg border border-border bg-muted shadow-sm">
         <div className="sticky top-0 z-sticky border-b border-border bg-card/95">
           <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
-            <EditorStatusPresence status={status} users={input.presenceUsers} counts={editorModel.counts} mode={input.mode} canEdit={!input.readOnly && input.transport !== 'fallback'} onModeChange={input.onModeChange} />
+            <EditorStatusPresence
+              status={status}
+              users={input.presenceUsers}
+              counts={editorModel.counts}
+              mode={input.mode}
+              canEdit={!input.readOnly}
+              onModeChange={(nextMode) => {
+                if (input.transport === 'fallback' && nextMode === 'preview') fallbackPersistence.saveNow()
+                input.onModeChange(nextMode)
+              }}
+              fallbackSave={input.transport === 'fallback' && !input.readOnly ? {
+                status: fallbackPersistence.status,
+                onSave: fallbackPersistence.saveNow,
+              } : undefined}
+            />
           </div>
-          {input.mode === 'edit' && input.transport !== 'fallback' ? (
+          {input.mode === 'edit' ? (
             <EditorToolbar
               editor={editorModel.editor}
               disabled={effectiveReadOnly || !editorModel.editor}

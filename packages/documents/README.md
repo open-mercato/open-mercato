@@ -32,7 +32,8 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 |---|---|---|---|
 | `DOCUMENTS_COLLAB_PORT` | sidecar | `4101` | WebSocket listen port |
 | `DOCUMENTS_COLLAB_REDIS_URL` | sidecar | unset (or `REDIS_URL`) | Redis used to synchronize Yjs updates and awareness across sidecar replicas. When neither is set the sidecar runs single-node mode and logs a startup warning; multi-instance deployments require Redis |
-| `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` | app (client) | — | `ws(s)://…` the browser connects to; when unset the editor degrades to read-only last-saved HTML |
+| `DOCUMENTS_COLLAB_REDIS_PREFIX` | sidecar | development-only local namespace | Deployment-scoped Redis key prefix. Required whenever Redis is configured in production. All replicas in one deployment must share it; deployments using the same Redis database must use different values |
+| `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` | app (client) | — | `ws(s)://…` the browser connects to; when unset, users with edit capability get optimistic-locked single-user autosave while read-only users keep the last-saved view |
 | `DOCUMENTS_COLLAB_ALLOWED_ORIGINS` | sidecar | local/test: all | comma-separated exact browser origins allowed during the WebSocket handshake. In production the sidecar requires an allowed origin, sourced from this var **or** `APP_URL`/`NEXT_PUBLIC_APP_URL` |
 | `DOCUMENTS_COLLAB_JWT_SECRET_V2` | app + sidecar | unset (fails closed) | shared secret for v2 capability tokens; must contain at least 32 UTF-8 bytes. When unset the app mints no token and clients fall back to non-collaborative editing |
 | `DOCUMENTS_COLLAB_JWT_SECRET` | app + sidecar | — | optional v1 rollout secret; the sidecar accepts legacy v1 tokens **only** while this is set to a ≥32-byte value that differs from the v2 secret |
@@ -47,8 +48,27 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 2. `onAuthenticate` verifies the v2 secret, expiry, audience, room binding, tenant/organization scope, and the browser `Origin`; viewer/commenter connections are read-only and failures deny by default.
 3. Write enforcement is Hocuspocus's native `connection.readOnly` (drops a read-only connection's `syncStep2`/`update` messages while still serving reads/awareness) plus an `onStoreDocument` read-only-tier early-return.
 4. `onLoadDocument`/`onStoreDocument` open a **fresh request-scoped container per operation** and scope every `DocumentContentService` query by the token's `{ tenantId, organizationId }`. Persist writes `yjs_state` + materializes `content_html`/`content_text` + reindexes.
-5. `documents.document.deleted` / `.unshared` / `.version.restored` (all `clientBroadcast: true`) reach the sidecar over the cross-process pg bridge and force-close the affected room; a "closing" flag suppresses the room's final store so a restore can't be clobbered.
+5. `documents.document.deleted` / `.unshared` / `.version.restored` (all `crossProcessBroadcast: true`, not browser `clientBroadcast` events) reach the sidecar over the cross-process pg bridge and force-close the affected room; a "closing" flag suppresses the room's final store so a restore can't be clobbered.
 
 ### Degrade
 
-If the sidecar is unreachable (or `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` is unset), the editor loads the last saved `content_html` **read-only** and shows a "realtime unavailable" state — no data loss (Postgres holds the last saved state).
+If the sidecar is unreachable (or `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` is unset), a user who still has edit capability gets an **editable single-user fallback**. It persists through the bounded content `PUT` path with the content row's optimistic-lock token, exposes explicit save status/control, and guards navigation while a save is pending. A definitive collaboration authorization rejection, revoked capability, viewer, or commenter remains read-only and fail-closed. PostgreSQL remains authoritative in both modes.
+
+Redis replication is transport-only: a receiving replica mirrors Yjs updates
+and awareness but never competes for the durable store lock with an empty
+authorization context. The authenticated source replica owns persistence. Set
+`DOCUMENTS_COLLAB_REDIS_PREFIX` to the same deployment-specific value on every
+replica so collaboration traffic cannot cross application environments that
+share a Redis database.
+
+The real multi-instance regression starts two Hocuspocus servers plus isolated
+Redis and PostgreSQL containers, edits through both replicas, and verifies the
+merged Yjs state in PostgreSQL:
+
+```bash
+yarn workspace @open-mercato/documents test:multi-instance
+```
+
+The main CI workflow runs this command as the required Docker-capable
+`documents-multi-instance` job, independently from the standard Jest suite
+where the test remains skipped by default.

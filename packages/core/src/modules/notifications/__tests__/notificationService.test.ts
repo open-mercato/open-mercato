@@ -1,8 +1,11 @@
 import { createNotificationService } from '../lib/notificationService'
+import { register as registerNotificationDi } from '../di'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
 import { getRecipientUserIdsForFeature } from '../lib/notificationRecipients'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+import { asValue, createContainer, InjectionMode } from 'awilix'
 
 jest.mock('../lib/notificationRecipients', () => ({
   getRecipientUserIdsForRole: jest.fn(),
@@ -25,6 +28,11 @@ const baseCtx = {
   tenantId: '7f4c85ef-f8f7-4e53-9df1-42e95bd8d48e',
   organizationId: null,
   userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
+}
+
+const baseEventScope = {
+  tenantId: baseCtx.tenantId,
+  organizationId: baseCtx.organizationId,
 }
 
 const buildEm = () => {
@@ -95,6 +103,43 @@ describe('notification service', () => {
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
       })
+    )
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_SSE_EVENTS.CREATED,
+      expect.objectContaining({
+        tenantId: baseCtx.tenantId,
+        organizationId: baseCtx.organizationId,
+        recipientUserId: baseNotificationInput.recipientUserId,
+        notification: expect.objectContaining({ id: notification.id }),
+      }),
+      baseEventScope,
+    )
+  })
+
+  it('creates a notification through the scoped DI service in CLASSIC injection mode', async () => {
+    const em = buildEm()
+    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
+    em.create.mockImplementation((_entity, data: Notification) => ({
+      id: 'note-classic-di',
+      ...data,
+    }))
+    const container = createContainer({ injectionMode: InjectionMode.CLASSIC })
+    container.register({
+      em: asValue(em),
+      eventBus: asValue(eventBus),
+      commandBus: asValue({ execute: jest.fn() }),
+    })
+    registerNotificationDi(container as unknown as AppContainer)
+
+    const service = container.resolve<ReturnType<typeof createNotificationService>>('notificationService')
+    const notification = await service.create(baseNotificationInput, baseCtx)
+
+    expect(notification.id).toBe('note-classic-di')
+    expect(em.fork).toHaveBeenCalled()
+    expect(em.flush).toHaveBeenCalled()
+    expect(eventBus.emit).toHaveBeenCalledWith(
+      NOTIFICATION_EVENTS.CREATED,
+      expect.objectContaining({ recipientUserId: baseNotificationInput.recipientUserId }),
     )
   })
 
@@ -183,7 +228,20 @@ describe('notification service', () => {
         recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
         count: 2,
       }),
+      baseEventScope,
     )
+    for (const notification of notifications) {
+      expect(eventBus.emit).toHaveBeenCalledWith(
+        NOTIFICATION_SSE_EVENTS.CREATED,
+        expect.objectContaining({
+          tenantId: notification.tenantId,
+          organizationId: notification.organizationId,
+          recipientUserId: notification.recipientUserId,
+          notification: expect.objectContaining({ id: notification.id }),
+        }),
+        baseEventScope,
+      )
+    }
   })
 
   it('rejects an entire batch when any recipient is outside the caller scope', async () => {
@@ -375,7 +433,8 @@ describe('notification service', () => {
           organizationId: note.organizationId,
           recipientUserId: note.recipientUserId,
           notification: expect.objectContaining({ id: note.id, status: 'read' }),
-        })
+        }),
+        { tenantId: note.tenantId, organizationId: note.organizationId },
       )
     }
   })

@@ -22,6 +22,7 @@ type UseDocumentEditorInput = {
   collabResources?: CollabResources
   readOnly: boolean
   onEditorReady?: (editor: Editor | null) => void
+  onUpdate?: (editor: Editor) => void
   onEntitySuggestion: (range: EditorSelectionRange) => void
   onSuggestionClose: () => void
 }
@@ -61,7 +62,12 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
     content: input.editorMode === 'fallback' ? input.initialContentHtml : undefined,
     editable: !input.readOnly,
     editorProps: {
-      attributes: { class: 'min-h-96 text-base leading-7 text-foreground focus-visible:outline-none' },
+      attributes: {
+        class: 'min-h-96 text-base leading-7 text-foreground focus-visible:outline-none',
+        role: 'textbox',
+        'aria-label': t('documents.editor.content.ariaLabel'),
+        'aria-multiline': 'true',
+      },
       handleClick(_view, _position, event) {
         return activateEntityRefFromPointerEvent(
           event,
@@ -77,7 +83,11 @@ export function useDocumentEditor(input: UseDocumentEditorInput) {
     },
     onCreate: ({ editor: created }) => { editorRef.current = created; setCounts(wordCount(created)); input.onEditorReady?.(created) },
     onDestroy: () => { editorRef.current = null; input.onEditorReady?.(null) },
-    onUpdate: ({ editor: updated }) => { editorRef.current = updated; setCounts(wordCount(updated)) },
+    onUpdate: ({ editor: updated }) => {
+      editorRef.current = updated
+      setCounts(wordCount(updated))
+      input.onUpdate?.(updated)
+    },
   }, [input.documentId, input.editorMode, extensions])
 
   React.useEffect(() => { editorRef.current = editor; editor?.setEditable(!input.readOnly) }, [editor, input.readOnly])

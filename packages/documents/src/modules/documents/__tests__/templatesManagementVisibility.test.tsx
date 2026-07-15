@@ -10,13 +10,14 @@ const surfaceRecordConflictMock = jest.fn()
 const mockDataTableProps = jest.fn()
 const translateMock = (key: string) => key
 
-jest.mock('@open-mercato/ui', () => ({
+jest.mock('@open-mercato/ui/backend/DataTable', () => ({
   DataTable: (props: unknown) => {
     mockDataTableProps(props)
     return null
   },
-  RowActions: () => null,
 }))
+
+jest.mock('@open-mercato/ui/backend/RowActions', () => ({ RowActions: () => null }))
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
@@ -117,6 +118,28 @@ describe('templates management visibility', () => {
     ])
     expect(result.current).toMatchObject({ page: 1, pageSize: 100, total: 2, totalPages: 1 })
     expect(result.current.canManageTemplates).toBe(true)
+  })
+
+  it('enters loading state immediately for every subsequent search', async () => {
+    let resolveSearch: ((value: unknown) => void) | null = null
+    apiCallMock
+      .mockResolvedValueOnce(templatePage({
+        items: [template('88888888-8888-4888-8888-888888888888', 'Initial template', true)],
+      }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSearch = resolve }))
+
+    const { result } = renderHook(() => useTemplatesPage())
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => result.current.setSearch('Release'))
+
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.loadError).toBeNull()
+    await act(async () => {
+      resolveSearch?.(templatePage({ items: [] }))
+      await Promise.resolve()
+    })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
   })
 
   it('reaches page two for broad searches with duplicate template names and resets after deletion', async () => {

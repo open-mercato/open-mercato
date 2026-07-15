@@ -95,6 +95,28 @@ describe('documents migration reversibility', () => {
     expect(downSection(source)).toContain('drop index if exists "documents_list_sort_idx"')
   })
 
+  it('enforces and reverses every intra-module document relationship', () => {
+    const source = readMigration('Migration20260713092156_documents.ts')
+    const up = upSection(source)
+    const down = downSection(source)
+    const constraints = [
+      'documents_folder_id_foreign',
+      'document_folders_parent_folder_id_foreign',
+      'document_contents_document_id_foreign',
+      'document_comments_document_id_foreign',
+      'document_comments_parent_comment_id_foreign',
+      'document_attachments_document_id_foreign',
+      'document_shares_document_id_foreign',
+      'document_versions_document_id_foreign',
+      'document_entity_links_document_id_foreign',
+    ]
+
+    for (const constraint of constraints) {
+      expect(up).toContain(`add constraint "${constraint}" foreign key`)
+      expect(down).toContain(`drop constraint if exists "${constraint}"`)
+    }
+  })
+
   it('uses idempotent drops for every table and index removal in down()', () => {
     const migrationFiles = readdirSync(migrationsDir)
       .filter((fileName) => fileName.endsWith('.ts'))

@@ -63,6 +63,7 @@ for (const relPath of COMPOSE_FILES) {
     assert.match(content, /documents-collab:/)
     assert.match(content, /command:\s*\["yarn", "documents:collab"\]/)
     assert.match(content, /DOCUMENTS_COLLAB_REDIS_URL:/)
+    assert.match(content, /DOCUMENTS_COLLAB_REDIS_PREFIX:/)
     assert.match(content, /DOCUMENTS_COLLAB_APP_ROOT:/)
   })
 

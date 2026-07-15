@@ -16,16 +16,18 @@ export type DocumentEditorIslandProps = {
   documentId: string
   title: string
   initialContentHtml: string
+  contentUpdatedAt?: string | null
   documentUpdatedAt?: string | null
   readOnly: boolean
   onEditorReady?: (editor: Editor | null) => void
   onComment?: (anchor: CommentAnchor) => void
+  onContentConflict?: () => void
   onTitleChange?: (title: string, updatedAt: string | null) => void
 }
 
 export type CollabState =
   | { mode: 'connecting' }
-  | { mode: 'fallback' }
+  | { mode: 'fallback'; readOnly: boolean }
   | { mode: 'collab'; resources: CollabResources; connectionStatus: ConnectionStatus; presenceUsers: PresenceUser[]; serverReadOnly: boolean }
 
 export function resolveEditorMode(readOnly: boolean, serverReadOnly: boolean, requested: EditorMode): EditorMode {

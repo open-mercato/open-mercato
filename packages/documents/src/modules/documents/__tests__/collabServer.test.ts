@@ -28,23 +28,27 @@ import {
   DOCUMENTS_COLLAB_MAX_PENDING_BYTES,
   DOCUMENTS_COLLAB_MAX_PENDING_MESSAGES,
   DOCUMENTS_COLLAB_MAX_READ_ONLY_SYNC_FRAME_BYTES,
+  enforceDocumentsCollabSourceStoreOwnership,
   handleCollabHealthRequest,
   handleCollabServerRequest,
   installBoundedCollabIngress,
   installHocuspocusCollabIngressGuard,
   isCollabAuthorizationCurrent,
   isCollabRequestOriginAllowed,
+  isDocumentsCollabSourceStore,
   isOwnDocumentsCrossProcessEvent,
+  isTrustedDocumentsCollabRoomScope,
   markCollabFinalDrainForReauth,
   resolveCollabAllowedOrigins,
   resolveCollabRoomEventAction,
+  resolveTrustedDocumentsCrossProcessEvent,
   resolveDocumentsCollabRedisConfiguration,
   resolveDocumentsCollabRedisExtensions,
   scheduleCollabConnectionExpiry,
   type CollabHealthResponse,
   type DocumentsCollabRedisConfiguration,
 } from '../../../../server/documents-collab-server'
-import { Hocuspocus, MessageType, Server } from '@hocuspocus/server'
+import { Hocuspocus, MessageType, Server, type onStoreDocumentPayload } from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -68,11 +72,12 @@ describe('documents collaboration Redis configuration', () => {
     expect(resolveDocumentsCollabRedisConfiguration({
       NODE_ENV: 'production',
       DOCUMENTS_COLLAB_REDIS_URL: 'rediss://collab%20user:s3cr%40t@redis.example.test:6380/4',
+      DOCUMENTS_COLLAB_REDIS_PREFIX: 'open-mercato:documents:collab:production-eu',
       REDIS_URL: 'redis://ignored.example.test:6379',
     })).toEqual({
       host: 'redis.example.test',
       port: 6380,
-      prefix: 'open-mercato:documents:collab',
+      prefix: 'open-mercato:documents:collab:production-eu',
       options: {
         username: 'collab user',
         password: 's3cr@t',
@@ -100,6 +105,30 @@ describe('documents collaboration Redis configuration', () => {
     })).toThrow('redis:// or rediss://')
   })
 
+  it('requires a deployment-scoped prefix for production Redis', () => {
+    expect(() => resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'production',
+      DOCUMENTS_COLLAB_REDIS_URL: 'redis://cache.example.test:6379',
+    })).toThrow('DOCUMENTS_COLLAB_REDIS_PREFIX is required')
+    expect(() => resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'production',
+      DOCUMENTS_COLLAB_REDIS_URL: 'redis://cache.example.test:6379',
+      DOCUMENTS_COLLAB_REDIS_PREFIX: 'open-mercato:documents:collab',
+    })).toThrow('deployment-scoped Redis key prefix')
+    expect(() => resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'production',
+      DOCUMENTS_COLLAB_REDIS_URL: 'redis://cache.example.test:6379',
+      DOCUMENTS_COLLAB_REDIS_PREFIX: 'invalid prefix',
+    })).toThrow('deployment-scoped Redis key prefix')
+  })
+
+  it('uses an isolated development namespace when Redis is local', () => {
+    expect(resolveDocumentsCollabRedisConfiguration({
+      NODE_ENV: 'development',
+      DOCUMENTS_COLLAB_REDIS_URL: 'redis://localhost:6379',
+    })?.prefix).toBe('open-mercato:documents:collab:development')
+  })
+
   it('warns about single-node mode instead of requiring Redis at startup', () => {
     mockLoggerWarn.mockClear()
     const createRedisExtension = jest.fn(() => ({ kind: 'redis-extension' }))
@@ -115,7 +144,11 @@ describe('documents collaboration Redis configuration', () => {
       (configuration: DocumentsCollabRedisConfiguration) => ({ configuration }),
     )
     const extensions = resolveDocumentsCollabRedisExtensions(
-      { NODE_ENV: 'production', REDIS_URL: 'redis://cache.example.test:6380/2' },
+      {
+        NODE_ENV: 'production',
+        REDIS_URL: 'redis://cache.example.test:6380/2',
+        DOCUMENTS_COLLAB_REDIS_PREFIX: 'open-mercato:documents:collab:production-eu',
+      },
       createRedisExtension,
     )
     expect(extensions).toHaveLength(1)
@@ -126,6 +159,32 @@ describe('documents collaboration Redis configuration', () => {
     }))
     expect(mockLoggerWarn).not.toHaveBeenCalled()
   })
+
+  it('queues a complete store retry when an authenticated source loses the Redis lock', async () => {
+    const contention = new Error('Another instance is already storing this document')
+    contention.name = 'SkipFurtherHooksError'
+    const redisStore = jest.fn(async () => {
+      throw contention
+    })
+    const extension = enforceDocumentsCollabSourceStoreOwnership({
+      onStoreDocument: redisStore,
+    })
+    const retryStore = jest.fn()
+    const document = new Y.Doc()
+    const payload = {
+      document,
+      documentName: DOCUMENT_ID,
+      instance: { storeDocumentHooks: retryStore },
+      lastTransactionOrigin: { source: 'connection', connection: {} },
+    } as unknown as onStoreDocumentPayload
+
+    await expect(extension.onStoreDocument(payload)).rejects.toBe(contention)
+
+    expect(redisStore).toHaveBeenCalledWith(payload)
+    expect(retryStore).toHaveBeenCalledWith(document, payload)
+    document.destroy()
+  })
+
 })
 
 function makeHealthResponse() {
@@ -569,6 +628,35 @@ describe('documents collaboration v2 server contract', () => {
     const replacement = registry.beginAuthorization(DOCUMENT_ID)
     expect(registry.isAuthorizationCurrent(replacement)).toBe(true)
     registry.endAuthorization(replacement)
+  })
+
+  it('isolates authorization epochs by trusted tenant and organization scope', () => {
+    const registry = createCollabFinalDrainRegistry(() => 0)
+    const ownScope = { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID }
+    const foreignTenantScope = {
+      tenantId: '55555555-5555-4555-8555-555555555555',
+      organizationId: ORGANIZATION_ID,
+    }
+    const foreignOrganizationScope = {
+      tenantId: TENANT_ID,
+      organizationId: '66666666-6666-4666-8666-666666666666',
+    }
+    const own = registry.beginAuthorization(DOCUMENT_ID, ownScope)
+    const foreignTenant = registry.beginAuthorization(DOCUMENT_ID, foreignTenantScope)
+    const foreignOrganization = registry.beginAuthorization(DOCUMENT_ID, foreignOrganizationScope)
+
+    registry.bumpAuthorization(DOCUMENT_ID, foreignTenantScope)
+    expect(registry.isAuthorizationCurrent(own)).toBe(true)
+    expect(registry.isAuthorizationCurrent(foreignTenant)).toBe(false)
+    expect(registry.isAuthorizationCurrent(foreignOrganization)).toBe(true)
+
+    registry.bumpAuthorization(DOCUMENT_ID, foreignOrganizationScope)
+    expect(registry.isAuthorizationCurrent(own)).toBe(true)
+    expect(registry.isAuthorizationCurrent(foreignOrganization)).toBe(false)
+
+    registry.endAuthorization(own)
+    registry.endAuthorization(foreignTenant)
+    registry.endAuthorization(foreignOrganization)
   })
 
   it('expires an orphaned pre-connection authorization ticket without retaining its document', () => {
@@ -1241,7 +1329,10 @@ describe('documents collaboration v2 server contract', () => {
 
       // The trusted event crosses the already-running final authorization,
       // drains the room, and lets Hocuspocus unmap it before stale true returns.
-      finalDrainRegistry.bumpAuthorization(DOCUMENT_ID)
+      finalDrainRegistry.bumpAuthorization(DOCUMENT_ID, {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+      })
       expect(finalDrainRegistry.mark(oldDocument, Promise.resolve())).toBe(true)
       liveConnections = 0
       await runtime.storeDocumentHooks(oldDocument, {
@@ -1423,7 +1514,10 @@ describe('documents collaboration v2 server contract', () => {
 
       // The trusted event has no mapped room to mark, but the active setup
       // ticket is bumped and must fail the post-load assertion.
-      finalDrainRegistry.bumpAuthorization(DOCUMENT_ID)
+      finalDrainRegistry.bumpAuthorization(DOCUMENT_ID, {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+      })
       releaseFirstLoad()
       for (let attempt = 0; attempt < 10 && runtime.loadingDocuments.has(DOCUMENT_ID); attempt += 1) {
         await new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -1458,6 +1552,55 @@ describe('documents collaboration v2 server contract', () => {
     expect(resolveCollabRoomEventAction('documents.document.updated', { contentEpochReset: true })).toBe('invalidate')
     expect(resolveCollabRoomEventAction('documents.document.updated', { contentEpochReset: false })).toBe('ignore')
     expect(resolveCollabRoomEventAction('documents.comment.created')).toBe('ignore')
+  })
+
+  it('requires Documents publisher provenance and trusted envelope scope for room events', () => {
+    const trusted = resolveTrustedDocumentsCrossProcessEvent({
+      event: 'documents.document.deleted',
+      payload: {
+        id: DOCUMENT_ID,
+        tenantId: 'payload-controlled-tenant',
+        organizationId: 'payload-controlled-org',
+      },
+      options: {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        emitterModuleId: 'documents',
+      },
+    })
+
+    expect(trusted).toEqual({
+      action: 'invalidate',
+      documentId: DOCUMENT_ID,
+      scope: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    })
+    expect(isTrustedDocumentsCollabRoomScope(
+      trusted!,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    )).toBe(true)
+    expect(isTrustedDocumentsCollabRoomScope(
+      trusted!,
+      { tenantId: 'foreign-tenant', organizationId: ORGANIZATION_ID },
+    )).toBe(false)
+    expect(isTrustedDocumentsCollabRoomScope(
+      trusted!,
+      { tenantId: TENANT_ID, organizationId: 'foreign-organization' },
+    )).toBe(false)
+
+    expect(resolveTrustedDocumentsCrossProcessEvent({
+      event: 'documents.document.deleted',
+      payload: { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      options: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    })).toBeNull()
+    expect(resolveTrustedDocumentsCrossProcessEvent({
+      event: 'documents.document.deleted',
+      payload: { id: DOCUMENT_ID, tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      options: {
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        emitterModuleId: 'workflows',
+      },
+    })).toBeNull()
   })
 
   it('ignores only cross-process bridge events emitted by this sidecar process', () => {
@@ -1831,5 +1974,71 @@ describe('documents collaboration read-only lastContext store fallback', () => {
       userId: USER_ID,
       readOnly: false,
     }))
+  })
+
+  it('persists a Redis-fanned edit from the authenticated source when the receiver races first', async () => {
+    const source = makeStoreHooks()
+    const receiver = makeStoreHooks()
+    const sourceDocument = new Y.Doc()
+    const receiverDocument = new Y.Doc()
+    await source.hooks.onLoadDocument({
+      documentName: DOCUMENT_ID,
+      context: editorContext,
+      document: sourceDocument,
+    })
+    await receiver.hooks.onLoadDocument({
+      documentName: DOCUMENT_ID,
+      context: viewerContext,
+      document: receiverDocument,
+    })
+    sourceDocument.getMap('edits').set('body', 'source replica edit')
+    Y.applyUpdate(
+      receiverDocument,
+      Y.encodeStateAsUpdate(sourceDocument),
+      { source: 'redis' },
+    )
+
+    const lockAttempts: string[] = []
+    const makeExtension = (replica: string) => enforceDocumentsCollabSourceStoreOwnership({
+      async onStoreDocument(_payload: onStoreDocumentPayload) {
+        lockAttempts.push(replica)
+      },
+    })
+    const receiverPayload = {
+      lastTransactionOrigin: { source: 'redis' },
+    } as onStoreDocumentPayload
+    const sourcePayload = {
+      lastTransactionOrigin: { source: 'connection', connection: {} },
+    } as onStoreDocumentPayload
+
+    // Force the unsafe ordering: the receiver reaches the Redis extension
+    // before the authenticated source. The receiver must neither lock nor run
+    // the database hook; the source then persists the exact fanned-out edit.
+    await makeExtension('receiver').onStoreDocument(receiverPayload)
+    if (isDocumentsCollabSourceStore(receiverPayload)) {
+      await receiver.hooks.onStoreDocument({
+        documentName: DOCUMENT_ID,
+        context: {} as typeof viewerContext,
+        document: receiverDocument,
+      })
+    }
+    await makeExtension('source').onStoreDocument(sourcePayload)
+    if (isDocumentsCollabSourceStore(sourcePayload)) {
+      await source.hooks.onStoreDocument({
+        documentName: DOCUMENT_ID,
+        context: editorContext,
+        document: sourceDocument,
+      })
+    }
+
+    expect(lockAttempts).toEqual(['source'])
+    expect(receiver.persistContent).not.toHaveBeenCalled()
+    expect(source.persistContent).toHaveBeenCalledTimes(1)
+    const persistedInput = source.persistContent.mock.calls[0]?.[3] as {
+      yjsState: Buffer
+    }
+    const durableDocument = new Y.Doc()
+    Y.applyUpdate(durableDocument, new Uint8Array(persistedInput.yjsState))
+    expect(durableDocument.getMap('edits').get('body')).toBe('source replica edit')
   })
 })

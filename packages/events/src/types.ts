@@ -80,6 +80,12 @@ export type EmitOptions = {
   tenantId?: string | null
   /** Trusted organization scope for subscribers that must not rely on payload scope */
   organizationId?: string | null
+  /**
+   * Module provenance stamped by `createModuleEvents` for private
+   * cross-process coordination events. Never derive this from payload data.
+   * @internal
+   */
+  emitterModuleId?: string
 }
 
 /** Options for creating an event bus */

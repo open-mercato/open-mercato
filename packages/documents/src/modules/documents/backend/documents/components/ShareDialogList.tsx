@@ -17,6 +17,7 @@ type ShareDialogListProps = {
   isLoading: boolean
   error: string | null
   canManage: boolean
+  onRetry?: () => void
   onPermissionChange: (share: ShareRow, permission: DocumentSharePermission) => Promise<void>
   onRemove: (share: ShareRow) => Promise<void>
 }
@@ -26,6 +27,7 @@ export function ShareDialogList({
   isLoading,
   error,
   canManage,
+  onRetry,
   onPermissionChange,
   onRemove,
 }: ShareDialogListProps) {
@@ -42,7 +44,10 @@ export function ShareDialogList({
       {isLoading ? (
         <LoadingMessage label={t('documents.share.dialog.loading')} />
       ) : error ? (
-        <ErrorMessage label={error} />
+        <ErrorMessage
+          label={error}
+          action={onRetry ? <Button type="button" size="sm" variant="outline" onClick={onRetry}>{t('documents.actions.retry')}</Button> : undefined}
+        />
       ) : shares.length === 0 ? (
         <p className="rounded border border-border bg-muted/20 px-3 py-2 text-sm text-muted-foreground">
           {t('documents.share.dialog.empty')}

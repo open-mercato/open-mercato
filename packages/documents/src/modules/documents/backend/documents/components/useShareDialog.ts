@@ -37,6 +37,7 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
   const [principalId, setPrincipalId] = React.useState('')
   const [permission, setPermission] = React.useState<DocumentSharePermission>('viewer')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const submitInFlight = React.useRef(false)
   const mutationContextId = `documents-share-dialog:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<ShareMutationContext>({
     contextId: mutationContextId,
@@ -78,7 +79,8 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
 
   const addShare = React.useCallback(async () => {
     const trimmedPrincipal = principalId.trim()
-    if (!trimmedPrincipal || !canManage) return
+    if (!trimmedPrincipal || !canManage || submitInFlight.current) return
+    submitInFlight.current = true
     setIsSubmitting(true)
     try {
       await runMutation({
@@ -103,6 +105,7 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
     } catch (caught) {
       flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.add'), 'error')
     } finally {
+      submitInFlight.current = false
       setIsSubmitting(false)
     }
   }, [canManage, documentId, loadShares, mutationContext, permission, principalId, principalType, runMutation, t])
@@ -186,6 +189,7 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
     setPermission,
     changePrincipalType,
     addShare,
+    reload: loadShares,
     changePermission,
     removeShare,
   }

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DocumentEntityType } from '../../../lib/entityRegistry'
 import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import {
@@ -52,8 +52,8 @@ type UseTemplateInstantiationInput = {
 
 export function useTemplateInstantiation({ open, folderId, presetContext, onOpenChange }: UseTemplateInstantiationInput) {
   const t = useT()
+  const locale = useLocale()
   const router = useRouter()
-  const hasLoadedTemplates = React.useRef(false)
   const [templates, setTemplates] = React.useState<TemplateRow[]>([])
   const [templatesQuery, setTemplatesQuery] = React.useState<string | null>(null)
   const [templateSearch, setTemplateSearch] = React.useState('')
@@ -67,13 +67,14 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false)
   const [previewError, setPreviewError] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [templateLoadAttempt, setTemplateLoadAttempt] = React.useState(0)
+  const [previewLoadAttempt, setPreviewLoadAttempt] = React.useState(0)
   const normalizedTemplateSearch = templateSearch.trim()
   // Bind every rendered/selectable row to the exact query that produced it.
   // A query change hides the prior result synchronously during render, before
   // the debounced request starts or an abort can settle.
   const currentTemplates = templatesQuery === normalizedTemplateSearch ? templates : []
   const selectedTemplate = currentTemplates.find((template) => template.id === selectedTemplateId) ?? null
-  const locale = typeof navigator === 'undefined' ? 'en' : navigator.language || 'en'
   const mutationContextId = 'documents-new-from-template:mutation'
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -81,10 +82,14 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
     resourceId: string
     retryLastMutation: () => Promise<boolean>
   }>({ contextId: mutationContextId, blockedMessage: t('ui.forms.flash.saveBlocked') })
+  const changeTemplateSearch = React.useCallback((value: string) => {
+    setIsLoading(true)
+    setLoadError(null)
+    setTemplateSearch(value)
+  }, [])
 
   React.useEffect(() => {
     if (!open) return
-    hasLoadedTemplates.current = false
     setTemplates([])
     setTemplatesQuery(null)
     setTemplateSearch('')
@@ -99,15 +104,13 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
   React.useEffect(() => {
     if (!open) return
     const controller = new AbortController()
-    const isInitialLoad = !hasLoadedTemplates.current
     const search = normalizedTemplateSearch
-    if (isInitialLoad) setIsLoading(true)
+    setIsLoading(true)
     setLoadError(null)
     const timer = window.setTimeout(() => {
       void loadTemplateSummaries(search, controller.signal)
       .then((nextTemplates) => {
         if (controller.signal.aborted) return
-        hasLoadedTemplates.current = true
         setTemplates(nextTemplates)
         setTemplatesQuery(search)
       })
@@ -118,14 +121,14 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted && isInitialLoad) setIsLoading(false)
+        if (!controller.signal.aborted) setIsLoading(false)
       })
     }, search ? TEMPLATE_SEARCH_DELAY_MS : 0)
     return () => {
       window.clearTimeout(timer)
       controller.abort()
     }
-  }, [normalizedTemplateSearch, open, t])
+  }, [normalizedTemplateSearch, open, t, templateLoadAttempt])
 
   React.useEffect(() => {
     if (!selectedTemplate) { setTitle(''); setSelections({}); setPreview(null); return }
@@ -175,7 +178,19 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
         .finally(() => { if (active) setIsPreviewLoading(false) })
     }, 250)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [effectiveDate, locale, missingRequired, selectedTemplate, slotsPayload, t, title])
+  }, [effectiveDate, locale, missingRequired, previewLoadAttempt, selectedTemplate, slotsPayload, t, title])
+
+  const retryTemplates = React.useCallback(() => {
+    setIsLoading(true)
+    setLoadError(null)
+    setTemplateLoadAttempt((current) => current + 1)
+  }, [])
+
+  const retryPreview = React.useCallback(() => {
+    setIsPreviewLoading(true)
+    setPreviewError(null)
+    setPreviewLoadAttempt((current) => current + 1)
+  }, [])
 
   const rankedTemplates = React.useMemo(() => {
     const query = templateSearch.trim().toLocaleLowerCase()
@@ -218,8 +233,9 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
   }, [effectiveDate, folderId, locale, missingRequired, mutationContextId, onOpenChange, preview, retryLastMutation, router, runMutation, selectedTemplate, slotsPayload, t, title])
 
   return {
-    templates: rankedTemplates, templateSearch, setTemplateSearch, selectedTemplate, selectedTemplateId,
+    templates: rankedTemplates, templateSearch, setTemplateSearch: changeTemplateSearch, selectedTemplate, selectedTemplateId,
     setSelectedTemplateId, title, setTitle, selections, setSelections, isLoading, loadError,
     preview, isPreviewLoading, previewError, isSubmitting, missingRequired, submit,
+    retryTemplates, retryPreview,
   }
 }

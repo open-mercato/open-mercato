@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { RowActions } from '@open-mercato/ui'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { buildFolderTree, type FolderNode, type FolderRow } from './documentsListTypes'

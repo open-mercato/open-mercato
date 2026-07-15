@@ -22,6 +22,7 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { isPrivateCrossProcessBroadcastEvent } from '@open-mercato/shared/modules/events'
 import { callWebhookConfigSchema } from '../data/validators'
 import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
@@ -538,6 +539,14 @@ export async function executeEmitEvent(
 
   if (!eventName) {
     throw new Error('EMIT_EVENT requires "eventName" field')
+  }
+
+  // Workflow definitions are tenant-managed input. Private cross-process
+  // events coordinate trusted server state (for example closing an in-memory
+  // collaboration room), so allowing a workflow to name one would turn a
+  // regular event activity into a cross-process invalidation primitive.
+  if (isPrivateCrossProcessBroadcastEvent(eventName)) {
+    throw new Error(`EMIT_EVENT cannot emit private cross-process event "${eventName}"`)
   }
 
   // Get event bus from container

@@ -1,7 +1,7 @@
 # Documents — Collaborative Internal Docs Module
 
 - **Date:** 2026-07-08
-- **Status:** In progress (M1 targeted for first landing)
+- **Status:** Implemented (M1-M5); continued by `2026-07-09-documents-ecosystem-integration-and-review.md` (M6-M8)
 - **Scope:** OSS (`.ai/specs/`)
 - **Package:** `@open-mercato/documents` (new workspace package) · module id `documents`
 - **Author:** Platform team
@@ -41,7 +41,7 @@ Backoffice teams need to co-author internal documents (SOPs, meeting notes, prop
 
 ## Proposed Solution
 
-Deliver the module in four milestones so the new infrastructure is proven early and the heaviest/most license-sensitive piece (export) lands last. All four are in scope for v1; milestones are a build-order/risk sequencing, not a scope cut.
+Deliver the module in five milestones so the new infrastructure is proven early and the heaviest/most license-sensitive piece (export) is isolated before the final deep-integration milestone. All five are in scope for v1; milestones are a build-order/risk sequencing, not a scope cut.
 
 | Milestone | Delivers | Infra impact |
 |---|---|---|
@@ -92,7 +92,7 @@ A **Hocuspocus** server runs as a separate long-lived Node process (`packages/do
 - **Room** = document id (`documentName`).
 - **`onLoadDocument`** / **`onStoreDocument`** go through `DocumentContentService`, whose every query is scoped by the authenticated `{ tenantId, organizationId }` (defense in depth beyond `onAuthenticate`), and whose `persist` both writes `yjs_state`/`content_html`/`content_text` **and** reindexes the document through the search indexer — so the normal query-index/search pipeline runs and content search stays fresh (no raw-SQL bypass).
 - **Deploy:** dev — spawned alongside the OM dev runtime (env `DOCUMENTS_COLLAB_PORT`); prod — a separate service on the existing container platform. Client connects to `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`, restricted by a configured allowed-origins list.
-- **Degrade:** if the sidecar is unreachable, the editor loads the last `content_html` read-only (Postgres holds the last saved state — no data loss) and surfaces a "realtime unavailable" state.
+- **Degrade:** if the sidecar is unavailable, users with a live edit capability get an editable single-user fallback persisted through the bounded content `PUT` path with optimistic locking, explicit save status, and unsaved-navigation protection. Definitive collaboration authorization rejection and non-editing tiers remain read-only and fail closed. PostgreSQL remains authoritative.
 - **Scaling (optional):** the Hocuspocus Redis extension activates only when `DOCUMENTS_COLLAB_REDIS_URL` (or `REDIS_URL`) is explicitly configured — required for multi-instance sidecar deployments; without it the sidecar boots in single-node mode with a prominent startup warning. Document-affinity routing remains out of scope.
 
 ### Security & auth design (M2) — the sidecar chokepoint
@@ -206,9 +206,9 @@ All routes are tenant/org-scoped, use `makeCrudRoute` where the shape fits (comm
 | `/api/documents/folders` | GET, POST, PUT, DELETE | `documents.view` / `documents.edit` | folder-level (owner or `documents.manage`) | tree via `parent_folder_id` |
 | `/api/documents/[id]/shares` | GET, POST, PUT, DELETE | `documents.share` | owner or `documents.manage` | manage the shares table; re-share upserts a soft-deleted row |
 | `/api/documents/[id]/comments` | GET, POST, PATCH | `documents.view` | GET → viewer+; POST → commenter+; resolve → commenter+ or author | @mention in body → `documents.comment.mentioned` → notification |
-| `/api/documents/[id]/comments/access-check` | POST | `documents.view` | viewer+ | returns mentioned user ids that currently lack explicit document access so the author can choose whether to share before notifying |
+| `/api/documents/[id]/comments/access-check` | POST | `documents.view` | commenter+ | returns only mentioned user ids that currently lack effective access (owner, direct share, active role share, or live manager override) so the author can choose whether to share before notifying; no principal labels or email-like metadata are exposed |
 | `/api/documents/[id]/versions` | GET, POST, POST `/[versionId]/restore` | `documents.view` / `documents.edit` | GET → viewer+; snapshot/restore → editor+ | restore goes through the authoritative Y.Doc (see Version restore) |
-| `/api/documents/[id]/attachments` | POST | `documents.edit` | editor+ | uploads via attachments module + records `document_attachment`; returns a doc-scoped url plus the link `updatedAt`. The attachments service bounds the raw multipart stream before `FormData` decoding, including missing/invalid/chunked `Content-Length`. |
+| `/api/documents/[id]/attachments` | POST | `documents.edit` | editor+ | command-backed upload through the scoped attachment service; the command re-locks the document and rechecks live edit capability inside the attachment transaction, records `document_attachment`, and writes a redacted action-log entry without upload bytes. Returns a doc-scoped url plus the link `updatedAt`. The attachments service bounds the raw multipart stream before `FormData` decoding, including missing/invalid/chunked `Content-Length`. |
 | `/api/documents/[id]/attachments/[attachmentId]` | GET, DELETE | `documents.view` / `documents.edit` | GET → viewer+; DELETE → editor+ | **doc-tier-gated proxy**: checks `resolvePermission` then streams the attachment — embedded images are gated by doc tier, not merely org scope. DELETE is command-backed, checks the link `updatedAt`, and transactionally removes the exactly-owned attachment row/quota usage. The attachment service returns provider cleanup work, which runs only after the DB transaction commits; rollback never deletes bytes, and one provider failure does not stop later cleanup or the command audit. It fails with 409 when metadata shows another assignment and is intentionally non-undoable because the bytes are removed. |
 | `/api/documents/[id]/export` | GET `?format=docx\|pdf` | `documents.view` | viewer+ | M4: `.docx` via `html-to-docx`; **PDF** via a permissive HTML→PDF renderer — both return a real file artifact |
 
@@ -278,6 +278,12 @@ Every change is **additive**; no FROZEN/STABLE contract surface is modified. Ver
 - `apps/mercato/src/modules.ts` gains one `enabledModules` entry (`{ id: 'documents', from: '@open-mercato/documents' }`); `apps/mercato/package.json` gains one `workspace:*` dep — the sanctioned additive registration (mirrors `checkout`).
 - New event ids `documents.*`, new ACL feature ids `documents.*`, new DI keys (module-scoped), new API routes `/api/documents/*`, new env vars — all additive (ACL/event ids are FROZEN against rename/remove only; adding is allowed).
 - New DB tables (7) via a new migration — additive; no existing-table changes.
+- A follow-up additive migration adds Documents-owned foreign keys with reversible
+  `down()` operations. Cross-module user, role, attachment, and business-record
+  identifiers remain plain UUID columns with no ORM relationship.
+- `EventDefinition.crossProcessBroadcast`, `isCrossProcessBroadcastEvent`, and
+  `CROSS_PROCESS_EVENT_INSTANCE_ID` are additive event-platform surfaces. Existing
+  event IDs and `clientBroadcast` semantics remain unchanged.
 
 Guard tests (`optimistic-lock-editable-entities`, `optimistic-lock-ui-coverage`, `module-decoupling`) are core-scoped and do not scan this out-of-core package; a **package-local guard test** asserts each editable entity exposes `updated_at` and its APIs return `updatedAt`.
 
@@ -294,8 +300,8 @@ Guard tests (`optimistic-lock-editable-entities`, `optimistic-lock-ui-coverage`,
 | 7 | Plaintext bodies at rest (GDPR) | Medium | Privacy | Document/comment content readable in DB/backups | Explicit documented trade-off (CRDT+search require plaintext); access-control confidentiality; Ask-First user acceptance | Accepted |
 | 8 | CRDT storage growth unbounded | Medium | Storage | `yjs_state` grows forever | Debounced store writes compacted merged state; version snapshots capped/pruned | Low |
 | 9 | Client/sidecar extension drift | Medium | Correctness | New editor extension breaks server HTML render | Single shared `lib/editorConfig.ts` imported by both | Low |
-| 10 | New infra / sidecar down | Medium | Ops | Realtime unavailable in an env without the sidecar | Editor degrades to read-only last-saved HTML (Postgres authoritative); env-gated; documented deploy | Medium |
-| 11 | Client bundle weight (TipTap/Yjs) | Medium | Perf | Editor bundle bloats the app | Dynamic import (`ssr:false`), code-split editor route | Low |
+| 10 | New infra / sidecar down | Medium | Ops | Realtime unavailable in an env without the sidecar | Editors degrade to optimistic-locked single-user autosave with unsaved-navigation protection; non-editing/revoked users remain read-only; env-gated and documented deploy | Low |
+| 11 | Client bundle weight (TipTap/Yjs) | Medium | Perf | Editor bundle bloats the app | Literal dynamic imports (`ssr:false`), static no-eager-editor guards, and production route/dynamic-chunk gzip budgets recorded in the ecosystem spec | Low |
 | 12 | Export fidelity below Word | Low | UX | `.docx` not byte-identical to Word | Documented good-fidelity; internal-doc tolerant | Low |
 
 ## Integration Test Coverage
@@ -315,7 +321,7 @@ Module-local tests under `packages/documents/src/modules/documents/__integration
 - Versions: snapshot (editor+), list, restore (editor+); viewer snapshot → 403; restore records a reversible pre-restore snapshot.
 
 **Sidecar (M2, jest seam):**
-- Collab-token mint returns tier-scoped token; `onAuthenticate` — editor → read-write; viewer/commenter → read-only; non-shared user → reject; wrong-tenant/doc-mismatch → reject; expired token → reject; read-only connection's update message rejected. (Live co-editing itself is a documented **manual QA** scenario, not automated E2E.)
+- Collab-token mint returns tier-scoped token; `onAuthenticate` — editor → read-write; viewer/commenter → read-only; non-shared user → reject; wrong-tenant/doc-mismatch → reject; expired token → reject; read-only connection's update message rejected. Live collaboration/recovery is covered by TC-DOCUMENTS-017; the real two-replica Redis/PostgreSQL durability race is a required Docker-capable CI job.
 
 **Export (M4):**
 - `GET /export?format=docx` and `?format=pdf` (viewer+) each return a valid file artifact for a document.
@@ -335,7 +341,7 @@ Module-local tests under `packages/documents/src/modules/documents/__integration
 ### M2 — Realtime + presence  _(LANDED — verified 2026-07-08)_
 - [x] Collab-token mint route (`GET /api/documents/[id]/collab-token`, dedicated `documents-collab` JWT audience, ~60s TTL) + shared `lib/collabToken.ts` (mint/verify, audience-isolated); Hocuspocus sidecar (`server/documents-collab-server.ts`): `onAuthenticate` (verify token + assert `documentId===room` + tenant/org + set `connection.readOnly` for viewer/commenter, deny by default), read-only enforcement (native `connection.readOnly` message-level drop + `onStoreDocument` tier early-return), tenant-scoped `onLoad/onStore` via `DocumentContentService` (fresh request-scoped container per op), room force-close on `deleted`/`unshared`/`shared`(downgrade)/`version.restored` via the cross-process pg bridge, `isRoomClosing` store-suppression; bootstrap via `bootstrapFromAppRoot()` + `createRequestContainer()`. Sidecar consumes the package **dist** (entity-class identity + legacy decorators).
 - [x] TipTap Collaboration + CollaborationCaret (v3) binding to a HocuspocusProvider (function token → re-mint on reconnect); Awareness live-cursor presence; materialization through the shared `editorConfig` (`lib/collabMaterializer.ts` + `@hocuspocus/transformer` + `@tiptap/html`).
-- [x] Dev/prod deploy wiring (`collab` script + `README.md` + env: `DOCUMENTS_COLLAB_PORT`/`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`/`DOCUMENTS_COLLAB_JWT_SECRET`/`DOCUMENTS_COLLAB_ALLOWED_ORIGINS`); read-only degrade path when the sidecar is unreachable; sidecar seam tests (9 jest: editor→RW, viewer/commenter→RO, wrong-doc/expired/tampered→reject, tenant-scoped load, store-suppression) + collab-token unit tests (5). Sidecar boots live (Hocuspocus 4.3.0 listening, DI/ORM bootstrapped).
+- [x] Dev/prod deploy wiring (`collab` script + `README.md` + env: `DOCUMENTS_COLLAB_PORT`/`NEXT_PUBLIC_DOCUMENTS_COLLAB_URL`/`DOCUMENTS_COLLAB_JWT_SECRET`/`DOCUMENTS_COLLAB_ALLOWED_ORIGINS`); optimistic single-user fallback for editors and fail-closed read-only fallback for revoked/non-editing users; sidecar seam tests (9 jest: editor→RW, viewer/commenter→RO, wrong-doc/expired/tampered→reject, tenant-scoped load, store-suppression) + collab-token unit tests (5). Sidecar boots live (Hocuspocus 4.3.0 listening, DI/ORM bootstrapped).
 
 ### M3 — Comments/@mentions + version history  _(LANDED — verified 2026-07-08)_
 - [x] Comments right-rail + `MentionPicker` (queries `/api/auth/users`, degrades on 403) → `@[uuid]` token → notification; inline anchors (capture `{from,to}` selection, jump/highlight; absolute offsets — documented v1 drift); resolve sends the optimistic-lock header; viewers get no composer.
@@ -365,7 +371,7 @@ Audit findings (10) and fixes. A shared helper `lib/userLabels.ts` (`resolveUser
 | 3 | Comment author renders `shortenId(authorUserId)` | comments GET returns `userLabels` map (authors + resolvedBy + mentioned); rail renders names |
 | 4 | Reply badge shows truncated comment UUID | render parent comment's author name + body snippet |
 | 5/6 | Mentions stored/rendered as `@[uuid]` tokens; raw token visible in composer | **out-of-band mentions**: comment POST carries `mentions: [{ userId }]` (zod-capped `.max(50)` like sibling arrays); body stores plain `@Name` text only; new `document_comments.mentions` json column; notify/`grantAccessTo` use the **merged** set (input.mentions ∪ legacy parsed tokens); GET feeds legacy-token ids through `extractMentionedUserIds` into `userLabels` so old bodies render names (no data migration); comments POST OpenAPI description updated |
-| 7 | Grant-access prompt falls back to truncated UUID | access-check response includes `label` per user id |
+| 7 | Grant-access prompt falls back to truncated UUID | access-check returns minimal ids only; the authenticated mention picker remains the source of the already-visible, human-readable label, and the prompt never renders an unknown id |
 | 8 | Version creator renders `shortenId(createdByUserId)` | versions GET returns `createdByLabel` |
 | 9 | ShareDialog falls back to raw id for deleted/foreign principals | render localized "removed user" placeholder instead of the id |
 | 10 | PrincipalPicker manual-UUID degrade mode | **removed** (jury ruling): when the user/role directory is unavailable the picker shows a localized retryable error state — no manual-ID entry path remains anywhere in the module |
@@ -413,13 +419,13 @@ Pre-configured document types (offer letter, meeting notes, deal summary) instan
 | `GET /api/documents` | + `ownerLabel`, `sharedWithCount` per item |
 | `GET /api/documents/[id]/comments` | + `userLabels: Record<id,{label}>`; comment nodes + `mentions` |
 | `POST /api/documents/[id]/comments` | + optional `mentions: [{ userId }]` (body no longer needs `@[uuid]` tokens; legacy tokens still parsed) |
-| `POST /api/documents/[id]/comments/access-check` | + `label` per returned user id |
+| `POST /api/documents/[id]/comments/access-check` | Minimal `{ withoutAccess: string[] }`; effective access includes ownership, direct share, active role share, and live manager override |
 | `GET /api/documents/[id]/versions` | + `createdByLabel` per version |
 | `/api/documents/templates` (new) | CRUD for `document_template` |
 
 ### M5 Integration Test Coverage
 
-- **TC-DOCUMENTS-007 (labels):** list returns `ownerLabel` + real `sharedWithCount`; comments GET returns `userLabels` covering author + mentioned users; comment POST with `mentions` array notifies without `@[uuid]` in body; access-check returns labels; versions GET returns `createdByLabel`; **no raw UUID rendered** for these surfaces.
+- **TC-DOCUMENTS-007 (labels):** list returns `ownerLabel` + real `sharedWithCount`; comments GET returns `userLabels` covering author + mentioned users; comment POST with `mentions` array notifies without `@[uuid]` in body; the access-check returns minimal ids while the picker retains display labels; versions GET returns `createdByLabel`; **no raw UUID rendered** for these surfaces.
 - **TC-DOCUMENTS-008 (templates + chips):** template CRUD (manage-feature gating: non-admin edit → 403; read with `documents.view` → 200); instantiation flow API-level (create doc + PUT filled content → GET content contains filled values and an `entityRef` span; unfilled optional tokens stripped); template optimistic lock (stale `updatedAt` → 409); cross-tenant template isolation; **export of a chip-bearing formatted document** (`?format=docx` returns a valid artifact for a doc containing `entityRef` + align/highlight/color marks).
 - **Materializer round-trip (jest, sidecar parity):** `htmlToYDoc(html) → yDocToContent` preserves an `entityRef` span (all data attrs) plus text-align/highlight/color marks — proves the shared-config schema round-trips through the exact transform the sidecar runs; plus a failure-path test that a materialization error does **not** persist empty html/text (deploy-skew guard).
 - **Key UI paths (preview QA, manual + screenshots):** insert an entity chip via `@` and via toolbar; create doc from template with slot pickers; rename inline; align/highlight/color/undo/redo; outline navigation; word count; comments with name-rendered mentions.
@@ -427,7 +433,7 @@ Pre-configured document types (offer letter, meeting notes, deal summary) instan
 ### M5 — Implementation Phases & Status
 
 - [x] M5-P0 · Schema: `document_comments.mentions` json column + `DocumentTemplate` entity + validators + one additive migration (`Migration20260709164720_documents.ts`) + snapshot + `lib/constants.ts` entry.
-- [x] M5-P1 · Server labels: `lib/userLabels.ts` + list GET (`ownerLabel`, `sharedWithCount`) + comments GET/POST (`userLabels`, out-of-band `mentions`, merged legacy tokens) + access-check `withoutAccessUsers` labels + versions `createdByLabel`.
+- [x] M5-P1 · Server labels: `lib/userLabels.ts` + list GET (`ownerLabel`, `sharedWithCount`) + comments GET/POST (`userLabels`, out-of-band `mentions`, merged legacy tokens) + minimal access-check ids paired with mention-picker labels + versions `createdByLabel`.
 - [x] M5-P2 · Editor lib: `entityRef` node (parseHTML+renderHTML) + align/highlight/color/character-count in `editorConfig.ts` (shared vs client split respected) + `lib/entityRegistry.ts` + `EntityPicker` component + `lib/entitySuggestion.ts` + 5 new `@tiptap/*@3` deps + materializer null-on-failure hardening (sidecar skips html/text overwrite).
 - [x] M5-P3 · Editor island integration: toolbar groups (align/highlight/color/undo/redo/insert-record), `@`-suggestion wiring, `OutlinePane`, word count, inline rename (optimistic lock, conflict bar).
 - [x] M5-P4 · Comments rail client: author/mention names via `userLabels`, out-of-band mention composer (no visible tokens), reply-to-name badge, grant-access labels, PrincipalPicker UUID-entry path removed (Alert + retry), ShareDialog removed-principal placeholder.
@@ -480,14 +486,16 @@ Pre-configured document types (offer letter, meeting notes, deal summary) instan
 5. **API route module-prefix doubling** (CRITICAL, latent since M1; caught only by running the integration tests against a booted app) — route files lived under `api/documents/*`, and OM auto-prefixes the module id, so every route served at `/api/documents/documents/*` and the intended `/api/documents/*` 404'd — the **entire module API was unreachable** at runtime (build/typecheck/jest all passed because the URLs are strings; the M1 integration tests had been compiled + discovered but never executed live). **Fixed**: moved `api/documents/*` → `api/*` (matching the `customers` convention); module-root imports lost one `../`, `_shared`/sibling imports unchanged; `yarn generate` now emits `/documents/<resource>` (no doubling). Backend pages were unaffected.
 - **Dismissed as spurious** (verified against the installed `@hocuspocus/server@4` dist, not the generic docs): DeepSeek's "`onAuthenticate` must use `connection` not `connectionConfig`" (the server builds the Connection from `hookPayload.connectionConfig.readOnly`) and "`onStoreDocument` must use `context` not `lastContext`" (the store payload field IS `lastContext`, populated). The fresh Claude reviewer independently confirmed both are non-issues.
 
-**Non-blocking follow-ups (recorded, not in scope for this pass):** (a) an @mention notification embeds the document title for a mentioned org-user who has no share (same-tenant title disclosure; click-through still 403s) — harden by authorizing mention recipients; (b) the client editor drops to permanent read-only fallback on a transient socket blip instead of letting Hocuspocus auto-reconnect (UX robustness). Secure per-doc-filtered content search remains deferred (`search.ts` `enabled:false`) until the search layer gains a per-record visibility hook (TC-DOCUMENTS-004 guards the non-leak).
+**Historical M4 follow-ups:** the mention-title disclosure and transient-socket fallback items were resolved by the later mention-access and M8 reconnect work recorded below. Secure per-doc-filtered content search remains deferred (`search.ts` `enabled:false`) until the search layer gains a per-record visibility hook (TC-DOCUMENTS-004 guards the non-leak).
 
 ## Changelog
 
-- **2026-07-08** — Spec created from approved design (brainstorming session). Four-milestone plan; M1 targeted for first verified landing.
+- **2026-07-14** — Aligned the baseline with the implemented optimistic single-user fallback, private cross-process invalidation semantics, browser fallback save/conflict coverage, and required Docker-capable multi-instance CI gate.
+- **2026-07-14** — Corrected the lifecycle status after M1-M5 completion and linked the M6-M8 continuation spec. Updated the historical follow-up note to distinguish resolved collaboration hardening from the still-deferred permission-filtered search seam.
+- **2026-07-08** — Spec created from approved design (brainstorming session). Five-milestone plan; M1 targeted for first verified landing.
 - **2026-07-08** — Spec hardened after pre-implement BC/readiness audit + cross-model spec jury (Codex + DeepSeek): concrete sidecar auth handshake (collab-token mint + verify), post-connect write enforcement + revocation, doc-tier-gated image proxy, `DocumentContentService` search-freshness contract, explicit encryption/search field policy (plaintext trade-off, Ask-First), safe version-restore protocol, shared editor config (no client/sidecar drift), local entity-id constants, re-share upsert, and a real PDF export endpoint.
 - **2026-07-08** — **M1 implemented and verified** (new `@open-mercato/documents` package). Full gate green (build:packages/generate/typecheck/test/build:app), migration applied to a live DB, four-reviewer jury passed after fixing three confirmed blockers (owner read-only editor, global-search per-doc leak, unvalidated share principal) and adding cross-tenant test coverage. M1 ships `search.ts` `enabled: false` (per-doc ACL gap); secure content search deferred to M2+.
-- **2026-07-08** — Spec re-hardened during M2 shift-left jury: version-restore changed from a merge to an **epoch-reset** protocol (force-close + store-suppression + `clientBroadcast` on `version.restored`), explicit sidecar per-operation tenant-isolation invariant, and corrected read-only enforcement (native `connection.readOnly`, not a throwing `beforeHandleMessage` — that hook fires on every message and a throw would sever legitimate viewers).
+- **2026-07-08** — Spec re-hardened during M2 shift-left jury: version-restore changed from a merge to an **epoch-reset** protocol (force-close + store-suppression; the later privacy hardening uses `crossProcessBroadcast` on `version.restored`), explicit sidecar per-operation tenant-isolation invariant, and corrected read-only enforcement (native `connection.readOnly`, not a throwing `beforeHandleMessage` — that hook fires on every message and a throw would sever legitimate viewers).
 - **2026-07-08** — **M2 + M3 + M4 implemented and verified** (realtime Hocuspocus sidecar + collab-token handshake + live cursors; comments/@mentions rail + version history; docx/PDF export). No new entities/columns (no migration). Full gate green (build:packages → generate → build:packages → typecheck 22 pkgs → test **5472 core + 33 documents** → build:app); sidecar boots live (Hocuspocus 4.3.0). Four-reviewer jury (fresh Claude Opus + Codex + DeepSeek; Kimi absent) fixed **3 confirmed blockers** — PDF-export SSRF (egress guard), share-downgrade not enforced on a live socket (`shared` now force-closes the room), empty-`yjsState` `Y.applyUpdate` crash (length guard) — plus a live-boot fix (sidecar consumes package **dist** for MikroORM v7 legacy decorators / entity-class identity; `tsx` devDep). Two DeepSeek "criticals" (`connectionConfig`/`lastContext` field names) dismissed as spurious after verifying the installed `@hocuspocus/server@4` dist. Non-blocking follow-ups: @mention title-disclosure to non-shared org users; client auto-reconnect UX.
 - **2026-07-09** — **Editor UI follow-up implemented** (Documents Item 3): the client island keeps the M2 realtime token/provider/Y.Doc/awareness/degrade wiring but presents it as a Google-Docs-like backoffice surface with a sticky grouped toolbar, centered document page, in-canvas title, presence avatar stack, semantic status pill, client-only Placeholder extension, and TipTap v3 BubbleMenu selection toolbar. The page passes the document title into the island and wires bubble-menu comments to the existing comments rail through a pending selection anchor. No API, persistence, sidecar, or schema changes.
 - **2026-07-09** — **Mention access prompt follow-up implemented** (Documents Item 2): comment creation now checks whether mentioned users can open the document, prompts share-capable authors to grant commenter access before notifying, and filters mention notifications to users with final document access. Added `POST /api/documents/[id]/comments/access-check` plus optional `grantAccessTo` on comment creation; no schema changes.

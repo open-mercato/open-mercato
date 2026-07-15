@@ -507,6 +507,62 @@ jobs:
         # suite unconditionally here so template drift fails the PR, not develop.
         run: yarn workspace create-mercato-app test
 
+  # ── Documents multi-instance durability ────────────────────────────────────
+  # The standard Documents Jest suite intentionally skips this infrastructure
+  # regression. Run it as a dedicated required job on GitHub's Docker-capable
+  # runner so every change proves the two-sidecar Redis/PostgreSQL persistence
+  # path rather than relying on an opt-in local command.
+  documents-multi-instance:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [prepare, audit-scope, audit, lint]
+    if: |
+      always() &&
+      needs.prepare.result == 'success' &&
+      needs.audit-scope.result == 'success' &&
+      (needs.audit.result == 'success' || needs.audit.result == 'skipped') &&
+      needs.lint.result == 'success'
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Cache Yarn packages
+        uses: actions/cache@v6
+        with:
+          path: .yarn/cache
+          key: yarn-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          restore-keys: yarn-${{ runner.os }}-
+
+      - name: Cache node_modules
+        id: nm-cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            node_modules
+            packages/*/node_modules
+            apps/*/node_modules
+          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+
+      - name: Install dependencies
+        if: steps.nm-cache.outputs.cache-hit != 'true'
+        run: yarn install --immutable
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v8
+        with:
+          name: build-artifacts
+
+      - name: Run real two-sidecar durability regression
+        run: yarn workspace @open-mercato/documents test:multi-instance
+
   # ── Integration tests ───────────────────────────────────────────────────────
   # Boots an ephemeral app server and runs the Playwright suite.
   # Starts as soon as 'prepare' completes — runs in PARALLEL with 'test' so
@@ -536,6 +592,12 @@ jobs:
       OM_ENABLE_ENTERPRISE_MODULES: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SSO: 'true'
       OM_ENABLE_ENTERPRISE_MODULES_SECURITY: 'true'
+      # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
+      # the same ephemeral database. The separate documents-multi-instance job
+      # proves the Redis-backed two-sidecar path.
+      OM_DOCUMENTS_COLLAB_INTEGRATION: '1'
+      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
+      DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'
       OM_WEBHOOKS_ALLOW_PRIVATE_URLS: '1'
@@ -723,7 +785,7 @@ jobs:
   # On push: downloads per-shard artifacts, merges coverage reports, writes summary.
   merge-coverage:
     runs-on: ubuntu-latest
-    needs: [prepare, test, ephemeral-integration]
+    needs: [prepare, test, documents-multi-instance, ephemeral-integration]
     if: needs.prepare.outputs.shard_matrix != '["none"]'
     steps:
       - name: Checkout repository

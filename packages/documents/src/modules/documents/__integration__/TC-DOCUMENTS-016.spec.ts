@@ -199,7 +199,7 @@ async function selectTargetThroughLivePicker(
   await panel.getByRole('button', { name: 'Link record' }).click()
   const dialog = page.getByRole('dialog', { name: 'Insert record' })
   await expect(dialog).toBeVisible()
-  await dialog.getByRole('tab', { name: target.tabLabel }).click()
+  await dialog.getByRole('radio', { name: target.tabLabel }).click()
   const search = dialog.getByRole('combobox', { name: 'Search' })
   const peerResponse = page.waitForResponse((response) => {
     const url = new URL(response.url())
@@ -248,6 +248,7 @@ async function deleteTemplate(request: APIRequestContext, token: string | null, 
 
 test.describe('TC-DOCUMENTS-016: label-first ecosystem selectors and commercial templates', () => {
   test('selects and links all seven registry peer types through the live label-first picker', async ({ page, request }) => {
+    test.slow()
     const stamp = Date.now()
     let token: string | null = null
     let pickerDocument: Created | null = null
@@ -327,9 +328,9 @@ test.describe('TC-DOCUMENTS-016: label-first ecosystem selectors and commercial 
       const panel = page.getByRole('heading', { name: 'Related records' }).locator('xpath=ancestor::section')
       await panel.getByRole('button', { name: 'Link record' }).click()
       let dialog = page.getByRole('dialog', { name: 'Insert record' })
-      await dialog.getByRole('tab', { name: 'Catalog offer' }).click()
+      await dialog.getByRole('radio', { name: 'Catalog offer' }).click()
       await dialog.getByRole('combobox', { name: 'Search' }).fill(`Forbidden ${stamp}`)
-      await expect(dialog.getByRole('tab', { name: 'Catalog offer' })).toHaveCount(0)
+      await expect(dialog.getByRole('radio', { name: 'Catalog offer' })).toHaveCount(0)
       await expect(page).toHaveURL(new RegExp(`/backend/documents/${pickerDocument.id}$`))
       await dialog.getByRole('button', { name: 'Cancel' }).click()
       await page.unroute('**/api/catalog/offers?**')
@@ -339,9 +340,9 @@ test.describe('TC-DOCUMENTS-016: label-first ecosystem selectors and commercial 
       })
       await panel.getByRole('button', { name: 'Link record' }).click()
       dialog = page.getByRole('dialog', { name: 'Insert record' })
-      await dialog.getByRole('tab', { name: 'Quote' }).click()
+      await dialog.getByRole('radio', { name: 'Quote' }).click()
       await dialog.getByRole('combobox', { name: 'Search' }).fill(`Missing ${stamp}`)
-      await expect(dialog.getByRole('tab', { name: 'Quote' })).toHaveCount(0)
+      await expect(dialog.getByRole('radio', { name: 'Quote' })).toHaveCount(0)
       await expect(page).toHaveURL(new RegExp(`/backend/documents/${pickerDocument.id}$`))
       await dialog.getByRole('button', { name: 'Cancel' }).click()
       await page.unroute('**/api/sales/quotes?**')

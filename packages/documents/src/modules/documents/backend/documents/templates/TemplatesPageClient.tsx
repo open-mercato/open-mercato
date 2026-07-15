@@ -11,7 +11,7 @@ import type { TemplateRow } from '../components/templateUi'
 import { TemplatesTable } from './TemplatesTable'
 import { useTemplatesPage } from './useTemplatesPage'
 
-function TemplateEditorDialogLoading() {
+function TemplateEditorDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
   return (
     <Dialog open>
@@ -20,7 +20,14 @@ function TemplateEditorDialogLoading() {
           <DialogTitle>{t('documents.templates.actions.manage')}</DialogTitle>
           <DialogDescription>{t('documents.templates.preview.loading')}</DialogDescription>
         </DialogHeader>
-        <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.preview.loading')} /></div>
+        {error ? (
+          <ErrorMessage
+            label={t('documents.templates.error.load')}
+            action={<Button type="button" size="sm" variant="outline" onClick={retry}>{t('documents.actions.retry')}</Button>}
+          />
+        ) : (
+          <div role="status" aria-live="polite"><LoadingMessage label={t('documents.templates.preview.loading')} /></div>
+        )}
       </DialogContent>
     </Dialog>
   )

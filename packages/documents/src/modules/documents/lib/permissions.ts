@@ -8,6 +8,7 @@ import { Document, DocumentShare } from '../data/entities'
 import {
   resolveApiKeyPrincipalService,
   resolveAuthPrincipalService,
+  resolveDocumentsRbacService,
   type DocumentsServiceContainer,
 } from './platformServices'
 
@@ -178,6 +179,11 @@ export async function resolveUserAccess(
   )
   if (!document) return null
   if (document.ownerUserId === userId) return 'owner'
+  if (await resolveDocumentsRbacService(container)?.userHasAllFeatures(
+    userId,
+    ['documents.manage'],
+    scope,
+  )) return 'owner'
 
   const roleIds = await resolveActiveUserRoleIds(container, scope, userId)
 

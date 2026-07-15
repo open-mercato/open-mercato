@@ -1,29 +1,31 @@
 "use client"
 
 import * as React from 'react'
-import { AtSign, CornerDownRight, Send } from 'lucide-react'
+import { AtSign, CornerDownRight, Send, X } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { MentionPicker } from './MentionPicker'
-import type { PendingMention } from './commentTypes'
+import { bodyContainsPendingMention, type PendingMention } from './commentTypes'
 
 type CommentComposerProps = {
   documentId: string
   body: string
+  pendingMentions: PendingMention[]
   replyToName: string | null
   isSubmitting: boolean
   onBodyChange: (body: string) => void
   onMentionsChange: React.Dispatch<React.SetStateAction<PendingMention[]>>
   onSubmit: () => void
   onCancel: () => void
-  focusSignal?: number
+  focusSignal?: number | string
 }
 
 export const CommentComposer = React.forwardRef<HTMLFormElement, CommentComposerProps>(function CommentComposer({
   documentId,
   body,
+  pendingMentions,
   replyToName,
   isSubmitting,
   onBodyChange,
@@ -49,6 +51,17 @@ export const CommentComposer = React.forwardRef<HTMLFormElement, CommentComposer
       : [...current, { userId, name: user.name }])
     onBodyChange(`${body}${body.length > 0 && !/\s$/.test(body) ? ' ' : ''}@${user.name} `)
     setMentionPickerOpen(false)
+    window.setTimeout(() => textareaRef.current?.focus(), 0)
+  }, [body, onBodyChange, onMentionsChange])
+
+  const handleBodyChange = React.useCallback((nextBody: string) => {
+    onBodyChange(nextBody)
+    onMentionsChange((current) => current.filter((mention) => bodyContainsPendingMention(nextBody, mention)))
+  }, [onBodyChange, onMentionsChange])
+
+  const removeMention = React.useCallback((mention: PendingMention) => {
+    onBodyChange(body.split(`@${mention.name}`).join(''))
+    onMentionsChange((current) => current.filter((candidate) => candidate.userId !== mention.userId))
     window.setTimeout(() => textareaRef.current?.focus(), 0)
   }, [body, onBodyChange, onMentionsChange])
 
@@ -81,12 +94,29 @@ export const CommentComposer = React.forwardRef<HTMLFormElement, CommentComposer
           ref={textareaRef}
           id={composerId}
           value={body}
-          onChange={(event) => onBodyChange(event.target.value)}
+          onChange={(event) => handleBodyChange(event.target.value)}
           placeholder={t('documents.comments.composer.placeholder')}
           maxLength={8000}
           showCount
           disabled={isSubmitting}
         />
+        {pendingMentions.length > 0 ? (
+          <div className="flex flex-wrap gap-2" role="group" aria-label={t('documents.comments.mentions.selected')}>
+            {pendingMentions.map((mention) => (
+              <Button
+                key={mention.userId}
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() => removeMention(mention)}
+                disabled={isSubmitting}
+                aria-label={t('documents.comments.mentions.remove', { name: mention.name })}
+              >
+                @{mention.name}<X aria-hidden="true" />
+              </Button>
+            ))}
+          </div>
+        ) : null}
       </div>
       {mentionPickerOpen ? <MentionPicker documentId={documentId} onPick={handleMentionPick} disabled={isSubmitting} /> : null}
       <div className="flex flex-wrap items-center justify-between gap-2">

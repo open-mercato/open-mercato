@@ -137,7 +137,7 @@ export function useDocumentsList() {
   }, [confirm, mutationContextId, refresh, retryLastMutation, runMutation, t])
 
   const moveDocument = React.useCallback(async (row: DocumentRow, folderId: string | null) => {
-    if (!row.capabilities.canEdit || row.folderId === folderId) return
+    if (!row.capabilities.canEdit || row.folderId === folderId) return false
     try {
       await runMutation({
         operation: () => withScopedApiRequestHeaders(
@@ -157,10 +157,12 @@ export function useDocumentsList() {
       })
       flash(t('documents.folders.success.moveDocument'), 'success')
       refresh()
+      return true
     } catch (error) {
       if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
         flash(error instanceof Error ? error.message : t('documents.folders.error.moveDocument'), 'error')
       }
+      return false
     }
   }, [mutationContextId, refresh, retryLastMutation, runMutation, t])
 
@@ -183,10 +185,12 @@ export function useDocumentsList() {
       })
       flash(t(isRename ? 'documents.folders.success.rename' : 'documents.folders.success.create'), 'success')
       refresh()
+      return true
     } catch (error) {
       if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
         flash(error instanceof Error ? error.message : t(isRename ? 'documents.folders.error.rename' : 'documents.folders.error.create'), 'error')
       }
+      return false
     }
   }, [mutationContextId, refresh, retryLastMutation, runMutation, t])
 

@@ -29,10 +29,18 @@ jest.mock('../lib/platformServices', () => ({
 type AttachmentDetailRoute = typeof import('../api/[id]/attachments/[attachmentId]/route')
 
 let DELETE: AttachmentDetailRoute['DELETE']
+let GET: AttachmentDetailRoute['GET']
 let features: string[]
 let attachmentRecord: { id: string; updatedAt: Date; deletedAt: Date | null } | null
 let em: { findOne: jest.Mock; find: jest.Mock; flush: jest.Mock }
 const executeCommand = jest.fn(async () => ({ result: { id: ATTACHMENT_ID }, logEntry: null }))
+const validateUpload = jest.fn()
+const createScoped = jest.fn(async () => ({ id: ATTACHMENT_ID }))
+const readScoped = jest.fn(async () => ({
+  buffer: Buffer.from('private document bytes'),
+  contentType: 'application/octet-stream',
+  contentDisposition: 'inline; filename="document.bin"',
+}))
 
 const rbacService = {
   loadAcl: jest.fn(async () => ({
@@ -47,12 +55,14 @@ const container = {
     if (name === 'em') return em
     if (name === 'rbacService') return rbacService
     if (name === 'commandBus') return { execute: executeCommand }
+    if (name === 'attachmentService') return { validateUpload, createScoped, readScoped }
     return undefined
   }),
 }
 
 beforeAll(async () => {
   const route = await import('../api/[id]/attachments/[attachmentId]/route')
+  GET = route.GET
   DELETE = route.DELETE
 })
 
@@ -90,10 +100,10 @@ beforeEach(() => {
   })
 })
 
-function request(): Request {
+function request(method: 'GET' | 'DELETE' = 'DELETE'): Request {
   return new Request(
     `http://localhost/api/documents/${DOCUMENT_ID}/attachments/${ATTACHMENT_ID}`,
-    { method: 'DELETE' },
+    { method },
   )
 }
 
@@ -102,6 +112,19 @@ function context() {
 }
 
 describe('document attachment detach', () => {
+  it('prevents browsers from reusing private bytes after access is revoked', async () => {
+    const response = await GET(request('GET'), context())
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('cache-control')).toBe('private, no-store, max-age=0, must-revalidate')
+    expect(response.headers.get('pragma')).toBe('no-cache')
+    expect(response.headers.get('expires')).toBe('0')
+    expect(readScoped).toHaveBeenCalledWith(expect.objectContaining({
+      attachmentId: ATTACHMENT_ID,
+      requirePrivatePartition: true,
+    }))
+  })
+
   it('routes permanent deletion through the audited command', async () => {
     const response = await DELETE(request(), context())
 

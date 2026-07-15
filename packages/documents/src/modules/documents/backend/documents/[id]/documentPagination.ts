@@ -231,18 +231,9 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
     view: (view) => {
       let frame: number | null = null
       let destroyed = false
-      const compactLayout = window.matchMedia('(max-width: 639px)')
       const recompute = () => {
         frame = null
         if (destroyed) return
-        const paper = view.dom.closest<HTMLElement>('.om-doc-paper')
-        if (paper) {
-          const canvas = paper.closest<HTMLElement>('.om-doc-canvas')
-          const mobileScale = compactLayout.matches && canvas
-            ? Math.min(1, canvas.clientWidth / (A4_PAGE_WIDTH_MM * CSS_PIXELS_PER_MM))
-            : 1
-          paper.style.setProperty('--documents-mobile-page-scale', String(mobileScale))
-        }
         const current = DOCUMENT_PAGINATION_PLUGIN_KEY.getState(view.state)?.breaks ?? []
         const next = calculateDocumentPageBreaks(measureTopLevelBlocks(view, current), {
           firstPageUsedHeight: firstPageUsedHeight(view),
@@ -266,7 +257,6 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
       if (paper) resizeObserver?.observe(paper)
       view.dom.addEventListener('load', schedule, true)
       window.addEventListener('resize', schedule)
-      compactLayout.addEventListener('change', schedule)
       schedule()
 
       return {
@@ -277,7 +267,6 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
           resizeObserver?.disconnect()
           view.dom.removeEventListener('load', schedule, true)
           window.removeEventListener('resize', schedule)
-          compactLayout.removeEventListener('change', schedule)
         },
       }
     },
@@ -301,7 +290,9 @@ export const DOCUMENT_PAGINATION_STYLES = `
   padding: ${DOCUMENT_PAGE_VERTICAL_MARGIN_MM}mm ${DOCUMENT_PAGE_HORIZONTAL_MARGIN_MM}mm;
 }
 .om-doc-canvas {
+  overflow-x: auto;
   scrollbar-gutter: stable;
+  overscroll-behavior-inline: contain;
 }
 .om-doc-paper .om-doc-page-break {
   display: block;
@@ -330,10 +321,5 @@ export const DOCUMENT_PAGINATION_STYLES = `
   border-bottom: 1px solid var(--border);
   background: var(--muted);
   box-shadow: inset 0 1px 2px color-mix(in oklab, var(--foreground) 8%, transparent);
-}
-@media (max-width: 639px) {
-  .om-doc-paper {
-    zoom: var(--documents-mobile-page-scale, 1);
-  }
 }
 `

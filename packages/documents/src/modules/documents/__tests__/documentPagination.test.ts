@@ -9,9 +9,12 @@ import {
 import { pageAtOffset } from '../backend/documents/[id]/DocumentNavigator'
 
 describe('document pagination', () => {
-  it('scales the paginated A4 paper surface on phone-sized screens', () => {
-    expect(DOCUMENT_PAGINATION_STYLES).toContain('@media (max-width: 639px)')
-    expect(DOCUMENT_PAGINATION_STYLES).toContain('zoom: var(--documents-mobile-page-scale, 1)')
+  it('keeps fixed A4 geometry and allows horizontal scrolling on narrow screens', () => {
+    expect(DOCUMENT_PAGINATION_STYLES).toContain('width: 210mm')
+    expect(DOCUMENT_PAGINATION_STYLES).toContain('min-width: 210mm')
+    expect(DOCUMENT_PAGINATION_STYLES).toContain('overflow-x: auto')
+    expect(DOCUMENT_PAGINATION_STYLES).not.toContain('zoom:')
+    expect(DOCUMENT_PAGINATION_STYLES).not.toContain('--documents-mobile-page-scale')
     expect(DOCUMENT_PAGINATION_STYLES).not.toContain('.om-doc-paper .om-doc-page-break {\n    display: none')
     expect(DOCUMENT_PAGINATION_STYLES).toContain('.om-doc-page-number')
   })
