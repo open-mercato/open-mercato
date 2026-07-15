@@ -332,5 +332,6 @@
   "customer_accounts.widgets.noAccount": "Brak powiązanego konta",
   "customer_accounts.widgets.noUsers": "Brak powiązanych użytkowników",
   "customer_accounts.widgets.portalUsers": "Użytkownicy portalu",
-  "customer_accounts.widgets.viewAccount": "Zobacz konto"
+  "customer_accounts.widgets.viewAccount": "Zobacz konto",
+  "zzz.marker.test": "MARKER"
 }
