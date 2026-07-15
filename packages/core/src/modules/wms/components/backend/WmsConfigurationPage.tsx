@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { z } from 'zod'
 import type { ColumnDef, SortingState } from '@tanstack/react-table'
 import { useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
@@ -809,6 +810,7 @@ export function ZoneSection() {
 
 export function LocationSection() {
   const t = useT()
+  const router = useRouter()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-locations' })
@@ -954,6 +956,12 @@ export function LocationSection() {
               {t('wms.backend.config.actions.addLocation', 'Add location')}
             </Button>
           ) : null}
+          onRowClick={(row) => {
+            const locationId = row.id?.trim()
+            if (locationId) {
+              router.push(`/backend/wms/location/${encodeURIComponent(locationId)}`)
+            }
+          }}
           rowActions={(row) => (
             <RowActions
               items={[
