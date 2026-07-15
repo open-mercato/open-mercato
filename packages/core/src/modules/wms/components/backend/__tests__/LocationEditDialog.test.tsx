@@ -70,4 +70,23 @@ describe('LocationEditDialog', () => {
 
     expect(capturedCrudFormProps?.optimisticLockUpdatedAt).toBeUndefined()
   })
+
+  it('suppresses initial combobox autofocus and seeds the warehouse label in edit mode (#4106)', () => {
+    const row: LocationDialogRow = {
+      id: 'loc-1',
+      warehouse_id: 'wh-1',
+      warehouse_name: 'Main Warehouse',
+      code: 'A-01',
+      type: 'bin',
+      is_active: true,
+    }
+
+    render(
+      <LocationEditDialog open onOpenChange={jest.fn()} mode="edit" row={row} onSaved={jest.fn()} />,
+    )
+
+    expect(capturedCrudFormProps?.disableInitialFocus).toBe(true)
+    const fields = capturedCrudFormProps?.fields as Array<{ id: string; seedOptions?: Array<{ value: string; label: string }> }>
+    expect(fields[0]?.seedOptions).toEqual([{ value: 'wh-1', label: 'Main Warehouse' }])
+  })
 })

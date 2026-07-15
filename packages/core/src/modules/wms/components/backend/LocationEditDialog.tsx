@@ -16,6 +16,8 @@ import { loadWarehouseOptions } from './wmsLookupLoaders'
 export type LocationDialogRow = {
   id: string
   warehouse_id?: string | null
+  warehouse_name?: string | null
+  warehouse_code?: string | null
   code?: string | null
   type?: string | null
   capacity_units?: string | number | null
@@ -56,6 +58,13 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-locations' })
   const [submitting, setSubmitting] = React.useState(false)
 
+  const warehouseSeedOptions = React.useMemo(() => {
+    if (mode !== 'edit' || !row?.warehouse_id) return undefined
+    const label = row.warehouse_name?.trim() || row.warehouse_code?.trim() || ''
+    if (!label) return undefined
+    return [{ value: row.warehouse_id, label }]
+  }, [mode, row])
+
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'warehouseId',
@@ -64,6 +73,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
       required: true,
       loadOptions: loadWarehouseOptions,
       allowCustomValues: false,
+      seedOptions: warehouseSeedOptions,
     },
     { id: 'code', type: 'text', label: t('wms.backend.config.locations.form.code', 'Code'), required: true },
     {
@@ -84,7 +94,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
     { id: 'capacityUnits', type: 'number', label: t('wms.backend.config.locations.form.capacityUnits', 'Capacity units') },
     { id: 'capacityWeight', type: 'number', label: t('wms.backend.config.locations.form.capacityWeight', 'Capacity weight') },
     { id: 'isActive', type: 'checkbox', label: t('wms.backend.config.locations.form.active', 'Active') },
-  ], [t])
+  ], [t, warehouseSeedOptions])
 
   const initialValues = React.useMemo<LocationFormValues>(() => {
     if (mode === 'edit' && row) {
@@ -160,6 +170,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
           submitLabel={t('common.save', 'Save')}
           onSubmit={handleSubmit}
           embedded
+          disableInitialFocus
           isLoading={submitting}
           twoColumn
           optimisticLockUpdatedAt={mode === 'edit' ? (row?.updatedAt ?? row?.updated_at ?? null) : undefined}
