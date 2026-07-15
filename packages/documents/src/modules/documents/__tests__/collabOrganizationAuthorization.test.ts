@@ -283,4 +283,88 @@ describe('Documents collaboration active authorization refresh', () => {
     await expect(hooks.reauthorizeActiveConnection(context())).resolves.toBe(false)
     expect(invalidateRoom).toHaveBeenCalledWith(DOCUMENT_ID, room)
   })
+
+  it.each([
+    [
+      'its collaboration generation advances without a bridge event',
+      {
+        yjsState: null,
+        contentHtml: '<p>restored</p>',
+        updatedAt: new Date('2026-07-15T10:00:01.000Z'),
+        collaborationGeneration: 2,
+      },
+    ],
+    ['its scoped content row is deleted without a bridge event', null],
+  ])('retires the exact mapped room when %s', async (_reason, durableContent) => {
+    const room = new Y.Doc()
+    const em = {}
+    const loadedContent = {
+      yjsState: null,
+      contentHtml: '<p>original</p>',
+      updatedAt: new Date('2026-07-15T10:00:00.000Z'),
+      collaborationGeneration: 1,
+    }
+    const loadContent = jest.fn().mockResolvedValueOnce(loadedContent)
+    const loadCollaborationGeneration = jest.fn().mockResolvedValue(
+      durableContent?.collaborationGeneration ?? null,
+    )
+    const invalidateRoom = jest.fn()
+    const hooks = createCollabHooks({
+      verifyToken: () => null,
+      authorizeContext: async () => true,
+      resolveContainer: async () => ({ resolve: () => em }),
+      loadContent,
+      loadCollaborationGeneration,
+      initializeYjsState: async () => null,
+      persistContent: async () => ({
+        updatedAt: new Date(),
+        collaborationGeneration: 1,
+      }),
+      resolveRoomDocument: (documentName) => documentName === DOCUMENT_ID ? room : undefined,
+      invalidateRoom,
+    })
+
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context: context(), document: room })
+    await expect(hooks.reauthorizeActiveConnection(context())).resolves.toBe(false)
+
+    expect(loadContent).toHaveBeenCalledWith(em, DOCUMENT_ID, {
+      tenantId: TENANT_ID,
+      organizationId: CHILD_ORGANIZATION_ID,
+    })
+    expect(loadCollaborationGeneration).toHaveBeenCalledWith(em, DOCUMENT_ID, {
+      tenantId: TENANT_ID,
+      organizationId: CHILD_ORGANIZATION_ID,
+    })
+    expect(invalidateRoom).toHaveBeenCalledTimes(1)
+    expect(invalidateRoom).toHaveBeenCalledWith(DOCUMENT_ID, room)
+  })
+
+  it('keeps an authorized mapped room whose durable generation is current', async () => {
+    const room = new Y.Doc()
+    const content = {
+      yjsState: null,
+      contentHtml: '<p>current</p>',
+      updatedAt: new Date('2026-07-15T10:00:00.000Z'),
+      collaborationGeneration: 1,
+    }
+    const invalidateRoom = jest.fn()
+    const hooks = createCollabHooks({
+      verifyToken: () => null,
+      authorizeContext: async () => true,
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => content,
+      loadCollaborationGeneration: async () => content.collaborationGeneration,
+      initializeYjsState: async () => null,
+      persistContent: async () => ({
+        updatedAt: new Date(),
+        collaborationGeneration: 1,
+      }),
+      resolveRoomDocument: (documentName) => documentName === DOCUMENT_ID ? room : undefined,
+      invalidateRoom,
+    })
+
+    await hooks.onLoadDocument({ documentName: DOCUMENT_ID, context: context(), document: room })
+    await expect(hooks.reauthorizeActiveConnection(context())).resolves.toBe(true)
+    expect(invalidateRoom).not.toHaveBeenCalled()
+  })
 })

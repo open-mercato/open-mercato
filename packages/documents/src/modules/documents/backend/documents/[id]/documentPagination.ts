@@ -15,6 +15,7 @@ const PAGE_CONTENT_HEIGHT_PX = (
 ) * CSS_PIXELS_PER_MM
 const PAGE_VERTICAL_MARGIN_PX = DOCUMENT_PAGE_VERTICAL_MARGIN_MM * CSS_PIXELS_PER_MM
 const PAGE_BREAK_EPSILON_PX = 0.5
+export const DOCUMENT_PAGINATION_UPDATE_DELAY_MS = 120
 
 export type PaginationBlockMeasurement = {
   position: number
@@ -137,7 +138,16 @@ function createDecorations(doc: ProseMirrorNode, breaks: DocumentPageBreak[]): D
   return DecorationSet.create(doc, breaks.map((pageBreak, index) => Decoration.widget(
     pageBreak.position,
     () => createPageBreakDom(pageBreak, index + 1),
-    { key: `document-page-break:${pageBreak.position}`, side: -1, ignoreSelection: true },
+    {
+      key: [
+        'document-page-break',
+        pageBreak.position,
+        index + 1,
+        pageBreak.remainingContentHeight,
+      ].join(':'),
+      side: -1,
+      ignoreSelection: true,
+    },
   )))
 }
 
@@ -230,6 +240,7 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
     },
     view: (view) => {
       let frame: number | null = null
+      let updateTimer: number | null = null
       let destroyed = false
       const recompute = () => {
         frame = null
@@ -247,7 +258,19 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
       }
       const schedule = () => {
         if (destroyed || frame !== null) return
+        if (updateTimer !== null) {
+          window.clearTimeout(updateTimer)
+          updateTimer = null
+        }
         frame = requestAnimationFrame(recompute)
+      }
+      const scheduleDocumentUpdate = () => {
+        if (destroyed) return
+        if (updateTimer !== null) window.clearTimeout(updateTimer)
+        updateTimer = window.setTimeout(() => {
+          updateTimer = null
+          schedule()
+        }, DOCUMENT_PAGINATION_UPDATE_DELAY_MS)
       }
       const resizeObserver = typeof ResizeObserver === 'undefined'
         ? null
@@ -260,10 +283,14 @@ export function createDocumentPaginationPlugin(): Plugin<PaginationPluginState> 
       schedule()
 
       return {
-        update: schedule,
+        update: (_nextView, previousState) => {
+          if (previousState.doc === view.state.doc) return
+          scheduleDocumentUpdate()
+        },
         destroy: () => {
           destroyed = true
           if (frame !== null) cancelAnimationFrame(frame)
+          if (updateTimer !== null) window.clearTimeout(updateTimer)
           resizeObserver?.disconnect()
           view.dom.removeEventListener('load', schedule, true)
           window.removeEventListener('resize', schedule)

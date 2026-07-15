@@ -1,5 +1,5 @@
 import type { AuthPrincipalLabel } from '@open-mercato/shared/lib/auth/principal-service'
-import { resolveUserLabels } from '../lib/userLabels'
+import { resolveUserLabels, resolveViewerSafeUserLabels } from '../lib/userLabels'
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001'
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000002'
@@ -77,5 +77,23 @@ describe('resolveUserLabels', () => {
     )
     expect(labels.has(USER_ID_1)).toBe(false)
     expect(labels.get(USER_ID_2)).toEqual({ label: 'safe@example.test', secondary: null })
+  })
+
+  it('projects viewer-safe labels without email primary fallbacks or secondary metadata', async () => {
+    const container = containerWithLabels([
+      { id: USER_ID_1, label: 'Ada Lovelace', secondary: 'ada@example.test' },
+      { id: USER_ID_2, label: 'grace@example.test', secondary: null },
+      { id: UNKNOWN_USER_ID, label: 'Grace <grace@example.test>', secondary: null },
+    ])
+
+    const labels = await resolveViewerSafeUserLabels(
+      container,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      [USER_ID_1, USER_ID_2, UNKNOWN_USER_ID],
+    )
+
+    expect(Array.from(labels.entries())).toEqual([
+      [USER_ID_1, { label: 'Ada Lovelace' }],
+    ])
   })
 })

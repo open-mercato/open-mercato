@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { documentTemplateInstantiateSchema } from '../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
 import { dedupeTemplateLinkSlots } from '../../lib/templateInstantiation'
+import { DOCUMENTS_JSON_BODY_LIMITS } from '../../lib/requestBody'
 import {
   handleDocumentsRouteError,
   hasDocumentsFeature,
@@ -47,7 +48,10 @@ export async function POST(request: Request): Promise<Response> {
     ) {
       throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
     }
-    const input = documentTemplateInstantiateSchema.parse(await readBody(request))
+    const input = documentTemplateInstantiateSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.templateRender,
+    ))
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.document,
       resourceId: 'new',
@@ -98,6 +102,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 404, description: 'Template or folder not found', schema: routeErrorSchema },
         { status: 409, description: 'Preview or template revision changed', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
         { status: 503, description: 'Target lookup unavailable', schema: routeErrorSchema },
       ],
     },

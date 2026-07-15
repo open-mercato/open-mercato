@@ -32,6 +32,7 @@ export function DocumentEditorSurface(input: Props) {
   const t = useT()
   const [outlineOpen, setOutlineOpen] = React.useState(false)
   const [suggestionRange, setSuggestionRange] = React.useState<{ from: number; to: number } | null>(null)
+  const modeChangeInFlightRef = React.useRef(false)
   const effectiveReadOnly = input.readOnly || input.mode === 'preview'
   const openSuggestion = React.useCallback((range: { from: number; to: number }) => setSuggestionRange(range), [])
   const closeSuggestion = React.useCallback(() => setSuggestionRange(null), [])
@@ -84,6 +85,20 @@ export function DocumentEditorSurface(input: Props) {
     transport: input.transport,
     hasCommentHandler: Boolean(input.onComment),
   }) ? input.onComment : undefined
+  const handleModeChange = React.useCallback(async (nextMode: EditorMode) => {
+    if (nextMode === input.mode || modeChangeInFlightRef.current) return
+    if (input.transport !== 'fallback' || nextMode !== 'preview') {
+      input.onModeChange(nextMode)
+      return
+    }
+
+    modeChangeInFlightRef.current = true
+    try {
+      if (await fallbackPersistence.saveNow()) input.onModeChange(nextMode)
+    } finally {
+      modeChangeInFlightRef.current = false
+    }
+  }, [fallbackPersistence.saveNow, input.mode, input.onModeChange, input.transport])
 
   return (
     <div className={cn('space-y-3', input.transport === 'collab' && 'om-doc-collab', input.mode === 'preview' && 'om-doc-preview')}>
@@ -97,10 +112,7 @@ export function DocumentEditorSurface(input: Props) {
               counts={editorModel.counts}
               mode={input.mode}
               canEdit={!input.readOnly}
-              onModeChange={(nextMode) => {
-                if (input.transport === 'fallback' && nextMode === 'preview') fallbackPersistence.saveNow()
-                input.onModeChange(nextMode)
-              }}
+              onModeChange={(nextMode) => { void handleModeChange(nextMode) }}
               fallbackSave={input.transport === 'fallback' && !input.readOnly ? {
                 status: fallbackPersistence.status,
                 onSave: fallbackPersistence.saveNow,

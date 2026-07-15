@@ -14,6 +14,7 @@ import {
   documentTemplateUpdateSchema,
 } from '../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
+import { DOCUMENTS_JSON_BODY_LIMITS } from '../../lib/requestBody'
 import type {
   TemplateCommandResult,
   TemplateCreateCommandInput,
@@ -190,7 +191,10 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.templates.manage'])
-    const input = documentTemplateCreateSchema.parse(await readBody(request))
+    const input = documentTemplateCreateSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.template,
+    ))
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
       resourceId: 'new',
@@ -228,7 +232,10 @@ export async function POST(request: Request): Promise<Response> {
 export async function PUT(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.templates.manage'])
-    const input = documentTemplateUpdateSchema.parse(await readBody(request))
+    const input = documentTemplateUpdateSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.template,
+    ))
     const template = await loadScopedTemplate(ctx, input.id)
     await enforceCommandOptimisticLockWithGuards(ctx.container, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentTemplate,
@@ -331,19 +338,28 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Create document template',
       requestBody: { contentType: 'application/json', schema: documentTemplateCreateSchema },
       responses: [{ status: 201, description: 'Template created', schema: mutationResponseSchema }],
-      errors: [{ status: 400, description: 'Validation failed', schema: routeErrorSchema }],
+      errors: [
+        { status: 400, description: 'Validation failed', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
     PUT: {
       summary: 'Update document template',
       requestBody: { contentType: 'application/json', schema: documentTemplateUpdateSchema },
       responses: [{ status: 200, description: 'Template updated', schema: mutationResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
     DELETE: {
       summary: 'Delete document template',
       requestBody: { contentType: 'application/json', schema: templateDeleteSchema },
       responses: [{ status: 200, description: 'Template deleted', schema: deleteResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
   },
 }

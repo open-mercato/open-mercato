@@ -298,7 +298,9 @@ const crud = makeCrudRoute<
       scopedCtx.__apiKeyRoleIds = roleIds
 
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
-      const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
+      const organizationId = Object.prototype.hasOwnProperty.call(input, 'organizationId')
+        ? input.organizationId ?? null
+        : ctx.selectedOrganizationId ?? auth.orgId ?? null
       const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
       if (
         !isOrganizationAccessAllowed({

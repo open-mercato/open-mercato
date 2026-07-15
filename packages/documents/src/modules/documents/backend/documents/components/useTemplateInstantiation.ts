@@ -67,6 +67,7 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
   const [isPreviewLoading, setIsPreviewLoading] = React.useState(false)
   const [previewError, setPreviewError] = React.useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const submitInFlightRef = React.useRef(false)
   const [templateLoadAttempt, setTemplateLoadAttempt] = React.useState(0)
   const [previewLoadAttempt, setPreviewLoadAttempt] = React.useState(0)
   const normalizedTemplateSearch = templateSearch.trim()
@@ -203,7 +204,14 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
   }, [currentTemplates, presetContext, templateSearch])
 
   const submit = React.useCallback(async () => {
-    if (!selectedTemplate || !preview || missingRequired || preview.unresolvedTokens.length > 0) return
+    if (
+      submitInFlightRef.current
+      || !selectedTemplate
+      || !preview
+      || missingRequired
+      || preview.unresolvedTokens.length > 0
+    ) return
+    submitInFlightRef.current = true
     setIsSubmitting(true)
     try {
       const call = await runMutation({
@@ -229,7 +237,10 @@ export function useTemplateInstantiation({ open, folderId, presetContext, onOpen
       router.push(`/backend/documents/${call.result.id}`)
     } catch (error) {
       flash(error instanceof Error ? error.message : t('documents.templates.instantiate.error.create'), 'error')
-    } finally { setIsSubmitting(false) }
+    } finally {
+      submitInFlightRef.current = false
+      setIsSubmitting(false)
+    }
   }, [effectiveDate, folderId, locale, missingRequired, mutationContextId, onOpenChange, preview, retryLastMutation, router, runMutation, selectedTemplate, slotsPayload, t, title])
 
   return {

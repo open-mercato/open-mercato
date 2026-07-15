@@ -201,6 +201,7 @@
   "documents.entityPicker.unavailable": "This record type is unavailable.",
   "documents.errors.organizationRequired": "Organization context is required",
   "documents.errors.recordChanged": "Record changed by another user",
+  "documents.errors.requestBodyTooLarge": "Request body is too large.",
   "documents.export.docx": "Word (.docx)",
   "documents.export.error": "Export failed",
   "documents.export.inputTooLarge": "This document is too large to export.",

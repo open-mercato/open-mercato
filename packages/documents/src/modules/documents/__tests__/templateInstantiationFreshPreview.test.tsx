@@ -158,6 +158,53 @@ describe('useTemplateInstantiation preview freshness', () => {
     expect(result.current.isPreviewLoading).toBe(false)
   })
 
+  it('allows only one instantiation when submit is called twice before React commits state', async () => {
+    const presetContext = {
+      entityType: 'customer-person' as const,
+      entityId: PERSON_ID,
+      label: 'Related Person',
+      values: { name: 'Related Person' },
+    }
+    let resolveInstantiation: ((value: { id: string }) => void) | undefined
+    apiCallOrThrowMock.mockImplementation(() => new Promise<{ id: string }>((resolve) => {
+      resolveInstantiation = resolve
+    }))
+    runMutationMock.mockImplementation(async ({ operation }: { operation: () => Promise<{ id: string }> }) => ({
+      result: await operation(),
+    }))
+    const { result } = renderHook(() => useTemplateInstantiation({
+      open: true,
+      onOpenChange: jest.fn(),
+      presetContext,
+    }))
+    await act(async () => {
+      jest.advanceTimersByTime(0)
+      await flushPromises()
+      result.current.setSelectedTemplateId(TEMPLATE_ID)
+      await Promise.resolve()
+    })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(result.current.preview?.unresolvedTokens).toEqual([])
+
+    let firstSubmit: Promise<void> | undefined
+    let secondSubmit: Promise<void> | undefined
+    act(() => {
+      firstSubmit = result.current.submit()
+      secondSubmit = result.current.submit()
+    })
+
+    expect(runMutationMock).toHaveBeenCalledTimes(1)
+    expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      resolveInstantiation?.({ id: '33333333-3333-4333-8333-333333333333' })
+      await Promise.all([firstSubmit, secondSubmit])
+    })
+    expect(routerPushMock).toHaveBeenCalledTimes(1)
+  })
+
   it('caps the in-memory summary page and finds template 101 through bounded server search', async () => {
     const oversizedPage = Array.from({ length: 75 }, (_, index) => templateRecord(index + 1))
     const template101 = templateRecord(101)

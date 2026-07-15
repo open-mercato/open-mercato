@@ -17,9 +17,9 @@ describe('cross-module DI seams resolve under CLASSIC injection mode', () => {
     register: (container: AppContainer) => void
     seams: string[]
   }> = [
-    { register: registerAuthDi, seams: ['authPrincipalService'] },
+    { register: registerAuthDi, seams: ['authPrincipalService', 'rbacService'] },
     { register: registerApiKeysDi, seams: ['apiKeyPrincipalService'] },
-    { register: registerDirectoryDi, seams: ['organizationScopeService'] },
+    { register: registerDirectoryDi, seams: ['organizationScopeService', 'organizationHierarchyService'] },
     { register: registerAttachmentsDi, seams: ['attachmentService'] },
     { register: registerNotificationsDi, seams: ['notificationService'] },
   ]

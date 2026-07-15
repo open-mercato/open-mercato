@@ -65,6 +65,41 @@ describe('cross-process event publication', () => {
     expect(publishCrossProcessEventMock).not.toHaveBeenCalled()
   })
 
+  it('preserves raw EventBus cross-process delivery for declared browser events', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const payload = {
+      id: 'record-1',
+      tenantId: ' legacy-tenant ',
+      organizationId: ' legacy-org ',
+    }
+
+    await bus.emit('cross_process_test.browser', payload)
+
+    expect(publishCrossProcessEventMock).toHaveBeenCalledWith(
+      'cross_process_test.browser',
+      payload,
+      { tenantId: 'legacy-tenant', organizationId: 'legacy-org' },
+    )
+  })
+
+  it('prefers trusted workflow scope over browser-event payload scope', async () => {
+    const bus = createEventBus({ resolve, queueStrategy: 'local' })
+    const trustedScope = { tenantId: 'workflow-tenant', organizationId: 'workflow-org' }
+    const payload = {
+      id: 'record-1',
+      tenantId: 'forged-tenant',
+      organizationId: 'forged-org',
+    }
+
+    await bus.emit('cross_process_test.browser', payload, trustedScope)
+
+    expect(publishCrossProcessEventMock).toHaveBeenCalledWith(
+      'cross_process_test.browser',
+      payload,
+      trustedScope,
+    )
+  })
+
   it('publishes from trusted options even when the payload has no scope', async () => {
     const bus = createEventBus({ resolve, queueStrategy: 'local' })
 

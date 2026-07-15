@@ -205,6 +205,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
       ],
     },
     DELETE: {

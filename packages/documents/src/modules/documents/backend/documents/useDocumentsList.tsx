@@ -28,6 +28,7 @@ export function useDocumentsList() {
   const router = useRouter()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const requestId = React.useRef(0)
+  const createInFlight = React.useRef(false)
   const [rows, setRows] = React.useState<DocumentRow[]>([])
   const [folders, setFolders] = React.useState<FolderRow[]>([])
   const [selectedFolderId, setSelectedFolderId] = React.useState<string | null>(null)
@@ -37,6 +38,7 @@ export function useDocumentsList() {
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [isLoading, setIsLoading] = React.useState(true)
+  const [isCreating, setIsCreating] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
   const [hasTemplates, setHasTemplates] = React.useState(false)
   const [collectionCapabilities, setCollectionCapabilities] = React.useState<CollectionCapabilities>(EMPTY_COLLECTION_CAPABILITIES)
@@ -102,7 +104,9 @@ export function useDocumentsList() {
 
   const createDocument = React.useCallback(async () => {
     const selectedFolder = selectedFolderId ? folders.find((folder) => folder.id === selectedFolderId) ?? null : null
-    if (!collectionCapabilities.canCreateDocument || !canWriteToFolder(selectedFolderId, selectedFolder)) return
+    if (createInFlight.current || !collectionCapabilities.canCreateDocument || !canWriteToFolder(selectedFolderId, selectedFolder)) return
+    createInFlight.current = true
+    setIsCreating(true)
     try {
       const call = await runMutation({
         operation: () => apiCallOrThrow<unknown>(
@@ -116,7 +120,11 @@ export function useDocumentsList() {
       const id = readCreatedId(call.result)
       if (!id) throw new Error(t('documents.list.error.missingCreatedId'))
       router.push(`/backend/documents/${id}`)
-    } catch (error) { flash(error instanceof Error ? error.message : t('documents.list.error.create'), 'error') }
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('documents.list.error.create'), 'error')
+      createInFlight.current = false
+      setIsCreating(false)
+    }
   }, [collectionCapabilities.canCreateDocument, folders, mutationContextId, retryLastMutation, router, runMutation, selectedFolderId, t])
 
   const deleteDocument = React.useCallback(async (row: DocumentRow) => {
@@ -214,7 +222,7 @@ export function useDocumentsList() {
 
   return {
     rows, folders, selectedFolderId, setSelectedFolderId, page, setPage, pageSize, setPageSize,
-    total, totalPages, search, setSearch, isLoading, loadError, hasTemplates, collectionCapabilities, refresh,
+    total, totalPages, search, setSearch, isLoading, isCreating, loadError, hasTemplates, collectionCapabilities, refresh,
     createDocument, deleteDocument, moveDocument, saveFolder, deleteFolder, ConfirmDialogElement,
   }
 }

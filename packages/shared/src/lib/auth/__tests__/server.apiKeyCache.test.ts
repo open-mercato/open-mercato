@@ -94,6 +94,161 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
+  it('treats the creator of a regular tenant-scoped key as audit metadata', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-tenant-scoped',
+      name: 'tenant scoped',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      if (where.id === 'creator-1') {
+        return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'creator-org' }
+      }
+      return null
+    })
+
+    const auth = await getAuthFromRequest(buildRequest('tenant-scoped-secret'))
+
+    expect(auth).toMatchObject({
+      sub: 'api_key:key-tenant-scoped',
+      tenantId: 'tenant-1',
+      orgId: null,
+      isApiKey: true,
+      keyId: 'key-tenant-scoped',
+    })
+    expect(auth).not.toHaveProperty('userId')
+    expect(emFindOne).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'creator-1' }),
+    )
+  })
+
+  it('retains the creator identity for an organization-scoped regular key', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-organization-scoped',
+      name: 'organization scoped',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'creator-1') {
+        return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-1' }
+      }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('organization-scoped-secret')),
+    ).resolves.toMatchObject({
+      sub: 'api_key:key-organization-scoped',
+      tenantId: 'tenant-1',
+      orgId: 'org-1',
+      userId: 'creator-1',
+    })
+  })
+
+  it('rejects an organization-scoped regular key when its creator scope no longer matches', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-organization-mismatch',
+      name: 'organization mismatch',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'creator-1') {
+        return { id: 'creator-1', tenantId: 'tenant-1', organizationId: 'org-2' }
+      }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('organization-scope-mismatch-secret')),
+    ).resolves.toBeNull()
+  })
+
+  it('keeps session keys strictly bound to their persisted user and scope', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-session-scoped',
+      name: 'session scoped',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: 'sess_123',
+      sessionUserId: 'session-user-1',
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'session-user-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'session-user-1') {
+        return { id: 'session-user-1', tenantId: 'tenant-1', organizationId: 'user-org' }
+      }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('session-scope-mismatch-secret')),
+    ).resolves.toBeNull()
+  })
+
+  it('fails closed when a row has session markers but no bound session user', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-malformed-session',
+      name: 'malformed session',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: 'sess_missing_user',
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('malformed-session-secret')),
+    ).resolves.toBeNull()
+    expect(emFindOne).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ id: 'creator-1' }),
+    )
+  })
+
   it('caches negative lookups so invalid keys skip the bcrypt+DB path', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue(null)

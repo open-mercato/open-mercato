@@ -24,6 +24,7 @@ import {
   DOCUMENTS_MAX_CONTENT_HTML_BYTES,
   maxBase64EncodedLength,
 } from '../../../lib/resourceLimits'
+import { DOCUMENTS_JSON_BODY_LIMITS } from '../../../lib/requestBody'
 import {
   handleDocumentsRouteError,
   loadScopedDocument,
@@ -480,7 +481,10 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 
 export async function POST(request: Request, context: RouteContext): Promise<Response> {
   return handleExport(request, context, {
-    loadSnapshot: async () => docxSnapshotSchema.parse(await readBody(request)),
+    loadSnapshot: async () => docxSnapshotSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.exportSnapshot,
+    )),
     operation: 'documents.export.post',
   })
 }

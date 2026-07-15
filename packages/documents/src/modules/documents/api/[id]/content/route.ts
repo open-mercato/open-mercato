@@ -7,6 +7,7 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { assertTier } from '../../../lib/permissions'
 import { loadDocumentContent } from '../../../lib/contentService'
 import { assertDocumentContentResourceLimits } from '../../../lib/resourceLimits'
+import { DOCUMENTS_JSON_BODY_LIMITS } from '../../../lib/requestBody'
 import type {
   ReplaceDocumentContentCommandInput,
   ReplaceDocumentContentCommandResult,
@@ -76,7 +77,10 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const id = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, id, ctx.auth, 'editor')
-    const input = documentContentPutSchema.parse(await readBody(request))
+    const input = documentContentPutSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.content,
+    ))
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentContent,
       resourceId: id,

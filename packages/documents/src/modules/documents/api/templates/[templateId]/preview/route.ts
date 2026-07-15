@@ -6,6 +6,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { DocumentTemplate } from '../../../../data/entities'
 import { documentTemplatePreviewSchema } from '../../../../data/validators'
 import { prepareTemplateRender } from '../../../../lib/templateInstantiation'
+import { DOCUMENTS_JSON_BODY_LIMITS } from '../../../../lib/requestBody'
 import {
   handleDocumentsRouteError,
   readBody,
@@ -32,7 +33,10 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const templateId = (await context.params).templateId
     const ctx = await resolveDocumentsContext(request, ['documents.create'])
-    const input = documentTemplatePreviewSchema.parse(await readBody(request))
+    const input = documentTemplatePreviewSchema.parse(await readBody(
+      request,
+      DOCUMENTS_JSON_BODY_LIMITS.templateRender,
+    ))
     const template = await findOneWithDecryption(
       ctx.em,
       DocumentTemplate,
@@ -82,6 +86,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 404, description: 'Template not found', schema: routeErrorSchema },
         { status: 409, description: 'Template revision changed', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
         { status: 503, description: 'Target lookup unavailable', schema: routeErrorSchema },
       ],
     },

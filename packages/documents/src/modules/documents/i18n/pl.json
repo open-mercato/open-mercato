@@ -201,6 +201,7 @@
   "documents.entityPicker.unavailable": "Ten typ rekordu jest niedostępny.",
   "documents.errors.organizationRequired": "Kontekst organizacji jest wymagany",
   "documents.errors.recordChanged": "Rekord został zmieniony przez innego użytkownika",
+  "documents.errors.requestBodyTooLarge": "Treść żądania jest zbyt duża.",
   "documents.export.docx": "Word (.docx)",
   "documents.export.error": "Eksport nie powiódł się",
   "documents.export.inputTooLarge": "Ten dokument jest zbyt duży do wyeksportowania.",

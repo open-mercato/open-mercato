@@ -256,7 +256,7 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
-        { status: 413, description: 'Document link limit exceeded', schema: routeErrorSchema },
+        { status: 413, description: 'Request body or document link limit exceeds the safe resource bound', schema: routeErrorSchema },
       ],
     },
     POST: {

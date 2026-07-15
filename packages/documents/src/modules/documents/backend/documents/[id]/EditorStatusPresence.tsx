@@ -64,7 +64,12 @@ export function EditorStatusPresence({ status, users, counts, mode, canEdit, onM
           </Button>
         </div>
       ) : null}
-      <span className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', style.pill)}>
+      <span
+        className={cn('inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-medium', style.pill)}
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
         <span className={cn('size-2 rounded-full', style.dot)} aria-hidden="true" />
         {t(`documents.editor.realtime.${status}`)}
       </span>

@@ -81,6 +81,11 @@ export function VersionHistoryPanel({
   const [previewVersionId, setPreviewVersionId] = React.useState<string | null>(null)
   const observedContentUpdatedAt = React.useRef<string | null>(contentUpdatedAt ?? null)
   const restoreInFlight = React.useRef(false)
+  const reloadSequence = React.useRef(0)
+  const activeReload = React.useRef<AbortController | null>(null)
+  const activeDocumentId = React.useRef<string | null>(null)
+  const currentDocumentIdRef = React.useRef(documentId)
+  currentDocumentIdRef.current = documentId
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const mutationContextId = `documents-versions:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
@@ -91,9 +96,23 @@ export function VersionHistoryPanel({
   }>({ contextId: mutationContextId, blockedMessage: t('ui.forms.flash.saveBlocked') })
 
   const reload = React.useCallback(async () => {
-    setState((current) => current.status === 'ready' ? current : { status: 'loading' })
+    if (currentDocumentIdRef.current !== documentId) return
+    const reloadId = ++reloadSequence.current
+    const controller = new AbortController()
+    activeReload.current?.abort()
+    activeReload.current = controller
+    const isCurrent = () => currentDocumentIdRef.current === documentId
+      && reloadSequence.current === reloadId
+      && !controller.signal.aborted
+    const documentChanged = activeDocumentId.current !== documentId
+    activeDocumentId.current = documentId
+    setState((current) => !documentChanged && current.status === 'ready' ? current : { status: 'loading' })
     try {
-      const call = await apiCall<unknown>(`/api/documents/${encodeURIComponent(documentId)}/versions`)
+      const call = await apiCall<unknown>(
+        `/api/documents/${encodeURIComponent(documentId)}/versions`,
+        { signal: controller.signal },
+      )
+      if (!isCurrent()) return
       if (!call.ok) return setState({ status: 'error', message: t('documents.versions.error.load') })
       setState({
         status: 'ready',
@@ -102,11 +121,21 @@ export function VersionHistoryPanel({
           .filter((version): version is DocumentVersion => version !== null),
       })
     } catch (error) {
+      if (!isCurrent()) return
       setState({ status: 'error', message: error instanceof Error ? error.message : t('documents.versions.error.load') })
+    } finally {
+      if (activeReload.current === controller) activeReload.current = null
     }
   }, [documentId, t])
 
-  React.useEffect(() => { void reload() }, [reload])
+  React.useEffect(() => {
+    void reload()
+    return () => {
+      reloadSequence.current += 1
+      activeReload.current?.abort()
+      activeReload.current = null
+    }
+  }, [reload])
 
   React.useEffect(() => {
     if (contentUpdatedAt !== undefined) {
@@ -142,10 +171,13 @@ export function VersionHistoryPanel({
         context: { formId: mutationContextId, resourceKind: 'documents.document_version', resourceId: documentId, retryLastMutation },
         mutationPayload: { label: nextLabel },
       })
+      if (currentDocumentIdRef.current !== documentId) return
       setLabel('')
       await reload()
+      if (currentDocumentIdRef.current !== documentId) return
       flash(t('documents.versions.snapshot.created'), 'success')
     } catch (error) {
+      if (currentDocumentIdRef.current !== documentId) return
       flash(error instanceof Error ? error.message : t('documents.versions.error.save'), 'error')
     } finally { setIsCreating(false) }
   }, [documentId, label, mayRestore, mutationContextId, reload, retryLastMutation, runMutation, t])
@@ -160,7 +192,7 @@ export function VersionHistoryPanel({
         confirmText: t('documents.versions.actions.restore'),
         variant: 'default',
       })
-      if (!confirmed) return
+      if (!confirmed || currentDocumentIdRef.current !== documentId) return
       setRestoringVersionId(version.id)
       const call = await runMutation({
         operation: () => restoreVersionWithObservedContentToken({
@@ -172,12 +204,16 @@ export function VersionHistoryPanel({
         context: { formId: mutationContextId, resourceKind: 'documents.document_version', resourceId: version.id, retryLastMutation },
         mutationPayload: { action: 'restore', versionId: version.id },
       })
+      if (currentDocumentIdRef.current !== documentId) return
       observedContentUpdatedAt.current = normalizeDocumentContent(call.result).updatedAt
       await reload()
+      if (currentDocumentIdRef.current !== documentId) return
       await onRestored?.()
+      if (currentDocumentIdRef.current !== documentId) return
       setPreviewVersionId(null)
       flash(t('documents.versions.restored'), 'success')
     } catch (error) {
+      if (currentDocumentIdRef.current !== documentId) return
       if (!surfaceRecordConflict(error, t, {
         onRefresh: onRestored ? () => {
           void Promise.resolve(onRestored()).catch((refreshError) => {

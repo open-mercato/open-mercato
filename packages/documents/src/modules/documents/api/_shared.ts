@@ -11,7 +11,6 @@ import {
   validateCrudMutationGuard,
   type CrudMutationGuardValidationSuccess,
 } from '@open-mercato/shared/lib/crud/mutation-guard'
-import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
@@ -32,6 +31,10 @@ import {
 } from '../lib/permissions'
 import { hasResolvedDocumentsOrganizationAccess } from '../lib/organizationAccess'
 import { containsCanonicalUuid } from '../lib/displayLabels'
+import {
+  DOCUMENTS_JSON_BODY_LIMITS,
+  readBoundedJsonBody,
+} from '../lib/requestBody'
 import { resolveOrganizationScopeService } from '../lib/platformServices'
 
 const logger = createLogger('documents').child({ component: 'api' })
@@ -98,6 +101,10 @@ const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }
   'Document version history storage limit exceeded': {
     key: 'documents.versions.quotaExceeded',
     fallback: 'Version history could not retain this snapshot within the document storage limit.',
+  },
+  'documents.errors.requestBodyTooLarge': {
+    key: 'documents.errors.requestBodyTooLarge',
+    fallback: 'Request body is too large.',
   },
   'Share principal not found in this organization': {
     key: 'documents.share.principalNotFound',
@@ -330,8 +337,11 @@ export function resolveActorUserId(auth: NonNullable<AuthContext>): string {
   throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
 }
 
-export async function readBody(request: Request): Promise<Record<string, unknown>> {
-  return (await readJsonSafe<Record<string, unknown>>(request, {})) ?? {}
+export async function readBody(
+  request: Request,
+  maxBytes = DOCUMENTS_JSON_BODY_LIMITS.standard,
+): Promise<Record<string, unknown>> {
+  return (await readBoundedJsonBody<Record<string, unknown>>(request, maxBytes, {})) ?? {}
 }
 
 async function localizeRouteErrorBody(body: Record<string, unknown>): Promise<Record<string, unknown>> {

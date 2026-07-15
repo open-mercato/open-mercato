@@ -32,7 +32,7 @@ const DOCUMENT_OWNER_FEATURES = [
 ]
 
 type CreatedDocument = { id: string; updatedAt: string }
-type CreatedApiKey = { id: string; secret: string }
+type CreatedApiKey = { id: string; secret: string; organizationId: string | null }
 
 function resolveUrl(path: string): string {
   return BASE_URL ? `${BASE_URL}${path}` : path
@@ -116,8 +116,8 @@ async function createApiKey(
   input: {
     name: string
     tenantId: string
-    organizationId: string
-    roleId: string
+    organizationId: string | null
+    roleIds: string[]
     expiresAt?: string
   },
 ): Promise<CreatedApiKey> {
@@ -127,16 +127,17 @@ async function createApiKey(
       name: input.name,
       tenantId: input.tenantId,
       organizationId: input.organizationId,
-      roles: [input.roleId],
+      roles: input.roleIds,
       ...(input.expiresAt ? { expiresAt: input.expiresAt } : {}),
     },
   })
-  const body = await readJsonSafe<{ id?: string; secret?: string }>(response)
+  const body = await readJsonSafe<{ id?: string; secret?: string; organizationId?: string | null }>(response)
   expect(response.status(), 'API key fixture should be created').toBe(201)
   expect(typeof body?.secret === 'string' && body.secret.startsWith('omk_')).toBe(true)
   return {
     id: expectId(body?.id, 'API key response should include id'),
     secret: body?.secret as string,
+    organizationId: body?.organizationId ?? null,
   }
 }
 
@@ -155,9 +156,13 @@ async function getDocumentWithApiKey(
   request: APIRequestContext,
   secret: string,
   documentId: string,
+  selectedOrganizationId?: string,
 ) {
   return request.fetch(resolveUrl(`/api/documents/${encodeURIComponent(documentId)}`), {
-    headers: { Authorization: `ApiKey ${secret}` },
+    headers: {
+      Authorization: `ApiKey ${secret}`,
+      ...(selectedOrganizationId ? { Cookie: `om_selected_org=${selectedOrganizationId}` } : {}),
+    },
   })
 }
 
@@ -172,6 +177,9 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
     let keyRoleId: string | null = null
     let activeKey: CreatedApiKey | null = null
     let expiringKey: CreatedApiKey | null = null
+    let tenantScopedKey: CreatedApiKey | null = null
+    let disjointRoleId: string | null = null
+    let disjointUserId: string | null = null
     let homeDocument: CreatedDocument | null = null
     let otherOrgDocument: CreatedDocument | null = null
     let otherTenantDocument: CreatedDocument | null = null
@@ -215,7 +223,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         name: `TC-DOCUMENTS-018 active ${stamp}`,
         tenantId: homeScope.tenantId,
         organizationId: homeScope.organizationId,
-        roleId: keyRoleId,
+        roleIds: [keyRoleId],
       })
       expect((await getDocumentWithApiKey(request, activeKey.secret, homeDocument.id)).status()).toBe(200)
 
@@ -231,6 +239,85 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
       otherOrgDocument = await createDocument(request, otherOrgOwner.token, `TC-DOCUMENTS-018 other org ${stamp}`)
       expect([403, 404]).toContain(
         (await getDocumentWithApiKey(request, activeKey.secret, otherOrgDocument.id)).status(),
+      )
+
+      // Materialize a historical role share while the role is tenant-wide,
+      // then restrict that role back to the home organization. A second role
+      // grants entry to the other organization, but must not make the first
+      // role's Documents grant or share applicable there.
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: keyRoleId,
+        features: ['documents.view'],
+        organizations: null,
+      })
+      const historicalShare = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(otherOrgDocument.id)}/shares`,
+        {
+          token: otherOrgOwner.token,
+          data: { principalType: 'role', principalId: keyRoleId, permission: 'viewer' },
+        },
+      )
+      expect(historicalShare.status(), 'tenant-wide role share should be created before restriction').toBe(201)
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: keyRoleId,
+        features: ['documents.view'],
+        organizations: [homeScope.organizationId],
+      })
+
+      const rejectedShare = await apiRequest(
+        request,
+        'POST',
+        `/api/documents/${encodeURIComponent(otherOrgDocument.id)}/shares`,
+        {
+          token: otherOrgOwner.token,
+          data: { principalType: 'role', principalId: keyRoleId, permission: 'editor' },
+        },
+      )
+      expect(rejectedShare.status(), 'restricted role must not be selectable in another organization').toBe(400)
+
+      disjointRoleId = await createRoleFixture(request, superadminToken, {
+        name: `TC-DOCUMENTS-018 other org access ${stamp}`,
+        tenantId: homeScope.tenantId,
+      })
+      await setRoleAclFeatures(request, superadminToken, {
+        roleId: disjointRoleId,
+        features: ['documents.view'],
+        organizations: [otherOrganizationId],
+      })
+      const disjointEmail = `tc-documents-018-disjoint-${stamp}@example.com`
+      disjointUserId = await createUserFixture(request, superadminToken, {
+        email: disjointEmail,
+        password: PASSWORD,
+        organizationId: otherOrganizationId,
+        roles: [keyRoleId, disjointRoleId],
+        name: 'TC Documents 018 disjoint roles',
+      })
+      const disjointUserToken = await getAuthToken(request, disjointEmail, PASSWORD)
+      expect([403, 404]).toContain(
+        (await apiRequest(
+          request,
+          'GET',
+          `/api/documents/${encodeURIComponent(otherOrgDocument.id)}`,
+          { token: disjointUserToken },
+        )).status(),
+      )
+
+      tenantScopedKey = await createApiKey(request, superadminToken, {
+        name: `TC-DOCUMENTS-018 tenant scoped ${stamp}`,
+        tenantId: homeScope.tenantId,
+        organizationId: null,
+        roleIds: [keyRoleId, disjointRoleId],
+      })
+      expect(tenantScopedKey.organizationId, 'tenant-scoped key must not inherit the creator organization').toBeNull()
+      expect([403, 404]).toContain(
+        (await getDocumentWithApiKey(
+          request,
+          tenantScopedKey.secret,
+          otherOrgDocument.id,
+          otherOrganizationId,
+        )).status(),
       )
 
       otherTenantId = await createTenantFixture(request, superadminToken, `TC-DOCUMENTS-018 tenant ${stamp}`)
@@ -270,7 +357,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
         name: `TC-DOCUMENTS-018 expiring ${stamp}`,
         tenantId: homeScope.tenantId,
         organizationId: homeScope.organizationId,
-        roleId: keyRoleId,
+        roleIds: [keyRoleId],
         expiresAt: new Date(Date.now() + 1_500).toISOString(),
       })
       expect((await getDocumentWithApiKey(request, expiringKey.secret, homeDocument.id)).status()).toBe(200)
@@ -288,6 +375,7 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
     } finally {
       await deleteApiKeyIfExists(request, adminToken, activeKey?.id ?? null)
       await deleteApiKeyIfExists(request, adminToken, expiringKey?.id ?? null)
+      await deleteApiKeyIfExists(request, superadminToken, tenantScopedKey?.id ?? null)
       await deleteDocumentIfExists(request, owner?.token ?? null, homeDocument)
       await deleteDocumentIfExists(request, otherOrgOwner?.token ?? null, otherOrgDocument)
       await deleteDocumentIfExists(request, otherTenantOwner?.token ?? null, otherTenantDocument)
@@ -295,6 +383,8 @@ test.describe('TC-DOCUMENTS-018: real API-key role-share authorization', () => {
       await deleteRoleIfExists(request, superadminToken, otherTenantOwner?.roleId ?? null)
       await deleteUserIfExists(request, superadminToken, otherOrgOwner?.id ?? null)
       await deleteRoleIfExists(request, superadminToken, otherOrgOwner?.roleId ?? null)
+      await deleteUserIfExists(request, superadminToken, disjointUserId)
+      await deleteRoleIfExists(request, superadminToken, disjointRoleId)
       await deleteUserIfExists(request, adminToken, owner?.id ?? null)
       await deleteRoleIfExists(request, adminToken, owner?.roleId ?? null)
       await deleteRoleIfExists(request, adminToken, keyRoleId)

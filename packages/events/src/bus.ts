@@ -6,6 +6,7 @@ import { isSingleDeliveryRequested } from './single-delivery'
 import { matchEventPattern } from '@open-mercato/shared/lib/events/patterns'
 import { getRedisUrlOrThrow } from '@open-mercato/shared/lib/redis/connection'
 import {
+  isBroadcastEvent,
   isCrossProcessBroadcastEvent,
   isPrivateCrossProcessEventEmitter,
 } from '@open-mercato/shared/modules/events'
@@ -55,6 +56,31 @@ const GLOBAL_EVENT_TAPS_KEY = '__openMercatoEventBusGlobalTaps__'
 
 function hasTrustedTenantScope(options?: EmitOptions): boolean {
   return typeof options?.tenantId === 'string' && options.tenantId.trim().length > 0
+}
+
+function normalizePayloadScope(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+}
+
+function resolveCrossProcessEmitOptions(
+  event: string,
+  payload: EventPayload,
+  options?: EmitOptions,
+): EmitOptions | undefined {
+  if (hasTrustedTenantScope(options)) return options
+  // Preserve the public raw EventBus contract for legacy clientBroadcast
+  // emitters. These callers are trusted server code and historically supplied
+  // their scope in the typed payload. Tenant-managed workflow execution passes
+  // scope in options, while private cross-process events never take this path.
+  if (!isBroadcastEvent(event)) return options
+  const tenantId = normalizePayloadScope((payload as Record<string, unknown>)?.tenantId)
+  if (!tenantId) return options
+  const organizationId = normalizePayloadScope((payload as Record<string, unknown>)?.organizationId)
+  return {
+    ...options,
+    tenantId,
+    ...(organizationId ? { organizationId } : {}),
+  }
 }
 
 function getGlobalEventTaps(): Set<GlobalEventTap> {
@@ -313,17 +339,18 @@ export function createEventBus(opts: CreateBusOptions): EventBus {
       await deliver(event, payload, options, skipPersistentInline)
     }
 
-    // Cross-process consumers use the envelope scope for authorization. Event
-    // payloads are application data and can be authored by workflows or other
-    // tenant-managed inputs, so they must never activate the bridge by
-    // themselves.
+    // Private coordination always requires trusted envelope scope and module
+    // provenance. Legacy declared browser events may promote their typed scope
+    // for raw EventBus compatibility; tenant-managed workflow adapters pass
+    // authoritative scope in options, which always wins over payload values.
+    const crossProcessOptions = resolveCrossProcessEmitOptions(event, payload, options)
     if (
       isCrossProcessBroadcastEvent(event)
-      && hasTrustedTenantScope(options)
-      && isPrivateCrossProcessEventEmitter(event, options?.emitterModuleId)
+      && hasTrustedTenantScope(crossProcessOptions)
+      && isPrivateCrossProcessEventEmitter(event, crossProcessOptions?.emitterModuleId)
     ) {
       try {
-        await publishCrossProcessEvent(event, payload, options)
+        await publishCrossProcessEvent(event, payload, crossProcessOptions)
       } catch (error) {
         logger.error('Cross-process publish error', { event, err: error })
       }

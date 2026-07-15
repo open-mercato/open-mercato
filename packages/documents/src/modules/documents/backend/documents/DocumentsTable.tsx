@@ -18,6 +18,7 @@ type DocumentsTableProps = {
   title: string
   rows: DocumentRow[]
   isLoading: boolean
+  isCreating: boolean
   search: string
   page: number
   pageSize: number
@@ -61,7 +62,7 @@ export function DocumentsTable(props: DocumentsTableProps) {
     ? <div className="flex flex-wrap items-center gap-2">
         {props.canManageTemplates ? <LinkButton asChild variant="gray"><Link href="/backend/documents/templates">{t('documents.templates.actions.manage')}</Link></LinkButton> : null}
         {props.hasTemplates && props.canInstantiateTemplate ? <Button type="button" variant="outline" onClick={props.onNewFromTemplate}>{t('documents.templates.instantiate.title')}</Button> : null}
-        {props.canCreateDocument ? <Button type="button" onClick={props.onCreate}>{t('documents.actions.create')}</Button> : null}
+        {props.canCreateDocument ? <Button type="button" onClick={props.onCreate} disabled={props.isCreating}>{t('documents.actions.create')}</Button> : null}
       </div>
     : undefined
   return (

@@ -13,6 +13,13 @@ export type AuthPrincipalLabel = {
   secondary: string | null
 }
 
+export type AuthPrincipalRolePage = {
+  items: AuthPrincipalLabel[]
+  page: number
+  pageSize: number
+  total: number
+}
+
 /** Public, request-scoped read boundary owned by the Auth module. */
 export interface AuthPrincipalService {
   principalExists(input: {
@@ -27,6 +34,18 @@ export interface AuthPrincipalService {
     ids: string[]
     scope: PrincipalScope
   }): Promise<AuthPrincipalLabel[]>
+  /**
+   * Optional additive capability for organization-eligible role pickers.
+   * Implementations must apply eligibility before pagination and bound the
+   * advertised result window so sparse ACL matches cannot amplify requests.
+   */
+  queryActiveRolePage?(input: {
+    scope: PrincipalScope
+    search?: string
+    excludedIds?: string[]
+    page: number
+    pageSize: number
+  }): Promise<AuthPrincipalRolePage>
   listSuperAdminUserIds(tenantId: string): Promise<string[]>
 }
 
@@ -54,6 +73,19 @@ export type OrganizationScopeAcl = {
 export type OrganizationScopeRequest = Request | {
   cookies?: { get: (name: string) => { value: string } | undefined }
   headers?: { get(name: string): string | null }
+}
+
+/**
+ * Narrow, request-scoped hierarchy boundary owned by Directory.
+ *
+ * `null` means the selected organization does not exist in the requested
+ * tenant. An empty array means it exists but has no ancestors.
+ */
+export interface OrganizationHierarchyService {
+  resolveAncestorIds(input: {
+    tenantId: string
+    organizationId: string
+  }): Promise<string[] | null>
 }
 
 /** Public, request-scoped organization expansion boundary owned by Directory. */

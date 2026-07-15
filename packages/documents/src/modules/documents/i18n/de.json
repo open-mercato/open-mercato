@@ -201,6 +201,7 @@
   "documents.entityPicker.unavailable": "Dieser Datensatztyp ist nicht verfügbar.",
   "documents.errors.organizationRequired": "Organisationskontext ist erforderlich",
   "documents.errors.recordChanged": "Der Datensatz wurde von einem anderen Benutzer geändert",
+  "documents.errors.requestBodyTooLarge": "Der Anfragetext ist zu groß.",
   "documents.export.docx": "Word (.docx)",
   "documents.export.error": "Export fehlgeschlagen",
   "documents.export.inputTooLarge": "Dieses Dokument ist zu groß für den Export.",

@@ -13,7 +13,7 @@ import {
   DOCUMENTS_MAX_COMMENTS_PER_DOCUMENT,
 } from '../../../lib/historyLimits'
 import { assertTier, hasTier } from '../../../lib/permissions'
-import { resolveUserLabels } from '../../../lib/userLabels'
+import { resolveViewerSafeUserLabels } from '../../../lib/userLabels'
 import type {
   CommentCreateCommandInput,
   CommentCreateCommandResult,
@@ -72,7 +72,6 @@ const commentMentionSchema = z.object({
 
 const userLabelSchema = z.object({
   label: z.string(),
-  secondary: z.string().nullable().optional(),
 })
 
 const commentNodeSchema: z.ZodType<SerializedComment> = z.lazy(() =>
@@ -267,7 +266,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const roots = buildThreadedComments(comments, { tier, userId })
     const items = paginateNewestThreadRoots(roots, query.page, query.pageSize)
     const visibleCommentIds = collectSerializedCommentIds(items)
-    const userLabels = await resolveUserLabels(
+    const userLabels = await resolveViewerSafeUserLabels(
       ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       collectCommentLabelUserIds(comments.filter((comment) => visibleCommentIds.has(comment.id))),
@@ -415,7 +414,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: routeErrorSchema },
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
-        { status: 413, description: 'Document comment limit reached', schema: routeErrorSchema },
+        { status: 413, description: 'Request body or document comment limit exceeds the safe resource bound', schema: routeErrorSchema },
       ],
     },
     PATCH: {
@@ -428,6 +427,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
         { status: 404, description: 'Comment not found', schema: routeErrorSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
       ],
     },
   },

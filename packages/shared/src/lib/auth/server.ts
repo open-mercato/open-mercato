@@ -202,8 +202,29 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
-    // For session keys, use sessionUserId; for regular keys, use createdBy
-    const actualUserId = record.sessionUserId ?? record.createdBy ?? null
+    // Ephemeral session keys are always user-bound. Organization-scoped
+    // regular keys retain their legacy creator identity and exact scope check,
+    // while `createdBy` on a tenant-scoped regular key is audit metadata only:
+    // treating it as the key owner makes that key fail authentication whenever
+    // its creator belongs to a concrete organization. Keep every session
+    // marker fail-closed so a malformed session key cannot fall back to the
+    // regular key path and escape its user/scope binding.
+    const isSessionBoundKey = Boolean(
+      record.sessionToken
+      || record.sessionUserId
+      || record.sessionSecretEncrypted
+      || record.opencodeSessionId
+    )
+    const actualUserId = isSessionBoundKey
+      ? record.sessionUserId ?? null
+      : record.organizationId
+        ? record.createdBy ?? null
+        : null
+
+    if (isSessionBoundKey && !actualUserId) {
+      cache.setMiss(secret)
+      return null
+    }
 
     if (actualUserId) {
       const user = await em.findOne(User, { id: actualUserId, deletedAt: null })

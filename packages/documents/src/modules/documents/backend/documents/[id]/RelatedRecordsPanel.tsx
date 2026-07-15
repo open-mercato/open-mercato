@@ -49,6 +49,11 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
   const [state, setState] = React.useState<LoadState>({ status: 'loading' })
   const [pickerOpen, setPickerOpen] = React.useState(false)
   const [recordFieldsLinkId, setRecordFieldsLinkId] = React.useState<string | null>(null)
+  const reloadSequence = React.useRef(0)
+  const activeReload = React.useRef<AbortController | null>(null)
+  const activeDocumentId = React.useRef<string | null>(null)
+  const currentDocumentIdRef = React.useRef(documentId)
+  currentDocumentIdRef.current = documentId
   const editorEditable = useEditorEditable(editor)
   const canInsert = canEdit && editorEditable
   const mutationContextId = `documents-related-records:${documentId}`
@@ -60,9 +65,23 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
   }>({ contextId: mutationContextId, blockedMessage: t('ui.forms.flash.saveBlocked') })
 
   const reload = React.useCallback(async () => {
-    setState((current) => current.status === 'ready' ? current : { status: 'loading' })
+    if (currentDocumentIdRef.current !== documentId) return
+    const reloadId = ++reloadSequence.current
+    const controller = new AbortController()
+    activeReload.current?.abort()
+    activeReload.current = controller
+    const isCurrent = () => currentDocumentIdRef.current === documentId
+      && reloadSequence.current === reloadId
+      && !controller.signal.aborted
+    const documentChanged = activeDocumentId.current !== documentId
+    activeDocumentId.current = documentId
+    setState((current) => !documentChanged && current.status === 'ready' ? current : { status: 'loading' })
     try {
-      const call = await apiCall<unknown>(`/api/documents/${encodeURIComponent(documentId)}/links`)
+      const call = await apiCall<unknown>(
+        `/api/documents/${encodeURIComponent(documentId)}/links`,
+        { signal: controller.signal },
+      )
+      if (!isCurrent()) return
       if (!call.ok) {
         setState({ status: 'error', message: t('documents.relatedRecords.error.load') })
         return
@@ -72,11 +91,21 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
         .filter((item): item is RelatedRecord => item !== null)
       setState({ status: 'ready', items })
     } catch (error) {
+      if (!isCurrent()) return
       setState({ status: 'error', message: error instanceof Error ? error.message : t('documents.relatedRecords.error.load') })
+    } finally {
+      if (activeReload.current === controller) activeReload.current = null
     }
   }, [documentId, t])
 
-  React.useEffect(() => { void reload() }, [reload])
+  React.useEffect(() => {
+    void reload()
+    return () => {
+      reloadSequence.current += 1
+      activeReload.current?.abort()
+      activeReload.current = null
+    }
+  }, [reload])
 
   const handleLink = React.useCallback(async (pick: { type: DocumentEntityType; id: string; label: string; href: string }) => {
     try {
@@ -104,9 +133,12 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
         },
         mutationPayload: { entityType: pick.type, entityId: pick.id },
       })
+      if (currentDocumentIdRef.current !== documentId) return
       await reload()
+      if (currentDocumentIdRef.current !== documentId) return
       flash(t('documents.relatedRecords.success.link'), 'success')
     } catch (error) {
+      if (currentDocumentIdRef.current !== documentId) return
       flash(error instanceof Error ? error.message : t('documents.relatedRecords.error.link'), 'error')
     }
   }, [documentId, mutationContextId, reload, retryLastMutation, runMutation, t])
@@ -130,10 +162,13 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
         },
         mutationPayload: { linkId: item.id },
       })
+      if (currentDocumentIdRef.current !== documentId) return
       await reload()
+      if (currentDocumentIdRef.current !== documentId) return
       if (recordFieldsLinkId === item.id) setRecordFieldsLinkId(null)
       flash(t('documents.relatedRecords.success.unlink'), 'success')
     } catch (error) {
+      if (currentDocumentIdRef.current !== documentId) return
       if (surfaceRecordConflict(error, t, { onRefresh: () => { void reload() } })) return
       flash(error instanceof Error ? error.message : t('documents.relatedRecords.error.unlink'), 'error')
     }
@@ -171,7 +206,7 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
                 </div>
                 <div className="mt-2 flex max-w-full flex-wrap items-center justify-end gap-0.5 border-t border-border pt-1.5">
                   {item.canOpen && hasInsertableValues(item) && canInsert ? (
-                    <Button type="button" size="2xs" variant="ghost" onClick={() => setRecordFieldsLinkId(item.id)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => setRecordFieldsLinkId(item.id)}>
                       <FileInput />{t('documents.relatedRecords.actions.insertData')}
                     </Button>
                   ) : null}
@@ -181,7 +216,7 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
                     </LinkButton>
                   ) : null}
                   {canEdit ? (
-                    <Button type="button" size="2xs" variant="ghost" onClick={() => void handleUnlink(item)}>
+                    <Button type="button" size="sm" variant="ghost" onClick={() => void handleUnlink(item)}>
                       <Unlink />{t('documents.relatedRecords.actions.unlink')}
                     </Button>
                   ) : null}

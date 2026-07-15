@@ -3,6 +3,7 @@ import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
+import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   SortDir,
@@ -18,6 +19,7 @@ import {
 } from '../../../lib/displayLabels'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import { resolveAuthPrincipalService } from '../../../lib/platformServices'
+import { DocumentShare } from '../../../data/entities'
 import {
   handleDocumentsRouteError,
   resolveDocumentCapabilityProjection,
@@ -32,6 +34,7 @@ type RouteContext = {
 const principalTypeSchema = z.enum(['user', 'role'])
 const principalModeSchema = z.enum(['mention', 'share'])
 const MAX_PRINCIPAL_PAGES = 50
+const MAX_PRINCIPAL_PAGE_SIZE = 20
 const PRINCIPAL_SEARCH_MIN_LENGTH = resolveSearchMinTokenLength()
 const boundedSearchSchema = z.preprocess(
   (value) => {
@@ -47,7 +50,7 @@ export const principalsQuerySchema = z.object({
   type: principalTypeSchema.default('user'),
   search: boundedSearchSchema,
   page: z.coerce.number().int().min(1).max(MAX_PRINCIPAL_PAGES).default(1),
-  pageSize: z.coerce.number().int().min(1).max(20).default(20),
+  pageSize: z.coerce.number().int().min(1).max(MAX_PRINCIPAL_PAGE_SIZE).default(MAX_PRINCIPAL_PAGE_SIZE),
 }).superRefine((value, context) => {
   if (value.mode === 'mention' && value.type !== 'user') {
     context.addIssue({ code: 'custom', path: ['type'], message: 'documents.principals.mentionUsersOnly' })
@@ -255,20 +258,54 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
 
     const authPrincipalService = resolveAuthPrincipalService(ctx.container)
     if (!authPrincipalService) throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
-    const excludedIds: string[] = !ctx.auth.isSuperAdmin && query.type === 'user'
+    const protectedUserIds: string[] = !ctx.auth.isSuperAdmin && query.type === 'user'
       ? await authPrincipalService.listSuperAdminUserIds(ctx.tenantId)
       : []
-    const queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
-    const result = await queryPrincipalPage({
-      queryEngine,
-      type: query.type,
-      search: query.search,
-      page: query.page,
-      pageSize: query.pageSize,
-      tenantId: ctx.tenantId,
-      organizationId: ctx.organizationId,
-      excludedIds,
-    })
+    const existingShares = query.mode === 'share'
+      ? await findWithDecryption(
+          ctx.em,
+          DocumentShare,
+          {
+            documentId,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+            principalType: query.type,
+            deletedAt: null,
+          },
+          { fields: ['principalId'] as const },
+          { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        )
+      : []
+    const excludedIds = Array.from(new Set([
+      ...protectedUserIds,
+      ...existingShares.map((share) => share.principalId),
+    ]))
+    let result: QueryResult<PrincipalRecord>
+    if (query.type === 'role') {
+      if (typeof authPrincipalService.queryActiveRolePage !== 'function') {
+        throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+      }
+      const rolePage = await authPrincipalService.queryActiveRolePage({
+        scope: { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+        search: query.search,
+        excludedIds,
+        page: query.page,
+        pageSize: query.pageSize,
+      })
+      result = { ...rolePage, items: rolePage.items.map((item) => ({ ...item })) }
+    } else {
+      const queryEngine = ctx.container.resolve('queryEngine') as QueryEngine
+      result = await queryPrincipalPage({
+        queryEngine,
+        type: query.type,
+        search: query.search,
+        page: query.page,
+        pageSize: query.pageSize,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        excludedIds,
+      })
+    }
     const { translate } = await resolveTranslations()
     const fallbackLabel = query.type === 'user'
       ? translate('documents.users.unknown', 'Unknown user')
@@ -291,10 +328,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       const resolvedUser = userLabels?.get(id) ?? null
       const label = firstSafeDocumentsDisplayLabel(
         resolvedUser?.label,
-        readString(item, 'name'),
+        readString(item, 'label', 'name'),
         safeFallback,
       ) ?? safeFallback
-      const secondary = sanitizeDocumentsDisplayLabel(resolvedUser?.secondary)
+      const secondary = sanitizeDocumentsDisplayLabel(
+        resolvedUser?.secondary ?? readString(item, 'secondary'),
+      )
       return [{ id, label, secondary }]
     })
     const total = Math.max(0, Number.isFinite(result.total) ? result.total : items.length)

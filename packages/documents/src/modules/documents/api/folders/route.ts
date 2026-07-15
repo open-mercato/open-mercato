@@ -254,7 +254,10 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Create document folder',
       requestBody: { contentType: 'application/json', schema: documentFolderCreateSchema },
       responses: [{ status: 201, description: 'Folder created', schema: mutationResponseSchema }],
-      errors: [{ status: 400, description: 'Validation failed', schema: routeErrorSchema }],
+      errors: [
+        { status: 400, description: 'Validation failed', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
     PUT: {
       summary: 'Update document folder',
@@ -263,13 +266,17 @@ export const openApi: OpenApiRouteDoc = {
       errors: [
         { status: 400, description: 'Invalid folder hierarchy', schema: routeErrorSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
       ],
     },
     DELETE: {
       summary: 'Delete document folder',
       requestBody: { contentType: 'application/json', schema: folderDeleteSchema },
       responses: [{ status: 200, description: 'Folder deleted', schema: deleteResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
   },
 }

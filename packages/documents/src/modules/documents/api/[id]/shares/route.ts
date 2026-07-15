@@ -328,19 +328,28 @@ export const openApi: OpenApiRouteDoc = {
       summary: 'Share document',
       requestBody: { contentType: 'application/json', schema: documentShareCreateSchema },
       responses: [{ status: 201, description: 'Document shared', schema: shareMutationResponseSchema }],
-      errors: [{ status: 400, description: 'Validation failed', schema: routeErrorSchema }],
+      errors: [
+        { status: 400, description: 'Validation failed', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
     PUT: {
       summary: 'Update document share',
       requestBody: { contentType: 'application/json', schema: documentShareUpdateSchema },
       responses: [{ status: 200, description: 'Share updated', schema: shareMutationResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
     DELETE: {
       summary: 'Remove document share',
       requestBody: { contentType: 'application/json', schema: shareDeleteSchema },
       responses: [{ status: 200, description: 'Share removed', schema: shareDeleteResponseSchema }],
-      errors: [{ status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema }],
+      errors: [
+        { status: 409, description: 'Optimistic lock conflict', schema: routeErrorSchema },
+        { status: 413, description: 'Request body exceeds the safe resource bound', schema: routeErrorSchema },
+      ],
     },
   },
 }

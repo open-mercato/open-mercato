@@ -84,7 +84,7 @@ export function DocumentCanvas({
                   <IconButton type="button" size="sm" variant={editor.isActive('link') ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.link')} onMouseDown={keepSelection} onClick={onOpenLink}><Link2 /></IconButton>
                 </>
               ) : null}
-              {onComment ? <Button type="button" size="2xs" variant="ghost" onMouseDown={keepSelection} onClick={comment}><MessageSquare />{t('documents.editor.toolbar.comment')}</Button> : null}
+              {onComment ? <Button type="button" size="sm" variant="ghost" onMouseDown={keepSelection} onClick={comment}><MessageSquare />{t('documents.editor.toolbar.comment')}</Button> : null}
             </BubbleMenu>
           ) : null}
           <EditorContent className={cn(DOCUMENT_EDITOR_CONTENT_CLASS, readOnly && 'select-text')} editor={editor} />

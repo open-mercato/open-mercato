@@ -2,6 +2,7 @@
 
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
+import { useEditorState } from '@tiptap/react'
 import { Highlighter, Palette, X } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Popover, PopoverContent, PopoverTrigger } from '@open-mercato/ui/primitives/popover'
@@ -21,6 +22,7 @@ const TEXT_COLORS = [
   ['#16a34a', 'documents.editor.colors.green'], ['#2563eb', 'documents.editor.colors.blue'],
   ['#7c3aed', 'documents.editor.colors.purple'], ['#db2777', 'documents.editor.colors.pink'],
 ] as const
+const EMPTY_COLOR_STATE = { textColor: null, highlight: null }
 
 function ColorPicker({ label, icon, colors, active, disabled, onSelect, onClear }: {
   label: string
@@ -49,12 +51,21 @@ function ColorPicker({ label, icon, colors, active, disabled, onSelect, onClear 
 
 export function EditorColorTools({ editor, disabled }: { editor: Editor | null; disabled: boolean }) {
   const t = useT()
-  const textColor = editor?.getAttributes('textStyle').color
-  const highlight = editor?.getAttributes('highlight').color
+  const editorState = useEditorState({
+    editor,
+    selector: ({ editor: current }) => {
+      const textColor = current?.getAttributes('textStyle').color
+      const highlight = current?.getAttributes('highlight').color
+      return {
+        textColor: typeof textColor === 'string' ? textColor : null,
+        highlight: typeof highlight === 'string' ? highlight : null,
+      }
+    },
+  }) ?? EMPTY_COLOR_STATE
   return (
     <>
-      <ColorPicker label={t('documents.editor.toolbar.highlight')} icon={<Highlighter />} colors={HIGHLIGHTS} active={typeof highlight === 'string' ? highlight : null} disabled={disabled} onSelect={(color) => { editor?.chain().focus().setHighlight({ color }).run() }} onClear={() => { editor?.chain().focus().unsetHighlight().run() }} />
-      <ColorPicker label={t('documents.editor.toolbar.textColor')} icon={<Palette />} colors={TEXT_COLORS} active={typeof textColor === 'string' ? textColor : null} disabled={disabled} onSelect={(color) => { editor?.chain().focus().setColor(color).run() }} onClear={() => { editor?.chain().focus().unsetColor().run() }} />
+      <ColorPicker label={t('documents.editor.toolbar.highlight')} icon={<Highlighter />} colors={HIGHLIGHTS} active={editorState.highlight} disabled={disabled} onSelect={(color) => { editor?.chain().focus().setHighlight({ color }).run() }} onClear={() => { editor?.chain().focus().unsetHighlight().run() }} />
+      <ColorPicker label={t('documents.editor.toolbar.textColor')} icon={<Palette />} colors={TEXT_COLORS} active={editorState.textColor} disabled={disabled} onSelect={(color) => { editor?.chain().focus().setColor(color).run() }} onClear={() => { editor?.chain().focus().unsetColor().run() }} />
     </>
   )
 }

@@ -201,6 +201,7 @@
   "documents.entityPicker.unavailable": "Este tipo de registro no está disponible.",
   "documents.errors.organizationRequired": "Se requiere el contexto de la organización",
   "documents.errors.recordChanged": "Otro usuario modificó el registro",
+  "documents.errors.requestBodyTooLarge": "El cuerpo de la solicitud es demasiado grande.",
   "documents.export.docx": "Word (.docx)",
   "documents.export.error": "Error al exportar",
   "documents.export.inputTooLarge": "Este documento es demasiado grande para exportarlo.",

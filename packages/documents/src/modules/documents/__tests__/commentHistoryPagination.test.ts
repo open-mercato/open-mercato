@@ -12,7 +12,7 @@ const actorUserId = '44444444-4444-4444-8444-444444444444'
 const mockResolveDocumentsContext = jest.fn()
 const mockAssertTier = jest.fn()
 const mockFindWithDecryption = jest.fn()
-const mockResolveUserLabels = jest.fn()
+const mockResolveViewerSafeUserLabels = jest.fn()
 
 jest.mock('../api/_shared', () => ({
   handleDocumentsRouteError: (error: unknown) => Response.json(
@@ -38,7 +38,7 @@ jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
 }))
 
 jest.mock('../lib/userLabels', () => ({
-  resolveUserLabels: (...args: unknown[]) => mockResolveUserLabels(...args),
+  resolveViewerSafeUserLabels: (...args: unknown[]) => mockResolveViewerSafeUserLabels(...args),
 }))
 
 import {
@@ -71,11 +71,11 @@ describe('document comment history pagination', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     mockResolveDocumentsContext.mockResolvedValue({
-      em: {}, tenantId, organizationId, auth: { sub: actorUserId },
+      container: {}, em: {}, tenantId, organizationId, auth: { sub: actorUserId },
     })
     mockAssertTier.mockResolvedValue('owner')
     mockFindWithDecryption.mockResolvedValue([5, 4, 3, 2, 1].map(comment))
-    mockResolveUserLabels.mockResolvedValue(new Map())
+    mockResolveViewerSafeUserLabels.mockResolvedValue(new Map())
   })
 
   it('returns a chronological page from the newest bounded root threads', async () => {
@@ -114,6 +114,33 @@ describe('document comment history pagination', () => {
       { tenantId, organizationId },
     )
     expect(openApi.methods.GET?.query).toBe(commentListQuerySchema)
+  })
+
+  it('returns only the viewer-safe label projection from comment history', async () => {
+    const authorUserId = comment(1).authorUserId
+    mockFindWithDecryption.mockResolvedValue([comment(1)])
+    mockResolveViewerSafeUserLabels.mockResolvedValue(new Map([
+      [authorUserId, { label: 'Ada Lovelace' }],
+    ]))
+
+    const response = await GET(
+      new Request(`http://localhost/api/documents/${documentId}/comments`),
+      { params: Promise.resolve({ id: documentId }) },
+    )
+    const body = await response.json() as {
+      userLabels: Record<string, { label: string; secondary?: string | null }>
+    }
+
+    expect(response.status).toBe(200)
+    expect(body.userLabels).toEqual({
+      [authorUserId]: { label: 'Ada Lovelace' },
+    })
+    expect(body.userLabels[authorUserId]).not.toHaveProperty('secondary')
+    expect(mockResolveViewerSafeUserLabels).toHaveBeenCalledWith(
+      expect.anything(),
+      { tenantId, organizationId },
+      [authorUserId],
+    )
   })
 
   it('keeps each page chronological while moving backward through history', () => {

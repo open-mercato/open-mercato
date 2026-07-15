@@ -143,6 +143,32 @@ export async function loadDocumentContentForCollaboration(
   ))
 }
 
+/**
+ * Lightweight active-room reconciliation probe. A missing row means the
+ * scoped content was deleted; normal collaborative stores retain the same
+ * generation while authoritative replacements advance it.
+ */
+export async function loadDocumentCollaborationGeneration(
+  em: EntityManager,
+  documentId: string,
+  scope: DocumentScope,
+): Promise<number | null> {
+  const content = await findOneWithDecryption(
+    em,
+    DocumentContent,
+    {
+      documentId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    { fields: ['collaborationGeneration'] },
+    scope,
+  )
+  if (!content) return null
+  return normalizeDocumentCollaborationGeneration(content.collaborationGeneration)
+}
+
 export async function mutateDocumentContentState(
   em: EntityManager,
   documentId: string,

@@ -16,6 +16,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
   },
 }))
 import {
+  loadDocumentCollaborationGeneration,
   loadDocumentContentForCollaboration,
   persistDocumentContent,
 } from '../lib/contentService'
@@ -94,6 +95,28 @@ describe('document content persistence concurrency', () => {
         deletedAt: null,
       },
       { lockMode: LockMode.PESSIMISTIC_READ },
+    )
+  })
+
+  it('projects only the durable generation for active-room reconciliation', async () => {
+    const content = contentRow()
+    const em = { findOne: jest.fn(async () => content) }
+
+    await expect(loadDocumentCollaborationGeneration(
+      em as never,
+      DOCUMENT_ID,
+      { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    )).resolves.toBe(1)
+
+    expect(em.findOne).toHaveBeenCalledWith(
+      DocumentContent,
+      {
+        documentId: DOCUMENT_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        deletedAt: null,
+      },
+      { fields: ['collaborationGeneration'] },
     )
   })
 

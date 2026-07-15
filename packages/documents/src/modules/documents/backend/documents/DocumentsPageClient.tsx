@@ -80,6 +80,7 @@ export function DocumentsPageClient() {
               title={selectedFolder?.name ?? t('documents.list.title')}
               rows={documents.rows}
               isLoading={documents.isLoading}
+              isCreating={documents.isCreating}
               search={documents.search}
               page={documents.page}
               pageSize={documents.pageSize}

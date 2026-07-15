@@ -40,6 +40,7 @@ import {
 } from '@open-mercato/documents/modules/documents/lib/collabToken'
 import {
   advanceDocumentCollaborationGeneration,
+  loadDocumentCollaborationGeneration,
   loadDocumentContentForCollaboration,
   normalizeDocumentCollaborationGeneration,
   persistDocumentContent,
@@ -775,6 +776,11 @@ export type CollabHooksDeps = {
     updatedAt: string | Date
     collaborationGeneration: number
   } | null>
+  loadCollaborationGeneration?: (
+    em: unknown,
+    documentId: string,
+    scope: CollabScope,
+  ) => Promise<number | null>
   initializeYjsState: (
     em: unknown,
     documentId: string,
@@ -1600,8 +1606,67 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       return false
     }
     if (authorized) {
-      rememberWritableContext(deps.resolveRoomDocument?.(context.documentId), context)
-      return true
+      const resolveRoomDocument = deps.resolveRoomDocument
+      // Production active connections always belong to an exact mapped room.
+      // Keep the hook backwards-compatible for embedders that do not expose
+      // room resolution, but close a connection whose production mapping has
+      // already disappeared instead of authorizing a stale logical socket.
+      if (!resolveRoomDocument) return true
+      const room = resolveRoomDocument(context.documentId)
+      if (!room) return false
+
+      const loadedGeneration = loadedCollaborationGenerations.get(room)
+      let durableGeneration: number | null = null
+      try {
+        const container = await deps.resolveContainer()
+        const em = container.resolve('em')
+        const scope = {
+          tenantId: context.tenantId,
+          organizationId: context.organizationId,
+        }
+        if (deps.loadCollaborationGeneration) {
+          durableGeneration = await deps.loadCollaborationGeneration(
+            em,
+            context.documentId,
+            scope,
+          )
+        } else {
+          const content = await deps.loadContent(em, context.documentId, scope)
+          durableGeneration = normalizeDocumentCollaborationGeneration(
+            content?.collaborationGeneration,
+          )
+        }
+      } catch {
+        durableGeneration = null
+      }
+
+      // A trusted event may have reached this process while the durable read
+      // was in flight. Its invalidation/final-drain path owns room retirement.
+      if (isInvalidated(context.documentId) || isFinalDrainPending(context.documentId)) {
+        return false
+      }
+      // Never apply a stale connection's refresh result to a replacement room
+      // that loaded after an unload/reconnect race.
+      if (resolveRoomDocument(context.documentId) !== room) return false
+
+      if (
+        loadedGeneration !== undefined
+        && durableGeneration !== null
+        && durableGeneration === loadedGeneration
+      ) {
+        rememberWritableContext(room, context)
+        return true
+      }
+
+      // Reconcile a missed cross-process content-reset/deletion event from the
+      // durable, scoped DocumentContent generation. Retiring the old Y.Doc is
+      // required so no pre-reset update can later pass the store CAS and merge
+      // back into the authoritative epoch.
+      invalidateStoreRoom({
+        documentName: context.documentId,
+        document: room,
+      })
+      return false
     }
 
     // A failed active refresh can follow an RBAC/role change that did not name
@@ -2208,6 +2273,11 @@ export async function main(): Promise<void> {
         collaborationGeneration: content.collaborationGeneration,
       }
     },
+    loadCollaborationGeneration: (em, id, scope) => loadDocumentCollaborationGeneration(
+      em as EntityManager,
+      id,
+      scope,
+    ),
     initializeYjsState: (em, id, scope) => initializeDocumentYjsState(
       em as EntityManager,
       id,

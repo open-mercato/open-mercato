@@ -194,7 +194,7 @@ export const openApi: OpenApiRouteDoc = {
         { status: 400, description: 'Validation failed', schema: routeErrorSchema },
         { status: 401, description: 'Unauthorized', schema: routeErrorSchema },
         { status: 403, description: 'Forbidden', schema: routeErrorSchema },
-        { status: 413, description: 'Document content or version history exceeds its safe storage bound', schema: routeErrorSchema },
+        { status: 413, description: 'Request body, document content, or version history exceeds its safe storage bound', schema: routeErrorSchema },
       ],
     },
   },

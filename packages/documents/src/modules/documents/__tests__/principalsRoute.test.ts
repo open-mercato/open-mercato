@@ -7,6 +7,9 @@ const mockResolveDocumentsContext = jest.fn()
 const mockResolveDocumentCapabilityProjection = jest.fn()
 const mockListSuperAdminUserIds = jest.fn()
 const mockResolveUserLabels = jest.fn()
+const mockFilterActiveRoleIds = jest.fn()
+const mockQueryActiveRolePage = jest.fn()
+const mockFindWithDecryption = jest.fn()
 
 jest.mock('../api/_shared', () => {
   const actual = jest.requireActual<typeof import('../api/_shared')>('../api/_shared')
@@ -27,6 +30,10 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   })),
 }))
 
+jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
+  findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
+}))
+
 jest.mock('../lib/userLabels', () => ({
   resolveUserLabels: (...args: unknown[]) => mockResolveUserLabels(...args),
 }))
@@ -38,8 +45,9 @@ const container = {
     if (token === 'authPrincipalService') return {
       principalExists: jest.fn(),
       resolveActiveUserRoleIds: jest.fn(),
-      filterActiveRoleIds: jest.fn(),
+      filterActiveRoleIds: (...args: unknown[]) => mockFilterActiveRoleIds(...args),
       resolveLabels: jest.fn(),
+      queryActiveRolePage: (...args: unknown[]) => mockQueryActiveRolePage(...args),
       listSuperAdminUserIds: (...args: unknown[]) => mockListSuperAdminUserIds(...args),
     }
     throw new Error('missing')
@@ -72,6 +80,9 @@ beforeEach(() => {
     capabilities: { canComment: true, canShare: true },
   })
   mockListSuperAdminUserIds.mockResolvedValue([])
+  mockFilterActiveRoleIds.mockImplementation(async (ids: string[]) => ids)
+  mockQueryActiveRolePage.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0 })
+  mockFindWithDecryption.mockResolvedValue([])
   mockResolveUserLabels.mockResolvedValue(new Map([
     [PRINCIPAL_ID, { label: 'Ada Lovelace', secondary: 'ada@example.test' }],
   ]))
@@ -228,8 +239,8 @@ describe('document-scoped principal picker route', () => {
   })
 
   it('lists active roles by default for sharing without any broad Auth list grant', async () => {
-    queryEngine.query.mockResolvedValue({
-      items: [{ id: PRINCIPAL_ID, name: 'Sales team', deletedAt: null }],
+    mockQueryActiveRolePage.mockResolvedValue({
+      items: [{ id: PRINCIPAL_ID, label: 'Sales team', secondary: null }],
       page: 1,
       pageSize: 20,
       total: 1,
@@ -243,17 +254,92 @@ describe('document-scoped principal picker route', () => {
       total: 1,
     })
     expect(mockResolveDocumentsContext).toHaveBeenCalledWith(expect.any(Request), ['documents.share'])
-    expect(queryEngine.query).toHaveBeenCalledWith('auth:role', expect.objectContaining({
-      fields: ['id', 'name'],
-      tenantId: TENANT_ID,
-      withDeleted: false,
-      filters: undefined,
-      page: { page: 1, pageSize: 20 },
-    }))
-    expect(queryEngine.query.mock.calls[0]?.[1]).not.toHaveProperty('organizationIds')
+    expect(mockQueryActiveRolePage).toHaveBeenCalledWith({
+      scope: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+      search: undefined,
+      excludedIds: [],
+      page: 1,
+      pageSize: 20,
+    })
+    expect(queryEngine.query).not.toHaveBeenCalled()
     expect(metadata.GET).toEqual({ requireAuth: true, requireFeatures: ['documents.view'] })
     expect(JSON.stringify(metadata)).not.toContain('auth.roles')
     expect(JSON.stringify(openApi)).toContain('Document-scoped principal picker')
+  })
+
+  it('omits roles whose ACL does not apply to the document organization', async () => {
+    const roleB = '50000000-0000-4000-8000-000000000002'
+    mockQueryActiveRolePage.mockResolvedValue({
+      items: [{ id: roleB, label: 'Organization B team', secondary: null }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    })
+
+    const response = await GET(request('mode=share&type=role'), context())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ id: roleB, label: 'Organization B team', secondary: null }],
+      total: 1,
+      totalPages: 1,
+    })
+    expect(mockQueryActiveRolePage).toHaveBeenCalledWith(expect.objectContaining({
+      scope: { tenantId: TENANT_ID, organizationId: ORGANIZATION_ID },
+    }))
+    expect(mockFilterActiveRoleIds).not.toHaveBeenCalled()
+  })
+
+  it('delegates sparse role eligibility to one bounded Auth-owned page query', async () => {
+    const eligibleRole = {
+      id: '50000000-0000-4000-9000-000000000001',
+      label: 'Eligible role',
+      secondary: null,
+    }
+    mockQueryActiveRolePage.mockResolvedValue({
+      items: [eligibleRole],
+      page: 1,
+      pageSize: 1,
+      total: 1,
+    })
+
+    const response = await GET(request('mode=share&type=role&page=1&pageSize=1'), context())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      items: [eligibleRole],
+      page: 1,
+      pageSize: 1,
+      total: 1,
+      totalPages: 1,
+    })
+    expect(mockQueryActiveRolePage).toHaveBeenCalledTimes(1)
+    expect(mockQueryActiveRolePage).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 1 }))
+    expect(queryEngine.query).not.toHaveBeenCalled()
+  })
+
+  it('keeps already-shared roles out of the bounded eligible role window', async () => {
+    const existingRole = '50000000-0000-4000-8000-000000000001'
+    const freshRole = '50000000-0000-4000-8000-000000000002'
+    mockFindWithDecryption.mockResolvedValueOnce([{ principalId: existingRole }])
+    mockQueryActiveRolePage.mockResolvedValue({
+      items: [{ id: freshRole, label: 'Fresh team', secondary: null }],
+      page: 1,
+      pageSize: 20,
+      total: 1,
+    })
+
+    const response = await GET(request('mode=share&type=role'), context())
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      items: [{ id: freshRole, label: 'Fresh team', secondary: null }],
+      total: 1,
+    })
+    expect(mockQueryActiveRolePage).toHaveBeenCalledWith(expect.objectContaining({
+      excludedIds: [existingRole],
+    }))
+    expect(queryEngine.query).not.toHaveBeenCalled()
   })
 
   it('uses localized neutral labels when decrypted user fields contain embedded UUIDs', async () => {
@@ -334,11 +420,11 @@ describe('document-scoped principal picker route', () => {
   })
 
   it('caps advertised pagination at the bounded picker window', async () => {
-    queryEngine.query.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 5_000 })
+    mockQueryActiveRolePage.mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 1_000 })
 
     const response = await GET(request('mode=share&type=role&page=1&pageSize=20'), context())
 
-    await expect(response.json()).resolves.toMatchObject({ total: 5_000, totalPages: 50 })
+    await expect(response.json()).resolves.toMatchObject({ total: 1_000, totalPages: 50 })
   })
 
   it('rejects roles in mention mode and over-broad picker pages', async () => {

@@ -1,7 +1,7 @@
 # Documents ecosystem integration
 
 - **Date:** 2026-07-09
-- **Status:** M6-M8 implemented; 2026-07-14 review remediation verified
+- **Status:** M6-M8 implemented; 2026-07-15 follow-up review remediation verified
 - **Package:** `@open-mercato/documents`
 - **Module id:** `documents`
 - **Baseline:** `2026-07-08-documents-collaborative-editor.md` (M1-M5)
@@ -106,7 +106,7 @@ The v2 collaboration token uses a dedicated secret of at least 32 UTF-8 bytes. P
 ## Architecture boundaries
 
 - Documents owns all Documents persistence and schema, API routes, commands, widgets, registry adapters, templates, and UI in `packages/documents`.
-- Approved platform seams are limited to additive or defensive changes in Shared and Events plus the Core Auth, API Keys, Directory, Attachments, Notifications, and Workflows modules required for trusted cross-process events, scoped authorization/principal lookup, bounded attachment lifecycle, notification delivery, and private workflow-event enforcement.
+- Approved platform seams are limited to additive or defensive changes in Shared and Events plus the Core Auth, API Keys, Directory, Attachments, Notifications, Progress, and Workflows modules required for trusted cross-process events, scoped authorization/principal lookup, bounded attachment lifecycle, notification delivery, progress projection, and private workflow-event enforcement.
 - Approved deployment and distribution seams are limited to CI, app registration/configuration, Docker/Compose wiring, and matching create-app template changes required to install, enable, configure, test, and run Documents and its collaboration sidecar.
 - Any source change outside those explicitly approved seams, or any expansion of their responsibility beyond the contracts above, requires fresh architecture review and spec approval.
 - Cross-module records are referenced by typed IDs and label snapshots, never ORM relationships.
@@ -366,6 +366,7 @@ navigation, and template-query retry/loading behavior.
 - `TC-DOCUMENTS-015`: durable anchors under concurrent edits and deletion.
 - `TC-DOCUMENTS-016`: all seven label-first selectors and contextual templates.
 - `TC-DOCUMENTS-017`: token rollover/recovery, optimistic single-user fallback save/conflict behavior, paginated canvas, styled PDF, and authorized record-field insertion.
+- `TC-DOCUMENTS-018`: live human/API-key role-share authorization, including organization-correlated and hierarchy-aware role grants.
 
 Integration fixtures must be created by the tests and cleaned up afterward. The feature gate is the Documents package build, typecheck, unit suite, and Documents integration directory only; repository-wide repair is explicitly out of scope.
 
@@ -377,24 +378,31 @@ Integration fixtures must be created by the tests and cleaned up afterward. The 
 - `.github/workflows/ci.yml`
 - `Dockerfile`
 - `docker-compose.fullapp*.yml`
+- `UPGRADE_NOTES.md`
 - `package.json`
+- `apps/mercato/.env.example`
 - `apps/mercato/next.config.ts`
 - `apps/mercato/package.json`
 - `apps/mercato/src/modules.ts`
 - `apps/mercato/types/html-to-docx/index.d.ts`
 - `packages/documents/**`
 - `packages/core/src/modules/attachments/{AGENTS.md,di.ts,index.ts,lib/attachment-service.ts}`
-- `packages/core/src/modules/attachments/lib/__tests__/attachment-service.test.ts`
+- `packages/core/src/modules/attachments/lib/{upload-limits.ts,__tests__/attachment-service.test.ts,__tests__/upload-limits.test.ts}`
 - `packages/core/src/modules/{auth,api_keys,directory}/{di.ts,services/**}`
-- `packages/core/src/modules/notifications/{di.ts,__tests__/notificationService.test.ts}`
+- `packages/core/src/modules/api_keys/api/**`
+- `packages/core/src/modules/notifications/{di.ts,lib/notificationService.ts,__tests__/notificationService.test.ts}`
+- `packages/core/src/modules/progress/{di.ts,lib/progressServiceImpl.ts,__tests__/progressService.test.ts}`
+- `packages/core/src/modules/workflows/lib/{activity-executor.ts,__tests__/activity-executor.test.ts}`
 - `packages/core/src/__tests__/di-seams-classic-resolution.test.ts`
 - `packages/core/src/modules/directory/utils/organizationScope.ts`
-- `packages/shared/src/lib/auth/principal-service.ts`
+- `packages/shared/src/lib/auth/{principal-service.ts,server.ts,__tests__/server.apiKeyCache.test.ts}`
+- `packages/shared/src/lib/data/{engine.ts,__tests__/engine.event-validation.test.ts}`
 - `packages/shared/src/modules/events/{types.ts,factory.ts}`
 - `packages/events/AGENTS.md`
 - `packages/events/src/{bridge.ts,bus.ts}`
+- `packages/events/src/types.ts`
 - `packages/events/src/modules/events/api/**`
-- `packages/events/src/__tests__/cross-process-broadcast.test.ts`
+- `packages/events/src/__tests__/{cross-process-broadcast,cross-process-instance-id}.test.ts`
 - `packages/create-app/src/lib/apply-starter-preset.test.ts`
 - `packages/create-app/template/.env.example`
 - `packages/create-app/template/Dockerfile`
@@ -423,6 +431,21 @@ Directory, or Attachments instead of producing an all-403 module.
 
 ## Verification status
 
+- [x] 2026-07-15 follow-up review remediation passes the complete local CI-mirroring gate in order:
+  package build, generation, post-generation package build, i18n sync/usage, typecheck, all repository
+  tests, and the production app build (`Runner: local`).
+- [x] Documents standard Jest suite passes (127 suites / 790 tests); the Redis-backed multi-instance
+  suite remains the sole default skip and passes separately (1 suite / 1 test) against real Redis and PostgreSQL.
+- [x] The isolated `TC-DOCUMENTS-018` ephemeral integration scenario passes (1 suite / 1 test), including
+  tenant-wide API-key authentication and organization-correlated role authorization.
+- [x] Focused regressions cover viewer-safe user labels, single-flight document and template creation, live-status
+  announcements, pagination DOM refreshes, cross-process event provenance, bounded streamed JSON bodies,
+  durable collaboration-generation
+  reconciliation, awaited fallback preview saves with stable TipTap state, exact debounced counts,
+  selection-insensitive pagination, document-bound side-panel reloads, and organization-correlated
+  human/API-key role authorization with parent-to-child hierarchy and cache invalidation. Role-principal
+  pagination now delegates to one Auth-owned bounded database page that applies organization eligibility
+  before limit/offset, and formatting controls subscribe directly to selection state.
 - [x] 2026-07-14 local CI-mirroring gate passes in order: package build, generation,
   post-generation package build, i18n sync/usage, typecheck, repository tests, and production app build.
 - [x] Documents standard Jest suite passes (118 suites / 759 tests); the Docker-only multi-instance
@@ -452,6 +475,28 @@ Directory, or Attachments instead of producing an all-403 module.
 
 ## Changelog
 
+- **2026-07-15:** Resolved the final post-review findings. The document role picker now uses an Auth-owned,
+  1,000-result-capped database query that applies tenant, organization-ACL, search, and exclusion filters
+  before stable pagination, eliminating both hidden authorized roles and sparse-candidate request
+  amplification. Editor formatting and color controls now subscribe to TipTap selection state without
+  forcing the full editor surface to rerender, and template instantiation synchronously rejects same-tick
+  duplicate submits before React state commits. Focused regressions and the complete Documents Jest suite
+  pass (127 suites / 790 tests).
+- **2026-07-15:** Closed the final Documents review findings: tenant-wide API keys authenticate without
+  impersonating their creator, viewer comment history omits email metadata, Auth consumes a Directory-owned
+  hierarchy seam, event instance identity survives duplicate package loading, declared legacy browser events
+  retain cross-process delivery, and the editor fixes stale pagination, duplicate creates, inconsistent action
+  sizing, and unannounced live status. Focused regressions, `TC-DOCUMENTS-018`, the complete local gate, the
+  126-suite Documents run, and the real Redis/PostgreSQL multi-instance test pass.
+- **2026-07-15:** Fixed every follow-up code-review finding. Documents JSON mutations now reject
+  oversized streamed bodies before buffering or parsing; fallback preview waits for a successful save
+  without recreating the editor; counts and pagination avoid selection-driven work; related-record and
+  version rails reject stale document responses; and active collaboration rooms reconcile their durable
+  generation so missed cross-instance invalidations cannot revive stale content. The approved Auth/API
+  Keys seam now keeps role features correlated with organization grants for humans and tenant-scoped API
+  keys, preserves Directory parent-to-descendant semantics, filters explicit share principals, and joins
+  hierarchy-dependent RBAC cache entries to Directory invalidation. Focused regressions, independent
+  review, the full local CI gate, 126-suite Documents run, and real Redis/PostgreSQL multi-instance test pass.
 - **2026-07-15:** Addressed the final code-review findings without weakening the trusted event boundary. Progress and notification browser broadcasts now carry trusted tenant/organization emit options across processes; version restore awaits a successful content refresh before closing or reporting success; share and restore shortcuts are synchronously single-flight; the Documents workspace declares its direct PostgreSQL test dependencies; and the architecture boundary now enumerates every approved platform/deployment seam. Focused Core (54), Events (6), and Documents UI (35) regressions pass, followed by the complete local package-build/generation/i18n/typecheck/test/app-build gate, template parity, client-boundary check, and the real Redis/PostgreSQL multi-instance test.
 - **2026-07-14:** Made the realtime `TC-DOCUMENTS-017` path self-contained under an explicit CI gate by launching and draining a disposable loopback sidecar against the ephemeral database. Both fallback and live collaboration scenarios now pass in the managed environment instead of silently depending on an externally started sidecar.
 - **2026-07-14:** Added unsaved-navigation and browser fallback persistence/conflict coverage, made the real Redis/PostgreSQL multi-instance regression a required CI job, and synchronized package/runtime documentation with editable fallback and private cross-process event behavior.
