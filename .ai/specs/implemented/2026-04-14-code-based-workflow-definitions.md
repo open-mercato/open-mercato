@@ -429,12 +429,25 @@ A follow-up migration (`Migration20260428102318`) renames legacy `seedExampleWor
   - Update `workflow_instances.workflow_id` for instances pointing at definitions that match.
 - The `down()` reverses both updates and is conflict-aware: it skips rows where reverting would collide with an existing row in the same tenant. The two `down()` statements are ordered so that `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, preventing dangling references mid-migration.
 
+### Legacy Checkout Seed Repair Migration
+
+`Migration20260715120000` repairs upgraded tenants where the renamed legacy checkout seed still shadows the current `workflows.checkout-demo` code definition. The old seed contains a `reserve_inventory` `CALL_WEBHOOK` activity whose URL depends on `INVENTORY_SERVICE_URL`; after workflow environment interpolation was restricted to an explicit non-secret allowlist, that URL becomes relative and fails the outbound URL guard with `reason=invalid_url`.
+
+The migration narrowly matches the original seed by workflow ID, name, version, activity ID/type, and exact webhook URL. It keeps the persisted definition active because workflow transition, task, signal, and timer handlers still resolve running instances by `definition_id`. It removes the activity arrays from `cart_to_customer_info`, `customer_info_to_payment`, and `confirmation_to_order`, matching the side-effect-free transitions in the maintained code definition. This:
+
+- preserves the persisted definition required by new and historical workflow instances;
+- removes the obsolete inventory/payment webhooks and dependent event payloads;
+- keeps the checkout demo self-contained without weakening the shared outbound URL guard;
+- leaves user-created definitions and already-customized code overrides untouched.
+
+The data repair is forward-only: the obsolete external activity payloads cannot be reconstructed safely, and restoring them would re-open the checkout failure.
+
 ### Backward Compatibility
 
 - **Existing definitions:** Continue working unchanged. `source='user'` is the default.
 - **Existing instances:** No changes to `WorkflowInstance`. Executor continues live-reading definitions as before.
 - **Existing API consumers:** New fields (`source`, `codeModuleId`, `isCodeBased`) are additive. No fields removed.
-- **Existing seeds:** The current `seedExampleWorkflows()` mechanism in `setup.ts` can be gradually migrated to `workflows.ts`. Both can coexist — seeded definitions remain `source='user'` in the DB.
+- **Existing seeds:** Seeded definitions remain `source='user'` in the DB. `Migration20260715120000` is a narrow payload repair for the exact legacy checkout seed; it preserves the row while aligning its side-effecting transitions with the maintained demo definition.
 - **Auto-discovery:** `workflows.ts` is a new optional convention. Modules without it are unaffected.
 - **Contract surface classification:** `workflows.ts` export convention is STABLE (new, additive). `defineWorkflow()` function signature is STABLE.
 
@@ -677,3 +690,7 @@ None.
 - Removed the cross-organization customize block: any organization within the tenant can now revive a soft-deleted override row, matching the tenant-scoped unique constraint semantics. The previous 409 response (and corresponding OpenAPI entry) was dropped from `/customize` and the `code:*` PUT path.
 - Corrected the `Migration20260428102318` `down()` ordering so `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, eliminating a transient mismatch during rollback.
 - Switched override insert/delete paths from `persistAndFlush`/`removeAndFlush` to explicit `persist`+`flush` / `remove`+`flush` for consistency with surrounding code.
+
+### 2026-07-15
+
+- Fixed issue #4179 for upgraded tenants by adding `Migration20260715120000`, which sanitizes only the exact legacy checkout seed containing the obsolete `reserve_inventory` webhook. The migration preserves the persisted row required by runtime transition lookup and removes the three legacy activity arrays that no longer exist in the maintained, self-contained demo flow.
