@@ -947,6 +947,7 @@
   "sales.documents.items.deletedCatalogReference.title": "Ten produkt katalogowy został usunięty",
   "sales.documents.items.editTitle": "Edytuj pozycję",
   "sales.documents.items.empty": "Brak pozycji.",
+  "sales.documents.items.errorAddToFulfilled": "Nie można dodać nowej pozycji do zrealizowanego zamówienia. Najpierw zmień status zamówienia.",
   "sales.documents.items.errorCurrency": "Waluta jest wymagana.",
   "sales.documents.items.errorDelete": "Nie udało się usunąć pozycji.",
   "sales.documents.items.errorDeleteShipped": "Nie można usunąć pozycji, która ma wysłane sztuki.",

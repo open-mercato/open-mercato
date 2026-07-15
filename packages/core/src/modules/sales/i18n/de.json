@@ -947,6 +947,7 @@
   "sales.documents.items.deletedCatalogReference.title": "Dieses Katalogprodukt wurde gelöscht",
   "sales.documents.items.editTitle": "Position bearbeiten",
   "sales.documents.items.empty": "Noch keine Positionen.",
+  "sales.documents.items.errorAddToFulfilled": "Zu einem erfüllten Auftrag kann keine neue Position hinzugefügt werden. Ändere zuerst den Auftragsstatus.",
   "sales.documents.items.errorCurrency": "Währung ist erforderlich.",
   "sales.documents.items.errorDelete": "Position konnte nicht gelöscht werden.",
   "sales.documents.items.errorDeleteShipped": "Positionen mit versandten Artikeln können nicht gelöscht werden.",
