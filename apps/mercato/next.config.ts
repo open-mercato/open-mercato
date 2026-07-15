@@ -22,17 +22,15 @@ const contentSecurityPolicy = [
 const nextConfig: NextConfig = {
   distDir: '.mercato/next',
   // TEMPORARY (TypeScript 7 migration): Next 16.2's built-in build-time type
-  // check and lint use the JavaScript TypeScript compiler API (`runTypeCheck`
-  // calls `typescript.createProgram`), which the native TS 7 package no longer
-  // ships — so `next build` would crash. Correctness is still fully enforced by
-  // the dedicated `yarn typecheck` (native tsc, faster) and `yarn lint` tasks.
-  // Native tsgo build support is expected in Next 16.3 — remove both flags and
-  // re-enable the in-build checks once we upgrade to it.
+  // check uses the JavaScript TypeScript compiler API (`runTypeCheck` calls
+  // `typescript.createProgram`), which the native TS 7 package no longer ships —
+  // so `next build` would crash. Correctness is still fully enforced by the
+  // dedicated `yarn typecheck` (native tsc, faster) task. Native tsgo build
+  // support is expected in Next 16.3 — remove this flag and re-enable the
+  // in-build type check once we upgrade to it. (Next 16 no longer runs ESLint
+  // during `next build`, so no eslint flag is needed here; `yarn lint` covers it.)
   typescript: {
     ignoreBuildErrors: true,
-  },
-  eslint: {
-    ignoreDuringBuilds: true,
   },
   experimental: {
     serverMinification: false,
