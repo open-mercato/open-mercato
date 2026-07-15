@@ -1,5 +1,8 @@
 import type { AwilixContainer } from 'awilix'
 import { hasAllFeatures } from '../../security/features'
+import { createLogger } from '../logger'
+
+const logger = createLogger('shared').child({ component: 'mutation-guard' })
 
 // ---------------------------------------------------------------------------
 // Types
@@ -151,13 +154,21 @@ type LegacyCrudMutationGuardService = {
 }
 
 function resolveLegacyGuardService(container: AwilixContainer): LegacyCrudMutationGuardService | null {
+  if (typeof container.hasRegistration === 'function' && !container.hasRegistration('crudMutationGuardService')) {
+    return null
+  }
   try {
     const service = container.resolve<LegacyCrudMutationGuardService>('crudMutationGuardService')
     if (!service) return null
     if (typeof service.validateMutation !== 'function') return null
     if (typeof service.afterMutationSuccess !== 'function') return null
     return service
-  } catch {
+  } catch (err) {
+    // A registered crudMutationGuardService that fails to RESOLVE is a wiring
+    // bug (e.g. a CLASSIC-mode factory whose parameter name has no matching
+    // registration). Swallowing it silently disables every guard this service
+    // backs — optimistic locking included — so it must be loud.
+    logger.warn('crudMutationGuardService is registered but failed to resolve; its mutation guard is skipped', { err })
     return null
   }
 }

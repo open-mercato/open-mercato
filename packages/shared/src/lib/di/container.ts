@@ -169,9 +169,14 @@ export async function createRequestContainer(): Promise<AppContainer> {
     // registrations override this default via Awilix replace semantics —
     // see the enterprise `record_locks` module for the canonical override.
     // Spec: .ai/specs/implemented/2026-05-25-oss-optimistic-locking.md
-    crudMutationGuardService: asFunction(({ em: scopedEm }: { em: EntityManager }) =>
+    // NOTE: the container runs in CLASSIC injection mode, which resolves
+    // dependencies by PARAMETER NAME. A destructured rename like
+    // `({ em: scopedEm })` is parsed as a dependency named `scopedEm`
+    // (unregistered), so resolution throws and `bridgeLegacyGuard` used to
+    // swallow that into "no guard" — silently disabling optimistic locking.
+    crudMutationGuardService: asFunction((em: EntityManager) =>
       createOptimisticLockGuardService({
-        getEm: () => scopedEm,
+        getEm: () => em,
         readers: getAllOptimisticLockReaders(),
       }),
     ).scoped(),
