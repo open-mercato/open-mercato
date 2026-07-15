@@ -7,6 +7,7 @@ import type {
   PhoneCallStatus,
 } from '@open-mercato/shared/modules/phone_calls/types'
 import type { TillioOperatorPlugin } from './operators-store'
+import { parseTillioTimestamp } from './tz'
 
 const stringish = z.union([z.string(), z.number()]).transform((value) => String(value))
 
@@ -74,12 +75,6 @@ function parseSeconds(value: string | undefined): number | null {
   const parsed = Number(value)
   if (!Number.isFinite(parsed) || parsed < 0) return null
   return Math.trunc(parsed)
-}
-
-function parseStartedAt(value: string | undefined): Date | null {
-  if (!value) return null
-  const parsed = new Date(value)
-  return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
 function mapDirection(type: string | undefined): PhoneCallDirection {
@@ -170,7 +165,7 @@ export function normalizeTillioCall(
     status: mapStatus(call.status, durationSeconds),
     participants,
     recording: extraction.recording ?? null,
-    startedAt: parseStartedAt(call.date),
+    startedAt: parseTillioTimestamp(call.date),
     answeredAt: null,
     endedAt: null,
     durationSeconds,

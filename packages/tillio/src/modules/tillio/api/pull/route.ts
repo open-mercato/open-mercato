@@ -8,7 +8,6 @@ import { runRouteMutationGuards } from '@open-mercato/shared/lib/crud/route-muta
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import type { NormalizedPhoneCall } from '@open-mercato/shared/modules/phone_calls/types'
-import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
 import {
   PHONE_CALLS_CALL_INGEST_COMMAND_ID,
   type IngestPhoneCallResult,
@@ -16,7 +15,7 @@ import {
 import { TILLIO_INTEGRATION_ID } from '../../lib/environment'
 import { TillioApiError } from '../../lib/errors'
 import { tillioAdapter } from '../../lib/adapter'
-import { classifyTillioError, resolveEnvironment, type TillioResolvedEnvironment } from '../../lib/operators'
+import { classifyTillioError, isTillioEnvironmentHealthy, resolveEnvironment, type TillioResolvedEnvironment } from '../../lib/operators'
 import {
   readOperatorsBlob,
   type TillioCredentialsService,
@@ -60,16 +59,6 @@ export const openApi = {
   },
 }
 
-async function isEnvironmentHealthy(em: EntityManager, scope: IntegrationScope): Promise<boolean> {
-  const state = await em.findOne(IntegrationState, {
-    integrationId: TILLIO_INTEGRATION_ID,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
-  return state?.lastHealthStatus === 'healthy'
-}
-
 type PullContext = {
   readiness: PullReadiness
   environment: TillioResolvedEnvironment | null
@@ -82,7 +71,7 @@ async function resolvePullContext(
   scope: IntegrationScope,
 ): Promise<PullContext> {
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentHealthy = environment ? await isEnvironmentHealthy(em, scope) : false
+  const environmentHealthy = environment ? await isTillioEnvironmentHealthy(em, scope) : false
   const blob = await readOperatorsBlob(credentialsService, scope)
   const operator =
     blob.operators.find((entry) => entry.id === blob.defaultOperatorId) ?? blob.operators[0] ?? null
@@ -228,6 +217,10 @@ export async function POST(req: Request) {
   let created = 0
   let updated = 0
   let failed = 0
+  // One ingest command (hence one transaction) per call, run sequentially: this keeps
+  // failures isolated so a single bad record only bumps `failed` and the rest of the
+  // batch still lands. For a manual, low-frequency pull (<=500 per batch) that isolation
+  // is worth more than the throughput a single bulk transaction would buy.
   for (const call of batch.calls) {
     try {
       const executed = await commandBus.execute<Record<string, unknown>, IngestPhoneCallResult>(

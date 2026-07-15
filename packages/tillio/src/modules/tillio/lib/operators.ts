@@ -1,6 +1,8 @@
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
+import type { EntityManager } from '@mikro-orm/postgresql'
+import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
 import { TILLIO_INTEGRATION_ID, environmentSchema } from './environment'
 import {
   buildTenantDomain,
@@ -55,6 +57,19 @@ export async function resolveEnvironment(
     apiKey: parsed.data.apiKey,
     tenantSystemId: parsed.data.tenantSystemId,
   }
+}
+
+export async function isTillioEnvironmentHealthy(
+  em: EntityManager,
+  scope: IntegrationScope,
+): Promise<boolean> {
+  const state = await em.findOne(IntegrationState, {
+    integrationId: TILLIO_INTEGRATION_ID,
+    organizationId: scope.organizationId,
+    tenantId: scope.tenantId,
+    deletedAt: null,
+  })
+  return state?.lastHealthStatus === 'healthy'
 }
 
 function operatorIdForPlugin(plugin: TillioOperatorPlugin): string {

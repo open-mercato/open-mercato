@@ -65,15 +65,5 @@ export const ingestPhoneCallSchema = scopedSchema.extend({
   rawPayload: z.record(z.string(), z.unknown()),
 })
 
-export const pullProviderSchema = scopedSchema.extend({
-  providerKey: z.string().min(1),
-  integrationId: z.string().nullish(),
-  from: z.coerce.date().nullish(),
-  to: z.coerce.date().nullish(),
-  cursor: z.string().nullish(),
-  limit: z.number().int().positive().max(500).nullish(),
-})
-
 export type IngestPhoneCallInput = z.infer<typeof ingestPhoneCallSchema>
 export type IngestParticipantInput = z.infer<typeof ingestParticipantSchema>
-export type PullProviderInput = z.infer<typeof pullProviderSchema>

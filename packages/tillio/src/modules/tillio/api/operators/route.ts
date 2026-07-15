@@ -5,8 +5,6 @@ import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import type { IntegrationScope } from '@open-mercato/shared/modules/integrations/types'
-import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
-import { TILLIO_INTEGRATION_ID } from '../../lib/environment'
 import {
   computeEnvFingerprint,
   readOperatorsBlob,
@@ -18,6 +16,7 @@ import {
 import {
   attachOperator,
   classifyTillioError,
+  isTillioEnvironmentHealthy,
   resolveEnvironment,
   TillioEnvironmentNotReadyError,
   TillioOperatorLimitError,
@@ -41,16 +40,6 @@ export const openApi = {
   summary: 'List and attach Tillio operators',
 }
 
-async function isEnvironmentHealthy(em: EntityManager, scope: IntegrationScope): Promise<boolean> {
-  const state = await em.findOne(IntegrationState, {
-    integrationId: TILLIO_INTEGRATION_ID,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
-  return state?.lastHealthStatus === 'healthy'
-}
-
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
   if (!auth?.tenantId || !auth.orgId) {
@@ -63,7 +52,7 @@ export async function GET(req: Request) {
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentReady = Boolean(environment) && (await isEnvironmentHealthy(em, scope))
+  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
   const blob = await readOperatorsBlob(credentialsService, scope)
   const currentFingerprint = environment ? computeEnvFingerprint(environment) : null
 
@@ -102,7 +91,7 @@ export async function POST(req: Request) {
   const scope: IntegrationScope = { organizationId: auth.orgId, tenantId: auth.tenantId }
 
   const environment = await resolveEnvironment(credentialsService, scope)
-  const environmentReady = Boolean(environment) && (await isEnvironmentHealthy(em, scope))
+  const environmentReady = Boolean(environment) && (await isTillioEnvironmentHealthy(em, scope))
   if (!environmentReady) {
     return NextResponse.json(
       { ok: false, code: 'environment_not_ready', section: 'environment', message: 'Run the Tillio environment health check before attaching an operator.' },

@@ -11,22 +11,9 @@ jest.mock('@open-mercato/core/modules/phone_calls/events', () => ({
   emitPhoneCallsEvent: (...args: unknown[]) => emitPhoneCallsEventMock(...args),
 }))
 
-import {
-  ingestPhoneCallCommand,
-  pullProviderCommand,
-} from '@open-mercato/core/modules/phone_calls/commands/calls'
-import {
-  ingestPhoneCallSchema,
-  pullProviderSchema,
-} from '@open-mercato/core/modules/phone_calls/data/validators'
-import {
-  registerPhoneCallProvider,
-  clearPhoneCallProviders,
-} from '@open-mercato/shared/modules/phone_calls/provider'
-import type {
-  NormalizedPhoneCall,
-  PhoneCallProviderAdapter,
-} from '@open-mercato/shared/modules/phone_calls/types'
+import { ingestPhoneCallCommand } from '@open-mercato/core/modules/phone_calls/commands/calls'
+import { ingestPhoneCallSchema } from '@open-mercato/core/modules/phone_calls/data/validators'
+import { clearPhoneCallProviders } from '@open-mercato/shared/modules/phone_calls/provider'
 
 const tenantId = '22222222-2222-4222-8222-222222222222'
 const organizationId = '33333333-3333-4333-8333-333333333333'
@@ -190,59 +177,9 @@ describe('phone_calls.call.ingest', () => {
   })
 })
 
-describe('phone_calls.provider.pull', () => {
-  function stubProvider(calls: NormalizedPhoneCall[], nextCursor: string | null = null): PhoneCallProviderAdapter {
-    return {
-      providerKey,
-      displayName: 'Demo',
-      validateConnection: jest.fn(async () => ({ ok: true })),
-      fetchCall: jest.fn(async () => null),
-      fetchCalls: jest.fn(async () => ({ calls, nextCursor })),
-    }
-  }
-
-  function normalizedCall(externalCallId: string): NormalizedPhoneCall {
-    return {
-      externalCallId,
-      direction: 'outbound',
-      status: 'completed',
-      participants: [{ role: 'agent', phoneNumber: '+48333' }],
-      rawPayload: { id: externalCallId },
-    }
-  }
-
-  it('ingests each fetched call and tallies created vs updated', async () => {
-    const { em } = createFakeEm()
-    const ctx = createCtx(em)
-    registerPhoneCallProvider(stubProvider([normalizedCall('a'), normalizedCall('b'), normalizedCall('a')], 'cursor-2'))
-
-    const result = await pullProviderCommand.execute(
-      { providerKey, organizationId, tenantId },
-      ctx,
-    )
-
-    expect(result).toEqual({ created: 2, updated: 1, ignored: 0, failed: 0, nextCursor: 'cursor-2' })
-  })
-
-  it('rejects an unregistered provider', async () => {
-    const { em } = createFakeEm()
-    const ctx = createCtx(em)
-
-    await expect(
-      pullProviderCommand.execute({ providerKey: 'missing', organizationId, tenantId }, ctx),
-    ).rejects.toThrow(/not registered/)
-  })
-})
-
 describe('phone_calls validators', () => {
   it('accepts a valid ingest payload and rejects an invalid direction', () => {
     expect(() => ingestPhoneCallSchema.parse(ingestInput())).not.toThrow()
     expect(() => ingestPhoneCallSchema.parse(ingestInput({ direction: 'sideways' }))).toThrow()
-  })
-
-  it('requires providerKey and scope on the pull payload', () => {
-    expect(() => pullProviderSchema.parse({ providerKey, organizationId, tenantId })).not.toThrow()
-    expect(() => pullProviderSchema.parse({ organizationId, tenantId })).toThrow()
-    expect(() => pullProviderSchema.parse({ providerKey, tenantId })).toThrow()
   })
 })
