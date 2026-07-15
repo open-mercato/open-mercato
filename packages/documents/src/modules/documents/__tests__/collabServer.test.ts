@@ -1,6 +1,8 @@
 const mockLoggerError = jest.fn()
 const mockLoggerWarn = jest.fn()
 
+import { EventEmitter } from 'node:events'
+
 jest.mock('@open-mercato/shared/lib/logger', () => ({
   createLogger: () => {
     const logger = {
@@ -15,6 +17,7 @@ jest.mock('@open-mercato/shared/lib/logger', () => ({
 }))
 
 import {
+  assertDocumentsCollabRedisAggregateUpdate,
   assertCollabInboundFramePolicy,
   COLLAB_SERVER_RUNTIME_CONFIGURATION,
   COLLAB_SERVER_TRANSPORT_OPTIONS,
@@ -22,6 +25,7 @@ import {
   COLLAB_SERVER_UNAUTHENTICATED_CONFIGURATION,
   createCollabFinalDrainRegistry,
   createCollabHooks,
+  DocumentsCollabRedisExtension,
   DOCUMENTS_COLLAB_AUTHORIZATION_TICKET_TIMEOUT_MS,
   DOCUMENTS_COLLAB_MAX_AWARENESS_FRAME_BYTES,
   DOCUMENTS_COLLAB_MAX_CONTROL_FRAME_BYTES,
@@ -48,7 +52,13 @@ import {
   type CollabHealthResponse,
   type DocumentsCollabRedisConfiguration,
 } from '../../../../server/documents-collab-server'
-import { Hocuspocus, MessageType, Server, type onStoreDocumentPayload } from '@hocuspocus/server'
+import {
+  Hocuspocus,
+  IncomingMessage,
+  MessageType,
+  Server,
+  type onStoreDocumentPayload,
+} from '@hocuspocus/server'
 import * as Y from 'yjs'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
@@ -67,7 +77,403 @@ const USER_ID = '22222222-2222-4222-8222-222222222222'
 const TENANT_ID = '33333333-3333-4333-8333-333333333333'
 const ORGANIZATION_ID = '44444444-4444-4444-8444-444444444444'
 
+function createRedisFanoutTestExtension(
+  publish: jest.Mock<Promise<unknown>, [string, Buffer]>,
+): {
+  extension: DocumentsCollabRedisExtension
+  disconnectFanout: jest.Mock
+} {
+  const extension = Object.create(
+    DocumentsCollabRedisExtension.prototype,
+  ) as DocumentsCollabRedisExtension
+  const disconnectFanout = jest.fn()
+  Object.assign(extension, {
+    persistedStates: new WeakMap(),
+    knownDocuments: new Map(),
+    fanoutPublisher: { publish, disconnect: disconnectFanout },
+    pendingFanouts: new Map(),
+    activeFanouts: new Set(),
+    fanoutRetryAttempts: new Map(),
+    fanoutRetryTimers: new Map(),
+    pendingLocalAfterStoreDelays: new Map(),
+    invalidatedFanoutDocuments: new WeakSet(),
+    bufferedFanouts: new WeakMap(),
+    bufferedFanoutBytes: new WeakMap(),
+    nextFanoutRevision: 0,
+    fanoutDestroyed: false,
+    locks: new Map(),
+    configuration: {
+      prefix: 'open-mercato:documents:collab:test',
+      identifier: 'fanout-test',
+    },
+    messagePrefix: Buffer.concat([
+      Buffer.from(['fanout-test'.length]),
+      Buffer.from('fanout-test'),
+    ]),
+  })
+  return { extension, disconnectFanout }
+}
+
+function createRedisStorePayload(document: Y.Doc): onStoreDocumentPayload {
+  return {
+    document,
+    documentName: DOCUMENT_ID,
+    instance: {},
+    clientsCount: 1,
+    lastContext: {},
+    lastTransactionOrigin: { source: 'connection', connection: {} },
+  } as unknown as onStoreDocumentPayload
+}
+
+function decodePersistedFanout(messageBuffer: Buffer): Y.Doc {
+  const identifierLength = messageBuffer[0]
+  if (identifierLength === undefined) throw new Error('missing Redis identifier prefix')
+  const fanoutOffset = identifierLength + 1
+  expect(messageBuffer.subarray(fanoutOffset, fanoutOffset + 5).toString('ascii')).toBe('OMDF1')
+  expect(messageBuffer.readBigUInt64BE(fanoutOffset + 5)).toBe(1n)
+  const message = new IncomingMessage(messageBuffer.subarray(fanoutOffset + 13))
+  expect(message.readVarString()).toBe(DOCUMENT_ID)
+  expect(message.readVarUint()).toBe(MessageType.Sync)
+  expect(message.readVarUint()).toBe(2)
+  const document = new Y.Doc()
+  Y.applyUpdate(document, message.readVarUint8Array())
+  return document
+}
+
 describe('documents collaboration Redis configuration', () => {
+  it('uses a dedicated bounded publisher for post-store fanout', async () => {
+    const fanoutPublisher = {
+      publish: jest.fn(async () => 1),
+      disconnect: jest.fn(),
+    }
+    const pub = Object.assign(new EventEmitter(), {
+      duplicate: jest.fn(() => fanoutPublisher),
+      disconnect: jest.fn(),
+      publish: jest.fn(async () => 1),
+      quit: jest.fn(() => new Promise<never>(() => undefined)),
+    })
+    const sub = Object.assign(new EventEmitter(), {
+      disconnect: jest.fn(),
+      publish: jest.fn(async () => 1),
+      quit: jest.fn(async () => undefined),
+    })
+    let clientIndex = 0
+    const extension = new DocumentsCollabRedisExtension({
+      host: '127.0.0.1',
+      port: 6379,
+      prefix: 'open-mercato:documents:collab:test',
+      options: { maxRetriesPerRequest: null },
+      createClient: () => clientIndex++ === 0 ? pub : sub,
+    } as DocumentsCollabRedisConfiguration & { createClient: () => unknown })
+
+    expect(pub.duplicate).toHaveBeenCalledWith({
+      autoResendUnfulfilledCommands: false,
+      commandTimeout: 1_000,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+    })
+
+    await extension.onDestroy()
+    expect(fanoutPublisher.disconnect).toHaveBeenCalledWith(false)
+    expect(pub.disconnect).toHaveBeenCalledWith(false)
+    expect(sub.disconnect).toHaveBeenCalledWith(false)
+    expect(pub.quit).not.toHaveBeenCalled()
+  })
+
+  it('releases the store lock without waiting for durable Redis fanout', async () => {
+    let resolvePublish = (): void => undefined
+    const publishPending = new Promise<unknown>((resolve) => {
+      resolvePublish = () => resolve(1)
+    })
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>(() => publishPending)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+    document.getMap('fanout').set('version', 1)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    const release = jest.fn(async () => ({}))
+    const lockKey = 'open-mercato:documents:collab:test:11111111-1111-4111-8111-111111111111:lock'
+    ;(extension as unknown as {
+      locks: Map<string, { lock: { release: () => Promise<unknown> } }>
+    }).locks.set(lockKey, { lock: { release } })
+
+    await expect(extension.afterStoreDocument(createRedisStorePayload(document)))
+      .resolves.toBeUndefined()
+
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledTimes(1)
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(publish.mock.invocationCallOrder[0])
+    expect((extension as unknown as { locks: Map<string, unknown> }).locks.has(lockKey)).toBe(false)
+    resolvePublish()
+    await publishPending
+    document.destroy()
+  })
+
+  it('does not retain the store mutex when Redis lock release never settles', async () => {
+    jest.useFakeTimers()
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>().mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+    document.getMap('fanout').set('version', 1)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    const release = jest.fn(() => new Promise<never>(() => undefined))
+    const lockKey = 'open-mercato:documents:collab:test:11111111-1111-4111-8111-111111111111:lock'
+    ;(extension as unknown as {
+      locks: Map<string, { lock: { release: () => Promise<unknown> } }>
+    }).locks.set(lockKey, { lock: { release } })
+
+    try {
+      const storing = extension.afterStoreDocument(createRedisStorePayload(document))
+      await Promise.resolve()
+      expect(release).toHaveBeenCalledTimes(1)
+      expect(publish).not.toHaveBeenCalled()
+
+      await jest.advanceTimersByTimeAsync(1_250)
+      await expect(storing).resolves.toBeUndefined()
+
+      expect((extension as unknown as { locks: Map<string, unknown> }).locks.has(lockKey)).toBe(false)
+      expect(publish).toHaveBeenCalledTimes(1)
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('store lock release timed out'),
+        { room: DOCUMENT_ID },
+      )
+    } finally {
+      jest.useRealTimers()
+      document.destroy()
+    }
+  })
+
+  it('does not let a late timed-out release delete a replacement store lock', async () => {
+    jest.useFakeTimers()
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>().mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+    document.getMap('fanout').set('version', 1)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    let resolveFirstRelease = (): void => undefined
+    const firstReleasePending = new Promise<unknown>((resolve) => {
+      resolveFirstRelease = () => resolve({})
+    })
+    const firstRelease = jest.fn(() => firstReleasePending)
+    const replacementRelease = jest.fn(async () => ({}))
+    const lockKey = 'open-mercato:documents:collab:test:11111111-1111-4111-8111-111111111111:lock'
+    const locks = (extension as unknown as {
+      locks: Map<string, { lock: { release: () => Promise<unknown> } }>
+    }).locks
+    locks.set(lockKey, { lock: { release: firstRelease } })
+
+    try {
+      const firstStore = extension.afterStoreDocument(createRedisStorePayload(document))
+      await Promise.resolve()
+      await jest.advanceTimersByTimeAsync(1_250)
+      await firstStore
+
+      const replacement = { lock: { release: replacementRelease } }
+      locks.set(lockKey, replacement)
+      resolveFirstRelease()
+      await firstReleasePending
+      await Promise.resolve()
+
+      expect(locks.get(lockKey)).toBe(replacement)
+
+      document.getMap('fanout').set('version', 2)
+      extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+      await extension.afterStoreDocument(createRedisStorePayload(document))
+      expect(replacementRelease).toHaveBeenCalledTimes(1)
+      expect(locks.has(lockKey)).toBe(false)
+    } finally {
+      jest.useRealTimers()
+      document.destroy()
+    }
+  })
+
+  it('does not enqueue a durable snapshot invalidated while its store lock is releasing', async () => {
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>().mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+    document.getMap('fanout').set('version', 1)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    let releaseStoreLock = (): void => undefined
+    const lockReleasePending = new Promise<unknown>((resolve) => {
+      releaseStoreLock = () => resolve({})
+    })
+    const release = jest.fn(() => lockReleasePending)
+    const lockKey = 'open-mercato:documents:collab:test:11111111-1111-4111-8111-111111111111:lock'
+    ;(extension as unknown as {
+      locks: Map<string, { lock: { release: () => Promise<unknown> } }>
+    }).locks.set(lockKey, { lock: { release } })
+
+    const storing = extension.afterStoreDocument(createRedisStorePayload(document))
+    await Promise.resolve()
+    expect(release).toHaveBeenCalledTimes(1)
+    extension.discardPendingFanout(DOCUMENT_ID, document)
+    releaseStoreLock()
+    await storing
+
+    expect(publish).not.toHaveBeenCalled()
+    document.destroy()
+  })
+
+  it('rejects an in-flight durable fanout from an invalidated collaboration generation', () => {
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>().mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    Object.assign(extension, {
+      resolveCollaborationGeneration: () => 2,
+    })
+    const stale = new Y.Doc()
+    stale.getMap('fanout').set('stale', true)
+    const replacement = new Y.Doc()
+    replacement.getMap('fanout').set('current', true)
+
+    ;(extension as unknown as {
+      applyDurableFanout: (
+        sender: string,
+        documentName: string,
+        document: Y.Doc,
+        collaborationGeneration: number,
+        update: Uint8Array,
+      ) => void
+    }).applyDurableFanout(
+      'stale-replica',
+      DOCUMENT_ID,
+      replacement,
+      1,
+      Y.encodeStateAsUpdate(stale),
+    )
+
+    expect(replacement.getMap('fanout').toJSON()).toEqual({ current: true })
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('another generation'),
+      expect.objectContaining({
+        room: DOCUMENT_ID,
+        expectedGeneration: 2,
+        receivedGeneration: 1,
+      }),
+    )
+    stale.destroy()
+    replacement.destroy()
+  })
+
+  it('does not let a late old-room invalidation discard a replacement fanout', () => {
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>().mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const oldDocument = new Y.Doc()
+    const replacement = new Y.Doc()
+    const pendingFanouts = (extension as unknown as {
+      pendingFanouts: Map<string, {
+        document: Y.Doc
+        collaborationGeneration: number
+        revision: number
+        message: Uint8Array
+      }>
+    }).pendingFanouts
+    pendingFanouts.set(DOCUMENT_ID, {
+      document: replacement,
+      collaborationGeneration: 2,
+      revision: 2,
+      message: new Uint8Array([1]),
+    })
+
+    extension.discardPendingFanout(DOCUMENT_ID, oldDocument)
+    expect(pendingFanouts.get(DOCUMENT_ID)?.document).toBe(replacement)
+
+    extension.discardPendingFanout(DOCUMENT_ID)
+    expect(pendingFanouts.has(DOCUMENT_ID)).toBe(false)
+    oldDocument.destroy()
+    replacement.destroy()
+  })
+
+  it('retries a rejected durable fanout with the latest coalesced state', async () => {
+    jest.useFakeTimers()
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>()
+      .mockRejectedValueOnce(new Error('Redis publish unavailable'))
+      .mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+
+    try {
+      document.getMap('fanout').set('version', 1)
+      extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+      await extension.afterStoreDocument(createRedisStorePayload(document))
+      await Promise.resolve()
+      expect(publish).toHaveBeenCalledTimes(1)
+
+      document.getMap('fanout').set('version', 2)
+      extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+      await extension.afterStoreDocument(createRedisStorePayload(document))
+      expect(publish).toHaveBeenCalledTimes(1)
+
+      await jest.runOnlyPendingTimersAsync()
+      expect(publish).toHaveBeenCalledTimes(2)
+      const retried = decodePersistedFanout(publish.mock.calls[1][1])
+      expect(retried.getMap('fanout').get('version')).toBe(2)
+      retried.destroy()
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('durable Redis collaboration fanout failed'),
+        expect.objectContaining({ room: DOCUMENT_ID, attempt: 1 }),
+      )
+    } finally {
+      jest.useRealTimers()
+      document.destroy()
+    }
+  })
+
+  it('keeps the newest durable state queued while an older publish is in flight', async () => {
+    let resolveFirstPublish = (): void => undefined
+    const firstPublish = new Promise<unknown>((resolve) => {
+      resolveFirstPublish = () => resolve(1)
+    })
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>()
+      .mockImplementationOnce(() => firstPublish)
+      .mockResolvedValue(1)
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const document = new Y.Doc()
+
+    document.getMap('fanout').set('version', 1)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    await extension.afterStoreDocument(createRedisStorePayload(document))
+    document.getMap('fanout').set('version', 2)
+    extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+    await extension.afterStoreDocument(createRedisStorePayload(document))
+    expect(publish).toHaveBeenCalledTimes(1)
+
+    resolveFirstPublish()
+    await firstPublish
+    for (let index = 0; index < 4; index += 1) await Promise.resolve()
+
+    expect(publish).toHaveBeenCalledTimes(2)
+    const latest = decodePersistedFanout(publish.mock.calls[1][1])
+    expect(latest.getMap('fanout').get('version')).toBe(2)
+    latest.destroy()
+    document.destroy()
+  })
+
+  it('keeps the Redis subscription while a replacement room is loading', async () => {
+    const replacement = new Y.Doc()
+    const unsubscribe = jest.fn()
+    const extension = Object.create(
+      DocumentsCollabRedisExtension.prototype,
+    ) as DocumentsCollabRedisExtension
+    Object.assign(extension, {
+      knownDocuments: new Map([[DOCUMENT_ID, replacement]]),
+      sub: { unsubscribe },
+    })
+
+    await extension.afterUnloadDocument({
+      documentName: DOCUMENT_ID,
+      instance: {
+        documents: new Map(),
+        loadingDocuments: new Map([[DOCUMENT_ID, Promise.resolve(replacement)]]),
+      },
+    } as never)
+
+    expect(unsubscribe).not.toHaveBeenCalled()
+    expect(
+      (extension as unknown as { knownDocuments: Map<string, Y.Doc> })
+        .knownDocuments.get(DOCUMENT_ID),
+    ).toBe(replacement)
+    replacement.destroy()
+  })
+
   it('uses a dedicated URL and preserves authenticated TLS configuration', () => {
     expect(resolveDocumentsCollabRedisConfiguration({
       NODE_ENV: 'production',
@@ -483,18 +889,29 @@ describe('documents collaboration v2 server contract', () => {
       }),
     })
     const document = new Y.Doc()
+    const context = {
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
 
     await hooks.beforeSync({
       type: 2,
       payload: new Uint8Array(DOCUMENTS_MAX_YJS_STATE_BYTES),
       document,
       connection: { readOnly: false },
+      context,
     })
     await expect(hooks.beforeSync({
       type: 2,
       payload: new Uint8Array(1),
       document,
       connection: { readOnly: false },
+      context,
     })).rejects.toThrow()
     await expect(hooks.beforeSync({
       type: 2,
@@ -502,6 +919,138 @@ describe('documents collaboration v2 server contract', () => {
       document: new Y.Doc(),
       connection: { readOnly: true },
     })).resolves.toBeUndefined()
+  })
+
+  it('budgets the next local frame from the exact Redis-merged state', async () => {
+    const hooks = createCollabHooks({
+      verifyToken: verifyCollabToken,
+      authorizeContext: async () => true,
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => null,
+      initializeYjsState: async () => null,
+      persistContent: async () => ({ updatedAt: new Date(), collaborationGeneration: 1 }),
+    })
+    const document = new Y.Doc()
+    const context = {
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
+    hooks.recordRedisAggregate(document, DOCUMENTS_MAX_YJS_STATE_BYTES)
+
+    await expect(hooks.beforeSync({
+      type: 2,
+      payload: new Uint8Array([1]),
+      document,
+      connection: { readOnly: false },
+      context,
+    })).rejects.toThrow('documents.content.tooLarge')
+    document.destroy()
+  })
+
+  it('rejects a revoked writable frame before it enters the shared document', async () => {
+    const invalidateRoom = jest.fn()
+    const close = jest.fn()
+    const authorizeContext = jest.fn(async () => false)
+    const hooks = createCollabHooks({
+      verifyToken: verifyCollabToken,
+      authorizeContext,
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => null,
+      initializeYjsState: async () => null,
+      persistContent: async () => ({ updatedAt: new Date(), collaborationGeneration: 1 }),
+      invalidateRoom,
+    })
+    const document = new Y.Doc()
+    const context = {
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
+
+    await expect(hooks.beforeSync({
+      type: 2,
+      payload: new Uint8Array([1, 2, 3]),
+      document,
+      connection: { readOnly: false, close },
+      context,
+    })).rejects.toThrow('write authorization is no longer current')
+
+    expect(authorizeContext).toHaveBeenCalledWith(context)
+    expect(close).toHaveBeenCalledTimes(1)
+    expect(invalidateRoom).toHaveBeenCalledWith(DOCUMENT_ID, document)
+    expect(Y.encodeStateAsUpdate(document)).toHaveLength(2)
+    document.destroy()
+  })
+
+  it('rejects a writable frame when the room is invalidated during live authorization', async () => {
+    let invalidated = false
+    let releaseAuthorization = (): void => undefined
+    const authorizationPending = new Promise<void>((resolve) => {
+      releaseAuthorization = resolve
+    })
+    const invalidateRoom = jest.fn(() => { invalidated = true })
+    const hooks = createCollabHooks({
+      verifyToken: verifyCollabToken,
+      authorizeContext: async () => {
+        await authorizationPending
+        return true
+      },
+      resolveContainer: async () => ({ resolve: () => ({}) }),
+      loadContent: async () => null,
+      initializeYjsState: async () => null,
+      persistContent: async () => ({ updatedAt: new Date(), collaborationGeneration: 1 }),
+      isRoomInvalidated: () => invalidated,
+      invalidateRoom,
+    })
+    const document = new Y.Doc()
+    const context = {
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId: DOCUMENT_ID,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
+    const checking = hooks.beforeSync({
+      type: 2,
+      payload: new Uint8Array([1]),
+      document,
+      connection: { readOnly: false },
+      context,
+    })
+    invalidated = true
+    releaseAuthorization()
+
+    await expect(checking).rejects.toThrow('write authorization is no longer current')
+    expect(invalidateRoom).toHaveBeenCalledWith(DOCUMENT_ID, document)
+    document.destroy()
+  })
+
+  it('rejects a Redis update whose aggregate replica state exceeds the Yjs limit', () => {
+    const first = new Y.Doc()
+    const second = new Y.Doc()
+    first.getText('first').insert(0, 'a'.repeat(4_300_000))
+    second.getText('second').insert(0, 'b'.repeat(4_300_000))
+    const firstState = Y.encodeStateAsUpdate(first)
+    const secondState = Y.encodeStateAsUpdate(second)
+    expect(firstState.byteLength).toBeLessThan(DOCUMENTS_MAX_YJS_STATE_BYTES)
+    expect(secondState.byteLength).toBeLessThan(DOCUMENTS_MAX_YJS_STATE_BYTES)
+
+    expect(() => assertDocumentsCollabRedisAggregateUpdate(first, secondState))
+      .toThrow('documents.content.tooLarge')
+
+    first.destroy()
+    second.destroy()
   })
 
   it('fails closed on missing or untrusted production origins', () => {

@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from 'react'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -32,36 +33,34 @@ export function MentionPicker({ documentId, onPick, disabled = false }: MentionP
   })
 
   return (
-    <div
-      className="relative space-y-2"
-      onKeyDown={(event) => {
-        if (model.isDisabled) return
-        if (event.key === 'Escape') {
-          event.preventDefault()
-          event.stopPropagation()
-          model.dismiss()
-          return
-        }
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault()
-          event.stopPropagation()
-          model.moveActive(event.key === 'ArrowDown' ? 1 : -1)
-          return
-        }
-        if (event.key === 'Enter' && model.open && model.resultsAreCurrent && model.activeIndex >= 0) {
-          const user = model.users[model.activeIndex]
-          if (!user) return
-          event.preventDefault()
-          event.stopPropagation()
-          model.pick(user, model.resultQuery)
-        }
-      }}
-    >
+    <div className="relative space-y-2">
       <Label htmlFor={inputId}>{t('documents.mentions.placeholder')}</Label>
       <Input
         id={inputId}
         value={model.query}
         onChange={(event) => model.onQueryChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (model.isDisabled) return
+          if (event.key === 'Escape') {
+            event.preventDefault()
+            event.stopPropagation()
+            model.dismiss()
+            return
+          }
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault()
+            event.stopPropagation()
+            model.moveActive(event.key === 'ArrowDown' ? 1 : -1)
+            return
+          }
+          if (event.key === 'Enter' && model.open && model.resultsAreCurrent && model.activeIndex >= 0) {
+            const user = model.users[model.activeIndex]
+            if (!user) return
+            event.preventDefault()
+            event.stopPropagation()
+            model.pick(user, model.resultQuery)
+          }
+        }}
         placeholder={t('documents.mentions.placeholder')}
         disabled={model.isDisabled}
         role="combobox"
@@ -82,7 +81,14 @@ export function MentionPicker({ documentId, onPick, disabled = false }: MentionP
       {model.open && !model.isDisabled ? (
         <div
           id={listId}
-          role="listbox"
+          role={
+            !model.isLoading
+            && !model.hasError
+            && model.resultsAreCurrent
+            && model.users.length > 0
+              ? 'listbox'
+              : undefined
+          }
           className="absolute z-popover max-h-64 w-full overflow-y-auto rounded-md border border-border bg-popover p-1 shadow-lg"
         >
           {model.isLoading ? (
@@ -90,12 +96,18 @@ export function MentionPicker({ documentId, onPick, disabled = false }: MentionP
               {t('documents.mentions.loading')}
             </p>
           ) : null}
-          {!model.isLoading && model.hasSearched && model.resultsAreCurrent && model.users.length === 0 ? (
+          {!model.isLoading && model.hasError ? (
+            <ErrorMessage
+              label={t('documents.mentions.error.search')}
+              action={<Button type="button" size="sm" variant="outline" onClick={model.retry}>{t('documents.actions.retry')}</Button>}
+            />
+          ) : null}
+          {!model.isLoading && !model.hasError && model.hasSearched && model.resultsAreCurrent && model.users.length === 0 ? (
             <p role="status" className="px-3 py-2 text-sm text-muted-foreground">
               {t('documents.mentions.noMatches')}
             </p>
           ) : null}
-          {!model.isLoading && model.resultsAreCurrent ? model.users.map((user, index) => (
+          {!model.isLoading && !model.hasError && model.resultsAreCurrent ? model.users.map((user, index) => (
             <Button
               key={user.id}
               id={`${listId}-option-${index}`}

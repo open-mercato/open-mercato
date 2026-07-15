@@ -157,4 +157,52 @@ describe('mention picker keyboard navigation', () => {
     fireEvent.click(screen.getByRole('option', { name: /Grace Hopper/ }))
     expect(onPick).toHaveBeenCalledWith({ id: SECOND_USER_ID, name: 'Grace Hopper' })
   })
+
+  it('keeps retryable search failures interactive and retries the current query', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 503, result: { error: 'unavailable' } })
+      .mockResolvedValueOnce({
+        ok: true,
+        result: { items: [{ id: USER_ID, label: 'Ada Lovelace' }] },
+      })
+    render(React.createElement(MentionPicker, { documentId: DOCUMENT_ID, onPick: jest.fn() }))
+    const input = screen.getByRole('combobox')
+
+    fireEvent.change(input, { target: { value: 'Ada' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      for (let index = 0; index < 4; index += 1) await Promise.resolve()
+    })
+
+    expect((input as HTMLInputElement).disabled).toBe(false)
+    expect(screen.getByRole('alert').textContent).toContain('Error search')
+    const retry = screen.getByRole('button', { name: 'documents.actions.retry' })
+    expect(screen.queryByRole('listbox')).toBeNull()
+    expect(retry.closest('[role="listbox"]')).toBeNull()
+    fireEvent.click(retry)
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      for (let index = 0; index < 4; index += 1) await Promise.resolve()
+    })
+
+    const option = screen.getByRole('option', { name: /Ada Lovelace/ })
+    expect(option).not.toBeNull()
+    expect(screen.getByRole('listbox').contains(option)).toBe(true)
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('treats authorization failures as terminal unavailability', async () => {
+    apiCallMock.mockResolvedValue({ ok: false, status: 403, result: { error: 'forbidden' } })
+    render(React.createElement(MentionPicker, { documentId: DOCUMENT_ID, onPick: jest.fn() }))
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'Ada' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      for (let index = 0; index < 4; index += 1) await Promise.resolve()
+    })
+
+    expect(screen.getByText('documents.mentions.unavailable')).toBeTruthy()
+    expect((screen.getByRole('combobox') as HTMLInputElement).disabled).toBe(true)
+    expect(screen.queryByRole('button', { name: 'documents.actions.retry' })).toBeNull()
+  })
 })

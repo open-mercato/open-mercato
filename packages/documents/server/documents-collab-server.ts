@@ -7,11 +7,15 @@ import { LockMode } from '@mikro-orm/core'
 import {
   Connection as HocuspocusConnection,
   IncomingMessage as HocuspocusIncomingMessage,
+  MessageReceiver as HocuspocusMessageReceiver,
   MessageType,
+  OutgoingMessage as HocuspocusOutgoingMessage,
 } from '@hocuspocus/server'
 import { Redis as HocuspocusRedis } from '@hocuspocus/extension-redis'
 import type {
   afterLoadDocumentPayload,
+  afterStoreDocumentPayload,
+  afterUnloadDocumentPayload,
   beforeHandleAwarenessPayload,
   beforeHandleMessagePayload,
   beforeSyncPayload,
@@ -19,6 +23,7 @@ import type {
   onAuthenticatePayload,
   onDisconnectPayload,
   onLoadDocumentPayload,
+  onChangePayload,
   onRequestPayload,
   onStoreDocumentPayload,
   Server as HocuspocusServer,
@@ -188,6 +193,37 @@ type DocumentsCollabRedisStoreExtension = {
   onStoreDocument: (payload: onStoreDocumentPayload) => unknown
 }
 
+type DocumentsCollabRedisReplicationOptions = {
+  onRejectedAggregate?: (documentName: string, document: Y.Doc) => void
+  onAcceptedAggregate?: (document: Y.Doc, byteLength: number) => void
+  resolveCollaborationGeneration?: (document: Y.Doc) => number | undefined
+}
+
+type DocumentsCollabRedisFanoutPublisher = {
+  publish: (channel: string, message: Buffer) => Promise<unknown>
+  disconnect: (reconnect?: boolean) => void
+}
+
+type DocumentsCollabPendingFanout = {
+  document: Y.Doc
+  collaborationGeneration: number
+  revision: number
+  message: Uint8Array
+}
+
+type DocumentsCollabBufferedFanout = {
+  collaborationGeneration: number
+  update: Uint8Array
+}
+
+const DOCUMENTS_COLLAB_REDIS_FANOUT_COMMAND_TIMEOUT_MS = 1_000
+const DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MIN_MS = 250
+const DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MAX_MS = 5_000
+const DOCUMENTS_COLLAB_REDIS_FANOUT_SHUTDOWN_TIMEOUT_MS = 1_500
+const DOCUMENTS_COLLAB_REDIS_LOCK_RELEASE_TIMEOUT_MS = 1_250
+const DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC = Buffer.from('OMDF1', 'ascii')
+const DOCUMENTS_COLLAB_REDIS_FANOUT_GENERATION_BYTES = 8
+
 function isHocuspocusStoreLockContention(error: unknown): error is Error {
   // @hocuspocus/extension-redis throws this cross-package error when another
   // replica owns the room's store lock. Match by the stable error name rather
@@ -238,6 +274,687 @@ export function enforceDocumentsCollabSourceStoreOwnership<
     }
   }
   return extension
+}
+
+/**
+ * Verify a durable update against the receiver's complete in-memory state
+ * before Redis is allowed to apply or broadcast it. Each source replica
+ * enforces the same limits before persistence, but two individually valid
+ * replicas can still exceed the aggregate limit when their states merge.
+ */
+export function assertDocumentsCollabRedisAggregateUpdate(
+  document: Y.Doc,
+  update: Uint8Array,
+): number {
+  const candidate = new Y.Doc()
+  try {
+    Y.applyUpdate(candidate, Y.encodeStateAsUpdate(document))
+    Y.applyUpdate(candidate, update)
+    return assertDocumentsCollabRedisAggregateState(candidate)
+  } finally {
+    candidate.destroy()
+  }
+}
+
+function assertDocumentsCollabRedisAggregateState(document: Y.Doc): number {
+  const materialized = yDocToContent(document)
+  const yjsState = Y.encodeStateAsUpdate(document)
+  assertDocumentContentResourceLimits({
+    yjsState,
+    contentHtml: materialized?.html,
+    contentText: materialized?.text,
+  })
+  return yjsState.byteLength
+}
+
+/**
+ * Documents collaboration deliberately does not use Hocuspocus Redis' Yjs
+ * state-vector handshake. That handshake reads the live room and can fan out
+ * an edit before its source replica has re-authorized and durably persisted
+ * it. Instead, this extension keeps Redis awareness behaviour and the
+ * distributed store lock, but publishes one complete Yjs update only after
+ * the Documents store hook confirms the exact state became durable.
+ */
+export class DocumentsCollabRedisExtension extends HocuspocusRedis {
+  private readonly persistedStates = new WeakMap<Y.Doc, {
+    collaborationGeneration: number
+    state: Uint8Array
+  }>()
+
+  /**
+   * Durable fanout uses a dedicated fail-fast Redis connection. The stock
+   * publisher is also the Redlock client and intentionally waits for Redis to
+   * recover before allowing another replica to persist; post-store delivery
+   * must not keep that distributed lock or Hocuspocus' save mutex occupied.
+   */
+  private readonly fanoutPublisher: DocumentsCollabRedisFanoutPublisher
+
+  private readonly pendingFanouts = new Map<string, DocumentsCollabPendingFanout>()
+
+  private readonly activeFanouts = new Set<string>()
+
+  private readonly fanoutRetryAttempts = new Map<string, number>()
+
+  private readonly fanoutRetryTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  private readonly pendingLocalAfterStoreDelays = new Map<string, {
+    timeout: ReturnType<typeof setTimeout>
+    resolve: () => void
+  }>()
+
+  private readonly invalidatedFanoutDocuments = new WeakSet<Y.Doc>()
+
+  private readonly bufferedFanouts = new WeakMap<
+    Y.Doc,
+    Map<string, DocumentsCollabBufferedFanout>
+  >()
+
+  private readonly bufferedFanoutBytes = new WeakMap<Y.Doc, number>()
+
+  private nextFanoutRevision = 0
+
+  private fanoutDestroyed = false
+
+  /**
+   * Hocuspocus does not publish a loading document in instance.documents until
+   * after afterLoadDocument completes. Keep the hook payload reachable so a
+   * Redis update received while the scoped database snapshot is loading can be
+   * applied to that same Y.Doc instead of being silently dropped.
+   */
+  private readonly knownDocuments = new Map<string, onLoadDocumentPayload['document']>()
+
+  private readonly onRejectedAggregate?: (
+    documentName: string,
+    document: Y.Doc,
+  ) => void
+
+  private readonly onAcceptedAggregate?: (
+    document: Y.Doc,
+    byteLength: number,
+  ) => void
+
+  private readonly resolveCollaborationGeneration?: (
+    document: Y.Doc,
+  ) => number | undefined
+
+  constructor(
+    configuration: DocumentsCollabRedisConfiguration,
+    options: DocumentsCollabRedisReplicationOptions = {},
+  ) {
+    super(configuration)
+    this.onRejectedAggregate = options.onRejectedAggregate
+    this.onAcceptedAggregate = options.onAcceptedAggregate
+    this.resolveCollaborationGeneration = options.resolveCollaborationGeneration
+    this.fanoutPublisher = (
+      this.pub as unknown as {
+        duplicate: (options: {
+          autoResendUnfulfilledCommands: boolean
+          commandTimeout: number
+          enableOfflineQueue: boolean
+          maxRetriesPerRequest: number
+        }) => DocumentsCollabRedisFanoutPublisher
+      }
+    ).duplicate({
+      autoResendUnfulfilledCommands: false,
+      commandTimeout: DOCUMENTS_COLLAB_REDIS_FANOUT_COMMAND_TIMEOUT_MS,
+      enableOfflineQueue: false,
+      maxRetriesPerRequest: 1,
+    })
+
+    // Redis registers its stock state-vector receiver in super(). Replace only
+    // that freshly-created client's messageBuffer listener with the durable
+    // update receiver below; connection/error listeners remain untouched.
+    for (const listener of this.sub.listeners('messageBuffer')) {
+      this.sub.off('messageBuffer', listener)
+    }
+    this.sub.on('messageBuffer', this.handleDocumentsRedisMessage)
+  }
+
+  markPersisted(
+    document: Y.Doc,
+    yjsState: Uint8Array,
+    collaborationGeneration: number,
+  ): void {
+    if (this.invalidatedFanoutDocuments.has(document)) return
+    this.persistedStates.set(document, {
+      collaborationGeneration,
+      state: Uint8Array.from(yjsState),
+    })
+  }
+
+  async onLoadDocument(data: onLoadDocumentPayload): Promise<void> {
+    const { documentName, document } = data
+    this.knownDocuments.set(documentName, document)
+    const loadingDocument = data.instance.loadingDocuments.get(documentName)
+    if (loadingDocument) {
+      void loadingDocument.catch(() => {
+        if (
+          this.knownDocuments.get(documentName) === document
+          && !data.instance.documents.has(documentName)
+        ) {
+          this.knownDocuments.delete(documentName)
+          void this.sub.unsubscribe(this.redisKey(documentName)).catch(() => undefined)
+        }
+      })
+    }
+    try {
+      await this.subscribeDocument(documentName)
+    } catch (error) {
+      if (this.knownDocuments.get(documentName) === document) {
+        this.knownDocuments.delete(documentName)
+      }
+      throw error
+    }
+  }
+
+  override async afterLoadDocument({
+    documentName,
+    document,
+  }: afterLoadDocumentPayload): Promise<void> {
+    let aggregateByteLength: number
+    try {
+      this.applyBufferedFanouts(documentName, document)
+      // A durable Redis update can arrive after the database snapshot was read
+      // but before it is applied. Validate and re-budget their final union.
+      aggregateByteLength = assertDocumentsCollabRedisAggregateState(document)
+    } catch (error) {
+      this.onRejectedAggregate?.(documentName, document)
+      throw error
+    }
+    this.onAcceptedAggregate?.(document, aggregateByteLength)
+
+    const awarenessQuery = new HocuspocusOutgoingMessage(documentName)
+      .writeQueryAwareness()
+      .toUint8Array()
+    await this.publishRedisMessage(documentName, awarenessQuery)
+  }
+
+  override async afterUnloadDocument(data: afterUnloadDocumentPayload): Promise<void> {
+    // The old room can finish unloading after a reconnect has already begun.
+    // Keep the replacement's early subscription intact until its load either
+    // succeeds or the failed-load cleanup above releases it.
+    if (
+      data.instance.documents.has(data.documentName)
+      || data.instance.loadingDocuments.has(data.documentName)
+    ) return
+
+    this.knownDocuments.delete(data.documentName)
+    await super.afterUnloadDocument(data)
+  }
+
+  private async subscribeDocument(documentName: string): Promise<void> {
+    await new Promise<void>((resolve, reject) => {
+      this.sub.subscribe(this.redisKey(documentName), (error: Error | null | undefined) => {
+        if (error) reject(error)
+        else resolve()
+      })
+    })
+  }
+
+  override async onChange(_data: onChangePayload): Promise<void> {
+    // Document updates are published from afterStoreDocument only. Awareness
+    // and stateless hooks continue to use the parent extension unchanged.
+  }
+
+  override async afterStoreDocument(data: afterStoreDocumentPayload): Promise<void> {
+    const persistedState = this.persistedStates.get(data.document)
+    this.persistedStates.delete(data.document)
+    try {
+      await this.releaseStoreLock(data)
+    } finally {
+      if (
+        persistedState
+        && isDocumentsCollabSourceStore(data)
+        && !this.invalidatedFanoutDocuments.has(data.document)
+      ) {
+        this.queuePersistedFanout(
+          data.documentName,
+          data.document,
+          persistedState.state,
+          persistedState.collaborationGeneration,
+        )
+      }
+    }
+  }
+
+  private async releaseStoreLock(data: afterStoreDocumentPayload): Promise<void> {
+    const lockKey = `${this.redisKey(data.documentName)}:lock`
+    const lockState = this.locks.get(lockKey)
+    if (lockState) {
+      let timeout: ReturnType<typeof setTimeout> | null = null
+      try {
+        const releasing = lockState.lock.release()
+        lockState.release = releasing
+        const deadline = new Promise<false>((resolve) => {
+          timeout = setTimeout(
+            () => resolve(false),
+            DOCUMENTS_COLLAB_REDIS_LOCK_RELEASE_TIMEOUT_MS,
+          )
+          timeout.unref?.()
+        })
+        const released = await Promise.race([
+          releasing.then(
+            () => true as const,
+            () => true as const,
+          ),
+          deadline,
+        ])
+        if (!released) {
+          // The Redlock token expires after one second. Do not retain the
+          // room's save mutex forever when ioredis keeps the release command
+          // queued during an outage. The old promise is deliberately detached:
+          // unlike the parent hook, its late settlement cannot delete a newer
+          // lock entry installed for the same room.
+          void releasing.catch(() => undefined)
+          logger.warn('Redis collaboration store lock release timed out; continuing after TTL', {
+            room: data.documentName,
+          })
+        }
+      } catch {
+        // Match the parent extension: Redlock expiry is the release fallback.
+      } finally {
+        if (timeout) clearTimeout(timeout)
+        if (this.locks.get(lockKey) === lockState) this.locks.delete(lockKey)
+      }
+    }
+
+    await this.delayLocalAfterStore(data)
+  }
+
+  private async delayLocalAfterStore(data: afterStoreDocumentPayload): Promise<void> {
+    const origin = data.lastTransactionOrigin
+    if (
+      !origin
+      || typeof origin !== 'object'
+      || !('source' in origin)
+      || origin.source !== 'local'
+    ) return
+
+    // Mirror the parent extension's direct-connection debounce without calling
+    // its lock cleanup after our bounded release. Keeping this map subclass-
+    // owned also makes every cleanup identity-safe.
+    const previous = this.pendingLocalAfterStoreDelays.get(data.documentName)
+    if (previous) {
+      clearTimeout(previous.timeout)
+      this.pendingLocalAfterStoreDelays.delete(data.documentName)
+      previous.resolve()
+    }
+
+    await new Promise<void>((resolve) => {
+      const finish = (): void => {
+        const current = this.pendingLocalAfterStoreDelays.get(data.documentName)
+        if (current?.resolve === finish) {
+          this.pendingLocalAfterStoreDelays.delete(data.documentName)
+        }
+        resolve()
+      }
+      const timeout = setTimeout(finish, this.configuration.disconnectDelay)
+      this.pendingLocalAfterStoreDelays.set(data.documentName, { timeout, resolve: finish })
+    })
+  }
+
+  discardPendingFanout(documentName: string, document?: Y.Doc): void {
+    if (document) this.invalidatedFanoutDocuments.add(document)
+    const pending = this.pendingFanouts.get(documentName)
+    if (document && pending && pending.document !== document) return
+    this.pendingFanouts.delete(documentName)
+    this.fanoutRetryAttempts.delete(documentName)
+    const retryTimer = this.fanoutRetryTimers.get(documentName)
+    if (retryTimer) clearTimeout(retryTimer)
+    this.fanoutRetryTimers.delete(documentName)
+  }
+
+  private queuePersistedFanout(
+    documentName: string,
+    document: Y.Doc,
+    persistedState: Uint8Array,
+    collaborationGeneration: number,
+  ): void {
+    if (this.fanoutDestroyed) return
+    const message = new HocuspocusOutgoingMessage(documentName)
+      .createSyncMessage()
+      .writeUpdate(persistedState)
+      .toUint8Array()
+    this.pendingFanouts.set(documentName, {
+      document,
+      collaborationGeneration,
+      revision: ++this.nextFanoutRevision,
+      message,
+    })
+    this.startPersistedFanout(documentName)
+  }
+
+  private startPersistedFanout(documentName: string): void {
+    if (
+      this.fanoutDestroyed
+      || this.activeFanouts.has(documentName)
+      || this.fanoutRetryTimers.has(documentName)
+      || !this.pendingFanouts.has(documentName)
+    ) return
+
+    this.activeFanouts.add(documentName)
+    void this.drainPersistedFanout(documentName).finally(() => {
+      this.activeFanouts.delete(documentName)
+      if (
+        !this.fanoutDestroyed
+        && this.pendingFanouts.has(documentName)
+        && !this.fanoutRetryTimers.has(documentName)
+      ) {
+        this.startPersistedFanout(documentName)
+      }
+    })
+  }
+
+  private async drainPersistedFanout(documentName: string): Promise<void> {
+    const pending = this.pendingFanouts.get(documentName)
+    if (!pending || this.fanoutDestroyed) return
+
+    try {
+      await this.publishRedisMessage(
+        documentName,
+        pending.message,
+        this.fanoutPublisher,
+        pending.collaborationGeneration,
+      )
+    } catch (error) {
+      if (this.fanoutDestroyed || !this.pendingFanouts.has(documentName)) return
+      const attempt = (this.fanoutRetryAttempts.get(documentName) ?? 0) + 1
+      this.fanoutRetryAttempts.set(documentName, attempt)
+      const delay = Math.min(
+        DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MAX_MS,
+        DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MIN_MS * 2 ** Math.min(attempt - 1, 8),
+      )
+      logger.warn('durable Redis collaboration fanout failed; retrying latest state', {
+        room: documentName,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      const retryTimer = setTimeout(() => {
+        this.fanoutRetryTimers.delete(documentName)
+        this.startPersistedFanout(documentName)
+      }, delay)
+      retryTimer.unref?.()
+      this.fanoutRetryTimers.set(documentName, retryTimer)
+      return
+    }
+
+    this.fanoutRetryAttempts.delete(documentName)
+    if (this.pendingFanouts.get(documentName)?.revision === pending.revision) {
+      this.pendingFanouts.delete(documentName)
+    }
+  }
+
+  private redisKey(documentName: string): string {
+    return `${this.configuration.prefix}:${documentName}`
+  }
+
+  private encodeRedisMessage(message: Uint8Array): Buffer {
+    return Buffer.concat([this.messagePrefix, Buffer.from(message)])
+  }
+
+  private encodeDurableFanoutMessage(
+    message: Uint8Array,
+    collaborationGeneration: number,
+  ): Buffer {
+    if (
+      !Number.isSafeInteger(collaborationGeneration)
+      || collaborationGeneration < 1
+    ) {
+      throw new Error('[internal] documents collab: invalid Redis fanout generation')
+    }
+    const generation = Buffer.allocUnsafe(DOCUMENTS_COLLAB_REDIS_FANOUT_GENERATION_BYTES)
+    generation.writeBigUInt64BE(BigInt(collaborationGeneration))
+    return Buffer.concat([
+      this.messagePrefix,
+      DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC,
+      generation,
+      Buffer.from(message),
+    ])
+  }
+
+  private async publishRedisMessage(
+    documentName: string,
+    message: Uint8Array,
+    publisher: DocumentsCollabRedisFanoutPublisher | Pick<DocumentsCollabRedisFanoutPublisher, 'publish'> = this.pub,
+    collaborationGeneration?: number,
+  ): Promise<unknown> {
+    return await publisher.publish(
+      this.redisKey(documentName),
+      collaborationGeneration === undefined
+        ? this.encodeRedisMessage(message)
+        : this.encodeDurableFanoutMessage(message, collaborationGeneration),
+    )
+  }
+
+  private bufferDurableFanout(
+    sender: string,
+    documentName: string,
+    document: Y.Doc,
+    collaborationGeneration: number,
+    update: Uint8Array,
+  ): void {
+    const buffered = this.bufferedFanouts.get(document) ?? new Map()
+    const previous = buffered.get(sender)
+    const bufferedBytes = (this.bufferedFanoutBytes.get(document) ?? 0)
+      - (previous?.update.byteLength ?? 0)
+      + update.byteLength
+    if (
+      (!previous && buffered.size >= DOCUMENTS_COLLAB_MAX_PENDING_MESSAGES)
+      || bufferedBytes > DOCUMENTS_COLLAB_MAX_PENDING_BYTES
+    ) {
+      this.bufferedFanouts.delete(document)
+      this.bufferedFanoutBytes.delete(document)
+      this.onRejectedAggregate?.(documentName, document)
+      logger.warn('rejected buffered Redis collaboration updates that exceeded load limits', {
+        room: documentName,
+      })
+      return
+    }
+    buffered.set(sender, {
+      collaborationGeneration,
+      update: Uint8Array.from(update),
+    })
+    this.bufferedFanouts.set(document, buffered)
+    this.bufferedFanoutBytes.set(document, bufferedBytes)
+  }
+
+  private applyDurableFanout(
+    sender: string,
+    documentName: string,
+    document: Y.Doc,
+    collaborationGeneration: number,
+    update: Uint8Array,
+  ): void {
+    const loadedGeneration = this.resolveCollaborationGeneration?.(document)
+    if (loadedGeneration === undefined) {
+      this.bufferDurableFanout(
+        sender,
+        documentName,
+        document,
+        collaborationGeneration,
+        update,
+      )
+      return
+    }
+    if (loadedGeneration !== collaborationGeneration) {
+      logger.warn('rejected stale Redis collaboration update from another generation', {
+        room: documentName,
+        expectedGeneration: loadedGeneration,
+        receivedGeneration: collaborationGeneration,
+      })
+      return
+    }
+
+    let aggregateByteLength: number
+    try {
+      aggregateByteLength = assertDocumentsCollabRedisAggregateUpdate(document, update)
+    } catch (error) {
+      if (isCrudHttpError(error) && error.status === 413) {
+        this.onRejectedAggregate?.(documentName, document)
+        logger.warn('rejected Redis collaboration update that exceeded room limits', {
+          room: documentName,
+        })
+        return
+      }
+      logger.warn('rejected malformed Redis collaboration update', {
+        room: documentName,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return
+    }
+    // Refresh the receiver's aggregate budget before Yjs forwards the accepted
+    // update to local connections.
+    this.onAcceptedAggregate?.(document, aggregateByteLength)
+    Y.applyUpdate(document, update, this.redisTransactionOrigin)
+  }
+
+  private applyBufferedFanouts(documentName: string, document: Y.Doc): void {
+    const buffered = this.bufferedFanouts.get(document)
+    this.bufferedFanouts.delete(document)
+    this.bufferedFanoutBytes.delete(document)
+    if (!buffered) return
+    const loadedGeneration = this.resolveCollaborationGeneration?.(document)
+    if (loadedGeneration === undefined) {
+      this.onRejectedAggregate?.(documentName, document)
+      throw new Error('[internal] documents collab: loaded room has no collaboration generation')
+    }
+    for (const [sender, fanout] of buffered) {
+      this.applyDurableFanout(
+        sender,
+        documentName,
+        document,
+        fanout.collaborationGeneration,
+        fanout.update,
+      )
+    }
+  }
+
+  private readonly handleDocumentsRedisMessage = async (
+    _channel: Buffer,
+    data: Buffer,
+  ): Promise<void> => {
+    const identifierLength = data[0]
+    if (identifierLength === undefined || data.byteLength <= identifierLength + 1) return
+    const identifier = data.toString('utf8', 1, identifierLength + 1)
+    if (identifier === this.configuration.identifier) return
+
+    const redisPayload = data.subarray(identifierLength + 1)
+    let collaborationGeneration: number | undefined
+    let messageBuffer = redisPayload
+    if (
+      redisPayload.byteLength
+        >= DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC.byteLength
+          + DOCUMENTS_COLLAB_REDIS_FANOUT_GENERATION_BYTES
+      && redisPayload.subarray(0, DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC.byteLength)
+        .equals(DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC)
+    ) {
+      const generationOffset = DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC.byteLength
+      const encodedGeneration = redisPayload.readBigUInt64BE(generationOffset)
+      if (encodedGeneration > BigInt(Number.MAX_SAFE_INTEGER) || encodedGeneration < 1n) return
+      collaborationGeneration = Number(encodedGeneration)
+      messageBuffer = redisPayload.subarray(
+        generationOffset + DOCUMENTS_COLLAB_REDIS_FANOUT_GENERATION_BYTES,
+      )
+    }
+    const header = new HocuspocusIncomingMessage(messageBuffer)
+    const documentName = header.readVarString()
+    const document = this.instance.documents.get(documentName)
+      ?? this.knownDocuments.get(documentName)
+    if (!document) return
+
+    const messageType = header.readVarUint()
+    if (messageType === MessageType.Sync || messageType === MessageType.SyncReply) {
+      // The Documents protocol accepts only complete, post-persistence update
+      // frames. Ignore state vectors/step-two replies so no peer can ask this
+      // replica to reveal transient browser-authored room state.
+      const syncType = header.readVarUint()
+      if (messageType !== MessageType.Sync || syncType !== 2) return
+      if (collaborationGeneration === undefined) {
+        logger.warn('rejected unversioned Redis collaboration update', { room: documentName })
+        return
+      }
+      const update = header.readVarUint8Array()
+      this.applyDurableFanout(
+        identifier,
+        documentName,
+        document,
+        collaborationGeneration,
+        update,
+      )
+      return
+    }
+
+    const receiverMessage = new HocuspocusIncomingMessage(messageBuffer)
+    receiverMessage.readVarString()
+    receiverMessage.writeVarString(documentName)
+    const receiver = new HocuspocusMessageReceiver(
+      receiverMessage,
+      this.redisTransactionOrigin,
+    )
+    await receiver.apply(document, undefined, (reply) => {
+      void this.publishRedisMessage(documentName, reply)
+    })
+  }
+
+  private async flushPendingFanoutsBeforeDestroy(): Promise<void> {
+    const pending = [...this.pendingFanouts.entries()]
+    if (pending.length === 0) return
+
+    const attempts = Promise.allSettled(pending.map(async ([documentName, fanout]) => {
+      await this.publishRedisMessage(
+        documentName,
+        fanout.message,
+        this.fanoutPublisher,
+        fanout.collaborationGeneration,
+      )
+    }))
+    let timeout: ReturnType<typeof setTimeout> | null = null
+    const deadline = new Promise<null>((resolve) => {
+      timeout = setTimeout(() => resolve(null), DOCUMENTS_COLLAB_REDIS_FANOUT_SHUTDOWN_TIMEOUT_MS)
+      timeout.unref?.()
+    })
+    const results = await Promise.race([attempts, deadline])
+    if (timeout) clearTimeout(timeout)
+
+    if (results === null) {
+      logger.warn('durable Redis collaboration fanout did not drain before shutdown', {
+        pending: pending.length,
+      })
+      return
+    }
+    const failed = results.filter((result) => result.status === 'rejected').length
+    if (failed > 0) {
+      logger.warn('durable Redis collaboration fanout failed during shutdown', {
+        pending: pending.length,
+        failed,
+      })
+    }
+  }
+
+  override async onDestroy(): Promise<void> {
+    this.fanoutDestroyed = true
+    for (const retryTimer of this.fanoutRetryTimers.values()) clearTimeout(retryTimer)
+    this.fanoutRetryTimers.clear()
+    const pendingLocalDelays = [...this.pendingLocalAfterStoreDelays.values()]
+    this.pendingLocalAfterStoreDelays.clear()
+    for (const pending of pendingLocalDelays) {
+      clearTimeout(pending.timeout)
+      pending.resolve()
+    }
+    try {
+      await this.flushPendingFanoutsBeforeDestroy()
+    } finally {
+      this.pendingFanouts.clear()
+      this.fanoutRetryAttempts.clear()
+      this.fanoutPublisher.disconnect(false)
+      // The stock extension calls Redlock.quit(), which can wait forever when
+      // its shared client uses maxRetriesPerRequest=null during a Redis outage.
+      // Shutdown has already made every room inert and attempted a bounded
+      // durable drain, so force-close the transport clients instead.
+      this.pub.disconnect(false)
+      this.sub.disconnect(false)
+    }
+  }
 }
 
 /**
@@ -798,6 +1515,12 @@ export type CollabHooksDeps = {
       requireExpectedVersion: true
     },
   ) => Promise<{ updatedAt: string | Date; collaborationGeneration: number }>
+  /** Notify the replication layer only after this exact generation/state is durable. */
+  onPersisted?: (
+    document: Y.Doc,
+    yjsState: Uint8Array,
+    collaborationGeneration: number,
+  ) => void
   allowedOrigins?: string[] | null
   /** Require both an Origin header and a configured exact-match trusted origin. */
   requireOrigin?: boolean
@@ -1687,6 +2410,16 @@ export function createCollabHooks(deps: CollabHooksDeps) {
     establishConnectionAuthorization,
     releaseConnectionAuthorization,
     reauthorizeActiveConnection,
+    recordRedisAggregate(document: Y.Doc, byteLength: number): void {
+      const previous = roomResourceBudgets.get(document)
+      roomResourceBudgets.set(document, {
+        bytes: byteLength,
+        revision: (previous?.revision ?? 0) + 1,
+      })
+    },
+    resolveCollaborationGeneration(document: Y.Doc): number | undefined {
+      return loadedCollaborationGenerations.get(document)
+    },
     resolveRoomScope(document: Y.Doc): CollabScope | null {
       return roomScopes.get(document) ?? null
     },
@@ -1870,13 +2603,42 @@ export function createCollabHooks(deps: CollabHooksDeps) {
       type: number
       payload: Uint8Array
       document: Y.Doc
-      connection: { readOnly: boolean }
+      connection: { readOnly: boolean; close?: () => void }
       context?: CollabContext
     }): Promise<void> {
-      rememberWritableContext(data.document, data.context)
       // SyncStep1 contains only a state vector. Read-only SyncStep2/updates are
       // dropped by Hocuspocus and must not consume the writable room budget.
       if (data.connection.readOnly || (data.type !== 1 && data.type !== 2)) return
+      // Revalidate the exact writer before Hocuspocus applies the frame. The
+      // periodic connection refresh protects idle sockets, but it leaves a
+      // bounded revocation window in which an update could otherwise enter the
+      // shared Y.Doc and later be persisted under another writer's context.
+      // MessageReceiver awaits beforeSync before readSyncStep2/readUpdate, so a
+      // rejected frame never reaches local peers or Redis.
+      let authorized = false
+      if (data.context && !isInvalidated(data.context.documentId, data.document)) {
+        try {
+          authorized = await deps.authorizeContext(data.context)
+        } catch {
+          authorized = false
+        }
+      }
+      if (
+        !authorized
+        || !data.context
+        || isInvalidated(data.context.documentId, data.document)
+        || isFinalDrainPending(data.context.documentId)
+      ) {
+        data.connection.close?.()
+        if (data.context) {
+          invalidateStoreRoom({
+            documentName: data.context.documentId,
+            document: data.document,
+          })
+        }
+        throw new Error('[internal] documents collab: write authorization is no longer current')
+      }
+      rememberWritableContext(data.document, data.context)
       const budget = roomResourceBudgets.get(data.document) ?? { bytes: 0, revision: 0 }
       const nextBytes = budget.bytes + data.payload.byteLength
       assertDocumentYjsStateByteLength(nextBytes)
@@ -2087,10 +2849,22 @@ export function createCollabHooks(deps: CollabHooksDeps) {
               revision: resourceBudgetRevision,
             })
           }
+          deps.onPersisted?.(data.document, yjsState, collaborationGeneration)
           if (finalDrainAuthorized) deps.finalDrainRegistry?.complete(data.document)
           return
         }
       } catch (error) {
+        if (isCrudHttpError(error) && error.status === 413) {
+          // A Redis/CAS merge can make the complete room exceed the aggregate
+          // resource limit even though each individual inbound frame passed.
+          // Retire the room so the oversized state cannot be retried, fanned
+          // out, or later persisted under another connection's context.
+          invalidateStoreRoom(data)
+          logger.warn('retiring collaboration room that exceeded content limits', {
+            room: data.documentName,
+          })
+          return
+        }
         // Ordinary store failures retain Hocuspocus' normal retry/data-loss
         // protection. A final drain cannot: with every socket already closed,
         // rethrowing makes Hocuspocus retain an invalidated mapped Y.Doc and
@@ -2238,6 +3012,13 @@ export async function main(): Promise<void> {
   const invalidatedRoomDocuments = new WeakSet<Y.Doc>()
   const finalDrainRegistry = createCollabFinalDrainRegistry()
   let server: HocuspocusServer<CollabContext> | null = null
+  let redisStoreExtension: DocumentsCollabRedisExtension | null = null
+  const invalidateRoom = (documentName: string, document: Y.Doc): void => {
+    redisStoreExtension?.discardPendingFanout(documentName, document)
+    finalDrainRegistry.discard(document)
+    invalidatedRoomDocuments.add(document)
+    server?.hocuspocus.closeConnections(documentName)
+  }
   const legacyTokenVerifier = resolveLegacyCollabTokenVerifier(process.env)
   const hooks = createCollabHooks({
     ...(legacyTokenVerifier ? { verifyToken: legacyTokenVerifier } : {}),
@@ -2292,17 +3073,16 @@ export async function main(): Promise<void> {
     ),
     allowedOrigins,
     requireOrigin: process.env.NODE_ENV === 'production',
+    onPersisted: (document, yjsState, collaborationGeneration) => {
+      redisStoreExtension?.markPersisted(document, yjsState, collaborationGeneration)
+    },
     finalDrainRegistry,
     resolveRoomDocument: (documentName) => server?.hocuspocus.documents.get(documentName),
     isRoomInvalidated: (documentName, document) => {
       const room = document ?? server?.hocuspocus.documents.get(documentName)
       return Boolean(room && invalidatedRoomDocuments.has(room))
     },
-    invalidateRoom: (documentName, document) => {
-      finalDrainRegistry.discard(document)
-      invalidatedRoomDocuments.add(document)
-      server?.hocuspocus.closeConnections(documentName)
-    },
+    invalidateRoom,
   })
 
   const runningServer: HocuspocusServer<CollabContext> = new Server<CollabContext>({
@@ -2310,9 +3090,16 @@ export async function main(): Promise<void> {
     ...COLLAB_SERVER_RUNTIME_CONFIGURATION,
     extensions: resolveDocumentsCollabRedisExtensions(
       process.env,
-      (configuration) => enforceDocumentsCollabSourceStoreOwnership(
-        new HocuspocusRedis(configuration),
-      ),
+      (configuration) => {
+        redisStoreExtension = new DocumentsCollabRedisExtension(configuration, {
+          resolveCollaborationGeneration: hooks.resolveCollaborationGeneration,
+          onRejectedAggregate: invalidateRoom,
+          onAcceptedAggregate: (document, byteLength) => {
+            hooks.recordRedisAggregate(document, byteLength)
+          },
+        })
+        return enforceDocumentsCollabSourceStoreOwnership(redisStoreExtension)
+      },
     ),
     async onAuthenticate(data: onAuthenticatePayload<CollabContext>) {
       return await hooks.onAuthenticate({
@@ -2444,9 +3231,17 @@ export async function main(): Promise<void> {
       // snapshot or unblock reconnects until all captured queues have drained.
       markCollabFinalDrainForReauth(roomDocument, finalDrainRegistry)
     }
-    if (roomDocument && action === 'invalidate') {
-      finalDrainRegistry.discard(roomDocument)
-      invalidatedRoomDocuments.add(roomDocument)
+    if (action === 'invalidate') {
+      // A durable fanout intentionally survives ordinary unload, so discard by
+      // room name even when no Y.Doc is currently mapped. When one is mapped,
+      // also tombstone that exact identity so a store already releasing its
+      // lock cannot enqueue the pre-invalidation generation afterwards.
+      redisStoreExtension?.discardPendingFanout(documentId)
+      if (roomDocument) {
+        redisStoreExtension?.discardPendingFanout(documentId, roomDocument)
+        finalDrainRegistry.discard(roomDocument)
+        invalidatedRoomDocuments.add(roomDocument)
+      }
     }
     runningServer.hocuspocus.closeConnections(documentId)
   })

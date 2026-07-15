@@ -434,8 +434,8 @@ Directory, or Attachments instead of producing an all-403 module.
 - [x] 2026-07-15 follow-up review remediation passes the complete local CI-mirroring gate in order:
   package build, generation, post-generation package build, i18n sync/usage, typecheck, all repository
   tests, and the production app build (`Runner: local`).
-- [x] Documents standard Jest suite passes (127 suites / 790 tests); the Redis-backed multi-instance
-  suite remains the sole default skip and passes separately (1 suite / 1 test) against real Redis and PostgreSQL.
+- [x] Documents standard Jest suite passes (128 suites / 809 tests); the Redis-backed multi-instance
+  suite remains the sole default skip and passes separately (1 suite / 4 tests) against real Redis and PostgreSQL.
 - [x] The isolated `TC-DOCUMENTS-018` ephemeral integration scenario passes (1 suite / 1 test), including
   tenant-wide API-key authentication and organization-correlated role authorization.
 - [x] Focused regressions cover viewer-safe user labels, single-flight document and template creation, live-status
@@ -475,6 +475,29 @@ Directory, or Attachments instead of producing an all-403 module.
 
 ## Changelog
 
+- **2026-07-15:** Remediated the post-review Redis delivery failure path. Durable fanout now releases
+  the Hocuspocus save/Redis lock before using a dedicated command-bounded publisher, bounds a stalled
+  lock release by the lock expiry so it cannot retain the save mutex indefinitely, coalesces each
+  room to its latest PostgreSQL-persisted snapshot, retries rejected delivery with capped backoff,
+  generation-tags every durable update, rejects stale pre-restore generations, discards queued
+  pre-invalidation state, and performs a bounded best-effort drain during shutdown.
+  Focused regressions prove a pending publish cannot hold the store lock, rejected delivery recovers
+  with the newest state, an older in-flight success cannot erase a newer queued snapshot, and
+  invalidation during lock release suppresses the stale enqueue without letting an old room discard
+  a replacement room's queued fanout, an unresponsive release resumes only after the lock expires,
+  and late settlement cannot delete a newer store's lock entry. Because the generation envelope was
+  introduced before the module's first release, future wire changes require a coordinated,
+  non-overlapping sidecar rollout rather than accepting unsafe unversioned updates.
+- **2026-07-15:** Closed the final code-review findings within the Documents boundary. Writable Yjs
+  frames now re-authorize before application, Redis publishes only the exact post-persistence state,
+  and receiving replicas validate the complete merged Yjs/HTML/text representations before applying
+  or broadcasting them. A receiver subscribes before its scoped database load and retains that loading
+  room for Redis delivery, closing the snapshot/subscription gap. Over-limit Redis/CAS rooms are invalidated
+  instead of remaining eligible for a later writer. The real two-sidecar Redis/PostgreSQL suite now proves
+  revoked-origin isolation, load/publish ordering, and an under-limit-per-replica/over-limit-union race.
+  Related-document and mention searches expose translated
+  retry states, terminal mention authorization failures remain fail-closed, and folder navigation uses
+  nested list semantics with selected-state announcements.
 - **2026-07-15:** Resolved the final post-review findings. The document role picker now uses an Auth-owned,
   1,000-result-capped database query that applies tenant, organization-ACL, search, and exclusion filters
   before stable pagination, eliminating both hidden authorized roles and sparse-candidate request

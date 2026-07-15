@@ -16,6 +16,10 @@ export type MentionUser = {
 
 const MENTION_SEARCH_MIN_LENGTH = resolveSearchMinTokenLength()
 
+function isMentionSearchUnavailableStatus(status: number | undefined): boolean {
+  return status === 401 || status === 403 || status === 404
+}
+
 function readRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' ? value as Record<string, unknown> : null
 }
@@ -83,6 +87,8 @@ export function useMentionPicker(input: {
   const [users, setUsers] = React.useState<MentionUser[]>([])
   const [open, setOpen] = React.useState(false)
   const [unavailable, setUnavailable] = React.useState(false)
+  const [hasError, setHasError] = React.useState(false)
+  const [retryToken, setRetryToken] = React.useState(0)
   const [isLoading, setIsLoading] = React.useState(false)
   const [hasSearched, setHasSearched] = React.useState(false)
   const [activeIndex, setActiveIndex] = React.useState(-1)
@@ -96,6 +102,7 @@ export function useMentionPicker(input: {
     setResultQuery(null)
     setUsers([])
     setHasSearched(false)
+    setHasError(false)
     setActiveIndex(-1)
   }, [])
 
@@ -152,8 +159,14 @@ export function useMentionPicker(input: {
         .then((call) => {
           if (cancelled || controller.signal.aborted || currentQueryRef.current !== trimmedQuery) return
           if (!call.ok) {
-            setUnavailable(true)
             clearResults()
+            if (isMentionSearchUnavailableStatus(call.status)) {
+              setUnavailable(true)
+              setOpen(false)
+            } else {
+              setHasError(true)
+              setOpen(true)
+            }
             return
           }
           const nextUsers = readMentionUserItems(call.result, input.fallbackLabel).slice(0, 8)
@@ -165,8 +178,9 @@ export function useMentionPicker(input: {
         })
         .catch(() => {
           if (!cancelled && !controller.signal.aborted && currentQueryRef.current === trimmedQuery) {
-            setUnavailable(true)
             clearResults()
+            setHasError(true)
+            setOpen(true)
           }
         })
         .finally(() => {
@@ -183,7 +197,7 @@ export function useMentionPicker(input: {
       controller.abort()
       if (activeRequestRef.current === controller) activeRequestRef.current = null
     }
-  }, [clearResults, input.disabled, input.documentId, input.fallbackLabel, query, unavailable])
+  }, [clearResults, input.disabled, input.documentId, input.fallbackLabel, query, retryToken, unavailable])
 
   const isDisabled = input.disabled || unavailable
   const resultsAreCurrent = resultQuery !== null
@@ -208,17 +222,30 @@ export function useMentionPicker(input: {
     clearResults()
   }, [clearResults, input.onPick, isDisabled])
 
+  const retry = React.useCallback(() => {
+    const trimmedQuery = query.trim()
+    if (input.disabled || unavailable || trimmedQuery.length < MENTION_SEARCH_MIN_LENGTH) return
+    activeRequestRef.current?.abort()
+    activeRequestRef.current = null
+    clearResults()
+    setOpen(true)
+    setIsLoading(true)
+    setRetryToken((token) => token + 1)
+  }, [clearResults, input.disabled, query, unavailable])
+
   return {
     query,
     users,
     open,
     unavailable,
+    hasError,
     isLoading,
     hasSearched,
     activeIndex,
     resultQuery,
     isDisabled,
     resultsAreCurrent,
+    retry,
     onQueryChange,
     dismiss: () => setOpen(false),
     moveActive: (direction: 1 | -1) => setActiveIndex((index) => (

@@ -25,11 +25,11 @@ function FolderNodes({ nodes, selectedFolderId, onSelect, onRename, onDelete }: 
 }) {
   const t = useT()
   return (
-    <div className="space-y-1">
+    <ul className="space-y-1">
       {nodes.map((node) => (
-        <div key={node.id} className="space-y-1">
+        <li key={node.id} className="space-y-1">
           <div className="flex items-center gap-1">
-            <Button type="button" variant={selectedFolderId === node.id ? 'secondary' : 'ghost'} className="min-w-0 flex-1 justify-start" onClick={() => onSelect(node.id)}>
+            <Button type="button" aria-current={selectedFolderId === node.id ? 'page' : undefined} variant={selectedFolderId === node.id ? 'secondary' : 'ghost'} className="min-w-0 flex-1 justify-start" onClick={() => onSelect(node.id)}>
               <span className={node.visibility === 'ancestor' ? 'truncate text-muted-foreground' : 'truncate'}>{node.name}</span>
             </Button>
             {node.canEdit ? (
@@ -42,9 +42,9 @@ function FolderNodes({ nodes, selectedFolderId, onSelect, onRename, onDelete }: 
           {node.visibility === 'ancestor' ? <p className="pl-3 text-xs text-muted-foreground">{t('documents.folders.visibility.ancestor')}</p> : null}
           {node.visibility === 'contains-visible' ? <p className="pl-3 text-xs text-muted-foreground">{t('documents.folders.visibility.shared')}</p> : null}
           {node.children.length > 0 ? <div className="ml-4"><FolderNodes nodes={node.children} selectedFolderId={selectedFolderId} onSelect={onSelect} onRename={onRename} onDelete={onDelete} /></div> : null}
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   )
 }
 
@@ -63,7 +63,7 @@ export function FolderTree(props: FolderTreeProps) {
         ) : null}
       </div>
       {props.canCreateFolder && selected && !selected.canEdit ? <p className="text-xs text-muted-foreground">{t('documents.folders.newAtRootHint')}</p> : null}
-      <Button type="button" variant={props.selectedFolderId === null ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => props.onSelect(null)}>{t('documents.folders.root')}</Button>
+      <Button type="button" aria-current={props.selectedFolderId === null ? 'page' : undefined} variant={props.selectedFolderId === null ? 'secondary' : 'ghost'} className="w-full justify-start" onClick={() => props.onSelect(null)}>{t('documents.folders.root')}</Button>
       {tree.length > 0 ? (
         <FolderNodes nodes={tree} selectedFolderId={props.selectedFolderId} onSelect={(id) => props.onSelect(id)} onRename={props.onRename} onDelete={props.onDelete} />
       ) : <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.folders.empty')}</p>}

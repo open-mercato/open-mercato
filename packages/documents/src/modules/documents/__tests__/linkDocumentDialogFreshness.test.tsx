@@ -20,6 +20,7 @@ jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
 jest.mock('@open-mercato/ui/backend/FlashMessages', () => ({ flash: jest.fn() }))
 jest.mock('@open-mercato/ui/backend/detail', () => ({
   LoadingMessage: ({ label }: { label: string }) => <div>{label}</div>,
+  ErrorMessage: ({ label, action }: { label: string; action?: React.ReactNode }) => <div role="alert">{label}{action}</div>,
 }))
 jest.mock('@open-mercato/shared/lib/i18n/context', () => ({
   useT: () => mockTranslate,
@@ -156,6 +157,31 @@ describe('LinkDocumentDialog search freshness', () => {
 
     fireEvent.keyDown(screen.getByTestId('dialog-content'), { key: 'Escape' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('renders a distinct search error and retries without showing the empty state', async () => {
+    apiCallMock
+      .mockResolvedValueOnce({ ok: false, status: 503, result: { error: 'unavailable' } })
+      .mockResolvedValueOnce(documentResult('Recovered document'))
+
+    render(<LinkDocumentDialog open target={TARGET} onOpenChange={jest.fn()} onLinked={jest.fn()} />)
+    fireEvent.change(screen.getByLabelText('documents.relatedDocuments.linkDialog.searchLabel'), { target: { value: 'recover' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+
+    expect(screen.getByRole('alert').textContent).toContain('documents.relatedDocuments.linkDialog.error')
+    expect(screen.queryByText('documents.relatedDocuments.linkDialog.empty')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'documents.actions.retry' }))
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+
+    expect(screen.getByText('Recovered document')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('clears the previous host results synchronously and aborts its in-flight reload', async () => {

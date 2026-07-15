@@ -5,7 +5,7 @@ import { Link2, Search } from 'lucide-react'
 import { apiCall, apiCallOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
-import { LoadingMessage } from '@open-mercato/ui/backend/detail'
+import { ErrorMessage, LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
@@ -35,6 +35,8 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
   const [query, setQuery] = React.useState('')
   const [rows, setRows] = React.useState<DocumentRow[]>([])
   const [loading, setLoading] = React.useState(false)
+  const [errorSearchContext, setErrorSearchContext] = React.useState<string | null>(null)
+  const [retryToken, setRetryToken] = React.useState(0)
   const [activeRowId, setActiveRowId] = React.useState<string | null>(null)
   const currentSearchContext = buildSearchContext(open, target, query)
   activeSearchContext.current = currentSearchContext
@@ -51,6 +53,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
     setRows([])
     setActiveRowId(null)
     setLoading(false)
+    setErrorSearchContext(null)
   }, [])
 
   const changeQuery = React.useCallback((nextQuery: string) => {
@@ -83,6 +86,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
       const params = new URLSearchParams({ search, page: '1', pageSize: '20' })
       setRows([])
       setLoading(true)
+      setErrorSearchContext(null)
       void apiCall<unknown>(
         `/api/documents?${params.toString()}`,
         { headers: OPTIONAL_HEADERS, signal: controller.signal },
@@ -91,9 +95,14 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
         .then((call) => {
           if (request.current !== requestId || activeSearchContext.current !== requestContext) return
           resultSearchContext.current = requestContext
-          const nextRows = call.ok
-            ? normalizeDocuments(call.result, [], t('documents.list.unknownOwner')).filter((row) => row.capabilities.canEdit)
-            : []
+          if (!call.ok) {
+            setRows([])
+            setActiveRowId(null)
+            setErrorSearchContext(requestContext)
+            return
+          }
+          const nextRows = normalizeDocuments(call.result, [], t('documents.list.unknownOwner'))
+            .filter((row) => row.capabilities.canEdit)
           setRows(nextRows)
           setActiveRowId(nextRows[0]?.id ?? null)
         })
@@ -101,6 +110,8 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
           if (!controller.signal.aborted && request.current === requestId && activeSearchContext.current === requestContext) {
             resultSearchContext.current = requestContext
             setRows([])
+            setActiveRowId(null)
+            setErrorSearchContext(requestContext)
           }
         })
         .finally(() => {
@@ -111,7 +122,7 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
         })
     }, 250)
     return () => window.clearTimeout(timer)
-  }, [invalidateSearch, open, query, t, target.entityId, target.entityType, target.href, target.label])
+  }, [invalidateSearch, open, query, retryToken, t, target.entityId, target.entityType, target.href, target.label])
 
   React.useEffect(() => () => { activeRequest.current?.abort() }, [])
 
@@ -137,7 +148,13 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
   }, [handleOpenChange, mutationContextId, onLinked, retryLastMutation, runMutation, t, target.entityId, target.entityType, target.href, target.label])
 
   const hasCurrentResults = resultSearchContext.current !== null && resultSearchContext.current === currentSearchContext
+  const hasCurrentError = errorSearchContext !== null && errorSearchContext === currentSearchContext
   const visibleRows = hasCurrentResults ? rows : []
+  const retrySearch = React.useCallback(() => {
+    if (!open || !query.trim()) return
+    invalidateSearch()
+    setRetryToken((token) => token + 1)
+  }, [invalidateSearch, open, query])
   const confirmActiveRow = React.useCallback(() => {
     const row = visibleRows.find((candidate) => candidate.id === activeRowId) ?? visibleRows[0]
     if (row) void linkDocument(row)
@@ -167,7 +184,13 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
         <div className="space-y-3">
           <div className="space-y-2"><Label htmlFor={inputId}>{t('documents.relatedDocuments.linkDialog.searchLabel')}</Label><Input id={inputId} value={query} onChange={(event) => changeQuery(event.target.value)} leftIcon={<Search />} placeholder={t('documents.relatedDocuments.linkDialog.searchPlaceholder')} /></div>
           {loading ? <LoadingMessage label={t('documents.relatedDocuments.loading')} /> : null}
-          {!loading && query.trim() && visibleRows.length === 0 ? <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.relatedDocuments.linkDialog.empty')}</p> : null}
+          {!loading && hasCurrentError ? (
+            <ErrorMessage
+              label={t('documents.relatedDocuments.linkDialog.error')}
+              action={<Button type="button" size="sm" variant="outline" onClick={retrySearch}>{t('documents.actions.retry')}</Button>}
+            />
+          ) : null}
+          {!loading && !hasCurrentError && query.trim() && hasCurrentResults && visibleRows.length === 0 ? <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.relatedDocuments.linkDialog.empty')}</p> : null}
           {!loading && visibleRows.length > 0 ? <div className="max-h-72 space-y-2 overflow-y-auto">{visibleRows.map((row) => (
             <Button key={row.id} type="button" variant={activeRowId === row.id ? 'secondary' : 'outline'} aria-current={activeRowId === row.id ? 'true' : undefined} className="h-auto w-full justify-between p-3 text-left" onFocus={() => setActiveRowId(row.id)} onClick={() => { void linkDocument(row) }}>
               <span className="min-w-0"><span className="block truncate font-medium">{row.title}</span><span className="block truncate text-xs text-muted-foreground">{row.ownerLabel}</span></span><Link2 />

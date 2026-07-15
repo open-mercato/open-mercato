@@ -1,4 +1,3 @@
-import { Redis as HocuspocusRedis } from '@hocuspocus/extension-redis'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { Server } from '@hocuspocus/server'
 import { Pool } from 'pg'
@@ -8,6 +7,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { OPTIMISTIC_LOCK_CONFLICT_CODE } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
 import {
   createCollabHooks,
+  DocumentsCollabRedisExtension,
   enforceDocumentsCollabSourceStoreOwnership,
   isDocumentsCollabSourceStore,
   resolveDocumentsCollabRedisConfiguration,
@@ -15,6 +15,7 @@ import {
   type CollabHooksDeps,
 } from '../../../../server/documents-collab-server'
 import { mintCollabToken, verifyCollabToken } from '../lib/collabToken'
+import { DOCUMENTS_MAX_YJS_STATE_BYTES } from '../lib/resourceLimits'
 
 const describeWithDocker = process.env.OM_DOCUMENTS_MULTI_INSTANCE_INTEGRATION === '1'
   ? describe
@@ -24,6 +25,7 @@ const DOCUMENT_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const ORGANIZATION_ID = '33333333-3333-4333-8333-333333333333'
 const USER_ID = '44444444-4444-4444-8444-444444444444'
+const SECOND_USER_ID = '55555555-5555-4555-8555-555555555555'
 const BASE_VERSION_TIME = Date.parse('2026-07-14T10:00:00.000Z')
 
 function versionTimestamp(version: number): string {
@@ -42,7 +44,7 @@ async function waitFor(
   }
 }
 
-function createProvider(url: string, document: Y.Doc, token: string): {
+function createProvider(url: string, document: Y.Doc, token: string, documentName = DOCUMENT_ID): {
   provider: HocuspocusProvider
   synced: Promise<void>
 } {
@@ -51,7 +53,7 @@ function createProvider(url: string, document: Y.Doc, token: string): {
     const timeout = setTimeout(() => reject(new Error(`Timed out syncing provider ${url}`)), 10_000)
     provider = new HocuspocusProvider({
       url,
-      name: DOCUMENT_ID,
+      name: documentName,
       document,
       token,
       onSynced: ({ state }) => {
@@ -76,9 +78,6 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
   const firstDocument = new Y.Doc()
   const secondDocument = new Y.Doc()
   const reloadDocument = new Y.Doc()
-  let delayRedisFanout = false
-  let releaseRedisFanout = (): void => undefined
-  let redisFanoutAllowed = Promise.resolve()
   let holdNextPersist = false
   let releaseFirstPersist = (): void => undefined
   let firstPersistAllowed = Promise.resolve()
@@ -86,6 +85,16 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
   let lockContentionObserved = Promise.resolve()
   let lockContentionCount = 0
   let firstPersistedKeys: string[] = []
+  const revokedUsers = new Set<string>()
+  const rejectedAggregateDocuments: string[] = []
+  let heldLoadDocumentId: string | null = null
+  let releaseHeldLoad = (): void => undefined
+  let heldLoadAllowed = Promise.resolve()
+  let signalHeldLoadStarted = (): void => undefined
+  let heldLoadStarted = Promise.resolve()
+  let observedPublishedDocumentId: string | null = null
+  let signalPersistedPublish = (): void => undefined
+  let persistedPublishObserved = Promise.resolve()
 
   beforeAll(async () => {
     process.env.JWT_SECRET = 'documents-real-multi-instance-test-secret'
@@ -138,6 +147,11 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
           WHERE document_id = $1 AND tenant_id = $2 AND organization_id = $3`,
         [documentId, scope.tenantId, scope.organizationId],
       )
+      if (heldLoadDocumentId === documentId) {
+        heldLoadDocumentId = null
+        signalHeldLoadStarted()
+        await heldLoadAllowed
+      }
       const row = result.rows[0]
       return row
         ? {
@@ -198,9 +212,15 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
 
     const createServer = (): Server<CollabContext> => {
       let server!: Server<CollabContext>
+      let redisExtension!: DocumentsCollabRedisExtension
+      const invalidatedDocuments = new WeakSet<Y.Doc>()
+      const invalidateRoom = (documentName: string, document: Y.Doc): void => {
+        invalidatedDocuments.add(document)
+        server?.hocuspocus.closeConnections(documentName)
+      }
       const hooks = createCollabHooks({
         verifyToken: (candidate) => verifyCollabToken(candidate),
-        authorizeContext: async () => true,
+        authorizeContext: async (context) => !revokedUsers.has(context.userId),
         resolveAwarenessName: async () => 'Multi-instance editor',
         resolveContainer: async () => ({
           resolve: (name: string) => (name === 'em' ? {} : { indexRecordById: async () => undefined }),
@@ -208,16 +228,27 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
         loadContent,
         initializeYjsState: async () => null,
         persistContent,
+        onPersisted: (document, yjsState, collaborationGeneration) => {
+          redisExtension.markPersisted(document, yjsState, collaborationGeneration)
+        },
         allowedOrigins: null,
         requireOrigin: false,
         resolveRoomDocument: (documentName) => server.hocuspocus.documents.get(documentName),
+        isRoomInvalidated: (_documentName, document) => Boolean(
+          document && invalidatedDocuments.has(document),
+        ),
+        invalidateRoom,
       })
-      const redisExtension = new HocuspocusRedis(redisConfiguration)
-      const publishChange = redisExtension.onChange.bind(redisExtension)
-      redisExtension.onChange = async (data) => {
-        if (delayRedisFanout) await redisFanoutAllowed
-        return await publishChange(data)
-      }
+      redisExtension = new DocumentsCollabRedisExtension(redisConfiguration, {
+        resolveCollaborationGeneration: hooks.resolveCollaborationGeneration,
+        onAcceptedAggregate: (document, byteLength) => {
+          hooks.recordRedisAggregate(document, byteLength)
+        },
+        onRejectedAggregate: (documentName, document) => {
+          rejectedAggregateDocuments.push(documentName)
+          invalidateRoom(documentName, document)
+        },
+      })
       const acquireStoreLock = redisExtension.onStoreDocument.bind(redisExtension)
       redisExtension.onStoreDocument = async (data) => {
         try {
@@ -228,6 +259,13 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
             resolveLockContention()
           }
           throw error
+        }
+      }
+      const publishPersistedState = redisExtension.afterStoreDocument.bind(redisExtension)
+      redisExtension.afterStoreDocument = async (data) => {
+        await publishPersistedState(data)
+        if (data.documentName === observedPublishedDocumentId) {
+          signalPersistedPublish()
         }
       }
 
@@ -307,10 +345,6 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
     secondProvider = second.provider
     await Promise.all([first.synced, second.synced])
 
-    delayRedisFanout = true
-    redisFanoutAllowed = new Promise<void>((resolve) => {
-      releaseRedisFanout = resolve
-    })
     holdNextPersist = true
     firstPersistAllowed = new Promise<void>((resolve) => {
       releaseFirstPersist = resolve
@@ -319,8 +353,8 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
       resolveLockContention = resolve
     })
 
-    // Both writes are issued before either replica may publish through Redis.
-    // The first database snapshot is also held under the Redis store lock so
+    // Durable-state fanout never publishes either write before its source
+    // store succeeds. Hold the first database snapshot under the Redis lock so
     // the other authenticated source deterministically loses that lock.
     firstDocument.getMap('multi-instance').set('first', 'A')
     secondDocument.getMap('multi-instance').set('second', 'B')
@@ -343,8 +377,6 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
       // Always release the test-only gates so failed assertions cannot strand
       // the sidecar destroy hooks behind an intentionally blocked store.
       releaseFirstPersist()
-      releaseRedisFanout()
-      delayRedisFanout = false
     }
 
     await waitFor(
@@ -384,5 +416,242 @@ describeWithDocker('documents collaboration real multi-instance durability', () 
     reloadProvider = reloaded.provider
     await reloaded.synced
     expect(reloadDocument.getMap('multi-instance').toJSON()).toEqual({ first: 'A', second: 'B' })
+  }, 45_000)
+
+  it('rejects a revoked source edit before an authorized replica can persist it', async () => {
+    const documentId = '66666666-6666-4666-8666-666666666666'
+    await pool!.query(
+      `INSERT INTO document_content
+        (document_id, tenant_id, organization_id, yjs_state, version)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [documentId, TENANT_ID, ORGANIZATION_ID, Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()))],
+    )
+    const revokedDocument = new Y.Doc()
+    const authorizedDocument = new Y.Doc()
+    const revokedToken = mintCollabToken({
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId,
+      tier: 'editor',
+    })
+    const authorizedToken = mintCollabToken({
+      userId: SECOND_USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId,
+      tier: 'editor',
+    })
+    const revoked = createProvider(
+      firstServer!.webSocketURL,
+      revokedDocument,
+      revokedToken,
+      documentId,
+    )
+    const authorized = createProvider(
+      secondServer!.webSocketURL,
+      authorizedDocument,
+      authorizedToken,
+      documentId,
+    )
+
+    try {
+      await Promise.all([revoked.synced, authorized.synced])
+      revokedUsers.add(USER_ID)
+      revokedDocument.getMap('revocation').set('revoked', 'A')
+      authorizedDocument.getMap('revocation').set('authorized', 'B')
+
+      await waitFor(async () => {
+        const result = await pool!.query<{ yjs_state: Buffer }>(
+          'SELECT yjs_state FROM document_content WHERE document_id = $1',
+          [documentId],
+        )
+        const durable = new Y.Doc()
+        Y.applyUpdate(durable, new Uint8Array(result.rows[0].yjs_state))
+        const stored = durable.getMap('revocation').toJSON()
+        durable.destroy()
+        return stored.authorized === 'B'
+      }, 'The authorized replica edit did not become durable')
+
+      const result = await pool!.query<{ yjs_state: Buffer }>(
+        'SELECT yjs_state FROM document_content WHERE document_id = $1',
+        [documentId],
+      )
+      const durable = new Y.Doc()
+      Y.applyUpdate(durable, new Uint8Array(result.rows[0].yjs_state))
+      expect(durable.getMap('revocation').toJSON()).toEqual({ authorized: 'B' })
+      expect(authorizedDocument.getMap('revocation').get('revoked')).toBeUndefined()
+      durable.destroy()
+    } finally {
+      revokedUsers.delete(USER_ID)
+      revoked.provider.destroy()
+      authorized.provider.destroy()
+      revokedDocument.destroy()
+      authorizedDocument.destroy()
+    }
+  }, 30_000)
+
+  it('captures a durable publish that races a replica database load', async () => {
+    const documentId = '88888888-8888-4888-8888-888888888888'
+    await pool!.query(
+      `INSERT INTO document_content
+        (document_id, tenant_id, organization_id, yjs_state, version)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [documentId, TENANT_ID, ORGANIZATION_ID, Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()))],
+    )
+    const sourceDocument = new Y.Doc()
+    const loadingDocument = new Y.Doc()
+    const token = mintCollabToken({
+      userId: USER_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORGANIZATION_ID,
+      documentId,
+      tier: 'editor',
+    })
+    const source = createProvider(
+      firstServer!.webSocketURL,
+      sourceDocument,
+      token,
+      documentId,
+    )
+    let loading: ReturnType<typeof createProvider> | null = null
+
+    try {
+      await source.synced
+      heldLoadStarted = new Promise<void>((resolve) => {
+        signalHeldLoadStarted = resolve
+      })
+      heldLoadAllowed = new Promise<void>((resolve) => {
+        releaseHeldLoad = resolve
+      })
+      persistedPublishObserved = new Promise<void>((resolve) => {
+        signalPersistedPublish = resolve
+      })
+      heldLoadDocumentId = documentId
+      observedPublishedDocumentId = documentId
+
+      loading = createProvider(
+        secondServer!.webSocketURL,
+        loadingDocument,
+        token,
+        documentId,
+      )
+      await heldLoadStarted
+
+      // The receiving replica has already read version 0 but is deliberately
+      // paused before returning it. The source now persists version 1 and
+      // publishes it while the receiver is subscribed but not yet registered
+      // in Hocuspocus.instance.documents.
+      sourceDocument.getMap('load-race').set('durable', 'captured')
+      await persistedPublishObserved
+      releaseHeldLoad()
+      await loading.synced
+
+      await waitFor(
+        () => loadingDocument.getMap('load-race').get('durable') === 'captured',
+        'The loading replica missed the durable Redis publish',
+      )
+    } finally {
+      heldLoadDocumentId = null
+      observedPublishedDocumentId = null
+      releaseHeldLoad()
+      source.provider.destroy()
+      loading?.provider.destroy()
+      sourceDocument.destroy()
+      loadingDocument.destroy()
+    }
+  }, 30_000)
+
+  it('rejects an over-limit aggregate before Redis exposes or persists the union', async () => {
+    const documentId = '77777777-7777-4777-8777-777777777777'
+    await pool!.query(
+      `INSERT INTO document_content
+        (document_id, tenant_id, organization_id, yjs_state, version)
+       VALUES ($1, $2, $3, $4, 0)`,
+      [documentId, TENANT_ID, ORGANIZATION_ID, Buffer.from(Y.encodeStateAsUpdate(new Y.Doc()))],
+    )
+    const firstLarge = new Y.Doc()
+    const secondLarge = new Y.Doc()
+    const first = createProvider(
+      firstServer!.webSocketURL,
+      firstLarge,
+      mintCollabToken({
+        userId: USER_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        documentId,
+        tier: 'editor',
+      }),
+      documentId,
+    )
+    const second = createProvider(
+      secondServer!.webSocketURL,
+      secondLarge,
+      mintCollabToken({
+        userId: SECOND_USER_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        documentId,
+        tier: 'editor',
+      }),
+      documentId,
+    )
+
+    try {
+      await Promise.all([first.synced, second.synced])
+      holdNextPersist = true
+      firstPersistAllowed = new Promise<void>((resolve) => {
+        releaseFirstPersist = resolve
+      })
+      const contentionBefore = lockContentionCount
+      lockContentionObserved = new Promise<void>((resolve) => {
+        resolveLockContention = resolve
+      })
+
+      firstLarge.getText('first-large').insert(0, 'a'.repeat(4_300_000))
+      secondLarge.getText('second-large').insert(0, 'b'.repeat(4_300_000))
+      expect(Y.encodeStateAsUpdate(firstLarge).byteLength)
+        .toBeLessThan(DOCUMENTS_MAX_YJS_STATE_BYTES)
+      expect(Y.encodeStateAsUpdate(secondLarge).byteLength)
+        .toBeLessThan(DOCUMENTS_MAX_YJS_STATE_BYTES)
+
+      try {
+        await waitFor(
+          async () => {
+            await Promise.race([
+              lockContentionObserved,
+              new Promise((resolve) => setTimeout(resolve, 25)),
+            ])
+            return lockContentionCount > contentionBefore
+          },
+          'The under-limit source stores did not contend for the Redis lock',
+        )
+      } finally {
+        releaseFirstPersist()
+      }
+
+      await waitFor(
+        () => rejectedAggregateDocuments.includes(documentId),
+        'Redis did not reject the over-limit aggregate before applying it',
+      )
+
+      const result = await pool!.query<{ yjs_state: Buffer }>(
+        'SELECT yjs_state FROM document_content WHERE document_id = $1',
+        [documentId],
+      )
+      expect(result.rows[0].yjs_state.byteLength).toBeLessThan(DOCUMENTS_MAX_YJS_STATE_BYTES)
+      const durable = new Y.Doc()
+      Y.applyUpdate(durable, new Uint8Array(result.rows[0].yjs_state))
+      const durableTextKeys = ['first-large', 'second-large']
+        .filter((key) => durable.getText(key).length > 0)
+      expect(durableTextKeys).toHaveLength(1)
+      durable.destroy()
+    } finally {
+      releaseFirstPersist()
+      first.provider.destroy()
+      second.provider.destroy()
+      firstLarge.destroy()
+      secondLarge.destroy()
+    }
   }, 45_000)
 })

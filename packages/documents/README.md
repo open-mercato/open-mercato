@@ -46,7 +46,7 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 
 1. The browser never holds the raw httpOnly session token. It calls `GET /api/documents/[id]/collab-token`, which verifies the session server-side, computes the caller's effective per-doc capabilities, and returns a **~60s** v2 token scoped to the actor, tenant, organization, document, tier, and read-only state on a dedicated collaboration audience.
 2. `onAuthenticate` verifies the v2 secret, expiry, audience, room binding, tenant/organization scope, and the browser `Origin`; viewer/commenter connections are read-only and failures deny by default.
-3. Write enforcement is Hocuspocus's native `connection.readOnly` (drops a read-only connection's `syncStep2`/`update` messages while still serving reads/awareness) plus an `onStoreDocument` read-only-tier early-return.
+3. Write enforcement is Hocuspocus's native `connection.readOnly` (drops a read-only connection's `syncStep2`/`update` messages while still serving reads/awareness), a fresh authorization check before every writable frame is applied, and an `onStoreDocument` read-only-tier early-return.
 4. `onLoadDocument`/`onStoreDocument` open a **fresh request-scoped container per operation** and scope every `DocumentContentService` query by the token's `{ tenantId, organizationId }`. Persist writes `yjs_state` + materializes `content_html`/`content_text` + reindexes.
 5. `documents.document.deleted` / `.unshared` / `.version.restored` (all `crossProcessBroadcast: true`, not browser `clientBroadcast` events) reach the sidecar over the cross-process pg bridge and force-close the affected room; a "closing" flag suppresses the room's final store so a restore can't be clobbered.
 
@@ -54,9 +54,23 @@ The create-app Docker Compose templates include a `documents-collab` service on 
 
 If the sidecar is unreachable (or `NEXT_PUBLIC_DOCUMENTS_COLLAB_URL` is unset), a user who still has edit capability gets an **editable single-user fallback**. It persists through the bounded content `PUT` path with the content row's optimistic-lock token, exposes explicit save status/control, and guards navigation while a save is pending. A definitive collaboration authorization rejection, revoked capability, viewer, or commenter remains read-only and fail-closed. PostgreSQL remains authoritative in both modes.
 
-Redis replication is transport-only: a receiving replica mirrors Yjs updates
-and awareness but never competes for the durable store lock with an empty
-authorization context. The authenticated source replica owns persistence. Set
+Redis replication is transport-only: the authenticated source replica owns
+persistence and publishes its exact Yjs state only after that store succeeds.
+A dedicated command-bounded publisher releases the store lock before fanout;
+if Redis never acknowledges the release, the sidecar resumes after the lock's
+expiry instead of retaining Hocuspocus' save mutex indefinitely. Redis
+delivery failures retain and retry only the latest durable state for each room,
+so post-store Redis recovery never blocks later PostgreSQL persistence. Each
+durable frame carries the content collaboration generation, and replicas reject
+pre-restore frames before they can merge stale Yjs structs into a replacement room.
+The `OMDF1` generation envelope predates the module's first release. Any future
+wire-version change must use a coordinated, non-overlapping sidecar rollout
+(drain and restart every replica); mixed wire versions are intentionally rejected.
+A receiving replica validates the complete merged state before applying or
+broadcasting it and never competes for the durable store lock with an empty
+authorization context. Receivers subscribe before reading their scoped
+PostgreSQL snapshot and retain the loading Y.Doc until registration, so a
+durable publish racing that read cannot be dropped. Set
 `DOCUMENTS_COLLAB_REDIS_PREFIX` to the same deployment-specific value on every
 replica so collaboration traffic cannot cross application environments that
 share a Redis database.

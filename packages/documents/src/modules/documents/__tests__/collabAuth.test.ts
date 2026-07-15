@@ -36,6 +36,7 @@ import {
   materializeDocumentContentReplacement,
   yDocToContent,
 } from '../lib/collabMaterializer'
+import { DOCUMENTS_MAX_YJS_STATE_BYTES } from '../lib/resourceLimits'
 
 type JsdomModule = typeof import('jsdom')
 type JsdomInstance = InstanceType<JsdomModule['JSDOM']>
@@ -1258,6 +1259,34 @@ describe('documents collab auth hooks', () => {
     expect(loadContent).toHaveBeenCalledTimes(2)
     expect(invalidateRoom).toHaveBeenCalledTimes(1)
     expect(invalidateRoom).toHaveBeenCalledWith(DOC, document)
+  })
+
+  it('retires an oversized aggregate store instead of retaining it for another writer', async () => {
+    const invalidateRoom = jest.fn()
+    const { hooks, persistSpy } = makeHooks({ invalidateRoom })
+    const document = new Y.Doc()
+    const context = {
+      userId: USER,
+      tenantId: TENANT,
+      organizationId: ORGANIZATION,
+      documentId: DOC,
+      tier: 'editor' as const,
+      readOnly: false,
+      exp: null,
+    }
+    await hooks.onLoadDocument({ documentName: DOC, context, document })
+    document.getText('aggregate').insert(0, 'x'.repeat(DOCUMENTS_MAX_YJS_STATE_BYTES + 1))
+
+    await expect(hooks.onStoreDocument({ documentName: DOC, context, document }))
+      .resolves.toBeUndefined()
+
+    expect(persistSpy).not.toHaveBeenCalled()
+    expect(invalidateRoom).toHaveBeenCalledWith(DOC, document)
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('exceeded content limits'),
+      { room: DOC },
+    )
+    document.destroy()
   })
 
   it('carries one consumed final-drain grant through a bounded CAS retry', async () => {
