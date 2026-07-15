@@ -491,7 +491,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
       await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
       closeDialog()
     } catch (error) {
-      flashMutationError(error, t('wms.backend.inventory.import.errors.apply', 'Import failed.'))
+      flashMutationError(error, t('wms.backend.inventory.import.errors.apply', 'Import failed.'), t)
     } finally {
       setApplying(false)
     }

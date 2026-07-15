@@ -287,7 +287,7 @@ export function ReserveInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-inventory-console'] })
         closeDialog()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.inventory.reserve.errors.failed', 'Failed to reserve inventory.'))
+        flashMutationError(error, t('wms.backend.inventory.reserve.errors.failed', 'Failed to reserve inventory.'), t)
       } finally {
         setSubmitting(false)
       }

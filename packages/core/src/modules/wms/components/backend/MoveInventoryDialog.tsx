@@ -546,7 +546,7 @@ export function MoveInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-lot-detail'] })
         closeDialog()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.inventory.move.errors.submit', 'Failed to move inventory.'))
+        flashMutationError(error, t('wms.backend.inventory.move.errors.submit', 'Failed to move inventory.'), t)
       } finally {
         setSubmitting(false)
       }

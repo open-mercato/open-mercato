@@ -37,6 +37,7 @@ export function useWmsInventoryMutationAccess() {
               'wms.manage_reservations',
               'wms.manage_locations',
               'wms.manage_warehouses',
+              'wms.manage_zones',
             ],
           }),
         })
@@ -79,6 +80,7 @@ export function useWmsInventoryMutationAccess() {
     canAllocate: hasFeature(granted, 'wms.manage_reservations'),
     canManageLocations: hasFeature(granted, 'wms.manage_locations'),
     canManageWarehouses: hasFeature(granted, 'wms.manage_warehouses'),
+    canManageZones: hasFeature(granted, 'wms.manage_zones'),
     canManageLots: hasFeature(granted, 'wms.manage_inventory'),
   }
 }

@@ -373,7 +373,7 @@ export function ReceiveInventoryDialog({
         })
         closeDialog()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.inventory.receive.errors.submit', 'Failed to receive inventory.'))
+        flashMutationError(error, t('wms.backend.inventory.receive.errors.submit', 'Failed to receive inventory.'), t)
       } finally {
         setSubmitting(false)
       }

@@ -66,4 +66,24 @@ describe('useWmsInventoryMutationAccess', () => {
     await waitFor(() => expect(result.current.loading).toBe(false))
     expect(result.current.canManageWarehouses).toBe(false)
   })
+
+  it('requests wms.manage_zones so canManageZones can ever be true (#4102 follow-up)', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { granted: ['wms.manage_zones'], userId: 'user-1' } })
+    const { result } = renderHook(() => useWmsInventoryMutationAccess())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+
+    const [, options] = mockApiCall.mock.calls[0]
+    const body = JSON.parse(options.body)
+    expect(body.features).toContain('wms.manage_zones')
+    expect(result.current.canManageZones).toBe(true)
+  })
+
+  it('resolves canManageZones to false when the feature is not granted', async () => {
+    mockApiCall.mockResolvedValue({ ok: true, result: { granted: [], userId: 'user-1' } })
+    const { result } = renderHook(() => useWmsInventoryMutationAccess())
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.canManageZones).toBe(false)
+  })
 })

@@ -459,7 +459,7 @@ export function AdjustInventoryDialog({
         await queryClient.invalidateQueries({ queryKey: ['wms-sku-detail'] })
         closeDialog()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'))
+        flashMutationError(error, t('wms.backend.inventory.adjust.errors.submit', 'Failed to adjust inventory.'), t)
       } finally {
         setSubmitting(false)
       }

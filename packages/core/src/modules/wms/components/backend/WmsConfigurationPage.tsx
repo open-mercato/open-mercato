@@ -33,6 +33,8 @@ import {
   inventoryRotationStrategyLabel,
 } from '../../lib/inventoryDisplayUi'
 import { LocationEditDialog } from './LocationEditDialog'
+import { useWmsInventoryMutationAccess } from './useWmsInventoryMutationAccess'
+import { flashMutationError } from '../../lib/flashMutationError'
 
 type PagedResponse<T> = {
   items: T[]
@@ -268,6 +270,7 @@ export function WarehouseSection() {
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-warehouses' })
+  const access = useWmsInventoryMutationAccess()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
@@ -426,7 +429,7 @@ export function WarehouseSection() {
 
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), 'error')
+      flashMutationError(error, t('wms.backend.config.warehouses.errors.save', 'Failed to save warehouse.'), t)
       setSubmitting(false)
     }
   }, [closeDialog, dialog, queryClient, refresh, runMutation, t])
@@ -455,7 +458,7 @@ export function WarehouseSection() {
       flash(t('wms.backend.config.warehouses.flash.deleted', 'Warehouse archived'), 'success')
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.warehouses.errors.delete', 'Failed to archive warehouse.'), 'error')
+      flashMutationError(error, t('wms.backend.config.warehouses.errors.delete', 'Failed to archive warehouse.'), t)
     }
   }, [confirm, refresh, runMutation, t])
 
@@ -486,11 +489,11 @@ export function WarehouseSection() {
           onSortingChange={handleSortingChange}
           sortable
           manualSorting
-          actions={(
+          actions={access.canManageWarehouses ? (
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addWarehouse', 'Add warehouse')}
             </Button>
-          )}
+          ) : null}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -511,7 +514,7 @@ export function WarehouseSection() {
             <EmptyState
               title={t('wms.backend.config.warehouses.empty.title', 'No warehouses')}
               description={t('wms.backend.config.warehouses.empty.description', 'Create the first warehouse to expose topology and inventory assignment in WMS.')}
-              action={{ label: t('wms.backend.config.actions.addWarehouse', 'Add warehouse'), onClick: () => setDialog({ mode: 'create' }) }}
+              action={access.canManageWarehouses ? { label: t('wms.backend.config.actions.addWarehouse', 'Add warehouse'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
             />
           )}
         />
@@ -549,6 +552,7 @@ export function ZoneSection() {
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-zones' })
+  const access = useWmsInventoryMutationAccess()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'priority', desc: false }])
@@ -685,7 +689,7 @@ export function ZoneSection() {
       closeDialog()
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.zones.errors.save', 'Failed to save zone.'), 'error')
+      flashMutationError(error, t('wms.backend.config.zones.errors.save', 'Failed to save zone.'), t)
       setSubmitting(false)
     }
   }, [closeDialog, dialog, refresh, runMutation, t])
@@ -714,7 +718,7 @@ export function ZoneSection() {
       flash(t('wms.backend.config.zones.flash.deleted', 'Zone archived'), 'success')
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.zones.errors.delete', 'Failed to archive zone.'), 'error')
+      flashMutationError(error, t('wms.backend.config.zones.errors.delete', 'Failed to archive zone.'), t)
     }
   }, [confirm, refresh, runMutation, t])
 
@@ -745,11 +749,11 @@ export function ZoneSection() {
           onSortingChange={handleSortingChange}
           sortable
           manualSorting
-          actions={(
+          actions={access.canManageZones ? (
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addZone', 'Add zone')}
             </Button>
-          )}
+          ) : null}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -770,7 +774,7 @@ export function ZoneSection() {
             <EmptyState
               title={t('wms.backend.config.zones.empty.title', 'No zones')}
               description={t('wms.backend.config.zones.empty.description', 'Zones group locations into functional areas to drive picking priority and routing rules.')}
-              action={{ label: t('wms.backend.config.actions.addZone', 'Add zone'), onClick: () => setDialog({ mode: 'create' }) }}
+              action={access.canManageZones ? { label: t('wms.backend.config.actions.addZone', 'Add zone'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
             />
           )}
         />
@@ -808,6 +812,7 @@ export function LocationSection() {
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-locations' })
+  const access = useWmsInventoryMutationAccess()
   const [page, setPage] = React.useState(1)
   const [search, setSearch] = React.useState('')
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
@@ -913,7 +918,7 @@ export function LocationSection() {
       flash(t('wms.backend.config.locations.flash.deleted', 'Location archived'), 'success')
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.locations.errors.delete', 'Failed to archive location.'), 'error')
+      flashMutationError(error, t('wms.backend.config.locations.errors.delete', 'Failed to archive location.'), t)
     }
   }, [confirm, refresh, runMutation, t])
 
@@ -944,11 +949,11 @@ export function LocationSection() {
           onSortingChange={handleSortingChange}
           sortable
           manualSorting
-          actions={(
+          actions={access.canManageLocations ? (
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addLocation', 'Add location')}
             </Button>
-          )}
+          ) : null}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -969,7 +974,7 @@ export function LocationSection() {
             <EmptyState
               title={t('wms.backend.config.locations.empty.title', 'No locations')}
               description={t('wms.backend.config.locations.empty.description', 'Create locations to define the buckets used by balances, reservations, and movement ledger rows.')}
-              action={{ label: t('wms.backend.config.actions.addLocation', 'Add location'), onClick: () => setDialog({ mode: 'create' }) }}
+              action={access.canManageLocations ? { label: t('wms.backend.config.actions.addLocation', 'Add location'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
             />
           )}
         />
@@ -993,6 +998,7 @@ export function InventoryProfilesSection() {
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const { runMutation } = useGuardedMutation<Record<string, unknown>>({ contextId: 'wms-config-profiles' })
+  const access = useWmsInventoryMutationAccess()
   const [page, setPage] = React.useState(1)
   const [sorting, setSorting] = React.useState<SortingState>([{ id: 'updatedAt', desc: true }])
   const [submitting, setSubmitting] = React.useState(false)
@@ -1185,7 +1191,7 @@ export function InventoryProfilesSection() {
       closeDialog()
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.profiles.errors.save', 'Failed to save inventory profile.'), 'error')
+      flashMutationError(error, t('wms.backend.config.profiles.errors.save', 'Failed to save inventory profile.'), t)
       setSubmitting(false)
     }
   }, [closeDialog, dialog, refresh, runMutation, t])
@@ -1214,7 +1220,7 @@ export function InventoryProfilesSection() {
       flash(t('wms.backend.config.profiles.flash.deleted', 'Inventory profile archived'), 'success')
       await refresh()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('wms.backend.config.profiles.errors.delete', 'Failed to archive inventory profile.'), 'error')
+      flashMutationError(error, t('wms.backend.config.profiles.errors.delete', 'Failed to archive inventory profile.'), t)
     }
   }, [confirm, refresh, runMutation, t])
 
@@ -1237,11 +1243,11 @@ export function InventoryProfilesSection() {
           onSortingChange={handleSortingChange}
           sortable
           manualSorting
-          actions={(
+          actions={access.canManage ? (
             <Button type="button" size="sm" onClick={() => setDialog({ mode: 'create' })}>
               {t('wms.backend.config.actions.addProfile', 'Add profile')}
             </Button>
-          )}
+          ) : null}
           rowActions={(row) => (
             <RowActions
               items={[
@@ -1262,7 +1268,7 @@ export function InventoryProfilesSection() {
             <EmptyState
               title={t('wms.backend.config.profiles.empty.title', 'No inventory profiles')}
               description={t('wms.backend.config.profiles.empty.description', 'Create profiles to control reservation strategy, lot/serial tracking, and low-stock thresholds.')}
-              action={{ label: t('wms.backend.config.actions.addProfile', 'Add profile'), onClick: () => setDialog({ mode: 'create' }) }}
+              action={access.canManage ? { label: t('wms.backend.config.actions.addProfile', 'Add profile'), onClick: () => setDialog({ mode: 'create' }) } : undefined}
             />
           )}
         />

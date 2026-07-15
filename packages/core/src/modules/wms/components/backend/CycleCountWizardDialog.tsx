@@ -904,7 +904,7 @@ export function CycleCountWizardDialog({
       setLinesPosted((n) => n + 1)
       resetToStep2()
     } catch (error) {
-      flashMutationError(error, t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'))
+      flashMutationError(error, t('wms.backend.inventory.cycleCount.errors.submit', 'Failed to post cycle count.'), t)
     } finally {
       setSubmitting(false)
     }

@@ -136,7 +136,7 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
       onOpenChange(false)
       await onSaved?.()
     } catch (error) {
-      flashMutationError(error, t('wms.backend.config.locations.errors.save', 'Failed to save location.'))
+      flashMutationError(error, t('wms.backend.config.locations.errors.save', 'Failed to save location.'), t)
     } finally {
       setSubmitting(false)
     }

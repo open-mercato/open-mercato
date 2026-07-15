@@ -242,7 +242,7 @@ export function ReleaseReservationDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'))
+        flashMutationError(error, t('wms.backend.inventory.release.errors.submit', 'Failed to release reservation.'), t)
       } finally {
         setSubmitting(false)
       }

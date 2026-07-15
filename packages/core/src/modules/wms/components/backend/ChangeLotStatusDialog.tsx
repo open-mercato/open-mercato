@@ -175,7 +175,7 @@ export function ChangeLotStatusDialog({
         closeDialog()
         onSuccess?.()
       } catch (error) {
-        flashMutationError(error, t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'))
+        flashMutationError(error, t('wms.backend.lot.changeStatus.errors.submit', 'Failed to update lot status.'), t)
       } finally {
         setSubmitting(false)
       }
