@@ -197,7 +197,11 @@ function SectionCard({
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
       </div>
-      {children}
+      {/* `DataTable` in `embedded` mode omits its own scroll wrapper (shared
+       * primitive behavior kept intact for other consumers), so this
+       * WMS-local card provides horizontal scroll instead of clipping wide
+       * tables. */}
+      <div className="overflow-x-auto">{children}</div>
     </section>
   )
 }

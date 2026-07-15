@@ -977,7 +977,7 @@ export function ImportInventoryDialog({ open, onOpenChange, access }: ImportInve
           ) : null}
         </div>
 
-        <DialogFooter className="border-t px-6 py-4 sm:justify-between">
+        <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
           <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
             <KbdShortcut keys={['⌘', 'Enter']} />
             <span>/</span>

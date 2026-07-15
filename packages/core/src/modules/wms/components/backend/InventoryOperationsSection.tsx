@@ -24,11 +24,11 @@ function SectionCard({
   return (
     <section className="rounded-lg border bg-card p-5 text-card-foreground shadow-sm">
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div className="space-y-1">
+        <div className="min-w-0 space-y-1">
           <h2 className="text-xl font-semibold">{title}</h2>
           <p className="text-sm text-muted-foreground">{description}</p>
         </div>
-        <div className="flex shrink-0 flex-wrap gap-2">{children}</div>
+        <div className="flex flex-wrap gap-2">{children}</div>
       </div>
     </section>
   )

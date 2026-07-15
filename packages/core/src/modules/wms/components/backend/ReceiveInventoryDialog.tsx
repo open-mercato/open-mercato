@@ -570,7 +570,7 @@ export function ReceiveInventoryDialog({
                 required
                 error={fieldErrors.quantity}
               >
-                <div className="flex w-full items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
+                <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
                   <IconButton
                     type="button"
                     variant="ghost"
@@ -668,7 +668,7 @@ export function ReceiveInventoryDialog({
             </FormField>
           </div>
 
-          <DialogFooter className="flex-row items-center justify-between border-t px-6 py-4">
+          <DialogFooter bordered={false} className="flex-row items-center justify-between border-t px-6 py-4">
             <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
               <KbdShortcut keys={['⌘', 'Enter']} />
               <span>/</span>
