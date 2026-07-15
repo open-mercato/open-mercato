@@ -582,7 +582,7 @@ async function decorateProductsAfterList(
             ],
           }
         : { product: { $in: productIds } };
-    const priceRows = await findWithDecryption(
+    const priceRows = await findWithDecryption<CatalogProductPrice>(
       em,
       CatalogProductPrice,
       { ...priceWhere, ...scope },
