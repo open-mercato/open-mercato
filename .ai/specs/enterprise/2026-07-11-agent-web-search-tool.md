@@ -1,6 +1,6 @@
 # Web Search & Fetch Tools for File-Defined Agents (ACL-Gated MCP `defineAiTool`)
 
-> Status: **IN PROGRESS — Phases 1–3 implemented; provider strategy pivoted (2026-07-15, see Provider Licensing Pivot)**
+> Status: **IMPLEMENTED — Phases 1–5 done (model-native default provider; licensing pivot applied). Phase 4 integration coverage as jest tests.**
 > Scope: Enterprise (`packages/enterprise/src/modules/agent_orchestrator`)
 > Date: 2026-07-11 (updated 2026-07-15)
 
@@ -297,6 +297,14 @@ Feeds the operations cockpit and evals like any other tool call.
 
 ## Integration Test Coverage
 
+> **Form (decided at implementation).** The module's `__integration__/` dir is Playwright E2E against
+> a live app; its DB/logic integration is instead proven with jest at the real seams (in-memory em
+> fakes, real services) — and it explicitly defers full-flow proof to unit tests (TC-AGENT-TRACE-002).
+> The web tools have **no HTTP endpoint** to Playwright-drive (they are MCP tools invoked during agent
+> runs), and a live web_search-over-OpenCode E2E needs a real LLM + provider boot (env-gated, flaky,
+> unprecedented per-tool). So Phase 4 ships as **jest integration tests at the real seams**
+> (`__tests__/webSearchEgress.integration.test.ts`) — the matrix rows map to these + the unit suites:
+
 Per-feature, self-contained (fixtures created in setup, cleaned in teardown; no seeded-data reliance):
 
 - **ACL denial:** agent without `agent_orchestrator.web_search` → tool call rejected mid-run (per-call, not just load-time).
@@ -366,7 +374,7 @@ provider-unhealthy, timeout) — never a crash.
 | Phase 1 — Provider package | Done | 2026-07-11 | `packages/search-provider-searxng` scaffolded; SearXNG adapter (search/fetch/health) + always-on SSRF guard + HTML→text; 45 unit tests pass; typecheck + build green |
 | Phase 2 — Tools + ACL + guardrails | Done | 2026-07-11 | `web_search`/`web_fetch` `defineAiTool`s (isMutation:false, `requiredFeatures:['agent_orchestrator.web_search']`) + default-off ACL feature + domain/rate guardrails + DI provider registration; 23 unit tests pass; enterprise typecheck + lint + generate green. Tracing is automatic (runner captures tool calls). |
 | Phase 3 — Wiring, opt-in, verification | Done | 2026-07-11 | Renderer verified UNCHANGED (regression test + real generated artifact both emit `open-mercato_agent_orchestrator_web_{search,fetch}`); opt-in example agent `deal_web_researcher` added + `yarn generate` re-emitted `docker/opencode/agents/deals_web_researcher.md`; docs updated (module AGENTS.md Web Egress + rule-10 exception, om-create-opencode-agent SKILL.md). Full suite 317/317 green. |
-| Phase 4 — Integration tests | Not Started | — | — |
+| Phase 4 — Integration tests | Done | 2026-07-15 | Matrix covered as focused jest integration tests at real seams (`__tests__/webSearchEgress.integration.test.ts`: real `hasRequiredFeatures` ACL denial/grant, real `ingestTrace`+entities trace capture, `opencode.jsonc` native-tools-disabled, real `isolated-vm` no-net) + the SSRF/caps/rate/domain/health/not_configured rows already proven by the unit suites. Full-flow HTTP+OpenCode wire deferred to Playwright per the TC-AGENT-TRACE-002 precedent (no per-tool MCP endpoint to drive). Full suite 753/753. |
 | Phase 5 — Provider Licensing Pivot | Done | 2026-07-15 | Renamed package `search-provider-searxng` → **`@open-mercato/web-search`** (neutral) + extracted shared `fetchUrl`. Added **model-native adapter (DEFAULT, Flavor B)** + **Tavily** adapter; `OM_AGENT_WEB_SEARCH_PROVIDER` selection (default `model`); demoted SearXNG to opt-in; **`web_fetch` decoupled** (uses shared `fetchUrl`, works with no provider). 39 web-search unit tests pass; full agent_orchestrator suite 747/747; typecheck + lint + build green. Docs updated. |
 
 ### Phase 1 — Detailed Progress
@@ -418,3 +426,10 @@ Notes: `tsconfig.json` sets `types: ["node"]` — this pure-lib package pulls no
   (follow-ups): model-native uses the module default model (does not yet hydrate per-tenant
   `ai_agent_runtime_overrides`); requires provider keys in the `mcp:serve-http` env; `brave`/`exa`
   adapters recognized but not implemented.
+- 2026-07-15 — **Phase 4 integration coverage implemented** as jest tests at the real seams
+  (`__tests__/webSearchEgress.integration.test.ts`): ACL denial/grant via real `hasRequiredFeatures`,
+  trace capture via real `ingestTrace` + `AgentToolCall` over an in-memory em, `opencode.jsonc`
+  native-tools-disabled assertion, and the real `isolated-vm` no-net regression; SSRF/caps/rate/
+  domain/health/not_configured rows are covered by the unit suites. Full-flow HTTP+OpenCode E2E
+  deferred to Playwright per the TC-AGENT-TRACE-002 precedent (web tools have no HTTP endpoint to
+  drive). Full agent_orchestrator suite 753/753; typecheck + lint green. **Spec fully implemented.**
