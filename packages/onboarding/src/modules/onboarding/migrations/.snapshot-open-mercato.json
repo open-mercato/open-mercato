@@ -25,6 +25,15 @@
           "nullable": false,
           "mappedType": "text"
         },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "mappedType": "text"
+        },
         "token_hash": {
           "name": "token_hash",
           "type": "text",
@@ -254,6 +263,16 @@
           "keyName": "onboarding_requests_email_unique",
           "columnNames": [
             "email"
+          ],
+          "composite": false,
+          "constraint": true,
+          "primary": false,
+          "unique": true
+        },
+        {
+          "keyName": "onboarding_requests_email_hash_unique",
+          "columnNames": [
+            "email_hash"
           ],
           "composite": false,
           "constraint": true,

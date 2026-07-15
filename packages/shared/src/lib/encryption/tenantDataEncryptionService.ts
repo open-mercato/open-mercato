@@ -4,6 +4,7 @@ import { decryptWithAesGcm, encryptWithAesGcm, hashForLookup } from './aes'
 import { createKmsService, type KmsService, type TenantDek } from './kms'
 import { isTenantDataEncryptionEnabled, isEncryptionDebugEnabled } from './toggles'
 import { createLogger } from '../logger'
+import type { EncryptionKeyScope, ModuleEncryptionMap } from '../../modules/encryption'
 
 const logger = createLogger('shared').child({ component: 'tenant-encryption' })
 
@@ -14,6 +15,7 @@ export type EncryptedFieldRule = {
 
 export type EncryptionMapRecord = {
   entityId: string
+  keyScope?: EncryptionKeyScope
   fields: EncryptedFieldRule[]
 }
 
@@ -154,13 +156,23 @@ export class TenantDataEncryptionService {
   private readonly inflightDeks = TenantDataEncryptionService.globalInflightDeks
   private readonly inflightMaps = TenantDataEncryptionService.globalInflightMaps
   private readonly missCache = TenantDataEncryptionService.globalMissCache
+  private readonly systemDefaultMaps: Map<string, ModuleEncryptionMap>
 
   constructor(
     private em: EntityManager,
-    opts?: { cache?: CacheStrategy; kms?: KmsService }
+    opts?: {
+      cache?: CacheStrategy
+      kms?: KmsService
+      defaultEncryptionMaps?: readonly ModuleEncryptionMap[]
+    }
   ) {
     this.cache = opts?.cache
     this.kms = opts?.kms ?? createKmsService()
+    this.systemDefaultMaps = new Map(
+      (opts?.defaultEncryptionMaps ?? [])
+        .filter((map) => map.keyScope === 'system')
+        .map((map) => [map.entityId, map]),
+    )
   }
 
   isEnabled(): boolean {
@@ -239,6 +251,24 @@ export class TenantDataEncryptionService {
     }
   }
 
+  private applySystemDefault(record: EncryptionMapRecord | null, entityId: string): EncryptionMapRecord | null {
+    const declared = this.systemDefaultMaps.get(entityId)
+    if (!declared) return record
+    const fields: EncryptedFieldRule[] = declared.fields.map((field) => ({
+      field: field.field,
+      hashField: field.hashField ?? null,
+    }))
+    const declaredFields = new Set(fields.map((field) => field.field))
+    for (const field of record?.fields ?? []) {
+      if (!declaredFields.has(field.field)) fields.push(field)
+    }
+    return {
+      entityId,
+      keyScope: 'system',
+      fields,
+    }
+  }
+
   private async getMap(key: MapCacheKey): Promise<EncryptionMapRecord | null> {
     const shouldSkipLookup = (tag: string) => {
       const expiresAt = this.missCache.get(tag)
@@ -262,13 +292,13 @@ export class TenantDataEncryptionService {
       if (this.inflightMaps.has(tag)) {
         const pending = this.inflightMaps.get(tag)!
         const resolved = await pending
-        if (resolved) return resolved
+        if (resolved) return this.applySystemDefault(resolved, key.entityId)
       }
       const mem = this.memoryCache.get(tag)
-      if (mem) return mem
+      if (mem) return this.applySystemDefault(mem, key.entityId)
       if (this.cache && typeof this.cache.get === 'function') {
         const cached = await this.cache.get(tag)
-        if (cached) return cached as EncryptionMapRecord
+        if (cached) return this.applySystemDefault(cached as EncryptionMapRecord, key.entityId)
       }
       const pending = this.fetchMap(candidate)
       this.inflightMaps.set(tag, pending)
@@ -288,9 +318,9 @@ export class TenantDataEncryptionService {
       if (this.cache && typeof this.cache.set === 'function') {
         await this.cache.set(tag, loaded, { ttl: 300 })
       }
-      return loaded
+      return this.applySystemDefault(loaded, key.entityId)
     }
-    return null
+    return this.applySystemDefault(null, key.entityId)
   }
 
   private async fetchAllOrganizationFieldNames(entityId: string, tenantId: string | null): Promise<string[]> {
@@ -421,14 +451,15 @@ export class TenantDataEncryptionService {
       debug('⚪️ encrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const dek = await this.resolveDekForEncrypt(tenantId ?? null)
-    if (!dek) {
-      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId })
-      return payload
-    }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     if (!map || !map.fields?.length) {
       debug('⚪️ encrypt.skip.no-map', { entityId, tenantId })
+      return payload
+    }
+    const keyId = map.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+    const dek = await this.resolveDekForEncrypt(keyId)
+    if (!dek) {
+      debug('⚠️ encrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
       return payload
     }
     debug('🔒 encrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })
@@ -445,14 +476,15 @@ export class TenantDataEncryptionService {
       debug('⚪️ decrypt.skip.disabled', { entityId, tenantId })
       return payload
     }
-    const dek = await this.getDek(tenantId ?? null)
-    if (!dek) {
-      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId })
-      return payload
-    }
     const map = await this.getMap({ entityId, tenantId: tenantId ?? null, organizationId: organizationId ?? null })
     if (!map || !map.fields?.length) {
       debug('⚪️ decrypt.skip.no-map', { entityId, tenantId })
+      return payload
+    }
+    const keyId = map.keyScope === 'system' ? `system:${entityId}` : tenantId ?? null
+    const dek = await this.getDek(keyId)
+    if (!dek) {
+      debug('⚠️ decrypt.skip.no-dek', { entityId, tenantId, keyScope: map.keyScope ?? 'tenant' })
       return payload
     }
     debug('🔓 decrypt_entity', { entityId, tenantId, organizationId, fields: map.fields.length })

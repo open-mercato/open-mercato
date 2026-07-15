@@ -1,6 +1,8 @@
 import { randomBytes, createHash } from 'node:crypto'
 import { hash } from 'bcryptjs'
 import { EntityManager } from '@mikro-orm/postgresql'
+import { hashForLookup, lookupHashCandidates } from '@open-mercato/shared/lib/encryption/aes'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { OnboardingRequest } from '../data/entities'
 import type { OnboardingStartInput } from '../data/validators'
 
@@ -18,8 +20,14 @@ export class OnboardingService {
     const expiresAt = new Date(Date.now() + expiresInHours * 60 * 60 * 1000)
     const now = new Date()
     const passwordHash = await hash(input.password, 10)
+    const emailHash = hashForLookup(input.email)
 
-    const existing = await this.em.findOne(OnboardingRequest, { email: input.email })
+    const existing = await findOneWithDecryption(this.em, OnboardingRequest, {
+      $or: [
+        { emailHash: { $in: lookupHashCandidates(input.email) } },
+        { email: input.email, emailHash: null },
+      ],
+    })
     if (existing) {
       const lastSentAt = existing.lastEmailSentAt ?? existing.updatedAt ?? existing.createdAt
       if (['pending', 'processing'].includes(existing.status) && lastSentAt && lastSentAt.getTime() > Date.now() - 10 * 60 * 1000) {
@@ -36,6 +44,7 @@ export class OnboardingService {
       existing.termsAccepted = true
       existing.marketingConsent = input.marketingConsent ?? false
       existing.passwordHash = passwordHash
+      existing.emailHash = emailHash
       existing.expiresAt = expiresAt
       existing.completedAt = null
       existing.processingStartedAt = null
@@ -52,6 +61,7 @@ export class OnboardingService {
 
     const request = this.em.create(OnboardingRequest, {
       email: input.email,
+      emailHash,
       tokenHash,
       status: 'pending',
       firstName: input.firstName,
@@ -74,7 +84,7 @@ export class OnboardingService {
   async findPendingByToken(token: string) {
     const tokenHash = hashToken(token)
     const now = new Date()
-    return this.em.findOne(OnboardingRequest, {
+    return findOneWithDecryption(this.em, OnboardingRequest, {
       tokenHash,
       status: 'pending',
       expiresAt: { $gt: now } as any,
@@ -83,18 +93,20 @@ export class OnboardingService {
 
   async findByToken(token: string) {
     const tokenHash = hashToken(token)
-    return this.em.findOne(OnboardingRequest, { tokenHash })
+    return findOneWithDecryption(this.em, OnboardingRequest, { tokenHash })
   }
 
   async findById(id: string) {
-    return this.em.findOne(OnboardingRequest, { id })
+    return findOneWithDecryption(this.em, OnboardingRequest, { id })
   }
 
   async findLatestByTenantId(tenantId: string) {
-    return this.em.findOne(
+    return findOneWithDecryption(
+      this.em,
       OnboardingRequest,
       { tenantId, deletedAt: null },
       { orderBy: { updatedAt: 'DESC', createdAt: 'DESC' } },
+      { tenantId, organizationId: null },
     )
   }
 
