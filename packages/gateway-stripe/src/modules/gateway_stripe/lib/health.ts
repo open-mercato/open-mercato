@@ -1,4 +1,4 @@
-import Stripe from 'stripe'
+import { loadStripeSdk } from './client'
 
 export interface HealthCheckResult {
   status: 'healthy' | 'unhealthy'
@@ -10,6 +10,7 @@ export interface HealthCheckResult {
 export const stripeHealthCheck = {
   async check(credentials: Record<string, unknown>): Promise<HealthCheckResult> {
     try {
+      const Stripe = await loadStripeSdk()
       const stripe = new Stripe(credentials.secretKey as string)
       const account = await stripe.accounts.retrieveCurrent()
 

@@ -29,7 +29,7 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   providerKey: 'stripe',
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = await resolveStripeClient(input.credentials, '2023-10-16')
     const rendererKey = resolveStripeRendererKey(input.presentation)
     const rendererSettings = normalizeStripePaymentElementSettings(input.presentation?.rendererSettings)
 
@@ -72,7 +72,7 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async capture(input: CaptureInput): Promise<CaptureResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = await resolveStripeClient(input.credentials, '2023-10-16')
     const paymentIntent = input.amount
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
@@ -89,7 +89,7 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = await resolveStripeClient(input.credentials, '2023-10-16')
     const paymentIntent = input.amount
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
@@ -108,13 +108,13 @@ export const stripeAdapterV20231016: GatewayAdapter = {
   },
 
   async cancel(input: CancelInput): Promise<CancelResult> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = await resolveStripeClient(input.credentials, '2023-10-16')
     const cancelled = await stripe.paymentIntents.cancel(input.sessionId)
     return { status: mapStripeStatus(cancelled.status) }
   },
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {
-    const stripe = resolveStripeClient(input.credentials, '2023-10-16')
+    const stripe = await resolveStripeClient(input.credentials, '2023-10-16')
     const pi = await stripe.paymentIntents.retrieve(input.sessionId)
     return {
       status: mapStripeStatus(pi.status),

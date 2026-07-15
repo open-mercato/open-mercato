@@ -1,17 +1,17 @@
 import { embed } from 'ai'
 import type { EmbeddingModel } from 'ai'
-import { createOpenAI } from '@ai-sdk/openai'
+import type { createOpenAI } from '@ai-sdk/openai'
 
 // Local type definition to avoid @ai-sdk/provider version conflicts
 // Matches SharedV3ProviderOptions = Record<string, JSONObject>
 type JSONValue = string | number | boolean | null | JSONValue[] | { [key: string]: JSONValue }
 type JSONObject = { [key: string]: JSONValue }
 type ProviderOptions = Record<string, JSONObject>
-import { createGoogleGenerativeAI } from '@ai-sdk/google'
-import { createMistral } from '@ai-sdk/mistral'
-import { createCohere } from '@ai-sdk/cohere'
-import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
-import { createOllama } from 'ai-sdk-ollama'
+import type { createGoogleGenerativeAI } from '@ai-sdk/google'
+import type { createMistral } from '@ai-sdk/mistral'
+import type { createCohere } from '@ai-sdk/cohere'
+import type { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
+import type { createOllama } from 'ai-sdk-ollama'
 import type { EmbeddingProviderId, EmbeddingProviderConfig } from '../types'
 import { EMBEDDING_PROVIDERS, DEFAULT_EMBEDDING_CONFIG } from '../types'
 import {
@@ -56,7 +56,7 @@ function timeoutError(providerId: EmbeddingProviderId, timeoutMs: number): Error
 
 export class EmbeddingService {
   private config: EmbeddingProviderConfig
-  private clientCache: Map<EmbeddingProviderId, ProviderClient> = new Map()
+  private clientCache: Map<EmbeddingProviderId, Promise<ProviderClient>> = new Map()
 
   constructor(private readonly opts: EmbeddingServiceOptions = {}) {
     if (opts.config) {
@@ -116,12 +116,30 @@ export class EmbeddingService {
     }
   }
 
-  private getClient(providerId: EmbeddingProviderId): ProviderClient {
+  private getClient(
+    providerId: EmbeddingProviderId,
+    config: EmbeddingProviderConfig,
+  ): Promise<ProviderClient> {
     const cached = this.clientCache.get(providerId)
     if (cached) {
       return cached
     }
 
+    let pending: Promise<ProviderClient>
+    pending = this.createClient(providerId, config).catch((error: unknown) => {
+      if (this.clientCache.get(providerId) === pending) {
+        this.clientCache.delete(providerId)
+      }
+      throw error
+    })
+    this.clientCache.set(providerId, pending)
+    return pending
+  }
+
+  private async createClient(
+    providerId: EmbeddingProviderId,
+    config: EmbeddingProviderConfig,
+  ): Promise<ProviderClient> {
     let client: ProviderClient
     switch (providerId) {
       case 'openai': {
@@ -129,6 +147,7 @@ export class EmbeddingService {
         if (!apiKey) {
           throw new Error('[vector.embedding] Missing OPENAI_API_KEY environment variable')
         }
+        const { createOpenAI } = await import('@ai-sdk/openai')
         client = createOpenAI({ apiKey })
         break
       }
@@ -137,6 +156,7 @@ export class EmbeddingService {
         if (!apiKey) {
           throw new Error('[vector.embedding] Missing GOOGLE_GENERATIVE_AI_API_KEY environment variable')
         }
+        const { createGoogleGenerativeAI } = await import('@ai-sdk/google')
         client = createGoogleGenerativeAI({ apiKey })
         break
       }
@@ -145,6 +165,7 @@ export class EmbeddingService {
         if (!apiKey) {
           throw new Error('[vector.embedding] Missing MISTRAL_API_KEY environment variable')
         }
+        const { createMistral } = await import('@ai-sdk/mistral')
         client = createMistral({ apiKey })
         break
       }
@@ -153,6 +174,7 @@ export class EmbeddingService {
         if (!apiKey) {
           throw new Error('[vector.embedding] Missing COHERE_API_KEY environment variable')
         }
+        const { createCohere } = await import('@ai-sdk/cohere')
         client = createCohere({ apiKey })
         break
       }
@@ -162,6 +184,7 @@ export class EmbeddingService {
         if (!accessKeyId || !secretAccessKey) {
           throw new Error('[vector.embedding] Missing AWS_ACCESS_KEY_ID or AWS_SECRET_ACCESS_KEY environment variables')
         }
+        const { createAmazonBedrock } = await import('@ai-sdk/amazon-bedrock')
         client = createAmazonBedrock({
           accessKeyId,
           secretAccessKey,
@@ -170,7 +193,7 @@ export class EmbeddingService {
         break
       }
       case 'ollama': {
-        const baseURL = this.config.baseUrl ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
+        const baseURL = config.baseUrl ?? process.env.OLLAMA_BASE_URL ?? 'http://localhost:11434'
         try {
           assertSafeOllamaBaseUrl(baseURL)
         } catch (err) {
@@ -181,6 +204,7 @@ export class EmbeddingService {
           }
           throw err
         }
+        const { createOllama } = await import('ai-sdk-ollama')
         client = createOllama({ baseURL, fetch: safeOllamaFetch })
         break
       }
@@ -188,13 +212,12 @@ export class EmbeddingService {
         throw new Error(`[vector.embedding] Unknown provider: ${providerId}`)
     }
 
-    this.clientCache.set(providerId, client)
     return client
   }
 
-  private getEmbeddingModel() {
-    const client = this.getClient(this.config.providerId)
-    const { providerId, model, outputDimensionality } = this.config
+  private async getEmbeddingModel(config: EmbeddingProviderConfig) {
+    const client = await this.getClient(config.providerId, config)
+    const { providerId, model } = config
 
     switch (providerId) {
       case 'openai':
@@ -214,8 +237,8 @@ export class EmbeddingService {
     }
   }
 
-  private getProviderOptions(): ProviderOptions | undefined {
-    const { providerId, outputDimensionality, model } = this.config
+  private getProviderOptions(config: EmbeddingProviderConfig): ProviderOptions | undefined {
+    const { providerId, outputDimensionality, model } = config
 
     if (!outputDimensionality) {
       if (providerId === 'cohere') {
@@ -242,6 +265,7 @@ export class EmbeddingService {
   }
 
   async createEmbedding(input: string | string[]): Promise<number[]> {
+    const config = { ...this.config }
     const merged = Array.isArray(input)
       ? input.map((part) => String(part ?? '')).filter((part) => part.length > 0).join('\n\n')
       : String(input ?? '')
@@ -249,13 +273,13 @@ export class EmbeddingService {
       throw new Error('[vector.embedding] Refusing to embed empty payload')
     }
 
-    if (!this.available) {
-      const providerInfo = EMBEDDING_PROVIDERS[this.config.providerId]
+    if (!this.isProviderConfigured(config.providerId)) {
+      const providerInfo = EMBEDDING_PROVIDERS[config.providerId]
       throw new Error(`[vector.embedding] Provider ${providerInfo.name} is not configured. Set ${providerInfo.envKeyRequired} environment variable.`)
     }
 
-    const model = this.getEmbeddingModel() as EmbeddingModel
-    const providerOptions = this.getProviderOptions()
+    const model = await this.getEmbeddingModel(config) as EmbeddingModel
+    const providerOptions = this.getProviderOptions(config)
     const timeoutMs = resolveEmbeddingTimeoutMs()
 
     const abortController = new AbortController()
@@ -276,7 +300,7 @@ export class EmbeddingService {
               // this awaits — promptly, instead of lingering until the platform's
               // default network timeout and pinning pool capacity under a storm.
               abortController.abort()
-              reject(timeoutError(this.config.providerId, timeoutMs))
+              reject(timeoutError(config.providerId, timeoutMs))
             },
             timeoutMs,
           )

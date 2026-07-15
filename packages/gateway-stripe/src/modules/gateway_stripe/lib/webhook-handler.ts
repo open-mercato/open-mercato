@@ -1,5 +1,5 @@
-import Stripe from 'stripe'
 import type { VerifyWebhookInput, WebhookEvent } from '@open-mercato/shared/modules/payment_gateways/types'
+import { loadStripeSdk } from './client'
 
 export function readStripeSessionIdHint(payload: Record<string, unknown> | null): string | null {
   if (!payload) return null
@@ -24,6 +24,7 @@ export function readStripeSessionIdHint(payload: Record<string, unknown> | null)
 }
 
 export async function verifyStripeWebhook(input: VerifyWebhookInput): Promise<WebhookEvent> {
+  const Stripe = await loadStripeSdk()
   const stripe = new Stripe(input.credentials.secretKey as string)
 
   const signature = input.headers['stripe-signature'] as string

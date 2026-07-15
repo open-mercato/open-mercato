@@ -32,6 +32,8 @@
     "build": "yarn build:packages && yarn generate && yarn build:packages && yarn build:app",
     "build:app": "turbo run build --filter=@open-mercato/app",
     "build:packages": "turbo run build --filter='./packages/*'",
+    "build:standalone:profile": "node ./scripts/profile-standalone-build-rss.mjs",
+    "build:standalone:profile:report": "node ./scripts/profile-standalone-build-rss.mjs --report",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",
     "test": "cross-env NODE_OPTIONS=--max-old-space-size=768 turbo run test --concurrency=2",

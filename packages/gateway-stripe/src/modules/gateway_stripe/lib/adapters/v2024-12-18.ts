@@ -31,7 +31,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   providerKey: 'stripe',
 
   async createSession(input: CreateSessionInput): Promise<CreateSessionResult> {
-    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const stripe = await resolveStripeClient(input.credentials, STRIPE_API_VERSION)
     const rendererKey = resolveStripeRendererKey(input.presentation)
     const rendererSettings = normalizeStripePaymentElementSettings(input.presentation?.rendererSettings)
 
@@ -74,7 +74,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   },
 
   async capture(input: CaptureInput): Promise<CaptureResult> {
-    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const stripe = await resolveStripeClient(input.credentials, STRIPE_API_VERSION)
     const paymentIntent = input.amount
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
@@ -95,7 +95,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   },
 
   async refund(input: RefundInput): Promise<RefundResult> {
-    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const stripe = await resolveStripeClient(input.credentials, STRIPE_API_VERSION)
     const paymentIntent = input.amount
       ? await stripe.paymentIntents.retrieve(input.sessionId)
       : null
@@ -119,7 +119,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   },
 
   async cancel(input: CancelInput): Promise<CancelResult> {
-    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const stripe = await resolveStripeClient(input.credentials, STRIPE_API_VERSION)
 
     const cancelled = await stripe.paymentIntents.cancel(input.sessionId, {
       cancellation_reason: 'requested_by_customer',
@@ -131,7 +131,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
   },
 
   async getStatus(input: GetStatusInput): Promise<GatewayPaymentStatus> {
-    const stripe = resolveStripeClient(input.credentials, STRIPE_API_VERSION)
+    const stripe = await resolveStripeClient(input.credentials, STRIPE_API_VERSION)
 
     const pi = await stripe.paymentIntents.retrieve(input.sessionId)
     return {

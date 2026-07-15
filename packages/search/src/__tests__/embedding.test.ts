@@ -2,15 +2,45 @@ jest.mock('ai', () => ({
   embed: jest.fn(),
 }))
 
+jest.mock('@ai-sdk/openai', () => ({
+  createOpenAI: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
+}))
+
+jest.mock('@ai-sdk/google', () => ({
+  createGoogleGenerativeAI: jest.fn(() => ({ textEmbeddingModel: jest.fn(() => ({})) })),
+}))
+
+jest.mock('@ai-sdk/mistral', () => ({
+  createMistral: jest.fn(() => ({ textEmbeddingModel: jest.fn(() => ({})) })),
+}))
+
+jest.mock('@ai-sdk/cohere', () => ({
+  createCohere: jest.fn(() => ({ textEmbeddingModel: jest.fn(() => ({})) })),
+}))
+
+jest.mock('@ai-sdk/amazon-bedrock', () => ({
+  createAmazonBedrock: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
+}))
+
 jest.mock('ai-sdk-ollama', () => ({
   createOllama: jest.fn(() => ({ embedding: jest.fn(() => ({})) })),
 }))
 
 import { embed } from 'ai'
+import { createOpenAI } from '@ai-sdk/openai'
+import { createGoogleGenerativeAI } from '@ai-sdk/google'
+import { createMistral } from '@ai-sdk/mistral'
+import { createCohere } from '@ai-sdk/cohere'
+import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock'
 import { createOllama } from 'ai-sdk-ollama'
 import { EmbeddingService } from '../vector/services/embedding'
 
 const mockedEmbed = jest.mocked(embed)
+const mockedCreateOpenAI = jest.mocked(createOpenAI)
+const mockedCreateGoogle = jest.mocked(createGoogleGenerativeAI)
+const mockedCreateMistral = jest.mocked(createMistral)
+const mockedCreateCohere = jest.mocked(createCohere)
+const mockedCreateBedrock = jest.mocked(createAmazonBedrock)
 const mockedCreateOllama = jest.mocked(createOllama)
 
 describe('EmbeddingService', () => {
@@ -25,6 +55,70 @@ describe('EmbeddingService', () => {
 
   afterAll(() => {
     process.env = originalEnv
+  })
+
+  it('loads only the selected provider and reuses its client', async () => {
+    const providerCases = [
+      {
+        providerId: 'openai' as const,
+        env: { OPENAI_API_KEY: 'openai-key' },
+        factory: mockedCreateOpenAI,
+      },
+      {
+        providerId: 'google' as const,
+        env: { GOOGLE_GENERATIVE_AI_API_KEY: 'google-key' },
+        factory: mockedCreateGoogle,
+      },
+      {
+        providerId: 'mistral' as const,
+        env: { MISTRAL_API_KEY: 'mistral-key' },
+        factory: mockedCreateMistral,
+      },
+      {
+        providerId: 'cohere' as const,
+        env: { COHERE_API_KEY: 'cohere-key' },
+        factory: mockedCreateCohere,
+      },
+      {
+        providerId: 'bedrock' as const,
+        env: {
+          AWS_ACCESS_KEY_ID: 'access-key',
+          AWS_SECRET_ACCESS_KEY: 'secret-key',
+          AWS_REGION: 'eu-central-1',
+        },
+        factory: mockedCreateBedrock,
+      },
+      {
+        providerId: 'ollama' as const,
+        env: { OLLAMA_BASE_URL: 'http://localhost:11434' },
+        factory: mockedCreateOllama,
+      },
+    ]
+    const factories = providerCases.map((entry) => entry.factory)
+
+    for (const providerCase of providerCases) {
+      jest.clearAllMocks()
+      process.env = { ...originalEnv, ...providerCase.env, NODE_ENV: 'test' }
+      mockedEmbed.mockResolvedValue({ embedding: [0.1] } as Awaited<ReturnType<typeof embed>>)
+
+      const service = new EmbeddingService({
+        config: {
+          providerId: providerCase.providerId,
+          model: 'test-model',
+          dimension: 128,
+          updatedAt: new Date().toISOString(),
+        },
+      })
+
+      expect(factories.every((factory) => factory.mock.calls.length === 0)).toBe(true)
+      await expect(service.createEmbedding('first')).resolves.toEqual([0.1])
+      await expect(service.createEmbedding('second')).resolves.toEqual([0.1])
+
+      expect(providerCase.factory).toHaveBeenCalledTimes(1)
+      for (const factory of factories) {
+        if (factory !== providerCase.factory) expect(factory).not.toHaveBeenCalled()
+      }
+    }
   })
 
   it('times out stalled embedding requests', async () => {
