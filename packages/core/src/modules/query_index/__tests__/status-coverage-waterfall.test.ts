@@ -57,16 +57,41 @@ function snapshotWithRefreshedAt(refreshedAt: Date) {
   }
 }
 
-function makeFakeDb(tableRows: Record<string, unknown[]>) {
+type FakeRow = Record<string, unknown>
+type FakePredicate = (row: FakeRow) => boolean
+
+function makeComparison(column: unknown, operator: unknown, value: unknown): FakePredicate {
+  const key = String(column)
+  if (operator === '=') return (row) => row[key] === value
+  if (operator === 'in') return (row) => Array.isArray(value) && value.includes(row[key])
+  if (operator === 'is') return (row) => value == null ? row[key] == null : row[key] === value
+  return () => true
+}
+
+function makeFakeDb(tableRows: Record<string, FakeRow[]>) {
   const build = (table: string) => {
     const rows = tableRows[String(table)] ?? []
+    const predicates: FakePredicate[] = []
     const chain: Record<string, unknown> = {}
     const passthrough = () => chain
-    for (const method of ['select', 'selectAll', 'distinct', 'where', 'orderBy', 'limit']) {
+    for (const method of ['select', 'selectAll', 'distinct', 'orderBy', 'limit']) {
       chain[method] = passthrough
     }
-    chain.execute = async () => rows
-    chain.executeTakeFirst = async () => rows[0]
+    chain.where = (...args: unknown[]) => {
+      if (typeof args[0] === 'function') {
+        const eb = ((column: unknown, operator: unknown, value: unknown) =>
+          makeComparison(column, operator, value)) as typeof makeComparison & { or: (items: FakePredicate[]) => FakePredicate }
+        eb.or = (items: FakePredicate[]) => (row: FakeRow) => items.some((item) => item(row))
+        const predicate = args[0](eb)
+        if (typeof predicate === 'function') predicates.push(predicate)
+      } else if (typeof args[0] === 'string') {
+        predicates.push(makeComparison(args[0], args[1], args[2]))
+      }
+      return chain
+    }
+    const execute = async () => rows.filter((row) => predicates.every((predicate) => predicate(row)))
+    chain.execute = execute
+    chain.executeTakeFirst = async () => (await execute())[0]
     return chain
   }
   return { selectFrom: (table: string) => build(table) }
@@ -99,7 +124,10 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     mockRefreshCoverageSnapshot.mockResolvedValue(undefined)
 
     const db = makeFakeDb({
-      custom_field_defs: [{ entity_id: ENTITY_A }, { entity_id: ENTITY_B }],
+      custom_field_defs: [
+        { entity_id: ENTITY_A, is_active: true, tenant_id: null, organization_id: null },
+        { entity_id: ENTITY_B, is_active: true, tenant_id: null, organization_id: null },
+      ],
       entity_index_jobs: [],
       indexer_error_logs: [],
       indexer_status_logs: [],
@@ -217,5 +245,113 @@ describe('query_index status route — coverage waterfall (#3285)', () => {
     const parsed = JSON.parse(header as string)
     expect(parsed.type).toBe('partial_index')
     expect([ENTITY_A, ENTITY_B]).toContain(parsed.entity)
+  })
+
+  it('does not expose null-organization diagnostics to org-scoped callers (#3887)', async () => {
+    const occurredAt = new Date('2026-07-08T12:00:00.000Z')
+    const db = makeFakeDb({
+      custom_field_defs: [
+        { entity_id: ENTITY_A, is_active: true, tenant_id: null, organization_id: null },
+      ],
+      entity_index_jobs: [],
+      indexer_error_logs: [
+        {
+          id: 'err-org-1',
+          source: 'indexer',
+          handler: 'query_index:test',
+          entity_type: ENTITY_A,
+          record_id: 'visible-record',
+          tenant_id: 'tenant-1',
+          organization_id: 'org-1',
+          payload: { visible: true },
+          message: 'org-scoped diagnostic',
+          stack: null,
+          occurred_at: occurredAt,
+        },
+        {
+          id: 'err-global',
+          source: 'indexer',
+          handler: 'query_index:test',
+          entity_type: ENTITY_A,
+          record_id: 'leaked-record',
+          tenant_id: 'tenant-1',
+          organization_id: null,
+          payload: { leaked: true },
+          message: 'global diagnostic',
+          stack: 'sensitive stack',
+          occurred_at: occurredAt,
+        },
+        {
+          id: 'err-org-2',
+          source: 'indexer',
+          handler: 'query_index:test',
+          entity_type: ENTITY_A,
+          record_id: 'other-record',
+          tenant_id: 'tenant-1',
+          organization_id: 'org-2',
+          payload: { other: true },
+          message: 'other org diagnostic',
+          stack: null,
+          occurred_at: occurredAt,
+        },
+      ],
+      indexer_status_logs: [
+        {
+          id: 'log-org-1',
+          source: 'indexer',
+          handler: 'query_index:test',
+          level: 'info',
+          entity_type: ENTITY_A,
+          record_id: 'visible-record',
+          tenant_id: 'tenant-1',
+          organization_id: 'org-1',
+          message: 'org-scoped status',
+          details: { visible: true },
+          occurred_at: occurredAt,
+        },
+        {
+          id: 'log-global',
+          source: 'indexer',
+          handler: 'query_index:test',
+          level: 'warn',
+          entity_type: ENTITY_A,
+          record_id: 'leaked-record',
+          tenant_id: 'tenant-1',
+          organization_id: null,
+          message: 'global status',
+          details: { leaked: true },
+          occurred_at: occurredAt,
+        },
+        {
+          id: 'log-org-2',
+          source: 'indexer',
+          handler: 'query_index:test',
+          level: 'info',
+          entity_type: ENTITY_A,
+          record_id: 'other-record',
+          tenant_id: 'tenant-1',
+          organization_id: 'org-2',
+          message: 'other org status',
+          details: { other: true },
+          occurred_at: occurredAt,
+        },
+      ],
+    })
+    const em = { getKysely: () => db }
+    mockCreateRequestContainer.mockResolvedValueOnce({
+      resolve: (name: string) => {
+        if (name === 'em') return em
+        if (name === 'eventBus') return { emitEvent }
+        if (name === 'searchModuleConfigs') return []
+        if (name === 'searchStrategies') return []
+        throw new Error(`Unexpected token: ${name}`)
+      },
+    })
+
+    const res = await GET(makeRequest())
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body.errors.map((row: { id: string }) => row.id)).toEqual(['err-org-1'])
+    expect(body.logs.map((row: { id: string }) => row.id)).toEqual(['log-org-1'])
   })
 })

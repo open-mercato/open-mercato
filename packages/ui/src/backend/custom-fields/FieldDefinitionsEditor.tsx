@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from '../../primitives/select'
 import { CUSTOM_FIELD_KINDS } from '@open-mercato/shared/modules/entities/kinds'
-import { useOptionalT } from '@open-mercato/shared/lib/i18n/context'
+import { useOptionalT, type TranslateFn } from '@open-mercato/shared/lib/i18n/context'
 import { FieldRegistry } from '../fields/registry'
 import { slugify } from '@open-mercato/shared/lib/slugify'
 import { useConfirmDialog } from '../confirm-dialog'
@@ -34,6 +34,16 @@ import {
 
 type FieldsetGroup = { code: string; title?: string; hint?: string }
 type FieldsetConfig = { code: string; label: string; icon?: string; description?: string; groups?: FieldsetGroup[] }
+
+function formatFallback(template: string, params?: Record<string, string | number>) {
+  if (!params) return template
+  return template.replace(/\{\{(\w+)\}\}|\{(\w+)\}/g, (match, doubleKey, singleKey) => {
+    const key = doubleKey ?? singleKey
+    if (!key) return match
+    const value = params[key]
+    return value === undefined ? match : String(value)
+  })
+}
 
 export type FieldDefinition = {
   key: string
@@ -68,7 +78,7 @@ export type FieldDefinitionsEditorProps = {
   listProps?: React.HTMLAttributes<HTMLDivElement>
   singleFieldsetPerRecord?: boolean
   onSingleFieldsetPerRecordChange?: (value: boolean) => void
-  translate?: (key: string, fallback: string) => string
+  translate?: TranslateFn
 }
 
 const DEFAULT_VALUE_NONE = '__open_mercato_no_default__'
@@ -180,11 +190,13 @@ export function FieldDefinitionsEditor({
   const dragIndex = React.useRef<number | null>(null)
   const hasFieldsets = fieldsets.length > 0
   const contextT = useOptionalT()
-  const t = React.useCallback(
-    (key: string, fallback: string) => {
-      if (translate) return translate(key, fallback)
-      if (contextT) return contextT(key, fallback)
-      return fallback
+  const t = React.useCallback<TranslateFn>(
+    (key, fallbackOrParams, params) => {
+      if (translate) return translate(key, fallbackOrParams, params)
+      if (contextT) return contextT(key, fallbackOrParams, params)
+      return typeof fallbackOrParams === 'string'
+        ? formatFallback(fallbackOrParams, params)
+        : key
     },
     [translate, contextT],
   )
@@ -264,7 +276,9 @@ export function FieldDefinitionsEditor({
     if (!onFieldsetsChange) return
     if (!resolvedActiveFieldset) return
     const confirmed = await confirm({
-      title: t('entities.customFields.editor.deleteFieldsetTitle', 'Delete fieldset "{code}"?').replace('{code}', resolvedActiveFieldset),
+      title: t('entities.customFields.editor.deleteFieldsetTitle', 'Delete fieldset "{code}"?', {
+        code: resolvedActiveFieldset,
+      }),
       text: t('entities.customFields.editor.deleteFieldsetText', 'This will move its fields to Unassigned.'),
       variant: 'destructive',
     })
@@ -541,7 +555,7 @@ type FieldDefinitionCardProps = {
   onRegisterGroup?: (fieldsetCode: string, group: FieldsetGroup) => void
   onRemoveGroup?: (fieldsetCode: string, groupCode: string) => void
   onTranslate?: () => void
-  translate?: (key: string, fallback: string) => string
+  translate?: TranslateFn
 }
 
 const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
@@ -573,7 +587,15 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
     () => (typeof local.configJson?.fieldset === 'string' ? local.configJson.fieldset : ''),
     [local.configJson?.fieldset],
   )
-  const t = React.useCallback((key: string, fallback: string) => (translate ? translate(key, fallback) : fallback), [translate])
+  const t = React.useCallback<TranslateFn>(
+    (key, fallbackOrParams, params) => {
+      if (translate) return translate(key, fallbackOrParams, params)
+      return typeof fallbackOrParams === 'string'
+        ? formatFallback(fallbackOrParams, params)
+        : key
+    },
+    [translate],
+  )
   React.useEffect(() => {
     localRef.current = definition
     setLocal(definition)
@@ -1093,23 +1115,29 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="required">required</SelectItem>
-                    <SelectItem value="date">date</SelectItem>
-                    <SelectItem value="integer">integer</SelectItem>
-                    <SelectItem value="float">float</SelectItem>
-                    <SelectItem value="lt">lt</SelectItem>
-                    <SelectItem value="lte">lte</SelectItem>
-                    <SelectItem value="gt">gt</SelectItem>
-                    <SelectItem value="gte">gte</SelectItem>
-                    <SelectItem value="eq">eq</SelectItem>
-                    <SelectItem value="ne">ne</SelectItem>
-                    <SelectItem value="regex">regex</SelectItem>
+                    <SelectItem value="required">{t('entities.customFields.editor.validation.required', 'required')}</SelectItem>
+                    <SelectItem value="date">{t('entities.customFields.editor.validation.date', 'date')}</SelectItem>
+                    <SelectItem value="integer">{t('entities.customFields.editor.validation.integer', 'integer')}</SelectItem>
+                    <SelectItem value="float">{t('entities.customFields.editor.validation.float', 'float')}</SelectItem>
+                    <SelectItem value="lt">{t('entities.customFields.editor.validation.lt', 'lt')}</SelectItem>
+                    <SelectItem value="lte">{t('entities.customFields.editor.validation.lte', 'lte')}</SelectItem>
+                    <SelectItem value="gt">{t('entities.customFields.editor.validation.gt', 'gt')}</SelectItem>
+                    <SelectItem value="gte">{t('entities.customFields.editor.validation.gte', 'gte')}</SelectItem>
+                    <SelectItem value="eq">{t('entities.customFields.editor.validation.eq', 'eq')}</SelectItem>
+                    <SelectItem value="ne">{t('entities.customFields.editor.validation.ne', 'ne')}</SelectItem>
+                    <SelectItem value="regex">{t('entities.customFields.editor.validation.regex', 'regex')}</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
               <div className="md:col-span-4">
                 <Input
-                  placeholder={rule?.rule === 'regex' ? t('entities.customFields.editor.rulePatternPlaceholder', 'Pattern (e.g. ^[a-z]+$)') : (['lt','lte','gt','gte'].includes(rule?.rule) ? t('entities.customFields.editor.ruleNumberPlaceholder', 'Number') : '—')}
+                  placeholder={
+                    rule?.rule === 'regex'
+                      ? t('entities.customFields.editor.rulePatternPlaceholder', 'Pattern (e.g. ^[a-z]+$)')
+                      : (['lt','lte','gt','gte'].includes(rule?.rule)
+                        ? t('entities.customFields.editor.ruleNumberPlaceholder', 'Number')
+                        : t('entities.customFields.editor.noParameterPlaceholder', '—'))
+                  }
                   value={rule?.param ?? ''}
                   onChange={(event) => {
                     const value = ['lt','lte','gt','gte'].includes(rule?.rule) ? Number(event.target.value) : event.target.value
@@ -1426,7 +1454,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-muted-foreground hover:text-foreground"
                         onClick={() => handleEditGroupEntry(group)}
-                        aria-label={t('entities.customFields.editor.editGroupAria', 'Edit {code}').replace('{code}', group.code)}
+                        aria-label={t('entities.customFields.editor.editGroupAria', 'Edit {code}', { code: group.code })}
                       >
                         <Pencil className="h-4 w-4" />
                       </IconButton>
@@ -1435,7 +1463,7 @@ const FieldDefinitionCard = React.memo(function FieldDefinitionCard({
                         size="xs"
                         className="text-destructive hover:text-destructive/80"
                         onClick={() => handleRemoveGroupEntry(group.code)}
-                        aria-label={t('entities.customFields.editor.deleteGroupAria', 'Delete {code}').replace('{code}', group.code)}
+                        aria-label={t('entities.customFields.editor.deleteGroupAria', 'Delete {code}', { code: group.code })}
                       >
                         <Trash2 className="h-4 w-4" />
                       </IconButton>
