@@ -150,7 +150,11 @@ export function createSyncRunService(em: EntityManager) {
             organizationId: scope.organizationId,
             tenantId: scope.tenantId,
             deletedAt: null,
-            status: 'pending',
+            // A BullMQ stalled-job redelivery finds the run in `running` after
+            // the previous worker was hard-killed. Treat that transition as an
+            // idempotent claim while still excluding terminal states so a
+            // cancelled or completed run cannot be revived.
+            status: { $in: ['pending', 'running'] },
           },
           {
             status,

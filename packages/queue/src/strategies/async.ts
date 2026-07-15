@@ -47,7 +47,7 @@ interface BullMQModule {
   Worker: new <T>(
     name: string,
     processor: (job: { id?: string; data: T; attemptsMade: number }) => Promise<void>,
-    opts: { connection: ConnectionOptions; concurrency: number }
+    opts: { connection: ConnectionOptions; concurrency: number; maxStalledCount?: number }
   ) => BullWorkerInterface
 }
 
@@ -111,6 +111,8 @@ export function createAsyncQueue<T = unknown>(
 ): Queue<T> {
   const connection = resolveConnection(options?.connection)
   const concurrency = options?.concurrency ?? 1
+  const attempts = options?.attempts ?? 3
+  const maxStalledCount = options?.maxStalledCount
   const logger = packageLogger.child({ queue: name })
 
   let bullQueue: BullQueueInterface<QueuedJob<T>> | null = null
@@ -158,7 +160,7 @@ export function createAsyncQueue<T = unknown>(
       delay: options?.delayMs && options.delayMs > 0 ? options.delayMs : undefined,
       removeOnComplete: true,
       removeOnFail: 1000,
-      attempts: 3,
+      attempts,
       backoff: { type: 'exponential', delay: 1000 },
     })
 
@@ -182,6 +184,7 @@ export function createAsyncQueue<T = unknown>(
       {
         connection,
         concurrency,
+        ...(maxStalledCount !== undefined ? { maxStalledCount } : {}),
       }
     )
 
