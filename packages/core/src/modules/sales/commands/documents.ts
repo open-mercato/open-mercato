@@ -125,6 +125,7 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue } from "../lib/dictionaries";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
@@ -4738,10 +4739,14 @@ const createQuoteCommand: CommandHandler<
           linkHref: `/backend/sales/quotes/${quote.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: quote.tenantId,
-          organizationId: quote.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
@@ -5741,10 +5746,14 @@ const createOrderCommand: CommandHandler<
           linkHref: `/backend/sales/orders/${order.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: order.tenantId,
-          organizationId: order.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: order.tenantId,
+            organizationId: order.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
@@ -6513,6 +6522,69 @@ const quoteAdjustmentDeleteSchema = z.object({
   quoteId: z.string().uuid(),
 });
 
+const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
+
+const hasNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  const normalizedPrevious = (previous ?? "").trim().toLowerCase();
+  if (!normalizedPrevious) return false;
+  return next.trim().toLowerCase() !== normalizedPrevious;
+};
+
+async function assertShippedOrderLineEditable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+  parsed: z.infer<typeof orderLineUpsertSchema>,
+): Promise<void> {
+  const lineId = existingSnapshot?.id;
+  if (!existingSnapshot || !lineId) return;
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  const shippedQuantity = shippedByLine.get(lineId) ?? 0;
+  if (shippedQuantity <= 0) return;
+
+  const { translate } = await resolveTranslations();
+  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
+  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+
+  const pricingChanged =
+    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
+    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
+    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
+    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
+  if (pricingChanged) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorPriceShipped",
+        "You cannot change the price or unit of a line that has shipped items.",
+      ),
+    });
+  }
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6557,6 +6629,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
         ? "gross"

@@ -157,7 +157,7 @@ yarn docker:mercato test:integration
 | `lint` | works | `yarn docker:lint` | unsupported-by-design | Dev deps not in production image |
 | `typecheck` | works | `yarn docker:typecheck` | unsupported-by-design | Dev deps not in production image |
 | `test` | works | `yarn docker:test` | unsupported-by-design | Dev deps not in production image |
-| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; use container |
+| `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; external skills need network (`npx skills add`, skip with `--no-external`); use container |
 | `clean:generated` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `clean:packages` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `mcp:serve` | works | works-with-wrapper | unsupported-by-design | Use `docker compose exec app yarn mcp:serve` |
