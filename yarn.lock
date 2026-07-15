@@ -23743,6 +23743,7 @@ __metadata:
     tsx: "npm:^4.22.4"
     turbo: "npm:^2.10.0"
     typescript: "npm:^6.0.3"
+    yaml: "npm:2.8.3"
     zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
