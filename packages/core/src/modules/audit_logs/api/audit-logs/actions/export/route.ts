@@ -158,23 +158,31 @@ export async function GET(req: Request) {
     }
   }
 
-  const entriesResult = await actionLogs.list({
-    tenantId: auth.tenantId ?? undefined,
-    organizationId: organizationId ?? undefined,
-    actorUserId,
-    actorUserIds,
-    resourceKind,
-    resourceId,
-    actionTypes,
-    fieldNames,
-    includeRelated,
-    undoableOnly,
-    sortField,
-    sortDir,
-    limit,
-    before,
-    after,
-  })
+  let entriesResult: Awaited<ReturnType<ActionLogService['list']>>
+  try {
+    entriesResult = await actionLogs.list({
+      tenantId: auth.tenantId ?? undefined,
+      organizationId: organizationId ?? undefined,
+      actorUserId,
+      actorUserIds,
+      resourceKind,
+      resourceId,
+      actionTypes,
+      fieldNames,
+      includeRelated,
+      undoableOnly,
+      sortField,
+      sortDir,
+      limit,
+      before,
+      after,
+    })
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
   const entries = entriesResult.items
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {

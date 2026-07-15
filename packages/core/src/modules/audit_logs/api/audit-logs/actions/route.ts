@@ -226,7 +226,15 @@ export async function GET(req: Request) {
   // includeTotal flag is retained for backward compatibility but page-based pagination
   // always returns total/totalPages from the list query's findAndCount.
   void includeTotal
-  const list = await actionLogs.list(listQuery)
+  let list: Awaited<ReturnType<ActionLogService['list']>>
+  try {
+    list = await actionLogs.list(listQuery)
+  } catch (err) {
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Validation failed', details: err.issues }, { status: 400 })
+    }
+    throw err
+  }
 
   const displayMaps = await loadAuditLogDisplayMaps(em, {
     userIds: list.items.map((entry: any) => entry.actorUserId).filter((value: any): value is string => !!value),
