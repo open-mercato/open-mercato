@@ -2,6 +2,7 @@ import type { IntegrationScope } from '@open-mercato/shared/modules/integrations
 import { TillioApiError } from './errors'
 import { createTillioClient } from './client'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { IntegrationState } from '@open-mercato/core/modules/integrations/data/entities'
 import { TILLIO_INTEGRATION_ID, environmentSchema } from './environment'
 import {
@@ -63,12 +64,18 @@ export async function isTillioEnvironmentHealthy(
   em: EntityManager,
   scope: IntegrationScope,
 ): Promise<boolean> {
-  const state = await em.findOne(IntegrationState, {
-    integrationId: TILLIO_INTEGRATION_ID,
-    organizationId: scope.organizationId,
-    tenantId: scope.tenantId,
-    deletedAt: null,
-  })
+  const state = await findOneWithDecryption(
+    em,
+    IntegrationState,
+    {
+      integrationId: TILLIO_INTEGRATION_ID,
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      deletedAt: null,
+    },
+    undefined,
+    { tenantId: scope.tenantId, organizationId: scope.organizationId },
+  )
   return state?.lastHealthStatus === 'healthy'
 }
 

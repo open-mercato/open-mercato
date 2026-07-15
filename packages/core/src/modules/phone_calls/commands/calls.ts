@@ -3,6 +3,7 @@ import type { CommandHandler } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { ensureOrganizationScope, ensureTenantScope } from '@open-mercato/shared/lib/commands/scope'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { PhoneCall, PhoneCallParticipant } from '../data/entities'
 import {
   ingestPhoneCallSchema,
@@ -63,12 +64,18 @@ const ingestPhoneCallCommand: CommandHandler<IngestPhoneCallInput, IngestPhoneCa
     ensureOrganizationScope(ctx, input.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const existing = await em.findOne(PhoneCall, {
-      providerKey: input.providerKey,
-      externalCallId: input.externalCallId,
-      tenantId: input.tenantId,
-      organizationId: input.organizationId,
-    })
+    const existing = await findOneWithDecryption(
+      em,
+      PhoneCall,
+      {
+        providerKey: input.providerKey,
+        externalCallId: input.externalCallId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      },
+      undefined,
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
     const created = !existing
     const call = existing ?? em.create(PhoneCall, {
       organizationId: input.organizationId,
