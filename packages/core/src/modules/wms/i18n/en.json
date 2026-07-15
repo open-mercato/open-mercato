@@ -229,6 +229,7 @@
   "wms.backend.inventory.adjust.form.notes": "Notes",
   "wms.backend.inventory.adjust.form.notesPlaceholder": "Optional — context for auditors",
   "wms.backend.inventory.adjust.form.reason": "Reason",
+  "wms.backend.inventory.adjust.form.reasonPlaceholder": "Select reason",
   "wms.backend.inventory.adjust.form.serial": "Serial number",
   "wms.backend.inventory.adjust.form.serialHelp": "Use when the variant profile tracks serials.",
   "wms.backend.inventory.adjust.form.serialPlaceholder": "Optional — for serial-tracked variants",
