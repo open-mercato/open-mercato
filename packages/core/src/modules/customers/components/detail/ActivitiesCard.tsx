@@ -10,6 +10,7 @@ import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { ActivitiesDayStrip } from './ActivitiesDayStrip'
 import { ActivitiesAddNewMenu, type ActivityKind } from './ActivitiesAddNewMenu'
 import type { InteractionSummary } from './types'
+import { isOpenInteractionStatus } from '../../lib/interactionStatus'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('customers')
@@ -71,7 +72,7 @@ function isOverdue(activity: InteractionSummary, now: Date): boolean {
   if (!scheduled) return false
   const date = new Date(scheduled)
   if (Number.isNaN(date.getTime())) return false
-  return date.getTime() < now.getTime() && activity.status !== 'done'
+  return date.getTime() < now.getTime() && isOpenInteractionStatus(activity.status)
 }
 
 // Visible window for the day-strip + activity list. Mirrors `VISIBLE_DAYS = 5`
@@ -256,7 +257,7 @@ function PlannedEventRow({ activity, onClick, entityCompanyName, t }: PlannedEve
   const validDate = !Number.isNaN(date.getTime())
   const Icon = TYPE_ICONS[activity.interactionType] ?? Users
   const duration = typeof activity.duration === 'number' && activity.duration > 0 ? activity.duration : null
-  const overdue = validDate && date.getTime() < Date.now() && activity.status !== 'done'
+  const overdue = validDate && date.getTime() < Date.now() && isOpenInteractionStatus(activity.status)
   const typeLabel = labelForType(activity.interactionType, t)
   const subtitleSuffix = activity.dealTitle ?? entityCompanyName ?? null
   const subtitle = subtitleSuffix ? `${typeLabel} · ${subtitleSuffix}` : typeLabel

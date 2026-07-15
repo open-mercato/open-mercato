@@ -75,26 +75,6 @@ export interface ModuleFactSource {
   from?: string
 }
 
-/**
- * @deprecated Superseded by auto-discovery (`discoverPackageModuleSources` in
- * `module-facts-discovery.ts`). Retained as a stable export for one minor; no
- * longer gates which modules receive fact-sheets.
- */
-export const MODULE_FACTS_ALLOWLIST = [
-  'auth',
-  'catalog',
-  'currencies',
-  'customer_accounts',
-  'customers',
-  'data_sync',
-  'integrations',
-  'sales',
-  'workflows',
-] as const
-
-/** @deprecated See {@link MODULE_FACTS_ALLOWLIST}. */
-export type ModuleFactsModuleId = (typeof MODULE_FACTS_ALLOWLIST)[number]
-
 function readSourceFile(filePath: string): ts.SourceFile | null {
   if (!fs.existsSync(filePath)) return null
   const source = fs.readFileSync(filePath, 'utf8')
@@ -959,7 +939,7 @@ export interface ExtractAllModuleFactsOptions {
   registryPath?: string | null
   registrySource?: string | null
   coreVersion?: string | null
-  /** @deprecated Legacy allowlist iteration; only consulted when `sources` is absent. */
+  /** @deprecated Legacy explicit module-id list; only consulted when `sources` is absent. */
   moduleIds?: readonly string[]
 }
 
@@ -973,7 +953,7 @@ export function extractAllModuleFacts(options: ExtractAllModuleFactsOptions): Ex
   const sources: ModuleFactSource[] = options.sources
     ? [...options.sources]
     : (options.coreSrcRoot
-        ? (options.moduleIds ?? MODULE_FACTS_ALLOWLIST).map((moduleId) => ({
+        ? (options.moduleIds ?? []).map((moduleId) => ({
             moduleId,
             moduleRoot: path.join(options.coreSrcRoot as string, moduleId),
           }))
