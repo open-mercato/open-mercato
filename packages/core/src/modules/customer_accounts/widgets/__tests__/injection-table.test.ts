@@ -6,6 +6,25 @@ import type { ModuleInjectionSlot, ModuleInjectionTable } from '@open-mercato/sh
 
 import { injectionTable } from '../injection-table'
 
+const CRUD_FORM_PREFIX = 'crud-form:'
+
+// The suffix grammar CrudFormInjectionSpots can append after the entity id. CrudForm normalizes
+// every ':' in the entity id to '.', so the entity id is always the first ':'-delimited token and
+// anything after it must match one of these shapes.
+const CRUD_FORM_SUFFIX_PATTERNS = [
+  /^$/,
+  /^(fields|header|footer|sidebar|before-fields|after-fields)$/,
+  /^group:[^:]+$/,
+  /^field:[^:]+:(before|after)$/,
+]
+
+function isReachableCrudFormSpot(spotId: string): boolean {
+  const rest = spotId.slice(CRUD_FORM_PREFIX.length)
+  const separatorIndex = rest.indexOf(':')
+  const suffix = separatorIndex === -1 ? '' : rest.slice(separatorIndex + 1)
+  return CRUD_FORM_SUFFIX_PATTERNS.some((pattern) => pattern.test(suffix))
+}
+
 function expectSingleGroupWidget(
   table: ModuleInjectionTable,
   spotId: string,
@@ -25,12 +44,8 @@ function expectSingleGroupWidget(
 }
 
 describe('customer_accounts injection table', () => {
-  it('registers the account-status widget on current v2 and legacy customer person form spots', () => {
-    for (const spotId of [
-      'customers.person',
-      'crud-form:customers.person',
-      'crud-form:customers:customer_person_profile:fields',
-    ]) {
+  it('registers the account-status widget on the spots the person detail host requests', () => {
+    for (const spotId of ['customers.person', 'crud-form:customers.person']) {
       expectSingleGroupWidget(
         injectionTable,
         spotId,
@@ -40,12 +55,8 @@ describe('customer_accounts injection table', () => {
     }
   })
 
-  it('registers the company-users widget on current v2 and legacy customer company form spots', () => {
-    for (const spotId of [
-      'customers.company',
-      'crud-form:customers.company',
-      'crud-form:customers:customer_company_profile:fields',
-    ]) {
+  it('registers the company-users widget on the spots the company detail host requests', () => {
+    for (const spotId of ['customers.company', 'crud-form:customers.company']) {
       expectSingleGroupWidget(
         injectionTable,
         spotId,
@@ -53,5 +64,30 @@ describe('customer_accounts injection table', () => {
         'customer_accounts.widgets.portalUsers',
       )
     }
+  })
+
+  // Regression guard for #3952: CrudForm builds its spot id as `crud-form:${entityId}` with every
+  // ':' normalized to '.', so a key carrying an un-normalized (colon-form) entity id is unreachable
+  // by construction — no host can ever request it. Two such keys shipped as dead "backward
+  // compatible" registrations.
+  it('registers crud-form spots only in the normalized form CrudForm can emit', () => {
+    const unreachable = Object.keys(injectionTable)
+      .filter((spotId) => spotId.startsWith(CRUD_FORM_PREFIX))
+      .filter((spotId) => !isReachableCrudFormSpot(spotId))
+
+    expect(unreachable).toEqual([])
+  })
+
+  it('accepts the structured crud-form suffixes CrudFormInjectionSpots can emit', () => {
+    for (const spotId of [
+      'crud-form:customers.person',
+      'crud-form:customers.person:fields',
+      'crud-form:customers.person:group:details',
+      'crud-form:customers.person:field:email:before',
+    ]) {
+      expect(isReachableCrudFormSpot(spotId)).toBe(true)
+    }
+
+    expect(isReachableCrudFormSpot('crud-form:customers:customer_person_profile:fields')).toBe(false)
   })
 })

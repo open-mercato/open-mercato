@@ -5,6 +5,7 @@ import { InboxEmail } from '../../data/entities'
 import { emailListQuerySchema } from '../../data/validators'
 import { resolveRequestContext, UnauthorizedError } from '../routeHelpers'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { canViewEmailContent, serializeInboxEmail } from './response'
 
 const logger = createLogger('inbox_ops').child({ component: 'emails' })
 
@@ -34,6 +35,7 @@ export async function GET(req: Request) {
     }
 
     const offset = (query.page - 1) * query.pageSize
+    const includeContent = await canViewEmailContent(ctx)
 
     const [items, total] = await findAndCountWithDecryption(
       ctx.em,
@@ -48,7 +50,7 @@ export async function GET(req: Request) {
     )
 
     return NextResponse.json({
-      items,
+      items: items.map((email) => serializeInboxEmail(email, includeContent)),
       total,
       page: query.page,
       pageSize: query.pageSize,
