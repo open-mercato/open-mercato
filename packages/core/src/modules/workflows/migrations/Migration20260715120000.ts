@@ -86,11 +86,14 @@ export function buildLegacyCheckoutRepairSql(): string {
  * as the code-defined workflow. The DB-first lookup shadows the current code
  * definition, including its obsolete external inventory webhook.
  *
- * The persisted row must remain active because existing workflow runtime
- * handlers resolve transitions by definition_id. The migration removes the
- * activity arrays from the three transitions that the maintained code
- * definition intentionally made side-effect-free, preserving the row and all
- * historical instance references while keeping the demo self-contained.
+ * The persisted row must remain active because historical and in-flight
+ * workflow instances reference it by definition_id — a random UUID the
+ * code-registry fallback in find-definition.ts deliberately never substitutes.
+ * The migration removes the activity arrays from the three transitions that
+ * the maintained code definition intentionally made side-effect-free,
+ * preserving the row and all instance references while keeping the demo
+ * self-contained. (Fresh installs never had this row; they execute the virtual
+ * code definition directly via findDefinitionForInstance.)
  *
  * `confirmation_to_end` is deliberately NOT rebuilt: unlike the three stripped
  * transitions it still holds activities in the maintained code definition, and
