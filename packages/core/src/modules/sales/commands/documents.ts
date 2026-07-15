@@ -4738,10 +4738,14 @@ const createQuoteCommand: CommandHandler<
           linkHref: `/backend/sales/quotes/${quote.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: quote.tenantId,
-          organizationId: quote.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: quote.tenantId,
+            organizationId: quote.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
@@ -5741,10 +5745,14 @@ const createOrderCommand: CommandHandler<
           linkHref: `/backend/sales/orders/${order.id}`,
         });
 
-        await notificationService.createForFeature(notificationInput, {
-          tenantId: order.tenantId,
-          organizationId: order.organizationId ?? null,
-        });
+        // Bulk-import backfills opt out of the per-record notification fan-out (and its inline
+        // e-mail delivery); interactive creates are unaffected.
+        if (!ctx.bulkImport?.skipNotifications) {
+          await notificationService.createForFeature(notificationInput, {
+            tenantId: order.tenantId,
+            organizationId: order.organizationId ?? null,
+          });
+        }
       }
     } catch (err) {
       // Notification creation is non-critical, don't fail the command
