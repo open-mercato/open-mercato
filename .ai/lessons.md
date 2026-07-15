@@ -973,3 +973,13 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 - 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
 - 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
 - 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Validate persisted-definition consumers before retiring legacy workflow rows
+
+**Context**: A legacy seeded checkout definition shadowed a newer code-defined workflow and carried obsolete webhook activities. Soft-deleting the row looked like the smallest way to restore code-registry fallback.
+
+**Problem**: Workflow start lookup supports code definitions, but transition, task, signal, and timer execution still resolve running instances through the persisted `definition_id`. Removing the legacy row would replace the webhook failure with missing-definition or no-transition failures after start.
+
+**Rule**: Before deleting or soft-deleting a persisted workflow that has a code-defined counterpart, trace every runtime consumer of `WorkflowInstance.definitionId`. Until all consumers support code-registry fallback or an instance snapshot, repair the persisted definition payload in place and preserve its identity and historical references.
+
+**Applies to**: workflow data migrations, code-defined workflow adoption, `workflow-executor`, transition/task/signal/timer handlers, and demo workflow upgrades.
