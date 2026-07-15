@@ -226,6 +226,8 @@ export default function OperatorsConfigWidget(
               <span>{t('tillio.operators.ringostatKey', 'Ringostat key')}</span>
             </Label>
             <Input
+              type="password"
+              autoComplete="off"
               value={keyInput}
               onChange={(event) => setKeyInput(event.target.value)}
               placeholder={t('tillio.operators.ringostatKeyPlaceholder', 'Paste the Ringostat integration key')}

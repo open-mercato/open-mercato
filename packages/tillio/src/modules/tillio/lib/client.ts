@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { fetchWithTimeout, FetchTimeoutError } from '@open-mercato/shared/lib/http/fetchWithTimeout'
 import { TillioApiError } from './errors'
+import { assertPublicTillioApiUrl } from './url-guard'
 
 const TILLIO_REQUEST_TIMEOUT_MS = 15_000
 const TILLIO_MIN_REQUEST_SPACING_MS = 200
@@ -78,6 +79,9 @@ export function createTillioClient(environment: TillioClientEnvironment) {
   if (!apiUrl) throw new Error('Tillio environment is missing the API URL.')
   if (!apiKey) throw new Error('Tillio environment is missing the API key.')
   if (!tenantSystemId) throw new Error('Tillio environment is missing the tenant system id.')
+  // SSRF guard: apiUrl is user-supplied, so reject loopback/private/link-local targets
+  // before any request goes out (covers health check, validate, attach/detach, pull).
+  assertPublicTillioApiUrl(apiUrl)
 
   let lastRequestAt = 0
 

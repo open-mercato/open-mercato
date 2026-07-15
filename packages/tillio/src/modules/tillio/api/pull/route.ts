@@ -12,6 +12,7 @@ import {
   PHONE_CALLS_CALL_INGEST_COMMAND_ID,
   type IngestPhoneCallResult,
 } from '@open-mercato/core/modules/phone_calls/commands/calls'
+import { emitPhoneCallsEvent } from '@open-mercato/core/modules/phone_calls/events'
 import { TILLIO_INTEGRATION_ID } from '../../lib/environment'
 import { TillioApiError } from '../../lib/errors'
 import { tillioAdapter } from '../../lib/adapter'
@@ -231,6 +232,13 @@ export async function POST(req: Request) {
       else updated += 1
     } catch {
       failed += 1
+      // Keep a forensic trail for the swallowed failure (event carries no PII).
+      await emitPhoneCallsEvent('phone_calls.call.ingest_failed', {
+        providerKey: TILLIO_PROVIDER_KEY,
+        externalCallId: call.externalCallId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+      }).catch(() => undefined)
     }
   }
 
