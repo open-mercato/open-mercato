@@ -1,5 +1,5 @@
 import { describe, expect, jest, test } from '@jest/globals'
-import { Migration20260715120000 } from '../Migration20260715120000'
+import { Migration20260715120000, buildLegacyCheckoutRepairSql } from '../Migration20260715120000'
 
 async function collectSql(direction: 'up' | 'down'): Promise<string> {
   const migration = Object.create(Migration20260715120000.prototype) as Migration20260715120000
@@ -32,6 +32,13 @@ describe('Migration20260715120000', () => {
       `"activity"."value"#>>'{config,url}' = '{{env.INVENTORY_SERVICE_URL}}/api/inventory/reserve'`,
     )
     expect(sql).not.toContain('set "deleted_at"')
+  })
+
+  test('up() emits exactly the shared repair SQL (single source of truth)', async () => {
+    const emitted = await collectSql('up')
+    const builder = buildLegacyCheckoutRepairSql().replace(/\s+/g, ' ').trim()
+
+    expect(emitted).toBe(builder)
   })
 
   test('is forward-only so rollback cannot restore obsolete external webhooks', async () => {

@@ -440,7 +440,13 @@ The migration narrowly matches the original seed by workflow ID, name, version, 
 - keeps the checkout demo self-contained without weakening the shared outbound URL guard;
 - leaves user-created definitions and already-customized code overrides untouched.
 
+`confirmation_to_end` is intentionally left as-is. Unlike the three stripped transitions it still carries activities in the maintained code definition (`create_order`, `send_confirmation_email`), and its only legacy-vs-code divergence is an extra internal `emit_order_completed` (`EMIT_EVENT`) that issues no external request and cannot trip the outbound URL guard. Removing whole `activities` arrays is safe; per-activity surgery to prune one harmless internal event would add fragility for no runtime benefit, so it is out of scope.
+
+The narrow match is a deliberate safety-over-coverage trade-off: a tenant whose persisted row diverges from the fingerprint (renamed, re-versioned, or a different webhook URL) is left untouched rather than risk mutating a row that is not the known-broken seed.
+
 The data repair is forward-only: the obsolete external activity payloads cannot be reconstructed safely, and restoring them would re-open the checkout failure.
+
+**Coverage.** The SQL is the whole risk surface, so it is exported (`buildLegacyCheckoutRepairSql`) and exercised directly: `Migration20260715120000.test.ts` asserts the rendered SQL and that `up()` emits exactly the exported builder; `__integration__/TC-WF-031` seeds a legacy-shaped row plus four control rows (code override, different URL, wrong version, soft-deleted), runs the exported SQL against Postgres, and asserts the transformed `definition` (three transitions stripped, order and `preConditions` preserved, `confirmation_to_end` intact, no webhook URL surviving) while every control row stays untouched. `TC-WF-030` covers the maintained code definition end-to-end.
 
 ### Backward Compatibility
 
@@ -694,3 +700,4 @@ None.
 ### 2026-07-15
 
 - Fixed issue #4179 for upgraded tenants by adding `Migration20260715120000`, which sanitizes only the exact legacy checkout seed containing the obsolete `reserve_inventory` webhook. The migration preserves the persisted row required by runtime transition lookup and removes the three legacy activity arrays that no longer exist in the maintained, self-contained demo flow.
+- Exported the repair as `buildLegacyCheckoutRepairSql()` and added `__integration__/TC-WF-031`, a DB-level regression that runs the exact SQL against Postgres over a seeded legacy row plus code-override / different-URL / wrong-version / soft-deleted control rows, asserting the jsonb transformation and that every guard holds. Documented `confirmation_to_end` being left intact (only an internal `emit_order_completed` diverges) and the narrow-match safety trade-off.
