@@ -47,6 +47,23 @@ import type {
   AiPendingActionQueueMode,
 } from '../pending-action-types'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 type Row = {
   id: string
   tenantId: string
@@ -378,7 +395,8 @@ describe('prepareMutation', () => {
   it('missing loadBeforeRecord: ships fieldDiff=[] + sideEffectsSummary warning + still creates the pending row', async () => {
     const em = mockEm()
     const container = makeContainer(em)
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    const warnSpy = testLogger.warn
+    warnSpy.mockClear()
     const tool = makeTool({
       name: 'catalog.products.update',
       isMutation: true,
@@ -538,12 +556,13 @@ describe('prepareMutation', () => {
 })
 
 describe('resolveAiAgentTools mutation interception (Step 5.6)', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
 
   beforeEach(() => {
     resetAgentRegistryForTests()
     toolRegistry.clear()
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    warnSpy = testLogger.warn
+    warnSpy.mockClear()
   })
 
   afterEach(() => {

@@ -15,6 +15,9 @@ import {
   sidebarVariantRecordSchema,
 } from '../../../data/validators'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'sidebar-variants' })
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -125,8 +128,7 @@ export async function POST(req: Request) {
         { status: 409 },
       )
     }
-    // eslint-disable-next-line no-console
-    console.error('[sidebar-variants POST] failed', err)
+    logger.error('Sidebar variants update failed', { err })
     return NextResponse.json({ error: message }, { status: 500 })
   }
 }

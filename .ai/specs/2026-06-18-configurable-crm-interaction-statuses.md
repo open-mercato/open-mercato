@@ -45,6 +45,10 @@ contract surface (`interactionStatusValues`) and is handled with a deprecation b
   `status: z.string().max(50).optional()`). The `interaction-statuses` dictionary drives the UI
   dropdown only; the API accepts any string ≤50 chars (no strict 422). Keeps BC for existing rows /
   external writers and keeps the `dispatch-crm` MCP working unchanged.
+- **Q4 — Rich picker is canonical-only.** The task-form status `<select>` renders only when the
+  tenant is on the canonical interactions path (`interactionMode === 'canonical'`); the legacy path
+  keeps the done checkbox, because the deprecated `/api/customers/todos` bridge cannot round-trip
+  non-binary statuses. See [Interaction-mode constraint](#interaction-mode-constraint-legacy-vs-canonical).
 
 ## Problem statement
 
@@ -195,12 +199,35 @@ dictionary map, mirroring deals (`createDictionarySelectLabels('deal-statuses')`
 `mapDictionaryColorToTone`). Surfaces: `TasksSection.tsx`, `ActivityCard.tsx`, `ActivityTimeline.tsx`,
 and any task list/detail that shows a status. The task create/edit form (a `CrudForm`) gains a status
 `<select>` populated from the fetched dictionary options (today there is no status picker for tasks).
+**The rich picker renders only on the canonical interactions path (`interactionMode === 'canonical'`);
+on the legacy path the form keeps the existing done checkbox — see
+[Interaction-mode constraint](#interaction-mode-constraint-legacy-vs-canonical).**
 DS: `StatusBadge` + semantic tones only, no hardcoded status colors; the form is a `CrudForm`, so
 `Cmd/Ctrl+Enter` submit and `Escape` cancel are inherited.
 
 The legacy flat keys `customers.interactions.status.{planned,done,canceled}` stay as fallback labels
 for any surface not yet dictionary-driven; the stored, tenant-editable dictionary label takes
 precedence when present, same as deals.
+
+## Interaction-mode constraint (legacy vs canonical)
+
+Rich dictionary statuses are a **canonical-interactions** feature. The customers module still ships a
+legacy interactions path, gated by the pre-existing `customers.interactions.unified` feature flag
+(`lib/interactionFeatureFlags.ts:33`, default **off**, introduced by SPEC-046b — not by this spec).
+On the legacy path, task writes go through the deprecated `/api/customers/todos` bridge, which
+represents a task as a binary done/not-done todo: `in_progress`/`waiting`/custom statuses persist to
+canonical storage but are flattened on read-back, so the picker cannot round-trip them.
+
+**Decision (Q4):** the task-form status `<select>` renders **only when `interactionMode === 'canonical'`**
+— the discriminator already returned by the people/companies detail GET (`api/people/[id]/route.ts:453`).
+On the legacy path the form keeps the existing done checkbox. This removes a misleading control rather
+than expanding the deprecated bridge. Writes are already canonical-only, so this is purely a
+read/render gate.
+
+Making canonical the default and retiring the legacy path is **out of scope here** and tracked in
+[`2026-06-18-customers-interactions-legacy-removal.md`](2026-06-18-customers-interactions-legacy-removal.md)
+(the SPEC-046b completion follow-up), which first closes four preconditions: the lossy backfill, two
+legacy-only AI tools, the bridge deprecation protocol, and the default flip + legacy table removal.
 
 ## AI tool pack
 
@@ -359,6 +386,10 @@ helper/validator drift at build time.
 - `dispatch-crm` MCP tools for arbitrary status transitions (separate repo; follow-up).
 - Per-status semantic metadata editable by tenants (that was Option B; rejected for cost).
 - Workflow/automation triggers on specific interaction statuses.
+- Retiring the legacy interactions path / flipping `customers.interactions.unified` to canonical —
+  tracked separately in
+  [`2026-06-18-customers-interactions-legacy-removal.md`](2026-06-18-customers-interactions-legacy-removal.md)
+  (the SPEC-046b completion follow-up).
 
 ## Final Compliance Report — 2026-06-18
 
@@ -415,6 +446,18 @@ audit + gap analysis) before Phase 1, given the contract-surface touch on `inter
   `.ai/specs/analysis/ANALYSIS-2026-06-18-configurable-crm-interaction-statuses.md`): verdict **ready
   to implement**, no BC blockers, no test breakage. Folded R6 (query-index upsert on projection
   broadening) and R7 (next-interaction ordering) into Phase 2 and the risk table.
+- **2026-06-18** — Implemented all five phases (`om-implement-spec`). Dictionary-backed interaction
+  statuses are live: seeded `interaction-statuses` dictionary, lenient validator, unified
+  open/terminal helper, broadened open-set call sites, settings management UI, task-form status
+  picker + `StatusBadge` rendering, existing-tenant upgrade action, AI-tool filter fix, and the
+  `@deprecated` bridge on `interactionStatusValues`. R7 resolved as scheduled-only for the
+  next-interaction projection. See the Implementation Status section.
+- **2026-06-18** — Recorded the interaction-mode constraint (Q4): the rich status picker renders only
+  on the canonical path (`interactionMode === 'canonical'`); legacy keeps the done checkbox. Added the
+  [Interaction-mode constraint](#interaction-mode-constraint-legacy-vs-canonical) section and
+  cross-linked the new legacy-removal follow-up spec
+  ([`2026-06-18-customers-interactions-legacy-removal.md`](2026-06-18-customers-interactions-legacy-removal.md)).
+  Picker-gating implementation is pending.
 
 ### Review — 2026-06-18
 - **Reviewer**: Agent
@@ -424,3 +467,28 @@ audit + gap analysis) before Phase 1, given the contract-surface touch on `inter
 - **Commands**: Passed (no new mutation; reuses existing undoable commands)
 - **Risks**: Passed (split-brain open-definition is the tracked primary risk R1, mitigated by Phase 2 + the helper)
 - **Verdict**: Approved — ready for implementation (recommend `om-pre-implement-spec` first)
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|-------|--------|------|-------|
+| Phase 1 — Semantics helper + enricher refactor | Done | 2026-06-18 | `lib/interactionStatus.ts` added; enricher, commands, link-channel handler reference the helper. Pure refactor, identical values. Unit-tested. |
+| Phase 2 — Close the open-set gap | Done | 2026-06-18 | Projection (scheduled-only per resolved decision), conflicts, counts (`open` bucket + `planned` alias), people/companies upcoming, and UI mark-done/overdue predicates broadened to `isOpenInteractionStatus` / `NOT IN terminal`. R6 already satisfied (`emitNextInteractionUpdatedEvent` emits the query-index upsert). |
+| Phase 3 — Dictionary + seed + validators | Done | 2026-06-18 | `INTERACTION_STATUS_DEFAULTS` + seed loop; kind registered in `DICTIONARY_KINDS`/`KIND_MAP`/`BUILTIN_DICTIONARY_ROUTE_KINDS`/`CUSTOMER_DICTIONARY_KINDS`; validators lenient `z.string().max(50)`. Seed + validator-widening unit tests. |
+| Phase 4 — Management UI + task status picker + rendering | Done | 2026-06-18 | "Interaction statuses" sections added to `DictionarySettings` + `DictionarySortSettings`; task `CrudForm` gains a dictionary-driven status `<select>` (canonical path carries `base.status`; legacy `is_done` kept in sync); `StatusBadge` rendered in `TasksSection`. i18n keys added across all 4 locales. |
+| Phase 5 — Backfill + AI tool + deprecation | Done | 2026-06-18 | Idempotent `customers.seed-interaction-statuses` upgrade action (v0.6.5, lazy-loads customers helpers to keep configs decoupled); AI tool filter widened + spelling-aligned (`open` → non-terminal, `done`/`canceled`, `cancelled` alias); `interactionStatusValues`/`InteractionStatus` marked `@deprecated` (contents unchanged). Optional `completed → done` row backfill intentionally skipped (helper tolerates `completed`). |
+
+> **Pending follow-up (this spec):** the task-form status picker currently renders unconditionally.
+> Per the [Interaction-mode constraint](#interaction-mode-constraint-legacy-vs-canonical) it MUST be
+> gated to `interactionMode === 'canonical'` (legacy keeps the done checkbox) before this spec ships.
+> Not yet implemented.
+
+### Verification (2026-06-18)
+- `tsc --noEmit -p packages/core` — 0 errors (after `yarn generate` cleared pre-existing stale `staff` entity-id drift).
+- `yarn build:packages` — 21/21 packages built.
+- Unit/component tests — 148 customers suites / 855 tests green, plus AI-tool, upgrade-actions, and module-decoupling suites.
+- `yarn i18n:check` — 0 missing keys (non-English value coverage is the advisory Phase-1 metric; new keys land as EN placeholders awaiting translation).
+- Lint not run: the environment's `eslint-plugin-react@7.37.5` is incompatible with the pinned `eslint@10.5.0` (calls the removed `context.getFilename`), which breaks linting for every file repo-wide — unrelated to this change.
+- Integration tests (Playwright API specs) — **executed green against the ephemeral app** (6/6 at `--retries=0`): `TC-CRM-084` (interaction-statuses dictionary GET seeded set + custom-status POST/PATCH/DELETE), `TC-CRM-085` (set/read-back `in_progress` + custom status, complete→`done`, cancel→`canceled`, counts `open` bucket includes/`done` excludes an in_progress task), `TC-CRM-086` (deal `_pipeline.openActivitiesCount` counts an in_progress interaction). Self-contained (API fixtures, cleanup in `finally`). Run with `OM_INTEGRATION_MODULES=customers yarn test:integration:ephemeral`.
+- Settings "Interaction statuses" section render is covered deterministically by the **component test** (`components/__tests__/DictionarySettings.test.tsx`). A browser-driven integration variant was prototyped but dropped: it hit OM's known auth/session flakiness (post-login `/login` bounce under combined-run DB load) — the same class the shared `login` helper and `retries: 1` config are built to absorb — so the deterministic component test is the better fit.
+- Remaining browser-only UI flows (task-create-as-`waiting`, mark-done on an `in_progress` task) are not authored as Playwright specs; the task-form status select + badge logic is covered by component tests, and full persistence of non-binary statuses additionally depends on the tenant's `interactionMode === 'canonical'`.

@@ -2,9 +2,11 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { extractUndoPayload, type UndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Message, MessageObject, MessageRecipient } from '../data/entities'
 import { emitMessagesEvent } from '../events'
+import { MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND } from '../lib/constants'
 import {
   findResolvedMessageActionById,
   isMessageSafeCommandId,
@@ -15,6 +17,9 @@ import {
 } from '../lib/actions'
 import { getMessageType } from '../lib/message-types-registry'
 import { assertOrganizationAccess, type MessageScopeInput } from './shared'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('messages').child({ component: 'actions' })
 
 const actionStateSnapshotSchema = z.object({
   actionTaken: z.string().nullable(),
@@ -223,6 +228,18 @@ const executeActionCommand: CommandHandler<
     const input = executeActionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const message = await requireActionMessage(em, input)
+
+    // Reject a stale action: if the message changed since the actor's tab loaded
+    // it (and the client sent the expected version), fail with the structured 409
+    // conflict instead of acting on an out-of-date aggregate. Strictly additive —
+    // a no-op for callers that don't send the optimistic-lock header.
+    enforceCommandOptimisticLock({
+      resourceKind: MESSAGE_OPTIMISTIC_LOCK_RESOURCE_KIND,
+      resourceId: message.id,
+      current: message.updatedAt,
+      request: ctx.request ?? null,
+    })
+
     const objects = await em.find(MessageObject, { messageId: message.id })
     const action = findResolvedMessageActionById(message, objects, input.actionId)
 
@@ -357,7 +374,7 @@ const executeActionCommand: CommandHandler<
         result = (commandResult.result as Record<string, unknown>) ?? {}
         operationLogEntry = commandResult.logEntry ?? null
       } catch (err) {
-        console.error('[messages] executeActionCommand sub-command failed', err)
+        logger.error('executeActionCommand sub-command failed', { err })
         // The target command never completed — release the reservation so the
         // action stays retryable, matching the pre-claim failure semantics.
         await releaseTerminalClaim()

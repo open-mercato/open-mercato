@@ -7,6 +7,9 @@ import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacS
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
 import type { CacheStrategy } from '@open-mercato/cache'
 import { parseSelectedOrganizationCookie, parseSelectedTenantCookie } from './scopeCookies'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('directory').child({ component: 'org-scope-cache' })
 
 export { parseSelectedOrganizationCookie, parseSelectedTenantCookie }
 
@@ -99,7 +102,7 @@ export async function invalidateOrganizationScopeCacheForUser(
   try {
     await cache.deleteByTags([buildOrgScopeUserCacheTag(userId)])
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate user failed', err)
+    logger.warn('Cache invalidate user failed', { err })
   }
 }
 
@@ -112,7 +115,7 @@ export async function invalidateOrganizationScopeCacheForTenant(
   try {
     await cache.deleteByTags([buildOrgScopeTenantCacheTag(tenantId)])
   } catch (err) {
-    console.warn('[org-scope:cache] invalidate tenant failed', err)
+    logger.warn('Cache invalidate tenant failed', { err })
   }
 }
 
@@ -453,7 +456,7 @@ export async function resolveOrganizationScopeForRequest({
         const cached = await cache.get(cacheKey)
         if (isValidCachedScope(cached)) return cached
       } catch (err) {
-        console.warn('[org-scope:cache] read failed', err)
+        logger.warn('Cache read failed', { err })
       }
     }
 
@@ -472,7 +475,7 @@ export async function resolveOrganizationScopeForRequest({
           tags: buildOrgScopeCacheTags({ userId, effectiveTenantId }),
         })
       } catch (err) {
-        console.warn('[org-scope:cache] write failed', err)
+        logger.warn('Cache write failed', { err })
       }
     }
 

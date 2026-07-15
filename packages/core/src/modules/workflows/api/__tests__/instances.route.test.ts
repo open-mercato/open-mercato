@@ -362,6 +362,35 @@ describe('Workflow Instances API', () => {
       )
     })
 
+    test('should not trust caller supplied initiatedBy metadata', async () => {
+      (workflowExecutor.startWorkflow as jest.Mock).mockResolvedValue(mockInstance);
+      (workflowExecutor.executeWorkflow as jest.Mock).mockResolvedValue(mockExecutionResult)
+
+      const request = new NextRequest('http://localhost/api/workflows/instances', {
+        method: 'POST',
+        body: JSON.stringify({
+          workflowId: 'checkout',
+          initialContext: {},
+          metadata: {
+            entityType: 'order',
+            initiatedBy: 'admin-user-id',
+          },
+        }),
+      })
+
+      await startInstance(request)
+
+      expect(workflowExecutor.startWorkflow).toHaveBeenCalledWith(
+        mockEm,
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            entityType: 'order',
+            initiatedBy: testUserId,
+          }),
+        })
+      )
+    })
+
     test('should require create permission', async () => {
       mockRbacService.userHasAllFeatures.mockResolvedValue(false)
 

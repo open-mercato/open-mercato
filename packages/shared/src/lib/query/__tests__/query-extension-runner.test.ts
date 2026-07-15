@@ -14,6 +14,22 @@ import {
   runAfterQueryPipeline,
 } from '../query-extension-runner'
 import type { SyncQueryEventPayload } from '../sync-query-event-types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerError = createLogger('shared').error as jest.Mock
+const loggerWarn = createLogger('shared').warn as jest.Mock
+
 
 const ctx = { resolve: jest.fn() }
 
@@ -204,7 +220,7 @@ describe('runBeforeQueryEvent', () => {
   })
 
   it('catches thrown errors and returns blocked', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     registerSyncSubscribers([
       makeQuerySub(
         'customers.person.querying',
@@ -217,7 +233,6 @@ describe('runBeforeQueryEvent', () => {
     const result = await runBeforeQueryEvent(payload, ctx)
     expect(result.ok).toBe(false)
     expect(result.errorStatus).toBe(500)
-    consoleSpy.mockRestore()
   })
 })
 
@@ -266,7 +281,7 @@ describe('runAfterQueryEvent', () => {
   })
 
   it('rejects invalid modifiedResult shape', async () => {
-    const consoleSpy = jest.spyOn(console, 'warn').mockImplementation()
+    loggerWarn.mockClear()
     registerSyncSubscribers([
       makeQuerySub(
         'customers.person.queried',
@@ -278,14 +293,14 @@ describe('runAfterQueryEvent', () => {
     const payload = makeQueriedPayload()
     const result = await runAfterQueryEvent(payload, ctx)
     expect(result.modifiedResult).toBeUndefined()
-    expect(consoleSpy).toHaveBeenCalledWith(
+    expect(loggerWarn).toHaveBeenCalledWith(
       expect.stringContaining('invalid modifiedResult shape'),
+      expect.objectContaining({ subscriberId: expect.any(String) }),
     )
-    consoleSpy.mockRestore()
   })
 
   it('continues on subscriber error', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
+    loggerError.mockClear()
     const handler2 = jest.fn().mockResolvedValue({
       modifiedResult: {
         items: [{ id: '1', transformed: true }],
@@ -307,7 +322,6 @@ describe('runAfterQueryEvent', () => {
     const result = await runAfterQueryEvent(payload, ctx)
     expect(handler2).toHaveBeenCalled()
     expect(result.modifiedResult).toBeDefined()
-    consoleSpy.mockRestore()
   })
 })
 

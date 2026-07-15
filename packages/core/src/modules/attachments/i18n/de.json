@@ -5,6 +5,7 @@
   "attachments.errors.maxUploadSize": "Der Anhang überschreitet die maximal zulässige Upload-Größe.",
   "attachments.errors.publicPartitionBlocked": "Öffentliche Speicherpartitionen können für diesen Upload nicht explizit ausgewählt werden.",
   "attachments.errors.quotaExceeded": "Das Speicherlimit für Anhänge dieses Tenants wurde überschritten.",
+  "attachments.errors.selectOrganization": "Wählen Sie eine bestimmte Organisation aus, bevor Sie einen Anhang hochladen.",
   "attachments.library.actions.copied": "Link kopiert.",
   "attachments.library.actions.copyError": "Link konnte nicht kopiert werden.",
   "attachments.library.actions.copyUrl": "URL kopieren",

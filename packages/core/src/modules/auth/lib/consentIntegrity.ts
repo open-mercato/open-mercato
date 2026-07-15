@@ -1,4 +1,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('auth').child({ component: 'consent-integrity' })
 
 type ConsentHashInput = {
   userId: string
@@ -27,10 +30,7 @@ function getSecret(): string {
     }
     if (!missingSecretWarned) {
       missingSecretWarned = true
-      console.warn(
-        '[consentIntegrity] No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — ' +
-        'using insecure dev-only default. Set a secret before deploying to production.',
-      )
+      logger.warn('No CONSENT_INTEGRITY_SECRET/AUTH_SECRET/NEXTAUTH_SECRET/JWT_SECRET set — using insecure dev-only default. Set a secret before deploying to production.')
     }
     return DEV_ONLY_SECRET
   }

@@ -25,6 +25,9 @@ import {
 } from '@open-mercato/core/modules/dictionaries/components/dictionaryAppearance'
 import { SALES_DOCUMENT_NUMBER_COLUMN_META } from './salesDocumentsColumns'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type SalesDocumentKind = 'order' | 'quote'
 
@@ -259,7 +262,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       const entries = normalizeDictionaryEntries(response.result?.items ?? [], { sort: false })
       setStatusMap(createDictionaryMap(entries))
     } catch (err) {
-      console.error('sales.documents.statuses.load', err)
+      logger.error('sales.documents.statuses.load', { err })
       setStatusMap({})
     }
   }, [])
@@ -498,7 +501,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
       setTotalPages(pages)
       setCacheStatus(call.cacheStatus ?? null)
     } catch (err) {
-      console.error('sales.documents.list', err)
+      logger.error('sales.documents.list', { err })
       flash(t('sales.documents.list.errors.load', 'Failed to load documents.'), 'error')
     } finally {
       setLoading(false)
@@ -563,7 +566,7 @@ export function SalesDocumentsTable({ kind }: { kind: SalesDocumentKind }) {
           handleRefresh()
         }
       } catch (err) {
-        console.error('sales.documents.delete', err)
+        logger.error('sales.documents.delete', { err })
         flash(t('sales.documents.list.table.deleteError', 'Failed to delete document.'), 'error')
       }
     },

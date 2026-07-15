@@ -58,6 +58,9 @@ import {
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
 import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type DocumentKind = 'quote' | 'order'
 
@@ -166,6 +169,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     async (values: PersonFormValues) => {
       setSaving(true)
       try {
+        const addresses = Array.isArray(values.addresses) ? values.addresses : []
         const payload = buildPersonPayload(values, organizationId)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
           errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
@@ -175,6 +179,51 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
           (result && typeof result.id === 'string' && result.id) ||
           null
         if (!id) throw new Error('Missing customer id')
+        if (addresses.length) {
+          const normalize = (value?: string | null) => {
+            if (typeof value !== 'string') return undefined
+            const trimmed = value.trim()
+            return trimmed.length ? trimmed : undefined
+          }
+          for (const entry of addresses) {
+            const normalizedLine1 = normalize(entry.addressLine1)
+            if (!normalizedLine1) continue
+            const body: Record<string, unknown> = {
+              entityId: id,
+              ...(organizationId ? { organizationId } : {}),
+              addressLine1: normalizedLine1,
+              isPrimary: entry.isPrimary ?? false,
+            }
+            const name = normalize(entry.name)
+            if (name !== undefined) body.name = name
+            const purpose = normalize(entry.purpose)
+            if (purpose !== undefined) body.purpose = purpose
+            const line2 = normalize(entry.addressLine2)
+            if (line2 !== undefined) body.addressLine2 = line2
+            const buildingNumber = normalize(entry.buildingNumber)
+            if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
+            const flatNumber = normalize(entry.flatNumber)
+            if (flatNumber !== undefined) body.flatNumber = flatNumber
+            const city = normalize(entry.city)
+            if (city !== undefined) body.city = city
+            const region = normalize(entry.region)
+            if (region !== undefined) body.region = region
+            const postalCode = normalize(entry.postalCode)
+            if (postalCode !== undefined) body.postalCode = postalCode
+            const country = normalize(entry.country)
+            if (country !== undefined) body.country = country.toUpperCase()
+            if (typeof entry.latitude === 'number') body.latitude = entry.latitude
+            if (typeof entry.longitude === 'number') body.longitude = entry.longitude
+            try {
+              await createCrud('customers/addresses', body)
+            } catch (addressErr) {
+              const message =
+                (addressErr instanceof Error && addressErr.message ? addressErr.message : null) ||
+                t('customers.people.detail.addresses.error')
+              flash(message, 'error')
+            }
+          }
+        }
         const displayName =
           typeof values.displayName === 'string' && values.displayName.trim().length
             ? values.displayName.trim()
@@ -189,7 +238,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
         })
         closeDialog()
       } catch (err) {
-        console.error('sales.documents.quickCreate.person', err)
+        logger.error('sales.documents.quickCreate.person', { err })
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -233,7 +282,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
         })
         closeDialog()
       } catch (err) {
-        console.error('sales.documents.quickCreate.company', err)
+        logger.error('sales.documents.quickCreate.company', { err })
         const message =
           err instanceof Error && err.message
             ? err.message
@@ -453,7 +502,7 @@ function DocumentNumberField({ value, setValue, values, t }: DocumentNumberField
         setError(call.result?.error || t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
       }
     } catch (err) {
-      console.error('sales.documents.generateNumber', err)
+      logger.error('sales.documents.generateNumber', { err })
       setError(t('sales.documents.form.errors.numberGenerate', 'Could not generate a document number.'))
     } finally {
       setLoading(false)
@@ -642,7 +691,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
               if (primary) {
                 setValue('shippingAddressId', primary.id)
               }
-            }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
+            }).catch((err) => { logger.error('sales.documents.autoSelectAddress', { err }) })
             if (next) {
               const match = customers.find((entry) => entry.id === next)
               const possibleEmail =
@@ -699,7 +748,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
                   if (primary) {
                     setValue('shippingAddressId', primary.id)
                   }
-                }).catch((err) => { console.error('sales.documents.autoSelectAddress', err) })
+                }).catch((err) => { logger.error('sales.documents.autoSelectAddress', { err }) })
                 if (email && !values.customerEmail) {
                   setValue('customerEmail', email)
                 }
@@ -804,7 +853,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       }
       return []
     } catch (err) {
-      console.error('sales.documents.currency', err)
+      logger.error('sales.documents.currency', { err })
       return []
     }
   }, [currencyDictionary, refetchCurrencyDictionary])
@@ -824,7 +873,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       setCustomers(merged)
       return merged
     } catch (err) {
-      console.error('sales.documents.loadCustomers', err)
+      logger.error('sales.documents.loadCustomers', { err })
       flash(t('sales.documents.form.errors.customers', 'Failed to load customers.'), 'error')
       return []
     } finally {
@@ -852,7 +901,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         }
         return email ?? null
       } catch (err) {
-        console.error('sales.documents.fetchCustomerEmail', err)
+        logger.error('sales.documents.fetchCustomerEmail', { err })
         return null
       }
     },
@@ -884,7 +933,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         return []
       }
     } catch (err) {
-      console.error('sales.documents.loadChannels', err)
+      logger.error('sales.documents.loadChannels', { err })
       setChannels([])
       return []
     } finally {
@@ -904,7 +953,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         }
       }
     } catch (err) {
-      console.error('sales.documents.loadDefaultCurrency', err)
+      logger.error('sales.documents.loadDefaultCurrency', { err })
     }
   }, [])
 
@@ -976,7 +1025,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       }
     } catch (err) {
       if ((err as DOMException)?.name !== 'AbortError') {
-        console.error('sales.documents.loadAddresses', err)
+        logger.error('sales.documents.loadAddresses', { err })
       }
       if (addressRequestRef.current === requestId) {
         setAddressOptions([])
@@ -1041,7 +1090,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           setAddressFormat(format)
         }
       } catch (err) {
-        console.error('sales.documents.addressFormat', err)
+        logger.error('sales.documents.addressFormat', { err })
       } finally {
       }
     }
