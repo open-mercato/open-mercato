@@ -143,6 +143,15 @@ export function resetBootstrapCache(): void {
   ;(globalThis as any)[ENCRYPTION_ENABLED_KEY] = undefined
 }
 
+function isAppDiModuleNotFound(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false
+  const { code, message } = error as { code?: unknown; message?: unknown }
+  const text = typeof message === 'string' ? message : ''
+  const moduleNotFound =
+    code === 'MODULE_NOT_FOUND' || code === 'ERR_MODULE_NOT_FOUND' || text.startsWith('Cannot find module')
+  return moduleNotFound && text.includes('@/di')
+}
+
 function isAwilixResolver(value: unknown): value is Resolver<unknown> {
   return Boolean(value && typeof value === 'object' && typeof (value as { resolve?: unknown }).resolve === 'function')
 }
@@ -244,11 +253,17 @@ export async function createRequestContainer(): Promise<AppContainer> {
         try {
           const maybe = appDi.register(container)
           if (maybe && typeof maybe.then === 'function') await maybe
-        } catch (error) {
-          logger.error('App-level DI registrar failed', { err: error })
+        } catch (err) {
+          logger.warn('App-level DI override (src/di.ts register()) threw; its registrations are skipped', { err })
         }
       }
-    } catch {}
+    } catch (err) {
+      if (isAppDiModuleNotFound(err)) {
+        logger.debug('App-level DI override module (@/di) not resolvable; skipping', { err })
+      } else {
+        logger.warn('App-level DI override module (@/di) failed to load; its registrations are skipped', { err })
+      }
+    }
   }
   applyDiOverridesToContainer({
     register: (registrations) => container.register(toAwilixRegistrations(registrations)),
