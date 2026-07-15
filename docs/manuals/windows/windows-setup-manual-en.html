@@ -35,7 +35,7 @@
 <p class="subtitle">One-command development environment — Setup &amp; Troubleshooting Manual</p>
 
 <h2>1. What this is</h2>
-<p>A single double-click of <code>start-windows.bat</code> turns a Windows machine into a complete Open Mercato development environment running in Docker: the <strong>application</strong> (port 3000, hot reload), the <strong>MCP server</strong> (port 3001), the <strong>OpenCode AI agent</strong> (port 4096), plus PostgreSQL, Redis, and Meilisearch. The database is created and seeded automatically. The AI assistant (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> in the app) works out of the box once you provide an LLM provider API key during setup.</p>
+<p>A single double-click of <code>scripts\windows\start-windows.bat</code> turns a Windows machine into a complete Open Mercato development environment running in Docker: the <strong>application</strong> (port 3000, hot reload), the <strong>MCP server</strong> (port 3001), the <strong>OpenCode AI agent</strong> (port 4096), plus PostgreSQL, Redis, and Meilisearch. The database is created and seeded automatically. The AI assistant (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> in the app) works out of the box once you provide an LLM provider API key during setup.</p>
 <p>Every step is idempotent: re-running <code>start-windows.bat</code> is always safe, skips what is already done, and repairs what is missing.</p>
 
 <h2>2. Requirements</h2>
@@ -53,14 +53,14 @@
 <h2>3. Quick start</h2>
 <h3>A. You have the repository (git clone or ZIP)</h3>
 <ol>
-  <li>Double-click <code>start-windows.bat</code> in the repository root.</li>
+  <li>Double-click <code>scripts\windows\start-windows.bat</code> in the repository.</li>
   <li>If Docker/WSL2 must be installed, approve the UAC (administrator) prompt. If Windows asks to restart — restart; <strong>setup resumes automatically after you log back in</strong>.</li>
   <li>When asked, pick your LLM provider and paste its API key (input is hidden). This is required — it powers the AI assistant.</li>
   <li>Wait. The <strong>first boot takes about 10 minutes</strong> (up to ~20 on slow disks) while dependencies install and the database is seeded. Every later start takes seconds.</li>
   <li>At the end a green summary prints all URLs and the <strong>superadmin login and password</strong>. Open <code>http://localhost:3000/backend</code> and sign in.</li>
 </ol>
 <h3>B. Completely clean machine (no Git, no repo)</h3>
-<p>Download just <code>start-windows.bat</code> and double-click it. It fetches the launcher, installs Git (or falls back to a ZIP download of the repository), clones into <code>%USERPROFILE%\open-mercato</code>, and continues as above.</p>
+<p>Download just <code>start-windows.bat</code> (from the repository&rsquo;s <code>scripts/windows/</code> folder on GitHub) and double-click it. It fetches the launcher, installs Git (or falls back to a ZIP download of the repository), clones into <code>%USERPROFILE%\open-mercato</code>, and continues as above.</p>
 
 <h2>4. What happens, step by step</h2>
 <table>
@@ -88,8 +88,8 @@
 </table>
 <table>
   <tr><th>Action</th><th>Command</th></tr>
-  <tr><td>Start / restart the stack</td><td><code>start-windows.bat</code></td></tr>
-  <tr><td>Stop (data preserved)</td><td><code>stop-windows.bat</code></td></tr>
+  <tr><td>Start / restart the stack</td><td><code>scripts\windows\start-windows.bat</code></td></tr>
+  <tr><td>Stop (data preserved)</td><td><code>scripts\windows\stop-windows.bat</code></td></tr>
   <tr><td>Status of all services</td><td><code>powershell scripts\windows\start-dev.ps1 -Status</code></td></tr>
   <tr><td>Follow application logs</td><td><code>powershell scripts\windows\start-dev.ps1 -Logs</code></td></tr>
   <tr><td>Rebuild the Docker image (after Dockerfile changes)</td><td><code>powershell scripts\windows\start-dev.ps1 -Rebuild</code></td></tr>
@@ -106,7 +106,7 @@
 <table>
   <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
   <tr><td>"App package is not supported…" when installing winget manually</td><td>Do <strong>not</strong> install winget — it is not needed. The launcher downloads official installers directly. Just run <code>start-windows.bat</code> again.</td></tr>
-  <tr><td>Downloads fail (corporate proxy / air-gapped network)</td><td>Either set <code>HTTPS_PROXY</code> for the session, or place the official installers (Git for Windows, Docker Desktop or Rancher Desktop, <code>wsl_update_x64.msi</code>) in an <code>installers</code> folder next to <code>start-windows.bat</code> (or point <code>OM_INSTALLERS_DIR</code> at them). The launcher validates and uses them with no network access.</td></tr>
+  <tr><td>Downloads fail (corporate proxy / air-gapped network)</td><td>Either set <code>HTTPS_PROXY</code> for the session, or place the official installers (Git for Windows, Docker Desktop or Rancher Desktop, <code>wsl_update_x64.msi</code>) in an <code>installers</code> folder in the repository root (or point <code>OM_INSTALLERS_DIR</code> at them). The launcher validates and uses them with no network access.</td></tr>
   <tr><td>"CPU virtualization appears disabled"</td><td>Enable Intel VT-x / AMD-V (SVM) in BIOS/UEFI. On managed machines, ask IT.</td></tr>
   <tr><td>"PowerShell is running in ConstrainedLanguage mode"</td><td>An AppLocker/WDAC policy restricts PowerShell. Ask IT to allow this script or run it from an exempted path.</td></tr>
   <tr><td>No administrator rights at all</td><td>Ask IT to install <em>either</em> Docker Desktop (WSL2 backend; add your account to the <code>docker-users</code> group) <em>or</em> Rancher Desktop (dockerd/moby engine). Then run <code>start-dev.ps1 -NoAdmin</code> — everything else works unprivileged (the repo is fetched as ZIP if Git is missing).</td></tr>
@@ -157,7 +157,7 @@
 <p class="faq-q">How do I remove everything?</p>
 <p><code>-Reset</code> (removes containers and data volumes), delete the repository folder, and uninstall Docker/Rancher Desktop from Windows Settings if no longer needed.</p>
 
-<div class="footer">Open Mercato — Windows one-command dev environment · Manual v1.0 · July 2026 · Sources: <code>start-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, spec <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+<div class="footer">Open Mercato — Windows one-command dev environment · Manual v1.0 · July 2026 · Sources: <code>scripts/windows/start-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, spec <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
 
 </body>
 </html>

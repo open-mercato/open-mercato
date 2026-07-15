@@ -1,11 +1,12 @@
 @echo off
 setlocal
 rem One-command Open Mercato dev environment for Windows.
-rem Double-click this file. It installs missing prerequisites (Git, WSL2,
+rem Double-click this file (repo path: scripts\windows\). It installs
+rem missing prerequisites (Git, WSL2,
 rem Docker Desktop), clones the repo when run standalone, and starts the
 rem fully containerized stack (app :3000, MCP :3001, OpenCode :4096).
 
-set "PS1=%~dp0scripts\windows\start-dev.ps1"
+set "PS1=%~dp0start-dev.ps1"
 if not exist "%PS1%" (
   echo Downloading the Open Mercato Windows launcher...
   set "PS1=%TEMP%\open-mercato-start-dev.ps1"

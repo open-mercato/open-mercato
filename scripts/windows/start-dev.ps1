@@ -1018,7 +1018,7 @@ function Invoke-StandaloneClone {
             $zipUrl = "$zipBase/archive/refs/heads/$Branch.zip"
             $zipFile = Join-Path $env:TEMP "open-mercato-$Branch.zip"
             if (-not (Get-RemoteFile -Url $zipUrl -OutFile $zipFile -DisplayName "repository ZIP" -FileType zip -MinBytes 1MB)) {
-                Write-Fail "The repository ZIP could not be downloaded. Download it manually from $zipUrl, extract it, and double-click start-windows.bat inside it."
+                Write-Fail "The repository ZIP could not be downloaded. Download it manually from $zipUrl, extract it, and double-click scripts\windows\start-windows.bat inside it."
             }
             $extractDir = Join-Path $env:TEMP ("om-extract-" + [System.IO.Path]::GetRandomFileName())
             Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
@@ -1034,7 +1034,7 @@ function Invoke-StandaloneClone {
     # Continue on the cloned tree's own launcher so future logic always runs
     # from the repo copy.
     $inRepoScript = Join-Path $targetPath "scripts\windows\start-dev.ps1"
-    $inRepoLauncher = Join-Path $targetPath "start-windows.bat"
+    $inRepoLauncher = Join-Path $targetPath "scripts\windows\start-windows.bat"
     if (-not (Test-Path $inRepoScript)) {
         Write-Fail "Cloned repo does not contain scripts\windows\start-dev.ps1 (branch too old?)."
     }
@@ -1747,7 +1747,7 @@ try {
     if ($script:RepoRoot) {
         Resolve-StackPorts
         if (-not $LauncherPath) {
-            $candidateLauncher = Join-Path $script:RepoRoot "start-windows.bat"
+            $candidateLauncher = Join-Path $script:RepoRoot "scripts\windows\start-windows.bat"
             if (Test-Path $candidateLauncher) { $LauncherPath = $candidateLauncher }
         }
     }

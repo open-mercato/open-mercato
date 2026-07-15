@@ -1,6 +1,6 @@
 # Windows one-command setup — user manuals
 
-Printable manuals (run guide + troubleshooting + FAQ) for `start-windows.bat`:
+Printable manuals (run guide + troubleshooting + FAQ) for `scripts/windows/start-windows.bat`:
 
 | Language | Source | PDF |
 |----------|--------|-----|
