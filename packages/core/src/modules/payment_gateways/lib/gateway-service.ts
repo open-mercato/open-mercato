@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -31,6 +32,7 @@ import {
 
 const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
 const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
+const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
@@ -260,9 +262,14 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     const schedule = () => {
       timer = setTimeout(() => {
         pendingRefresh = refreshPaymentSessionInitialization(em, ownership, scope, new Date())
-          .then((refreshed) => {
-            if (refreshed && !stopped) schedule()
-          })
+          .then(
+            (refreshed) => {
+              if (refreshed && !stopped) schedule()
+            },
+            () => {
+              if (!stopped) schedule()
+            },
+          )
       }, claimHeartbeatIntervalMs)
     }
     schedule()
@@ -327,7 +334,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
             scope,
           )
           if (!transaction) {
-            throw new Error('Completed payment session is missing its gateway transaction')
+            throw new Error('[internal] Completed payment session is missing its gateway transaction')
           }
           return { transaction, session: restoreSession(transaction) }
         }
@@ -348,7 +355,15 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         try {
           session = await adapter.createSession({ ...sessionInput, idempotencyKey: operationKey })
         } catch (error) {
-          await releasePaymentSessionInitialization(em, ownership, scope).catch(() => undefined)
+          try {
+            await releasePaymentSessionInitialization(em, ownership, scope)
+          } catch (releaseError) {
+            logger.warn('Failed to release payment session initialization claim', {
+              claimId: ownership.id,
+              providerKey: input.providerKey,
+              err: releaseError,
+            })
+          }
           throw error
         } finally {
           await stopHeartbeat()

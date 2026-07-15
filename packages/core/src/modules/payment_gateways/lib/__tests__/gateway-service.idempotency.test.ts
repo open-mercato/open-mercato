@@ -219,6 +219,32 @@ describe('payment gateway service session idempotency (#4035)', () => {
     expect(em._transactions.size).toBe(1)
   })
 
+  it('survives a heartbeat refresh failure during the provider call without rejecting', async () => {
+    const { service, em, gate, firstCallStarted, createSession } = buildService()
+    const input = buildInput('checkout-submit-key-0005')
+    const originalNativeUpdate = em.nativeUpdate.bind(em)
+    let refreshFailures = 0
+    em.nativeUpdate = async (cls: unknown, where: AnyRecord, data: AnyRecord) => {
+      const isHeartbeatRefresh = 'claimToken' in where && 'claimedAt' in data && !('claimToken' in data)
+      if (isHeartbeatRefresh && refreshFailures === 0) {
+        refreshFailures += 1
+        throw new Error('transient database outage')
+      }
+      return originalNativeUpdate(cls, where, data)
+    }
+
+    const pending = service.createPaymentSession(input)
+    await firstCallStarted.promise
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    gate.resolve()
+
+    const result = await pending
+    expect(refreshFailures).toBe(1)
+    expect(createSession).toHaveBeenCalledTimes(1)
+    expect(result.session.sessionId).toBe('provider-session-1')
+    expect(em._transactions.size).toBe(1)
+  })
+
   it('keeps different checkout idempotency keys independent', async () => {
     const { service, gate, createSession } = buildService()
     gate.resolve()
