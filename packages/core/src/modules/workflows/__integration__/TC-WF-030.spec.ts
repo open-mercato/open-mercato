@@ -1,29 +1,22 @@
 import { expect, test } from '@playwright/test'
 import { login } from '@open-mercato/core/modules/core/__integration__/helpers/auth'
-import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
+import { getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import { createProductFixture, deleteCatalogProductIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/catalogFixtures'
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/crmFixtures'
-import { readJsonSafe } from '@open-mercato/core/modules/core/__integration__/helpers/generalFixtures'
-import {
-  cancelWorkflowInstanceIfExists,
-  deleteWorkflowDefinitionIfExists,
-} from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
+import { cancelWorkflowInstanceIfExists } from '@open-mercato/core/modules/core/__integration__/helpers/workflowsFixtures'
 
 /**
  * TC-WF-030: Checkout demo reaches customer information
  *
- * Guards issue #4179: upgraded tenants retained a persisted legacy checkout
- * definition whose cart-validation transition called an obsolete inventory
- * webhook. The migration aligns that persisted payload with the maintained,
- * self-contained code definition.
+ * Guards issue #4179 end-to-end on whatever state the tenant is in:
+ * - Fresh installs have no persisted `workflows.checkout-demo` row; the runtime
+ *   handlers resolve the virtual code definition via the code-registry fallback
+ *   in `findDefinitionForInstance`.
+ * - Upgraded tenants keep their persisted legacy row, repaired in place by
+ *   Migration20260715120000 to match the maintained self-contained payload.
+ * The test deliberately does NOT materialize a DB row first — that would mask
+ * the cold-start path a new install actually exercises.
  */
-
-const CODE_WORKFLOW_ID = 'workflows.checkout-demo'
-const CODE_WORKFLOW_API_ID = `code:${CODE_WORKFLOW_ID}`
-
-type DetailResponse = {
-  data?: { id?: string }
-}
 
 type StartResponse = {
   data?: { instance?: { id?: string } }
@@ -37,7 +30,6 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
     const productTitle = `QA Checkout Product ${stamp}`
     let customerId: string | null = null
     let productId: string | null = null
-    let overrideId: string | null = null
     let instanceId: string | null = null
 
     try {
@@ -46,20 +38,6 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
         title: productTitle,
         sku: `QA-CHECKOUT-${stamp}`,
       })
-
-      // Runtime transition handlers currently resolve persisted definitions by
-      // definition_id. Materialize the maintained code payload just as the data
-      // repair leaves the upgraded legacy row persisted and safe to execute.
-      const customizeResponse = await apiRequest(
-        request,
-        'POST',
-        `/api/workflows/definitions/${encodeURIComponent(CODE_WORKFLOW_API_ID)}/customize`,
-        { token },
-      )
-      expect(customizeResponse.status()).toBe(200)
-      const customized = await readJsonSafe<DetailResponse>(customizeResponse)
-      overrideId = customized?.data?.id ?? null
-      expect(overrideId).toBeTruthy()
 
       await login(page, 'admin')
       await page.goto('/checkout-demo')
@@ -103,7 +81,6 @@ test.describe('TC-WF-030: Checkout demo regression', () => {
       await expect(page.getByText(/CALL_WEBHOOK rejected unsafe URL|reason=invalid_url/)).toHaveCount(0)
     } finally {
       await cancelWorkflowInstanceIfExists(request, token, instanceId)
-      await deleteWorkflowDefinitionIfExists(request, token, overrideId)
       await deleteCatalogProductIfExists(request, token, productId)
       await deleteEntityIfExists(request, token, '/api/customers/companies', customerId)
     }

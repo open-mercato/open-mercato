@@ -148,6 +148,11 @@ test.describe('TC-WF-031: checkout-demo repair migration', () => {
           ).toBe(true)
         }
       }
+
+      // Idempotency: once reserve_inventory is gone the predicate no longer
+      // matches, so replaying the repair must be a no-op.
+      await runLegacyCheckoutRepair()
+      expect(await getWorkflowDefinition(target.id), 'second repair run is a no-op').toEqual(repaired)
     } finally {
       await deleteWorkflowDefinitions(seededIds).catch(() => undefined)
     }
