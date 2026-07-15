@@ -1,21 +1,21 @@
-import Module from 'node:module'
+import { createRequire } from 'node:module'
+import { pathToFileURL } from 'node:url'
+import path from 'node:path'
 
-// TypeScript 7 is a native (Go) compiler and no longer ships the JavaScript
-// programmatic API that @typescript-eslint requires (`require('typescript')`
-// resolves to a stub exporting only `version`). Redirect `typescript` to the
-// JS-based TypeScript installed under the `typescript-js` npm alias for the lint
-// process, while the native `typescript` stays the typecheck/build compiler.
-// The redirect must run before typescript-eslint loads, so `eslint-config-next`
-// (which pulls it in) is imported dynamically AFTER this patch — a static import
-// would be hoisted and evaluated first. Drop once @typescript-eslint supports the
-// native TS 7 API.
-const originalResolveFilename = Module._resolveFilename
-Module._resolveFilename = function (request, ...rest) {
-  if (request === 'typescript') request = 'typescript-js'
-  return originalResolveFilename.call(this, request, ...rest)
-}
-
-const { default: nextCoreWebVitals } = await import('eslint-config-next/core-web-vitals')
+// `eslint-config-next` (and its @typescript-eslint parser) are dependencies of
+// the app workspace, which is the only package that runs eslint. During the
+// TypeScript 7 migration the app is pinned to JS TypeScript 6 for `next build`
+// while the rest of the repo uses native TS 7, so yarn keeps these packages
+// nested under apps/mercato instead of hoisting them to the repo root. Resolve
+// them from the app directory rather than relative to this root config file, and
+// let @typescript-eslint pick up the app's nested JS TypeScript. Simplify back to
+// `import nextCoreWebVitals from 'eslint-config-next/core-web-vitals'` once the
+// app moves to native TS 7 (Next 16.3).
+const require = createRequire(import.meta.url)
+const appDir = path.join(import.meta.dirname, 'apps', 'mercato')
+const nextCoreWebVitals = (await import(
+  pathToFileURL(require.resolve('eslint-config-next/core-web-vitals', { paths: [appDir] })).href
+)).default
 
 const ignores = [
   'node_modules/**',

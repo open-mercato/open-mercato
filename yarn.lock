@@ -7530,7 +7530,8 @@ __metadata:
     tailwindcss: "npm:^4.3.1"
     ts-jest: "npm:^29.4.11"
     tw-animate-css: "npm:^1.4.0"
-    typescript: "npm:7.0.2"
+    typescript: "npm:^6.0.3"
+    typescript-native: "npm:typescript@7.0.2"
     zod: "npm:^4.4.3"
   dependenciesMeta:
     better-sqlite3:
@@ -29744,7 +29745,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript-js@npm:typescript@6.0.3":
+"typescript-js@npm:typescript@6.0.3, typescript@npm:^6.0.3":
   version: 6.0.3
   resolution: "typescript@npm:6.0.3"
   bin:
@@ -29754,7 +29755,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"typescript@npm:7.0.2":
+"typescript-native@npm:typescript@7.0.2, typescript@npm:7.0.2":
   version: 7.0.2
   resolution: "typescript@npm:7.0.2"
   dependencies:
@@ -29893,6 +29894,16 @@ __metadata:
   bin:
     tsc: bin/tsc
   checksum: 10/6d7f3d34ca7fbd3eb4999f06db29340d3dcedd7d40ed71654ea53ecd0f28a330edf0f55a0acf541bf294a2f024f11242075c1a83aed4bd99776fe99af45b994b
+  languageName: node
+  linkType: hard
+
+"typescript@patch:typescript@npm%3A^6.0.3#optional!builtin<compat/typescript>":
+  version: 6.0.3
+  resolution: "typescript@patch:typescript@npm%3A6.0.3#optional!builtin<compat/typescript>::version=6.0.3&hash=5786d5"
+  bin:
+    tsc: bin/tsc
+    tsserver: bin/tsserver
+  checksum: 10/22b67a18dafedf9b1468b64ca20d9aa02ea61d449b65413d8aa6552aeb63f52ef369e86beb25b6b4c91a803d9726ee5c196f391a9b64201263263410a4223ee6
   languageName: node
   linkType: hard
 
