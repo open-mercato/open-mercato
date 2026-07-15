@@ -59,28 +59,103 @@ COPY eslint.config.mjs ./
 ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN yarn build
 
-# Dev stage: a LEAN runtime image, not a build.
+# Dev prebuild stage: install + build at NATIVE VM filesystem speed.
 #
-# docker-compose.fullapp.dev.yml bind-mounts the repo (.:/app) and named volumes
-# over node_modules and every package dist/, then dev-entrypoint.sh runs
-# `yarn install` + `build:packages` + `generate` at container start. Baking a
-# `yarn install` + `yarn build:packages` into the image here is therefore
-# duplicated work: the entrypoint redoes it unconditionally, and the bind mount
-# masks whatever the image built. Keeping the stage lean (OS toolchain + corepack
-# + entrypoint scripts) makes the image build in seconds and lets the entrypoint
-# own the single install/build pass — roughly halving cold first-boot time.
+# Doing this work at image-build time (instead of at container start through
+# the Windows bind mount) is what makes first boot fast: image builds read and
+# write the Linux VM's own filesystem, get BuildKit layer caching (manifests
+# unchanged => the whole install layer is reused), and produce Linux-native
+# node_modules. The dev stage below copies these artifacts to /opt/prebuilt,
+# and dev-entrypoint.sh seeds the runtime named volumes from there — a file
+# copy instead of a full install/build over the bind mount.
 #
-# The build toolchain (python3/make/g++) is kept because the entrypoint's
-# runtime `yarn install` still compiles native modules (better-sqlite3, etc.).
-FROM node:24-alpine AS dev
+# TURBO_CACHE_DIR rides inside node_modules so the turbo cache travels with
+# the seeded volume and `yarn build:packages` at boot becomes cache hits.
+FROM node:24-alpine AS dev-build
 
-ENV NODE_ENV=development \
-    NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/node_modules/.cache/turbo
 
 WORKDIR /app
 
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 RUN corepack enable
+
+# Copy workspace manifests first so dependency installs stay cached across source-only changes.
+COPY package.json yarn.lock .yarnrc.yml turbo.json ./
+COPY tsconfig.base.json tsconfig.json ./
+COPY apps/docs/package.json ./apps/docs/
+COPY apps/mercato/package.json ./apps/mercato/
+COPY packages/ai-assistant/package.json ./packages/ai-assistant/
+COPY packages/cache/package.json ./packages/cache/
+COPY packages/channel-gmail/package.json ./packages/channel-gmail/
+COPY packages/channel-imap/package.json ./packages/channel-imap/
+COPY packages/checkout/package.json ./packages/checkout/
+COPY packages/cli/package.json ./packages/cli/
+COPY packages/content/package.json ./packages/content/
+COPY packages/core/package.json ./packages/core/
+COPY packages/create-app/package.json ./packages/create-app/
+COPY packages/enterprise/package.json ./packages/enterprise/
+COPY packages/events/package.json ./packages/events/
+COPY packages/gateway-stripe/package.json ./packages/gateway-stripe/
+COPY packages/onboarding/package.json ./packages/onboarding/
+COPY packages/queue/package.json ./packages/queue/
+COPY packages/scheduler/package.json ./packages/scheduler/
+COPY packages/search/package.json ./packages/search/
+COPY packages/shared/package.json ./packages/shared/
+COPY packages/storage-s3/package.json ./packages/storage-s3/
+COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
+COPY packages/ui/package.json ./packages/ui/
+COPY packages/webhooks/package.json ./packages/webhooks/
+COPY scripts/official-modules-setup.mjs ./scripts/
+COPY scripts/lib/official-modules.mjs ./scripts/lib/
+
+RUN yarn install --immutable
+
+COPY packages/ ./packages/
+COPY apps/ ./apps/
+COPY scripts/ ./scripts/
+COPY newrelic.js ./
+COPY jest.config.cjs jest.setup.ts jest.dom.setup.ts ./
+COPY eslint.config.mjs ./
+
+# build -> generate (writes packages/core/generated/) -> rebuild so core picks
+# up dist/generated — the same sequence dev-entrypoint.sh runs, done once here.
+# `yarn generate` degrades gracefully without a database (skips cache purge).
+ENV NODE_OPTIONS="--max-old-space-size=4096"
+RUN yarn build:packages && yarn generate && yarn build:packages
+
+# Dev stage: lean runtime + /opt/prebuilt artifacts for volume seeding.
+# Stage-to-stage COPY keeps a SINGLE copy of node_modules in the final image
+# (moving it within one stage would double the layer size).
+FROM node:24-alpine AS dev
+
+ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/node_modules/.cache/turbo
+
+WORKDIR /app
+
+# Build toolchain kept: the entrypoint's fallback `yarn install` (stale
+# lockfile vs prebuilt image) still compiles native modules.
+RUN apk add --no-cache python3 make g++ ca-certificates openssl
+RUN corepack enable
+
+# Prebuilt artifacts, staged OUTSIDE /app because the repo bind mount masks
+# /app at runtime. dev-entrypoint.sh seeds the named volumes from here.
+COPY --from=dev-build /app/yarn.lock /opt/prebuilt/yarn.lock
+COPY --from=dev-build /app/node_modules /opt/prebuilt/node_modules
+COPY --from=dev-build /app/packages/core/dist /opt/prebuilt/dist/core
+COPY --from=dev-build /app/packages/shared/dist /opt/prebuilt/dist/shared
+COPY --from=dev-build /app/packages/ui/dist /opt/prebuilt/dist/ui
+COPY --from=dev-build /app/packages/cli/dist /opt/prebuilt/dist/cli
+COPY --from=dev-build /app/packages/cache/dist /opt/prebuilt/dist/cache
+COPY --from=dev-build /app/packages/content/dist /opt/prebuilt/dist/content
+COPY --from=dev-build /app/packages/checkout/dist /opt/prebuilt/dist/checkout
+COPY --from=dev-build /app/packages/events/dist /opt/prebuilt/dist/events
+COPY --from=dev-build /app/packages/onboarding/dist /opt/prebuilt/dist/onboarding
+COPY --from=dev-build /app/packages/queue/dist /opt/prebuilt/dist/queue
+COPY --from=dev-build /app/packages/search/dist /opt/prebuilt/dist/search
+COPY --from=dev-build /app/packages/scheduler/dist /opt/prebuilt/dist/scheduler
+COPY --from=dev-build /app/packages/ai-assistant/dist /opt/prebuilt/dist/ai-assistant
+COPY --from=dev-build /app/packages/create-app/dist /opt/prebuilt/dist/create-app
 
 # Entrypoint scripts are also bind-mounted at runtime (.:/app); baking them in
 # keeps the image runnable/consistent on its own and matches the runner stage.
