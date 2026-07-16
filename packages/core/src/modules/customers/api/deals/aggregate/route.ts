@@ -5,6 +5,7 @@ import type { EntityManager as PgEntityManager } from '@mikro-orm/postgresql'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
+import type { OrganizationScope } from '@open-mercato/core/modules/directory/utils/organizationScope'
 import type { ExchangeRateService } from '@open-mercato/core/modules/currencies/services/exchangeRateService'
 import { parseBooleanFromUnknown } from '@open-mercato/shared/lib/boolean'
 import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern'
@@ -137,9 +138,35 @@ function restrictToIds(where: string[], values: Array<string | number | null>, i
   values.push(...ids)
 }
 
+// `scope.filterIds === null` is the resolver's "all organizations" signal — it is only
+// returned once RBAC has cleared the caller for every org in the tenant, so it must widen
+// the aggregate rather than narrow it. `auth.orgId` is null in exactly that case (the
+// super-admin org cookie override clears it), which is why it cannot be used as a fallback
+// here. A caller with no accessible org at all yields an empty list, not an auth failure.
+export async function resolveAggregateOrganizationIds(params: {
+  em: CoreEntityManager
+  scope: Pick<OrganizationScope, 'filterIds'>
+  auth: { orgId?: string | null }
+  tenantId: string
+}): Promise<string[]> {
+  const { em, scope, auth, tenantId } = params
+  if (Array.isArray(scope.filterIds) && scope.filterIds.length > 0) {
+    return scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
+  }
+  if (scope.filterIds === null) {
+    const rows = await em.getConnection().execute<Array<{ id: string }>>(
+      `SELECT id FROM organizations WHERE tenant_id = ? AND deleted_at IS NULL`,
+      [tenantId],
+    )
+    const ids = rows.map((row: { id: string }) => String(row.id)).filter((id: string) => id.length > 0)
+    if (ids.length > 0) return ids
+  }
+  return auth.orgId ? [auth.orgId] : []
+}
+
 export async function GET(req: Request) {
   const auth = await getAuthFromRequest(req)
-  if (!auth?.tenantId || !auth.orgId) {
+  if (!auth?.tenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -170,13 +197,12 @@ export async function GET(req: Request) {
   // when rbacService cannot be resolved (e.g. in unit tests with a minimal container).
   const scope = await resolveOrganizationScopeForRequest({ container, auth, request: req })
   const effectiveTenantId = scope.tenantId ?? auth.tenantId
-  const orgFilterIds = Array.isArray(scope.filterIds) && scope.filterIds.length > 0
-    ? scope.filterIds.filter((id) => typeof id === 'string' && id.length > 0)
-    : auth.orgId
-      ? [auth.orgId]
-      : []
-  if (!effectiveTenantId || orgFilterIds.length === 0) {
+  if (!effectiveTenantId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const orgFilterIds = await resolveAggregateOrganizationIds({ em, scope, auth, tenantId: effectiveTenantId })
+  if (orgFilterIds.length === 0) {
+    return NextResponse.json({ baseCurrencyCode: null, perStage: [] } satisfies AggregateResponse)
   }
 
   // Raw SQL is used here intentionally — the route only projects non-encrypted columns
