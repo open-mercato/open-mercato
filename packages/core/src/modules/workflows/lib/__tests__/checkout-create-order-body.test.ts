@@ -25,6 +25,9 @@ afterEach(() => { global.fetch = originalFetch })
 function makeEm() {
   const createdApiKeys: any[] = []
   return {
+    // The one-time API key is created on a forked, context-detached EM; the
+    // fork returns the same mock so persist/flush/find tracking still works.
+    fork: jest.fn(function (this: any) { return this }),
     create: jest.fn((_E: any, data: any) => { const r = { ...data, id: `k${createdApiKeys.length}` }; createdApiKeys.push(r); return r }),
     persist: jest.fn(function (this: any) { return this }),
     flush: jest.fn(),
