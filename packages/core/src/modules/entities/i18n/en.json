@@ -221,6 +221,8 @@
   "entities.userEntities.errors.entityIdRequired": "Entity ID is required",
   "entities.userEntities.errors.loadFailed": "Failed to load entities",
   "entities.userEntities.flash.created": "Entity created",
+  "entities.userEntities.form.accessRestricted.help": "Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.",
+  "entities.userEntities.form.accessRestricted.label": "Restrict record access",
   "entities.userEntities.form.defaultEditor.label": "Default Editor (multiline)",
   "entities.userEntities.form.defaultEditor.options.default": "Default (Markdown)",
   "entities.userEntities.form.defaultEditor.options.htmlRichText": "HTML Rich Text",
@@ -230,9 +232,8 @@
   "entities.userEntities.form.entityId.label": "Entity ID",
   "entities.userEntities.form.entityId.placeholder": "module_name:entity_id",
   "entities.userEntities.form.label.label": "Label",
+  "entities.userEntities.form.loading": "Loading…",
   "entities.userEntities.form.showInSidebar.label": "Show in sidebar",
-  "entities.userEntities.form.accessRestricted.label": "Restrict record access",
-  "entities.userEntities.form.accessRestricted.help": "Require an explicit per-entity permission to view or manage this entity’s records. Leave off to allow anyone with the general records permission.",
   "entities.userEntities.form.submit": "Create",
   "entities.userEntities.form.title": "Create Entity",
   "entities.userEntities.records.errors.deleteFailed": "Failed to delete record",
@@ -243,6 +244,5 @@
   "entities.userEntities.records.form.editTitle": "Edit record",
   "entities.userEntities.records.form.submitCreate": "Create",
   "entities.userEntities.records.form.submitSave": "Save",
-  "entities.userEntities.records.loading": "Loading record...",
-  "entities.userEntities.form.loading": "Loading…"
+  "entities.userEntities.records.loading": "Loading record..."
 }
