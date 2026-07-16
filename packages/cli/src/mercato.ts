@@ -774,24 +774,59 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
 }
 
 /**
- * Builds the structural-fingerprint function used by the in-process generate
- * watcher. Walks the same module roots the legacy `mercato generate watch`
- * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ * Builds the event-gated structural fingerprint runtime used by generate
+ * watchers. Filesystem events mark the tree dirty; the existing full content
+ * checksum remains the final authority and the fallback when watching fails.
  */
-function createGenerateWatchChecksumFn(): () => Promise<string> {
-  return async () => {
-    const { createResolver } = await import('./lib/resolver')
-    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
+async function createGenerateWatchRuntime() {
+  const [
+    { createResolver },
+    { calculateGenerateWatchStructureChecksum },
+    { createGenerateWatchChangeSignal },
+    { resolveStandaloneSourceMirrorBase },
+  ] = await Promise.all([
+    import('./lib/resolver'),
+    import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-events'),
+    import('./lib/generators/scanner'),
+  ])
+
+  const collectWatchState = () => {
     const resolver = createResolver()
     const moduleRoots = []
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
       moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
     }
-    return calculateGenerateWatchStructureChecksum({
-      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+    return {
+      modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
-    })
+    }
+  }
+
+  return {
+    computeStructureChecksum: async () => {
+      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    },
+    changeSignal: createGenerateWatchChangeSignal({
+      getWatchTargets: () => {
+        const state = collectWatchState()
+        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
+          directory: path.dirname(state.modulesFile),
+          recursive: false,
+          fileName: path.basename(state.modulesFile),
+        }]
+        for (const roots of state.moduleRoots) {
+          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
+          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
+          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
+          if (sourceMirror) {
+            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
+          }
+        }
+        return targets
+      },
+    }),
   }
 }
 
@@ -1791,11 +1826,12 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
+          const generateWatchRuntime = await createGenerateWatchRuntime()
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,
             quiet,
-            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            ...generateWatchRuntime,
             runGenerators: async () => {
               await runGeneratorSuite(true)
               await runPostGenerateStructuralCachePurge(true)
@@ -2238,6 +2274,7 @@ export async function run(argv = process.argv) {
                 // (measured against the legacy sidecar). Opt back into the
                 // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
                 console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
                   // initial `mercato generate` before reaching the server
@@ -2246,7 +2283,7 @@ export async function run(argv = process.argv) {
                   // twice in a row.
                   skipInitial: true,
                   quiet: false,
-                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  ...generateWatchRuntime,
                   runGenerators: async () => {
                     await runGeneratorSuite(true)
                     await runPostGenerateStructuralCachePurge(true)
