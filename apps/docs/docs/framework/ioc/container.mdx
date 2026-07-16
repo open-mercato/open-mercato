@@ -29,6 +29,31 @@ export function register(container: AppContainer) {
 - In subscribers: the second argument is `{ container, logger, ... }`—resolve services the same way.
 - Avoid importing services directly; resolving them keeps modules overridable.
 
+## App-level overrides
+
+Standalone and monorepo apps can register application-specific services in `src/di.ts`:
+
+```ts title="src/di.ts"
+import { asValue } from 'awilix'
+import type { AppContainer } from '@open-mercato/shared/lib/di/container'
+
+export function register(container: AppContainer) {
+  container.register({ applicationPolicy: asValue({ enabled: true }) })
+}
+```
+
+The scaffolded `src/bootstrap.ts` passes this function explicitly to the shared bootstrap factory:
+
+```ts title="src/bootstrap.ts"
+import { register as registerAppDi } from '@/di'
+
+export const bootstrap = createBootstrap(data, {
+  appDiRegistrar: registerAppDi,
+})
+```
+
+Explicit wiring keeps the app alias in the app's bundler context, so scaffolded apps do not rely on package code resolving `@/di` on their behalf. A package-level dynamic-import fallback remains only for compatibility with older app bootstraps. The registrar runs for each request container after core and module registrars; inline `modules.ts` DI overrides remain the final mutation tier.
+
 ## Best practices
 
 - **Naming** – use descriptive keys (`organizationInvitationService`). Keep module-specific prefixes to avoid collisions.

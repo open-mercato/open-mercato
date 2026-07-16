@@ -1,6 +1,6 @@
 import type { BootstrapData, BootstrapOptions } from './types'
 import { registerOrmEntities } from '../db/mikro'
-import { registerDiRegistrars } from '../di/container'
+import { registerAppDiRegistrar, registerDiRegistrars } from '../di/container'
 import { registerModules } from '../modules/registry'
 import { registerEntityIds } from '../encryption/entityIds'
 import { registerEntityFields } from '../encryption/entityFields'
@@ -33,6 +33,9 @@ let _asyncRegistrationPromise: Promise<void> | null = null
  */
 export function createBootstrap(data: BootstrapData, options: BootstrapOptions = {}) {
   return function bootstrap(): void {
+    if (options.appDiRegistrar) {
+      registerAppDiRegistrar(options.appDiRegistrar)
+    }
     // In development, always re-run registrations to handle HMR
     // (Module state may be reset when Turbopack reloads packages)
     if (_bootstrapped && process.env.NODE_ENV !== 'development') return

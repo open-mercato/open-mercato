@@ -4,6 +4,7 @@ const registerEventModuleConfigsMock = jest.fn()
 const registerMessageTypesMock = jest.fn()
 const registerMessageObjectTypesMock = jest.fn()
 const runBootstrapRegistrationsMock = jest.fn()
+const appDiRegistrarMock = jest.fn()
 
 describe('app bootstrap', () => {
   beforeEach(() => {
@@ -14,6 +15,7 @@ describe('app bootstrap', () => {
     registerMessageTypesMock.mockClear()
     registerMessageObjectTypesMock.mockClear()
     runBootstrapRegistrationsMock.mockClear()
+    appDiRegistrarMock.mockClear()
   })
 
   it('registers the bootstrap module manifest instead of route-aware registries', async () => {
@@ -51,6 +53,7 @@ describe('app bootstrap', () => {
       runBootstrapRegistrations: runBootstrapRegistrationsMock,
     }))
     jest.doMock('@open-mercato/ai-assistant', () => ({}))
+    jest.doMock('@/di', () => ({ register: appDiRegistrarMock }))
     jest.doMock('@open-mercato/shared/modules/events', () => ({
       registerEventModuleConfigs: registerEventModuleConfigsMock,
     }))
@@ -71,5 +74,6 @@ describe('app bootstrap', () => {
     expect(createBootstrapMock.mock.calls[0][0].modules).toBe(bootstrapModules)
     expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(fullModules)
     expect(createBootstrapMock.mock.calls[0][0].modules).not.toBe(appModules)
+    expect(createBootstrapMock.mock.calls[0][1]).toEqual({ appDiRegistrar: appDiRegistrarMock })
   })
 })

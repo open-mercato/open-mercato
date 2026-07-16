@@ -451,3 +451,7 @@ generalist primitive `enforceCommandOptimisticLock(...)`
   accept/convert race). Payments/shipments stay on their existing row-level
   guard (flat command input keeps the factory `candidateId`). Full coverage
   matrix + remaining deferrals: `.ai/specs/2026-05-28-optimistic-locking-coverage-completion.md`.
+
+## 11. Changelog
+
+- **2026-07-16 — standalone DI safety fix (#4201).** The platform default `crudMutationGuardService` now uses a CLASSIC-compatible named `em` factory parameter, so Awilix no longer attempts to resolve the nonexistent `scopedEm` dependency. Guard resolution failures emit one structured warning per process instead of silently disabling the bridge. Standalone and monorepo app bootstraps now pass `src/di.ts`'s registrar explicitly into the shared bootstrap factory, restoring the documented app-level override hook without relying on a package-internal `@/di` import.
