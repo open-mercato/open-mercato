@@ -389,7 +389,7 @@ export default function CheckoutDemoPage() {
             currencyCode: selectedCurrency || 'USD', // Ensure currency is always set
             kind: 'product' as const,
             productId: item.id,
-            lineDescription: item.name,
+            name: item.name,
             unitPriceGross: item.price,
           })),
           itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),

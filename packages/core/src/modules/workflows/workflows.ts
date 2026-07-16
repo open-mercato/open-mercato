@@ -239,6 +239,7 @@ const checkoutDemo = defineWorkflow({
               customerEntityId: '{{context.customer.id}}',
               currencyCode: '{{context.cart.currency}}',
               placedAt: '{{now}}',
+              lines: '{{context.cart.orderLines}}',
               grandTotalGrossAmount: '{{context.cart.total}}',
             },
             validateTenantMatch: true,
