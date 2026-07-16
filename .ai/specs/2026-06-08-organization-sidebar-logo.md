@@ -148,6 +148,13 @@ Executable integration coverage:
   - reads it back through `GET /api/directory/organization-branding`,
   - verifies `GET /api/auth/admin/nav` exposes `brand.logo.src` for the selected organization,
   - deletes the organization fixture in cleanup.
+- `packages/core/src/modules/directory/__integration__/TC-DIR-015-sidebar-logo-aspect-ratio.spec.ts`
+  - creates an organization fixture,
+  - verifies the branding upload picker advertises PNG/JPEG/WebP only,
+  - uploads a wide PNG through the branding UI,
+  - verifies persisted branding stores the original `/api/attachments/file/...` URL,
+  - verifies the expanded backend sidebar renders the preserved-aspect-ratio logo with `object-contain`,
+  - deletes the uploaded attachment and organization fixture in cleanup.
 
 Unit/API and UI smoke coverage:
 
@@ -170,7 +177,7 @@ Unit/API and UI smoke coverage:
   - default cropped icon treatment for custom logos,
   - internal attachment file/image URLs and external URLs render unoptimized with aspect-ratio-preserving containment when enabled.
 
-Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid URL rejection, sidebar refresh behavior, and reset to default. Upload automation was inconclusive in the browser session, so the upload path is covered by the UI unit smoke test and should be rechecked manually after the final CRM deploy is healthy.
+Manual validation should cover pasted URL save, invalid URL rejection, sidebar refresh behavior, reset to default, and uploaded logo rendering in the target QA environment before QA approval.
 
 ## Migration & Backward Compatibility
 
@@ -188,17 +195,17 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 | Ambiguous organization scope updates the wrong organization | High | Directory organization data | Reject requests without a concrete selected organization | Superadmin must select one organization before editing branding |
 | Cached sidebar payload keeps an old logo after save | Medium | Backend chrome | Invalidate tenant and organization sidebar tags; dispatch `om:refresh-sidebar` after UI save | Browser may show stale chrome until refresh if an external cache layer ignores tags |
 | Additive nav payload breaks consumers that assume an exact object shape | Low | `/api/auth/admin/nav` clients | Field is optional and nullable; existing fields are unchanged | Consumers with overly strict custom validators may need to allow unknown fields |
-| Uploaded file automation misses a real attachment regression | Medium | Branding page upload UX | Unit smoke covers FormData upload call; manual CRM upload should be repeated after final deploy health is restored | Final deployed upload UX still needs a healthy CRM deploy confirmation |
+| Uploaded file automation misses a real attachment regression | Medium | Branding page upload UX | Executable integration coverage uploads through the branding UI and verifies original file URL persistence; manual QA should still recheck the target environment before approval | Target-environment upload UX still depends on that environment's deployment health |
 | Uploaded wordmark is cropped because a square thumbnail URL is stored or rendered like an icon | Medium | Sidebar visual branding | Store the original attachment file URL and expose an explicit keep-aspect-ratio toggle while keeping the default icon behavior unchanged | Very small sidebars still constrain available width, but the image itself is not cropped when the option is enabled |
 
 ## Final Compliance Report
 
-- Branch type: upstream candidate on `contrib/thom-9-company-logo-sidebar`.
-- Base: `origin/upstream-baseline` / `upstream/develop`.
+- Branch type: upstream candidate.
+- Base: `develop`.
 - Fork-only paths: none in this PR.
 - Contract compatibility: additive database, API, and shared type changes only.
 - Tests: unit/API, UI smoke, package build, and executable directory integration coverage.
-- Open item: repeat browser upload validation on `crm.they.dev` once the deployment path is healthy; this is not a schema/API blocker.
+- Open item: repeat browser upload validation on the current target QA environment before QA approval; this is not a schema/API blocker.
 
 ## Changelog
 
@@ -206,3 +213,4 @@ Manual CRM validation on `https://crm.they.dev` covered pasted URL save, invalid
 - 2026-06-08: Updated implementation coverage, API contracts, risk review, and final compliance report after PR audit.
 - 2026-06-23: Clarified uploaded logo aspect-ratio preservation, original attachment URL persistence, additional PNG/JPEG/WebP upload coverage, and external SVG URL coverage.
 - 2026-06-26: Made aspect-ratio preservation an explicit administrator option that is off by default.
+- 2026-07-16: Added executable UI integration coverage for upload-format restriction, original attachment file URL persistence, and preserved-aspect-ratio sidebar rendering.
