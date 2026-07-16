@@ -231,6 +231,8 @@
   "entities.userEntities.form.entityId.placeholder": "module_name:entity_id",
   "entities.userEntities.form.label.label": "Bezeichnung",
   "entities.userEntities.form.showInSidebar.label": "In der Seitenleiste anzeigen",
+  "entities.userEntities.form.accessRestricted.label": "Datensatzzugriff einschränken",
+  "entities.userEntities.form.accessRestricted.help": "Erfordert eine explizite entitätsspezifische Berechtigung zum Anzeigen oder Verwalten der Datensätze dieser Entität. Deaktiviert lassen, um allen Benutzern mit der allgemeinen Datensatzberechtigung Zugriff zu gewähren.",
   "entities.userEntities.form.submit": "Erstellen",
   "entities.userEntities.form.title": "Entität erstellen",
   "entities.userEntities.records.errors.deleteFailed": "Datensatz konnte nicht gelöscht werden",
@@ -241,5 +243,6 @@
   "entities.userEntities.records.form.editTitle": "Datensatz bearbeiten",
   "entities.userEntities.records.form.submitCreate": "Erstellen",
   "entities.userEntities.records.form.submitSave": "Speichern",
-  "entities.userEntities.records.loading": "Datensatz wird geladen..."
+  "entities.userEntities.records.loading": "Datensatz wird geladen...",
+  "entities.userEntities.form.loading": "Wird geladen…"
 }

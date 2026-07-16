@@ -231,6 +231,8 @@
   "entities.userEntities.form.entityId.placeholder": "nombre_modulo:id_entidad",
   "entities.userEntities.form.label.label": "Etiqueta",
   "entities.userEntities.form.showInSidebar.label": "Mostrar en la barra lateral",
+  "entities.userEntities.form.accessRestricted.label": "Restringir acceso a registros",
+  "entities.userEntities.form.accessRestricted.help": "Requiere un permiso explícito por entidad para ver o gestionar los registros de esta entidad. Déjalo desactivado para permitir el acceso a cualquiera con el permiso general de registros.",
   "entities.userEntities.form.submit": "Crear",
   "entities.userEntities.form.title": "Crear entidad",
   "entities.userEntities.records.errors.deleteFailed": "No se pudo eliminar el registro",
@@ -241,5 +243,6 @@
   "entities.userEntities.records.form.editTitle": "Editar registro",
   "entities.userEntities.records.form.submitCreate": "Crear",
   "entities.userEntities.records.form.submitSave": "Guardar",
-  "entities.userEntities.records.loading": "Cargando registro..."
+  "entities.userEntities.records.loading": "Cargando registro...",
+  "entities.userEntities.form.loading": "Cargando…"
 }
