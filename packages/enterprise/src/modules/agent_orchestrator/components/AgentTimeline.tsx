@@ -10,6 +10,8 @@ import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { AgentIoDrawer } from './AgentIoDrawer'
+import { agentAvatarIcon } from './agentChips'
+import { useAgentIconMap } from './useAgentIcons'
 import { mapProposal, mapRun, formatConfidence, type ProposalView, type RunView } from './types'
 import { dispositionLabelKey, dispositionVariant, ConfidenceFaceValue } from './cockpitStatus'
 
@@ -29,6 +31,7 @@ export type AgentTimelineProps = {
  */
 export function AgentTimeline({ processId }: AgentTimelineProps) {
   const t = useT()
+  const agentIcons = useAgentIconMap()
   const [proposals, setProposals] = React.useState<ProposalView[]>([])
   const [runs, setRuns] = React.useState<Record<string, RunView>>({})
   const [isLoading, setIsLoading] = React.useState(true)
@@ -120,7 +123,7 @@ export function AgentTimeline({ processId }: AgentTimelineProps) {
                 className="rounded-lg border border-border bg-card p-3 border-l-4 border-l-brand-violet"
               >
                 <div className="flex items-center gap-3">
-                  <Avatar label={proposal.agentId} size="sm" ring />
+                  <Avatar label={proposal.agentId} size="sm" ring icon={agentAvatarIcon(agentIcons.get(proposal.agentId)?.icon ?? null, agentIcons.get(proposal.agentId)?.resultKind)} />
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-xs font-medium uppercase tracking-wide text-brand-violet">

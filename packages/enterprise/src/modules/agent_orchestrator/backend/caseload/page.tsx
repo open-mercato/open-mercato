@@ -8,6 +8,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { agentAvatarIcon } from '../../components/agentChips'
+import { useAgentIconMap } from '../../components/useAgentIcons'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
@@ -105,6 +107,9 @@ const SEGMENT_DISPOSITIONS: Record<SegmentKey, string | null> = {
 type QueueRow = {
   id: string
   agentLabel: string
+  /** Tenant-configured agent icon (lucide name) + kind for the avatar glyph. */
+  agentIcon: string | null
+  agentResultKind: 'informative' | 'actionable'
   claim: string
   proposes: string
   /** Humanized primary action type — the bounded filter vocabulary. */
@@ -385,9 +390,12 @@ export default function AgentCaseloadPage() {
     return map
   }, [proposals, agentFacts, runIo])
 
+  const agentIcons = useAgentIconMap()
+
   const pageRows = React.useMemo<QueueRow[]>(() => {
     const now = Date.now()
     return proposals.map((proposal) => {
+      const agentIconInfo = agentIcons.get(proposal.agentId)
       const waiting = waitingFrom(proposal.createdAt, now)
       const confidencePct = confidencePctOf(proposal.confidence)
       const guardWarnCount = proposal.guardResults.filter((check) => check.result === 'warn').length
@@ -404,6 +412,8 @@ export default function AgentCaseloadPage() {
       return {
         id: proposal.id,
         agentLabel: agentLabels.get(proposal.agentId) || proposal.agentId,
+        agentIcon: agentIconInfo?.icon ?? null,
+        agentResultKind: agentIconInfo?.resultKind ?? 'informative',
         claim: runClaims.get(proposal.runId) || proposal.id.slice(0, 12),
         proposes: summary.display,
         proposesType: summary.typeLabel,
@@ -421,7 +431,7 @@ export default function AgentCaseloadPage() {
         pendingUndo: inUndoWindow,
       }
     })
-  }, [proposals, agentLabels, runClaims, deferredApprove.pendingUndo, t])
+  }, [proposals, agentLabels, agentIcons, runClaims, deferredApprove.pendingUndo, t])
 
   // Segment + sort are server-applied; text search and the agent/decision
   // pills narrow the LOADED page only, so both views show the same rows while
@@ -740,7 +750,7 @@ export default function AgentCaseloadPage() {
         meta: { maxWidth: '240px' },
         cell: ({ row }) => (
           <div className="flex items-center gap-2.5">
-            <Avatar label={row.original.agentLabel} size="sm" />
+            <Avatar label={row.original.agentLabel} size="sm" variant="monochrome" icon={agentAvatarIcon(row.original.agentIcon, row.original.agentResultKind)} />
             <span className="truncate text-sm font-medium text-foreground">{row.original.agentLabel}</span>
           </div>
         ),
@@ -1444,7 +1454,7 @@ function ExceptionsInbox({
                       row.pendingUndo && 'opacity-60',
                     )}
                   >
-                    <Avatar label={row.agentLabel} size="sm" />
+                    <Avatar label={row.agentLabel} size="sm" variant="monochrome" icon={agentAvatarIcon(row.agentIcon, row.agentResultKind)} />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="truncate text-sm font-medium text-foreground">{row.agentLabel}</span>

@@ -14,6 +14,8 @@ import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { formatConfidence, type ProposalView } from './types'
+import { agentAvatarIcon } from './agentChips'
+import { useAgentIconMap } from './useAgentIcons'
 import { proposalVerdict } from './cockpitStatus'
 import { humanizeKey } from './proposalFactsData'
 import {
@@ -123,7 +125,9 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
   const [reason, setReason] = React.useState('')
   const [localError, setLocalError] = React.useState<string | null>(null)
 
+  const agentIcons = useAgentIconMap()
   const agentId = proposal?.agentId ?? adHoc?.agentId ?? ''
+  const agentIconInfo = agentIcons.get(agentId)
   const confidence = proposal?.confidence ?? adHoc?.confidence ?? null
   const payload = proposal?.payload ?? adHoc?.payload ?? null
   const rationale = proposal?.rationale ?? adHoc?.rationale ?? null
@@ -278,7 +282,7 @@ export function ProposalCard({ proposal, adHoc, actions, onInspect, agentLabel }
     <div className="rounded-lg border border-border bg-card">
       {/* Proposal header — clean card; the violet avatar ring signals the AI source. */}
       <div className="flex items-center gap-3 rounded-t-lg border-b border-border bg-card p-4">
-        <Avatar label={agentLabel || agentId || 'AI'} size="md" ring />
+        <Avatar label={agentLabel || agentId || 'AI'} size="md" ring icon={agentAvatarIcon(agentIconInfo?.icon ?? null, agentIconInfo?.resultKind)} />
         <div className="min-w-0 flex-1">
           <p className="truncate text-sm font-medium text-foreground">
             {t('agent_orchestrator.proposal.proposes', undefined, { agent: agentLabel || agentId })}

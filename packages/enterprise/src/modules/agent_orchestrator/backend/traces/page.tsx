@@ -7,6 +7,8 @@ import { RotateCw, Smile, Meh, Frown, Clock, ArrowUpDown, ChevronDown, CheckCirc
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { agentAvatarIcon } from '../../components/agentChips'
+import { useAgentIconMap } from '../../components/useAgentIcons'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
@@ -247,18 +249,23 @@ export default function AgentTracesPage() {
     setSort(sortingToServerSort(next, TRACES_HEADER_SORT_FIELDS) ?? TRACES_DEFAULT_SORT)
   }, [])
 
+  const agentIcons = useAgentIconMap()
+
   const columns = React.useMemo<ColumnDef<RunView>[]>(() => [
     {
       id: 'agent',
       accessorKey: 'agentId',
       header: t('agent_orchestrator.traces.col.agent', 'Agent'),
       meta: { maxWidth: '240px' },
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2.5">
-          <Avatar label={row.original.agentId} size="sm" />
-          <span className="truncate text-sm font-medium text-foreground">{row.original.agentId}</span>
-        </div>
-      ),
+      cell: ({ row }) => {
+        const info = agentIcons.get(row.original.agentId)
+        return (
+          <div className="flex items-center gap-2.5">
+            <Avatar label={row.original.agentId} size="sm" variant="monochrome" icon={agentAvatarIcon(info?.icon ?? null, info?.resultKind)} />
+            <span className="truncate text-sm font-medium text-foreground">{row.original.agentId}</span>
+          </div>
+        )
+      },
     },
     {
       id: 'when',
@@ -328,7 +335,7 @@ export default function AgentTracesPage() {
         </StatusBadge>
       ),
     },
-  ], [t, locale])
+  ], [t, locale, agentIcons])
 
   // Empty only when the whole window is empty (not just a filtered facet/page
   // or an active run-id search — those get the table's own empty state).

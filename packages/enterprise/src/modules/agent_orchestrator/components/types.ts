@@ -217,6 +217,8 @@ export type SkillDetailView = {
 export type AgentDetailView = AgentView & {
   moduleId: string
   instructions: string
+  /** Optimistic-lock version of the icon settings row (null when unset). */
+  iconUpdatedAt: string | null
   defaultProvider: string | null
   defaultModel: string | null
   loopMaxSteps: number | null
@@ -582,6 +584,7 @@ export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView |
     ...base,
     moduleId: asString(item.moduleId) ?? '',
     instructions: asString(item.instructions) ?? '',
+    iconUpdatedAt: asString(item.iconUpdatedAt),
     defaultProvider: asString(item.defaultProvider),
     defaultModel: asString(item.defaultModel),
     loopMaxSteps: loop ? asNumber(loop.maxSteps) : null,

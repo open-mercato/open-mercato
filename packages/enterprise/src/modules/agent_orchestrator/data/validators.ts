@@ -1149,3 +1149,12 @@ export const agentSettingUpdateSchema = z.object({
   icon: agentIconNameSchema.nullable(),
 })
 export type AgentSettingUpdate = z.infer<typeof agentSettingUpdateSchema>
+
+// Request body for PUT /agents/[id]/settings. `agentId` comes from the route
+// param, so the body carries only the icon (null clears it) plus the optional
+// optimistic-lock expectation (the settings row's current updatedAt).
+export const agentIconWriteSchema = z.object({
+  icon: agentIconNameSchema.nullable(),
+  updatedAt: z.string().datetime().nullable().optional(),
+})
+export type AgentIconWrite = z.infer<typeof agentIconWriteSchema>

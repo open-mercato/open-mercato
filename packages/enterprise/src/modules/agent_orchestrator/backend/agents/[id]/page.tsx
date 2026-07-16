@@ -12,7 +12,11 @@ import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-
 import { SectionHeader } from '@open-mercato/ui/backend/SectionHeader'
 import { ConfidenceFaceValue } from '../../../components/cockpitStatus'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
-import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCall, apiCallOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT, useLocale } from '@open-mercato/shared/lib/i18n/context'
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter, DrawerClose } from '@open-mercato/ui/primitives/drawer'
@@ -31,7 +35,8 @@ import {
 } from '../../../components/types'
 import { subjectRefOf } from '../../../components/subjectRef'
 import { SkillDrawer } from '../../../components/SkillDrawer'
-import { agentAvatarIcon } from '../../../components/agentChips'
+import { agentAvatarIcon, resolveAgentIcon } from '../../../components/agentChips'
+import { AGENT_ICON_NAMES } from '../../../data/agentIcons'
 
 type PageState = 'loading' | 'notFound' | 'forbidden' | 'error' | 'ready'
 type Autonomy = 'auto' | 'review' | 'gated'
@@ -95,6 +100,7 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
   const [autonomy, setAutonomy] = React.useState<Autonomy>('review')
   const [configOpen, setConfigOpen] = React.useState(false)
   const [windowMetrics, setWindowMetrics] = React.useState<AgentWindowMetricsView | null>(null)
+  const [reloadKey, setReloadKey] = React.useState(0)
 
   React.useEffect(() => {
     let cancelled = false
@@ -142,7 +148,55 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
     return () => {
       cancelled = true
     }
-  }, [agentId])
+  }, [agentId, reloadKey])
+
+  const ICON_DEFAULT = '__default__'
+  const { runMutation, retryLastMutation } = useGuardedMutation<{ retryLastMutation: () => Promise<boolean> }>({
+    contextId: 'agent_orchestrator.agents.detail',
+    blockedMessage: t('agent_orchestrator.proposal.flash.blocked'),
+  })
+  const [savingIcon, setSavingIcon] = React.useState(false)
+
+  const updateIcon = React.useCallback(
+    async (value: string) => {
+      if (!agent) return
+      const nextIcon = value === ICON_DEFAULT ? null : value
+      if (nextIcon === (agent.icon ?? null)) return
+      setSavingIcon(true)
+      try {
+        let saved: { icon: string | null; updatedAt: string } | null = null
+        await runMutation({
+          operation: () =>
+            withScopedApiRequestHeaders(buildOptimisticLockHeader(agent.iconUpdatedAt), async () => {
+              const call = await apiCallOrThrow<{ icon: string | null; updatedAt: string }>(
+                `/api/agent_orchestrator/agents/${encodeURIComponent(agent.id)}/settings`,
+                {
+                  method: 'PUT',
+                  headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ icon: nextIcon, updatedAt: agent.iconUpdatedAt }),
+                },
+              )
+              saved = call.result ?? null
+            }),
+          context: { retryLastMutation },
+          mutationPayload: { icon: nextIcon },
+        })
+        setAgent((prev) =>
+          prev && saved ? { ...prev, icon: saved.icon as AgentDetailView['icon'], iconUpdatedAt: saved.updatedAt } : prev,
+        )
+        flash(t('agent_orchestrator.agentDetail.icon.saved', 'Icon updated'), 'success')
+      } catch (err) {
+        if (surfaceRecordConflict(err, t)) {
+          setReloadKey((key) => key + 1)
+          return
+        }
+        flash(err instanceof Error ? err.message : t('agent_orchestrator.agentDetail.icon.error', 'Could not update icon'), 'error')
+      } finally {
+        setSavingIcon(false)
+      }
+    },
+    [agent, runMutation, retryLastMutation, t],
+  )
 
   const metrics = React.useMemo(() => {
     const proposalByRun = new Map<string, Record<string, unknown>>()
@@ -234,6 +288,28 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
               </div>
             </div>
             <div className="flex shrink-0 items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs text-muted-foreground">{t('agent_orchestrator.agentDetail.icon.label', 'Icon')}</span>
+                <Select value={agent.icon ?? ICON_DEFAULT} onValueChange={updateIcon} disabled={savingIcon}>
+                  <SelectTrigger size="sm" className="w-40" aria-label={t('agent_orchestrator.agentDetail.icon.label', 'Icon')}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={ICON_DEFAULT}>{t('agent_orchestrator.agentDetail.icon.default', 'Default (by type)')}</SelectItem>
+                    {AGENT_ICON_NAMES.map((name) => {
+                      const Glyph = resolveAgentIcon(name)
+                      return (
+                        <SelectItem key={name} value={name}>
+                          <span className="flex items-center gap-2">
+                            {Glyph ? <Glyph className="size-4 text-muted-foreground" /> : null}
+                            {name}
+                          </span>
+                        </SelectItem>
+                      )
+                    })}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button variant="outline" size="sm" onClick={() => flash(t('agent_orchestrator.agentDetail.actions.codeOnly', 'Managed in code for now — UI wiring needs backend.'), 'info')}>
                 {t('agent_orchestrator.agentDetail.actions.pause', 'Pause')}
               </Button>

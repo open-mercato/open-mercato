@@ -89,6 +89,7 @@ export const setup: ModuleSetupConfig = {
     engineer: [
       'agent_orchestrator.agents.view',
       'agent_orchestrator.agents.run',
+      'agent_orchestrator.agents.manage',
       'agent_orchestrator.proposals.view',
       'agent_orchestrator.workflows.author',
       'agent_orchestrator.trace.view',

@@ -7,6 +7,8 @@ import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { agentAvatarIcon } from '../../components/agentChips'
+import { useAgentIconMap } from '../../components/useAgentIcons'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
@@ -126,6 +128,8 @@ export default function ProcessesListPage() {
     coalescedReload()
   })
 
+  const agentIcons = useAgentIconMap()
+
   const columns = React.useMemo<ColumnDef<ProcessListRow>[]>(
     () => [
       {
@@ -159,9 +163,12 @@ export default function ProcessesListPage() {
         enableSorting: false,
         cell: ({ row }) => (
           <div className="flex flex-wrap items-center gap-1">
-            {row.original.agentIds.slice(0, 4).map((agent) => (
-              <Avatar key={agent} label={agent} size="sm" />
-            ))}
+            {row.original.agentIds.slice(0, 4).map((agent) => {
+              const info = agentIcons.get(agent)
+              return (
+                <Avatar key={agent} label={agent} size="sm" variant="monochrome" icon={agentAvatarIcon(info?.icon ?? null, info?.resultKind)} />
+              )
+            })}
             {row.original.agentIds.length > 4 ? (
               <span className="text-xs font-medium text-muted-foreground">
                 +{row.original.agentIds.length - 4}
@@ -196,7 +203,7 @@ export default function ProcessesListPage() {
         ),
       },
     ],
-    [t],
+    [t, agentIcons],
   )
 
   return (

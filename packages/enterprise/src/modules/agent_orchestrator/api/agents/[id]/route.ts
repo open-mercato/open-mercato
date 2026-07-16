@@ -7,8 +7,8 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAgentEntry, ensureAgentsLoaded } from '../../../lib/sdk/defineAgent'
 import { getSkillEntry, ensureSkillsLoaded } from '../../../lib/sdk/defineSkill'
 import { getAgentSkill } from '../../../lib/runtime/fileAgentSkills'
-import { getAgentIconMap } from '../../../lib/settings/agentSettings'
-import { AGENT_ICON_NAMES } from '../../../data/agentIcons'
+import { getAgentSettingRow } from '../../../lib/settings/agentSettings'
+import { AGENT_ICON_NAMES, isAgentIconName } from '../../../data/agentIcons'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['agent_orchestrator.agents.view'] },
@@ -34,6 +34,9 @@ const agentDetailSchema = z.object({
   label: z.string(),
   description: z.string(),
   icon: z.enum(AGENT_ICON_NAMES).nullable(),
+  // Settings-row version for optimistic locking on the icon picker; null when
+  // the tenant has never set an icon for this agent (no row yet).
+  iconUpdatedAt: z.string().nullable(),
   instructions: z.string(),
   defaultProvider: z.string().nullable(),
   defaultModel: z.string().nullable(),
@@ -52,16 +55,22 @@ export async function GET(req: Request, ctx: RouteContext) {
   const entry = getAgentEntry(id)
   if (!entry) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
-  // Tenant presentation icon (best-effort — never fails the definition read).
+  // Tenant presentation icon + its lock version (best-effort — never fails the
+  // definition read).
   let icon: string | null = null
+  let iconUpdatedAt: string | null = null
   if (auth.tenantId && auth.orgId) {
     try {
       const container = await createRequestContainer()
       const em = (container.resolve('em') as EntityManager).fork()
-      const iconByAgent = await getAgentIconMap(em, { tenantId: auth.tenantId, organizationId: auth.orgId })
-      icon = iconByAgent.get(entry.id) ?? null
+      const row = await getAgentSettingRow(em, { tenantId: auth.tenantId, organizationId: auth.orgId }, entry.id)
+      if (row) {
+        icon = isAgentIconName(row.icon) ? row.icon : null
+        iconUpdatedAt = row.updatedAt.toISOString()
+      }
     } catch {
       icon = null
+      iconUpdatedAt = null
     }
   }
   const skillDetails = entry.skills.map((skillId) => {
@@ -99,6 +108,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     label: entry.label,
     description: entry.description,
     icon,
+    iconUpdatedAt,
     instructions: entry.instructions,
     defaultProvider: entry.defaultProvider ?? null,
     defaultModel: entry.defaultModel ?? null,

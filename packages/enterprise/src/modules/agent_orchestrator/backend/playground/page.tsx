@@ -26,7 +26,7 @@ import { ProposalCard } from '../../components/ProposalCard'
 import { mapAgent, type AgentView } from '../../components/types'
 import { toolPanelStateFromResponse, type ToolPanelState } from '../../components/playgroundToolCalls'
 import { runErrorStateFromBody } from '../../components/playgroundRunError'
-import { Chip, TYPE_ICON, RUNTIME_ICON } from '../../components/agentChips'
+import { Chip, TYPE_ICON, RUNTIME_ICON, resolveAgentIcon } from '../../components/agentChips'
 
 type AgentsResponse = { items?: Array<Record<string, unknown>> }
 
@@ -357,11 +357,15 @@ export default function AgentPlaygroundPage() {
                     <SelectValue placeholder={t('agent_orchestrator.playground.agentPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {agents.map((agent) => (
-                      <SelectItem key={agent.id} value={agent.id}>
-                        {agent.label}
-                      </SelectItem>
-                    ))}
+                    {agents.map((agent) => {
+                      const Glyph = resolveAgentIcon(agent.icon, agent.resultKind)
+                      return (
+                        <SelectItem key={agent.id} value={agent.id}>
+                          {Glyph ? <Glyph className="size-4 text-muted-foreground" /> : null}
+                          {agent.label}
+                        </SelectItem>
+                      )
+                    })}
                   </SelectContent>
                 </Select>
                 {selectedAgent?.description ? (

@@ -26,6 +26,23 @@ export async function getAgentIconMap(
 }
 
 /**
+ * Load the single settings row for one agent, or null when the tenant has not
+ * customised it. Used by the agent detail route to return the current icon plus
+ * its `updatedAt` (the optimistic-lock version the picker echoes back on write).
+ */
+export async function getAgentSettingRow(
+  em: EntityManager,
+  scope: AgentSettingsScope,
+  agentId: string,
+): Promise<AgentSetting | null> {
+  return em.findOne(AgentSetting, {
+    tenantId: scope.tenantId,
+    organizationId: scope.organizationId,
+    agentId,
+  })
+}
+
+/**
  * Idempotently seed the default agent icons for a tenant/org. Only inserts rows
  * for agent ids that have no row yet — it never overwrites an existing row, so a
  * user's later edit survives re-running tenant setup. Safe to call on every

@@ -9,6 +9,8 @@ import { DataTable } from '@open-mercato/ui/backend/DataTable'
 import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
+import { agentAvatarIcon } from '../../components/agentChips'
+import { useAgentIconMap } from '../../components/useAgentIcons'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge, type StatusMap } from '@open-mercato/ui/primitives/status-badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
@@ -156,6 +158,8 @@ export default function AgentAuditPage() {
     }
   }, [t, page, pageSize, disposition])
 
+  const agentIcons = useAgentIconMap()
+
   const columns = React.useMemo<ColumnDef<AuditRow>[]>(() => [
     {
       accessorKey: 'when',
@@ -166,15 +170,18 @@ export default function AgentAuditPage() {
       accessorKey: 'agentLabel',
       header: t('agent_orchestrator.audit.col.agent', 'Agent'),
       meta: { maxWidth: '280px' },
-      cell: ({ row }) => (
-        <div className="flex items-center gap-2.5">
-          <Avatar label={row.original.agentLabel} size="sm" />
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium text-foreground">{row.original.agentLabel}</div>
-            <div className="truncate font-mono text-xs text-muted-foreground">{row.original.agentId}</div>
+      cell: ({ row }) => {
+        const info = agentIcons.get(row.original.agentId)
+        return (
+          <div className="flex items-center gap-2.5">
+            <Avatar label={row.original.agentLabel} size="sm" variant="monochrome" icon={agentAvatarIcon(info?.icon ?? null, info?.resultKind)} />
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-foreground">{row.original.agentLabel}</div>
+              <div className="truncate font-mono text-xs text-muted-foreground">{row.original.agentId}</div>
+            </div>
           </div>
-        </div>
-      ),
+        )
+      },
     },
     {
       accessorKey: 'subjectRef',
@@ -215,7 +222,7 @@ export default function AgentAuditPage() {
         ? <span className="block truncate text-sm text-muted-foreground" title={row.original.reason}>{row.original.reason}</span>
         : <span className="text-sm text-muted-foreground">—</span>,
     },
-  ], [t, locale, router])
+  ], [t, locale, router, agentIcons])
 
   if (isLoading && rows.length === 0) {
     return (

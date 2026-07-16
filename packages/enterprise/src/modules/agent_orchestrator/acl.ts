@@ -9,6 +9,12 @@ export const features = [
     module: 'agent_orchestrator',
     dependsOn: ['agent_orchestrator.agents.view'],
   },
+  {
+    id: 'agent_orchestrator.agents.manage',
+    title: 'Manage agent presentation settings',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.agents.view'],
+  },
   { id: 'agent_orchestrator.proposals.view', title: 'View proposals', module: 'agent_orchestrator' },
   {
     id: 'agent_orchestrator.proposals.dispose',
