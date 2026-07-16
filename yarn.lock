@@ -24124,6 +24124,35 @@ __metadata:
     typescript: "npm:7.0.2"
     typescript-js: "npm:typescript@6.0.3"
     zod: "npm:^4.4.3"
+  dependenciesMeta:
+    "@datadog/pprof":
+      built: true
+    "@newrelic/fn-inspect":
+      built: true
+    "@newrelic/native-metrics":
+      built: true
+    better-sqlite3:
+      built: true
+    core-js:
+      built: true
+    core-js-pure:
+      built: true
+    cpu-features:
+      built: true
+    esbuild:
+      built: true
+    isolated-vm:
+      built: true
+    msgpackr-extract:
+      built: true
+    protobufjs:
+      built: true
+    sharp:
+      built: true
+    ssh2:
+      built: true
+    unrs-resolver:
+      built: true
   languageName: unknown
   linkType: soft
 

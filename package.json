@@ -216,5 +216,49 @@
     "ws@npm:^8.17.1": "8.21.0",
     "ws@npm:^8.18.0": "8.21.0",
     "ws@npm:~8.18.3": "8.21.0"
+  },
+  "dependenciesMeta": {
+    "@datadog/pprof": {
+      "built": true
+    },
+    "@newrelic/fn-inspect": {
+      "built": true
+    },
+    "@newrelic/native-metrics": {
+      "built": true
+    },
+    "better-sqlite3": {
+      "built": true
+    },
+    "core-js": {
+      "built": true
+    },
+    "core-js-pure": {
+      "built": true
+    },
+    "cpu-features": {
+      "built": true
+    },
+    "esbuild": {
+      "built": true
+    },
+    "isolated-vm": {
+      "built": true
+    },
+    "msgpackr-extract": {
+      "built": true
+    },
+    "protobufjs": {
+      "built": true
+    },
+    "sharp": {
+      "built": true
+    },
+    "ssh2": {
+      "built": true
+    },
+    "unrs-resolver": {
+      "built": true
+    }
   }
 }
