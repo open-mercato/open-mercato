@@ -430,6 +430,9 @@ The 30–50% target is carried by Workstream A (build/generate/typecheck) plus t
 
 ## Changelog
 
+### 2026-07-16
+- Implemented a focused post-generation bootstrap reduction: automatic structural invalidation now reads tenant metadata from the configured stock cache backend in one pass and refreshes generated artifacts directly, avoiding generated CLI/module imports, ORM tenant discovery, request containers, and the application bootstrap graph. The explicit `mercato configs cache structural --all-tenants` command remains unchanged as the DI-aware operator path.
+
 ### 2026-05-28
 - Initial specification. Targets a further 30–50% on compilation (build/generate/typecheck pipeline) and dev route warmup, building on the implemented April 2, 2026 cold-start work without duplicating it. Grounded in static source analysis; measured columns gated on Phase 1.
 - Revised per maintainer review: Workstream B no longer broadens the dev warmup. The default warmup stays the existing three requests (`GET /login`, `POST /api/auth/login`, `GET /backend`); the broaden-warmup lever and the bounded-parallel batch (and `OM_DEV_WARMUP_CONCURRENCY`) are dropped. `OM_DEV_WARMUP_ROUTES` is retained as an opt-in (default unset) override only. Workstream B is now scoped to the no-op-restart Turbopack cache and the lever sweep.
