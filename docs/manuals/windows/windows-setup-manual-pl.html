@@ -99,7 +99,18 @@
   <tr><td>Uruchomienie testowe bez żadnych zmian</td><td><code>powershell scripts\windows\start-dev.ps1 -DryRun</code></td></tr>
 </table>
 
-<h2>6. Rozwiązywanie problemów</h2>
+<h2>6. Praca w IDE</h2>
+<p>Katalog projektu (np. <code>C:\Users\&lt;ty&gt;\open-mercato</code>) edytuj dowolnym IDE dla Windows — VS Code, JetBrains, Cursor. Zapis pliku powoduje hot reload aplikacji przez bind mount Dockera. <strong>WSL w ogóle nie uczestniczy w Twojej pracy</strong>: <code>/mnt/c/...</code> to jedynie widok dysku z terminala WSL — nie uruchamiaj projektu z terminala WSL i nie trzymaj drugiej kopii wewnątrz dystrybucji WSL.</p>
+<div class="note"><strong>Uwaga dot. IntelliSense:</strong> <code>node_modules</code> znajduje się w wolumenie kontenera, a nie w folderze Windows — dlatego autouzupełnianie TypeScript, przechodzenie do definicji zależności i ESLint wymagają jednej z poniższych konfiguracji.</div>
+<table>
+  <tr><th>Opcja</th><th>Jak</th><th>Kiedy</th></tr>
+  <tr><td><strong>Podłączenie VS Code do kontenera</strong> (zalecane)</td><td>Zainstaluj rozszerzenie &bdquo;Dev Containers&rdquo; &rarr; <em>Dev Containers: Attach to Running Container&hellip;</em> &rarr; wybierz kontener <code>app</code> &rarr; otwórz <code>/app</code></td><td>Pełny IntelliSense bez żadnych narzędzi na hoście — właściwy wybór na komputerach firmowych</td></tr>
+  <tr><td><code>node_modules</code> na hoście tylko dla edytora</td><td>Zainstaluj Node 24, wykonaj <code>corepack enable</code> i jednorazowo <code>yarn install</code> w katalogu projektu</td><td>Wolisz zwykłe IDE na hoście; aplikacja nadal działa w kontenerach (ostrzeżenia o opcjonalnych modułach natywnych są nieszkodliwe)</td></tr>
+  <tr><td>Praca w pełni natywnie w WSL2</td><td>Sklonuj repozytorium wewnątrz dystrybucji Ubuntu, IDE przez Remote-WSL (zob. przewodnik WSL2 w dokumentacji)</td><td>Dla zaawansowanych — maksymalna wydajność systemu plików; wymaga dystrybucji WSL i uprawnień administratora</td></tr>
+</table>
+<p>Wskazówka: &bdquo;Przejdź do definicji&rdquo; dla importów <code>@open-mercato/*</code> prowadzi do <em>źródeł</em> pakietów monorepo — to oczekiwane zachowanie. Po edycji <em>pakietu</em> (a nie aplikacji) zrestartuj też kontener MCP: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</p>
+
+<h2>7. Rozwiązywanie problemów</h2>
 <div class="note"><strong>Zasada pierwsza:</strong> pełny zapis instalacji znajduje się w <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, a logi kontenerów są dostępne jednym poleceniem: <code>docker compose -f docker-compose.fullapp.dev.yml logs -f app</code> (zamiast <code>app</code> także <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
 
 <h3>Problemy z instalacją</h3>
@@ -135,7 +146,7 @@
   <tr><td>Po restarcie samego kontenera <code>app</code> narzędzia AI działają dziwnie</td><td>Przebudowa aplikacji nadpisuje współdzielone wolumeny pod działającym serwerem MCP. Zrestartuj także jego: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</td></tr>
 </table>
 
-<h2>7. FAQ — najczęstsze pytania</h2>
+<h2>8. FAQ — najczęstsze pytania</h2>
 <p class="faq-q">Ile to trwa?</p>
 <p>Pierwsze uruchomienie na czystej maszynie: łącznie ~15–35 minut (instalatory + ewentualny restart + ~10 min pierwszego startu). Każdy kolejny start: poniżej minuty plus rozruch silnika.</p>
 <p class="faq-q">Czy potrzebuję uprawnień administratora?</p>

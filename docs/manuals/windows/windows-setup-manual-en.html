@@ -99,7 +99,18 @@
   <tr><td>Test run with zero changes</td><td><code>powershell scripts\windows\start-dev.ps1 -DryRun</code></td></tr>
 </table>
 
-<h2>6. Troubleshooting</h2>
+<h2>6. Working in your IDE</h2>
+<p>Edit the project folder (e.g. <code>C:\Users\&lt;you&gt;\open-mercato</code>) with any Windows IDE — VS Code, JetBrains, Cursor. Saving a file hot-reloads the app through Docker&rsquo;s bind mount. <strong>WSL never enters your workflow</strong>: <code>/mnt/c/...</code> is only how a WSL shell would see your disk — do not run the project from a WSL terminal, and do not keep a second copy inside a WSL distro.</p>
+<div class="note"><strong>IntelliSense caveat:</strong> <code>node_modules</code> lives in a container volume, not in your Windows folder — so TypeScript autocomplete, go-to-definition into dependencies, and ESLint need one of the setups below.</div>
+<table>
+  <tr><th>Option</th><th>How</th><th>When</th></tr>
+  <tr><td><strong>Attach VS Code to the container</strong> (recommended)</td><td>Install the &ldquo;Dev Containers&rdquo; extension &rarr; <em>Dev Containers: Attach to Running Container&hellip;</em> &rarr; pick the <code>app</code> container &rarr; open <code>/app</code></td><td>Full IntelliSense with zero host tooling — the right default on corporate machines</td></tr>
+  <tr><td>Host <code>node_modules</code> for the editor only</td><td>Install Node 24, run <code>corepack enable</code> and <code>yarn install</code> once in the project folder</td><td>You prefer a plain host IDE; the app still runs in containers (warnings about optional native modules are harmless)</td></tr>
+  <tr><td>Full WSL2-native development</td><td>Clone inside an Ubuntu WSL distro, IDE via Remote-WSL (see the WSL2 guide in the docs)</td><td>Power users wanting maximum filesystem performance; requires a WSL distro and admin</td></tr>
+</table>
+<p>Tip: &ldquo;Go to definition&rdquo; on <code>@open-mercato/*</code> imports lands in the monorepo package <em>sources</em> — that is expected and usually what you want. After editing a <em>package</em> (not the app), also restart the MCP container: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</p>
+
+<h2>7. Troubleshooting</h2>
 <div class="note"><strong>First rule:</strong> the setup transcript is at <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, and container logs are one command away: <code>docker compose -f docker-compose.fullapp.dev.yml logs -f app</code> (replace <code>app</code> with <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
 
 <h3>Installation problems</h3>
@@ -135,7 +146,7 @@
   <tr><td>Restarted only the <code>app</code> container and AI tools act strangely</td><td>The app rebuild rewrites shared volumes under the MCP server. Restart it too: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</td></tr>
 </table>
 
-<h2>7. FAQ</h2>
+<h2>8. FAQ</h2>
 <p class="faq-q">How long does it take?</p>
 <p>First run on a clean machine: ~15–35 minutes total (installers + possible reboot + ~10 min first boot). Every later start: under a minute plus engine startup.</p>
 <p class="faq-q">Do I need administrator rights?</p>

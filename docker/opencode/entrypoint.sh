@@ -12,6 +12,11 @@
 # OpenCode reads provider credentials from the matching provider environment
 # variables, for example OPENAI_API_KEY, ANTHROPIC_API_KEY, or OPENROUTER_API_KEY.
 
+# Escape a value for safe embedding inside a JSON string (backslashes first).
+json_escape() {
+  printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'
+}
+
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-/home/opencode/.config/opencode}"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
 
@@ -145,9 +150,9 @@ case "$PROVIDER" in
     # Treat as an OpenAI-compatible endpoint (@ai-sdk/openai-compatible). The
     # key/baseURL are passed explicitly so OpenCode does not need a built-in
     # provider definition for the id.
-    COMPAT_OPTIONS="\"apiKey\": \"$PROVIDER_KEY\""
+    COMPAT_OPTIONS="\"apiKey\": \"$(json_escape "$PROVIDER_KEY")\""
     if [ -n "$PROVIDER_BASE_URL" ]; then
-      COMPAT_OPTIONS="$COMPAT_OPTIONS, \"baseURL\": \"$PROVIDER_BASE_URL\""
+      COMPAT_OPTIONS="$COMPAT_OPTIONS, \"baseURL\": \"$(json_escape "$PROVIDER_BASE_URL")\""
     fi
     PROVIDER_CONFIG="\"$PROVIDER\": { \"npm\": \"@ai-sdk/openai-compatible\", \"options\": { $COMPAT_OPTIONS }, \"models\": { \"$MODEL_ID\": {} } }"
     ;;
@@ -160,7 +165,7 @@ esac
 # Build MCP headers
 MCP_HEADERS='{}'
 if [ -n "$MCP_API_KEY" ]; then
-  MCP_HEADERS="{\"x-api-key\": \"$MCP_API_KEY\"}"
+  MCP_HEADERS="{\"x-api-key\": \"$(json_escape "$MCP_API_KEY")\"}"
 fi
 
 # Generate config file
@@ -206,7 +211,10 @@ echo "[OpenCode] Configuration generated:"
 echo "  Provider: $PROVIDER"
 echo "  Model: $CONFIG_MODEL"
 echo "  MCP URL: $MCP_URL"
-cat "$CONFIG_FILE"
+# Redact secrets before dumping: the OpenAI-compatible provider branch inlines
+# the provider apiKey (and the MCP header carries the x-api-key), and container
+# stdout ends up in `docker compose logs` / log collectors.
+sed -E 's/("(apiKey|x-api-key)"[[:space:]]*:[[:space:]]*")([^"\\]|\\.)*/\1***REDACTED***/g' "$CONFIG_FILE"
 
 # Execute OpenCode
 exec opencode serve --hostname 0.0.0.0 --print-logs --log-level DEBUG
