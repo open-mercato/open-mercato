@@ -1298,7 +1298,7 @@ export function CycleCountWizardDialog({
                   required
                   error={fieldErrors.expectedSkus}
                 >
-                  <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
+                  <div className="flex w-32 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
                     <IconButton
                       type="button"
                       variant="ghost"
@@ -1323,7 +1323,7 @@ export function CycleCountWizardDialog({
                         setExpectedSkusTouched(true)
                         patchForm({ expectedSkus: Math.floor(parsed) })
                       }}
-                      className="h-8 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                      className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
                       disabled={loadingBalance || submitting || loadingScopeEstimate}
                     />
                     <IconButton
@@ -1581,7 +1581,7 @@ export function CycleCountWizardDialog({
                       required
                       error={fieldErrors.countedQuantity}
                     >
-                      <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
+                      <div className="flex w-32 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
                         <IconButton
                           type="button"
                           variant="ghost"
@@ -1605,7 +1605,7 @@ export function CycleCountWizardDialog({
                             if (!Number.isFinite(parsed) || parsed < 0) return
                             patchForm({ countedQuantity: parsed })
                           }}
-                          className="h-8 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                          className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
                           disabled={loadingBalance || submitting}
                         />
                         <IconButton

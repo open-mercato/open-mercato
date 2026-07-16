@@ -670,7 +670,7 @@ export function AdjustInventoryDialog({
               required
               error={fieldErrors.delta}
             >
-              <div className="flex w-28 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
+              <div className="flex w-32 items-center gap-2 rounded-md border bg-background p-2 shadow-xs">
                 <IconButton
                   type="button"
                   variant="ghost"
@@ -690,7 +690,7 @@ export function AdjustInventoryDialog({
                     if (parsed == null) return
                     patchForm({ delta: parsed })
                   }}
-                  className="h-8 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                  className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
                   disabled={submitting}
                 />
                 <IconButton
