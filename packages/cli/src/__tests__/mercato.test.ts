@@ -352,9 +352,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -400,9 +398,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -451,9 +447,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -548,9 +542,7 @@ describe('generate post-step structural cache purge', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue(undefined)
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
@@ -559,9 +551,7 @@ describe('generate post-step structural cache purge', () => {
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -588,6 +578,7 @@ describe('generate post-step structural cache purge', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
     expect(cacheRun).toHaveBeenCalledWith(['structural', '--all-tenants', '--quiet'])
 
     consoleErrorSpy.mockRestore()
@@ -598,9 +589,7 @@ describe('generate post-step structural cache purge', () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue(undefined)
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
@@ -608,9 +597,7 @@ describe('generate post-step structural cache purge', () => {
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -630,6 +617,7 @@ describe('generate post-step structural cache purge', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()

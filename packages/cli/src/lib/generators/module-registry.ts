@@ -3,7 +3,7 @@ import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
 import ts from 'typescript'
-import type { PackageResolver } from '../resolver'
+import type { ModuleEntry, PackageResolver } from '../resolver'
 import {
   calculateStructureChecksum,
   toVar,
@@ -59,6 +59,8 @@ import {
   MODULE_CODE_EXTENSIONS,
   type ModuleRoots,
   type ModuleImports,
+  type ScannedFile,
+  type ResolvedFile,
   stripModuleCodeExtension,
   isModulePageFile,
   resolveStandaloneSourceMirrorBase,
@@ -71,6 +73,45 @@ type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
 export interface ModuleRegistryOptions {
   resolver: PackageResolver
   quiet?: boolean
+}
+
+interface ModuleRegistryDiscovery {
+  enabled: ModuleEntry[]
+  modules: ModuleRegistryDiscoveryEntry[]
+  getStructureChecksum: () => string
+}
+
+type DiscoveredSubscriber = {
+  id: string
+  importPath: string
+  metadata: SerializableSubscriberMetadata | null
+}
+
+type DiscoveredWorker = {
+  id: string
+  importPath: string
+  metadata: SerializableWorkerMetadata
+}
+
+type DiscoveredTranslation = {
+  locale: string
+  coreHas: boolean
+  appHas: boolean
+}
+
+type ModuleRegistryDiscoveryEntry = {
+  modId: string
+  roots: ModuleRoots
+  imps: ModuleImports
+  appImportBase: string
+  resolve: (relativePath: string) => ResolvedFile | null
+  frontendFiles: ScannedFile[]
+  backendFiles: ScannedFile[]
+  commandLoaderEntries: CommandLoaderGenerationEntry[]
+  getSubscribers: () => Promise<DiscoveredSubscriber[]>
+  getWorkers: () => Promise<DiscoveredWorker[]>
+  translations: DiscoveredTranslation[]
+  dashboardWidgetEntries: DashboardWidgetEntry[]
 }
 
 type DashboardWidgetEntry = {
@@ -1504,6 +1545,135 @@ async function loadWorkerMetadata(sourceFile: string): Promise<SerializableWorke
     ?? normalizeWorkerMetadata(extractNamedObjectLiteralExport(sourceFile, 'metadata'))
 }
 
+async function discoverSubscribers(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  modId: string,
+): Promise<DiscoveredSubscriber[]> {
+  const subscribers: DiscoveredSubscriber[] = []
+  for (const { relPath } of scanModuleDir(roots, SCAN_CONFIGS.subscribers)) {
+    const resolved = resolveModuleFile(
+      roots,
+      imps,
+      path.posix.join('subscribers', relPath.replace(/\\/g, '/')),
+    )
+    if (!resolved) continue
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const name = stripModuleCodeExtension(file)
+    subscribers.push({
+      id: [modId, ...segs, name].filter(Boolean).join(':'),
+      importPath: sanitizeGeneratedModuleSpecifier(resolved.importPath),
+      metadata: await loadSubscriberMetadata(resolved.absolutePath),
+    })
+  }
+  return subscribers
+}
+
+async function discoverWorkers(
+  roots: ModuleRoots,
+  imps: ModuleImports,
+  modId: string,
+): Promise<DiscoveredWorker[]> {
+  const workers: DiscoveredWorker[] = []
+  for (const { relPath } of scanModuleDir(roots, SCAN_CONFIGS.workers)) {
+    const resolved = resolveModuleFile(
+      roots,
+      imps,
+      path.posix.join('workers', relPath.replace(/\\/g, '/')),
+    )
+    if (!resolved) continue
+    const metadata = await loadWorkerMetadata(resolved.absolutePath)
+    if (!metadata?.queue) continue
+    const segs = relPath.split('/')
+    const file = segs.pop()!
+    const name = stripModuleCodeExtension(file)
+    workers.push({
+      id: [modId, 'workers', ...segs, name].filter(Boolean).join(':'),
+      importPath: sanitizeGeneratedModuleSpecifier(resolved.importPath),
+      metadata,
+    })
+  }
+  return workers
+}
+
+function discoverTranslations(roots: ModuleRoots): DiscoveredTranslation[] {
+  const i18nApp = path.join(roots.appBase, 'i18n')
+  const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
+  const i18nCore = path.join(pkgI18nBase, 'i18n')
+  const locales = new Set<string>()
+  if (fs.existsSync(i18nCore)) {
+    for (const entry of fs.readdirSync(i18nCore, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+    }
+  }
+  if (fs.existsSync(i18nApp)) {
+    for (const entry of fs.readdirSync(i18nApp, { withFileTypes: true })) {
+      if (entry.isFile() && entry.name.endsWith('.json')) locales.add(entry.name.replace(/\.json$/, ''))
+    }
+  }
+  return Array.from(locales, (locale) => ({
+    locale,
+    coreHas: fs.existsSync(path.join(i18nCore, `${locale}.json`)),
+    appHas: fs.existsSync(path.join(i18nApp, `${locale}.json`)),
+  }))
+}
+
+async function createModuleRegistryDiscovery(
+  resolver: PackageResolver,
+): Promise<ModuleRegistryDiscovery> {
+  const enabled = resolver.loadEnabledModules()
+  const modules: ModuleRegistryDiscoveryEntry[] = []
+  const trackedRoots = new Set<string>()
+
+  for (const entry of enabled) {
+    const modId = entry.id
+    const roots = resolver.getModulePaths(entry)
+    verifyThirdPartyModuleShape(entry, roots.pkgBase)
+    const rawImps = resolver.getModuleImportBase(entry)
+    const appImportBase = entry.from === '@app' ? `../../src/modules/${modId}` : rawImps.appBase
+    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
+    trackedRoots.add(roots.appBase)
+    trackedRoots.add(roots.pkgBase)
+
+    let subscribers: Promise<DiscoveredSubscriber[]> | undefined
+    let workers: Promise<DiscoveredWorker[]> | undefined
+    const resolvedFiles = new Map<string, ResolvedFile | null>()
+    const resolve = (relativePath: string): ResolvedFile | null => {
+      if (!resolvedFiles.has(relativePath)) {
+        resolvedFiles.set(relativePath, resolveModuleFile(roots, imps, relativePath))
+      }
+      return resolvedFiles.get(relativePath) ?? null
+    }
+    modules.push({
+      modId,
+      roots,
+      imps,
+      appImportBase,
+      resolve,
+      frontendFiles: scanModuleDir(roots, SCAN_CONFIGS.frontendPages),
+      backendFiles: scanModuleDir(roots, SCAN_CONFIGS.backendPages),
+      commandLoaderEntries: collectCommandLoaderEntries(roots, imps, modId),
+      getSubscribers: () => subscribers ??= discoverSubscribers(roots, imps, modId),
+      getWorkers: () => workers ??= discoverWorkers(roots, imps, modId),
+      translations: discoverTranslations(roots),
+      dashboardWidgetEntries: scanDashboardWidgetEntries({
+        modId,
+        roots,
+        appImportBase,
+        pkgImportBase: imps.pkgBase,
+      }),
+    })
+  }
+
+  let structureChecksum: string | undefined
+  return {
+    enabled,
+    modules,
+    getStructureChecksum: () => structureChecksum ??= calculateStructureChecksum(Array.from(trackedRoots)),
+  }
+}
+
 async function loadPageMetadataForManifest(options: {
   sourceFile: string
   metaPath?: string
@@ -1842,90 +2012,39 @@ async function processApiRoutes(options: {
   }
 }
 
-async function processSubscribers(options: {
-  roots: ModuleRoots
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-}): Promise<string[]> {
-  const { roots, modId, appImportBase, pkgImportBase } = options
-  const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
+function processSubscribers(discovered: DiscoveredSubscriber[]): string[] {
   const subscribers: string[] = []
-  for (const { relPath } of files) {
-    const resolved = resolveModuleFile(
-      roots,
-      { appBase: appImportBase, pkgBase: pkgImportBase },
-      path.posix.join('subscribers', relPath.replace(/\\/g, '/')),
-    )
-    if (!resolved) continue
-    const segs = relPath.split('/')
-    const file = segs.pop()!
-    const name = stripModuleCodeExtension(file)
-    const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
-    const sid = [modId, ...segs, name].filter(Boolean).join(':')
-    const sourceFile = resolved.absolutePath
-    const metadata = await loadSubscriberMetadata(sourceFile)
+  for (const { id, importPath, metadata } of discovered) {
+    const subscriberId = metadata?.id ?? id
     subscribers.push(
-      `{ id: ${toLiteral(metadata?.id ?? sid)}, event: ${toLiteral(metadata?.event ?? '')}, persistent: ${metadata?.persistent === undefined ? 'undefined' : toLiteral(metadata.persistent)}, sync: ${metadata?.sync === undefined ? 'undefined' : toLiteral(metadata.sync)}, priority: ${metadata?.priority === undefined ? 'undefined' : toLiteral(metadata.priority)}, handler: createLazyModuleSubscriber(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(metadata?.id ?? sid)}) }`
+      `{ id: ${toLiteral(subscriberId)}, event: ${toLiteral(metadata?.event ?? '')}, persistent: ${metadata?.persistent === undefined ? 'undefined' : toLiteral(metadata.persistent)}, sync: ${metadata?.sync === undefined ? 'undefined' : toLiteral(metadata.sync)}, priority: ${metadata?.priority === undefined ? 'undefined' : toLiteral(metadata.priority)}, handler: createLazyModuleSubscriber(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(subscriberId)}) }`
     )
   }
   return subscribers
 }
 
-async function processWorkers(options: {
-  roots: ModuleRoots
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-}): Promise<string[]> {
-  const { roots, modId, appImportBase, pkgImportBase } = options
-  const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
+function processWorkers(discovered: DiscoveredWorker[]): string[] {
   const workers: string[] = []
-  for (const { relPath } of files) {
-    const resolved = resolveModuleFile(
-      roots,
-      { appBase: appImportBase, pkgBase: pkgImportBase },
-      path.posix.join('workers', relPath.replace(/\\/g, '/')),
-    )
-    if (!resolved) continue
-    const segs = relPath.split('/')
-    const file = segs.pop()!
-    const name = stripModuleCodeExtension(file)
-    const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
-    const sourceFile = resolved.absolutePath
-    const metadata = await loadWorkerMetadata(sourceFile)
-    if (!metadata?.queue) continue
-    const wid = [modId, 'workers', ...segs, name].filter(Boolean).join(':')
+  for (const { id, importPath, metadata } of discovered) {
+    const workerId = metadata.id ?? id
     workers.push(
-      `{ id: ${toLiteral(metadata.id ?? wid)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(metadata.id ?? wid)}) }`
+      `{ id: ${toLiteral(workerId)}, queue: ${toLiteral(metadata.queue)}, concurrency: ${toLiteral(metadata.concurrency ?? 1)}, handler: createLazyModuleWorker(() => ${buildDynamicImportExpression(importPath)}, ${toLiteral(workerId)}) }`
     )
   }
   return workers
 }
 
 function processTranslations(options: {
-  roots: ModuleRoots
+  discovered: DiscoveredTranslation[]
   modId: string
   appImportBase: string
   pkgImportBase: string
   imports: string[]
   extraImports?: string[]
 }): string[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
-  const i18nApp = path.join(roots.appBase, 'i18n')
-  const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
-  const i18nCore = path.join(pkgI18nBase, 'i18n')
-  const locales = new Set<string>()
-  if (fs.existsSync(i18nCore))
-    for (const e of fs.readdirSync(i18nCore, { withFileTypes: true }))
-      if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
-  if (fs.existsSync(i18nApp))
-    for (const e of fs.readdirSync(i18nApp, { withFileTypes: true }))
-      if (e.isFile() && e.name.endsWith('.json')) locales.add(e.name.replace(/\.json$/, ''))
+  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
   const translations: string[] = []
-  for (const locale of locales) {
-    const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
-    const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
+  for (const { locale, coreHas, appHas } of discovered) {
     if (coreHas && appHas) {
       const cName = `T_${toVar(modId)}_${toVar(locale)}_C`
       const aName = `T_${toVar(modId)}_${toVar(locale)}_A`
@@ -2547,28 +2666,10 @@ async function processPageFilesAst(options: {
   return routes
 }
 
-async function processSubscribersAst(options: {
-  roots: ModuleRoots
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-}): Promise<WriterFunction[]> {
-  const { roots, modId, appImportBase, pkgImportBase } = options
-  const files = scanModuleDir(roots, SCAN_CONFIGS.subscribers)
+function processSubscribersAst(discovered: DiscoveredSubscriber[]): WriterFunction[] {
   const subscribers: WriterFunction[] = []
-  for (const { relPath } of files) {
-    const resolved = resolveModuleFile(
-      roots,
-      { appBase: appImportBase, pkgBase: pkgImportBase },
-      path.posix.join('subscribers', relPath.replace(/\\/g, '/')),
-    )
-    if (!resolved) continue
-    const segs = relPath.split('/')
-    const file = segs.pop()!
-    const name = stripModuleCodeExtension(file)
-    const sid = [modId, ...segs, name].filter(Boolean).join(':')
-    const metadata = await loadSubscriberMetadata(resolved.absolutePath)
-    const subscriberId = metadata?.id ?? sid
+  for (const { id, importPath, metadata } of discovered) {
+    const subscriberId = metadata?.id ?? id
     subscribers.push(
       objectLiteral([
         { name: 'id', value: subscriberId },
@@ -2580,7 +2681,7 @@ async function processSubscribersAst(options: {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleSubscriber'), [
             arrowFunction({
-              body: importExpression(resolved.importPath),
+              body: importExpression(importPath),
             }),
             subscriberId,
           ]),
@@ -2591,28 +2692,10 @@ async function processSubscribersAst(options: {
   return subscribers
 }
 
-async function processWorkersAst(options: {
-  roots: ModuleRoots
-  modId: string
-  appImportBase: string
-  pkgImportBase: string
-}): Promise<WriterFunction[]> {
-  const { roots, modId, appImportBase, pkgImportBase } = options
-  const files = scanModuleDir(roots, SCAN_CONFIGS.workers)
+function processWorkersAst(discovered: DiscoveredWorker[]): WriterFunction[] {
   const workers: WriterFunction[] = []
-  for (const { relPath } of files) {
-    const resolved = resolveModuleFile(
-      roots,
-      { appBase: appImportBase, pkgBase: pkgImportBase },
-      path.posix.join('workers', relPath.replace(/\\/g, '/')),
-    )
-    if (!resolved) continue
-    const segs = relPath.split('/')
-    const file = segs.pop()!
-    const name = stripModuleCodeExtension(file)
-    const metadata = await loadWorkerMetadata(resolved.absolutePath)
-    if (!metadata?.queue) continue
-    const workerId = metadata.id ?? [modId, 'workers', ...segs, name].filter(Boolean).join(':')
+  for (const { id, importPath, metadata } of discovered) {
+    const workerId = metadata.id ?? id
     workers.push(
       objectLiteral([
         { name: 'id', value: workerId },
@@ -2622,7 +2705,7 @@ async function processWorkersAst(options: {
           name: 'handler',
           value: callExpression(identifier('createLazyModuleWorker'), [
             arrowFunction({
-              body: importExpression(resolved.importPath),
+              body: importExpression(importPath),
             }),
             workerId,
           ]),
@@ -2634,40 +2717,18 @@ async function processWorkersAst(options: {
 }
 
 function processTranslationsAst(options: {
-  roots: ModuleRoots
+  discovered: DiscoveredTranslation[]
   modId: string
   appImportBase: string
   pkgImportBase: string
   imports: string[]
   extraImports?: string[]
 }): GeneratedObjectEntry[] {
-  const { roots, modId, appImportBase, pkgImportBase, imports, extraImports } = options
-  const i18nApp = path.join(roots.appBase, 'i18n')
-  const pkgI18nBase = resolveStandaloneSourceMirrorBase(roots.pkgBase) ?? roots.pkgBase
-  const i18nCore = path.join(pkgI18nBase, 'i18n')
-  const locales = new Set<string>()
-
-  if (fs.existsSync(i18nCore)) {
-    for (const entry of fs.readdirSync(i18nCore, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) {
-        locales.add(entry.name.replace(/\.json$/, ''))
-      }
-    }
-  }
-
-  if (fs.existsSync(i18nApp)) {
-    for (const entry of fs.readdirSync(i18nApp, { withFileTypes: true })) {
-      if (entry.isFile() && entry.name.endsWith('.json')) {
-        locales.add(entry.name.replace(/\.json$/, ''))
-      }
-    }
-  }
+  const { discovered, modId, appImportBase, pkgImportBase, imports, extraImports } = options
 
   const translations: GeneratedObjectEntry[] = []
 
-  for (const locale of locales) {
-    const coreHas = fs.existsSync(path.join(i18nCore, `${locale}.json`))
-    const appHas = fs.existsSync(path.join(i18nApp, `${locale}.json`))
+  for (const { locale, coreHas, appHas } of discovered) {
 
     if (coreHas && appHas) {
       const coreName = `T_${toVar(modId)}_${toVar(locale)}_C`
@@ -2712,9 +2773,7 @@ function processTranslationsAst(options: {
 }
 
 function resolveConventionFile(
-  roots: ModuleRoots,
-  imps: ModuleImports,
-  relativePath: string,
+  resolved: ResolvedFile | null,
   prefix: string,
   modId: string,
   importIdRef: { value: number },
@@ -2722,7 +2781,6 @@ function resolveConventionFile(
   extraImports?: string[],
   importStyle: 'namespace' | 'default' = 'namespace'
 ): { importName: string; importPath: string; fromApp: boolean } | null {
-  const resolved = resolveModuleFile(roots, imps, relativePath)
   if (!resolved) return null
   const importName = `${prefix}_${toVar(modId)}_${importIdRef.value++}`
   const importPath = sanitizeGeneratedModuleSpecifier(resolved.importPath)
@@ -2736,8 +2794,13 @@ function resolveConventionFile(
   return { importName, importPath, fromApp: resolved.fromApp }
 }
 
-export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+type ModuleRegistryRenderOptions = ModuleRegistryOptions & {
+  discovery: ModuleRegistryDiscovery
+}
+
+async function generateModuleRegistryFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
+  const { discovery } = options
   const result = createGeneratorResult()
 
   const outputDir = resolver.getOutputDir()
@@ -2758,22 +2821,14 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
-  const enabled = resolver.loadEnabledModules()
-  for (const entry of enabled) {
-    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
-  }
+  const enabled = discovery.enabled
   const extensions = loadGeneratorExtensions()
 
   // Pre-pass: collect generator plugins from each enabled module's generators.ts
   const pluginRegistry = new Map<string, import('@open-mercato/shared/modules/generators').GeneratorPlugin>()
   const pluginState = new Map<string, { imports: string[]; configs: string[] }>()
-  for (const entry of enabled) {
-    const roots = resolver.getModulePaths(entry)
-    const rawImps = resolver.getModuleImportBase(entry)
-    const isAppMod = entry.from === '@app'
-    const appImportBase = isAppMod ? `../../src/modules/${entry.id}` : rawImps.appBase
-    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
-    const resolved = resolveModuleFile(roots, imps, 'generators.ts')
+  for (const discovered of discovery.modules) {
+    const resolved = discovered.resolve('generators.ts')
     if (!resolved) continue
     try {
       const pluginMod = await import(buildCacheBustedSourceImportUrl(resolved.absolutePath))
@@ -2799,7 +2854,6 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const apiRouteManifestDecls: string[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
-  const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
@@ -2812,17 +2866,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     aclPath?: string
   }> = []
 
-  for (const entry of enabled) {
-    const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
-    const rawImps = resolver.getModuleImportBase(entry)
-    trackedRoots.add(roots.appBase)
-    trackedRoots.add(roots.pkgBase)
-
-    const isAppModule = entry.from === '@app'
-    const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
-    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
-    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
+  for (const discovered of discovery.modules) {
+    const { modId, roots, imps, appImportBase } = discovered
+    commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
     const frontendRoutes: string[] = []
     const backendRoutes: string[] = []
@@ -2848,7 +2894,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     // === Processing order MUST match original import ID sequence ===
 
     // 1. Module metadata: index.ts (overrideable)
-    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    const indexResolved = discovered.resolve('index.ts')
     if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
@@ -2867,7 +2913,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const feApp = path.join(roots.appBase, 'frontend')
       const fePkg = path.join(roots.pkgBase, 'frontend')
-      const feFiles = scanModuleDir(roots, SCAN_CONFIGS.frontendPages)
+      const feFiles = discovered.frontendFiles
       if (feFiles.length) {
         const generatedFrontendRoutes = await processPageFiles({
           files: feFiles,
@@ -2891,13 +2937,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 3. Entity extensions: data/extensions.ts
     {
-      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports, runtimeImports)
+      const ext = resolveConventionFile(discovered.resolve('data/extensions.ts'), 'X', modId, importIdRef, imports, runtimeImports)
       if (ext) extensionsImportName = ext.importName
     }
 
     // 4. RBAC: acl.ts
     {
-      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      const aclResolved = discovered.resolve('acl.ts')
       if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
@@ -2909,7 +2955,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 5. Custom entities: ce.ts
     {
-      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports, runtimeImports)
+      const ce = resolveConventionFile(discovered.resolve('ce.ts'), 'CE', modId, importIdRef, imports, runtimeImports)
       if (ce) customEntitiesImportName = ce.importName
     }
 
@@ -2930,9 +2976,9 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // Track file paths for UMES conflict detection
     {
-      const compOverridesFile = resolveModuleFile(roots, imps, 'widgets/components.ts')
-      const interceptorsFile = resolveModuleFile(roots, imps, 'api/interceptors.ts')
-      const aclFile = resolveModuleFile(roots, imps, 'acl.ts')
+      const compOverridesFile = discovered.resolve('widgets/components.ts')
+      const interceptorsFile = discovered.resolve('api/interceptors.ts')
+      const aclFile = discovered.resolve('acl.ts')
       umesConflictSources.push({
         moduleId: modId,
         componentOverridesPath: compOverridesFile?.absolutePath,
@@ -2955,19 +3001,19 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 11. Setup: setup.ts
     {
-      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports, runtimeImports)
+      const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports, runtimeImports)
       if (setup) setupImportName = setup.importName
     }
 
     // 11a. Encryption defaults: encryption.ts
     {
-      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports, runtimeImports)
+      const encryption = resolveConventionFile(discovered.resolve('encryption.ts'), 'ENCRYPTION', modId, importIdRef, imports, runtimeImports)
       if (encryption) encryptionImportName = encryption.importName
     }
 
     // 11b. Integration manifest: integration.ts
     {
-      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      const resolved = discovered.resolve('integration.ts')
       if (resolved) {
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
@@ -2978,7 +3024,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 12. Custom fields: data/fields.ts
     {
-      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports, runtimeImports)
+      const fields = resolveConventionFile(discovered.resolve('data/fields.ts'), 'F', modId, importIdRef, imports, runtimeImports)
       if (fields) fieldsImportName = fields.importName
     }
 
@@ -2986,7 +3032,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     {
       const beApp = path.join(roots.appBase, 'backend')
       const bePkg = path.join(roots.pkgBase, 'backend')
-      const beFiles = scanModuleDir(roots, SCAN_CONFIGS.backendPages)
+      const beFiles = discovered.backendFiles
       if (beFiles.length) {
         const generatedBackendRoutes = await processPageFiles({
           files: beFiles,
@@ -3025,7 +3071,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 15. CLI
     {
-      const cliResolved = resolveModuleFile(roots, imps, 'cli.ts')
+      const cliResolved = discovered.resolve('cli.ts')
       if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
         imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
@@ -3035,7 +3081,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 16. Translations
     translations.push(...processTranslations({
-      roots,
+      discovered: discovered.translations,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
@@ -3044,20 +3090,10 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }))
 
     // 17. Subscribers
-    subscribers.push(...await processSubscribers({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    subscribers.push(...processSubscribers(await discovered.getSubscribers()))
 
     // 18. Workers
-    workers.push(...await processWorkers({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    workers.push(...processWorkers(await discovered.getWorkers()))
 
     // Build combined customFieldSets expression
     {
@@ -3073,13 +3109,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
 
     // 19. Dashboard widgets
     {
-      const entries = scanDashboardWidgetEntries({
-        modId,
-        roots,
-        appImportBase,
-        pkgImportBase: imps.pkgBase,
-      })
-      for (const entry of entries) {
+      for (const entry of discovered.dashboardWidgetEntries) {
         dashboardWidgets.push(
           `{ moduleId: ${toLiteral(entry.moduleId)}, key: ${toLiteral(entry.key)}, source: ${toLiteral(entry.source)}, loader: () => ${buildDynamicImportExpression(entry.importPath)}.then((mod) => mod.default ?? mod) }`
         )
@@ -3296,9 +3326,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     }
   }
 
-  const structureChecksum = calculateStructureChecksum([
-    ...Array.from(trackedRoots),
-  ])
+  const structureChecksum = discovery.getStructureChecksum()
 
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: runtimeOutFile, checksumFile: runtimeChecksumFile, content: runtimeOutput, structureChecksum, result, quiet })
@@ -3373,8 +3401,9 @@ ${body}
   return result
 }
 
-export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+async function generateModuleRegistryAppFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
+  const { discovery } = options
   const result = createGeneratorResult()
 
   const outputDir = resolver.getOutputDir()
@@ -3391,10 +3420,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
-  const enabled = resolver.loadEnabledModules()
-  for (const entry of enabled) {
-    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
-  }
+  const enabled = discovery.enabled
   const imports: string[] = []
   const bootstrapImports: string[] = []
   const i18nImports: string[] = []
@@ -3402,22 +3428,13 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
   const bootstrapModuleDecls: WriterFunction[] = []
   const i18nModuleDecls: WriterFunction[] = []
   const importIdRef = { value: 0 }
-  const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
   let hasRouteComponents = false
 
-  for (const entry of enabled) {
-    const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
-    const rawImps = resolver.getModuleImportBase(entry)
-    trackedRoots.add(roots.appBase)
-    trackedRoots.add(roots.pkgBase)
-
-    const isAppModule = entry.from === '@app'
-    const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
-    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
-    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
+  for (const discovered of discovery.modules) {
+    const { modId, roots, imps, appImportBase } = discovered
+    commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
     const frontendRoutes: WriterFunction[] = []
     const backendRoutes: WriterFunction[] = []
@@ -3434,7 +3451,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     let encryptionImportName: string | null = null
     let integrationImportName: string | null = null
 
-    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    const indexResolved = discovered.resolve('index.ts')
     if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
@@ -3450,19 +3467,19 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     }
 
     {
-      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports)
       if (setup) bootstrapImports.push(buildImportStatement(`* as ${setup.importName}`, setup.importPath))
       if (setup) setupImportName = setup.importName
     }
 
     {
-      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports)
+      const encryption = resolveConventionFile(discovered.resolve('encryption.ts'), 'ENCRYPTION', modId, importIdRef, imports)
       if (encryption) bootstrapImports.push(buildImportStatement(`* as ${encryption.importName}`, encryption.importPath))
       if (encryption) encryptionImportName = encryption.importName
     }
 
     {
-      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      const resolved = discovered.resolve('integration.ts')
       if (resolved) {
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
@@ -3472,12 +3489,12 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     }
 
     {
-      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports, bootstrapImports)
+      const ext = resolveConventionFile(discovered.resolve('data/extensions.ts'), 'X', modId, importIdRef, imports, bootstrapImports)
       if (ext) extensionsImportName = ext.importName
     }
 
     {
-      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      const aclResolved = discovered.resolve('acl.ts')
       if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
@@ -3488,19 +3505,19 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     }
 
     {
-      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports, bootstrapImports)
+      const ce = resolveConventionFile(discovered.resolve('ce.ts'), 'CE', modId, importIdRef, imports, bootstrapImports)
       if (ce) customEntitiesImportName = ce.importName
     }
 
     {
-      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports, bootstrapImports)
+      const fields = resolveConventionFile(discovered.resolve('data/fields.ts'), 'F', modId, importIdRef, imports, bootstrapImports)
       if (fields) fieldsImportName = fields.importName
     }
 
     {
       const feApp = path.join(roots.appBase, 'frontend')
       const fePkg = path.join(roots.pkgBase, 'frontend')
-      const feFiles = scanModuleDir(roots, SCAN_CONFIGS.frontendPages)
+      const feFiles = discovered.frontendFiles
       if (feFiles.length > 0) {
         frontendRoutes.push(...await processPageFilesAst({
           files: feFiles,
@@ -3520,7 +3537,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     {
       const beApp = path.join(roots.appBase, 'backend')
       const bePkg = path.join(roots.pkgBase, 'backend')
-      const beFiles = scanModuleDir(roots, SCAN_CONFIGS.backendPages)
+      const beFiles = discovered.backendFiles
       if (beFiles.length > 0) {
         backendRoutes.push(...await processPageFilesAst({
           files: beFiles,
@@ -3539,7 +3556,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
 
     const translationImports: string[] = []
     translations.push(...processTranslationsAst({
-      roots,
+      discovered: discovered.translations,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
@@ -3549,28 +3566,12 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     bootstrapImports.push(...translationImports)
     i18nImports.push(...translationImports)
 
-    subscribers.push(...await processSubscribersAst({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
-    workers.push(...await processWorkersAst({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    workers.push(...processWorkersAst(await discovered.getWorkers()))
 
     {
-      const entries = scanDashboardWidgetEntries({
-        modId,
-        roots,
-        appImportBase,
-        pkgImportBase: imps.pkgBase,
-      })
-      dashboardWidgetsValue = buildModuleDashboardWidgetsValue(entries)
+      dashboardWidgetsValue = buildModuleDashboardWidgetsValue(discovered.dashboardWidgetEntries)
     }
 
     const moduleEntries: GeneratedObjectEntry[] = [
@@ -3732,7 +3733,7 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
     }
   }
 
-  const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
+  const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: bootstrapOutFile, checksumFile: bootstrapChecksumFile, content: bootstrapOutput, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: i18nOutFile, checksumFile: i18nChecksumFile, content: i18nOutput, structureChecksum, result, quiet })
@@ -3755,8 +3756,9 @@ export async function generateModuleRegistryApp(options: ModuleRegistryOptions):
  *           features/ACL, custom entities, vector config, custom fields, dashboard widgets
  * Excludes: frontend routes, backend routes, API handlers, injection widgets
  */
-export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+async function generateModuleRegistryCliFromDiscovery(options: ModuleRegistryRenderOptions): Promise<GeneratorResult> {
   const { resolver, quiet = false } = options
+  const { discovery } = options
   const result = createGeneratorResult()
 
   const outputDir = resolver.getOutputDir()
@@ -3767,29 +3769,17 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
   const commandLoadersOutFile = path.join(outputDir, 'command-loaders.generated.ts')
   const commandLoadersChecksumFile = path.join(outputDir, 'command-loaders.generated.checksum')
 
-  const enabled = resolver.loadEnabledModules()
-  for (const entry of enabled) {
-    verifyThirdPartyModuleShape(entry, resolver.getModulePaths(entry).pkgBase)
-  }
+  const enabled = discovery.enabled
   const imports: string[] = []
   const moduleDecls: WriterFunction[] = []
   // Mutable ref so extracted helper functions can increment the shared counter
   const importIdRef = { value: 0 }
-  const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
 
-  for (const entry of enabled) {
-    const modId = entry.id
-    const roots = resolver.getModulePaths(entry)
-    const rawImps = resolver.getModuleImportBase(entry)
-    trackedRoots.add(roots.appBase)
-    trackedRoots.add(roots.pkgBase)
-
-    const isAppModule = entry.from === '@app'
-    const appImportBase = isAppModule ? `../../src/modules/${modId}` : rawImps.appBase
-    const imps: ModuleImports = { appBase: appImportBase, pkgBase: rawImps.pkgBase }
-    commandLoaderEntries.push(...collectCommandLoaderEntries(roots, imps, modId))
+  for (const discovered of discovery.modules) {
+    const { modId, roots, imps, appImportBase } = discovered
+    commandLoaderEntries.push(...discovered.commandLoaderEntries)
 
     let cliImportName: string | null = null
     const translations: GeneratedObjectEntry[] = []
@@ -3807,7 +3797,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     let integrationImportName: string | null = null
 
     // Module metadata: index.ts (overrideable)
-    const indexResolved = resolveModuleFile(roots, imps, 'index.ts')
+    const indexResolved = discovered.resolve('index.ts')
     if (indexResolved) {
       infoImportName = `I${importIdRef.value++}_${toVar(modId)}`
       const importPath = sanitizeGeneratedModuleSpecifier(indexResolved.importPath)
@@ -3823,19 +3813,19 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // Module setup configuration: setup.ts
     {
-      const setup = resolveConventionFile(roots, imps, 'setup.ts', 'SETUP', modId, importIdRef, imports)
+      const setup = resolveConventionFile(discovered.resolve('setup.ts'), 'SETUP', modId, importIdRef, imports)
       if (setup) setupImportName = setup.importName
     }
 
     // Module encryption defaults: encryption.ts
     {
-      const encryption = resolveConventionFile(roots, imps, 'encryption.ts', 'ENCRYPTION', modId, importIdRef, imports)
+      const encryption = resolveConventionFile(discovered.resolve('encryption.ts'), 'ENCRYPTION', modId, importIdRef, imports)
       if (encryption) encryptionImportName = encryption.importName
     }
 
     // Integration manifest: integration.ts
     {
-      const resolved = resolveModuleFile(roots, imps, 'integration.ts')
+      const resolved = discovered.resolve('integration.ts')
       if (resolved) {
         const importName = `INTEGRATION_${toVar(modId)}_${importIdRef.value++}`
         imports.push(buildImportStatement(`* as ${importName}`, resolved.importPath))
@@ -3845,13 +3835,13 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // Entity extensions: data/extensions.ts
     {
-      const ext = resolveConventionFile(roots, imps, 'data/extensions.ts', 'X', modId, importIdRef, imports)
+      const ext = resolveConventionFile(discovered.resolve('data/extensions.ts'), 'X', modId, importIdRef, imports)
       if (ext) extensionsImportName = ext.importName
     }
 
     // RBAC: acl.ts
     {
-      const aclResolved = resolveModuleFile(roots, imps, 'acl.ts')
+      const aclResolved = discovered.resolve('acl.ts')
       if (aclResolved) {
         const importName = `ACL_${toVar(modId)}_${importIdRef.value++}`
         const importPath = sanitizeGeneratedModuleSpecifier(aclResolved.importPath)
@@ -3862,25 +3852,25 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // Custom entities: ce.ts
     {
-      const ce = resolveConventionFile(roots, imps, 'ce.ts', 'CE', modId, importIdRef, imports)
+      const ce = resolveConventionFile(discovered.resolve('ce.ts'), 'CE', modId, importIdRef, imports)
       if (ce) customEntitiesImportName = ce.importName
     }
 
     // Vector search configuration: vector.ts
     {
-      const vec = resolveConventionFile(roots, imps, 'vector.ts', 'VECTOR', modId, importIdRef, imports)
+      const vec = resolveConventionFile(discovered.resolve('vector.ts'), 'VECTOR', modId, importIdRef, imports)
       if (vec) vectorImportName = vec.importName
     }
 
     // Custom fields: data/fields.ts
     {
-      const fields = resolveConventionFile(roots, imps, 'data/fields.ts', 'F', modId, importIdRef, imports)
+      const fields = resolveConventionFile(discovered.resolve('data/fields.ts'), 'F', modId, importIdRef, imports)
       if (fields) fieldsImportName = fields.importName
     }
 
     // CLI
     {
-      const cliResolved = resolveModuleFile(roots, imps, 'cli.ts')
+      const cliResolved = discovered.resolve('cli.ts')
       if (cliResolved) {
         const importName = `CLI_${toVar(modId)}`
         imports.push(buildImportStatement(importName, sanitizeGeneratedModuleSpecifier(cliResolved.importPath)))
@@ -3890,7 +3880,7 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
 
     // Translations
     translations.push(...processTranslationsAst({
-      roots,
+      discovered: discovered.translations,
       modId,
       appImportBase,
       pkgImportBase: imps.pkgBase,
@@ -3898,30 +3888,14 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     }))
 
     // Subscribers
-    subscribers.push(...await processSubscribersAst({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    subscribers.push(...processSubscribersAst(await discovered.getSubscribers()))
 
     // Workers
-    workers.push(...await processWorkersAst({
-      roots,
-      modId,
-      appImportBase,
-      pkgImportBase: imps.pkgBase,
-    }))
+    workers.push(...processWorkersAst(await discovered.getWorkers()))
 
     // Dashboard widgets
     {
-      const entries = scanDashboardWidgetEntries({
-        modId,
-        roots,
-        appImportBase,
-        pkgImportBase: imps.pkgBase,
-      })
-      dashboardWidgetsValue = buildModuleDashboardWidgetsValue(entries)
+      dashboardWidgetsValue = buildModuleDashboardWidgetsValue(discovered.dashboardWidgetEntries)
     }
 
     const moduleEntries: GeneratedObjectEntry[] = [
@@ -4079,11 +4053,35 @@ export async function generateModuleRegistryCli(options: ModuleRegistryOptions):
     }
   }
 
-  const structureChecksum = calculateStructureChecksum(Array.from(trackedRoots))
+  const structureChecksum = discovery.getStructureChecksum()
   writeGeneratedFile({ outFile, checksumFile, content: output, structureChecksum, result, quiet })
   writeGeneratedFile({ outFile: legacyOutFile, checksumFile: legacyChecksumFile, content: legacyOutput, structureChecksum, result, quiet })
   const commandLoadersOutput = renderCommandLoadersFile(commandLoaderEntries)
   writeGeneratedFile({ outFile: commandLoadersOutFile, checksumFile: commandLoadersChecksumFile, content: commandLoadersOutput, structureChecksum, result, quiet })
 
   return result
+}
+
+export async function generateModuleRegistry(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  return generateModuleRegistryFromDiscovery({ ...options, discovery })
+}
+
+export async function generateModuleRegistryApp(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  return generateModuleRegistryAppFromDiscovery({ ...options, discovery })
+}
+
+export async function generateModuleRegistryCli(options: ModuleRegistryOptions): Promise<GeneratorResult> {
+  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  return generateModuleRegistryCliFromDiscovery({ ...options, discovery })
+}
+
+export async function generateModuleRegistries(options: ModuleRegistryOptions): Promise<GeneratorResult[]> {
+  const discovery = await createModuleRegistryDiscovery(options.resolver)
+  return [
+    await generateModuleRegistryFromDiscovery({ ...options, discovery }),
+    await generateModuleRegistryAppFromDiscovery({ ...options, discovery }),
+    await generateModuleRegistryCliFromDiscovery({ ...options, discovery }),
+  ]
 }
