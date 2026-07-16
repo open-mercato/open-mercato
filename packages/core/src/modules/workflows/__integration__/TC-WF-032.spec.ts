@@ -1,127 +1,93 @@
 import { expect, test } from '@playwright/test'
 import {
   deleteWorkflowDefinitions,
-  getWorkflowDefinition,
-  runCheckoutOrderBodyRepair,
+  isWorkflowDefinitionSoftDeleted,
+  runRetireSeededCheckoutDemo,
   seedWorkflowDefinition,
 } from './helpers/db'
 
 /**
- * TC-WF-032: Checkout-demo create_order body repair migration (#4211).
+ * TC-WF-032: retire the shadowing checkout-demo seed rows (#4211).
  *
- * `Migration20260716120000` is pure jsonb surgery: it back-fills
- * `lines: '{{context.cart.orderLines}}'` and
- * `adjustments: '{{context.cart.orderAdjustments}}'` into the persisted legacy
- * checkout definition's `create_order` CALL_API body so orders created by the
- * DB-first definition carry their cart line items (and therefore non-zero
- * totals that include shipping/tax). This spec seeds a legacy-shaped
- * `workflow_definitions` row (plus control rows that MUST stay untouched), runs
- * the migration's exact exported SQL against Postgres, and asserts the result.
+ * `Migration20260716120000` soft-deletes the persisted `workflows.checkout-demo`
+ * seed rows so runtime falls through to the maintained code definition (the only
+ * one that forwards cart line items + shipping/tax adjustments to the sales-order
+ * API). The repair is deliberately name/body-agnostic: it must retire every
+ * historical seed variant — including the earlier `Simple Checkout Flow` name a
+ * body/name fingerprint would have missed — while never touching a user's
+ * customization of the code definition (`code_workflow_id` set).
  *
  * ENVIRONMENT: DB-level fixtures (raw `pg` against `DATABASE_URL`). Run under a
  * coherent app+DB stack (`yarn test:integration`).
  */
 
-type Activity = { activityId: string; activityType: string; config?: Record<string, any> }
-type Transition = { transitionId: string; activities?: Activity[] }
-
-/**
- * Faithful shape of the original seeded checkout definition's order transition,
- * whose create_order body carried header/total fields but no `lines` or
- * `adjustments`. `already` forces a pre-fixed variant for the idempotency case.
- */
-function legacyCheckoutDefinition(overrides?: { already?: boolean }): Record<string, unknown> {
-  const createOrderBody: Record<string, unknown> = {
+function checkoutSeed(overrides?: { withoutLines?: boolean }): Record<string, unknown> {
+  const body: Record<string, unknown> = {
     customerEntityId: '{{context.customer.id}}',
     currencyCode: '{{context.cart.currency}}',
     placedAt: '{{now}}',
-    grandTotalGrossAmount: '{{context.cart.total}}',
-    subtotalGrossAmount: '{{context.cart.subtotal}}',
-    taxTotalAmount: '{{context.cart.tax}}',
-    shippingGrossAmount: '{{context.cart.shipping}}',
-    lineItemCount: '{{context.cart.itemCount}}',
   }
-  if (overrides?.already) {
-    createOrderBody.lines = '{{context.cart.orderLines}}'
-    createOrderBody.adjustments = '{{context.cart.orderAdjustments}}'
+  if (!overrides?.withoutLines) body.lines = '{{context.cart.orderLines}}'
+  return {
+    steps: [],
+    transitions: [
+      {
+        transitionId: 'confirmation_to_end',
+        activities: [
+          { activityId: 'create_order', activityType: 'CALL_API', config: { endpoint: '/api/sales/orders', method: 'POST', body } },
+        ],
+      },
+    ],
   }
-
-  const transitions: Transition[] = [
-    { transitionId: 'start_to_cart', activities: [{ activityId: 'log_checkout_start', activityType: 'EMIT_EVENT' }] },
-    { transitionId: 'payment_to_wait_confirmation', activities: [] },
-    {
-      transitionId: 'confirmation_to_end',
-      activities: [
-        {
-          activityId: 'create_order',
-          activityType: 'CALL_API',
-          config: { endpoint: '/api/sales/orders', method: 'POST', body: createOrderBody, validateTenantMatch: true },
-        },
-        { activityId: 'send_confirmation_email', activityType: 'SEND_EMAIL', config: { to: '{{context.customer.email}}' } },
-      ],
-    },
-  ]
-  return { steps: [], transitions }
 }
 
-function transitionsOf(definition: Record<string, unknown> | null): Transition[] {
-  return (definition?.transitions as Transition[]) ?? []
-}
-
-function createOrderBodyOf(definition: Record<string, unknown> | null): Record<string, any> | undefined {
-  const orderTransition = transitionsOf(definition).find((transition) => transition.transitionId === 'confirmation_to_end')
-  const createOrder = orderTransition?.activities?.find((activity) => activity.activityId === 'create_order')
-  return createOrder?.config?.body
-}
-
-test.describe('TC-WF-032: checkout-demo create_order body repair migration', () => {
-  test('back-fills lines and adjustments only on the known legacy seed, idempotently', async () => {
+test.describe('TC-WF-032: retire shadowing checkout-demo seed rows', () => {
+  test('soft-deletes seeded rows of any name, never customizations, idempotently', async () => {
     const seededIds: Array<string | null> = []
     try {
-      const target = await seedWorkflowDefinition({ definition: legacyCheckoutDefinition() })
-      const codeOverride = await seedWorkflowDefinition({
-        codeWorkflowId: 'workflows.checkout-demo',
-        definition: legacyCheckoutDefinition(),
+      // Two historical seed variants that both shadow the code definition — the
+      // early name is exactly the cohort a `workflow_name` fingerprint missed.
+      const legacyNamed = await seedWorkflowDefinition({
+        workflowName: 'Checkout with Payment Webhook',
+        definition: checkoutSeed({ withoutLines: true }),
       })
-      const wrongVersion = await seedWorkflowDefinition({ version: 2, definition: legacyCheckoutDefinition() })
-      const softDeleted = await seedWorkflowDefinition({ softDeleted: true, definition: legacyCheckoutDefinition() })
-      const alreadyFixed = await seedWorkflowDefinition({ definition: legacyCheckoutDefinition({ already: true }) })
-      seededIds.push(target.id, codeOverride.id, wrongVersion.id, softDeleted.id, alreadyFixed.id)
+      const earlyNamed = await seedWorkflowDefinition({
+        workflowName: 'Simple Checkout Flow',
+        definition: checkoutSeed({ withoutLines: true }),
+      })
+      // A user customization of the code definition — MUST be preserved.
+      const customization = await seedWorkflowDefinition({
+        codeWorkflowId: 'workflows.checkout-demo',
+        definition: checkoutSeed(),
+      })
+      // An unrelated workflow — MUST be preserved.
+      const unrelated = await seedWorkflowDefinition({
+        workflowId: 'workflows.simple-approval',
+        workflowName: 'Simple Approval',
+        definition: checkoutSeed(),
+      })
+      // An already-retired seed — idempotency guard.
+      const alreadyRetired = await seedWorkflowDefinition({
+        softDeleted: true,
+        definition: checkoutSeed({ withoutLines: true }),
+      })
+      seededIds.push(legacyNamed.id, earlyNamed.id, customization.id, unrelated.id, alreadyRetired.id)
 
-      await runCheckoutOrderBodyRepair()
+      await runRetireSeededCheckoutDemo()
 
-      // Target: create_order body gains both fields while every other field is preserved verbatim.
-      const repaired = await getWorkflowDefinition(target.id)
-      const repairedBody = createOrderBodyOf(repaired)
-      expect(repairedBody?.lines, 'cart order lines are wired into create_order').toBe('{{context.cart.orderLines}}')
-      expect(repairedBody?.adjustments, 'cart shipping/tax adjustments are wired in').toBe('{{context.cart.orderAdjustments}}')
-      expect(repairedBody?.grandTotalGrossAmount, 'existing total fields preserved').toBe('{{context.cart.total}}')
-      expect(repairedBody?.subtotalGrossAmount, 'existing subtotal preserved').toBe('{{context.cart.subtotal}}')
-      // Transition order and unrelated activities/transitions are untouched.
-      expect(
-        transitionsOf(repaired).map((transition) => transition.transitionId),
-        'transition order preserved',
-      ).toEqual(['start_to_cart', 'payment_to_wait_confirmation', 'confirmation_to_end'])
-      const orderActivities = transitionsOf(repaired).find((t) => t.transitionId === 'confirmation_to_end')?.activities
-      expect(orderActivities, 'sibling activities preserved').toHaveLength(2)
-      expect(
-        orderActivities?.find((activity) => activity.activityId === 'send_confirmation_email'),
-        'send_confirmation_email untouched',
-      ).toBeTruthy()
+      // Both seeded checkout-demo rows are retired regardless of their name.
+      expect(await isWorkflowDefinitionSoftDeleted(legacyNamed.id), 'legacy-named seed retired').toBe(true)
+      expect(await isWorkflowDefinitionSoftDeleted(earlyNamed.id), 'early-named seed retired').toBe(true)
 
-      // Control rows: none of the guards may be crossed.
-      for (const control of [codeOverride, wrongVersion, softDeleted]) {
-        const untouched = createOrderBodyOf(await getWorkflowDefinition(control.id))
-        expect(untouched?.lines, `control row ${control.id} lines not modified`).toBeUndefined()
-        expect(untouched?.adjustments, `control row ${control.id} adjustments not modified`).toBeUndefined()
-      }
+      // Guards not crossed: customization and unrelated workflow untouched.
+      expect(await isWorkflowDefinitionSoftDeleted(customization.id), 'code customization preserved').toBe(false)
+      expect(await isWorkflowDefinitionSoftDeleted(unrelated.id), 'unrelated workflow preserved').toBe(false)
 
-      // Idempotency: a row that already has both fields is left byte-for-byte identical,
-      // and replaying the repair on the target is a no-op.
-      const alreadyFixedBefore = await getWorkflowDefinition(alreadyFixed.id)
-      await runCheckoutOrderBodyRepair()
-      expect(await getWorkflowDefinition(alreadyFixed.id), 'pre-fixed row untouched').toEqual(alreadyFixedBefore)
-      expect(await getWorkflowDefinition(target.id), 'second repair run is a no-op').toEqual(repaired)
+      // Idempotency: re-running changes nothing.
+      await runRetireSeededCheckoutDemo()
+      expect(await isWorkflowDefinitionSoftDeleted(legacyNamed.id), 'still retired after replay').toBe(true)
+      expect(await isWorkflowDefinitionSoftDeleted(customization.id), 'still preserved after replay').toBe(false)
+      expect(await isWorkflowDefinitionSoftDeleted(alreadyRetired.id), 'pre-retired row still retired').toBe(true)
     } finally {
       await deleteWorkflowDefinitions(seededIds).catch(() => undefined)
     }

@@ -1,8 +1,7 @@
 import { describe, expect, jest, test } from '@jest/globals'
 import {
   Migration20260716120000,
-  buildCheckoutOrderBodyRepairSql,
-  legacyCheckoutOrderBodyPredicate,
+  buildRetireSeededCheckoutDemoSql,
 } from '../Migration20260716120000'
 
 async function collectSql(direction: 'up' | 'down'): Promise<string> {
@@ -18,42 +17,30 @@ async function collectSql(direction: 'up' | 'down'): Promise<string> {
 }
 
 describe('Migration20260716120000', () => {
-  test('back-fills cart lines and adjustments only into the legacy checkout create_order body', async () => {
+  test('soft-deletes only the seeded checkout-demo rows (name/body agnostic)', async () => {
     const sql = await collectSql('up')
 
-    expect(sql).toContain('set "definition" = jsonb_set(')
-    // Targets the confirmation_to_end transition and the create_order CALL_API activity
-    expect(sql).toContain(`"transition"."value"->>'transitionId' = 'confirmation_to_end'`)
-    expect(sql).toContain(`"activity"."value"->>'activityId' = 'create_order'`)
-    expect(sql).toContain(`"activity"."value"->>'activityType' = 'CALL_API'`)
-    // Merges both fields into config.body via jsonb concatenation, each only when absent
-    expect(sql).toContain(`jsonb_build_object('lines', '"{{context.cart.orderLines}}"'::jsonb)`)
-    expect(sql).toContain(`jsonb_build_object('adjustments', '"{{context.cart.orderAdjustments}}"'::jsonb)`)
-    // Row fingerprint
+    expect(sql).toContain('set "deleted_at" = current_timestamp')
     expect(sql).toContain(`"wf"."workflow_id" = 'workflows.checkout-demo'`)
-    expect(sql).toContain(`"wf"."workflow_name" = 'Checkout with Payment Webhook'`)
-    expect(sql).toContain('"wf"."version" = 1')
+    // Never touches user customizations of the code definition…
     expect(sql).toContain(`"wf"."code_workflow_id" is null`)
-    // Never soft-deletes or otherwise mutates the row lifecycle
-    expect(sql).not.toContain('set "deleted_at"')
+    // …and stays idempotent.
+    expect(sql).toContain(`"wf"."deleted_at" is null`)
+    // Robust by construction: it does NOT fingerprint on workflow_name or the
+    // create_order body, which is exactly why it covers every historical seed.
+    expect(sql).not.toContain('workflow_name')
+    expect(sql).not.toContain('create_order')
+    expect(sql).not.toContain('lines')
   })
 
-  test('is idempotent: only matches rows whose create_order body still lacks a field', async () => {
-    const predicate = legacyCheckoutOrderBodyPredicate().replace(/\s+/g, ' ').trim()
-
-    expect(predicate).toContain(`"activity"."value" #> '{config,body}' is not null`)
-    expect(predicate).toContain(`"activity"."value" #> '{config,body,lines}' is null`)
-    expect(predicate).toContain(`"activity"."value" #> '{config,body,adjustments}' is null`)
-  })
-
-  test('up() emits exactly the shared repair SQL (single source of truth)', async () => {
+  test('up() emits exactly the shared retire SQL (single source of truth)', async () => {
     const emitted = await collectSql('up')
-    const builder = buildCheckoutOrderBodyRepairSql().replace(/\s+/g, ' ').trim()
+    const builder = buildRetireSeededCheckoutDemoSql().replace(/\s+/g, ' ').trim()
 
     expect(emitted).toBe(builder)
   })
 
-  test('is forward-only so rollback cannot re-introduce zero-line orders', async () => {
+  test('is forward-only so rollback cannot re-shadow the code definition', async () => {
     const migration = Object.create(Migration20260716120000.prototype) as Migration20260716120000
     const addSql = jest.fn()
     Object.defineProperty(migration, 'addSql', { value: addSql })

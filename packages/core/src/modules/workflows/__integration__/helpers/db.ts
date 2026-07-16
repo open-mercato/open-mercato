@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { withClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
 import { buildLegacyCheckoutRepairSql } from '../../migrations/Migration20260715120000'
-import { buildCheckoutOrderBodyRepairSql } from '../../migrations/Migration20260716120000'
+import { buildRetireSeededCheckoutDemoSql } from '../../migrations/Migration20260716120000'
 
 /**
  * Direct-Postgres fixtures for the checkout-demo repair migration
@@ -78,6 +78,17 @@ export async function getWorkflowDefinition(id: string): Promise<Record<string, 
   })
 }
 
+/** Reads whether a seeded row has been soft-deleted. */
+export async function isWorkflowDefinitionSoftDeleted(id: string): Promise<boolean> {
+  return withClient(async (client) => {
+    const result = await client.query<{ deleted_at: Date | null }>(
+      'select deleted_at from workflow_definitions where id = $1',
+      [id],
+    )
+    return result.rows[0]?.deleted_at != null
+  })
+}
+
 /** Runs the migration's exact repair SQL. */
 export async function runLegacyCheckoutRepair(): Promise<void> {
   await withClient(async (client) => {
@@ -85,10 +96,10 @@ export async function runLegacyCheckoutRepair(): Promise<void> {
   })
 }
 
-/** Runs the exact SQL that back-fills the create_order body with cart lines and adjustments (#4211). */
-export async function runCheckoutOrderBodyRepair(): Promise<void> {
+/** Runs the exact SQL that retires the seeded checkout-demo rows so the code definition is used (#4211). */
+export async function runRetireSeededCheckoutDemo(): Promise<void> {
   await withClient(async (client) => {
-    await client.query(buildCheckoutOrderBodyRepairSql())
+    await client.query(buildRetireSeededCheckoutDemoSql())
   })
 }
 
