@@ -44,10 +44,11 @@ jest.mock('@open-mercato/core/modules/customer_accounts/lib/customerAuth', () =>
 }))
 
 const mockFindWithDecryption = jest.fn(async () => [] as unknown[])
+const mockFindOneWithDecryption = jest.fn(async () => null as unknown)
 
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findWithDecryption: (...args: unknown[]) => mockFindWithDecryption(...args),
-  findOneWithDecryption: jest.fn(async () => null),
+  findOneWithDecryption: (...args: unknown[]) => mockFindOneWithDecryption(...args),
 }))
 
 jest.mock('@open-mercato/core/modules/customer_accounts/events', () => ({
@@ -100,6 +101,7 @@ describe('customer invitation endpoints — invitation-created event', () => {
     })
     mockEmit.mockResolvedValue(undefined)
     mockFindWithDecryption.mockResolvedValue([{ id: roleId, name: 'Buyer', customerAssignable: true }])
+    mockFindOneWithDecryption.mockResolvedValue(null)
   })
 
   it('admin route emits the invitation-created event once with staff context and no raw token', async () => {
@@ -163,6 +165,42 @@ describe('customer invitation endpoints — invitation-created event', () => {
     expect(res.status).toBe(403)
     expect(mockCreateInvitation).not.toHaveBeenCalled()
     expect(invitedEvents()).toHaveLength(0)
+  })
+
+  it('admin route rejects a customerEntityId the caller does not own without inviting', async () => {
+    mockFindOneWithDecryption.mockResolvedValue(null)
+    const foreignCompanyId = '66666666-6666-4666-8666-666666666666'
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/admin/users-invite', {
+        email: 'buyer@example.com',
+        roleIds: [roleId],
+        customerEntityId: foreignCompanyId,
+      }),
+    )
+
+    expect(res.status).toBe(400)
+    await expect(res.json()).resolves.toEqual({ ok: false, error: 'Company not found' })
+    expect(mockCreateInvitation).not.toHaveBeenCalled()
+    expect(invitedEvents()).toHaveLength(0)
+  })
+
+  it('admin route invites when the customerEntityId is an owned company', async () => {
+    const ownedCompanyId = '77777777-7777-4777-8777-777777777777'
+    mockFindOneWithDecryption.mockResolvedValue({ id: ownedCompanyId, kind: 'company' })
+    const { POST } = await import('../admin/users-invite')
+    const res = await POST(
+      makeInviteRequest('/api/customer_accounts/admin/users-invite', {
+        email: 'buyer@example.com',
+        roleIds: [roleId],
+        customerEntityId: ownedCompanyId,
+      }),
+    )
+
+    expect(res.status).toBe(201)
+    expect(mockCreateInvitation).toHaveBeenCalledTimes(1)
+    expect((mockCreateInvitation.mock.calls[0][2] as any)?.customerEntityId).toBe(ownedCompanyId)
+    expect(invitedEvents()).toHaveLength(1)
   })
 
   it('admin route does NOT emit when validation fails', async () => {
