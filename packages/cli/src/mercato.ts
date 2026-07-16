@@ -750,7 +750,7 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
  * so the watcher embedded in the server lifecycle can reuse the same closure
  * without re-importing the closure-scoped version inside `buildBaseModules`.
  */
-async function runGeneratorSuite(quiet: boolean): Promise<void> {
+async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
     generateEntityIds,
@@ -763,14 +763,28 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
-  await generateEntityIds({ resolver, quiet })
-  await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
-  await generateModuleRegistryCli({ resolver, quiet })
-  await generateModuleEntities({ resolver, quiet })
-  await generateModuleDi({ resolver, quiet })
-  await generateModulePackageSources({ resolver, quiet })
-  await generateOpenApi({ resolver, quiet })
+  const results = [
+    await generateEntityIds({ resolver, quiet }),
+    await generateModuleRegistry({ resolver, quiet }),
+    await generateModuleRegistryApp({ resolver, quiet }),
+    await generateModuleRegistryCli({ resolver, quiet }),
+    await generateModuleEntities({ resolver, quiet }),
+    await generateModuleDi({ resolver, quiet }),
+    await generateModulePackageSources({ resolver, quiet }),
+    await generateOpenApi({ resolver, quiet }),
+  ]
+  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
+}
+
+async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
+  const generatedFilesChanged = await runGeneratorSuite(quiet)
+  if (!generatedFilesChanged) {
+    if (!quiet) {
+      console.log('[generate] Generated outputs unchanged; skipping structural cache purge.')
+    }
+    return
+  }
+  await runPostGenerateStructuralCachePurge(quiet)
 }
 
 /**
@@ -1777,8 +1791,7 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await runGeneratorSuite(quiet)
-          await runPostGenerateStructuralCachePurge(quiet)
+          await runGeneratorSuiteWithStructuralInvalidation(quiet)
           console.log('All generators completed.')
         },
       },
@@ -1797,8 +1810,7 @@ export async function run(argv = process.argv) {
             quiet,
             computeStructureChecksum: createGenerateWatchChecksumFn(),
             runGenerators: async () => {
-              await runGeneratorSuite(true)
-              await runPostGenerateStructuralCachePurge(true)
+              await runGeneratorSuiteWithStructuralInvalidation(true)
             },
           })
 
@@ -2248,8 +2260,7 @@ export async function run(argv = process.argv) {
                   quiet: false,
                   computeStructureChecksum: createGenerateWatchChecksumFn(),
                   runGenerators: async () => {
-                    await runGeneratorSuite(true)
-                    await runPostGenerateStructuralCachePurge(true)
+                    await runGeneratorSuiteWithStructuralInvalidation(true)
                   },
                 })
               } else {
