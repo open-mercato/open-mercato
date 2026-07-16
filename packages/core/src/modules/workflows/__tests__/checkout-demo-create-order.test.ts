@@ -3,11 +3,13 @@ import { workflowsConfig } from '../workflows'
 
 /**
  * Guards issue #4211: the code-defined checkout demo must forward the cart's
- * line items to the sales-order API. Without `lines` the order is created with
- * zero line items and — because the create command recomputes totals from the
- * persisted lines — $0.00 totals. Fresh installs execute this virtual code
- * definition directly (find-definition.ts), so this is the primary regression
- * guard; the migration specs cover legacy persisted rows.
+ * line items AND its shipping/tax adjustments to the sales-order API. Without
+ * `lines` the order is created with zero line items and — because the create
+ * command recomputes totals from the persisted lines/adjustments — $0.00
+ * totals; without `adjustments` the total covers only the product subtotal.
+ * Fresh installs execute this virtual code definition directly
+ * (find-definition.ts), so this is the primary regression guard; the migration
+ * specs cover legacy persisted rows.
  */
 describe('checkout-demo create_order activity', () => {
   const checkout = workflowsConfig.workflows.find((wf) => wf.workflowId === 'workflows.checkout-demo')
@@ -22,5 +24,9 @@ describe('checkout-demo create_order activity', () => {
 
   test('forwards the cart order lines so the order is not created empty', () => {
     expect(body?.lines).toBe('{{context.cart.orderLines}}')
+  })
+
+  test('forwards the cart shipping/tax adjustments so totals match the cart', () => {
+    expect(body?.adjustments).toBe('{{context.cart.orderAdjustments}}')
   })
 })

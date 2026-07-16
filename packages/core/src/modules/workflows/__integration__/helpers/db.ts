@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { withClient } from '@open-mercato/core/modules/core/__integration__/helpers/dbFixtures'
 import { buildLegacyCheckoutRepairSql } from '../../migrations/Migration20260715120000'
-import { buildCheckoutOrderLinesRepairSql } from '../../migrations/Migration20260716120000'
+import { buildCheckoutOrderBodyRepairSql } from '../../migrations/Migration20260716120000'
 
 /**
  * Direct-Postgres fixtures for the checkout-demo repair migration
@@ -85,10 +85,10 @@ export async function runLegacyCheckoutRepair(): Promise<void> {
   })
 }
 
-/** Runs the exact SQL that back-fills the create_order body with cart lines (#4211). */
-export async function runCheckoutOrderLinesRepair(): Promise<void> {
+/** Runs the exact SQL that back-fills the create_order body with cart lines and adjustments (#4211). */
+export async function runCheckoutOrderBodyRepair(): Promise<void> {
   await withClient(async (client) => {
-    await client.query(buildCheckoutOrderLinesRepairSql())
+    await client.query(buildCheckoutOrderBodyRepairSql())
   })
 }
 

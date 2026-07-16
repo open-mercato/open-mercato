@@ -392,6 +392,17 @@ export default function CheckoutDemoPage() {
             name: item.name,
             unitPriceGross: item.price,
           })),
+          // Fold the demo's shipping and tax into order-level adjustments so the
+          // created order's grand total matches the cart total shown to the user
+          // (line items alone only cover the product subtotal).
+          orderAdjustments: [
+            ...(shipping > 0
+              ? [{ kind: 'shipping' as const, label: 'Shipping', currencyCode: selectedCurrency || 'USD', amountGross: shipping }]
+              : []),
+            ...(tax > 0
+              ? [{ kind: 'tax' as const, label: 'Tax', currencyCode: selectedCurrency || 'USD', amountGross: tax }]
+              : []),
+          ],
           itemCount: demoCart.reduce((sum, item) => sum + item.quantity, 0),
           subtotal: subtotal,
           tax: tax,

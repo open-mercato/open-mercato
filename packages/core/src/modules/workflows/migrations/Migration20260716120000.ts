@@ -5,16 +5,17 @@ const LEGACY_WORKFLOW_NAME = 'Checkout with Payment Webhook'
 const ORDER_TRANSITION_ID = 'confirmation_to_end'
 const CREATE_ORDER_ACTIVITY_ID = 'create_order'
 const ORDER_LINES_INTERPOLATION = '{{context.cart.orderLines}}'
+const ORDER_ADJUSTMENTS_INTERPOLATION = '{{context.cart.orderAdjustments}}'
 
 /**
  * SQL fragment (for the UPDATE `where` clause) that matches ONLY a legacy
- * persisted checkout seed whose `create_order` CALL_API activity is still
- * missing the `lines` field in its request body. The `#> '{config,body,lines}'
- * is null` clause makes the migration idempotent: once the field is present the
- * row no longer matches, so re-running is a no-op, and a tenant who already
- * customized `lines` is never clobbered.
+ * persisted checkout seed whose `create_order` CALL_API body is still missing
+ * `lines` and/or `adjustments`. The `is null` clauses make the migration
+ * idempotent: once both fields are present the row no longer matches, so
+ * re-running is a no-op, and a tenant who already customized either field is
+ * never clobbered (the per-key merge below only adds a field when absent).
  */
-export function legacyCheckoutOrderLinesPredicate(): string {
+export function legacyCheckoutOrderBodyPredicate(): string {
   return `
     "wf"."workflow_id" = '${LEGACY_WORKFLOW_ID}'
     and "wf"."workflow_name" = '${LEGACY_WORKFLOW_NAME}'
@@ -27,7 +28,10 @@ export function legacyCheckoutOrderLinesPredicate(): string {
         and "activity"."value"->>'activityId' = '${CREATE_ORDER_ACTIVITY_ID}'
         and "activity"."value"->>'activityType' = 'CALL_API'
         and "activity"."value" #> '{config,body}' is not null
-        and "activity"."value" #> '{config,body,lines}' is null
+        and (
+          "activity"."value" #> '{config,body,lines}' is null
+          or "activity"."value" #> '{config,body,adjustments}' is null
+        )
     )
   `.trim()
 }
@@ -40,11 +44,13 @@ export function legacyCheckoutOrderLinesPredicate(): string {
  *
  * It rebuilds the `transitions` array in original order; only the
  * `confirmation_to_end` transition is rewritten, and within it only the
- * `create_order` CALL_API activity, whose `config.body` gains
- * `lines: '{{context.cart.orderLines}}'`. Every other transition, activity, and
- * body field is preserved verbatim.
+ * `create_order` CALL_API activity. Its `config.body` is merged (jsonb `||`)
+ * with `lines: '{{context.cart.orderLines}}'` and
+ * `adjustments: '{{context.cart.orderAdjustments}}'`, each added only when
+ * absent so existing body fields — and any tenant customization of those two
+ * keys — are preserved verbatim.
  */
-export function buildCheckoutOrderLinesRepairSql(): string {
+export function buildCheckoutOrderBodyRepairSql(): string {
   return `
     update "workflow_definitions" as "wf"
     set "definition" = jsonb_set(
@@ -65,12 +71,24 @@ export function buildCheckoutOrderLinesRepairSql(): string {
                               when "activity"."value"->>'activityId' = '${CREATE_ORDER_ACTIVITY_ID}'
                                 and "activity"."value"->>'activityType' = 'CALL_API'
                                 and "activity"."value" #> '{config,body}' is not null
-                                and "activity"."value" #> '{config,body,lines}' is null
                                 then jsonb_set(
                                   "activity"."value",
-                                  '{config,body,lines}',
-                                  '"${ORDER_LINES_INTERPOLATION}"'::jsonb,
-                                  true
+                                  '{config,body}',
+                                  ("activity"."value" #> '{config,body}')
+                                    || (
+                                      case
+                                        when "activity"."value" #> '{config,body,lines}' is null
+                                          then jsonb_build_object('lines', '"${ORDER_LINES_INTERPOLATION}"'::jsonb)
+                                        else '{}'::jsonb
+                                      end
+                                    )
+                                    || (
+                                      case
+                                        when "activity"."value" #> '{config,body,adjustments}' is null
+                                          then jsonb_build_object('adjustments', '"${ORDER_ADJUSTMENTS_INTERPOLATION}"'::jsonb)
+                                        else '{}'::jsonb
+                                      end
+                                    )
                                 )
                               else "activity"."value"
                             end
@@ -97,35 +115,38 @@ export function buildCheckoutOrderLinesRepairSql(): string {
         "updated_at" = current_timestamp
     where "wf"."code_workflow_id" is null
       and "wf"."deleted_at" is null
-      and ${legacyCheckoutOrderLinesPredicate()};
+      and ${legacyCheckoutOrderBodyPredicate()};
   `.trim()
 }
 
 /**
  * Repairs the persisted legacy checkout demo so its `create_order` activity
- * forwards the cart's line items to `POST /api/sales/orders` (issue #4211).
+ * forwards the cart's line items AND its shipping/tax adjustments to
+ * `POST /api/sales/orders` (issue #4211).
  *
  * The former seed built the order body with only header/total fields and never
- * sent `lines`. Because the sales create command recomputes every total from
- * the persisted lines, an order created by the legacy definition came out with
- * zero line items and $0.00 totals. The maintained code definition already
- * carries `lines: '{{context.cart.orderLines}}'`; this migration back-fills the
- * same field into persisted rows that runtime still serves via the DB-first
- * lookup (`find-definition.ts`), so historical/in-flight instances that
- * reference the row by `definition_id` are fixed without touching their id.
+ * sent `lines` or `adjustments`. Because the sales create command recomputes
+ * every total from the persisted lines and adjustments, an order created by the
+ * legacy definition came out with zero line items and $0.00 totals; even with
+ * lines it would only cover the product subtotal, not the shipping/tax the cart
+ * showed. The maintained code definition already carries both fields; this
+ * migration back-fills them into persisted rows that runtime still serves via
+ * the DB-first lookup (`find-definition.ts`), so historical/in-flight instances
+ * that reference the row by `definition_id` are fixed without touching their id.
  *
  * Fresh installs never had this row — they execute the virtual code definition
  * directly via `findDefinitionForInstance` — so they are unaffected. The update
- * is idempotent and never overwrites a `lines` value a tenant already set.
+ * is idempotent and never overwrites a `lines`/`adjustments` value a tenant
+ * already set.
  */
 export class Migration20260716120000 extends Migration {
   override async up(): Promise<void> {
-    this.addSql(buildCheckoutOrderLinesRepairSql())
+    this.addSql(buildCheckoutOrderBodyRepairSql())
   }
 
   override async down(): Promise<void> {
-    // Forward-only data repair. Removing the back-filled `lines` field would
+    // Forward-only data repair. Removing the back-filled fields would
     // re-introduce the zero-line / $0.00 order bug (#4211) and cannot know
-    // whether a later edit intentionally set it, so the rollback is a no-op.
+    // whether a later edit intentionally set them, so the rollback is a no-op.
   }
 }

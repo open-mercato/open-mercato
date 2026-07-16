@@ -1,8 +1,8 @@
 import { describe, expect, jest, test } from '@jest/globals'
 import {
   Migration20260716120000,
-  buildCheckoutOrderLinesRepairSql,
-  legacyCheckoutOrderLinesPredicate,
+  buildCheckoutOrderBodyRepairSql,
+  legacyCheckoutOrderBodyPredicate,
 } from '../Migration20260716120000'
 
 async function collectSql(direction: 'up' | 'down'): Promise<string> {
@@ -18,7 +18,7 @@ async function collectSql(direction: 'up' | 'down'): Promise<string> {
 }
 
 describe('Migration20260716120000', () => {
-  test('injects the cart order lines only into the legacy checkout create_order body', async () => {
+  test('back-fills cart lines and adjustments only into the legacy checkout create_order body', async () => {
     const sql = await collectSql('up')
 
     expect(sql).toContain('set "definition" = jsonb_set(')
@@ -26,9 +26,9 @@ describe('Migration20260716120000', () => {
     expect(sql).toContain(`"transition"."value"->>'transitionId' = 'confirmation_to_end'`)
     expect(sql).toContain(`"activity"."value"->>'activityId' = 'create_order'`)
     expect(sql).toContain(`"activity"."value"->>'activityType' = 'CALL_API'`)
-    // Writes lines into config.body without disturbing the rest of the body
-    expect(sql).toContain(`'{config,body,lines}'`)
-    expect(sql).toContain(`'"{{context.cart.orderLines}}"'::jsonb`)
+    // Merges both fields into config.body via jsonb concatenation, each only when absent
+    expect(sql).toContain(`jsonb_build_object('lines', '"{{context.cart.orderLines}}"'::jsonb)`)
+    expect(sql).toContain(`jsonb_build_object('adjustments', '"{{context.cart.orderAdjustments}}"'::jsonb)`)
     // Row fingerprint
     expect(sql).toContain(`"wf"."workflow_id" = 'workflows.checkout-demo'`)
     expect(sql).toContain(`"wf"."workflow_name" = 'Checkout with Payment Webhook'`)
@@ -38,16 +38,17 @@ describe('Migration20260716120000', () => {
     expect(sql).not.toContain('set "deleted_at"')
   })
 
-  test('is idempotent: only matches rows whose create_order body still lacks lines', async () => {
-    const predicate = legacyCheckoutOrderLinesPredicate().replace(/\s+/g, ' ').trim()
+  test('is idempotent: only matches rows whose create_order body still lacks a field', async () => {
+    const predicate = legacyCheckoutOrderBodyPredicate().replace(/\s+/g, ' ').trim()
 
-    expect(predicate).toContain(`"activity"."value" #> '{config,body,lines}' is null`)
     expect(predicate).toContain(`"activity"."value" #> '{config,body}' is not null`)
+    expect(predicate).toContain(`"activity"."value" #> '{config,body,lines}' is null`)
+    expect(predicate).toContain(`"activity"."value" #> '{config,body,adjustments}' is null`)
   })
 
   test('up() emits exactly the shared repair SQL (single source of truth)', async () => {
     const emitted = await collectSql('up')
-    const builder = buildCheckoutOrderLinesRepairSql().replace(/\s+/g, ' ').trim()
+    const builder = buildCheckoutOrderBodyRepairSql().replace(/\s+/g, ' ').trim()
 
     expect(emitted).toBe(builder)
   })

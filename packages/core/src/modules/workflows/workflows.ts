@@ -240,6 +240,7 @@ const checkoutDemo = defineWorkflow({
               currencyCode: '{{context.cart.currency}}',
               placedAt: '{{now}}',
               lines: '{{context.cart.orderLines}}',
+              adjustments: '{{context.cart.orderAdjustments}}',
               grandTotalGrossAmount: '{{context.cart.total}}',
             },
             validateTenantMatch: true,
