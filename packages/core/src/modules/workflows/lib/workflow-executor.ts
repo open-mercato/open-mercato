@@ -19,7 +19,7 @@ import {
   type WorkflowInstanceStatus,
 } from '../data/entities'
 import { compensateWorkflow } from './compensation-handler'
-import { findWorkflowDefinition } from './find-definition'
+import { findWorkflowDefinition, findDefinitionForInstance } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
 const logger = createLogger('workflows')
@@ -278,9 +278,7 @@ export async function executeWorkflow(
         )
       }
 
-      const definition = await trx.findOne(WorkflowDefinition, {
-        id: instance.definitionId,
-      })
+      const definition = await findDefinitionForInstance(trx, instance)
 
       if (!definition) {
         throw new WorkflowExecutionError(
@@ -614,7 +612,7 @@ export async function completeWorkflow(
 
   // Trigger compensation if workflow failed and has compensatable activities (Phase 8.2)
   if (status === 'FAILED') {
-    const definition = await em.findOne(WorkflowDefinition, { id: instance.definitionId })
+    const definition = await findDefinitionForInstance(em, instance)
 
     if (definition && checkIfCompensationNeeded(definition)) {
       try {
@@ -836,9 +834,14 @@ export async function resumeWorkflowAfterActivities(
       fromStepId: instance.currentStepId,
     })
 
-    const definition = await trx.findOneOrFail(WorkflowDefinition, {
-      id: instance.definitionId,
-    })
+    const definition = await findDefinitionForInstance(trx, instance)
+    if (!definition) {
+      throw new WorkflowExecutionError(
+        `Workflow definition not found: ${instance.definitionId}`,
+        'DEFINITION_NOT_FOUND',
+        { definitionId: instance.definitionId }
+      )
+    }
 
     const step = definition.definition.steps.find(s => s.stepId === pendingTransition.toStepId)
 

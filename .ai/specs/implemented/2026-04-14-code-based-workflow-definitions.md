@@ -307,6 +307,8 @@ The `source` concept is derived at query time, not stored:
 
 No changes needed. The instance stores `definitionId`, `workflowId`, and `version` as before. The executor continues to fetch the latest definition on every step/resume — code-based definitions are resolved from the in-memory registry using the same live-read pattern.
 
+**Runtime resolution for started instances.** An instance started from an unpersisted code definition stores the deterministic `codeWorkflowUuid(workflowId)` as its `definitionId`. Runtime handlers (executor loop, step, transition, task, signal, timer) resolve the backing definition via `findDefinitionForInstance()` in `lib/find-definition.ts`: database row by id first, then a code-registry fallback gated on `codeWorkflowUuid(instance.workflowId) === instance.definitionId`. The UUID-equality gate guarantees the fallback never substitutes the code payload for a hard-deleted *persisted* row (those have their own random UUIDs), and a disabled code definition still resolves so in-flight instances can finish — matching persisted-definition semantics, where disabling blocks new starts but not running instances. Without this fallback, a virtual code workflow could start but never advance (`DEFINITION_NOT_FOUND` on the first transition).
+
 ### CodeWorkflowDefinition (new shared type, not a DB entity)
 
 ```typescript
@@ -429,12 +431,37 @@ A follow-up migration (`Migration20260428102318`) renames legacy `seedExampleWor
   - Update `workflow_instances.workflow_id` for instances pointing at definitions that match.
 - The `down()` reverses both updates and is conflict-aware: it skips rows where reverting would collide with an existing row in the same tenant. The two `down()` statements are ordered so that `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, preventing dangling references mid-migration.
 
+### Legacy Checkout Seed Repair Migration
+
+`Migration20260715120000` repairs upgraded tenants where the renamed legacy checkout seed still shadows the current `workflows.checkout-demo` code definition. The old seed contains a `reserve_inventory` `CALL_WEBHOOK` activity whose URL depends on `INVENTORY_SERVICE_URL`; after workflow environment interpolation was restricted to an explicit non-secret allowlist, that URL becomes relative and fails the outbound URL guard with `reason=invalid_url`.
+
+This migration only covers *upgraded* tenants — fresh installs never had the legacy row. Fresh installs are fixed by the runtime code-registry fallback (`findDefinitionForInstance`, see § WorkflowInstance), which makes unpersisted virtual code definitions executable end-to-end. The migration is the data-hygiene half of #4179; the fallback is the root-cause half.
+
+The migration narrowly matches the original seed by workflow ID, name, version, activity ID/type, and exact webhook URL (verified against the original `checkout_simple_v1` seed payload: `workflowName: "Checkout with Payment Webhook"`, `version: 1`). It keeps the persisted definition active because historical workflow instances reference it by `definition_id`. It removes the activity arrays from `cart_to_customer_info`, `customer_info_to_payment`, and `confirmation_to_order`, matching the side-effect-free transitions in the maintained code definition. This:
+
+- preserves the persisted definition required by new and historical workflow instances;
+- removes the obsolete inventory/payment webhooks and dependent event payloads;
+- keeps the checkout demo self-contained without weakening the shared outbound URL guard;
+- leaves user-created definitions and already-customized code overrides untouched.
+
+`confirmation_to_end` is intentionally left as-is. Unlike the three stripped transitions it still carries activities in the maintained code definition (`create_order`, `send_confirmation_email`), and its only legacy-vs-code divergence is an extra internal `emit_order_completed` (`EMIT_EVENT`) that issues no external request and cannot trip the outbound URL guard. Removing whole `activities` arrays is safe; per-activity surgery to prune one harmless internal event would add fragility for no runtime benefit, so it is out of scope.
+
+The narrow match is a deliberate safety-over-coverage trade-off: a tenant whose persisted row diverges from the fingerprint (renamed, re-versioned, or a different webhook URL) is left untouched rather than risk mutating a row that is not the known-broken seed.
+
+The data repair is forward-only: the obsolete external activity payloads cannot be reconstructed safely, and restoring them would re-open the checkout failure.
+
+**Known residual divergence.** The repaired row keeps `code_workflow_id = NULL`, so it is *not* an override of the code definition and will never track future changes to the maintained code payload. It stays permanently divergent until a user explicitly resets it to code (delete the row / "reset to code"), which is acceptable for a demo definition but should not be mistaken for override semantics.
+
+**Sibling legacy seeds.** `workflows.simple-approval` and `sales.order-approval` were renamed by the same `Migration20260428102318` and shadow their code definitions in exactly the same way — they just carry no failing webhook, so the shadowing is currently harmless. The latent shadow-precedence class remains; if either code definition ever diverges materially from its legacy seed, the same repair pattern applies.
+
+**Coverage.** The SQL is the whole risk surface, so it is exported (`buildLegacyCheckoutRepairSql`) and exercised directly: `Migration20260715120000.test.ts` asserts the rendered SQL and that `up()` emits exactly the exported builder; `__integration__/TC-WF-031` seeds a legacy-shaped row plus four control rows (code override, different URL, wrong version, soft-deleted), runs the exported SQL against Postgres, asserts the transformed `definition` (three transitions stripped, order and `preConditions` preserved, `confirmation_to_end` intact, no webhook URL surviving) while every control row stays untouched, then replays the repair and asserts the second run is a no-op (the predicate stops matching once `reserve_inventory` is gone). `TC-WF-030` covers the checkout demo end-to-end on whatever state the tenant is in — it deliberately does not materialize a DB row first, so on a fresh tenant it exercises the virtual-code-definition cold-start path through the runtime fallback.
+
 ### Backward Compatibility
 
 - **Existing definitions:** Continue working unchanged. `source='user'` is the default.
 - **Existing instances:** No changes to `WorkflowInstance`. Executor continues live-reading definitions as before.
 - **Existing API consumers:** New fields (`source`, `codeModuleId`, `isCodeBased`) are additive. No fields removed.
-- **Existing seeds:** The current `seedExampleWorkflows()` mechanism in `setup.ts` can be gradually migrated to `workflows.ts`. Both can coexist — seeded definitions remain `source='user'` in the DB.
+- **Existing seeds:** Seeded definitions remain `source='user'` in the DB. `Migration20260715120000` is a narrow payload repair for the exact legacy checkout seed; it preserves the row while aligning its side-effecting transitions with the maintained demo definition.
 - **Auto-discovery:** `workflows.ts` is a new optional convention. Modules without it are unaffected.
 - **Contract surface classification:** `workflows.ts` export convention is STABLE (new, additive). `defineWorkflow()` function signature is STABLE.
 
@@ -677,3 +704,10 @@ None.
 - Removed the cross-organization customize block: any organization within the tenant can now revive a soft-deleted override row, matching the tenant-scoped unique constraint semantics. The previous 409 response (and corresponding OpenAPI entry) was dropped from `/customize` and the `code:*` PUT path.
 - Corrected the `Migration20260428102318` `down()` ordering so `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, eliminating a transient mismatch during rollback.
 - Switched override insert/delete paths from `persistAndFlush`/`removeAndFlush` to explicit `persist`+`flush` / `remove`+`flush` for consistency with surrounding code.
+
+### 2026-07-15
+
+- Fixed issue #4179 for upgraded tenants by adding `Migration20260715120000`, which sanitizes only the exact legacy checkout seed containing the obsolete `reserve_inventory` webhook. The migration preserves the persisted row required by historical instance references and removes the three legacy activity arrays that no longer exist in the maintained, self-contained demo flow.
+- Exported the repair as `buildLegacyCheckoutRepairSql()` and added `__integration__/TC-WF-031`, a DB-level regression that runs the exact SQL against Postgres over a seeded legacy row plus code-override / different-URL / wrong-version / soft-deleted control rows, asserting the jsonb transformation, that every guard holds, and that replaying the repair is a no-op. Documented `confirmation_to_end` being left intact (only an internal `emit_order_completed` diverges) and the narrow-match safety trade-off.
+- Fixed issue #4179 for fresh installs at the root: added `findDefinitionForInstance()` / `resolveCodeDefinitionForInstance()` to `lib/find-definition.ts` and switched every runtime `definition_id` lookup (executor loop, step, transition, task, signal, and timer handlers) to it. Instances started from an unpersisted virtual code definition — whose `definitionId` is the deterministic `codeWorkflowUuid` — can now advance past START instead of failing with `DEFINITION_NOT_FOUND`. The fallback is gated on UUID equality so it never substitutes the code payload for a hard-deleted persisted row. `TC-WF-030` now exercises this cold-start path directly (the interim `/customize` materialization step was removed).
+- Documented residual divergence of the repaired row (`code_workflow_id` stays `NULL`, so it never tracks future code-definition changes) and the sibling legacy seeds (`workflows.simple-approval`, `sales.order-approval`) that shadow their code definitions harmlessly.
