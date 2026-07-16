@@ -69,6 +69,7 @@
 - 🔒 Complete report-high.md tracker (16 HIGH findings) + dev-DX password amendment. (#2635) *(@pat-lewczuk)*
 
 ## 🐛 Fixes
+- 🐛 Preserve workflow visual-editor user task assignment and form configuration across save/read-back. *(@pmadajthey)*
 - 🔐 Restrict event catalog access (#3860). (#4136) *(@haxiorz)*
 - 🔐 Honor trusted SSE organization scope (#3861). (#4135) *(@haxiorz)*
 - 💰 Invalidate order cache after return mutations. (#4130) *(@andrzejewsky)*

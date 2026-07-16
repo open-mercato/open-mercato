@@ -25,6 +25,7 @@ import {useT} from '@open-mercato/shared/lib/i18n/context'
 import {useDialogKeyHandler} from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import {useConfirmDialog} from '@open-mercato/ui/backend/confirm-dialog'
 import {isFutureIsoDateString, isValidDurationString} from '../data/validators'
+import {mergeAdvancedNodeConfig} from '../lib/nodeConfigMerge'
 
 export interface NodeEditDialogProps {
   node: Node | null
@@ -476,7 +477,7 @@ export function NodeEditDialog({ node, isOpen, onClose, onSave, onDelete }: Node
 
     // Merge advanced config
     if (advancedConfig && Object.keys(advancedConfig).length > 0) {
-      Object.assign(updates, advancedConfig)
+      mergeAdvancedNodeConfig(updates as Record<string, unknown>, advancedConfig, { nodeType: node.type })
     }
 
     onSave(sanitizedId, updates)

@@ -10,6 +10,7 @@ import type { Node, Edge, Connection } from '@xyflow/react'
 import { useState, useCallback, useEffect } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { graphToDefinition, definitionToGraph, validateWorkflowGraph, generateStepId, generateTransitionId, appendWorkflowEdge, ValidationError } from '../../../lib/graph-utils'
+import { mergeVisualEditorNodes } from '../../../lib/visual-editor-node-state'
 import { performDeleteEdgeFlow, performDeleteNodeFlow } from '../../../lib/visual-editor-delete-flow'
 import { workflowDefinitionDataSchema } from '../../../data/validators'
 import { Page } from '@open-mercato/ui/backend/Page'
@@ -75,6 +76,14 @@ export default function VisualEditorPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [nodes, setNodes] = useState<Node[]>([])
   const [edges, setEdges] = useState<Edge[]>([])
+  const nodesRef = React.useRef<Node[]>([])
+  const setEditorNodes = useCallback<React.Dispatch<React.SetStateAction<Node[]>>>((nextNodesOrUpdater) => {
+    const nextNodes = typeof nextNodesOrUpdater === 'function'
+      ? (nextNodesOrUpdater as (previousNodes: Node[]) => Node[])(nodesRef.current)
+      : nextNodesOrUpdater
+    nodesRef.current = nextNodes
+    setNodes(nextNodes)
+  }, [])
   const [selectedNode, setSelectedNode] = useState<Node | null>(null)
   const [selectedEdge, setSelectedEdge] = useState<Edge | null>(null)
   const [showMetadata, setShowMetadata] = useState(true)
@@ -152,7 +161,7 @@ export default function VisualEditorPage() {
 
         // Convert definition to graph
         const graph = definitionToGraph(definition.definition)
-        setNodes(graph.nodes)
+        setEditorNodes(graph.nodes)
         setEdges(graph.edges)
 
         // Load embedded triggers from definition
@@ -172,15 +181,15 @@ export default function VisualEditorPage() {
     }
 
     loadDefinition()
-  }, [definitionId])
+  }, [definitionId, setEditorNodes])
 
   // Handle node changes from ReactFlow. The lazy graph applies React Flow's
   // change reducers internally (#3169) and hands back the resolved nodes, so
   // this page never imports the @xyflow/react runtime.
   const handleNodesChange = useCallback((nextNodes: Node[]) => {
     if (isCodeOnly) return
-    setNodes(nextNodes)
-  }, [isCodeOnly])
+    setEditorNodes((previousNodes) => mergeVisualEditorNodes(previousNodes, nextNodes))
+  }, [isCodeOnly, setEditorNodes])
 
   // Handle edge changes from ReactFlow (resolved edges from the lazy graph).
   const handleEdgesChange = useCallback((nextEdges: Edge[]) => {
@@ -191,23 +200,25 @@ export default function VisualEditorPage() {
   // Handle adding new node from palette
   const handleAddNode = useCallback((nodeType: string) => {
     if (isCodeOnly) return
-    const newNode: Node = {
-      id: generateStepId(nodeType),
-      type: nodeType,
-      position: {
-        x: 250 + nodes.length * 50,
-        y: 100 + nodes.length * 150,
-      },
-      data: {
-        label: getDefaultLabel(nodeType),
-        description: '',
-        badge: getDefaultBadge(nodeType),
-        status: 'pending',
-      },
-    }
+    setEditorNodes((nds) => {
+      const newNode: Node = {
+        id: generateStepId(nodeType),
+        type: nodeType,
+        position: {
+          x: 250 + nds.length * 50,
+          y: 100 + nds.length * 150,
+        },
+        data: {
+          label: getDefaultLabel(nodeType),
+          description: '',
+          badge: getDefaultBadge(nodeType),
+          status: 'pending',
+        },
+      }
 
-    setNodes((nds) => [...nds, newNode])
-  }, [nodes.length, isCodeOnly])
+      return [...nds, newNode]
+    })
+  }, [isCodeOnly, setEditorNodes])
 
   // Handle node selection - open edit dialog (suppressed in read-only mode
   // so users can't open the node editor on a code-defined workflow).
@@ -228,15 +239,20 @@ export default function VisualEditorPage() {
 
   // Save node updates
   const handleSaveNode = useCallback((nodeId: string, updates: Partial<Node['data']>) => {
-    setNodes((nds) =>
+    setEditorNodes((nds) =>
       nds.map((node) =>
         node.id === nodeId
           ? { ...node, data: { ...node.data, ...updates } }
           : node
       )
     )
+    setSelectedNode((node) =>
+      node?.id === nodeId
+        ? { ...node, data: { ...node.data, ...updates } }
+        : node
+    )
     flash('Node updated successfully', 'success')
-  }, [])
+  }, [setEditorNodes])
 
   // Save edge updates
   const handleSaveEdge = useCallback((edgeId: string, updates: Partial<Edge['data']>) => {
@@ -270,11 +286,11 @@ export default function VisualEditorPage() {
       t,
       setShowNodeDialog,
       setSelectedNode,
-      setNodes,
+      setNodes: setEditorNodes,
       setEdges,
       notifyDeleted: () => flash('Step deleted successfully', 'success'),
     })
-  }, [confirm, nodes, t])
+  }, [confirm, nodes, setEditorNodes, t])
 
   // Handle new connections
   const handleConnect = useCallback((connection: Connection) => {
@@ -297,12 +313,13 @@ export default function VisualEditorPage() {
 
   // Validate workflow
   const handleValidate = useCallback(() => {
-    const graphErrors = validateWorkflowGraph(nodes, edges)
+    const currentNodes = nodesRef.current
+    const graphErrors = validateWorkflowGraph(currentNodes, edges)
     const allErrors: ValidationError[] = [...graphErrors]
 
     // Run Zod schema validation
     try {
-      const definitionData = graphToDefinition(nodes, edges, { includePositions: true })
+      const definitionData = graphToDefinition(currentNodes, edges, { includePositions: true })
       const result = workflowDefinitionDataSchema.safeParse(definitionData)
 
       if (!result.success) {
@@ -332,7 +349,7 @@ export default function VisualEditorPage() {
         : firstError.message
       flash(message, firstError.type === 'error' ? 'error' : 'warning')
     }
-  }, [nodes, edges])
+  }, [edges])
 
   // Save workflow definition
   const handleSave = useCallback(async () => {
@@ -343,7 +360,8 @@ export default function VisualEditorPage() {
     }
 
     // Validate workflow structure
-    const errors = validateWorkflowGraph(nodes, edges)
+    const currentNodes = nodesRef.current
+    const errors = validateWorkflowGraph(currentNodes, edges)
     const criticalErrors = errors.filter(e => e.type === 'error')
     if (criticalErrors.length > 0) {
       flash(`Cannot save: ${criticalErrors.length} validation error(s) found. Please fix them first.`, 'error')
@@ -351,7 +369,7 @@ export default function VisualEditorPage() {
     }
 
     // Generate definition data and include triggers
-    const graphDefinition = graphToDefinition(nodes, edges, { includePositions: true })
+    const graphDefinition = graphToDefinition(currentNodes, edges, { includePositions: true })
     const definitionData = {
       ...graphDefinition,
       triggers: triggers.length > 0 ? triggers : undefined,
@@ -445,7 +463,7 @@ export default function VisualEditorPage() {
     } finally {
       setIsSaving(false)
     }
-  }, [nodes, edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
+  }, [edges, workflowId, workflowName, description, version, enabled, category, tags, icon, effectiveFrom, effectiveTo, triggers, definitionId, updatedAt, router])
 
   // Customize a code-defined workflow → creates an override and reloads the
   // editor pointed at the new UUID. Mirrors the non-visual edit page button.
@@ -504,7 +522,7 @@ export default function VisualEditorPage() {
   // Test workflow
   const handleTest = useCallback(() => {
     // First validate
-    const errors = validateWorkflowGraph(nodes, edges)
+    const errors = validateWorkflowGraph(nodesRef.current, edges)
     const criticalErrors = errors.filter((e) => e.type === 'error')
     if (criticalErrors.length > 0) {
       flash(`Cannot test: ${criticalErrors.length} validation error(s) found. Please fix them first.`, 'error')
@@ -513,7 +531,7 @@ export default function VisualEditorPage() {
 
     // TODO: Implement test logic (create instance, run first step)
     flash('Test functionality will be implemented next', 'info')
-  }, [nodes, edges])
+  }, [edges])
 
   // Load example workflow
   const handleLoadExample = useCallback(() => {
@@ -591,10 +609,10 @@ export default function VisualEditorPage() {
       },
     ]
 
-    setNodes(exampleNodes)
+    setEditorNodes(exampleNodes)
     setEdges(exampleEdges)
     flash('Example workflow loaded', 'success')
-  }, [])
+  }, [setEditorNodes])
 
   // Clear canvas
   const handleClear = useCallback(() => {
@@ -605,7 +623,7 @@ export default function VisualEditorPage() {
 
   // Confirm clear action
   const confirmClear = useCallback(() => {
-    setNodes([])
+    setEditorNodes([])
     setEdges([])
     setWorkflowId('')
     setWorkflowName('')
@@ -620,7 +638,7 @@ export default function VisualEditorPage() {
     setTriggers([])
     setShowClearConfirm(false)
     flash('Canvas cleared', 'success')
-  }, [])
+  }, [setEditorNodes])
 
   // Publish page-load record context to the AppShell-owned `backend:record:current`
   // mount so the enterprise record_locks widget resolves `workflows.definition` + id
@@ -1249,4 +1267,3 @@ function getDefaultBadge(nodeType: string): string {
   }
   return badges[nodeType] || 'Task'
 }
-

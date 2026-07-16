@@ -126,31 +126,38 @@ export type EscalationAction = z.infer<typeof escalationActionSchema>
 // Complex Object Schemas - Workflow Definition Components
 // ============================================================================
 
+const userTaskFormFieldSchema = z.object({
+  name: z.string().min(1),
+  type: z.string().min(1),
+  label: z.string().min(1),
+  required: z.boolean().optional(),
+  placeholder: z.string().optional(),
+  defaultValue: z.any().optional(),
+  options: z.array(z.any()).optional(),
+}).passthrough()
+
 // User task configuration
 export const userTaskConfigSchema = z.object({
   // Support both custom fields array format and JSON Schema format
   formSchema: z.union([
     // Custom format with fields array
     z.object({
-      fields: z.array(z.object({
-        name: z.string().min(1),
-        type: z.string().min(1),
-        label: z.string().min(1),
-        required: z.boolean().optional(),
-        options: z.array(z.any()).optional(),
-      }))
-    }),
+      fields: z.array(userTaskFormFieldSchema)
+    }).passthrough(),
     // JSON Schema format with properties
     z.object({
       type: z.literal('object').optional(),
       properties: z.record(z.string(), z.any()),
       required: z.array(z.string()).optional(),
-    }),
+    }).passthrough(),
   ]).optional(),
   assignedTo: z.union([
     z.string(),
     z.array(z.string()),
   ]).optional(),
+  assignedToRoles: z.array(z.string()).optional(),
+  formKey: z.string().optional(),
+  allowedActions: z.array(z.string()).optional(),
   assignmentRule: z.string().optional(), // Business rule ID
   slaDuration: z.string().optional(), // ISO 8601 duration
   escalationRules: z.array(z.object({
@@ -159,7 +166,7 @@ export const userTaskConfigSchema = z.object({
     escalateTo: z.string().optional(),
     notifyUsers: z.array(z.string()).optional(),
   })).optional(),
-})
+}).passthrough()
 
 // Sub-workflow configuration (Phase 8)
 export const subWorkflowConfigSchema = z.object({

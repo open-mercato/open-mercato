@@ -163,6 +163,60 @@ describe('Workflows Validators', () => {
       expect(result.userTaskConfig?.slaDuration).toBe('P1D')
     })
 
+    test('should preserve visual-editor user task assignment and form config fields', () => {
+      const userTaskStep = {
+        stepId: 'initial-contact',
+        stepName: 'Initial contact',
+        stepType: 'USER_TASK' as const,
+        userTaskConfig: {
+          assignedToRoles: ['Sales Representative'],
+          formKey: 'initial_contact_form',
+          allowedActions: ['complete', 'cancel'],
+          customRuntimeHint: 'visible-to-engine',
+          formSchema: {
+            layout: 'single-column',
+            fields: [
+              {
+                name: 'conversation_summary',
+                type: 'textarea',
+                label: 'Conversation summary',
+                required: true,
+                placeholder: 'Please fill in the details of the conversation',
+                defaultValue: 'N/A',
+                uiWidth: 'full',
+              },
+            ],
+          },
+        },
+      }
+
+      const result = workflowStepSchema.parse(userTaskStep)
+      const parsedConfig = result.userTaskConfig as {
+        assignedToRoles?: string[]
+        formKey?: string
+        allowedActions?: string[]
+        customRuntimeHint?: string
+        formSchema?: {
+          fields: Array<Record<string, unknown>>
+          layout?: string
+        }
+      }
+      expect(parsedConfig.assignedToRoles).toEqual(['Sales Representative'])
+      expect(parsedConfig.formKey).toBe('initial_contact_form')
+      expect(parsedConfig.allowedActions).toEqual(['complete', 'cancel'])
+      expect(parsedConfig.customRuntimeHint).toBe('visible-to-engine')
+      expect(parsedConfig.formSchema.fields[0]).toMatchObject({
+        name: 'conversation_summary',
+        type: 'textarea',
+        label: 'Conversation summary',
+        required: true,
+        placeholder: 'Please fill in the details of the conversation',
+        defaultValue: 'N/A',
+        uiWidth: 'full',
+      })
+      expect(parsedConfig.formSchema.layout).toBe('single-column')
+    })
+
     test('should validate step with retry policy', () => {
       const stepWithRetry = {
         ...validStep,
