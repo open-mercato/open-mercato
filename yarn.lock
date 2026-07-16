@@ -3424,6 +3424,22 @@ __metadata:
   languageName: node
   linkType: hard
 
+"@dagrejs/dagre@npm:^3.0.0":
+  version: 3.0.0
+  resolution: "@dagrejs/dagre@npm:3.0.0"
+  dependencies:
+    "@dagrejs/graphlib": "npm:4.0.1"
+  checksum: 10/4b42954ee1ab0fe041ec70d3fc2d763be98ce0adc90b1ce19bebb309e822ebdf9606548fc1956e32b96b2a9278a077809065dff05bd42d593d7620e363f9d15e
+  languageName: node
+  linkType: hard
+
+"@dagrejs/graphlib@npm:4.0.1":
+  version: 4.0.1
+  resolution: "@dagrejs/graphlib@npm:4.0.1"
+  checksum: 10/2b013162e42b3d26633e2edc8f83ec36390312d10bb1c57e805708d23229a1b5c59ff95b52b29915b44a84857bfbbe327d502aed0ac1b5326c9235c983015c08
+  languageName: node
+  linkType: hard
+
 "@datadog/pprof@npm:^5.13.3":
   version: 5.14.1
   resolution: "@datadog/pprof@npm:5.14.1"
@@ -7692,6 +7708,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/core@workspace:packages/core"
   dependencies:
+    "@dagrejs/dagre": "npm:^3.0.0"
     "@mikro-orm/core": "npm:^7.1.5"
     "@mikro-orm/decorators": "npm:^7.1.5"
     "@mikro-orm/postgresql": "npm:^7.1.5"
@@ -7745,9 +7762,15 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "@open-mercato/enterprise@workspace:packages/enterprise"
   dependencies:
+    "@ai-sdk/anthropic": "npm:^4.0.1"
+    "@ai-sdk/openai": "npm:^4.0.2"
+    "@open-mercato/ai-assistant": "workspace:*"
     "@open-mercato/core": "workspace:*"
+    "@open-mercato/queue": "workspace:*"
+    "@open-mercato/scheduler": "workspace:*"
     "@open-mercato/shared": "workspace:*"
     "@open-mercato/ui": "workspace:*"
+    "@open-mercato/web-search": "workspace:*"
     "@simplewebauthn/browser": "npm:^13.3.0"
     "@simplewebauthn/server": "npm:^13.3.2"
     "@simplewebauthn/types": "npm:^12.0.0"
@@ -7755,6 +7778,7 @@ __metadata:
     "@types/qrcode": "npm:^1.5.5"
     "@types/react": "npm:^19.2.17"
     "@types/react-dom": "npm:^19.2.3"
+    ai: "npm:^7.0.4"
     jest: "npm:^30.4.2"
     openid-client: "npm:^6.8.4"
     otpauth: "npm:9.5.1"
@@ -8009,6 +8033,21 @@ __metadata:
     react: ">=18.0.0"
     react-dom: ">=18.0.0"
     react-is: ">=18.0.0"
+  languageName: unknown
+  linkType: soft
+
+"@open-mercato/web-search@workspace:*, @open-mercato/web-search@workspace:packages/web-search":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/web-search@workspace:packages/web-search"
+  dependencies:
+    "@types/jest": "npm:^30.0.0"
+    "@types/node": "npm:^26.0.1"
+    esbuild: "npm:^0.28.1"
+    glob: "npm:^13.0.6"
+    jest: "npm:^30.4.2"
+    ts-jest: "npm:^29.4.11"
+    typescript: "npm:^6.0.3"
+    zod: "npm:^4.4.3"
   languageName: unknown
   linkType: soft
 

@@ -8,6 +8,7 @@ import { createLogger } from '@open-mercato/shared/lib/logger'
 
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findApiKeyByOpencodeSessionId } from '@open-mercato/core/modules/api_keys/services/apiKeyService'
+import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
 import {
   createOpenCodeClient,
   type OpenCodeClient,
@@ -348,6 +349,9 @@ export async function handleOpenCodeMessageStreaming(
     totalOutputTokens: 0,
     messageCount: 0,
   }
+  // OpenCode re-emits the same tool part on every state transition; track which
+  // call ids already streamed a `tool-call` so each tool surfaces once.
+  const seenToolCallIds = new Set<string>()
 
   if (!message) {
     await onEvent({ type: 'error', error: 'Message is required' })
@@ -686,6 +690,35 @@ export async function handleOpenCodeMessageStreaming(
                 }
                 const delta = properties.delta as string | undefined
 
+                // Tool invocations (native `type: 'tool'` state machine or the
+                // legacy `tool_use` / `tool_result` shape) are normalized to a
+                // single lifecycle update. OpenCode re-emits the same part on
+                // each transition, so a `tool-call` event is streamed once per
+                // call id and `tool-result` once it reaches a terminal status.
+                const toolUpdate = normalizeOpenCodeToolPart(part)
+                if (toolUpdate) {
+                  if (!seenToolCallIds.has(toolUpdate.callId) && toolUpdate.toolName) {
+                    seenToolCallIds.add(toolUpdate.callId)
+                    usageStats.toolCalls++
+                    usageStats.toolNames.push(toolUpdate.toolName)
+                    console.error(`[AI Usage] Tool call #${usageStats.toolCalls}: ${toolUpdate.toolName}`)
+                    await onEvent({
+                      type: 'tool-call',
+                      id: toolUpdate.callId,
+                      toolName: toolUpdate.toolName,
+                      args: toolUpdate.input,
+                    })
+                  }
+                  if (toolUpdate.phase === 'finish') {
+                    await onEvent({
+                      type: 'tool-result',
+                      id: toolUpdate.callId,
+                      result: toolUpdate.output,
+                    })
+                  }
+                  break
+                }
+
                 switch (part.type) {
                   case 'text':
                     // Use delta for streaming text if available
@@ -697,26 +730,6 @@ export async function handleOpenCodeMessageStreaming(
                     // Extended thinking blocks — route to debug panel only, never to chat
                     logger.debug('Thinking block received', { chars: (delta || part.text || '').length })
                     await onEvent({ type: 'debug', partType: 'thinking', data: { text: delta || part.text } })
-                    break
-                  case 'tool_use':
-                    if (part.name) {
-                      usageStats.toolCalls++
-                      usageStats.toolNames.push(part.name)
-                      logger.debug('Tool call observed', { toolCallNumber: usageStats.toolCalls, toolName: part.name })
-                      await onEvent({
-                        type: 'tool-call',
-                        id: part.id,
-                        toolName: part.name,
-                        args: part.input,
-                      })
-                    }
-                    break
-                  case 'tool_result':
-                    await onEvent({
-                      type: 'tool-result',
-                      id: part.tool_use_id || part.id,
-                      result: part.content,
-                    })
                     break
                   case 'step-start':
                   case 'step-finish':

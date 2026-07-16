@@ -9,6 +9,7 @@ import type { EntityManager as PostgreSqlEntityManager } from '@mikro-orm/postgr
 import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { WorkflowInstance, WorkflowBranchInstance, WorkflowDefinition, StepInstance } from '../data/entities'
+import { INVOKE_AGENT_SIGNAL_NAME, SUB_WORKFLOW_SIGNAL_NAME } from './activity-executor'
 import type * as eventLoggerModule from './event-logger'
 import type * as stepHandlerModule from './step-handler'
 import type * as transitionHandlerModule from './transition-handler'
@@ -198,7 +199,32 @@ export async function sendSignal(
     (s: any) => s.stepId === instance.currentStepId
   )
 
-  if (!currentStep || currentStep.stepType !== 'WAIT_FOR_SIGNAL') {
+  // A dedicated WAIT_FOR_SIGNAL step — OR any step that parked while declaring a
+  // `signalConfig.signalName` (e.g. an AUTOMATED step whose INVOKE_AGENT activity
+  // routed its proposal to a human) — can be resumed by a matching signal. The
+  // resume path below (merge payload → exit step → run auto transitions) is
+  // step-type-agnostic, so widening this guard is additive and safe.
+  //
+  // INVOKE_AGENT steps run their agent asynchronously (off the workflow
+  // transaction) and park on `agent_orchestrator.proposal.ready`; recognize them
+  // even when the definition omits an explicit `signalConfig.signalName` (e.g.
+  // seeded blueprints not re-saved through the visual editor) so the activity
+  // worker can resume them after the agent completes.
+  const isInvokeAgentStep =
+    !!currentStep &&
+    Array.isArray(currentStep.activities) &&
+    currentStep.activities.some((a: any) => a?.activityType === 'INVOKE_AGENT')
+  // SUB_WORKFLOW steps park while their child instance runs its own async/agent
+  // steps and resume on SUB_WORKFLOW_SIGNAL_NAME once the child terminates;
+  // recognize them even without an explicit signalConfig.signalName.
+  const isSubWorkflowStep = !!currentStep && currentStep.stepType === 'SUB_WORKFLOW'
+  const stepCanReceiveSignal =
+    !!currentStep &&
+    (currentStep.stepType === 'WAIT_FOR_SIGNAL' ||
+      !!currentStep.signalConfig?.signalName ||
+      isInvokeAgentStep ||
+      isSubWorkflowStep)
+  if (!stepCanReceiveSignal) {
     throw new SignalError(
       'Workflow is not waiting for signal',
       'NOT_WAITING_FOR_SIGNAL',
@@ -207,7 +233,13 @@ export async function sendSignal(
   }
 
   // Check signal name matches
-  const expectedSignalName = currentStep.signalConfig?.signalName || currentStep.stepId
+  const expectedSignalName =
+    currentStep.signalConfig?.signalName ||
+    (isInvokeAgentStep
+      ? INVOKE_AGENT_SIGNAL_NAME
+      : isSubWorkflowStep
+        ? SUB_WORKFLOW_SIGNAL_NAME
+        : currentStep.stepId)
   if (expectedSignalName !== signalName) {
     throw new SignalError(
       'Signal name mismatch',
@@ -298,6 +330,15 @@ export async function sendSignal(
     await em.flush()
     return
   }
+
+  // Resume from the paused wait: flip to RUNNING before executing the transition
+  // and re-entering executeWorkflow. Without this the executor's defense-in-depth
+  // PAUSED check stops the run after the first traversed step, so an intermediate
+  // AUTOMATED step (e.g. an emit-event "flag") between the waiting step and END
+  // leaves the instance permanently parked — and any parent sub-workflow waiting on
+  // its completion never resumes. The no-transition branches above already do this.
+  instance.status = 'RUNNING'
+  await em.flush()
 
   // Execute transition to next step
   const transitionResult = await transitionHandler.executeTransition(

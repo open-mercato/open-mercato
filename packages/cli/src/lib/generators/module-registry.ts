@@ -51,6 +51,7 @@ import {
   namespaceFallback,
   namespaceImportSpec,
 } from './extensions/shared'
+import { detectBackendRouteCollisions, type BackendRouteRegistration } from './route-collisions'
 import {
   scanModuleDir,
   resolveModuleFile,
@@ -1545,8 +1546,9 @@ async function processPageFiles(options: {
   runtimeImports: string[]
   manifestImports?: string[]
   importIdRef: { value: number }
+  collectRoute?: (registration: { routePath: string; fromApp: boolean }) => void
 }): Promise<PageRouteGenerationResult> {
-  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef } = options
+  const { files, type, modId, appDir, pkgDir, appImportBase, pkgImportBase, eagerImports, runtimeImports, manifestImports, importIdRef, collectRoute } = options
   const metaPrefix = type === 'frontend' ? 'M' : 'BM'
   const eagerRoutes: string[] = []
   const runtimeRoutes: string[] = []
@@ -1568,6 +1570,7 @@ async function processPageFiles(options: {
     const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
     const sourceFile = findExistingModuleFile(moduleBaseDir, pageFile)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
+    collectRoute?.({ routePath, fromApp })
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, ['page.meta', 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
@@ -1644,6 +1647,7 @@ async function processPageFiles(options: {
     const moduleBaseDir = path.join(fromApp ? appDir : pkgDir, ...segs)
     const sourceFile = findExistingModuleFile(moduleBaseDir, file)
     if (!sourceFile || !hasDefaultExport(sourceFile)) continue
+    collectRoute?.({ routePath, fromApp })
     const metaPath = findExistingModuleFileByBaseNames(moduleBaseDir, [`${name}.meta`, 'meta'])
     let metaExpr = 'undefined'
     let runtimeMetaExpr = 'undefined'
@@ -2802,6 +2806,7 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
   const trackedRoots = new Set<string>()
   const requiresByModule = new Map<string, string[]>()
   const commandLoaderEntries: CommandLoaderGenerationEntry[] = []
+  const backendRouteRegistrations: BackendRouteRegistration[] = []
   let hasRouteComponents = false
 
   // UMES conflict detection: collect file paths during module processing
@@ -3000,6 +3005,13 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
           runtimeImports,
           manifestImports: backendRouteManifestImports,
           importIdRef,
+          collectRoute: ({ routePath, fromApp }) => {
+            backendRouteRegistrations.push({
+              routePath,
+              moduleId: modId,
+              packageSourced: !fromApp && !isAppModule,
+            })
+          },
         })
         backendRoutes.push(...generatedBackendRoutes.eagerRoutes)
         runtimeBackendRoutes.push(...generatedBackendRoutes.runtimeRoutes)
@@ -3220,6 +3232,24 @@ export async function generateModuleRegistry(options: ModuleRegistryOptions): Pr
     if (conflictResult.errors.length > 0) {
       throw new Error(
         `UMES conflict detection found ${conflictResult.errors.length} error(s). Fix conflicts before proceeding.`
+      )
+    }
+  }
+
+  // Backend route collision detection: duplicate paths between package modules are
+  // always a bug (one silently shadows the other at runtime); app-module shadowing
+  // of a package page is the supported override mechanism and only logs a note.
+  {
+    const collisionResult = detectBackendRouteCollisions(backendRouteRegistrations)
+    for (const note of collisionResult.notes) {
+      if (!quiet) console.log(`[Route Shadow] ${note}`)
+    }
+    if (collisionResult.errors.length > 0) {
+      for (const error of collisionResult.errors) {
+        console.error(`\x1b[31m[Route Collision]\x1b[0m ${error}`)
+      }
+      throw new Error(
+        `Backend route collision detection found ${collisionResult.errors.length} duplicate path(s) registered by multiple package modules. Rename the colliding page directories before proceeding.`
       )
     }
   }

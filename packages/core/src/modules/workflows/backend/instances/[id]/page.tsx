@@ -3,8 +3,16 @@
 import * as React from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from '@open-mercato/ui/primitives/dialog'
 import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { JsonDisplay } from '@open-mercato/ui/backend/JsonDisplay'
@@ -27,6 +35,7 @@ const logger = createLogger('workflows')
 export default function WorkflowInstanceDetailPage({ params }: { params?: { id?: string } }) {
   const id = params?.id
   const t = useT()
+  const router = useRouter()
   const isMobile = useIsMobile()
   const queryClient = useQueryClient()
   const { confirm: confirmDialog, ConfirmDialogElement } = useConfirmDialog()
@@ -79,6 +88,55 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     },
     enabled: !!instance?.definitionId,
   })
+
+  // Direct sub-workflow children of this instance, used to make SUB_WORKFLOW
+  // graph nodes navigable. The parent step that spawned each child is recorded
+  // in the child's metadata.labels.parentStepId (= the parent graph node id).
+  const { data: childInstances = [] } = useQuery({
+    queryKey: ['workflow-instance-children', instance?.id],
+    queryFn: async () => {
+      const response = await apiFetch(
+        `/api/workflows/instances?parentInstanceId=${encodeURIComponent(instance!.id)}&limit=100`
+      )
+      if (!response.ok) return []
+      const data = await response.json()
+      return (data.data || []) as WorkflowInstance[]
+    },
+    enabled: !!instance?.id,
+  })
+
+  // Map each parent step id to the child instances it spawned. A single step
+  // can spawn more than one child (loops / parallel fan-out), so values are
+  // arrays and the UI shows a picker when there is more than one.
+  const childrenByStepId = React.useMemo(() => {
+    const map = new Map<string, WorkflowInstance[]>()
+    for (const child of childInstances) {
+      const stepId = child.metadata?.labels?.parentStepId
+      if (!stepId) continue
+      const existing = map.get(stepId)
+      if (existing) existing.push(child)
+      else map.set(stepId, [child])
+    }
+    return map
+  }, [childInstances])
+
+  const parentInstanceId = instance?.metadata?.labels?.parentInstanceId ?? null
+
+  const [childPicker, setChildPicker] = React.useState<WorkflowInstance[] | null>(null)
+
+  const goToInstance = React.useCallback((targetId: string) => {
+    router.push(`/backend/instances/${targetId}`)
+  }, [router])
+
+  const handleNodeClick = React.useCallback((_event: React.MouseEvent, node: Node) => {
+    const children = childrenByStepId.get(node.id)
+    if (!children || children.length === 0) return
+    if (children.length === 1) {
+      goToInstance(children[0].id)
+      return
+    }
+    setChildPicker(children)
+  }, [childrenByStepId, goToInstance])
 
   const calculateDuration = (startedAt: string | Date, completedAt: string | Date | null | undefined) => {
     const start = typeof startedAt === 'string' ? new Date(startedAt).getTime() : startedAt.getTime()
@@ -213,7 +271,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
     const { nodes, edges } = definitionToGraph(workflowDefinition.definition, { autoLayout: true })
 
     // Determine step statuses from events
-    const stepStatuses = new Map<string, 'completed' | 'active' | 'pending' | 'failed' | 'skipped'>()
+    const stepStatuses = new Map<string, 'completed' | 'active' | 'pending' | 'failed' | 'skipped' | 'paused'>()
     const stepTimings = new Map<string, { startedAt?: Date; completedAt?: Date }>()
 
     // Process events to determine status
@@ -235,11 +293,21 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
       }
     }
 
-    // Mark current step as active
-    if (instance?.currentStepId && !stepStatuses.has(instance.currentStepId)) {
-      stepStatuses.set(instance.currentStepId, 'active')
-    } else if (instance?.currentStepId && stepStatuses.get(instance.currentStepId) !== 'completed') {
-      stepStatuses.set(instance.currentStepId, 'active')
+    // Paint the current step to reflect the live instance state: a failed
+    // instance shows its parked step red, a paused/waiting one yellow, and an
+    // otherwise-running one blue (active). Never override a step that already
+    // reached a terminal status from its own events.
+    if (instance?.currentStepId) {
+      const existing = stepStatuses.get(instance.currentStepId)
+      if (existing !== 'completed' && existing !== 'failed') {
+        const liveStatus =
+          instance.status === 'FAILED'
+            ? 'failed'
+            : instance.status === 'PAUSED' || instance.status === 'WAITING_FOR_ACTIVITIES'
+            ? 'paused'
+            : 'active'
+        stepStatuses.set(instance.currentStepId, liveStatus)
+      }
     }
 
     // Mark all other steps as pending, with special handling for START/END
@@ -327,6 +395,15 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
             borderRadius: '16px',
           }
           break
+        case 'paused':
+          style = {
+            backgroundColor: '#FEF9C3', // yellow-100
+            color: '#713F12', // yellow-900
+            borderColor: '#EAB308', // yellow-500
+            borderWidth: '3px',
+            borderRadius: '16px',
+          }
+          break
         case 'skipped':
           style = {
             backgroundColor: '#FEF3C7', // yellow-100
@@ -348,6 +425,10 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           break
       }
 
+      // Mark SUB_WORKFLOW nodes that produced child instances as navigable so
+      // the node renders an "open" affordance and the click handler can route.
+      const childInstances = childrenByStepId.get(node.id) ?? []
+
       return {
         ...node,
         data: {
@@ -356,13 +437,14 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
           timing,
           duration,
           tooltip: tooltipContent,
+          childInstanceIds: childInstances.map((child) => child.id),
         },
         style,
       }
     })
 
     return { graphNodes: styledNodes, graphEdges: edges }
-  }, [workflowDefinition, events, instance?.currentStepId])
+  }, [workflowDefinition, events, instance?.currentStepId, instance?.status, childrenByStepId])
 
   if (isLoading) {
     return (
@@ -576,6 +658,21 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                   </span>
                 </dd>
               </div>
+              {parentInstanceId && (
+                <div>
+                  <dt className="text-sm font-medium text-muted-foreground">
+                    {t('workflows.instances.fields.parentInstance', 'Parent instance')}
+                  </dt>
+                  <dd className="mt-1 text-sm">
+                    <Link
+                      href={`/backend/instances/${parentInstanceId}`}
+                      className="font-mono text-primary hover:underline"
+                    >
+                      #{parentInstanceId.slice(0, 8)}
+                    </Link>
+                  </dd>
+                </div>
+              )}
             </dl>
           </div>
 
@@ -606,6 +703,7 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
                     nodes={graphNodes}
                     edges={graphEdges}
                     height="100%"
+                    onNodeClick={handleNodeClick}
                   />
                 </div>
               </div>
@@ -841,6 +939,40 @@ export default function WorkflowInstanceDetailPage({ params }: { params?: { id?:
         </div>
       </PageBody>
       {ConfirmDialogElement}
+      <Dialog open={childPicker !== null} onOpenChange={(open) => { if (!open) setChildPicker(null) }}>
+        <DialogContent
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter' && childPicker?.length) {
+              event.preventDefault()
+              goToInstance(childPicker[0].id)
+              setChildPicker(null)
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{t('workflows.instances.subWorkflows.pickerTitle', 'Open sub-workflow instance')}</DialogTitle>
+            <DialogDescription>
+              {t('workflows.instances.subWorkflows.pickerDescription', 'This step spawned multiple sub-workflow instances. Choose one to open.')}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            {childPicker?.map((child) => (
+              <Button
+                key={child.id}
+                type="button"
+                variant="outline"
+                className="justify-between"
+                onClick={() => { goToInstance(child.id); setChildPicker(null) }}
+              >
+                <span className="font-mono">{child.workflowId} #{child.id.slice(0, 8)}</span>
+                <span className="text-xs text-muted-foreground">
+                  {t(`workflows.instances.status.${child.status}`, child.status)}
+                </span>
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Page>
   )
 }

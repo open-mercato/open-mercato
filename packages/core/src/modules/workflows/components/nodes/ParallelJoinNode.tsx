@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 /**
  * ParallelJoinNode display data.
@@ -22,25 +22,18 @@ export interface ParallelJoinNodeData {
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
 }
 
-function mapStatus(status?: string): WorkflowStatus {
-  if (!status || status === 'pending') return 'not_started'
-  if (status === 'running' || status === 'in_progress') return 'in_progress'
-  if (status === 'completed') return 'completed'
-  return 'not_started'
-}
-
 /**
  * ParallelJoinNode - synchronizes concurrent branches (wait-all).
  * One target handle (in) collecting all branches; one source handle (out).
  */
-export function ParallelJoinNode({ data, isConnectable, selected }: NodeProps) {
+export function ParallelJoinNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as ParallelJoinNodeData
 
   return (
     <div className="parallel-join-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -49,14 +42,16 @@ export function ParallelJoinNode({ data, isConnectable, selected }: NodeProps) {
       <WorkflowNodeCard
         title={nodeData.label}
         description={nodeData.description}
-        status={mapStatus(nodeData.status)}
+        status={toWorkflowStatus(nodeData.status)}
         nodeType="parallelJoin"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

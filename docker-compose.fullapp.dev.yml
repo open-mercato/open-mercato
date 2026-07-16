@@ -46,6 +46,13 @@ services:
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     volumes:
       - mcp_shared:/run/mcp-shared:ro
+      # File-defined agents (delivery model A — dev bind-mount). The generator
+      # emits these from `agents/<id>/` dirs; OpenCode loads them on new sessions
+      # (no guaranteed hot-reload — restart this service after `yarn generate`).
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
+      # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
+      # loaded on new sessions (restart this service after `yarn generate`).
+      - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     depends_on:

@@ -1,3 +1,4 @@
+/// <reference path="./ai-tools-generated.d.ts" />
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
 import type { SearchService } from '@open-mercato/search/service'
@@ -172,7 +173,10 @@ async function importGeneratedAiToolsModule(): Promise<Record<string, unknown> |
   } catch {
     const tsPath = findGeneratedFile('ai-tools.generated.ts')
     if (!tsPath) return null
-    return compileAndImportGenerated(tsPath)
+    // App-source modules (apps/<app>/src/modules/*/ai-tools.ts) are .ts that
+    // node cannot import directly — bundle their sources so one app-source tool
+    // does not abort the whole registry.
+    return compileAndImportGenerated(tsPath, { bundleLocalModules: true })
   }
 }
 

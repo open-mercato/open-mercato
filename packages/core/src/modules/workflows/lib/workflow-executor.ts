@@ -21,6 +21,11 @@ import {
 import { compensateWorkflow } from './compensation-handler'
 import { findWorkflowDefinition } from './find-definition'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { emitWorkflowsEvent } from '../events'
+import type {
+  WorkflowActivityJob,
+  WorkflowActivityJobResumeSubWorkflowParent,
+} from './activity-queue-types'
 
 const logger = createLogger('workflows')
 
@@ -215,6 +220,9 @@ export async function startWorkflow(
     organizationId,
   })
 
+  await emitInstanceLifecycleEvent(instance, 'workflows.instance.created')
+  await emitInstanceLifecycleEvent(instance, 'workflows.instance.started')
+
   return instance
 }
 
@@ -333,6 +341,22 @@ export async function executeWorkflow(
           }
 
           // 'waiting' — all branches paused for external resume (task/signal/timer/async).
+          return {
+            status: 'RUNNING',
+            currentStep: currentInstance.currentStepId,
+            context: currentInstance.context,
+            events,
+            executionTime: Date.now() - startTime,
+          }
+        }
+
+        // Defense in depth: a prior step parked the instance (e.g. an
+        // INVOKE_AGENT AUTOMATED step set PAUSED, or a transition set
+        // WAITING_FOR_ACTIVITIES). Every resume path (sendSignal,
+        // resumeWorkflowAfterActivities) flips status back to RUNNING before
+        // re-entering, so a PAUSED/WAITING_FOR_ACTIVITIES status here means an
+        // external completion is still pending — stop advancing.
+        if (currentInstance.status === 'PAUSED' || currentInstance.status === 'WAITING_FOR_ACTIVITIES') {
           return {
             status: 'RUNNING',
             currentStep: currentInstance.currentStepId,
@@ -470,6 +494,13 @@ export async function executeWorkflow(
             },
           })
 
+          // Spec 2026-06-26: step/stage advances re-emit `started` with the
+          // destination stepId so projections can track stage transitions.
+          await emitInstanceLifecycleEvent(currentInstance, 'workflows.instance.started', {
+            stepId: selectedTransition.toStepId,
+            fromStepId: selectedTransition.fromStepId,
+          })
+
           if (transitionResult.pausedForActivities) {
             await logWorkflowEvent(trx, {
               workflowInstanceId: currentInstance.id,
@@ -495,6 +526,21 @@ export async function executeWorkflow(
 
             return {
               status: 'WAITING_FOR_ACTIVITIES',
+              currentStep: currentInstance.currentStepId,
+              context: currentInstance.context,
+              events,
+              executionTime: Date.now() - startTime,
+            }
+          }
+
+          // The transition succeeded but the destination step parked the
+          // instance (e.g. an INVOKE_AGENT AUTOMATED step enqueued an async
+          // agent job and set PAUSED). The token cursor has already advanced to
+          // that parked step, so currentInstance.currentStepId is the parked
+          // step. Stop advancing until an external signal resumes it.
+          if (transitionResult.paused) {
+            return {
+              status: 'RUNNING',
               currentStep: currentInstance.currentStepId,
               context: currentInstance.context,
               events,
@@ -582,9 +628,80 @@ export async function executeWorkflow(
     }
   }
 
-  return typeof transactionalEm.transactional === 'function'
-    ? transactionalEm.transactional((trx) => runExecution(trx))
-    : runExecution(em)
+  if (typeof transactionalEm.transactional !== 'function') {
+    return runExecution(em)
+  }
+
+  try {
+    return await transactionalEm.transactional((trx) => runExecution(trx))
+  } catch (error) {
+    // The throw has rolled back the execution transaction, discarding the
+    // in-transaction FAILED write (and every step/bookkeeping advance) — which
+    // would otherwise leave the instance silently stuck at RUNNING/start (#3632).
+    // The in-transaction FAILED write is also futile when the underlying error
+    // aborted the Postgres transaction (e.g. an effector issuing bad SQL): every
+    // subsequent write on that connection fails. Now that the transaction — and
+    // its PESSIMISTIC_WRITE lock on the instance row — has been released, durably
+    // persist FAILED on an independent fork so the failure is visible and
+    // retryable. Restores the #2593 "persist FAILED" guarantee even when the
+    // whole transaction is discarded. Best-effort: never masks the original error.
+    await persistFailedStatusAfterRollback(em, instanceId, error)
+    throw error
+  }
+}
+
+/**
+ * Durably mark a workflow instance FAILED after its execution transaction has
+ * rolled back. MUST run on a fresh fork (a clean connection): the rolled-back
+ * transaction may be aborted/poisoned, and its PESSIMISTIC_WRITE lock on the
+ * instance row is released only once the transactional callback unwinds, so an
+ * in-transaction write here would be discarded or deadlock. Only transitions a
+ * still-`RUNNING` instance (leaves CANCELLED/COMPLETED/PAUSED untouched).
+ */
+async function persistFailedStatusAfterRollback(
+  em: EntityManager,
+  instanceId: string,
+  error: unknown,
+): Promise<void> {
+  const errorMessage = error instanceof Error ? error.message : String(error)
+  const errorDetails = error instanceof WorkflowExecutionError ? error.details : undefined
+  const markFailed = async (trx: EntityManager): Promise<void> => {
+    const instance = await trx.findOne(
+      WorkflowInstance,
+      { id: instanceId },
+      { lockMode: LockMode.PESSIMISTIC_WRITE },
+    )
+    if (!instance || instance.status !== 'RUNNING') return
+    instance.status = 'FAILED'
+    instance.errorMessage = errorMessage
+    instance.errorDetails = errorDetails
+    instance.updatedAt = new Date()
+    await trx.flush()
+    await logWorkflowEvent(trx, {
+      workflowInstanceId: instanceId,
+      eventType: 'WORKFLOW_FAILED',
+      eventData: { error: errorMessage },
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    })
+    await emitInstanceLifecycleEvent(instance, 'workflows.instance.failed')
+  }
+  try {
+    if (typeof (em as { fork?: unknown }).fork !== 'function') return
+    const fork = em.fork() as EntityManager & {
+      transactional?: <TResult>(callback: (trx: EntityManager) => Promise<TResult>) => Promise<TResult>
+    }
+    if (typeof fork.transactional === 'function') {
+      await fork.transactional((trx) => markFailed(trx))
+    } else {
+      await markFailed(fork)
+    }
+  } catch (persistError) {
+    console.error(
+      `[WORKFLOW] Failed to durably persist FAILED status for instance ${instanceId} after rollback:`,
+      persistError,
+    )
+  }
 }
 
 /**
@@ -643,7 +760,16 @@ export async function completeWorkflow(
         })
 
         // Note: instance status already updated by compensateWorkflow
-        // It will be COMPENSATED or remain FAILED
+        // It will be COMPENSATED or remain FAILED.
+        // A compensated/failed child must still resume its parent SUB_WORKFLOW
+        // step — otherwise a parent parked on this child stays PAUSED forever.
+        // From the parent's perspective the sub-workflow did not succeed, so this
+        // mirrors the normal-path enqueue below but always signals FAILED.
+        await enqueueSubWorkflowParentResume(instance, 'FAILED')
+        // Terminal signal for external projections: the run did not succeed,
+        // regardless of whether compensation left it COMPENSATED or FAILED
+        // (payload `status` carries the actual post-compensation status).
+        await emitInstanceLifecycleEvent(instance, 'workflows.instance.failed')
         return
       } catch (error: any) {
         logger.error('Compensation failed with exception', { err: error })
@@ -695,6 +821,68 @@ export async function completeWorkflow(
     tenantId: instance.tenantId,
     organizationId: instance.organizationId,
   })
+
+  await emitInstanceLifecycleEvent(
+    instance,
+    status === 'COMPLETED'
+      ? 'workflows.instance.completed'
+      : status === 'FAILED'
+        ? 'workflows.instance.failed'
+        : 'workflows.instance.cancelled'
+  )
+
+  // If this instance is a child of a parked SUB_WORKFLOW step, enqueue a job to
+  // resume the parent on the worker's own connection (never inline inside the
+  // child's transaction — lock-ordering hazard). The worker guard skips the job
+  // when the parent never parked (fully-synchronous fast path).
+  if (status === 'COMPLETED' || status === 'FAILED') {
+    await enqueueSubWorkflowParentResume(instance, status)
+  }
+}
+
+/**
+ * Enqueue a `resume_subworkflow_parent` job when a terminating instance carries a
+ * parent linkage. Best-effort: a queue hiccup must not undo the just-persisted
+ * terminal status, so failures are logged rather than thrown. The small delay
+ * lets the parent's PAUSED flush become visible before the worker runs.
+ */
+async function enqueueSubWorkflowParentResume(
+  instance: WorkflowInstance,
+  childStatus: 'COMPLETED' | 'FAILED'
+): Promise<void> {
+  const labels = instance.metadata?.labels
+  const parentInstanceId = labels?.parentInstanceId
+  const parentStepId = labels?.parentStepId
+  const parentStepInstanceId = labels?.parentStepInstanceId
+  if (!parentInstanceId || !parentStepId || !parentStepInstanceId) return
+
+  try {
+    const { createModuleQueue } = await import('@open-mercato/queue')
+    const { WORKFLOW_ACTIVITIES_QUEUE_NAME } = await import('./activity-queue-types')
+    const { INVOKE_AGENT_ENQUEUE_DELAY_MS } = await import('./activity-executor')
+
+    const queue = createModuleQueue<WorkflowActivityJob>(WORKFLOW_ACTIVITIES_QUEUE_NAME, {
+      concurrency: parseInt(process.env.WORKFLOW_WORKER_CONCURRENCY || '5'),
+    })
+
+    const job: WorkflowActivityJobResumeSubWorkflowParent = {
+      kind: 'resume_subworkflow_parent',
+      workflowInstanceId: parentInstanceId,
+      parentInstanceId,
+      parentStepId,
+      parentStepInstanceId,
+      childInstanceId: instance.id,
+      childStatus,
+      tenantId: instance.tenantId,
+      organizationId: instance.organizationId,
+    }
+    await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
+  } catch (error) {
+    console.error(
+      `[WORKFLOW] Failed to enqueue parent-resume job for child ${instance.id} → parent ${parentInstanceId}:`,
+      error instanceof Error ? error.message : error
+    )
+  }
 }
 
 /**
@@ -987,6 +1175,47 @@ export async function updateWorkflowContext(
 }
 
 // findWorkflowDefinition is imported from ./find-definition
+
+type InstanceLifecycleEventId =
+  | 'workflows.instance.created'
+  | 'workflows.instance.started'
+  | 'workflows.instance.completed'
+  | 'workflows.instance.failed'
+  | 'workflows.instance.cancelled'
+
+/**
+ * Publish a declared `workflows.instance.*` lifecycle event to the event bus,
+ * alongside (never instead of) the internal `WorkflowEvent` audit row. Delivery
+ * is at-least-once and consumers must be idempotent; a bus failure must never
+ * break workflow execution, so this is strictly best-effort.
+ */
+async function emitInstanceLifecycleEvent(
+  instance: WorkflowInstance,
+  eventId: InstanceLifecycleEventId,
+  extra?: Record<string, unknown>
+): Promise<void> {
+  try {
+    await emitWorkflowsEvent(
+      eventId,
+      {
+        id: instance.id,
+        tenantId: instance.tenantId,
+        organizationId: instance.organizationId,
+        workflowId: instance.workflowId,
+        version: instance.version,
+        status: instance.status,
+        stepId: instance.currentStepId ?? null,
+        ...extra,
+      },
+      { persistent: true }
+    )
+  } catch (error) {
+    console.error(
+      `[WORKFLOW] Failed to emit ${eventId} for instance ${instance.id}:`,
+      error instanceof Error ? error.message : error
+    )
+  }
+}
 
 /**
  * Log workflow event to event sourcing table

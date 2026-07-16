@@ -22,8 +22,13 @@ import {
   type HostLookup,
 } from '@open-mercato/shared/lib/url-safety'
 import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
-import { callWebhookConfigSchema } from '../data/validators'
-import { WorkflowActivityJob, WORKFLOW_ACTIVITIES_QUEUE_NAME } from './activity-queue-types'
+import { callWebhookConfigSchema, invokeAgentConfigSchema } from '../data/validators'
+import {
+  WorkflowActivityJob,
+  WorkflowActivityJobInvokeAgent,
+  WORKFLOW_ACTIVITIES_QUEUE_NAME,
+  WORKFLOW_INVOKE_AGENT_QUEUE_NAME,
+} from './activity-queue-types'
 import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 
@@ -96,6 +101,49 @@ export type ActivityType =
   | 'CALL_WEBHOOK'
   | 'EXECUTE_FUNCTION'
   | 'WAIT'
+  | 'INVOKE_AGENT'
+
+/**
+ * Signal name the INVOKE_AGENT step parks on when a proposal is routed to a
+ * human. agent_orchestrator's proposal-dispose path emits
+ * `agent_orchestrator.proposal.ready` and calls workflows `sendSignal` with this
+ * name to resume the parked step.
+ */
+export const INVOKE_AGENT_SIGNAL_NAME = 'agent_orchestrator.proposal.ready'
+
+/**
+ * Signal name a parked SUB_WORKFLOW step resumes on once its child instance
+ * reaches a terminal state. `completeWorkflow` enqueues a resume job when the
+ * child carries a parent linkage; the worker resumes the parent step via
+ * `sendSignal` with this name.
+ */
+export const SUB_WORKFLOW_SIGNAL_NAME = 'workflows.sub_workflow.completed'
+
+/**
+ * Small enqueue delay for the INVOKE_AGENT job so the workflow transaction that
+ * parked the step commits before the worker picks the job up. The worker also
+ * guards against the race (it requires the instance to be PAUSED at the step
+ * before running the agent), so this only trims needless retries.
+ */
+export const INVOKE_AGENT_ENQUEUE_DELAY_MS = 1000
+
+/**
+ * Marker carried on an activity result's output when the step must park and wait
+ * for a signal (INVOKE_AGENT routed a proposal to a human). The step handler
+ * inspects activity outputs for this marker and parks the instance accordingly.
+ * informative / auto_approved outcomes do NOT carry it and proceed inline.
+ */
+export type ActivityParkMarker = { signalName: string }
+
+export function getActivityParkMarker(output: unknown): ActivityParkMarker | null {
+  if (output && typeof output === 'object' && '__park' in output) {
+    const park = (output as { __park?: unknown }).__park
+    if (park && typeof park === 'object' && typeof (park as { signalName?: unknown }).signalName === 'string') {
+      return { signalName: (park as { signalName: string }).signalName }
+    }
+  }
+  return null
+}
 
 export interface ActivityDefinition {
   activityId: string // Unique identifier for activity
@@ -157,6 +205,7 @@ export class ActivityExecutionError extends Error {
 // ============================================================================
 
 let activityQueue: Queue<WorkflowActivityJob> | null = null
+let invokeAgentQueue: Queue<WorkflowActivityJob> | null = null
 
 /**
  * Get or create the activity queue (lazy initialization)
@@ -170,6 +219,24 @@ function getActivityQueue(): Queue<WorkflowActivityJob> {
   }
 
   return activityQueue
+}
+
+/**
+ * Get or create the dedicated invoke-agent queue (lazy initialization).
+ *
+ * Minute-long agent runs get their own queue so they never starve the fast
+ * activities sharing 'workflow-activities'. Consumer-side concurrency is
+ * governed by the workflow-invoke-agent worker's metadata.
+ */
+function getInvokeAgentQueue(): Queue<WorkflowActivityJob> {
+  if (!invokeAgentQueue) {
+    invokeAgentQueue = createModuleQueue<WorkflowActivityJob>(
+      WORKFLOW_INVOKE_AGENT_QUEUE_NAME,
+      { concurrency: parseInt(process.env.WORKERS_WORKFLOW_INVOKE_AGENT_CONCURRENCY || '5', 10) },
+    )
+  }
+
+  return invokeAgentQueue
 }
 
 /**
@@ -475,6 +542,9 @@ async function executeActivityByType(
 
     case 'WAIT':
       return await executeWait(interpolatedConfig)
+
+    case 'INVOKE_AGENT':
+      return await executeInvokeAgent(interpolatedConfig, context, container)
 
     default:
       throw new ActivityExecutionError(
@@ -891,6 +961,168 @@ async function executeWait(config: any): Promise<any> {
 }
 
 /**
+ * INVOKE_AGENT activity handler
+ *
+ * Runs a callable agent via the agent_orchestrator DI bridge (`agentWorkflowBridge`,
+ * an optional peer) and dispositions any actionable proposal:
+ * - informative → returns the agent data; the step proceeds inline (no park).
+ * - auto_approved → returns the proposalId; the step proceeds inline (no park).
+ * - user_task → returns a result carrying a `__park` marker so the step handler
+ *   parks the instance on `INVOKE_AGENT_SIGNAL_NAME`; agent_orchestrator's
+ *   dispose path later signals it to resume.
+ *
+ * `config` is the already-interpolated INVOKE_AGENT config.
+ */
+type AgentWorkflowBridgeLike = {
+  invokeAgentForWorkflow: (args: {
+    agentId: string
+    input: unknown
+    onResult: { autoApproveThreshold: number } | { alwaysAsk: true }
+    ctx: {
+      tenantId: string
+      organizationId: string
+      userId?: string
+      processId: string
+      stepId: string
+      // Optional interpolated business-record descriptor (invokeAgentConfigSchema.subject).
+      subject?: unknown
+    }
+  }) => Promise<
+    | { kind: 'informative'; data: unknown }
+    | { kind: 'auto_approved'; proposalId: string; payload: unknown }
+    | { kind: 'user_task'; proposalId: string }
+  >
+}
+
+function tryResolveAgentWorkflowBridge(
+  container: AwilixContainer,
+): AgentWorkflowBridgeLike | undefined {
+  try {
+    return container.resolve<AgentWorkflowBridgeLike>('agentWorkflowBridge')
+  } catch {
+    return undefined
+  }
+}
+
+export async function executeInvokeAgent(
+  config: unknown,
+  context: ActivityContext,
+  container: AwilixContainer
+): Promise<any> {
+  const parsed = invokeAgentConfigSchema.safeParse(config)
+  if (!parsed.success) {
+    const issues = parsed.error.issues
+      .map((issue) => `${issue.path.join('.') || 'config'}: ${issue.message}`)
+      .join('; ')
+    throw new Error(`INVOKE_AGENT config invalid: ${issues}`)
+  }
+  const { agentId, input, onResult, outputMapping, subject } = parsed.data
+
+  // Fail fast when the optional agent_orchestrator peer is absent — the worker
+  // would otherwise enqueue a job that can never run.
+  const bridge = tryResolveAgentWorkflowBridge(container)
+  if (!bridge) {
+    throw new Error('[internal] agent_orchestrator not installed')
+  }
+
+  const stepId =
+    context.stepContext?.stepId ||
+    context.workflowInstance.currentStepId
+
+  // Resolve the traceable principal this agent run executes as, from the
+  // workflow instance (NOT the unreliable execution `context.userId`, which is
+  // empty for event/sub-workflow paths). Same security model as CALL_API: the
+  // run must never exceed the permissions of the human who triggered (or
+  // authored) the workflow, and there is no anonymous "system" fallback —
+  // passing an empty user id downstream both poisons the DB transaction
+  // (invalid uuid `""`) and would mint a session token attributed to no one.
+  const principalEm = container.resolve<PostgreSqlEntityManager>('em')
+  const effectiveUserId = await resolveWorkflowPrincipalUserId(principalEm, context.workflowInstance)
+  if (!effectiveUserId) {
+    throw new Error(
+      `[INVOKE_AGENT] Refusing to execute for workflow instance ${context.workflowInstance.id}: ` +
+      `no traceable user (instance initiatedBy or definition author) could be resolved. ` +
+      `Agent runs must execute under the identity of the user who triggered them.`
+    )
+  }
+
+  // Parallel-branch agent steps keep the legacy inline path. The async fix below
+  // parks and resumes at the INSTANCE level, and sendSignal's FORKED branch
+  // resume only matches WAIT_FOR_SIGNAL steps — so an instance-level resume would
+  // not reach a parked branch. The claims blueprints (and the common case) run
+  // agents sequentially at the instance level; only rarely-used parallel branches
+  // hit this fallback, where behavior is unchanged from before.
+  if (context.branchInstanceId) {
+    const outcome = await bridge.invokeAgentForWorkflow({
+      agentId,
+      input,
+      onResult,
+      ctx: {
+        tenantId: context.workflowInstance.tenantId,
+        organizationId: context.workflowInstance.organizationId,
+        userId: effectiveUserId,
+        processId: context.workflowInstance.id,
+        stepId,
+        ...(subject ? { subject } : {}),
+      },
+    })
+    if (outcome.kind === 'informative') {
+      return { kind: 'informative', agentId, data: outcome.data }
+    }
+    if (outcome.kind === 'auto_approved') {
+      return { kind: 'auto_approved', agentId, proposalId: outcome.proposalId, proposalPayload: outcome.payload }
+    }
+    return {
+      kind: 'user_task',
+      agentId,
+      proposalId: outcome.proposalId,
+      __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
+    }
+  }
+
+  if (!context.stepInstanceId) {
+    throw new Error('[internal] INVOKE_AGENT requires a step instance to park on')
+  }
+
+  // Run the agent OUTSIDE the workflow transaction. Previously the agent ran
+  // inline here, on the workflow's transactional EM: a failing statement aborted
+  // the whole workflow transaction ("current transaction is aborted, …") and,
+  // for cross-process OpenCode agents, the per-run api_key / session rows were
+  // written into the still-open transaction so the separate mcp:serve-http
+  // process could not see them to authenticate submit_outcome. Instead we enqueue
+  // a dedicated job and PARK the step on the proposal-ready signal: the
+  // workflow-invoke-agent worker runs the agent on its own connection (committed,
+  // cross-process visible) and resumes the parked step via sendSignal. user_task
+  // outcomes stay parked until agent_orchestrator's human dispose fires the same
+  // signal — identical to the prior park behavior.
+  const queue = getInvokeAgentQueue()
+  const job: WorkflowActivityJobInvokeAgent = {
+    kind: 'invoke_agent',
+    workflowInstanceId: context.workflowInstance.id,
+    branchInstanceId: context.branchInstanceId ?? undefined,
+    stepInstanceId: context.stepInstanceId,
+    stepId,
+    signalName: INVOKE_AGENT_SIGNAL_NAME,
+    agentId,
+    input: (input ?? {}) as Record<string, any>,
+    onResult,
+    ...(outputMapping ? { outputMapping } : {}),
+    ...(subject ? { subject } : {}),
+    tenantId: context.workflowInstance.tenantId,
+    organizationId: context.workflowInstance.organizationId,
+    userId: effectiveUserId,
+  }
+  const jobId = await queue.enqueue(job, { delayMs: INVOKE_AGENT_ENQUEUE_DELAY_MS })
+
+  return {
+    kind: 'pending_agent',
+    agentId,
+    jobId,
+    __park: { signalName: INVOKE_AGENT_SIGNAL_NAME },
+  }
+}
+
+/**
  * CALL_API activity handler
  *
  * Makes authenticated HTTP request to internal Open Mercato APIs
@@ -1115,6 +1347,41 @@ export async function resolveCallApiRoleIds(
   if (!authorUserId) return []
 
   return resolveActiveRoleIdsForUser(em, authorUserId, scope)
+}
+
+/**
+ * Resolve the traceable principal user id an INVOKE_AGENT run executes as.
+ *
+ * Mirrors `resolveCallApiRoleIds`' principal chain so workflow-originated agent
+ * runs carry the same audited identity as CALL_API:
+ *   1. The instance's `metadata.initiatedBy` (whoever started it; inherited by
+ *      sub-workflows from the parent instance).
+ *   2. The definition's `createdBy` (author) for event-triggered instances with
+ *      no human initiator. Soft-deleted definitions resolve to no principal.
+ *
+ * Returns `null` when no traceable principal exists — callers MUST refuse rather
+ * than fall back to an empty/anonymous user id (which breaks uuid columns and
+ * bypasses RBAC attribution).
+ */
+export async function resolveWorkflowPrincipalUserId(
+  em: any,
+  instance: CallApiInstanceLike
+): Promise<string | null> {
+  const initiatorUserId = instance.metadata?.initiatedBy ?? null
+  if (initiatorUserId) return initiatorUserId
+
+  if (!instance.definitionId) return null
+
+  const { findOneWithDecryption } = await import('@open-mercato/shared/lib/encryption/find')
+  const { WorkflowDefinition } = await import('../data/entities')
+
+  const definition = await findOneWithDecryption(em, WorkflowDefinition, {
+    id: instance.definitionId,
+    tenantId: instance.tenantId,
+    deletedAt: null,
+  }, {}, { tenantId: instance.tenantId, organizationId: instance.organizationId })
+
+  return definition?.createdBy ?? null
 }
 
 /**

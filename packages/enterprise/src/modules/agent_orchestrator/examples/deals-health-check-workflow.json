@@ -1,0 +1,124 @@
+{
+  "workflowId": "agent_orchestrator_deals_health_check_v1",
+  "workflowName": "Deal Health Check (Agent)",
+  "description": "Runs the deals.health_check agent on a deal, dispositions the proposal inline (auto-approve >= 0.8, otherwise park for an operator), then applies the approved next stage via the audited customers command.",
+  "version": 1,
+  "enabled": true,
+  "metadata": {
+    "category": "Agents",
+    "tags": [
+      "agent",
+      "deals"
+    ],
+    "icon": "activity"
+  },
+  "definition": {
+    "steps": [
+      {
+        "stepId": "start",
+        "stepName": "Start",
+        "stepType": "START",
+        "description": "Initialize the deal health check"
+      },
+      {
+        "stepId": "assess",
+        "stepName": "Assess Deal Health",
+        "stepType": "AUTOMATED",
+        "description": "Run deals.health_check and disposition the proposal inline. Parks on the human path only; signalConfig lets agent_orchestrator's proposal.ready resume it.",
+        "signalConfig": {
+          "signalName": "agent_orchestrator.proposal.ready"
+        },
+        "activities": [
+          {
+            "activityId": "invoke_health_check",
+            "activityName": "Invoke Deal Health Check Agent",
+            "activityType": "INVOKE_AGENT",
+            "config": {
+              "agentId": "deals.health_check",
+              "input": {
+                "deal": "{{context.deal}}"
+              },
+              "onResult": {
+                "autoApproveThreshold": 0.8
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "apply",
+        "stepName": "Apply Approved Action",
+        "stepType": "AUTOMATED",
+        "description": "Effector — apply the approved next stage to the deal via the audited customers command.",
+        "activities": [
+          {
+            "activityId": "effector_set_stage",
+            "activityName": "Set Deal Stage",
+            "activityType": "UPDATE_ENTITY",
+            "config": {
+              "commandId": "customers.deals.update",
+              "input": {
+                "id": "{{deal.id}}",
+                "pipelineStage": "{{context.proposalPayload.actions.0.payload.stage}}"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "stepId": "end",
+        "stepName": "Done",
+        "stepType": "END",
+        "description": "Deal health check completed"
+      }
+    ],
+    "transitions": [
+      {
+        "transitionId": "t_start",
+        "transitionName": "Begin Assessment",
+        "fromStepId": "start",
+        "toStepId": "assess",
+        "trigger": "auto",
+        "priority": 100
+      },
+      {
+        "transitionId": "t_assess_apply",
+        "transitionName": "Apply Approved Proposal",
+        "fromStepId": "assess",
+        "toStepId": "apply",
+        "trigger": "auto",
+        "priority": 100,
+        "condition": {
+          "field": "disposition",
+          "operator": "IN",
+          "value": [
+            "auto_approved",
+            "approved",
+            "edited"
+          ]
+        }
+      },
+      {
+        "transitionId": "t_assess_reject",
+        "transitionName": "Skip Effector On Reject",
+        "fromStepId": "assess",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 50,
+        "condition": {
+          "field": "disposition",
+          "operator": "=",
+          "value": "rejected"
+        }
+      },
+      {
+        "transitionId": "t_apply_end",
+        "transitionName": "Complete",
+        "fromStepId": "apply",
+        "toStepId": "end",
+        "trigger": "auto",
+        "priority": 100
+      }
+    ]
+  }
+}

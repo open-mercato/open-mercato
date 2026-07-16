@@ -67,6 +67,11 @@ export interface TransitionExecutionResult {
   success: boolean
   nextStepId?: string
   pausedForActivities?: boolean
+  // The destination step entered a wait state (PAUSED / WAITING_FOR_ACTIVITIES)
+  // after the transition into it executed — e.g. an INVOKE_AGENT AUTOMATED step
+  // parked the instance on its agent signal. Distinct from `pausedForActivities`
+  // (async activities ON THE TRANSITION, resumed via resumeWorkflowAfterActivities).
+  paused?: boolean
   conditionsEvaluated?: {
     preConditions: boolean
     postConditions: boolean
@@ -583,6 +588,12 @@ export async function executeTransitionForToken(
       }
     }
 
+    // The transition INTO the step genuinely happened, but the step then parked
+    // the instance (e.g. an INVOKE_AGENT AUTOMATED step enqueued an async agent
+    // job and set status PAUSED). Surface that via `paused` so the executor loop
+    // stops advancing instead of taking the next auto-transition.
+    const stepPaused = stepExecutionResult.status === 'WAITING'
+
     // Evaluate post-conditions (business rules)
     const postConditionsResult = await evaluatePostConditions(
       em,
@@ -637,6 +648,7 @@ export async function executeTransitionForToken(
     return {
       success: true,
       nextStepId: toStepId,
+      paused: stepPaused,
       conditionsEvaluated: {
         preConditions: true,
         postConditions: postConditionsResult.allowed,

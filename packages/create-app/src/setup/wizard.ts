@@ -5,6 +5,7 @@ import { generateShared } from './tools/shared.js'
 import { generateClaudeCode } from './tools/claude-code.js'
 import { generateCodex } from './tools/codex.js'
 import { generateCursor } from './tools/cursor.js'
+import { generateGithubCopilot } from './tools/github-copilot.js'
 
 export type AskFn = (question: string) => Promise<string>
 
@@ -22,8 +23,9 @@ const TOOLS = [
   { key: '1', label: 'Claude Code     (Anthropic)', id: 'claude-code' },
   { key: '2', label: 'Codex           (OpenAI)', id: 'codex' },
   { key: '3', label: 'Cursor          (Anysphere)', id: 'cursor' },
-  { key: '4', label: 'Multiple tools  (select individually)', id: 'multiple' },
-  { key: '5', label: 'Skip — set up manually later', id: 'skip' },
+  { key: '4', label: 'GitHub Copilot  (GitHub)', id: 'github-copilot' },
+  { key: '5', label: 'Multiple tools  (select individually)', id: 'multiple' },
+  { key: '6', label: 'Skip — set up manually later', id: 'skip' },
 ] as const
 
 const SELECTABLE_TOOLS = TOOLS.filter((t) => t.id !== 'multiple' && t.id !== 'skip')
@@ -92,10 +94,10 @@ async function promptSelection(ask: AskFn): Promise<string[]> {
   const answer = (await ask('   Enter number(s) separated by comma [1]: ')).trim() || '1'
 
   // Handle skip
-  if (answer === '5') return ['skip']
+  if (answer === '6') return ['skip']
 
   // Handle "multiple" — ask for each tool individually
-  if (answer === '4') {
+  if (answer === '5') {
     const selected: string[] = []
     for (const tool of SELECTABLE_TOOLS) {
       const yn = await ask(`   Include ${tool.label}? [y/N]: `)
@@ -149,6 +151,7 @@ export async function runAgenticSetup(
   if (selectedIds.includes('claude-code')) generateClaudeCode(config)
   if (selectedIds.includes('codex')) generateCodex(config)
   if (selectedIds.includes('cursor')) generateCursor(config)
+  if (selectedIds.includes('github-copilot')) generateGithubCopilot(config)
 
   installSkills(targetDir)
   printSummary(selectedIds)
@@ -178,6 +181,9 @@ function printSummary(selectedIds: string[]): void {
   }
   if (selectedIds.includes('cursor')) {
     console.log('   ✓ Cursor — .cursor/rules/, .cursor/hooks/, .cursor/mcp.json.example')
+  }
+  if (selectedIds.includes('github-copilot')) {
+    console.log('   ✓ GitHub Copilot — .github/copilot-instructions.md, .github/instructions/, .vscode/mcp.json.example')
   }
 
   if (selectedIds.includes('claude-code')) {

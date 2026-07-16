@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 export interface WaitForTimerNodeData {
   label: string
@@ -22,18 +22,10 @@ export interface WaitForTimerNodeData {
  * WaitForTimerNode - Pauses workflow for a duration or until a specific datetime
  * Uses WorkflowNodeCard for consistent styling
  */
-export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
+export function WaitForTimerNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as WaitForTimerNodeData
 
-  const mapStatus = (status?: string): WorkflowStatus => {
-    if (!status || status === 'pending') return 'not_started'
-    if (status === 'running' || status === 'in_progress') return 'in_progress'
-    if (status === 'completed') return 'completed'
-    if (status === 'error') return 'not_started'
-    return 'not_started'
-  }
-
-  const workflowStatus = mapStatus(nodeData.status)
+  const workflowStatus = toWorkflowStatus(nodeData.status)
 
   const duration = nodeData.duration || nodeData.config?.duration
   const until = nodeData.until || nodeData.config?.until
@@ -44,10 +36,10 @@ export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
     <div className="wait-for-timer-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
 
       <WorkflowNodeCard
@@ -56,14 +48,16 @@ export function WaitForTimerNode({ data, isConnectable, selected }: NodeProps) {
         status={workflowStatus}
         nodeType="waitForTimer"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
-        className="!w-3 !h-3 !bg-[#0080FE] !border-2 !border-white"
+        className="!w-3 !h-3 !bg-primary !border-2 !border-background"
       />
     </div>
   )

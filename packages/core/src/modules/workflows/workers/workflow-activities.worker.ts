@@ -23,6 +23,7 @@ import {
   executeFunction,
 } from '../lib/activity-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { handleInvokeAgentJob, resumeParentAfterSubWorkflow } from '../lib/activity-worker-handler'
 
 const logger = createLogger('workflows').child({ component: 'activity-worker' })
 
@@ -83,6 +84,30 @@ export default async function handle(
       organizationId: payload.organizationId,
       userId: payload.userId,
     })
+    return
+  }
+
+  // Invoke-agent jobs (kind: 'invoke_agent') run an INVOKE_AGENT step's agent
+  // OUTSIDE the workflow transaction (this worker has its own connection), then
+  // resume the parked step via the proposal-ready signal. This is what keeps a
+  // failing/cross-process agent run from aborting the workflow transaction.
+  /**
+   * @deprecated Drain bridge for the `workflow-invoke-agent` queue cutover.
+   * `executeInvokeAgent` now enqueues to the dedicated 'workflow-invoke-agent'
+   * queue; this branch only drains invoke_agent jobs enqueued before the
+   * cutover deploy. Retained for >=1 minor version per BACKWARD_COMPATIBILITY.md;
+   * removal is tracked in RELEASE_NOTES.md.
+   */
+  if (payload.kind === 'invoke_agent') {
+    await handleInvokeAgentJob(em, container, payload)
+    return
+  }
+
+  // Resume-parent jobs (kind: 'resume_subworkflow_parent') resume a parent
+  // instance parked on a SUB_WORKFLOW step after its child terminated. The
+  // resume runs on this worker's own connection, after the child txn committed.
+  if (payload.kind === 'resume_subworkflow_parent') {
+    await resumeParentAfterSubWorkflow(em, container, payload)
     return
   }
 

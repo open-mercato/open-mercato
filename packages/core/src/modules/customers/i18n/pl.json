@@ -437,6 +437,7 @@
   "customers.changelog.previous": "Poprzednie",
   "customers.changelog.showing": "Pokazano {{shown}} z {{total}} wpisów",
   "customers.changelog.showingWithPeriod": "Pokazano {{shown}} z {{total}} wpisów · ostatnie {{days}} dni",
+  "customers.changelog.source.agent": "Agent",
   "customers.changelog.source.api": "API",
   "customers.changelog.source.system": "System",
   "customers.changelog.source.ui": "UI",

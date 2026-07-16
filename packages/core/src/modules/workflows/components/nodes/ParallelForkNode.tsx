@@ -2,7 +2,7 @@
 
 import { Handle, Position, NodeProps } from '@xyflow/react'
 import { WorkflowNodeCard } from '../WorkflowNodeCard'
-import { WorkflowStatus } from '../../lib/status-colors'
+import { toWorkflowStatus } from '../../lib/status-colors'
 
 /**
  * ParallelForkNode display data.
@@ -22,25 +22,18 @@ export interface ParallelForkNodeData {
   executionStatus?: 'completed' | 'active' | 'pending' | 'failed' | 'skipped'
 }
 
-function mapStatus(status?: string): WorkflowStatus {
-  if (!status || status === 'pending') return 'not_started'
-  if (status === 'running' || status === 'in_progress') return 'in_progress'
-  if (status === 'completed') return 'completed'
-  return 'not_started'
-}
-
 /**
  * ParallelForkNode - splits the workflow into concurrent branches.
  * One target handle (in); one source handle (out) that fans out to each branch.
  */
-export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
+export function ParallelForkNode({ id, data, isConnectable, selected }: NodeProps) {
   const nodeData = data as unknown as ParallelForkNodeData
 
   return (
     <div className="parallel-fork-node" title={nodeData.tooltip}>
       <Handle
         type="target"
-        position={Position.Top}
+        position={Position.Left}
         id="target"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"
@@ -49,14 +42,16 @@ export function ParallelForkNode({ data, isConnectable, selected }: NodeProps) {
       <WorkflowNodeCard
         title={nodeData.label}
         description={nodeData.description}
-        status={mapStatus(nodeData.status)}
+        status={toWorkflowStatus(nodeData.status)}
         nodeType="parallelFork"
         selected={selected}
+        nodeId={id}
+        editable={isConnectable}
       />
 
       <Handle
         type="source"
-        position={Position.Bottom}
+        position={Position.Right}
         id="source"
         isConnectable={isConnectable}
         className="!w-3 !h-3 !bg-primary !border-2 !border-background"

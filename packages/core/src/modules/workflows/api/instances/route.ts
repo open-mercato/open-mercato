@@ -8,6 +8,8 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { raw } from '@mikro-orm/core'
+import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { resolveOrganizationScopeForRequest } from '@open-mercato/core/modules/directory/utils/organizationScope'
@@ -25,6 +27,8 @@ import {
 } from '../openapi'
 import * as workflowExecutor from '../../lib/workflow-executor'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { findWorkflowDefinition } from '../../lib/find-definition'
+import { isComponentKind } from '../../lib/component-guard'
 
 const logger = createLogger('workflows')
 
@@ -65,6 +69,8 @@ export async function GET(request: NextRequest) {
     const correlationKey = searchParams.get('correlationKey')
     const entityType = searchParams.get('entityType')
     const entityId = searchParams.get('entityId')
+    const parentInstanceId = searchParams.get('parentInstanceId')
+    const hasParent = parseBooleanToken(searchParams.get('hasParent'))
     const limit = parseInt(searchParams.get('limit') || '50')
     const offset = parseInt(searchParams.get('offset') || '0')
 
@@ -106,6 +112,26 @@ export async function GET(request: NextRequest) {
           metadata: { $contains: { entityId: entityId } }
         })
       }
+    }
+
+    // Parent/sub-workflow filtering. The parent linkage is stored in
+    // metadata.labels.parentInstanceId (set by the SUB_WORKFLOW step handler).
+    // - parentInstanceId: return only the direct children of that parent
+    //   (JSONB containment; works for equality).
+    // - hasParent=false: return only top-level/standalone instances, and
+    //   hasParent=true only children. Absence of a key cannot be expressed via
+    //   $contains, so use a JSON-path predicate (null = IS NULL).
+    if (parentInstanceId) {
+      where.$and = where.$and || []
+      where.$and.push({
+        metadata: { $contains: { labels: { parentInstanceId } } },
+      })
+    } else if (hasParent !== null) {
+      where.$and = where.$and || []
+      // Unqualified column reference is unambiguous here — the instance list
+      // query is single-table (tenant/org scope adds predicates, not joins).
+      const parentIdPath = raw(`(metadata #>> '{labels,parentInstanceId}')`)
+      where.$and.push({ [parentIdPath]: hasParent ? { $ne: null } : null })
     }
 
     const [instances, total] = await em.findAndCount(
@@ -196,6 +222,22 @@ export async function POST(request: NextRequest) {
 
     const input: StartWorkflowApiInput = validation.data
 
+    // Reject standalone start of a reusable component. Components have no
+    // trigger and may only be invoked as a SUB_WORKFLOW; this guard lives on
+    // the manual-start path only, so sub-workflow invocation is unaffected.
+    const startDefinition = await findWorkflowDefinition(em, {
+      workflowId: input.workflowId,
+      version: input.version,
+      tenantId,
+      organizationId,
+    })
+    if (startDefinition && isComponentKind(startDefinition.kind)) {
+      return NextResponse.json(
+        { error: 'This workflow is a reusable component and cannot be started standalone; invoke it from a SUB_WORKFLOW step.' },
+        { status: 400 }
+      )
+    }
+
     // User-started instances must always record the authenticated caller.
     const metadata = {
       ...input.metadata,
@@ -213,8 +255,11 @@ export async function POST(request: NextRequest) {
       organizationId,
     })
 
-    // Execute workflow in background (non-blocking for demo visibility)
-    // This allows the frontend to see step-by-step progress via polling
+    // Advance the workflow asynchronously after responding (non-blocking, so the
+    // frontend can poll step-by-step progress). This is a fire-and-forget task in
+    // this process — NOT a durable queue job — so it does not survive a process
+    // restart; the executor durably marks the instance FAILED on error, and the
+    // async-activity worker / retry endpoint resume any instance left mid-flight.
     setImmediate(async () => {
       try {
         // Create new container and EM for background execution
@@ -233,7 +278,7 @@ export async function POST(request: NextRequest) {
           execution: {
             status: instance.status,
             currentStep: instance.currentStepId,
-            message: 'Workflow execution started in background',
+            message: 'Workflow execution started',
           },
         },
         message: 'Workflow started successfully',
@@ -294,6 +339,8 @@ export const openApi = {
         correlationKey: z.string().optional(),
         entityType: z.string().optional(),
         entityId: z.string().optional(),
+        parentInstanceId: z.string().optional().describe('Return only direct sub-workflow children of this parent instance.'),
+        hasParent: z.boolean().optional().describe('false = only top-level/standalone instances; true = only sub-workflow children. Ignored when parentInstanceId is set.'),
         limit: z.number().int().positive().default(50).optional(),
         offset: z.number().int().min(0).default(0).optional(),
       }),
