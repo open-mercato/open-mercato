@@ -24,6 +24,25 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Standalone apps: optimistic-lock guard restored; `src/di.ts` now requires explicit bootstrap wiring (#4201)
+
+Two related DI defects affected standalone (npm) apps:
+
+1. **The default OSS optimistic-lock guard was silently disabled.** The request container is built in Awilix CLASSIC injection mode, and the guard's factory destructured a renamed parameter (`({ em: scopedEm })`), which CLASSIC cannot resolve. The resolution error was swallowed, so every `makeCrudRoute` PUT/DELETE ignored the `x-om-ext-optimistic-lock-expected-updated-at` header and stale writes returned `200` instead of `409`. *Action for downstream:* none — upgrading `@open-mercato/shared` restores the guard. A failed guard resolution now logs a warning (once per process) instead of failing silently.
+
+2. **`src/di.ts` `register()` never ran in standalone apps.** The `@/di` dynamic import inside the published package does not resolve to the app's `src/di.ts`, so the documented app-level DI override hook was dead. Apps now wire it explicitly from `src/bootstrap.ts`. *Action for downstream:* apps scaffolded before 0.6.6 that want `src/di.ts` to work must add the wiring to their `src/bootstrap.ts` (new scaffolds include it):
+
+```ts
+import { register as registerAppDi } from '@/di'
+
+export const bootstrap = createBootstrap(
+  { /* existing generated data */ },
+  { appDiRegistrar: registerAppDi },
+)
+```
+
+Additionally, two core-module registrations that destructured factory parameters without opting into per-registration PROXY resolution (`catalogPricingService`, `notificationService`) silently received `undefined` dependencies under CLASSIC mode; both now chain `.proxy()`. *Action for downstream:* none, but if your own module's `di.ts` registers `asFunction(({ dep }) => ...)`, chain `.proxy()` (or take plain named parameters) — a guard test (`packages/core/src/__tests__/di-classic-proxy.test.ts`) now enforces this for in-repo modules.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
