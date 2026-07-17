@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$CloneRoot = "C:\Development\Hackaton\testspeed",
+    [string]$CloneRoot = $env:USERPROFILE,
     [string]$RepoName = "open-mercato",
     [switch]$SkipDefenderExclusion,
     [switch]$SkipPackageInstalls,
