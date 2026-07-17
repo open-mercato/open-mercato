@@ -49,7 +49,7 @@ export const stripeAdapterV20241218: GatewayAdapter = {
       }),
       payment_method_types: input.paymentTypes ?? ['card'],
       description: input.description,
-    })
+    }, input.idempotencyKey ? { idempotencyKey: input.idempotencyKey } : undefined)
 
     return {
       sessionId: paymentIntent.id,

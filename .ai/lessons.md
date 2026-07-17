@@ -799,7 +799,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: When a task brief, review artifact, or QA guide says Playwright or integration coverage is required, add or update a module-local `__integration__/TC-*.spec.ts` in the same change. Treat Jest or other low-level tests as complementary, not a replacement.
 
-**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.ai/skills/om-integration-tests/SKILL.md`.
+**Applies to**: HackOn implementation tasks and any change governed by `.ai/qa/AGENTS.md` or `.agents/skills/om-integration-tests/SKILL.md`.
 
 ## Provider credentials must never control authenticated cross-origin requests
 
@@ -848,7 +848,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: Do not add executable `.spec.ts` files under `.ai/qa/tests/`. Place Playwright integration specs under the owning module's `__integration__/` directory, and keep `.ai/qa/tests/` reserved for shared Playwright configuration only.
 
-**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.ai/skills/om-integration-tests/SKILL.md`.
+**Applies to**: All Playwright integration tests, QA scenario conversions, and any task using `.agents/skills/om-integration-tests/SKILL.md`.
 
 ## Component-scoped notification effects must not depend on header chrome
 
@@ -971,3 +971,25 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 **Applies to**: integration helpers, auth tests, rate-limit tests, fixture factories, temporary IDs, generated emails/passwords, and any test utility that feeds API requests or security-sensitive code paths.
 
 - 2026-07-10 · payment_gateways: mock-only idempotency coverage missed Stripe partial-refund terminalization and retry advancement → test production adapters, successor-state reconciliation, and rerunnable operation IDs.
+- 2026-07-09 · customer_accounts: organization-scoped RBAC queries can still trust pre-hardening ACL caches → version the cache-key namespace when authorization semantics change
+- 2026-07-10 · payment_gateways: a stale-claim lease without owner heartbeats can steal slow live provider calls; renew token-scoped leases during provider I/O and let followers wait for the shared result.
+- 2026-07-09 · api_keys: Do not confuse a superadmin's immutable actor tenant with its intentional selected-tenant CRUD scope → fail-close organization arrays without overriding effective `auth.tenantId`.
+- 2026-07-09 · customer_accounts: denial tests covered status but missed secondary side effects and complete same-org parity → assert every write/event/cache path stays untouched and exercise all affected positive routes
+- 2026-07-10 · storage_s3: Temp-path tests hard-coded POSIX separators → build expected paths with `node:path` so Windows coverage stays valid.
+- 2026-07-10 · ai_assistant: A TOCTOU test that swaps only before descriptor validation does not prove same-handle reads → also swap after identity validation and assert the validated descriptor content is returned.
+
+## Security caches must outlive request-scoped providers and cover reserved IPv6 space
+
+**Context**: OIDC discovery hardening initially cached configurations on a provider that dependency injection recreates per request, while the shared IP classifier omitted several IANA-reserved IPv6 prefixes.
+
+**Rule**: Put bounded outbound-discovery caches at process scope when providers are request-scoped, key them by every credential/config input, and verify reserved IPv4 and IPv6 ranges against public-address controls.
+
+**Applies to**: SSRF guards, OIDC/OAuth discovery, JWKS/token/user-info clients, and request-scoped outbound provider services.
+
+## DNS pinning must keep fetch and dispatcher implementations compatible
+
+**Context**: A pinned outbound request used an `undici` package `Agent` with Node's bundled global `fetch`, then returned only the legacy single-address DNS callback shape while Node 24 requested all addresses.
+
+**Rule**: Use `fetch` and `Agent` from the same `undici` implementation, and make custom lookup callbacks support both single-address and `{ all: true }` result shapes. Cover the dispatcher path with a regression test and smoke-test at least one real HTTPS endpoint.
+
+**Applies to**: SSRF-safe fetch helpers, custom `undici` dispatchers, DNS pinning, and runtimes that enable automatic address-family selection.

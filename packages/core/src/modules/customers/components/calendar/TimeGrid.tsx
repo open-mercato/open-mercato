@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from 'react'
-import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { addDays } from 'date-fns/addDays'
 import { isSameDay } from 'date-fns/isSameDay'
 import { startOfDay } from 'date-fns/startOfDay'
@@ -9,7 +9,6 @@ import { cn } from '@open-mercato/shared/lib/utils'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
-import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { packOverlaps } from '../../lib/calendar/layout'
 import { getVisibleRange } from '../../lib/calendar/range'
 import {
@@ -165,7 +164,6 @@ export function TimeGrid({
   onItemClick,
   onJoin,
   onNavigate,
-  onCreate,
   onCreateRange,
 }: TimeGridProps) {
   const t = useT()
@@ -488,27 +486,6 @@ export function TimeGrid({
           })}
         </div>
       </div>
-      {items.length === 0 ? (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center p-6">
-          <EmptyState
-            className="pointer-events-auto bg-card/95 shadow-sm"
-            icon={<CalendarDays className="h-6 w-6" aria-hidden />}
-            title={
-              days === 7
-                ? t('customers.calendar.empty.week', 'Nothing scheduled this week')
-                : t('customers.calendar.empty.day', 'Nothing scheduled this day')
-            }
-            description={t('customers.calendar.empty.description', 'Plan a meeting, event or task to fill your week.')}
-            actions={
-              onCreate ? (
-                <Button type="button" size="sm" onClick={onCreate}>
-                  {t('customers.calendar.actions.newEvent', 'New event')}
-                </Button>
-              ) : undefined
-            }
-          />
-        </div>
-      ) : null}
     </div>
   )
 }

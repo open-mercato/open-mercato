@@ -134,6 +134,45 @@ export class GatewayPaymentOperation {
   updatedAt: Date = new Date()
 }
 
+@Entity({ tableName: 'gateway_session_initializations' })
+@Unique({
+  name: 'gateway_session_initializations_scope_operation_unique',
+  properties: ['operationKey', 'providerKey', 'organizationId', 'tenantId'],
+})
+export class GatewaySessionInitialization {
+  [OptionalProps]?: 'claimToken' | 'claimedAt' | 'gatewayTransactionId' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'operation_key', type: 'text' })
+  operationKey!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'claim_token', type: 'uuid', nullable: true })
+  claimToken?: string | null
+
+  @Property({ name: 'claimed_at', type: Date, nullable: true })
+  claimedAt?: Date | null
+
+  @Property({ name: 'gateway_transaction_id', type: 'uuid', nullable: true })
+  gatewayTransactionId?: string | null
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'gateway_webhook_events' })
 @Unique({
   name: 'gateway_webhook_events_idempotency_unique',
