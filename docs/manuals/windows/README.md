@@ -1,6 +1,9 @@
 # Windows one-command setup — user manuals
 
-Printable manuals (run guide + troubleshooting + FAQ) for `scripts/windows/start-windows.bat`:
+Printable manuals (run guide + troubleshooting + FAQ) for the Windows launchers —
+`scripts/windows/start-windows.bat` (auto-detect), `start-windows-rancher.bat` /
+`start-windows-docker.bat` (pinned runtime), and the read-only preflight
+`check-windows.bat`:
 
 | Language | Source | PDF |
 |----------|--------|-----|
@@ -15,5 +18,7 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
   --print-to-pdf=open-mercato-windows-setup-manual-en.pdf windows-setup-manual-en.html
 ```
 
-Keep the manuals in sync with `scripts/windows/start-dev.ps1` and the spec
+Keep the manuals in sync with `scripts/windows/start-dev.ps1` (all launcher
+`.bat` entry points, `preflight-windows.ps1`) and the spec
 `.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md`.
+After editing the HTML sources, regenerate both PDFs.
