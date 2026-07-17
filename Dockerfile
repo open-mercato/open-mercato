@@ -29,6 +29,12 @@ RUN set -eu; \
     rm -rf /tmp/om-certs
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
+# Corporate networks that category-block dl-cdn.alpinelinux.org can point apk
+# at an internal mirror (e.g. Artifactory alpine remote): set ALPINE_MIRROR in
+# the repo-root .env; empty (the default) leaves the official CDN in place.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 # Install system deps required by optional native modules (Alpine uses apk)
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 
@@ -121,6 +127,10 @@ RUN set -eu; \
     rm -rf /tmp/om-certs
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 RUN corepack enable
 
@@ -199,6 +209,10 @@ RUN set -eu; \
     rm -rf /tmp/om-certs
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
+
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
@@ -264,6 +278,10 @@ RUN set -eu; \
     done; \
     rm -rf /tmp/om-certs
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
+# Optional internal Alpine mirror - see the builder stage comment.
+ARG ALPINE_MIRROR=""
+RUN [ -z "$ALPINE_MIRROR" ] || sed -i "s|https://dl-cdn.alpinelinux.org|$ALPINE_MIRROR|g" /etc/apk/repositories
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup

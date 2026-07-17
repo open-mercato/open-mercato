@@ -1175,7 +1175,24 @@ function Sync-CorporateCerts {
 function Test-TlsInterceptionSignature {
     param([string]$Text)
     if (-not $Text) { return $false }
-    return ($Text -match "certificate not trusted|certificate verify failed|unable to get local issuer certificate|self.signed certificate|SSL certificate problem|tls: failed to verify")
+    return ($Text -match "certificate not trusted|certificate verify failed|certificate verification failed|unable to get local issuer certificate|self.signed certificate|SSL certificate problem|tls: failed to verify|x509: certificate signed by unknown authority")
+}
+
+function Test-NetworkFailureSignature {
+    # Matches build downloads failing in bulk without a clear TLS wording:
+    # apk aborting on unfetchable package indexes, DNS errors, timeouts, or the
+    # proxy's blunt "Permission denied". These need the container-egress triage
+    # to tell WHY (DNS vs TLS interception vs proxy category-block).
+    param([string]$Text)
+    if (-not $Text) { return $false }
+    return ($Text -match "apk add[^`r`n]*did not complete successfully|unable to select packages|bad address|temporary error \(try again later\)|Could not resolve host|network is unreachable|i/o timeout|TLS handshake timeout|dl-cdn\.alpinelinux\.org[^`r`n]*Permission denied")
+}
+
+function ConvertTo-PemCertificate {
+    param([Parameter(Mandatory = $true)][System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate)
+    $base64 = [Convert]::ToBase64String($Certificate.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+    $wrapped = ($base64 -replace "(.{64})", "`$1`n").TrimEnd("`n")
+    return "-----BEGIN CERTIFICATE-----`n$wrapped`n-----END CERTIFICATE-----`n"
 }
 
 function Export-ObservedTlsRootCa {
@@ -1198,15 +1215,34 @@ function Export-ObservedTlsRootCa {
         [void]$chain.Build($leaf)
         if ($chain.ChainElements.Count -lt 1) { return $null }
         $root = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
-        $base64 = [Convert]::ToBase64String($root.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
-        $wrapped = ($base64 -replace "(.{64})", "`$1`n").TrimEnd("`n")
-        return "-----BEGIN CERTIFICATE-----`n$wrapped`n-----END CERTIFICATE-----`n"
+        return (ConvertTo-PemCertificate -Certificate $root)
     } catch {
         return $null
     } finally {
         if ($sslStream) { $sslStream.Dispose() }
         if ($tcpClient) { $tcpClient.Dispose() }
     }
+}
+
+function Export-KnownInterceptionRootsFromStore {
+    # CONNECT-only proxies block the raw-socket chain capture below, but IT
+    # always installs the interception root into the Windows certificate
+    # store. Export every root from a known TLS-inspection vendor so the
+    # image builds can trust whichever one re-signs their traffic.
+    param([Parameter(Mandatory = $true)][string]$TargetDir)
+    $vendorPattern = "Zscaler|Netskope|Blue ?Coat|Palo Alto|Forcepoint|Fortinet|FortiGate|Cisco Umbrella|Skyhigh|McAfee|Sophos|WatchGuard|iboss|Menlo Security"
+    $roots = @()
+    foreach ($storePath in @("Cert:\LocalMachine\Root", "Cert:\CurrentUser\Root")) {
+        $roots += @(Get-ChildItem -Path $storePath -ErrorAction SilentlyContinue | Where-Object { $_.Subject -match $vendorPattern })
+    }
+    $exported = 0
+    foreach ($cert in ($roots | Sort-Object -Property Thumbprint -Unique)) {
+        $fileName = "interception-root-{0}.crt" -f $cert.Thumbprint.Substring(0, 8).ToLower()
+        [System.IO.File]::WriteAllText((Join-Path $TargetDir $fileName), (ConvertTo-PemCertificate -Certificate $cert))
+        Write-Ok ("Exported interception root from the Windows store: {0} -> docker\certs\{1}" -f $cert.Subject, $fileName)
+        $exported++
+    }
+    return ($exported -gt 0)
 }
 
 function Repair-TlsInterception {
@@ -1219,17 +1255,63 @@ function Repair-TlsInterception {
     if ($script:TlsRepairAttempted) { return $false }
     $script:TlsRepairAttempted = $true
     Write-Info "The failure looks like a TLS-intercepting proxy (corporate network). Capturing its root certificate so the image builds can trust it..."
-    $pem = Export-ObservedTlsRootCa -ProbeHost "dl-cdn.alpinelinux.org"
-    if (-not $pem) {
+    $certsDir = Join-Path $script:RepoRoot "docker\certs"
+    New-Item -Path $certsDir -ItemType Directory -Force | Out-Null
+    # Probe the host the failing download talks to first - SNI-based proxy
+    # rules can intercept one host and pass another through untouched.
+    $pem = $null
+    foreach ($probeHost in @("dl-cdn.alpinelinux.org", "registry-1.docker.io", "github.com")) {
+        $pem = Export-ObservedTlsRootCa -ProbeHost $probeHost
+        if ($pem) { break }
+    }
+    if ($pem) {
+        [System.IO.File]::WriteAllText((Join-Path $certsDir "corporate-proxy-root.crt"), $pem)
+        Write-Ok "Proxy root certificate exported to docker\certs\corporate-proxy-root.crt"
+    } elseif (-not (Export-KnownInterceptionRootsFromStore -TargetDir $certsDir)) {
         Write-Warn "Could not capture the proxy's root certificate automatically. Export your company's root CA as a Base-64 X.509 (PEM) file into docker\certs\ (see docker\certs\README.md), then re-run start-windows.bat -Rebuild."
         return $false
     }
-    $certsDir = Join-Path $script:RepoRoot "docker\certs"
-    New-Item -Path $certsDir -ItemType Directory -Force | Out-Null
-    [System.IO.File]::WriteAllText((Join-Path $certsDir "corporate-proxy-root.crt"), $pem)
     Sync-CorporateCerts
-    Write-Ok "Proxy root certificate exported to docker\certs\corporate-proxy-root.crt"
     return $true
+}
+
+function Invoke-BuildNetworkTriage {
+    # A build download step failed without a clear TLS wording. Probe the
+    # network FROM INSIDE a container - the exact path the image build uses -
+    # and classify the failure: DNS dead, TLS interception, proxy block page,
+    # or actually fine. Returns $true when a TLS repair was applied and a
+    # compose retry makes sense; every other outcome prints targeted guidance.
+    $probeImage = "node:24-alpine"
+    if ((Invoke-NativeQuiet "docker" @("image", "inspect", $probeImage)) -ne 0) {
+        Write-Warn "The build is failing before its base image ($probeImage) is even available locally - the Docker engine itself cannot pull images on this network. If pulls fail with an x509/certificate error, the engine needs your corporate root CA; run scripts\windows\check-windows.bat for the full egress picture and docker\certs\README.md for the cert steps."
+        return $false
+    }
+    Write-Info "Diagnosing network access from inside a container (the same path image builds use)..."
+    # Single-quoted on purpose: everything in here is busybox sh, not PowerShell.
+    $probeScript = 'if ! nslookup dl-cdn.alpinelinux.org >/dev/null 2>&1; then echo OM_TRIAGE=DNS_FAIL; exit 0; fi; ' +
+        'out=$(wget -T 20 -O /tmp/apkindex https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/APKINDEX.tar.gz 2>&1); ' +
+        'if [ $? -ne 0 ]; then echo "$out"; if echo "$out" | grep -qiE "certificate|trust|verif"; then echo OM_TRIAGE=TLS_FAIL; else echo OM_TRIAGE=FETCH_FAIL; fi; exit 0; fi; ' +
+        'magic=$(head -c 2 /tmp/apkindex | od -An -tx1 | tr -d " \n"); ' +
+        'if [ "$magic" = "1f8b" ]; then echo OM_TRIAGE=OK; else echo OM_TRIAGE=BLOCK_PAGE; fi'
+    $probeOutput = Invoke-NativeCapture "docker" @("run", "--rm", $probeImage, "sh", "-c", $probeScript)
+    if ($probeOutput -match "OM_TRIAGE=DNS_FAIL") {
+        Write-Warn "Containers cannot resolve DNS (dl-cdn.alpinelinux.org does not resolve inside the VM). This is the classic corporate-VPN + WSL2 DNS breakage: quit the container runtime (Rancher: 'rdctl shutdown'; Docker Desktop: Quit), run 'wsl --shutdown', reconnect the VPN, then re-run the launcher. If it persists, ask IT about VPN DNS for WSL2."
+        return $false
+    }
+    if ($probeOutput -match "OM_TRIAGE=TLS_FAIL") {
+        Write-Info "Containers reach the network but do not trust its TLS - a TLS-intercepting proxy."
+        return (Repair-TlsInterception)
+    }
+    if ($probeOutput -match "OM_TRIAGE=BLOCK_PAGE") {
+        Write-Warn "Your proxy answers dl-cdn.alpinelinux.org with a block page, so Alpine packages in image builds cannot download. Ask IT to allow dl-cdn.alpinelinux.org (plus registry-1.docker.io, registry.yarnpkg.com, opencode.ai, github.com), or point the build at an internal Alpine mirror: set ALPINE_MIRROR=<mirror base URL> in the repo-root .env and re-run with -Rebuild."
+        return $false
+    }
+    if ($probeOutput -match "OM_TRIAGE=OK") {
+        Write-Info "Container network to dl-cdn.alpinelinux.org works - the build failure is not basic egress. The failing step's own output above has the real error."
+        return $false
+    }
+    Write-Warn ("Container network probe was inconclusive. Probe output: {0}" -f (($probeOutput -replace "\s+", " ").Trim()))
+    return $false
 }
 
 # ---------------------------------------------------------------------------
@@ -1710,12 +1792,20 @@ function Start-Stack {
         Write-Info "Starting services (the FIRST run builds images and can take 10+ minutes; later runs are much faster)..."
     }
     $exitCode = Invoke-Compose $composeArgs
-    if ($exitCode -ne 0 -and (Test-TlsInterceptionSignature $script:LastComposeOutput) -and (Repair-TlsInterception)) {
-        Write-Info "Retrying docker compose up with the exported proxy certificate..."
-        $exitCode = Invoke-Compose $composeArgs
+    if ($exitCode -ne 0) {
+        $shouldRetry = $false
+        if (Test-TlsInterceptionSignature $script:LastComposeOutput) {
+            $shouldRetry = Repair-TlsInterception
+        } elseif (Test-NetworkFailureSignature $script:LastComposeOutput) {
+            $shouldRetry = Invoke-BuildNetworkTriage
+        }
+        if ($shouldRetry) {
+            Write-Info "Retrying docker compose up with the exported proxy certificate..."
+            $exitCode = Invoke-Compose $composeArgs
+        }
     }
     if ($exitCode -ne 0) {
-        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them (a TLS-intercepting proxy's root CA can be trusted via docker\certs\ - see docker\certs\README.md) - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
+        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them (a TLS-intercepting proxy's root CA can be trusted via docker\certs\ - see docker\certs\README.md; scripts\windows\check-windows.bat audits the whole machine read-only) - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
     }
     Write-Ok "Containers started"
 }
