@@ -102,9 +102,9 @@ if ($env:CI -eq "true") { $NonInteractive = $true }
 function Write-Section {
     param([string]$Message)
     Write-Host ""
-    Write-Host ("=" * 78) -ForegroundColor DarkGray
-    Write-Host $Message -ForegroundColor Cyan
-    Write-Host ("=" * 78) -ForegroundColor DarkGray
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    Write-Host (" {0}" -f $Message) -ForegroundColor Cyan
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
 }
 
 function Write-StepHeader {
@@ -113,10 +113,66 @@ function Write-StepHeader {
     # BEFORE a step goes quiet.
     param([string]$Message, [string]$Expected = "")
     $script:StepNumber++
-    Write-Section ("Step {0}: {1}" -f $script:StepNumber, $Message)
+    Write-Host ""
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    Write-Host (" STEP {0} " -f $script:StepNumber) -BackgroundColor DarkCyan -ForegroundColor Black -NoNewline
+    Write-Host ("  {0}" -f $Message) -ForegroundColor Cyan
     if ($Expected) {
-        Write-Host ("  Expected: {0}" -f $Expected) -ForegroundColor DarkGray
+        Write-Host ("          Expected: {0}" -f $Expected) -ForegroundColor DarkGray
     }
+}
+
+# Two-tone wordmark, figlet "standard". Pure 7-bit ASCII on purpose: PS 5.1
+# in conhost on OEM code pages garbles Unicode box drawing, and per-line
+# -ForegroundColor needs no ANSI/VT support. Left rows are padded to a fixed
+# width so the right half always aligns.
+$script:LogoLeft = @(
+    '  ___  ____  _____ _   _ ',
+    ' / _ \|  _ \| ____| \ | |',
+    '| | | | |_) |  _| |  \| |',
+    '| |_| |  __/| |___| |\  |',
+    ' \___/|_|   |_____|_| \_|'
+)
+$script:LogoRight = @(
+    ' __  __ _____ ____   ____    _  _____ ___',
+    '|  \/  | ____|  _ \ / ___|  / \|_   _/ _ \',
+    '| |\/| |  _| | |_) | |     / _ \ | || | | |',
+    '| |  | | |___|  _ <| |___ / ___ \| || |_| |',
+    '|_|  |_|_____|_| \_\\____/_/   \_\_| \___/'
+)
+
+function Show-Banner {
+    Write-Host ""
+    for ($i = 0; $i -lt $script:LogoLeft.Count; $i++) {
+        Write-Host ("   {0}" -f $script:LogoLeft[$i]) -ForegroundColor DarkCyan -NoNewline
+        Write-Host ("  {0}" -f $script:LogoRight[$i]) -ForegroundColor Cyan
+    }
+    Write-Host ""
+    Write-Host "   One-command development environment for Windows" -ForegroundColor White
+    $runtimeLabel = switch ($Runtime) {
+        "rancher" { "Rancher Desktop (pinned)" }
+        "docker" { "Docker Desktop (pinned)" }
+        default { "auto-detect (Docker Desktop / Rancher Desktop)" }
+    }
+    if ($script:RepoRoot) {
+        Write-Host ("   Repo: {0}" -f $script:RepoRoot) -ForegroundColor DarkGray
+        Write-Host ("   Runtime: {0}" -f $runtimeLabel) -ForegroundColor DarkGray
+        Write-Host ("   App :{0} | Splash :{1} | MCP :{2} | OpenCode :{3} | Keycloak :{4}" -f $script:AppPort, $script:SplashPort, $script:McpPort, $script:OpencodePort, $script:KeycloakPort) -ForegroundColor DarkGray
+    } else {
+        Write-Host ("   Standalone mode: will clone into {0}" -f (Join-Path $CloneRoot $RepoName)) -ForegroundColor DarkGray
+        Write-Host ("   Runtime: {0}" -f $runtimeLabel) -ForegroundColor DarkGray
+    }
+}
+
+function Show-MiniBanner {
+    # Compact one-line brand for secondary actions, the elevated child window,
+    # and anywhere the full logo would be noise.
+    param([Parameter(Mandatory = $true)][string]$Action)
+    Write-Host ""
+    Write-Host "  OPEN" -ForegroundColor DarkCyan -NoNewline
+    Write-Host " MERCATO" -ForegroundColor Cyan -NoNewline
+    Write-Host (" | {0}" -f $Action) -ForegroundColor White
+    Write-Host ("  " + ("-" * 74)) -ForegroundColor DarkGray
 }
 
 $script:SpinnerFrames = @("|", "/", "-", "\")
@@ -128,18 +184,23 @@ function Write-WaitTick {
     $frame = $script:SpinnerFrames[$script:SpinnerIndex % $script:SpinnerFrames.Count]
     $script:SpinnerIndex++
     $elapsed = "{0:mm\:ss}" -f ((Get-Date) - $StartedAt)
-    Write-Host ("`r{0} [{1}] {2}   " -f $frame, $elapsed, $Message) -NoNewline
+    Write-Host ("`r{0} [{1}] " -f $frame, $elapsed) -ForegroundColor Cyan -NoNewline
+    Write-Host ("{0}   " -f $Message) -ForegroundColor Gray -NoNewline
 }
 
 function Write-Info {
+    # Neutral progress line: gray, with a dim timestamp. Yellow is reserved
+    # for warnings so it keeps meaning "attention".
     param([string]$Message)
     $timestamp = Get-Date -Format "HH:mm:ss"
-    Write-Host "[$timestamp] $Message" -ForegroundColor Yellow
+    Write-Host "[$timestamp] " -ForegroundColor DarkGray -NoNewline
+    Write-Host $Message -ForegroundColor Gray
 }
 
 function Write-Ok {
     param([string]$Message)
-    Write-Host "[OK] $Message" -ForegroundColor Green
+    Write-Host "[OK] " -ForegroundColor Green -NoNewline
+    Write-Host $Message -ForegroundColor Gray
 }
 
 function Write-Warn {
@@ -744,7 +805,7 @@ function Install-RancherDesktopDirect {
 function Invoke-ElevatedInstallPhase {
     # Runs inside the elevated child process (-Elevated). Performs only the
     # admin-required work, then exits: 0 = done, 10 = reboot required.
-    Write-Section "Elevated install phase"
+    Show-MiniBanner "Administrator install phase (this elevated window closes when done)"
 
     # winget is a fast path when present; when it is not (LTSC / Server /
     # locked-down images) we fall back to direct downloads of the official
@@ -868,9 +929,12 @@ function Invoke-InstallPhaseIfNeeded {
         elseif ($hasRancher) { "Rancher Desktop" }
         elseif (-not $needsRuntime) { "docker CLI (IT-managed)" }
         else { "MISSING" }
-    Write-Host ("  Git:               {0}" -f $(if ($needsGit) { "MISSING" } else { "present" }))
-    Write-Host ("  WSL2:              {0}" -f $(if ($needsWsl) { "MISSING" } else { "present" }))
-    Write-Host ("  Container runtime: {0}" -f $runtimeLabel)
+    Write-Host "  Git:               " -NoNewline
+    if ($needsGit) { Write-Host "MISSING (will be installed)" -ForegroundColor Yellow } else { Write-Host "present" -ForegroundColor Green }
+    Write-Host "  WSL2:              " -NoNewline
+    if ($needsWsl) { Write-Host "MISSING (will be installed)" -ForegroundColor Yellow } else { Write-Host "present" -ForegroundColor Green }
+    Write-Host "  Container runtime: " -NoNewline
+    if ($runtimeLabel -eq "MISSING") { Write-Host "MISSING (will be installed)" -ForegroundColor Yellow } else { Write-Host $runtimeLabel -ForegroundColor Green }
     if ($Runtime -eq "auto") {
         Write-Host "  (auto-detecting the runtime - double-click start-windows-rancher.bat or start-windows-docker.bat to force one)" -ForegroundColor DarkGray
     }
@@ -2063,31 +2127,47 @@ function Show-FinalSummary {
     $adminPassword = Get-EnvValue -FilePath $rootEnv -Key "OM_INIT_SUPERADMIN_PASSWORD"
     if (-not $adminPassword) { $adminPassword = "password" }
 
+    function Write-SummaryRow {
+        param([string]$Label, [string]$Value, [string]$ValueColor = "White", [string]$Note = "")
+        Write-Host ("  {0,-14} " -f $Label) -ForegroundColor Gray -NoNewline
+        if ($Note) {
+            Write-Host $Value -ForegroundColor $ValueColor -NoNewline
+            Write-Host ("  {0}" -f $Note) -ForegroundColor DarkGray
+        } else {
+            Write-Host $Value -ForegroundColor $ValueColor
+        }
+    }
+
     Write-Host ""
+    Write-Host "  OPEN" -ForegroundColor DarkCyan -NoNewline
+    Write-Host " MERCATO" -ForegroundColor Cyan
     Write-Host ("=" * 78) -ForegroundColor Green
-    Write-Host " Open Mercato dev stack is running" -ForegroundColor Green
+    Write-Host " READY " -BackgroundColor DarkGreen -ForegroundColor White -NoNewline
+    Write-Host "  The dev stack is running" -ForegroundColor Green
     Write-Host ("=" * 78) -ForegroundColor Green
-    Write-Host "  Admin app:     http://localhost:$script:AppPort/backend"
-    Write-Host "  App root:      http://localhost:$script:AppPort"
-    Write-Host "  Dev splash:    http://localhost:$script:SplashPort            (build/status page)"
-    Write-Host "  MCP server:    http://localhost:$script:McpPort/health"
-    Write-Host "  OpenCode:      http://localhost:$script:OpencodePort/global/health"
-    Write-Host "  Keycloak:      http://localhost:$script:KeycloakPort            (admin/admin, dev SSO)"
+    Write-SummaryRow "Admin app:" "http://localhost:$script:AppPort/backend" "Cyan" "<- start here"
+    Write-SummaryRow "App root:" "http://localhost:$script:AppPort" "Cyan"
+    Write-SummaryRow "Dev splash:" "http://localhost:$script:SplashPort" "Cyan" "(build/status page)"
+    Write-SummaryRow "MCP server:" "http://localhost:$script:McpPort/health" "Cyan"
+    Write-SummaryRow "OpenCode:" "http://localhost:$script:OpencodePort/global/health" "Cyan"
+    Write-SummaryRow "Keycloak:" "http://localhost:$script:KeycloakPort" "Cyan" "(admin/admin, dev SSO)"
     Write-Host ""
-    Write-Host "  Superadmin:    $adminEmail / $adminPassword"
+    Write-SummaryRow "Superadmin:" "$adminEmail / $adminPassword" "White" "(also stored in the repo-root .env)"
     Write-Host ""
-    Write-Host "  Stop:          stop-windows.bat"
-    Write-Host "  Restart:       start-windows.bat                                 (reuses the built image)"
-    Write-Host "  Rebuild image: powershell scripts\windows\start-dev.ps1 -Rebuild (after a Dockerfile change)"
-    Write-Host "  Logs:          docker compose -f $script:ComposeFile logs -f app"
-    Write-Host "  Full reset:    powershell scripts\windows\start-dev.ps1 -Reset   (DELETES all data)"
+    Write-SummaryRow "Stop:" "stop-windows.bat" "White" "(data preserved)"
+    Write-SummaryRow "Restart:" "start-windows.bat" "White" "(reuses the built image)"
+    Write-SummaryRow "Rebuild image:" "powershell scripts\windows\start-dev.ps1 -Rebuild" "White" "(after a Dockerfile change)"
+    Write-SummaryRow "Logs:" "docker compose -f $script:ComposeFile logs -f app" "White"
+    Write-SummaryRow "Full reset:" "powershell scripts\windows\start-dev.ps1 -Reset" "White" "(DELETES all data)"
     if ($script:ResolvedLogPath) {
-        Write-Host "  Setup log:     $script:ResolvedLogPath"
+        Write-SummaryRow "Setup log:" $script:ResolvedLogPath "White"
     }
     Write-Host ("=" * 78) -ForegroundColor Green
     Write-Host ""
-    Write-Host "Try the AI assistant: open http://localhost:$script:AppPort/backend, log in, press Cmd/Ctrl+K" -ForegroundColor Cyan
-    Write-Host "and ask: 'What tools do you have?'" -ForegroundColor Cyan
+    Write-Host "  Try the AI assistant: open " -ForegroundColor Cyan -NoNewline
+    Write-Host "http://localhost:$script:AppPort/backend" -ForegroundColor White -NoNewline
+    Write-Host ", log in, press Ctrl+K" -ForegroundColor Cyan
+    Write-Host "  and ask: 'What tools do you have?'" -ForegroundColor Cyan
 
     if ($script:Warnings.Count -gt 0) {
         Write-Host ""
@@ -2107,6 +2187,12 @@ function Invoke-SecondaryAction {
         Write-Fail "Not inside an Open Mercato repository - secondary actions need the repo."
     }
     Resolve-StackPorts
+    $actionLabel = if ($Stop) { "Stop the dev stack" }
+        elseif ($Restart) { "Restart the dev stack" }
+        elseif ($Status) { "Stack status" }
+        elseif ($Logs) { "Application logs (Ctrl+C to stop following)" }
+        else { "Full reset" }
+    Show-MiniBanner $actionLabel
 
     $engineReady = Test-DockerEngineReady
     if (-not $engineReady) {
@@ -2200,10 +2286,8 @@ try {
         exit 0
     }
 
-    Write-Section "Open Mercato - one-command Windows dev environment"
-    if ($script:RepoRoot) { Write-Info "Repository: $script:RepoRoot" }
-    else { Write-Info "Standalone mode: repository will be cloned to $(Join-Path $CloneRoot $RepoName)" }
-    if ($DryRun) { Write-Info "DRY RUN - nothing will be installed or changed." }
+    Show-Banner
+    if ($DryRun) { Write-Host "   DRY RUN - nothing will be installed or changed." -ForegroundColor Yellow }
 
     # Step: OS + virtualization preflight
     Write-StepHeader "Preflight (Windows version, virtualization)" "instant"

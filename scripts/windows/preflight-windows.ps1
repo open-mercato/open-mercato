@@ -40,9 +40,42 @@ $script:OpencodePort = 4096
 function Write-Section {
     param([string]$Message)
     Write-Host ""
-    Write-Host ("=" * 78) -ForegroundColor DarkGray
-    Write-Host $Message -ForegroundColor Cyan
-    Write-Host ("=" * 78) -ForegroundColor DarkGray
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+    Write-Host (" {0}" -f $Message) -ForegroundColor Cyan
+    Write-Host ("=" * 78) -ForegroundColor DarkCyan
+}
+
+# Two-tone wordmark shared with start-dev.ps1 (kept in sync by hand - this
+# script must stay self-contained). Pure 7-bit ASCII: conhost on OEM code
+# pages garbles Unicode, and -ForegroundColor needs no ANSI/VT support.
+$script:LogoLeft = @(
+    '  ___  ____  _____ _   _ ',
+    ' / _ \|  _ \| ____| \ | |',
+    '| | | | |_) |  _| |  \| |',
+    '| |_| |  __/| |___| |\  |',
+    ' \___/|_|   |_____|_| \_|'
+)
+$script:LogoRight = @(
+    ' __  __ _____ ____   ____    _  _____ ___',
+    '|  \/  | ____|  _ \ / ___|  / \|_   _/ _ \',
+    '| |\/| |  _| | |_) | |     / _ \ | || | | |',
+    '| |  | | |___|  _ <| |___ / ___ \| || |_| |',
+    '|_|  |_|_____|_| \_\\____/_/   \_\_| \___/'
+)
+
+function Show-Banner {
+    Write-Host ""
+    for ($i = 0; $i -lt $script:LogoLeft.Count; $i++) {
+        Write-Host ("   {0}" -f $script:LogoLeft[$i]) -ForegroundColor DarkCyan -NoNewline
+        Write-Host ("  {0}" -f $script:LogoRight[$i]) -ForegroundColor Cyan
+    }
+    Write-Host ""
+    Write-Host "   Machine preflight check - READ-ONLY" -ForegroundColor White
+    Write-Host "   Audits the 8 gates a locked-down machine can fail, in about a minute:" -ForegroundColor DarkGray
+    Write-Host "   PowerShell policy, admin, WSL2, network egress, antivirus, existing" -ForegroundColor DarkGray
+    Write-Host "   tools, clone location, ports. Installs nothing, changes nothing." -ForegroundColor DarkGray
+    Write-Host "   When it says READY, run: start-windows.bat (auto-detects the runtime)," -ForegroundColor DarkGray
+    Write-Host "   start-windows-rancher.bat, or start-windows-docker.bat." -ForegroundColor DarkGray
 }
 
 function Add-Finding {
@@ -398,13 +431,23 @@ function Write-Verdict {
     $hardFails = @($fails | Where-Object { $_.Hard })
     $warns = @($script:Findings | Where-Object { $_.Level -eq "WARN" })
 
+    Write-Host ""
     if ($hardFails.Count -gt 0) {
-        Write-Host "  LIKELY BLOCKED - resolve these hard gates before running the launcher:" -ForegroundColor Red
+        Write-Host " LIKELY BLOCKED " -BackgroundColor DarkRed -ForegroundColor White -NoNewline
+        Write-Host "  resolve these hard gates before running the launcher:" -ForegroundColor Red
         foreach ($item in $hardFails) { Write-Host ("    - [{0}] {1}" -f $item.Area, $item.Message) -ForegroundColor Red }
+        Write-Host ""
+        Write-Host "  Next step: send this output to IT - each line above names exactly what to unblock." -ForegroundColor Gray
     } elseif ($fails.Count -gt 0 -or $warns.Count -gt 0) {
-        Write-Host "  SHOULD WORK, WITH CAVEATS - no hard blockers, but review these:" -ForegroundColor Yellow
+        Write-Host " SHOULD WORK, WITH CAVEATS " -BackgroundColor DarkYellow -ForegroundColor Black -NoNewline
+        Write-Host "  no hard blockers, but review the notes below." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "  Next step: double-click start-windows.bat (or start-windows-rancher.bat on Rancher machines)." -ForegroundColor Gray
     } else {
-        Write-Host "  READY - no blockers detected. Run start-windows-rancher.bat." -ForegroundColor Green
+        Write-Host " READY " -BackgroundColor DarkGreen -ForegroundColor White -NoNewline
+        Write-Host "  no blockers detected." -ForegroundColor Green
+        Write-Host ""
+        Write-Host "  Next step: double-click start-windows.bat (or start-windows-rancher.bat on Rancher machines)." -ForegroundColor Gray
     }
 
     if ($warns.Count -gt 0) {
@@ -425,8 +468,7 @@ function Write-Verdict {
     Write-Host "    3. GitHub + Docker hosts reachable through your proxy (section 4)." -ForegroundColor Gray
 }
 
-Write-Host ""
-Write-Host "Open Mercato - Windows pre-flight (read-only; nothing will be installed or changed)" -ForegroundColor Cyan
+Show-Banner
 
 Test-PowerShellHost
 Test-Elevation

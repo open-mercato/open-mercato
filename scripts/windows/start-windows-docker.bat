@@ -1,4 +1,5 @@
 @echo off
+title Open Mercato - Dev Environment (Docker Desktop)
 setlocal
 rem Open Mercato dev environment - Docker Desktop edition.
 rem Same one-command setup as start-windows.bat, but pinned to Docker
