@@ -1,4 +1,5 @@
 @echo off
+title Open Mercato - Dev Environment (Rancher Desktop)
 setlocal
 rem Open Mercato dev environment - Rancher Desktop edition.
 rem Same one-command setup as start-windows.bat, but pinned to Rancher

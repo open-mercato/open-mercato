@@ -1,4 +1,5 @@
 @echo off
+title Open Mercato - Machine Preflight (read-only)
 setlocal
 rem Open Mercato dev environment - Windows pre-flight check (READ-ONLY).
 rem Run this BEFORE start-windows-rancher.bat to find out whether a locked-down

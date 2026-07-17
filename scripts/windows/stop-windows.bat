@@ -1,4 +1,5 @@
 @echo off
+title Open Mercato - Stop Dev Stack
 setlocal
 rem Stops the Open Mercato Docker dev stack. Data is preserved in volumes;
 rem start again with start-windows.bat.

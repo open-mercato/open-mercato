@@ -1,4 +1,5 @@
 @echo off
+title Open Mercato - Dev Environment
 setlocal
 rem One-command Open Mercato dev environment for Windows.
 rem Double-click this file (repo path: scripts\windows\). It installs
