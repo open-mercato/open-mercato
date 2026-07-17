@@ -63,6 +63,11 @@ $script:TranscriptStarted = $false
 $script:ResolvedLogPath = $null
 $script:RepoRoot = $null
 $script:StepNumber = 0
+# Compose invocation fallback: $null means the `docker compose` CLI plugin
+# works; otherwise the full path of a standalone docker-compose binary that
+# every compose call must use instead (see Resolve-ComposeExe).
+$script:ComposeExe = $null
+$script:ComposeProbed = $false
 # Host-port defaults; refreshed from the repo-root .env (compose interpolation
 # source) once the repo location is known, so the launcher follows the same
 # port overrides the compose file honors.
@@ -628,6 +633,24 @@ function Test-DockerEngineReady {
     return ((Invoke-NativeQuiet "docker" @("info")) -eq 0)
 }
 
+function Select-WorkingDockerContext {
+    # The docker CLI keeps a sticky "current context", so a leftover selection
+    # (e.g. desktop-linux from an old Docker Desktop install) makes `docker
+    # info` poll a dead pipe while the engine that IS running never gets
+    # probed. Try each candidate context explicitly and pin the CLI to the
+    # first one whose engine answers.
+    param([Parameter(Mandatory = $true)][string[]]$Candidates)
+    Add-RancherBinToPath
+    if (-not (Test-CommandAvailable "docker")) { return $false }
+    foreach ($candidate in $Candidates) {
+        if ((Invoke-NativeQuiet "docker" @("--context", $candidate, "info")) -eq 0) {
+            [void](Invoke-NativeQuiet "docker" @("context", "use", $candidate))
+            return $true
+        }
+    }
+    return $false
+}
+
 function Install-RancherDesktopDirect {
     $installer = Resolve-LocalInstaller -Patterns @("Rancher.Desktop.Setup.*.msi", "Rancher*Desktop*.msi") -FileType msi
     if (-not $installer) {
@@ -956,17 +979,19 @@ function Start-DockerEngine {
         Write-Fail "No container runtime found to start (Docker Desktop or Rancher Desktop). Install one (or ask IT to), then re-run start-windows.bat."
     }
 
-    # Keep the docker CLI context pointed at the runtime we chose: each runtime
-    # registers its own context (desktop-linux / rancher-desktop), and a stale
-    # selection makes `docker info` poll the engine that is NOT starting. The
-    # context only exists after the runtime's first start, so retry quietly.
-    $targetContext = if ($startingWhat -eq "Rancher Desktop") { "rancher-desktop" } else { "desktop-linux" }
+    # Keep the docker CLI context pointed at the runtime we chose. Which
+    # context name answers depends on the runtime and version: Docker Desktop
+    # registers desktop-linux, while Rancher Desktop typically serves the
+    # DEFAULT context's named pipe WITHOUT registering a context of its own -
+    # assuming a single name here is exactly how a fully booted Rancher engine
+    # used to look dead forever. Contexts may also only appear after the
+    # runtime's first start, so probe the candidates on every tick.
+    $contextCandidates = if ($startingWhat -eq "Rancher Desktop") { @("rancher-desktop", "default") } else { @("desktop-linux", "default") }
 
     $startedAt = Get-Date
     $deadline = $startedAt.AddSeconds(300)
     while ((Get-Date) -lt $deadline) {
-        [void](Invoke-NativeQuiet "docker" @("context", "use", $targetContext))
-        if (Test-DockerEngineReady) {
+        if ((Select-WorkingDockerContext -Candidates $contextCandidates) -or (Test-DockerEngineReady)) {
             Write-Host ""
             Write-Ok "Container engine is ready ($startingWhat)"
             return
@@ -977,6 +1002,64 @@ function Start-DockerEngine {
 
     Write-Host ""
     Write-Fail "The container engine did not become ready within 5 minutes. Open $startingWhat from the Start menu and finish any first-run dialogs (Docker sign-in can be skipped; in Rancher pick the 'dockerd (moby)' engine). If it reports 'WSL 2 installation is incomplete', install the kernel from https://aka.ms/wsl2kernel (or run 'wsl --update' in an elevated prompt), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
+}
+
+function Get-StandaloneComposeExe {
+    $command = Get-Command "docker-compose" -ErrorAction SilentlyContinue
+    if ($command) { return $command.Source }
+    $rdCompose = Join-Path $env:USERPROFILE ".rd\bin\docker-compose.exe"
+    if (Test-Path $rdCompose) { return $rdCompose }
+    return $null
+}
+
+function Resolve-ComposeExe {
+    # Returns $null when the `docker compose` CLI plugin works, else the full
+    # path of a standalone docker-compose binary to call directly. Cached so
+    # polling loops don't re-probe on every compose call.
+    if ($script:ComposeProbed) { return $script:ComposeExe }
+    $script:ComposeProbed = $true
+    Add-RancherBinToPath
+    if ((Invoke-NativeQuiet "docker" @("compose", "version")) -eq 0) {
+        $script:ComposeExe = $null
+    } else {
+        $script:ComposeExe = Get-StandaloneComposeExe
+    }
+    return $script:ComposeExe
+}
+
+function Ensure-DockerCompose {
+    # `docker compose` is a CLI plugin the docker CLI resolves from
+    # ~\.docker\cli-plugins - NOT from PATH. Rancher Desktop ships the plugin
+    # binary as ~\.rd\bin\docker-compose.exe but does not reliably wire it
+    # into the plugin directory, so `docker compose -f ...` fails with
+    # "'compose' is not a docker command" even though compose is installed.
+    # Wire it up here; if that is not possible, fall back to calling the
+    # standalone binary directly for every compose operation.
+    if ($DryRun) { return }
+    if ((Invoke-NativeQuiet "docker" @("compose", "version")) -eq 0) {
+        $script:ComposeProbed = $true
+        $script:ComposeExe = $null
+        return
+    }
+    $standalone = Get-StandaloneComposeExe
+    if (-not $standalone) {
+        Write-Fail "Neither 'docker compose' nor 'docker-compose' works. If you use Rancher Desktop: open it, set Preferences > Container Engine to 'dockerd (moby)', apply and wait for the restart, then re-run start-windows.bat. Log: $script:ResolvedLogPath"
+    }
+    $pluginDir = Join-Path $env:USERPROFILE ".docker\cli-plugins"
+    try {
+        New-Item -Path $pluginDir -ItemType Directory -Force | Out-Null
+        Copy-Item -Path $standalone -Destination (Join-Path $pluginDir "docker-compose.exe") -Force
+    } catch {
+        Write-Warn "Could not copy the compose plugin into ${pluginDir}: $($_.Exception.Message)"
+    }
+    $script:ComposeProbed = $true
+    if ((Invoke-NativeQuiet "docker" @("compose", "version")) -eq 0) {
+        $script:ComposeExe = $null
+        Write-Ok "docker compose plugin wired up (from $standalone)"
+        return
+    }
+    $script:ComposeExe = $standalone
+    Write-Info "'docker compose' is unavailable in this docker CLI - using the standalone compose binary at $standalone instead."
 }
 
 # ---------------------------------------------------------------------------
@@ -1361,10 +1444,15 @@ function Invoke-Compose {
     # 'Continue' and merges stderr into the visible host stream via 2>&1.
     param([string[]]$Arguments)
     $composeFilePath = Join-Path $script:RepoRoot $script:ComposeFile
+    $composeExe = Resolve-ComposeExe
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
     try {
-        & docker compose -f $composeFilePath @Arguments 2>&1 | Out-Host
+        if ($composeExe) {
+            & $composeExe -f $composeFilePath @Arguments 2>&1 | Out-Host
+        } else {
+            & docker compose -f $composeFilePath @Arguments 2>&1 | Out-Host
+        }
     } finally {
         $ErrorActionPreference = $previousPreference
     }
@@ -1374,7 +1462,13 @@ function Invoke-Compose {
 function Get-ComposeServiceHealth {
     # Returns @{ service = @{Health;State;ExitCode} } parsed from `compose ps
     # --format json`, tolerating NDJSON (compose >= 2.21) and array output.
-    $raw = (Invoke-NativeCapture "docker" @("compose", "-f", (Join-Path $script:RepoRoot $script:ComposeFile), "ps", "--format", "json")).Trim()
+    $composeFilePath = Join-Path $script:RepoRoot $script:ComposeFile
+    $composeExe = Resolve-ComposeExe
+    $raw = if ($composeExe) {
+        (Invoke-NativeCapture $composeExe @("-f", $composeFilePath, "ps", "--format", "json")).Trim()
+    } else {
+        (Invoke-NativeCapture "docker" @("compose", "-f", $composeFilePath, "ps", "--format", "json")).Trim()
+    }
     $entries = @()
     if ($raw.StartsWith("[")) {
         try { $entries = @($raw | ConvertFrom-Json) } catch {}
@@ -1441,7 +1535,7 @@ function Start-Stack {
     }
     $exitCode = Invoke-Compose $composeArgs
     if ($exitCode -ne 0) {
-        Write-Fail "docker compose up failed (exit $exitCode). Inspect with: docker compose -f $script:ComposeFile logs --tail 100"
+        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
     }
     Write-Ok "Containers started"
 }
@@ -1803,6 +1897,7 @@ try {
 
     # Step: docker engine
     Start-DockerEngine
+    Ensure-DockerCompose
 
     # Step: clone when standalone (re-invokes the in-repo script and exits)
     if (-not $script:RepoRoot) {
