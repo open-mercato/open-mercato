@@ -307,6 +307,8 @@ The `source` concept is derived at query time, not stored:
 
 No changes needed. The instance stores `definitionId`, `workflowId`, and `version` as before. The executor continues to fetch the latest definition on every step/resume — code-based definitions are resolved from the in-memory registry using the same live-read pattern.
 
+**Runtime resolution for started instances.** An instance started from an unpersisted code definition stores the deterministic `codeWorkflowUuid(workflowId)` as its `definitionId`. Runtime handlers (executor loop, step, transition, task, signal, timer) resolve the backing definition via `findDefinitionForInstance()` in `lib/find-definition.ts`: database row by id first, then a code-registry fallback gated on `codeWorkflowUuid(instance.workflowId) === instance.definitionId`. The UUID-equality gate guarantees the fallback never substitutes the code payload for a hard-deleted *persisted* row (those have their own random UUIDs), and a disabled code definition still resolves so in-flight instances can finish — matching persisted-definition semantics, where disabling blocks new starts but not running instances. Without this fallback, a virtual code workflow could start but never advance (`DEFINITION_NOT_FOUND` on the first transition).
+
 ### CodeWorkflowDefinition (new shared type, not a DB entity)
 
 ```typescript
@@ -677,3 +679,7 @@ None.
 - Removed the cross-organization customize block: any organization within the tenant can now revive a soft-deleted override row, matching the tenant-scoped unique constraint semantics. The previous 409 response (and corresponding OpenAPI entry) was dropped from `/customize` and the `code:*` PUT path.
 - Corrected the `Migration20260428102318` `down()` ordering so `workflow_definitions` is renamed before `workflow_instances` joins back through `definition_id`, eliminating a transient mismatch during rollback.
 - Switched override insert/delete paths from `persistAndFlush`/`removeAndFlush` to explicit `persist`+`flush` / `remove`+`flush` for consistency with surrounding code.
+
+### 2026-07-17
+
+- Forward-ported the fresh-install runtime fix from `main` (06d290bed, PR #4193) for issue #4257: added `findDefinitionForInstance()` / `resolveCodeDefinitionForInstance()` to `lib/find-definition.ts` and switched every runtime `definition_id` lookup (executor loop and resume-after-activities, step, transition, task, signal, and timer handlers) to it. Instances started from an unpersisted virtual code definition — whose `definitionId` is the deterministic `codeWorkflowUuid` — can now advance past async activities instead of the activity worker failing with `DEFINITION_NOT_FOUND` and leaving the instance in `WAITING_FOR_ACTIVITIES` forever. The `main`-only data-repair migration (`Migration20260715120000`) and its integration specs were not ported; they cover legacy upgraded tenants on the release line.
