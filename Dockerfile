@@ -5,6 +5,27 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
+# Corporate TLS-intercepting proxies re-sign HTTPS with a root CA the host
+# trusts but this build does not, breaking every in-build download (apk, yarn).
+# Trust any PEM dropped into docker/certs/ (see its README); no-op when empty.
+# The certs land in /usr/local/share/ca-certificates so a later
+# update-ca-certificates keeps them, AND get appended to the live bundle so the
+# very first apk fetch below already trusts the proxy.
+# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+COPY .dockerignore docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 # Install system deps required by optional native modules (Alpine uses apk)
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 
@@ -77,6 +98,22 @@ ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/
 
 WORKDIR /app
 
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+COPY .dockerignore docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
 RUN corepack enable
 
@@ -133,6 +170,24 @@ ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/
 
 WORKDIR /app
 
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# Baked into the runtime stage too: the entrypoint's fallback `yarn install`
+# and any in-container downloads hit the same intercepting proxy.
+# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+COPY .dockerignore docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 # Build toolchain kept: the entrypoint's fallback `yarn install` (stale
 # lockfile vs prebuilt image) still compiles native modules.
 RUN apk add --no-cache python3 make g++ ca-certificates openssl
@@ -179,6 +234,22 @@ ENV NODE_ENV=production \
     PORT=${CONTAINER_PORT}
 
 WORKDIR /app
+
+# Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
+# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# succeeds even when docker/certs/ is missing from a partial checkout.
+COPY .dockerignore docker/cert[s] /tmp/om-certs/
+RUN set -eu; \
+    mkdir -p /usr/local/share/ca-certificates; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+        cat "$cert" >> /etc/ssl/certs/ca-certificates.crt; \
+        printf '\n' >> /etc/ssl/certs/ca-certificates.crt; \
+    done; \
+    rm -rf /tmp/om-certs
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 # Install only production system dependencies (Alpine uses apk)
 # sudo: allows non-root user to chown the Railway-mounted volume at startup

@@ -68,6 +68,8 @@ $script:StepNumber = 0
 # every compose call must use instead (see Resolve-ComposeExe).
 $script:ComposeExe = $null
 $script:ComposeProbed = $false
+$script:LastComposeOutput = ""
+$script:TlsRepairAttempted = $false
 # Host-port defaults; refreshed from the repo-root .env (compose interpolation
 # source) once the repo location is known, so the launcher follows the same
 # port overrides the compose file honors.
@@ -1063,6 +1065,89 @@ function Ensure-DockerCompose {
 }
 
 # ---------------------------------------------------------------------------
+# Corporate TLS interception (proxy re-signs HTTPS with a private root CA)
+# ---------------------------------------------------------------------------
+
+function Sync-CorporateCerts {
+    # Users (or Repair-TlsInterception) drop the proxy root CA into
+    # docker\certs\ once; the opencode image builds from its own context
+    # (docker\opencode\), so mirror the PEM files into it before compose
+    # builds anything.
+    if (-not $script:RepoRoot) { return }
+    $sourceDir = Join-Path $script:RepoRoot "docker\certs"
+    $targetDir = Join-Path $script:RepoRoot "docker\opencode\certs"
+    # Both directories are COPY'd by the Dockerfiles - recreate them when a
+    # partial checkout / ZIP download lost them, so builds never fail on that.
+    New-Item -Path $sourceDir -ItemType Directory -Force | Out-Null
+    New-Item -Path $targetDir -ItemType Directory -Force | Out-Null
+    $certFiles = @(Get-ChildItem -Path $sourceDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -eq ".crt" -or $_.Extension -eq ".pem" })
+    if ($certFiles.Count -eq 0) { return }
+    foreach ($certFile in $certFiles) {
+        Copy-Item -Path $certFile.FullName -Destination (Join-Path $targetDir $certFile.Name) -Force
+    }
+}
+
+function Test-TlsInterceptionSignature {
+    param([string]$Text)
+    if (-not $Text) { return $false }
+    return ($Text -match "certificate not trusted|certificate verify failed|unable to get local issuer certificate|self.signed certificate|SSL certificate problem|tls: failed to verify")
+}
+
+function Export-ObservedTlsRootCa {
+    # Opens a TLS connection from Windows (which trusts the corporate root)
+    # and returns the ROOT certificate of the presented chain as a PEM string.
+    # On an intercepted network that root is the proxy's CA - exactly what the
+    # container builds need to trust. Returns $null when the chain cannot be
+    # captured (e.g. the proxy requires CONNECT and blocks raw sockets).
+    param([Parameter(Mandatory = $true)][string]$ProbeHost)
+    $tcpClient = $null
+    $sslStream = $null
+    try {
+        $tcpClient = New-Object System.Net.Sockets.TcpClient($ProbeHost, 443)
+        $acceptAnyCertificate = [System.Net.Security.RemoteCertificateValidationCallback] { param($callbackSender, $certificate, $certificateChain, $sslPolicyErrors) $true }
+        $sslStream = New-Object System.Net.Security.SslStream($tcpClient.GetStream(), $false, $acceptAnyCertificate)
+        $sslStream.AuthenticateAsClient($ProbeHost)
+        $leaf = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($sslStream.RemoteCertificate)
+        $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+        $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+        [void]$chain.Build($leaf)
+        if ($chain.ChainElements.Count -lt 1) { return $null }
+        $root = $chain.ChainElements[$chain.ChainElements.Count - 1].Certificate
+        $base64 = [Convert]::ToBase64String($root.Export([System.Security.Cryptography.X509Certificates.X509ContentType]::Cert))
+        $wrapped = ($base64 -replace "(.{64})", "`$1`n").TrimEnd("`n")
+        return "-----BEGIN CERTIFICATE-----`n$wrapped`n-----END CERTIFICATE-----`n"
+    } catch {
+        return $null
+    } finally {
+        if ($sslStream) { $sslStream.Dispose() }
+        if ($tcpClient) { $tcpClient.Dispose() }
+    }
+}
+
+function Repair-TlsInterception {
+    # A TLS-intercepting proxy (Zscaler, Netskope, ...) breaks every HTTPS
+    # download inside docker builds: the corporate root CA is trusted by
+    # Windows but not by the build containers. Capture the root Windows sees,
+    # hand it to the builds via docker\certs\ (both Dockerfiles trust that
+    # directory), and let the caller retry once. Returns $true when a retry
+    # makes sense.
+    if ($script:TlsRepairAttempted) { return $false }
+    $script:TlsRepairAttempted = $true
+    Write-Info "The failure looks like a TLS-intercepting proxy (corporate network). Capturing its root certificate so the image builds can trust it..."
+    $pem = Export-ObservedTlsRootCa -ProbeHost "dl-cdn.alpinelinux.org"
+    if (-not $pem) {
+        Write-Warn "Could not capture the proxy's root certificate automatically. Export your company's root CA as a Base-64 X.509 (PEM) file into docker\certs\ (see docker\certs\README.md), then re-run start-windows.bat -Rebuild."
+        return $false
+    }
+    $certsDir = Join-Path $script:RepoRoot "docker\certs"
+    New-Item -Path $certsDir -ItemType Directory -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $certsDir "corporate-proxy-root.crt"), $pem)
+    Sync-CorporateCerts
+    Write-Ok "Proxy root certificate exported to docker\certs\corporate-proxy-root.crt"
+    return $true
+}
+
+# ---------------------------------------------------------------------------
 # Standalone clone
 # ---------------------------------------------------------------------------
 
@@ -1447,16 +1532,21 @@ function Invoke-Compose {
     $composeExe = Resolve-ComposeExe
     $previousPreference = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
+    $capturedOutput = @()
     try {
         if ($composeExe) {
-            & $composeExe -f $composeFilePath @Arguments 2>&1 | Out-Host
+            & $composeExe -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
         } else {
-            & docker compose -f $composeFilePath @Arguments 2>&1 | Out-Host
+            & docker compose -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
         }
     } finally {
         $ErrorActionPreference = $previousPreference
     }
-    return $LASTEXITCODE
+    $exitCode = $LASTEXITCODE
+    # Keep the tail for post-mortem pattern matching (e.g. TLS interception
+    # detection); errors surface at the end, and full build logs can be huge.
+    $script:LastComposeOutput = (@($capturedOutput) | Select-Object -Last 400 | Out-String)
+    return $exitCode
 }
 
 function Get-ComposeServiceHealth {
@@ -1527,6 +1617,7 @@ function Start-Stack {
 
     if ($DryRun) { Write-Info ("Would run: docker compose -f $script:ComposeFile " + ($composeArgs -join " ")); return }
 
+    Sync-CorporateCerts
     Test-PortConflicts
     if ($Rebuild) {
         Write-Info "Rebuilding images and starting services..."
@@ -1534,8 +1625,12 @@ function Start-Stack {
         Write-Info "Starting services (the FIRST run builds images and can take 10+ minutes; later runs are much faster)..."
     }
     $exitCode = Invoke-Compose $composeArgs
+    if ($exitCode -ne 0 -and (Test-TlsInterceptionSignature $script:LastComposeOutput) -and (Repair-TlsInterception)) {
+        Write-Info "Retrying docker compose up with the exported proxy certificate..."
+        $exitCode = Invoke-Compose $composeArgs
+    }
     if ($exitCode -ne 0) {
-        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
+        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them (a TLS-intercepting proxy's root CA can be trusted via docker\certs\ - see docker\certs\README.md) - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
     }
     Write-Ok "Containers started"
 }

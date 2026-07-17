@@ -245,3 +245,10 @@ docker exec -it mercato-postgres psql -U postgres
 ```bash
 docker exec -it mercato-redis redis-cli
 ```
+
+**Image builds fail with TLS/certificate errors (corporate proxy):**
+Your network intercepts HTTPS with a corporate root CA that containers do not
+trust. Drop the CA as a PEM file into `docker/certs/` — both the app and
+opencode image builds pick it up. See `docker/certs/README.md`; the Windows
+launcher (`scripts/windows/start-windows.bat`) detects and repairs this
+automatically.
