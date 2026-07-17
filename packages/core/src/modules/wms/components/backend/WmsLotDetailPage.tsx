@@ -1123,9 +1123,55 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
               id="lot-locations"
               className="rounded-lg border bg-card text-card-foreground shadow-sm"
             >
+              <div className="border-b px-5 py-4">
+                <h2 className="text-base font-semibold">
+                  {t('wms.backend.lot.distribution.title', 'Where this lot lives')}
+                </h2>
+              </div>
+              <div className="flex flex-col gap-4 border-b px-5 py-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap gap-1.5">
+                  {filterChips.map((chip) => (
+                    <Button
+                      key={chip.id}
+                      type="button"
+                      size="sm"
+                      variant={distributionFilter === chip.id ? 'default' : 'outline'}
+                      className={cn('rounded-full', distributionFilter === chip.id && 'shadow-sm')}
+                      onClick={() => setDistributionFilter(chip.id)}
+                    >
+                      {chip.label}
+                    </Button>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button type="button" variant="outline" size="sm" onClick={handleExportDistributionCsv}>
+                    <Download className="size-4" />
+                    {t('wms.backend.lot.distribution.actions.exportCsv', 'Export CSV')}
+                  </Button>
+                  {access.canCycleCount ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => openCycleCountDialog(resolveMutationContext())}
+                    >
+                      {t('wms.backend.lot.distribution.actions.cycleCountZone', 'Cycle count zone')}
+                    </Button>
+                  ) : null}
+                  {access.canAdjust && selectedBalances.length > 0 ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="default"
+                      onClick={() => openAdjustDialog(resolveMutationContext())}
+                    >
+                      {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected ({count})', { count: selectedBalances.length })}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
               <DataTable<InventoryBalanceRow>
                 embedded
-                title={t('wms.backend.lot.distribution.title', 'Where this lot lives')}
                 columns={distributionColumns}
                 data={pagedBalances}
                 disableRowClick
@@ -1138,48 +1184,6 @@ export default function WmsLotDetailPage({ lotId }: WmsLotDetailPageProps) {
                   totalPages: distributionTotalPages,
                   onPageChange: setDistributionPage,
                 }}
-                actions={(
-                  <>
-                    <div className="flex flex-wrap gap-1.5">
-                      {filterChips.map((chip) => (
-                        <Button
-                          key={chip.id}
-                          type="button"
-                          size="sm"
-                          variant={distributionFilter === chip.id ? 'default' : 'outline'}
-                          className={cn('rounded-full', distributionFilter === chip.id && 'shadow-sm')}
-                          onClick={() => setDistributionFilter(chip.id)}
-                        >
-                          {chip.label}
-                        </Button>
-                      ))}
-                    </div>
-                    <Button type="button" variant="outline" size="sm" onClick={handleExportDistributionCsv}>
-                      <Download className="size-4" />
-                      {t('wms.backend.lot.distribution.actions.exportCsv', 'Export CSV')}
-                    </Button>
-                    {access.canCycleCount ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        onClick={() => openCycleCountDialog(resolveMutationContext())}
-                      >
-                        {t('wms.backend.lot.distribution.actions.cycleCountZone', 'Cycle count zone')}
-                      </Button>
-                    ) : null}
-                    {access.canAdjust && selectedBalances.length > 0 ? (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="default"
-                        onClick={() => openAdjustDialog(resolveMutationContext())}
-                      >
-                        {t('wms.backend.lot.distribution.actions.adjustSelected', 'Adjust selected ({count})', { count: selectedBalances.length })}
-                      </Button>
-                    ) : null}
-                  </>
-                )}
                 emptyState={(
                   <EmptyState
                     title={t('wms.backend.lot.distribution.empty.title', 'No locations in this view')}
