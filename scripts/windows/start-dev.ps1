@@ -1,12 +1,19 @@
 # One-command Windows launcher for the fully containerized Open Mercato dev
 # stack (app :3000, mcp :3001, opencode :4096, postgres/redis/meilisearch).
 #
-# Designed for a clean Windows machine: installs Git and Docker Desktop via
-# winget, enables WSL2, handles the reboot-and-resume cycle, clones the repo
-# when run standalone, generates .env secrets, optionally prompts for an LLM
-# provider API key, starts docker compose, waits for health, and prints a
-# summary. Every step is idempotent and driven by live probes, so re-running
-# the script (or start-windows.bat) is always safe.
+# Designed for a clean Windows machine: installs Git and a container runtime,
+# enables WSL2 (with a pinned GitHub-release fallback when the Store is
+# blocked), handles the reboot-and-resume cycle, clones the repo when run
+# standalone, generates .env secrets, optionally prompts for an LLM provider
+# API key, starts docker compose, waits for health, and prints a summary.
+# Every step is idempotent and driven by live probes, so re-running the script
+# (or any launcher .bat) is always safe.
+#
+# Entry points: start-windows.bat auto-detects the runtime;
+# start-windows-rancher.bat / start-windows-docker.bat force one (they pass
+# -Runtime). Admin is requested ONLY for what is actually missing: with WSL2
+# and a runtime pre-installed (or Rancher installed per-user by this script)
+# no elevation happens at all.
 #
 # Unlike scripts/setup-windows-dev.ps1 (native toolchain: Node, Build Tools),
 # this launcher needs NO Node.js on the host. Pass -IncludeNativeToolchain to
@@ -70,6 +77,10 @@ $script:ComposeExe = $null
 $script:ComposeProbed = $false
 $script:LastComposeOutput = ""
 $script:TlsRepairAttempted = $false
+# WSL version installed from the microsoft/WSL GitHub releases when
+# `wsl --update` cannot reach the Microsoft Store (enterprise images).
+# Bump deliberately - the asset name pattern is wsl.<version>.0.<arch>.msi.
+$script:WslPinnedVersion = "2.7.10"
 # Host-port defaults; refreshed from the repo-root .env (compose interpolation
 # source) once the repo location is known, so the launcher follows the same
 # port overrides the compose file honors.
@@ -353,8 +364,9 @@ function Resolve-LocalInstaller {
     # Offline/corporate path: look for a pre-seeded official installer before
     # downloading. Search order: OM_INSTALLERS_DIR env var, an `installers`
     # folder in the repo root, next to the launcher .bat, and next to this
-    # script. IT can drop the three official files there and the launcher
-    # never needs to download anything.
+    # script. IT can drop the official installers there (Git, Docker Desktop
+    # or Rancher Desktop, WSL) and the launcher never needs to download
+    # anything.
     param(
         [Parameter(Mandatory = $true)][string[]]$Patterns,
         [Parameter(Mandatory = $true)][ValidateSet("exe", "msi", "zip")][string]$FileType
@@ -520,14 +532,40 @@ function Test-Wsl2KernelPresent {
     return ((Invoke-NativeQuiet "wsl" @("--set-default-version", "2")) -eq 0)
 }
 
+function Install-WslFromGitHubRelease {
+    # `wsl --update` pulls from the Microsoft Store, which enterprise images
+    # routinely block — that dead end used to leave people installing WSL by
+    # hand. The MSI from the microsoft/WSL GitHub releases is the full modern
+    # WSL (bundled kernel, no Store involved); pinned to a known-good version
+    # so every machine gets the same bits. Pre-seed it in `installers\` to
+    # skip the download entirely (see Resolve-LocalInstaller).
+    $arch = if ($script:MachineArch -eq "arm64") { "arm64" } else { "x64" }
+    $assetName = "wsl.$($script:WslPinnedVersion).0.$arch.msi"
+    $installer = Resolve-LocalInstaller -Patterns @($assetName, "wsl.*.$arch.msi") -FileType msi
+    if (-not $installer) {
+        $installer = Join-Path $env:TEMP $assetName
+        $url = "https://github.com/microsoft/WSL/releases/download/$($script:WslPinnedVersion)/$assetName"
+        if (-not (Get-RemoteFile -Url $url -OutFile $installer -DisplayName "WSL $($script:WslPinnedVersion) (~250 MB)" -FileType msi -MinBytes 100MB)) {
+            return $false
+        }
+    }
+    Write-Info "Installing WSL $($script:WslPinnedVersion) (silent)..."
+    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList '/i', "`"$installer`"", '/qn', '/norestart' -Wait -PassThru
+    if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
+        if ($proc.ExitCode -eq 3010) { $script:RestartRequired = $true }
+        Write-Ok "WSL $($script:WslPinnedVersion) installed"
+        return $true
+    }
+    Write-Warn "WSL $($script:WslPinnedVersion) installer exited with code $($proc.ExitCode)."
+    return $false
+}
+
 function Ensure-Wsl2Kernel {
-    # `wsl --update` fetches the kernel on connected machines, but it can fail on
-    # locked-down images (no Store / restricted network) — after which the WSL2
-    # backend of Docker/Rancher Desktop never starts ("WSL 2 installation is
-    # incomplete"). The standalone kernel MSI is a reliable, idempotent fallback.
-    # Installing it pre-reboot just stages the kernel files; the enabled features
-    # activate after the restart. Best-effort throughout, so a failure here
-    # warns, never aborts.
+    # Ensure a usable WSL2 kernel, cheapest path first: already present →
+    # `wsl --update` (needs Store access) → pinned GitHub-release MSI (modern
+    # WSL, no Store) → legacy standalone kernel MSI. Installing pre-reboot just
+    # stages the files; the enabled features activate after the restart.
+    # Best-effort throughout, so a failure here warns, never aborts.
     if (Test-Wsl2KernelPresent) {
         Write-Ok "WSL2 kernel already present - skipping download"
         return
@@ -538,13 +576,15 @@ function Ensure-Wsl2Kernel {
             Write-Ok "WSL2 kernel installed via wsl --update"
             return
         }
+        Write-Info "wsl --update did not complete (Microsoft Store blocked?) - installing WSL $($script:WslPinnedVersion) from its GitHub release instead."
     }
+    if (Install-WslFromGitHubRelease) { return }
     $kernelName = if ($script:MachineArch -eq "arm64") { "wsl_update_arm64.msi" } else { "wsl_update_x64.msi" }
     $kernelMsi = Resolve-LocalInstaller -Patterns @($kernelName, "wsl_update*.msi") -FileType msi
     if (-not $kernelMsi) {
         $kernelMsi = Join-Path $env:TEMP $kernelName
         if (-not (Get-RemoteFile -Url "https://wslstorestorage.blob.core.windows.net/wslblob/$kernelName" -OutFile $kernelMsi -DisplayName "WSL2 kernel" -FileType msi -MinBytes 2MB)) {
-            Write-Warn "WSL2 kernel could not be fetched - the container runtime will try on first launch; else install it manually from https://aka.ms/wsl2kernel."
+            Write-Warn "WSL could not be installed automatically. Download wsl.$($script:WslPinnedVersion).0.x64.msi from https://github.com/microsoft/WSL/releases/tag/$($script:WslPinnedVersion) (or ask IT to), install it, then re-run the launcher - or pre-seed the MSI into an 'installers' folder next to the launcher."
             return
         }
     }
@@ -552,7 +592,7 @@ function Ensure-Wsl2Kernel {
     if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
         Write-Ok "WSL2 kernel installed"
     } else {
-        Write-Warn "WSL2 kernel installer exited with code $($proc.ExitCode). The container runtime can also install it on first launch; else install it manually from https://aka.ms/wsl2kernel."
+        Write-Warn "WSL2 kernel installer exited with code $($proc.ExitCode). Install WSL manually from https://github.com/microsoft/WSL/releases/tag/$($script:WslPinnedVersion), then re-run the launcher."
     }
 }
 
@@ -629,6 +669,20 @@ function Test-ContainerRuntimeInstalled {
     return (Test-CommandAvailable "docker")
 }
 
+function Test-RuntimeInstallNeeded {
+    # A forced runtime (-Runtime docker|rancher, i.e. the start-windows-docker /
+    # start-windows-rancher launchers) must be present as that app; 'auto'
+    # accepts anything that yields a docker CLI. Either way, an engine that
+    # ALREADY answers `docker info` never triggers an install - the enterprise
+    # no-touch case where IT pre-provisioned the machine.
+    if ($Runtime -eq "rancher") {
+        if (Test-RancherDesktopInstalled) { return $false }
+    } elseif ($Runtime -eq "docker") {
+        if (Test-DockerDesktopInstalled) { return $false }
+    } elseif (Test-ContainerRuntimeInstalled) { return $false }
+    return (-not (Test-DockerEngineReady))
+}
+
 function Test-DockerEngineReady {
     Add-RancherBinToPath
     if (-not (Test-CommandAvailable "docker")) { return $false }
@@ -654,6 +708,10 @@ function Select-WorkingDockerContext {
 }
 
 function Install-RancherDesktopDirect {
+    # Rancher's MSI is dual-mode: machine-wide (needs admin) or per-user
+    # (-PerUser, no admin) - the per-user mode is how enterprise accounts that
+    # cannot elevate still get a runtime, provided WSL2 is already in place.
+    param([switch]$PerUser)
     $installer = Resolve-LocalInstaller -Patterns @("Rancher.Desktop.Setup.*.msi", "Rancher*Desktop*.msi") -FileType msi
     if (-not $installer) {
         $assetUrl = $null
@@ -670,8 +728,10 @@ function Install-RancherDesktopDirect {
             Write-Fail "Rancher Desktop could not be downloaded. Install it manually from https://rancherdesktop.io (or pre-seed the installer) and re-run."
         }
     }
-    Write-Info "Installing Rancher Desktop (silent)..."
-    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList '/i', "`"$installer`"", '/qn', '/norestart' -Wait -PassThru
+    $msiArgs = @('/i', "`"$installer`"", '/qn', '/norestart')
+    if ($PerUser) { $msiArgs += @('MSIINSTALLPERUSER=1', 'ALLUSERS=2') }
+    Write-Info ("Installing Rancher Desktop (silent{0})..." -f $(if ($PerUser) { ", per-user - no administrator rights" } else { "" }))
+    $proc = Start-Process -FilePath "msiexec.exe" -ArgumentList $msiArgs -Wait -PassThru
     if ($proc.ExitCode -ne 0 -and $proc.ExitCode -ne 3010) {
         Write-Fail "Rancher Desktop installer exited with code $($proc.ExitCode). Install manually from https://rancherdesktop.io and re-run."
     }
@@ -717,7 +777,7 @@ function Invoke-ElevatedInstallPhase {
     Ensure-Wsl2Kernel
     Write-Ok "WSL2 features ensured"
 
-    if (-not (Test-ContainerRuntimeInstalled)) {
+    if (Test-RuntimeInstallNeeded) {
         if ($Runtime -eq "rancher") {
             Install-RancherDesktopDirect
         } else {
@@ -783,7 +843,7 @@ function Invoke-InstallPhaseIfNeeded {
     $needsWsl = -not (Test-WslFeaturesEnabled)
     $hasDockerDesktop = Test-DockerDesktopInstalled
     $hasRancher = Test-RancherDesktopInstalled
-    $needsRuntime = -not (Test-ContainerRuntimeInstalled)
+    $needsRuntime = Test-RuntimeInstallNeeded
     $needsExclusion = $false
     if (-not $SkipDefenderExclusion) {
         $exclusionTarget = if ($script:RepoRoot) { $script:RepoRoot } else { Join-Path $CloneRoot $RepoName }
@@ -808,9 +868,34 @@ function Invoke-InstallPhaseIfNeeded {
     Write-Host ("  Git:               {0}" -f $(if ($needsGit) { "MISSING" } else { "present" }))
     Write-Host ("  WSL2:              {0}" -f $(if ($needsWsl) { "MISSING" } else { "present" }))
     Write-Host ("  Container runtime: {0}" -f $runtimeLabel)
+    if ($Runtime -eq "auto") {
+        Write-Host "  (auto-detecting the runtime - double-click start-windows-rancher.bat or start-windows-docker.bat to force one)" -ForegroundColor DarkGray
+    }
 
     if (-not ($needsGit -or $needsWsl -or $needsRuntime -or $needsExclusion)) {
         Write-Ok "All prerequisites already installed - no administrator rights needed"
+        return
+    }
+
+    # Never ask for admin when the only gap is the Defender exclusion - it is
+    # a performance nicety, and demanding UAC for it would block no-admin
+    # accounts on otherwise fully provisioned machines.
+    if ($needsExclusion -and -not ($needsGit -or $needsWsl -or $needsRuntime)) {
+        Write-Warn "Skipping the Defender exclusion (needs admin) - the stack still works, just with more antivirus file-scan overhead. Optional, from an elevated PowerShell: Add-MpPreference -ExclusionPath '$(if ($script:RepoRoot) { $script:RepoRoot } else { Join-Path $CloneRoot $RepoName })'"
+        return
+    }
+
+    # Minimal-admin path: when WSL2 is already in place (enterprise images
+    # often pre-enable it) and Rancher is the chosen runtime, its MSI installs
+    # per-user - zero elevation. Git alone never forces admin either (the
+    # clone step falls back to a ZIP download), and the Defender exclusion is
+    # a perf nicety.
+    if ($needsRuntime -and -not $needsWsl -and $Runtime -eq "rancher") {
+        if ($DryRun) { Write-Info "Would install Rancher Desktop per-user (no admin)."; return }
+        Install-RancherDesktopDirect -PerUser
+        if ($needsGit) { Write-Warn "Git is not installed - the repository will be downloaded as a ZIP instead of cloned (no admin needed)." }
+        if ($needsExclusion) { Write-Warn "Skipping the Defender exclusion (needs admin) - the stack still works, just with more antivirus file-scan overhead." }
+        Write-Ok "Prerequisites ready without administrator rights"
         return
     }
 
@@ -834,7 +919,7 @@ function Invoke-InstallPhaseIfNeeded {
         if ($needsRuntime) { $blocking += "a container runtime (Docker Desktop or Rancher Desktop)" }
         if ($needsWsl) { $blocking += "WSL2 (Windows feature + kernel)" }
         if ($blocking.Count -gt 0) {
-            Write-Fail ("Running without admin, but these are required and not present: {0}. Ask IT (or an admin) to install Docker Desktop (WSL2 backend; add your account to 'docker-users') OR Rancher Desktop with the dockerd (moby) engine, then re-run:  start-windows.bat -NoAdmin  . Nothing was changed." -f ($blocking -join ", "))
+            Write-Fail ("Running without admin, but these are required and not present: {0}. Ask IT (or an admin) to enable WSL2 (the pinned MSI: https://github.com/microsoft/WSL/releases/tag/$($script:WslPinnedVersion)) and/or install Docker Desktop (WSL2 backend; add your account to 'docker-users') OR Rancher Desktop with the dockerd (moby) engine, then re-run the launcher with -NoAdmin. With WSL2 in place, start-windows-rancher.bat installs Rancher per-user - no admin at all. Nothing was changed." -f ($blocking -join ", "))
         }
         if ($needsGit) { Write-Warn "Git is not installed - the repository will be downloaded as a ZIP instead of cloned (no admin needed)." }
         if ($needsExclusion) { Write-Warn "Skipping the Defender exclusion (needs admin) - the stack still works, just with more antivirus file-scan overhead." }
@@ -863,7 +948,7 @@ function Invoke-InstallPhaseIfNeeded {
     try {
         $child = Start-Process -FilePath "powershell" -ArgumentList $childArgs -Verb RunAs -Wait -PassThru
     } catch {
-        Write-Fail "Administrator elevation was cancelled or is unavailable on this account. If you don't have admin, ask IT to install Docker Desktop (WSL2 backend + 'docker-users' membership) or Rancher Desktop (dockerd/moby engine), then re-run:  start-windows.bat -NoAdmin  . Otherwise re-run and approve the UAC prompt."
+        Write-Fail "Administrator elevation was cancelled or is unavailable on this account. If you don't have admin, ask IT to enable WSL2 (pinned MSI: https://github.com/microsoft/WSL/releases/tag/$($script:WslPinnedVersion)) - with WSL2 in place, start-windows-rancher.bat installs Rancher Desktop per-user without admin. Alternatively IT can install Docker Desktop (WSL2 backend + 'docker-users' membership) or Rancher Desktop (dockerd/moby engine); then re-run the launcher with -NoAdmin. Otherwise re-run and approve the UAC prompt."
     }
     switch ($child.ExitCode) {
         0 { Write-Ok "Prerequisites installed" }
@@ -978,7 +1063,7 @@ function Start-DockerEngine {
     }
 
     if (-not $startingWhat) {
-        Write-Fail "No container runtime found to start (Docker Desktop or Rancher Desktop). Install one (or ask IT to), then re-run start-windows.bat."
+        Write-Fail "No container runtime found to start (Docker Desktop or Rancher Desktop). Install one (or ask IT to), then re-run the launcher - start-windows-rancher.bat or start-windows-docker.bat picks the runtime explicitly."
     }
 
     # Keep the docker CLI context pointed at the runtime we chose. Which
@@ -1003,7 +1088,7 @@ function Start-DockerEngine {
     }
 
     Write-Host ""
-    Write-Fail "The container engine did not become ready within 5 minutes. Open $startingWhat from the Start menu and finish any first-run dialogs (Docker sign-in can be skipped; in Rancher pick the 'dockerd (moby)' engine). If it reports 'WSL 2 installation is incomplete', install the kernel from https://aka.ms/wsl2kernel (or run 'wsl --update' in an elevated prompt), then re-run start-windows.bat. Log: $script:ResolvedLogPath"
+    Write-Fail "The container engine did not become ready within 5 minutes. Open $startingWhat from the Start menu and finish any first-run dialogs (Docker sign-in can be skipped; in Rancher pick the 'dockerd (moby)' engine). If it reports 'WSL 2 installation is incomplete', install WSL from https://github.com/microsoft/WSL/releases/tag/$($script:WslPinnedVersion) (or run 'wsl --update' in an elevated prompt), then re-run the launcher. Log: $script:ResolvedLogPath"
 }
 
 function Get-StandaloneComposeExe {
