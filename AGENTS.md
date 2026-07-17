@@ -45,6 +45,10 @@ yarn test
 yarn build:app
 ```
 
+The full CI-mirroring gate (used by review/automation skills) is the ordered `validation.commands` list in `.ai/agentic.config.json`.
+
+**Where to run them (decide once per gate sequence):** if `DOCKER_COMPOSE_FILE` is set, use Docker mode with that file. Otherwise probe, in order, `docker-compose.*dev*.local.yml` (sorted), `docker-compose.fullapp.dev.yml`, `docker-compose.fullapp.yml` with `docker compose -f <file> ps --status running -q app`; the first file with a running `app` container wins → Docker mode; none → local mode (`yarn …` on host). In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`. Record the chosen runner in your output (e.g. `Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`).
+
 ## Task Router — Where to Find Detailed Guidance
 
 IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md` Task Router table. A single task often maps to **multiple rows** — for example, "add a new module with search" requires both the Module Development and Search guides. Read **all** matching guides before starting. They contain the imports, patterns, and constraints you need. Only use Explore agents for topics not covered by any existing AGENTS.md.
@@ -89,6 +93,7 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | Adding reusable utilities, encryption helpers, i18n translations (`useT`/`resolveTranslations`), boolean parsing, data engine types, request scoping | `packages/shared/AGENTS.md` |
 | Structured logging / replacing raw `console.*` with the logging facade (`createLogger`, `child()`, `OM_LOG_LEVEL`), advisory `yarn logger:check-console` | `apps/docs/docs/framework/runtime/logging.mdx` + `.ai/specs/2026-07-02-structured-logging-facade.md` + `packages/shared/AGENTS.md` |
 | Building forms (`CrudForm`), data tables (`DataTable`), loading/error states, flash messages, `FormHeader`/`FormFooter`, dialog UX (`Cmd+Enter`/`Escape`) | `packages/ui/AGENTS.md` + `om-backend-ui-design` skill (+ `om-ds-guardian` skill for DS-token compliance) |
+| Reusing backend component families (charts/KPIs, filters, detail sections, schedule, messages, notifications, page scaffolding, system banners) — check BEFORE building any of these from scratch | [`.ai/ui-backend-components.md`](.ai/ui-backend-components.md) + `packages/ui/AGENTS.md` |
 | Backend page components, `apiCall` usage, `RowActions` ids, `LoadingMessage`/`ErrorMessage` | `packages/ui/src/backend/AGENTS.md` + `om-backend-ui-design` skill |
 | Configuring fulltext/vector/token search, writing `search.ts`, reindexing entities, debugging search, search CLI commands | `packages/search/AGENTS.md` |
 | Adding MCP tools (`registerMcpTool`), modifying OpenCode config, debugging AI chat, session tokens, command palette, two-tier auth | `packages/ai-assistant/AGENTS.md` |
@@ -107,10 +112,12 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | **Migration** | |
 | Migrating custom module code from MikroORM v6 to v7 (decorators, persist/flush, Knex→Kysely, type fixes, ORM config, Jest setup) | `.ai/skills/om-migrate-mikro-orm/SKILL.md` |
 | **Testing** | |
-| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.ai/skills/om-integration-tests/SKILL.md` |
+| Integration testing, creating/running Playwright tests, converting markdown test cases to TypeScript, CI test pipeline | `.ai/qa/AGENTS.md` + `.agents/skills/om-integration-tests/SKILL.md` |
 | **Spec & PR Automation** | |
-| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.ai/skills/{om-spec-writing,om-pre-implement-spec,om-implement-spec,om-code-review,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
-| PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA verification). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | Browse `.ai/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-merge-buddy,om-review-prs,om-sync-merged-pr-issues,om-auto-update-changelog,om-auto-verify-pr-ui}/SKILL.md` |
+| Spec lifecycle (pre-implement → implement → write/update), code review, DS review | Browse `.agents/skills/{om-spec-writing,om-code-review}/SKILL.md` + `.ai/skills/{om-pre-implement-spec,om-implement-spec,om-ds-guardian}/SKILL.md` + `.ai/specs/AGENTS.md` + `.ai/ds-rules.md` |
+| PR/issue automation (one-shot auto-PR, resumable loop variants, review/merge-buddy, post-merge sync, changelog, UI QA verification). **Default for one-off bug fixes / small features:** `om-auto-create-pr` | Browse `.agents/skills/{om-auto-create-pr,om-auto-continue-pr,om-auto-create-pr-loop,om-auto-continue-pr-loop,om-auto-review-pr,om-auto-verify-pr-ui,om-merge-buddy,om-review-prs,om-sync-merged-pr-issues,om-auto-update-changelog,om-prepare-issue}/SKILL.md` |
+
+Most `om-*` automation skills (code review, auto-create/continue/review PR, merge buddy, spec writing, changelog, CI stabilization, …) are maintained in the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` installs them into `.agents/skills/` via `npx skills add` and refreshes them to the latest published versions on each re-run via `npx skills update`; repo-specific settings live in `.ai/agentic.config.json` (+ the tracker descriptor `.ai/trackers/github.md`), and a folder under `.ai/skills/` matching an external skill name is a repo-local override those skills read and follow on top of their built-in workflow. The remaining folders under `.ai/skills/` are repo-local skills installed by tier (`.ai/skills/tiers.json`).
 
 ## Core Principles
 

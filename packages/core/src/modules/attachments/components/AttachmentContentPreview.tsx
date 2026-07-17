@@ -1,6 +1,7 @@
 import * as React from 'react'
 import { MarkdownContent } from '@open-mercato/ui/backend/markdown'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 
 type Props = {
   content?: string | null
@@ -25,12 +26,6 @@ export function AttachmentContentPreview({
   const [tab, setTab] = React.useState<'source' | 'preview'>('source')
   const text = (content ?? '').trim()
 
-  // ARIA IDs for accessibility
-  const sourceTabId = 'attachment-content-preview-tab-source'
-  const previewTabId = 'attachment-content-preview-tab-preview'
-  const sourcePanelId = 'attachment-content-preview-panel-source'
-  const previewPanelId = 'attachment-content-preview-panel-preview'
-
   if (!text) {
     return <div className="text-xs text-muted-foreground italic">{emptyLabel}</div>
   }
@@ -41,47 +36,18 @@ export function AttachmentContentPreview({
   return (
     <div className="space-y-2">
       {/* Tab Navigation */}
-      <div className="border-b border-border">
-        <nav className="flex items-center gap-4 text-xs" role="tablist" aria-label="Content preview mode">
-          <button
-            type="button"
-            id={sourceTabId}
-            role="tab"
-            aria-selected={tab === 'source'}
-            aria-controls={sourcePanelId}
-            className={`-mb-px border-b-2 px-0 pb-2 font-medium transition-colors ${
-              tab === 'source'
-                ? 'border-accent-indigo text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setTab('source')}
-          >
-            {sourceLabel}
-          </button>
-          <button
-            type="button"
-            id={previewTabId}
-            role="tab"
-            aria-selected={tab === 'preview'}
-            aria-controls={previewPanelId}
-            className={`-mb-px border-b-2 px-0 pb-2 font-medium transition-colors ${
-              tab === 'preview'
-                ? 'border-accent-indigo text-foreground'
-                : 'border-transparent text-muted-foreground hover:text-foreground'
-            }`}
-            onClick={() => setTab('preview')}
-          >
-            {previewLabel}
-          </button>
-        </nav>
-      </div>
+      <Tabs value={tab} onValueChange={(value) => setTab(value as 'source' | 'preview')} variant="underline">
+        <TabsList className="w-full">
+          <TabsTrigger value="source">{sourceLabel}</TabsTrigger>
+          <TabsTrigger value="preview">{previewLabel}</TabsTrigger>
+        </TabsList>
+      </Tabs>
 
       {/* Tab Panels */}
       {tab === 'source' ? (
         <div
           role="tabpanel"
-          id={sourcePanelId}
-          aria-labelledby={sourceTabId}
+          aria-label={sourceLabel}
           data-testid="attachment-content-preview"
           className="whitespace-pre-wrap text-sm text-muted-foreground"
         >
@@ -90,8 +56,7 @@ export function AttachmentContentPreview({
       ) : (
         <div
           role="tabpanel"
-          id={previewPanelId}
-          aria-labelledby={previewTabId}
+          aria-label={previewLabel}
           data-testid="markdown-preview"
         >
           <MarkdownContent

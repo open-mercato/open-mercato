@@ -43,6 +43,11 @@ import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } f
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
+import {
+  INTERACTION_STATUS_CANCELED,
+  INTERACTION_STATUS_COMPLETED,
+  INTERACTION_STATUS_PLANNED,
+} from '../lib/interactionStatus'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -393,7 +398,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interactionType: parsed.interactionType,
         title: parsed.title ?? null,
         body: parsed.body ?? null,
-        status: parsed.status ?? 'planned',
+        status: parsed.status ?? INTERACTION_STATUS_PLANNED,
         scheduledAt: parsed.scheduledAt ?? null,
         occurredAt: parsed.occurredAt ?? null,
         priority: parsed.priority ?? null,
@@ -922,7 +927,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
         request: ctx.request ?? null,
       })
 
-      interaction.status = 'done'
+      interaction.status = INTERACTION_STATUS_COMPLETED
       interaction.occurredAt = parsed.occurredAt ?? new Date()
       await trx.flush()
 
@@ -1062,7 +1067,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
         request: ctx.request ?? null,
       })
 
-      interaction.status = 'canceled'
+      interaction.status = INTERACTION_STATUS_CANCELED
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
