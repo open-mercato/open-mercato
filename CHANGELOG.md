@@ -1,5 +1,5 @@
 
-# 0.6.6 (2026-07-13)
+# 0.6.6 (2026-07-17)
 
 ## Highlights
 <!-- TODO: Highlights — auto-update-changelog leaves this blank for the human author to fill in. -->
@@ -335,6 +335,10 @@
 - 🔐 Pin logout/session-refresh redirects to allowlisted origin (#2686). (#2876) *(@pkarw)*
 - 🐛 Keep timesheet grid decimal edits through blur. (#2845) *(@pmadajthey)*
 - 🐛 Surface per-field validation errors on signup form (#2081). (#2088) *(@pat-lewczuk)*
+- 🔐 Don't force-logout all users on a transient DB failure. (#4191) *(@patzick)*
+- 🐛 Repair legacy checkout demo webhook failure. (#4193) *(@patzick)*
+- 🐛 Commit CALL_API one-time key outside execution transaction. (#4210) *(@patzick)*
+- 💰 Checkout demo order includes cart lines and non-zero totals. (#4213) *(@patzick)*
 
 ## 🛠️ Improvements
 - 🛠️ Share scheduler with lazy worker in dev mode. (#4125) *(@andrzejewsky)*
