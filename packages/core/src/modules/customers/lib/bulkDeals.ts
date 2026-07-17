@@ -5,6 +5,21 @@ import { invalidateCrudCache } from '@open-mercato/shared/lib/crud/cache'
 import { runWithCacheTenant } from '@open-mercato/cache'
 import { createModuleQueue, type Queue } from '@open-mercato/queue'
 import type { ProgressService, ProgressServiceContext } from '../../progress/lib/progressService'
+// Eagerly register the deal command handlers into this module graph's command
+// registry. The bulk workers dispatch `customers.deals.update` through the command
+// bus, but command handlers became lazy-loaded (#3703): they are only reachable if
+// their generated loader was registered into the SAME `@open-mercato/shared` instance
+// the worker's bus reads. A queue worker runs in its own container/process and must
+// not depend on that external lazy registration having reached its instance — in the
+// standalone integration harness the loader registry and the worker's bus can resolve
+// to different `@open-mercato/shared` instances, leaving the lazy loader unreachable
+// (issue: bulk deal jobs fail with "Command handler not registered for id
+// customers.deals.update"). Importing the command module here registers the handlers
+// through the worker's own import graph, so the dispatch always resolves.
+import '../commands/deals'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const CUSTOMERS_DEALS_BULK_UPDATE_STAGE_QUEUE = 'customers-deals-bulk-update-stage'
 export const CUSTOMERS_DEALS_BULK_UPDATE_OWNER_QUEUE = 'customers-deals-bulk-update-owner'
@@ -157,7 +172,7 @@ async function runBulkDealUpdate(params: {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       failedItems.push({ id, message })
-      console.warn(`[${logTag}] failed to update deal`, { jobId: progressJobId, id, error })
+      logger.warn('Failed to update deal', { component: logTag, jobId: progressJobId, id, err: error })
     }
 
     await progressService.updateProgress(

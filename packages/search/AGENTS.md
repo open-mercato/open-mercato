@@ -538,7 +538,7 @@ curl "https://your-app.com/api/search?q=john%20doe&limit=20" \
 | `OM_SEARCH_ENABLED` | When you need to disable the search module entirely | Default: `true`; set to `false` to disable |
 | `OM_SEARCH_DEBUG` | When debugging search behavior | Enables verbose debug logging |
 | `SEARCH_EXCLUDE_ENCRYPTED_FIELDS` | When you need to keep encrypted fields out of fulltext | Set to `true` to exclude encrypted fields from fulltext index |
-| `DEBUG_SEARCH_ENRICHER` | When debugging presenter enrichment | Enables presenter enricher debug logs |
+| `OM_LOG_LEVEL` | When debugging presenter enrichment | Set to `debug` to surface presenter enricher diagnostics (replaces the former `DEBUG_SEARCH_ENRICHER` flag) |
 
 ## Run Queue Workers
 
@@ -716,7 +716,7 @@ buildSource: async (ctx) => {
 - [ ] Run `yarn mercato search test-meilisearch` if fulltext is not returning results
 - [ ] Check `OM_SEARCH_ENABLED` is not set to `false`
 - [ ] Enable `OM_SEARCH_DEBUG=true` for verbose logging
-- [ ] Enable `DEBUG_SEARCH_ENRICHER=true` if presenters are missing or wrong
+- [ ] Set `OM_LOG_LEVEL=debug` if presenters are missing or wrong (surfaces presenter enricher diagnostics)
 - [ ] Verify the entity has `enabled: true` (or omitted, since default is `true`)
 - [ ] Verify the CRUD route has `indexer: { entityType }` for auto-indexing
 - [ ] Check queue workers are running if using `QUEUE_STRATEGY=async`

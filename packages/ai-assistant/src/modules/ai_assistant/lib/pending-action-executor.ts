@@ -18,6 +18,7 @@
  *   The handler's own transaction boundary (typically a command) is the
  *   unit of atomicity for the underlying data change.
  */
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AiPendingActionRepository } from '../data/repositories/AiPendingActionRepository'
 import type { AiPendingAction } from '../data/entities'
 import { emitAiAssistantEvent } from '../events'
@@ -28,6 +29,8 @@ import type {
   AiPendingActionExecutionResult,
   AiPendingActionFailedRecord,
 } from './pending-action-types'
+
+const logger = createLogger('ai_assistant')
 
 export interface PendingActionExecuteContext {
   tenantId: string
@@ -95,7 +98,7 @@ async function emitConfirmed(
   try {
     await emitter(CONFIRMED_EVENT_ID, payload)
   } catch (error) {
-    console.warn(`[AI Pending Action] Failed to emit ${CONFIRMED_EVENT_ID}:`, error)
+    logger.warn('Failed to emit pending-action event', { eventId: CONFIRMED_EVENT_ID, err: error })
   }
 }
 

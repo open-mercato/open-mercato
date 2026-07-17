@@ -55,6 +55,23 @@ jest.mock('fs', () => {
 
 import { resolveAttachmentParts } from '../../lib/attachment-parts'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 type AttachmentRowOverrides = {
   id?: string
   fileName?: string
@@ -116,11 +133,12 @@ function makeAuth(overrides: Partial<AiChatRequestContext> = {}): AiChatRequestC
 }
 
 describe('WS-C integration — attachment bridge', () => {
-  let warnSpy: jest.SpyInstance
+  let warnSpy: jest.Mock
 
   beforeEach(() => {
     jest.clearAllMocks()
-    warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    warnSpy = testLogger.warn
+    warnSpy.mockClear()
   })
 
   afterEach(() => {
@@ -165,7 +183,7 @@ describe('WS-C integration — attachment bridge', () => {
     expect(ids).not.toContain('not-found')
 
     // The warn for the foreign attachment MUST NOT reveal tenant-b or org-b.
-    const warnCalls = warnSpy.mock.calls.map((call) => call.join(' '))
+    const warnCalls = warnSpy.mock.calls.map((call) => call.map((arg: unknown) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '))
     const foreignWarn = warnCalls.find((message) => message.includes('foreign-attachment'))
     expect(foreignWarn).toBeDefined()
     expect(foreignWarn).not.toMatch(/tenant-b/)

@@ -2,6 +2,9 @@ import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
 import type { ProgressService } from '../../progress/lib/progressService'
 import type { SyncEngine } from '../lib/sync-engine'
 import type { SyncRunService } from '../lib/sync-run-service'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('data_sync').child({ component: 'sync-export' })
 
 type SyncJobPayload = {
   runId: string
@@ -50,7 +53,7 @@ export default async function handle(job: QueuedJob<SyncJobPayload>, ctx: Handle
         }
       }
     } catch (finalizeError) {
-      console.error('[data-sync] Failed to finalize crashed export worker job:', finalizeError)
+      logger.error('Failed to finalize crashed export worker job', { err: finalizeError })
     }
 
     throw error

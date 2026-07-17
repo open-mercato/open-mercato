@@ -29,7 +29,9 @@ export class CustomerRbacService {
   }
 
   private getCacheKey(userId: string, scope: { tenantId: string; organizationId: string }): string {
-    return `customer_rbac:${userId}:${scope.tenantId}:${scope.organizationId}`
+    // Keep the authorization query versioned in the key so cache entries created
+    // before scope hardening cannot preserve grants that are no longer valid.
+    return `customer_rbac:v2:${userId}:${scope.tenantId}:${scope.organizationId}`
   }
 
   private getUserTag(userId: string): string {
@@ -89,8 +91,13 @@ export class CustomerRbacService {
     // Aggregate role ACLs
     const links = await em.find(CustomerUserRole, {
       user: userId as any,
+      role: {
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
       deletedAt: null,
-    }, { populate: ['role'] })
+    } as any, { populate: ['role'] })
     const roleIds = links.map((l) => (l.role as any)?.id).filter(Boolean)
 
     let isPortalAdmin = false

@@ -17,6 +17,9 @@ import { LoadingMessage } from '@open-mercato/ui/backend/detail'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { ArrowLeft, Plus, Pencil, ChevronDown, Trash2, User } from 'lucide-react'
 import Link from 'next/link'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 const BACK_HREF = '/backend/staff/timesheets/projects'
 
@@ -196,7 +199,7 @@ export default function TimesheetProjectDetailPage({ params }: { params?: { id?:
 
       setEmployees(mapped)
     } catch (loadError) {
-      console.error('staff.timesheets.projects.employees.list', loadError)
+      logger.error('staff.timesheets.projects.employees.list', { err: loadError })
     } finally {
       setEmployeesLoading(false)
     }

@@ -2,6 +2,21 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { DefaultDataEngine, __resetUndeclaredEventWarningsForTests } from '../engine'
 import { createModuleEvents, registerEventModuleConfigs } from '../../../modules/events'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+const loggerWarn = createLogger('shared').warn as jest.Mock
+
 
 const testEvents = [
   { id: 'issue1421_test.widget.created', label: 'Widget Created', entity: 'widget', category: 'crud' as const },
@@ -41,7 +56,7 @@ describe('DataEngine event contract validation (issue #1421)', () => {
   })
 
   it('emits declared events without warning', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     try {
       const { engine, emitted } = makeFixture()
 
@@ -55,9 +70,8 @@ describe('DataEngine event contract validation (issue #1421)', () => {
       expect(emitted).toEqual([
         expect.objectContaining({ name: 'issue1421_test.widget.created' }),
       ])
-      expect(warnSpy).not.toHaveBeenCalled()
+      expect(loggerWarn).not.toHaveBeenCalled()
     } finally {
-      warnSpy.mockRestore()
     }
   })
 
@@ -78,7 +92,7 @@ describe('DataEngine event contract validation (issue #1421)', () => {
       },
     ])
 
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     try {
       const { engine, emitted } = makeFixture()
 
@@ -92,14 +106,13 @@ describe('DataEngine event contract validation (issue #1421)', () => {
       expect(emitted).toEqual([
         expect.objectContaining({ name: 'issue1421_bootstrap.widget.deleted' }),
       ])
-      expect(warnSpy).not.toHaveBeenCalled()
+      expect(loggerWarn).not.toHaveBeenCalled()
     } finally {
-      warnSpy.mockRestore()
     }
   })
 
   it('warns when emitting an event that is not registered', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     try {
       const { engine, emitted } = makeFixture()
 
@@ -110,22 +123,21 @@ describe('DataEngine event contract validation (issue #1421)', () => {
         events: { module: 'issue1421_unregistered', entity: 'ghost' },
       })
 
-      expect(warnSpy).toHaveBeenCalledTimes(1)
-      const warningMessage = warnSpy.mock.calls[0]?.[0] ?? ''
-      expect(warningMessage).toContain('issue1421_unregistered.ghost.created')
-      expect(warningMessage).toContain('events.ts')
+      expect(loggerWarn).toHaveBeenCalledTimes(1)
+      const [warningMessage, warningFields] = loggerWarn.mock.calls[0] ?? []
+      expect(String(warningMessage)).toContain('events.ts')
+      expect(warningFields).toEqual(expect.objectContaining({ eventName: 'issue1421_unregistered.ghost.created' }))
 
       // Emission is still attempted (non-strict), matching the factory's default behavior
       expect(emitted).toEqual([
         expect.objectContaining({ name: 'issue1421_unregistered.ghost.created' }),
       ])
     } finally {
-      warnSpy.mockRestore()
     }
   })
 
   it('deduplicates repeated warnings for the same undeclared event', async () => {
-    const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    loggerWarn.mockClear()
     try {
       const { engine } = makeFixture()
 
@@ -138,9 +150,8 @@ describe('DataEngine event contract validation (issue #1421)', () => {
         })
       }
 
-      expect(warnSpy).toHaveBeenCalledTimes(1)
+      expect(loggerWarn).toHaveBeenCalledTimes(1)
     } finally {
-      warnSpy.mockRestore()
     }
   })
 })

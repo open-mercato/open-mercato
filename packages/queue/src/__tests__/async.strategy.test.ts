@@ -6,6 +6,7 @@ const workerCtor = jest.fn()
 const queueAdd = jest.fn(async () => ({ id: 'bull-job-id' }))
 const queueClose = jest.fn(async () => {})
 const queueObliterate = jest.fn(async () => {})
+const queueGetJobs = jest.fn(async () => [])
 const queueGetJobCounts = jest.fn(async () => ({
   waiting: 2,
   active: 1,
@@ -29,6 +30,7 @@ jest.mock('bullmq', () => {
     close = queueClose
     obliterate = queueObliterate
     getJobCounts = queueGetJobCounts
+    getJobs = queueGetJobs
   }
 
   class MockWorker<T> {
@@ -110,6 +112,52 @@ describe('Queue - async strategy', () => {
     )
 
     await queue.close()
+  })
+
+  it('removeQueuedJobsByScope removes only queued jobs matching tenant scope', async () => {
+    const removeMatching = jest.fn(async () => {})
+    const removeAutoIndex = jest.fn(async () => {})
+    const removeOtherOrg = jest.fn(async () => {})
+    const removeOtherTenant = jest.fn(async () => {})
+    queueGetJobs.mockResolvedValueOnce([
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'batch-index', value: 1 } },
+        remove: removeMatching,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-1', jobType: 'index', value: 2 } },
+        remove: removeAutoIndex,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-1', organizationId: 'org-2', value: 2 } },
+        remove: removeOtherOrg,
+      },
+      {
+        data: { payload: { tenantId: 'tenant-2', organizationId: 'org-1', value: 3 } },
+        remove: removeOtherTenant,
+      },
+    ])
+    const queue = createQueue<{ tenantId: string; organizationId?: string | null; value: number }>(
+      'test-queue',
+      'async',
+    )
+
+    const result = await queue.removeQueuedJobsByScope!({
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      jobTypes: ['batch-index'],
+    })
+
+    expect(queueGetJobs).toHaveBeenCalledWith(
+      ['waiting', 'delayed', 'prioritized', 'paused', 'waiting-children'],
+      0,
+      -1,
+    )
+    expect(result.removed).toBe(1)
+    expect(removeMatching).toHaveBeenCalledTimes(1)
+    expect(removeAutoIndex).not.toHaveBeenCalled()
+    expect(removeOtherOrg).not.toHaveBeenCalled()
+    expect(removeOtherTenant).not.toHaveBeenCalled()
   })
 
   it('keeps structured Redis options when host-based config is used', async () => {

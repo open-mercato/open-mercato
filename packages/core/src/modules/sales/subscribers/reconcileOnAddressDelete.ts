@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { SalesOrder, SalesQuote } from '@open-mercato/core/modules/sales/data/entities'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 export const metadata = {
   event: 'customers.address.deleted',
@@ -42,6 +45,6 @@ export default async function handle(
       ),
     ])
   } catch (err) {
-    console.error('[sales:reconcile-on-address-delete] Failed to null address references on sales documents:', err)
+    logger.error('sales.reconcile-on-address-delete Failed to null address references on sales documents', { err })
   }
 }
