@@ -223,7 +223,13 @@ function Test-Network {
         @{ Host = "github.com"; Url = "https://github.com/open-mercato/open-mercato"; Why = "repo clone" },
         @{ Host = "api.github.com"; Url = "https://api.github.com"; Why = "installer version lookups" },
         @{ Host = "desktop.docker.com"; Url = "https://desktop.docker.com"; Why = "Docker Desktop download" },
-        @{ Host = "wslstorestorage.blob.core.windows.net"; Url = "https://wslstorestorage.blob.core.windows.net"; Why = "WSL2 kernel download" }
+        @{ Host = "wslstorestorage.blob.core.windows.net"; Url = "https://wslstorestorage.blob.core.windows.net"; Why = "WSL2 kernel download" },
+        # Hosts the IMAGE BUILDS download from (via the container runtime's VM,
+        # but a Windows-side block almost always means a VM-side block too).
+        @{ Host = "dl-cdn.alpinelinux.org"; Url = "https://dl-cdn.alpinelinux.org/alpine/latest-stable/main/x86_64/APKINDEX.tar.gz"; Why = "Alpine packages in app image builds (apk add)" },
+        @{ Host = "registry-1.docker.io"; Url = "https://registry-1.docker.io/v2/"; Why = "Docker Hub base image pulls" },
+        @{ Host = "registry.yarnpkg.com"; Url = "https://registry.yarnpkg.com"; Why = "yarn install inside image builds" },
+        @{ Host = "opencode.ai"; Url = "https://opencode.ai/install"; Why = "OpenCode install in image build" }
     )
     foreach ($target in $targets) {
         try {
@@ -237,6 +243,17 @@ function Test-Network {
                 Add-Finding WARN "Reach" ("{0}: TLS/cert error - a TLS-intercepting proxy (Zscaler/Netskope) is likely. Image builds will need your corporate root CA in docker\certs\. ({1})" -f $target.Host, $target.Why)
             } elseif ($msg -match "407") {
                 Add-Finding FAIL "Reach" ("{0}: proxy authentication required (407). Set HTTPS_PROXY with credentials. ({1})" -f $target.Host, $target.Why) -Hard
+            } elseif ($_.Exception.Response) {
+                $statusCode = 0
+                try { $statusCode = [int]$_.Exception.Response.StatusCode } catch {}
+                if ($statusCode -eq 401 -or $statusCode -eq 404 -or $statusCode -eq 405) {
+                    # Origin-style answers: registry-1.docker.io returns 401 by
+                    # design and some CDNs reject HEAD - the host is reachable.
+                    Add-Finding PASS "Reach" ("{0} reachable - answered HTTP {1}, which is fine for this probe ({2})." -f $target.Host, $statusCode, $target.Why)
+                } else {
+                    # 403 and friends are how category-blocking proxies answer.
+                    Add-Finding WARN "Reach" ("{0}: answered HTTP {1} - if that is a proxy block page, image builds will fail on this host. Ask IT to allow it. ({2})" -f $target.Host, $statusCode, $target.Why)
+                }
             } else {
                 $shortMsg = ($msg -replace "\s+", " ").Trim()
                 if ($shortMsg.Length -gt 80) { $shortMsg = $shortMsg.Substring(0, 80) }

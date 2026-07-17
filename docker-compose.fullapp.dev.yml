@@ -198,6 +198,10 @@ services:
     build:
       context: .
       target: dev
+      args:
+        # Optional internal Alpine mirror for proxy-blocked corporate networks
+        # (empty = official CDN; see the Dockerfile builder stage comment).
+        - ALPINE_MIRROR=${ALPINE_MIRROR:-}
     image: open-mercato/app:${DEPLOY_ENV:-local}-dev
     # Without a restart policy the app stays down after a daemon/host reboot
     # while mcp and opencode (restart: unless-stopped) wait on it forever.
