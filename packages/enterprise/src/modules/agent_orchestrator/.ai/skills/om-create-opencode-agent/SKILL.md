@@ -68,7 +68,7 @@ confidence always routes to a human (fail-closed).
 
 - Enterprise agents enabled in `apps/mercato/.env`:
   `OM_ENABLE_ENTERPRISE_MODULES=true` and `OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true`.
-- The OpenCode container is available (`docker compose up -d opencode`) and an AI provider key
+- The OpenCode container is available (`docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode`) and an AI provider key
   is set (Anthropic or OpenAI). The skill itself does not need these to WRITE the files, but the
   agent cannot RUN without them.
 
@@ -212,7 +212,7 @@ Then verify, do not assume:
 - Container artifacts emitted under `docker/opencode/{agents,skills}/`.
 - It passed the load gate (no `[internal] file agent "<id>" declares mutating/unknown tool …
   skipping registration` warning).
-- Restart OpenCode to pick it up: `docker compose up -d opencode` (hot-reload is not guaranteed).
+- Restart OpenCode to pick it up: `docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode` (hot-reload is not guaranteed).
 
 Targeted checks:
 ```bash

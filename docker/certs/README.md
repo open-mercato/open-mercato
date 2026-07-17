@@ -9,7 +9,7 @@ but containers do not.
 Drop that root CA here as one or more **PEM** files named `*.crt` or `*.pem`
 (one certificate per file). The app image build trusts everything in this
 directory (apk, node, yarn — via the system bundle and `NODE_EXTRA_CA_CERTS`),
-and the Windows launcher (`scripts/windows/start-dev.ps1`) mirrors these files
+and the Windows launcher (`starters/docker/windows/start-dev.ps1`) mirrors these files
 into `docker/opencode/certs/` so the opencode image build trusts them too.
 
 The Windows launcher also detects this failure automatically: it captures the
@@ -41,7 +41,7 @@ outright (block page instead of packages), certificates cannot help. Either ask
 IT to allow the host (plus `registry-1.docker.io`, `registry.yarnpkg.com`,
 `opencode.ai`, `github.com`), or set `ALPINE_MIRROR=<internal alpine mirror
 base URL>` in the repo-root `.env` to build against your company's Artifactory/
-Nexus alpine remote. `scripts\windows\check-windows.bat` audits all of these
+Nexus alpine remote. `starters\docker\windows\check-windows.bat` audits all of these
 hosts read-only before you start.
 
 Everything in this directory except this README is gitignored — never commit

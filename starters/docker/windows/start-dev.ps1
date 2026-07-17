@@ -15,9 +15,9 @@
 # and a runtime pre-installed (or Rancher installed per-user by this script)
 # no elevation happens at all.
 #
-# Unlike scripts/setup-windows-dev.ps1 (native toolchain: Node, Build Tools),
-# this launcher needs NO Node.js on the host. Pass -IncludeNativeToolchain to
-# additionally run the native toolchain setup script.
+# Unlike starters/hybrid/windows-toolchain.ps1 (native toolchain: Node, Build
+# Tools), this launcher needs NO Node.js on the host. Pass
+# -IncludeNativeToolchain to additionally run the native toolchain setup script.
 #
 # Exit codes: 0 = success, 10 = reboot required (resume via RunOnce or re-run),
 # 1 = failure.
@@ -64,7 +64,11 @@ param(
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$script:ComposeFile = "docker-compose.fullapp.dev.yml"
+$script:ComposeFile = "starters\docker\compose.fullapp.dev.yml"
+# Canonical compose invocation prefix for user-facing hints. --project-directory
+# keeps .env interpolation and relative paths anchored at the repo root now that
+# the compose files live under starters\docker\.
+$script:ComposeCmd = "docker compose --project-directory . -f $script:ComposeFile"
 $script:RunOnceKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\RunOnce"
 $script:RunOnceName = "OpenMercatoDevSetup"
 $script:RestartRequired = $false
@@ -96,7 +100,7 @@ $script:KeycloakPort = 8080
 if ($env:CI -eq "true") { $NonInteractive = $true }
 
 # ---------------------------------------------------------------------------
-# Output helpers (mirrors scripts/setup-windows-dev.ps1 conventions)
+# Output helpers (mirrors starters/hybrid/windows-toolchain.ps1 conventions)
 # ---------------------------------------------------------------------------
 
 function Write-Section {
@@ -318,8 +322,8 @@ function Invoke-NativeVisible {
 
 function Resolve-RepoRoot {
     $candidate = $null
-    if ($PSScriptRoot -and ($PSScriptRoot -match "\\scripts\\windows$")) {
-        $candidate = Resolve-Path (Join-Path $PSScriptRoot "..\..") -ErrorAction SilentlyContinue
+    if ($PSScriptRoot -and ($PSScriptRoot -match "\\starters\\docker\\windows$")) {
+        $candidate = Resolve-Path (Join-Path $PSScriptRoot "..\..\..") -ErrorAction SilentlyContinue
     }
     if ($candidate -and (Test-Path (Join-Path $candidate $script:ComposeFile)) -and (Test-Path (Join-Path $candidate "package.json"))) {
         return $candidate.Path
@@ -441,8 +445,8 @@ function Resolve-LocalInstaller {
     if ($LauncherPath) { $candidateDirs.Add((Join-Path (Split-Path -Parent $LauncherPath) "installers")) }
     if ($PSScriptRoot) {
         $candidateDirs.Add((Join-Path $PSScriptRoot "installers"))
-        # In-repo layout: scripts\windows -> repo root two levels up.
-        $repoCandidate = Join-Path $PSScriptRoot "..\..\installers"
+        # In-repo layout: starters\docker\windows -> repo root three levels up.
+        $repoCandidate = Join-Path $PSScriptRoot "..\..\..\installers"
         $candidateDirs.Add($repoCandidate)
     }
     foreach ($dir in ($candidateDirs | Select-Object -Unique)) {
@@ -1405,7 +1409,7 @@ function Invoke-BuildNetworkTriage {
     # compose retry makes sense; every other outcome prints targeted guidance.
     $probeImage = "node:24-alpine"
     if ((Invoke-NativeQuiet "docker" @("image", "inspect", $probeImage)) -ne 0) {
-        Write-Warn "The build is failing before its base image ($probeImage) is even available locally - the Docker engine itself cannot pull images on this network. If pulls fail with an x509/certificate error, the engine needs your corporate root CA; run scripts\windows\check-windows.bat for the full egress picture and docker\certs\README.md for the cert steps."
+        Write-Warn "The build is failing before its base image ($probeImage) is even available locally - the Docker engine itself cannot pull images on this network. If pulls fail with an x509/certificate error, the engine needs your corporate root CA; run starters\docker\windows\check-windows.bat for the full egress picture and docker\certs\README.md for the cert steps."
         return $false
     }
     Write-Info "Diagnosing network access from inside a container (the same path image builds use)..."
@@ -1475,7 +1479,7 @@ function Invoke-StandaloneClone {
             $zipUrl = "$zipBase/archive/refs/heads/$Branch.zip"
             $zipFile = Join-Path $env:TEMP "open-mercato-$Branch.zip"
             if (-not (Get-RemoteFile -Url $zipUrl -OutFile $zipFile -DisplayName "repository ZIP" -FileType zip -MinBytes 1MB)) {
-                Write-Fail "The repository ZIP could not be downloaded. Download it manually from $zipUrl, extract it, and double-click scripts\windows\start-windows.bat inside it."
+                Write-Fail "The repository ZIP could not be downloaded. Download it manually from $zipUrl, extract it, and double-click starters\docker\windows\start-windows.bat inside it."
             }
             $extractDir = Join-Path $env:TEMP ("om-extract-" + [System.IO.Path]::GetRandomFileName())
             Expand-Archive -Path $zipFile -DestinationPath $extractDir -Force
@@ -1490,10 +1494,10 @@ function Invoke-StandaloneClone {
 
     # Continue on the cloned tree's own launcher so future logic always runs
     # from the repo copy.
-    $inRepoScript = Join-Path $targetPath "scripts\windows\start-dev.ps1"
-    $inRepoLauncher = Join-Path $targetPath "scripts\windows\start-windows.bat"
+    $inRepoScript = Join-Path $targetPath "starters\docker\windows\start-dev.ps1"
+    $inRepoLauncher = Join-Path $targetPath "starters\docker\windows\start-windows.bat"
     if (-not (Test-Path $inRepoScript)) {
-        Write-Fail "Cloned repo does not contain scripts\windows\start-dev.ps1 (branch too old?)."
+        Write-Fail "Cloned repo does not contain starters\docker\windows\start-dev.ps1 (branch too old?)."
     }
     Write-Info "Re-entering setup from the cloned repository..."
     $forward = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$inRepoScript`"", "-LauncherPath", "`"$inRepoLauncher`"")
@@ -1838,9 +1842,9 @@ function Invoke-Compose {
     $capturedOutput = @()
     try {
         if ($composeExe) {
-            & $composeExe -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
+            & $composeExe --project-directory $script:RepoRoot -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
         } else {
-            & docker compose -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
+            & docker compose --project-directory $script:RepoRoot -f $composeFilePath @Arguments 2>&1 | Tee-Object -Variable capturedOutput | Out-Host
         }
     } finally {
         $ErrorActionPreference = $previousPreference
@@ -1858,9 +1862,9 @@ function Get-ComposeServiceHealth {
     $composeFilePath = Join-Path $script:RepoRoot $script:ComposeFile
     $composeExe = Resolve-ComposeExe
     $raw = if ($composeExe) {
-        (Invoke-NativeCapture $composeExe @("-f", $composeFilePath, "ps", "--format", "json")).Trim()
+        (Invoke-NativeCapture $composeExe @("--project-directory", $script:RepoRoot, "-f", $composeFilePath, "ps", "--format", "json")).Trim()
     } else {
-        (Invoke-NativeCapture "docker" @("compose", "-f", $composeFilePath, "ps", "--format", "json")).Trim()
+        (Invoke-NativeCapture "docker" @("compose", "--project-directory", $script:RepoRoot, "-f", $composeFilePath, "ps", "--format", "json")).Trim()
     }
     $entries = @()
     if ($raw.StartsWith("[")) {
@@ -1924,7 +1928,7 @@ function Start-Stack {
     $composeArgs = @("up", "-d")
     if ($Rebuild) { $composeArgs += "--build" }
 
-    if ($DryRun) { Write-Info ("Would run: docker compose -f $script:ComposeFile " + ($composeArgs -join " ")); return }
+    if ($DryRun) { Write-Info ("Would run: $script:ComposeCmd " + ($composeArgs -join " ")); return }
 
     Sync-CorporateCerts
     Test-PortConflicts
@@ -1947,7 +1951,7 @@ function Start-Stack {
         }
     }
     if ($exitCode -ne 0) {
-        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them (a TLS-intercepting proxy's root CA can be trusted via docker\certs\ - see docker\certs\README.md; scripts\windows\check-windows.bat audits the whole machine read-only) - re-running start-windows.bat resumes from the failed step. Inspect further with: docker compose -f $script:ComposeFile logs --tail 100"
+        Write-Fail "docker compose up failed (exit $exitCode). The output above shows the failing step; first-run image builds download from the internet, so corporate proxies/TLS inspection or transient network errors can break them (a TLS-intercepting proxy's root CA can be trusted via docker\certs\ - see docker\certs\README.md; starters\docker\windows\check-windows.bat audits the whole machine read-only) - re-running start-windows.bat resumes from the failed step. Inspect further with: $script:ComposeCmd logs --tail 100"
     }
     Write-Ok "Containers started"
 }
@@ -2014,7 +2018,7 @@ function Wait-ForApp {
     Write-Host "slow disk / connection) - it is NOT stuck. The build progress page on" -ForegroundColor Cyan
     Write-Host "http://localhost:$script:SplashPort is blank until the install finishes; that's expected." -ForegroundColor Cyan
     Write-Host "You can watch the raw logs in another terminal with:" -ForegroundColor Cyan
-    Write-Host "  docker compose -f $script:ComposeFile logs -f app" -ForegroundColor DarkGray
+    Write-Host "  $script:ComposeCmd logs -f app" -ForegroundColor DarkGray
     Write-Host ""
     Write-Info "Waiting for the app (progress from build splash on :$script:SplashPort; budget ${TimeoutMinutes}m)..."
     while ((Get-Date) -lt $deadline) {
@@ -2085,7 +2089,7 @@ function Wait-ForAgenticServices {
                     Write-Host ""
                     Write-Host "--- last logs: $service ---" -ForegroundColor DarkGray
                     [void](Invoke-Compose @("logs", "--tail", "40", $service))
-                    Write-Warn "The '$service' container is crash-looping - see its logs above. The rest of the stack keeps working; fix the cause and run: docker compose -f $script:ComposeFile restart $service"
+                    Write-Warn "The '$service' container is crash-looping - see its logs above. The rest of the stack keeps working; fix the cause and run: $script:ComposeCmd restart $service"
                     $gaveUp[$service] = $true
                 }
             }
@@ -2101,9 +2105,9 @@ function Wait-ForAgenticServices {
     Write-Host ""
 
     if ($mcpReady) { Write-Ok "MCP server healthy ($mcpHealthUrl)" }
-    else { Write-Warn "MCP server not healthy yet - check: docker compose -f $script:ComposeFile logs mcp" }
+    else { Write-Warn "MCP server not healthy yet - check: $script:ComposeCmd logs mcp" }
     if ($opencodeReady) { Write-Ok "OpenCode healthy ($opencodeHealthUrl)" }
-    else { Write-Warn "OpenCode not healthy yet - check: docker compose -f $script:ComposeFile logs opencode" }
+    else { Write-Warn "OpenCode not healthy yet - check: $script:ComposeCmd logs opencode" }
 
     if ($mcpReady -and $opencodeReady) {
         try {
@@ -2156,9 +2160,9 @@ function Show-FinalSummary {
     Write-Host ""
     Write-SummaryRow "Stop:" "stop-windows.bat" "White" "(data preserved)"
     Write-SummaryRow "Restart:" "start-windows.bat" "White" "(reuses the built image)"
-    Write-SummaryRow "Rebuild image:" "powershell scripts\windows\start-dev.ps1 -Rebuild" "White" "(after a Dockerfile change)"
-    Write-SummaryRow "Logs:" "docker compose -f $script:ComposeFile logs -f app" "White"
-    Write-SummaryRow "Full reset:" "powershell scripts\windows\start-dev.ps1 -Reset" "White" "(DELETES all data)"
+    Write-SummaryRow "Rebuild image:" "powershell starters\docker\windows\start-dev.ps1 -Rebuild" "White" "(after a Dockerfile change)"
+    Write-SummaryRow "Logs:" "$script:ComposeCmd logs -f app" "White"
+    Write-SummaryRow "Full reset:" "powershell starters\docker\windows\start-dev.ps1 -Reset" "White" "(DELETES all data)"
     if ($script:ResolvedLogPath) {
         Write-SummaryRow "Setup log:" $script:ResolvedLogPath "White"
     }
@@ -2275,7 +2279,7 @@ try {
     if ($script:RepoRoot) {
         Resolve-StackPorts
         if (-not $LauncherPath) {
-            $candidateLauncher = Join-Path $script:RepoRoot "scripts\windows\start-windows.bat"
+            $candidateLauncher = Join-Path $script:RepoRoot "starters\docker\windows\start-windows.bat"
             if (Test-Path $candidateLauncher) { $LauncherPath = $candidateLauncher }
         }
     }
@@ -2349,7 +2353,7 @@ try {
     Invoke-InstallPhaseIfNeeded
 
     if ($IncludeNativeToolchain -and $script:RepoRoot) {
-        $nativeScript = Join-Path $script:RepoRoot "scripts\setup-windows-dev.ps1"
+        $nativeScript = Join-Path $script:RepoRoot "starters\hybrid\windows-toolchain.ps1"
         if ((Test-Path $nativeScript) -and -not $DryRun) {
             Write-Info "Running native toolchain setup (-IncludeNativeToolchain)..."
             $nativeChild = Start-Process -FilePath "powershell" -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$nativeScript`"") -Verb RunAs -Wait -PassThru

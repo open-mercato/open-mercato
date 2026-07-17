@@ -112,7 +112,7 @@ services:
   # Traefik (TLS termination, on-demand ACME, custom-domain ForwardAuth gate)
   # is now an opt-in overlay so this base file works behind an external reverse
   # proxy (Dokploy, Caddy, nginx, Cloudflare Tunnel, etc.) without conflict.
-  # To run the bundled Traefik, add `-f docker-compose.fullapp.traefik.yml`.
+  # To run the bundled Traefik, add `-f starters/docker/compose.fullapp.traefik.yml`.
 
   app:
     build:
@@ -144,7 +144,7 @@ services:
     working_dir: /app/apps/mercato
     ports:
       - "${APP_PORT:-3000}:${CONTAINER_PORT:-3000}"
-    # Traefik labels are declared in docker-compose.fullapp.traefik.yml so
+    # Traefik labels are declared in compose.fullapp.traefik.yml so
     # external reverse proxies (Dokploy, etc.) that also watch the Docker
     # socket don't accidentally pick them up.
     environment:

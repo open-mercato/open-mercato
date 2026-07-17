@@ -64,7 +64,7 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
    ```
 2. **Start Docker services**
    ```bash
-   docker compose up -d
+   yarn infra:up
    ```
    This starts PostgreSQL 15 with pgvector and Redis 7. The pgvector extension is automatically installed, enabling vector search features.
 
@@ -118,20 +118,20 @@ Follow these steps after the [prerequisites](./prerequisites) are in place:
 
 ## Windows native local development
 
-This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `docker-compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
+This is the recommended Windows setup for day-to-day work on the monorepo. Docker Desktop runs the infrastructure services, while Node.js and Yarn run directly on Windows. The full `starters/docker/compose.fullapp.dev.yml` stack remains available for isolated or fully containerized workflows, but on Windows it is usually much slower because a large Node.js monorepo with bind-mounted source files does heavy watched file reads across the Windows/Linux filesystem boundary.
 
 ### One-time manual setup
 
 For a quick one-time prerequisite pass after cloning the repository or unpacking the source archive, open **PowerShell as Administrator** and run:
 
 ```powershell
-.\scripts\setup-windows-dev.ps1
+.\starters\hybrid\windows-toolchain.ps1
 ```
 
 If Windows shows a security warning because the script came from a downloaded ZIP/archive, unblock it first:
 
 ```powershell
-Unblock-File .\scripts\setup-windows-dev.ps1
+Unblock-File .\starters\hybrid\windows-toolchain.ps1
 ```
 
 The helper script:
@@ -176,10 +176,10 @@ If you install Build Tools through the UI, make sure the C++ build tools workloa
 Start only infrastructure services from the repository root:
 
 ```powershell
-docker compose up -d
+yarn infra:up
 ```
 
-The root `docker-compose.yml` starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
+The infra compose file (`starters/docker/compose.infra.yml`) starts the local service stack, including PostgreSQL, Redis, and Meilisearch. It does not run the application container.
 
 Microsoft Defender exclusion is optional, but strongly recommended on Windows because without it repository operations and local development can be noticeably slower. Run it manually in PowerShell if you want the recommended setup:
 
@@ -297,18 +297,18 @@ OM_AUTO_SPAWN_WORKERS_LAZY_POLL_MS=500 yarn dev
 
 **Stop services:**
 ```bash
-docker compose down
+yarn infra:down
 ```
 
 **View logs:**
 ```bash
-docker compose logs -f
+docker compose --project-directory . -f starters/docker/compose.infra.yml logs -f
 ```
 
 **Complete reset (deletes all data):**
 ```bash
-docker compose down -v
-docker compose up -d
+docker compose --project-directory . -f starters/docker/compose.infra.yml down -v
+yarn infra:up
 yarn mercato init
 ```
 
@@ -349,7 +349,7 @@ git checkout develop
 cp apps/mercato/.env.example apps/mercato/.env
 
 # Build and start the full dev stack
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, runs migrations, and seeds demo data. Subsequent starts are much faster because initialization is cached in a named volume.
@@ -363,7 +363,7 @@ Once the runtime is ready, open the backend URL and sign in with the default cre
 
 ### How It Works
 
-The `docker-compose.fullapp.dev.yml` file orchestrates five services:
+The `starters/docker/compose.fullapp.dev.yml` file orchestrates five services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
@@ -384,29 +384,29 @@ The app container:
 
 **Start in detached mode (background):**
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up -d
 ```
 
 **View logs:**
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml logs -f        # all services
-docker compose -f docker-compose.fullapp.dev.yml logs -f app    # app only
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f        # all services
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app    # app only
 ```
 
 **Rebuild after pulling new changes:**
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 **Stop all services:**
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml down
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down
 ```
 
 **Full reset (deletes all data and cached builds):**
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml down -v
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 ### Docker Wrapper Commands
@@ -416,7 +416,7 @@ The repository also exposes root-level `yarn docker:*` commands that run the mat
 The wrappers are implemented by [`scripts/docker-exec.mjs`](https://github.com/open-mercato/open-mercato/blob/develop/scripts/docker-exec.mjs). The helper:
 
 - auto-detects the active compose profile
-- prefers `docker-compose.fullapp.dev.yml`, then falls back to `docker-compose.fullapp.yml`
+- prefers `starters/docker/compose.fullapp.dev.yml`, then falls back to `starters/docker/compose.fullapp.yml`
 - lets you force a target compose file with `DOCKER_COMPOSE_FILE=...`
 - prints explicit guidance when no `app` container is running
 
@@ -459,8 +459,8 @@ yarn docker:dev -- --skip-rebuilt
 This flow is the documented replacement for manually running:
 
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml restart app
-docker compose -f docker-compose.fullapp.dev.yml logs -f app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app
 ```
 
 #### Fullapp stack wrappers
@@ -483,7 +483,7 @@ yarn docker:mercato auth:list-users
 If you run a dev-only wrapper against the fullapp stack, the helper fails closed and tells you to switch back to the dev profile:
 
 ```bash
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.yml yarn docker:generate
 ```
 
 #### Forcing a compose file
@@ -491,8 +491,8 @@ DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
 When both stacks exist, or when you want to target a specific profile regardless of auto-detection, set `DOCKER_COMPOSE_FILE` explicitly:
 
 ```bash
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:db:migrate
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.yml yarn docker:generate
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.yml yarn docker:db:migrate
 ```
 
 #### Wrapper troubleshooting
@@ -528,7 +528,7 @@ Key variables you may want to override:
 If you need a different splash port in Docker, set it before startup so the host/container mapping stays aligned:
 
 ```bash
-OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up --build
+OM_DEV_SPLASH_PORT=4100 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 ### Troubleshooting
@@ -541,15 +541,15 @@ OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up --bu
 **File changes not detected:**
 - The compose file sets `CHOKIDAR_USEPOLLING=true` and `WATCHPACK_POLLING=true` by default. If changes are still not picked up, restart the app container:
   ```bash
-  docker compose -f docker-compose.fullapp.dev.yml restart app
+  docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart app
   ```
 
 **Port conflicts:**
-- If port 3000 is already in use, override it: `APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up`
-- If port 4000 is already in use, override the splash port too: `OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up`
+- If port 3000 is already in use, override it: `APP_PORT=3001 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up`
+- If port 4000 is already in use, override the splash port too: `OM_DEV_SPLASH_PORT=4100 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up`
 - If Postgres auth/connect errors appear during local commands (`yarn generate`, `yarn db:generate`) and `localhost:5432` is occupied by another local PostgreSQL instance, start Docker Postgres on another port and use the same port in `DATABASE_URL`:
   ```bash
-  POSTGRES_PORT=55432 docker compose up -d postgres
+  POSTGRES_PORT=55432 docker compose --project-directory . -f starters/docker/compose.infra.yml up -d postgres
   ```
   ```env
   DATABASE_URL=postgresql://postgres:postgres@localhost:55432/open-mercato
@@ -585,7 +585,7 @@ cp apps/mercato/.env.example apps/mercato/.env
 # Edit apps/mercato/.env with your configuration (see next section)
 
 # Build and start all services
-docker compose -f docker-compose.fullapp.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build
 ```
 
 The application will be available at `http://localhost:3000/backend`. Sign in with the default admin credentials printed during initialization (typically `admin@example.com`).
@@ -627,43 +627,43 @@ OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=false
 
 If you keep `OM_DISABLE_VECTOR_SEARCH_AUTOINDEXING=true` (the default in `apps/mercato/.env.example`), semantic search can still be configured and reindexed manually, but record changes will not enqueue embeddings automatically. The legacy alias `DISABLE_VECTOR_SEARCH_AUTOINDEXING=1` still works, but prefer the `OM_` name for new setups.
 
-**Note:** The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`.
+**Note:** The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `starters/docker/compose.fullapp.yml`.
 
 ### Common Operations
 
 **Start services in detached mode:**
 ```bash
-docker compose -f docker-compose.fullapp.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up -d
 ```
 
 **View logs from all services:**
 ```bash
-docker compose -f docker-compose.fullapp.yml logs -f
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs -f
 ```
 
 **View logs from app only:**
 ```bash
-docker compose -f docker-compose.fullapp.yml logs -f app
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs -f app
 ```
 
 **Rebuild after code changes:**
 ```bash
-docker compose -f docker-compose.fullapp.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build
 ```
 
 **Stop all services:**
 ```bash
-docker compose -f docker-compose.fullapp.yml down
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml down
 ```
 
 **Stop and remove volumes (deletes all data):**
 ```bash
-docker compose -f docker-compose.fullapp.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml down -v
 ```
 
 **Restart a specific service:**
 ```bash
-docker compose -f docker-compose.fullapp.yml restart app
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml restart app
 ```
 
 ### Data Persistence
@@ -702,7 +702,7 @@ When deploying to production environments, consider these recommendations:
 - Configure resource limits for containers (CPU, memory)
 
 **Monitoring & Operations:**
-- Enable health checks for all services (already configured in docker-compose.fullapp.yml)
+- Enable health checks for all services (already configured in starters/docker/compose.fullapp.yml)
 - Set up log aggregation (ELK stack, Loki, CloudWatch)
 - Monitor container resource usage and disk space
 - Configure automated backups for volumes
@@ -719,7 +719,7 @@ When deploying to production environments, consider these recommendations:
 **Container fails to start:**
 ```bash
 # Check logs for errors
-docker compose -f docker-compose.fullapp.yml logs app
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs app
 
 # Verify environment variables
 cat apps/mercato/.env
@@ -733,7 +733,7 @@ lsof -i :6379
 **Database connection errors:**
 ```bash
 # Verify PostgreSQL is running
-docker compose -f docker-compose.fullapp.yml ps postgres
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml ps postgres
 
 # Check if database exists
 docker exec mercato-postgres psql -U postgres -c "\l"
@@ -745,7 +745,7 @@ grep DATABASE_URL apps/mercato/.env
 **Build errors:**
 ```bash
 # Clean build cache
-docker compose -f docker-compose.fullapp.yml build --no-cache
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml build --no-cache
 
 # Remove old images
 docker image prune -a
@@ -763,15 +763,15 @@ docker system prune -a --volumes
 **Reset everything:**
 ```bash
 # Stop and remove all containers, networks, and volumes
-docker compose -f docker-compose.fullapp.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml down -v
 
 # Rebuild from scratch
-docker compose -f docker-compose.fullapp.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build
 ```
 
 ### Architecture Overview
 
-The `docker-compose.fullapp.yml` stack includes:
+The `starters/docker/compose.fullapp.yml` stack includes:
 
 - **app** - Open Mercato application (Node.js 24, Next.js)
 - **postgres** - PostgreSQL 17 with pgvector extension

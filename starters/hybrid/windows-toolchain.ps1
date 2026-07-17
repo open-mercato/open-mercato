@@ -53,7 +53,7 @@ function Initialize-Logging {
     if ([string]::IsNullOrWhiteSpace($LogPath)) {
         $logDirectory = Join-Path $env:TEMP "open-mercato-setup"
         New-Item -Path $logDirectory -ItemType Directory -Force | Out-Null
-        $script:ResolvedLogPath = Join-Path $logDirectory ("setup-windows-dev-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
+        $script:ResolvedLogPath = Join-Path $logDirectory ("windows-toolchain-{0}.log" -f (Get-Date -Format "yyyyMMdd-HHmmss"))
     } else {
         $parent = Split-Path -Parent $LogPath
         if ($parent) {
@@ -94,7 +94,7 @@ function Ensure-Elevation {
         return
     }
 
-    $commandHint = ".\scripts\setup-windows-dev.ps1"
+    $commandHint = ".\starters\hybrid\windows-toolchain.ps1"
     Write-Fail "Administrator rights are required. Open PowerShell as Administrator, cd into the repo, and run: $commandHint"
 }
 

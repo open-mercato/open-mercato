@@ -224,10 +224,10 @@ Install [Docker Desktop for Windows](https://docs.docker.com/desktop/setup/insta
 After Docker Desktop is running, `docker` and `docker compose` are available inside WSL2 without any additional installation. Start all services from the repository root:
 
 ```bash
-docker compose up -d
+yarn infra:up
 ```
 
-Verify: `docker compose ps` — all three services (postgres, redis, meilisearch) should be `Up`.
+Verify: `docker compose --project-directory . -f starters/docker/compose.infra.yml ps` — all three services (postgres, redis, meilisearch) should be `Up`.
 
 ### Option B — Docker Engine natively inside WSL2
 
@@ -271,7 +271,7 @@ Then restart WSL (`wsl --shutdown` from PowerShell). After that, Docker starts a
 Start all services:
 
 ```bash
-docker compose up -d
+yarn infra:up
 ```
 
 ---

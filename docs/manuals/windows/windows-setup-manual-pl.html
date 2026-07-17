@@ -35,7 +35,7 @@
 <p class="subtitle">Środowisko developerskie jednym poleceniem — instrukcja uruchomienia i rozwiązywania problemów</p>
 
 <h2>1. Co to jest</h2>
-<p>Dwukrotne kliknięcie pliku <code>scripts\windows\start-windows.bat</code> zamienia komputer z systemem Windows w kompletne środowisko developerskie Open Mercato działające w Dockerze: <strong>aplikacja</strong> (port 3000, hot reload), <strong>serwer MCP</strong> (port 3001), <strong>agent AI OpenCode</strong> (port 4096) oraz PostgreSQL, Redis i Meilisearch. Baza danych jest tworzona i wypełniana danymi automatycznie. Asystent AI (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> w aplikacji) działa od razu — wystarczy podać podczas instalacji klucz API dostawcy LLM.</p>
+<p>Dwukrotne kliknięcie pliku <code>starters\docker\windows\start-windows.bat</code> zamienia komputer z systemem Windows w kompletne środowisko developerskie Open Mercato działające w Dockerze: <strong>aplikacja</strong> (port 3000, hot reload), <strong>serwer MCP</strong> (port 3001), <strong>agent AI OpenCode</strong> (port 4096) oraz PostgreSQL, Redis i Meilisearch. Baza danych jest tworzona i wypełniana danymi automatycznie. Asystent AI (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> w aplikacji) działa od razu — wystarczy podać podczas instalacji klucz API dostawcy LLM.</p>
 <p>Każdy krok jest idempotentny: ponowne uruchomienie <code>start-windows.bat</code> jest zawsze bezpieczne — pomija to, co już zrobione, i naprawia to, czego brakuje.</p>
 <p>Dostępne są <strong>trzy launchery</strong> — wszystkie korzystają z tego samego silnika, wybierz według środowiska kontenerów:</p>
 <table>
@@ -44,7 +44,7 @@
   <tr><td><code>start-windows-rancher.bat</code></td><td>Twoja organizacja używa <strong>Rancher Desktop</strong> (typowe tam, gdzie licencja Docker Desktop nie jest dozwolona). Gdy WSL2 już jest, instaluje Ranchera per-user — <strong>zupełnie bez uprawnień administratora</strong></td></tr>
   <tr><td><code>start-windows-docker.bat</code></td><td>Jawne wymuszenie <strong>Docker Desktop</strong></td></tr>
 </table>
-<p>Nie wiesz, czy zablokowana firmowa maszyna pozwoli na instalację? Uruchom najpierw <code>scripts\windows\check-windows.bat</code> — kontrolę wstępną tylko-do-odczytu, która sprawdza polityki, WSL2, dostęp sieciowy (proxy/inspekcja TLS, hosty pobierania), antywirusa i porty, a kończy werdyktem READY / CAVEATS / LIKELY-BLOCKED. Niczego nie zmienia.</p>
+<p>Nie wiesz, czy zablokowana firmowa maszyna pozwoli na instalację? Uruchom najpierw <code>starters\docker\windows\check-windows.bat</code> — kontrolę wstępną tylko-do-odczytu, która sprawdza polityki, WSL2, dostęp sieciowy (proxy/inspekcja TLS, hosty pobierania), antywirusa i porty, a kończy werdyktem READY / CAVEATS / LIKELY-BLOCKED. Niczego nie zmienia.</p>
 
 <h2>2. Wymagania</h2>
 <table>
@@ -61,14 +61,14 @@
 <h2>3. Szybki start</h2>
 <h3>A. Masz już repozytorium (git clone lub ZIP)</h3>
 <ol>
-  <li>Kliknij dwukrotnie <code>scripts\windows\start-windows.bat</code> w repozytorium.</li>
+  <li>Kliknij dwukrotnie <code>starters\docker\windows\start-windows.bat</code> w repozytorium.</li>
   <li>Jeśli trzeba zainstalować Dockera/WSL2, zatwierdź monit UAC (administrator). Jeśli Windows poprosi o restart — zrestartuj; <strong>instalacja wznowi się automatycznie po zalogowaniu</strong>.</li>
   <li>Na pytanie o dostawcę LLM wybierz go i wklej klucz API (wpisywanie jest ukryte). To wymagane — klucz zasila asystenta AI.</li>
   <li>Poczekaj. <strong>Pierwsze uruchomienie trwa około 10 minut</strong> (do ~20 na wolnych dyskach) — instalowane są zależności i wypełniana baza danych. Każdy kolejny start zajmuje sekundy.</li>
   <li>Na końcu zielone podsumowanie wyświetli wszystkie adresy oraz <strong>login i hasło superadministratora</strong>. Otwórz <code>http://localhost:3000/backend</code> i zaloguj się.</li>
 </ol>
 <h3>B. Zupełnie czysta maszyna (bez Gita, bez repozytorium)</h3>
-<p>Pobierz sam plik <code>start-windows.bat</code> (z folderu <code>scripts/windows/</code> repozytorium na GitHubie) i kliknij go dwukrotnie. Skrypt pobierze launcher, zainstaluje Git (lub pobierze repozytorium jako ZIP), sklonuje projekt do <code>%USERPROFILE%\open-mercato</code> i będzie kontynuował jak wyżej.</p>
+<p>Pobierz sam plik <code>start-windows.bat</code> (z folderu <code>starters/docker/windows/</code> repozytorium na GitHubie) i kliknij go dwukrotnie. Skrypt pobierze launcher, zainstaluje Git (lub pobierze repozytorium jako ZIP), sklonuje projekt do <code>%USERPROFILE%\open-mercato</code> i będzie kontynuował jak wyżej.</p>
 
 <h2>4. Co się dzieje krok po kroku</h2>
 <table>
@@ -97,16 +97,16 @@
 </table>
 <table>
   <tr><th>Czynność</th><th>Polecenie</th></tr>
-  <tr><td>Start / restart środowiska</td><td><code>scripts\windows\start-windows.bat</code> (albo <code>start-windows-rancher.bat</code> / <code>start-windows-docker.bat</code>, aby wymusić środowisko)</td></tr>
-  <tr><td>Kontrola maszyny tylko-do-odczytu (przed instalacją lub przy problemach)</td><td><code>scripts\windows\check-windows.bat</code></td></tr>
-  <tr><td>Zatrzymanie (dane zachowane)</td><td><code>scripts\windows\stop-windows.bat</code></td></tr>
-  <tr><td>Status wszystkich usług</td><td><code>powershell scripts\windows\start-dev.ps1 -Status</code></td></tr>
-  <tr><td>Podgląd logów aplikacji</td><td><code>powershell scripts\windows\start-dev.ps1 -Logs</code></td></tr>
-  <tr><td>Przebudowa obrazu Dockera (po zmianach w Dockerfile)</td><td><code>powershell scripts\windows\start-dev.ps1 -Rebuild</code></td></tr>
-  <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong></td><td><code>powershell scripts\windows\start-dev.ps1 -Reset</code></td></tr>
-  <tr><td>Uruchomienie bez uprawnień administratora</td><td><code>powershell scripts\windows\start-dev.ps1 -NoAdmin</code></td></tr>
-  <tr><td>Preferuj/zainstaluj Rancher Desktop zamiast Docker Desktop</td><td><code>powershell scripts\windows\start-dev.ps1 -Runtime rancher</code></td></tr>
-  <tr><td>Uruchomienie testowe bez żadnych zmian</td><td><code>powershell scripts\windows\start-dev.ps1 -DryRun</code></td></tr>
+  <tr><td>Start / restart środowiska</td><td><code>starters\docker\windows\start-windows.bat</code> (albo <code>start-windows-rancher.bat</code> / <code>start-windows-docker.bat</code>, aby wymusić środowisko)</td></tr>
+  <tr><td>Kontrola maszyny tylko-do-odczytu (przed instalacją lub przy problemach)</td><td><code>starters\docker\windows\check-windows.bat</code></td></tr>
+  <tr><td>Zatrzymanie (dane zachowane)</td><td><code>starters\docker\windows\stop-windows.bat</code></td></tr>
+  <tr><td>Status wszystkich usług</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Status</code></td></tr>
+  <tr><td>Podgląd logów aplikacji</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Logs</code></td></tr>
+  <tr><td>Przebudowa obrazu Dockera (po zmianach w Dockerfile)</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Rebuild</code></td></tr>
+  <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong></td><td><code>powershell starters\docker\windows\start-dev.ps1 -Reset</code></td></tr>
+  <tr><td>Uruchomienie bez uprawnień administratora</td><td><code>powershell starters\docker\windows\start-dev.ps1 -NoAdmin</code></td></tr>
+  <tr><td>Preferuj/zainstaluj Rancher Desktop zamiast Docker Desktop</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Runtime rancher</code></td></tr>
+  <tr><td>Uruchomienie testowe bez żadnych zmian</td><td><code>powershell starters\docker\windows\start-dev.ps1 -DryRun</code></td></tr>
 </table>
 
 <h2>6. Praca w IDE</h2>
@@ -118,10 +118,10 @@
   <tr><td><code>node_modules</code> na hoście tylko dla edytora</td><td>Zainstaluj Node 24, wykonaj <code>corepack enable</code> i jednorazowo <code>yarn install</code> w katalogu projektu</td><td>Wolisz zwykłe IDE na hoście; aplikacja nadal działa w kontenerach (ostrzeżenia o opcjonalnych modułach natywnych są nieszkodliwe)</td></tr>
   <tr><td>Praca w pełni natywnie w WSL2</td><td>Sklonuj repozytorium wewnątrz dystrybucji Ubuntu, IDE przez Remote-WSL (zob. przewodnik WSL2 w dokumentacji)</td><td>Dla zaawansowanych — maksymalna wydajność systemu plików; wymaga dystrybucji WSL i uprawnień administratora</td></tr>
 </table>
-<p>Wskazówka: &bdquo;Przejdź do definicji&rdquo; dla importów <code>@open-mercato/*</code> prowadzi do <em>źródeł</em> pakietów monorepo — to oczekiwane zachowanie. Po edycji <em>pakietu</em> (a nie aplikacji) zrestartuj też kontener MCP: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</p>
+<p>Wskazówka: &bdquo;Przejdź do definicji&rdquo; dla importów <code>@open-mercato/*</code> prowadzi do <em>źródeł</em> pakietów monorepo — to oczekiwane zachowanie. Po edycji <em>pakietu</em> (a nie aplikacji) zrestartuj też kontener MCP: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart mcp</code>.</p>
 
 <h2>7. Rozwiązywanie problemów</h2>
-<div class="note"><strong>Zasada pierwsza:</strong> pełny zapis instalacji znajduje się w <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, a logi kontenerów są dostępne jednym poleceniem: <code>docker compose -f docker-compose.fullapp.dev.yml logs -f app</code> (zamiast <code>app</code> także <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
+<div class="note"><strong>Zasada pierwsza:</strong> pełny zapis instalacji znajduje się w <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, a logi kontenerów są dostępne jednym poleceniem: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app</code> (zamiast <code>app</code> także <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
 
 <h3>Problemy z instalacją</h3>
 <table>
@@ -152,10 +152,10 @@
   <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
   <tr><td>Pierwsze uruchomienie „wygląda na zawieszone"</td><td>Prawie nigdy nie jest: pierwszy start instaluje zależności, buduje ~20 pakietów i wypełnia bazę w kontenerze (~10 min, do ~20). Obserwuj <code>http://localhost:4000</code> lub logi aplikacji. Gdy coś naprawdę się zepsuje, launcher zgłosi to wprost.</td></tr>
   <tr><td>Przeglądarka nie otwiera <code>http://localhost:3000</code></td><td>Sprawdź stan kontenera aplikacji: <code>-Status</code>. Jeśli zapora/klient VPN filtruje localhost, zezwól na lokalne połączenia na portach 3000/4000.</td></tr>
-  <tr><td>Czat AI (Ctrl+K) zwraca błędy autoryzacji / MCP „disconnected"</td><td>Klucz MCP rotuje po resecie bazy, a kontener OpenCode czyta go tylko przy starcie. Wykonaj: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode</code>. Weryfikacja: <code>curl http://localhost:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
-  <tr><td>Czat AI zgłasza błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>. Po zmianie: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</td></tr>
+  <tr><td>Czat AI (Ctrl+K) zwraca błędy autoryzacji / MCP „disconnected"</td><td>Klucz MCP rotuje po resecie bazy, a kontener OpenCode czyta go tylko przy starcie. Wykonaj: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode</code>. Weryfikacja: <code>curl http://localhost:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
+  <tr><td>Czat AI zgłasza błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>. Po zmianie: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode app</code>.</td></tr>
   <tr><td>Dane logowania z podsumowania nie działają</td><td>Jeśli plik <code>.env</code> został utworzony na nowo przy zachowaniu starego wolumenu bazy, wyświetlone hasło może różnić się od zapisanego w bazie (domyślne: <code>password</code>). Najczystsze rozwiązanie: <code>-Reset</code> i świeży start.</td></tr>
-  <tr><td>Po restarcie samego kontenera <code>app</code> narzędzia AI działają dziwnie</td><td>Przebudowa aplikacji nadpisuje współdzielone wolumeny pod działającym serwerem MCP. Zrestartuj także jego: <code>docker compose -f docker-compose.fullapp.dev.yml restart mcp</code>.</td></tr>
+  <tr><td>Po restarcie samego kontenera <code>app</code> narzędzia AI działają dziwnie</td><td>Przebudowa aplikacji nadpisuje współdzielone wolumeny pod działającym serwerem MCP. Zrestartuj także jego: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart mcp</code>.</td></tr>
 </table>
 
 <h2>8. FAQ — najczęstsze pytania</h2>
@@ -168,11 +168,11 @@
 <p class="faq-q">Gdzie znajdę dane logowania?</p>
 <p>W zielonym podsumowaniu na końcu instalacji oraz w pliku <code>.env</code> w katalogu głównym (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). Nie trafiają do żadnych plików logów.</p>
 <p class="faq-q">Gdzie są moje dane i jak je wyczyścić?</p>
-<p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Pełne czyszczenie: <code>powershell scripts\windows\start-dev.ps1 -Reset</code> (wymaga wpisania potwierdzenia).</p>
+<p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Pełne czyszczenie: <code>powershell starters\docker\windows\start-dev.ps1 -Reset</code> (wymaga wpisania potwierdzenia).</p>
 <p class="faq-q">Jak zaktualizować kod do najnowszej wersji?</p>
 <p>Z Gitem: <code>git pull</code>, potem <code>start-windows.bat</code>. Przy instalacji z ZIP: pobierz świeży ZIP i uruchom launcher w nim (dane są w wolumenach Dockera, nie w folderze).</p>
 <p class="faq-q">Czy mogę później zmienić dostawcę AI?</p>
-<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), a następnie: <code>docker compose -f docker-compose.fullapp.dev.yml restart opencode app</code>.</p>
+<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), a następnie: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode app</code>.</p>
 <p class="faq-q">Jakie porty są używane?</p>
 <p>3000 (aplikacja), 4000 (strona postępu), 3001 (MCP), 4096 (OpenCode), 8080 (Keycloak). Wszystkie można zmienić w <code>.env</code>.</p>
 <p class="faq-q">Czy działa offline?</p>
@@ -180,7 +180,7 @@
 <p class="faq-q">Jak wszystko usunąć?</p>
 <p><code>-Reset</code> (usuwa kontenery i wolumeny z danymi), skasuj folder repozytorium, a w razie potrzeby odinstaluj Docker/Rancher Desktop w Ustawieniach Windows.</p>
 
-<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v1.1 · lipiec 2026 · Źródła: <code>scripts/windows/start-windows*.bat</code>, <code>scripts/windows/check-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, specyfikacja <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v1.1 · lipiec 2026 · Źródła: <code>starters/docker/windows/start-windows*.bat</code>, <code>starters/docker/windows/check-windows.bat</code>, <code>starters/docker/windows/start-dev.ps1</code>, specyfikacja <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
 
 </body>
 </html>

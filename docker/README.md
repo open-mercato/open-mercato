@@ -2,20 +2,22 @@
 
 This directory contains Docker configuration for running **local development services** (PostgreSQL with pgvector and Redis) alongside your local Open Mercato installation.
 
+> **Note:** The compose files now live in [`starters/docker/`](../starters/docker/) — this directory keeps the Dockerfiles, entrypoints, and supporting assets they reference.
+
 > **Looking to run the full application stack with Docker?**
-> - **Prod:** `docker compose -f docker-compose.fullapp.yml up --build`
-> - **Dev (mounted source + watch):** `docker compose -f docker-compose.fullapp.dev.yml up --build`
+> - **Prod:** `docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build`
+> - **Dev (mounted source + watch):** `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build`
 >
 > See the [Docker Deployment guide](https://docs.openmercato.com/installation/setup#docker-deployment-full-stack) for full-stack instructions.
 
-This `docker-compose.yml` is ideal when you want to run the database and Redis in containers but develop the application locally with `yarn dev`.
+The infra compose file (`starters/docker/compose.infra.yml`, wrapped by `yarn infra:up` / `yarn infra:down`) is ideal when you want to run the database and Redis in containers but develop the application locally with `yarn dev`.
 
 ### Full app in dev mode (with watch)
 
 Run the entire stack in Docker with live reload:
 
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
@@ -40,22 +42,22 @@ curl http://localhost:4096/global/health   # {"healthy":true,...}
 curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connected"}}
 ```
 
-Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose restart opencode`. And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
+Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode` (swap in the fullapp file for the prod stack). And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
 
 ## Quick Start
 
 ```bash
 # Start all services
-docker compose up -d
+yarn infra:up
 
 # Stop all services
-docker compose down
+yarn infra:down
 
 # View logs
-docker compose logs -f
+docker compose --project-directory . -f starters/docker/compose.infra.yml logs -f
 
 # Restart services
-docker compose restart
+docker compose --project-directory . -f starters/docker/compose.infra.yml restart
 ```
 
 ## Services
@@ -89,8 +91,8 @@ Data is stored in named Docker volumes:
 To completely reset and start fresh:
 
 ```bash
-docker compose down -v  # This will DELETE all data
-docker compose up -d
+docker compose --project-directory . -f starters/docker/compose.infra.yml down -v  # This will DELETE all data
+yarn infra:up
 yarn mercato init
 ```
 
@@ -123,9 +125,9 @@ Windows users who develop through Docker can run any monorepo command using the 
 
 | Goal | Command | Notes |
 |------|---------|-------|
-| Start dev stack (detached) | `yarn docker:dev:up` | `docker-compose.fullapp.dev.yml`; mounted source + hot reload |
+| Start dev stack (detached) | `yarn docker:dev:up` | `starters/docker/compose.fullapp.dev.yml`; mounted source + hot reload |
 | Stop dev stack | `yarn docker:dev:down` | Stops and removes dev containers |
-| Start production-like stack (detached) | `yarn docker:up` | `docker-compose.fullapp.yml`; built image, no source mount |
+| Start production-like stack (detached) | `yarn docker:up` | `starters/docker/compose.fullapp.yml`; built image, no source mount |
 | Stop production-like stack | `yarn docker:down` | Stops and removes production containers |
 | Start ephemeral environment | `yarn docker:ephemeral` | Fresh DB on every restart; port 5000 |
 | Stop ephemeral environment | `yarn docker:ephemeral:down` | Tears down preview stack (all data lost) |
@@ -154,13 +156,14 @@ yarn docker:mercato eject currencies
 yarn docker:mercato test:integration
 ```
 
-> **Tip — custom compose file**: If you run a personalised stack (e.g. `docker-compose.fullapp.dev.local.yml`),
+> **Tip — custom compose file**: If you run a personalised stack (e.g. `starters/docker/compose.fullapp.dev.local.yml`),
 > the `docker:*` commands discover it automatically **without any extra configuration**, as long as the file name
-> matches `docker-compose.*dev*.local.yml` and lives in the repo root. Add it to `.gitignore` to keep it local.
+> matches `compose.*dev*.local.yml` and lives in `starters/docker/` (legacy root `docker-compose.*dev*.local.yml`
+> files are still discovered). Add it to `.gitignore` to keep it local.
 >
 > You can also force a specific compose file at any time with `DOCKER_COMPOSE_FILE`:
 > ```
-> DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+> DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.local.yml yarn docker:typecheck
 > ```
 
 ### Script Compatibility Matrix
@@ -169,7 +172,7 @@ yarn docker:mercato test:integration
 |-------------|-------------|---------------------------|----------------|-------|
 | `dev` | works | `yarn docker:dev` | — | |
 | `dev:greenfield` | works | unsupported-by-design | unsupported-by-design | Not available as a Docker exec command — use `yarn docker:dev:up` instead (entrypoint handles the full init sequence automatically) |
-| `dev:ephemeral` | works | `yarn docker:ephemeral` | unsupported-by-design | Uses `docker-compose.preview.yaml`; fresh DB, port 5000 |
+| `dev:ephemeral` | works | `yarn docker:ephemeral` | unsupported-by-design | Uses `starters/docker/compose.preview.yml`; fresh DB, port 5000 |
 | `build:packages` | works | `yarn docker:build:packages` | unsupported-by-design | |
 | `generate` | works | `yarn docker:generate` | unsupported-by-design | Monorepo-only; not in runtime image |
 | `initialize` | works | `yarn docker:initialize` | unsupported-by-design | Monorepo-only |
@@ -191,13 +194,13 @@ yarn docker:mercato test:integration
 
 The helper checks for a running `app` service. Ensure the stack is up:
 ```
-docker compose -f docker-compose.fullapp.dev.yml ps
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml ps
 ```
 
-If you started the stack with a **custom compose file**, either name it `docker-compose.*dev*.local.yml`
-(auto-discovered) or set `DOCKER_COMPOSE_FILE` before the command:
+If you started the stack with a **custom compose file**, either name it `starters/docker/compose.*dev*.local.yml`
+(auto-discovered, as are legacy root `docker-compose.*dev*.local.yml` files) or set `DOCKER_COMPOSE_FILE` before the command:
 ```
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.local.yml yarn docker:typecheck
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.local.yml yarn docker:typecheck
 ```
 
 **Compose file fails to parse / probe warning**
@@ -224,7 +227,7 @@ This skips install/build/generate on the next container restart only, then retur
 **Force a specific compose file**
 
 ```
-DOCKER_COMPOSE_FILE=docker-compose.fullapp.dev.yml yarn docker:generate
+DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.dev.yml yarn docker:generate
 ```
 
 ---
@@ -250,5 +253,5 @@ docker exec -it mercato-redis redis-cli
 Your network intercepts HTTPS with a corporate root CA that containers do not
 trust. Drop the CA as a PEM file into `docker/certs/` — both the app and
 opencode image builds pick it up. See `docker/certs/README.md`; the Windows
-launcher (`scripts/windows/start-windows.bat`) detects and repairs this
+launcher (`starters/docker/windows/start-windows.bat`) detects and repairs this
 automatically.

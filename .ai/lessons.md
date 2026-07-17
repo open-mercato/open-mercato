@@ -352,7 +352,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: Use `curl -fsS http://127.0.0.1:7700/health` for Meilisearch container healthchecks instead of `wget` or `localhost`.
 
-**Applies to**: Root `docker-compose*.yml`, standalone app templates in `packages/create-app/template/`, and any future dev/test container compose files that run Meilisearch.
+**Applies to**: Monorepo `starters/docker/compose.*.yml`, standalone app templates in `packages/create-app/template/`, and any future dev/test container compose files that run Meilisearch.
 
 ## Docker entrypoints must verify required binaries, not just non-empty node_modules
 
@@ -372,7 +372,7 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Rule**: Docker init/startup wrappers must treat the specific existing-users initialization abort as a successful already-initialized state: run migrations, write the init marker, and continue boot. Do not broaden this to ignore other init failures.
 
-**Applies to**: `docker/scripts/*.sh`, root `docker-compose.fullapp*.yml`, and standalone template Docker startup files in `packages/create-app/template/docker/**`.
+**Applies to**: `docker/scripts/*.sh`, `starters/docker/compose.fullapp*.yml`, and standalone template Docker startup files in `packages/create-app/template/docker/**`.
 
 ## Standalone scaffolds must pin the same Yarn version as the monorepo
 
@@ -388,11 +388,11 @@ Centralize shared command utilities like undo extraction in `packages/shared/src
 
 **Context**: Fullapp compose startup was updated to call `/app/docker/scripts/init-or-migrate.sh` directly.
 
-**Problem**: If a user updates `docker-compose.fullapp.yml` but starts an older image without `--build`, container startup fails immediately because the new helper script is not present in that image.
+**Problem**: If a user updates `starters/docker/compose.fullapp.yml` but starts an older image without `--build`, container startup fails immediately because the new helper script is not present in that image.
 
 **Rule**: When a compose command references a newly added in-image helper, include a shell fallback path so older images can still boot until the next rebuild.
 
-**Applies to**: Root/template `docker-compose.fullapp*.yml` and similar Docker startup commands that evolve independently from image rebuilds.
+**Applies to**: Monorepo `starters/docker/compose.fullapp*.yml`, template `docker-compose.fullapp*.yml`, and similar Docker startup commands that evolve independently from image rebuilds.
 
 ## Keep injected namespaces DataTable-owned, not page-owned
 

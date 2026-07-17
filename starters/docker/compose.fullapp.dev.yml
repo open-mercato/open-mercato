@@ -1,5 +1,5 @@
 # Full stack with app in dev mode: mounted source + yarn dev (watch).
-# Usage: docker compose -f docker-compose.fullapp.dev.yml up --build
+# Usage: docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 
 services:
   opencode:
@@ -165,9 +165,9 @@ services:
   # To run the bundled Traefik in dev, layer the prod-default overlay plus the
   # dev overlay (the dev overlay flips ACME to LE staging so iteration does
   # not burn LE production rate limits):
-  #   docker compose -f docker-compose.fullapp.dev.yml \
-  #     -f docker-compose.fullapp.traefik.yml \
-  #     -f docker-compose.fullapp.traefik.dev.yml up --build
+  #   docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml \
+  #     -f starters/docker/compose.fullapp.traefik.yml \
+  #     -f starters/docker/compose.fullapp.traefik.dev.yml up --build
 
   # One-shot: raise the shared WSL2/Linux kernel's inotify limits before the
   # app starts watching. Turbopack watches the whole repo via inotify and does
@@ -208,7 +208,7 @@ services:
     restart: unless-stopped
     user: "0"
     command: ["/bin/sh", "/app/docker/scripts/dev-entrypoint.sh"]
-    # Traefik labels live in docker-compose.fullapp.traefik.yml — opt-in only.
+    # Traefik labels live in compose.fullapp.traefik.yml — opt-in only.
     volumes:
       - .:/app
       - app_node_modules:/app/node_modules

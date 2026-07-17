@@ -118,7 +118,7 @@ corepack enable && corepack prepare yarn@4.12.0 --activate
 
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato && git checkout develop
-docker compose up -d                  # starts PostgreSQL, Redis, Meilisearch
+yarn infra:up                         # starts PostgreSQL, Redis, Meilisearch (see starters/README.md)
 cp apps/mercato/.env.example apps/mercato/.env
 # set DATABASE_URL / JWT_SECRET / REDIS_URL in apps/mercato/.env
 yarn dev:greenfield                   # installs, builds, seeds, starts the app
@@ -132,7 +132,7 @@ corepack enable; corepack prepare yarn@4.12.0 --activate
 
 git clone https://github.com/open-mercato/open-mercato.git
 cd open-mercato; git checkout develop
-docker compose up -d                  # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
+yarn infra:up                         # or use native PostgreSQL + pgAdmin: https://www.postgresql.org/download/windows/
 Copy-Item apps\mercato\.env.example apps\mercato\.env
 # set DATABASE_URL / JWT_SECRET / REDIS_URL in apps\mercato\.env
 yarn dev:greenfield

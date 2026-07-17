@@ -10,7 +10,7 @@ set "PS1=%~dp0start-dev.ps1"
 if not exist "%PS1%" (
   echo Downloading the Open Mercato Windows launcher...
   set "PS1=%TEMP%\open-mercato-start-dev.ps1"
-  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/open-mercato/open-mercato/main/scripts/windows/start-dev.ps1' -OutFile ($env:TEMP + '\open-mercato-start-dev.ps1')"
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "[Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing 'https://raw.githubusercontent.com/open-mercato/open-mercato/main/starters/docker/windows/start-dev.ps1' -OutFile ($env:TEMP + '\open-mercato-start-dev.ps1')"
   if errorlevel 1 (
     echo Download failed. Check your internet connection or proxy and retry.
     pause

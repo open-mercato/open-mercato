@@ -11,19 +11,19 @@
 #
 # This overlay defaults `TRAEFIK_CA_SERVER` to the LE **production** directory
 # so the prod invocation issues real certificates. Dev workflows layer the
-# dev-only `docker-compose.fullapp.traefik.dev.yml` overlay on top to flip the
+# dev-only `starters/docker/compose.fullapp.traefik.dev.yml` overlay on top to flip the
 # default to LE staging (untrusted certs, much higher rate limits) for safe
 # iteration.
 #
 # Usage:
 #   # Production:
-#   docker compose -f docker-compose.fullapp.yml \
-#     -f docker-compose.fullapp.traefik.yml up -d
+#   docker compose --project-directory . -f starters/docker/compose.fullapp.yml \
+#     -f starters/docker/compose.fullapp.traefik.yml up -d
 #
 #   # Dev (staging ACME via the dev overlay; drop the third file to use prod):
-#   docker compose -f docker-compose.fullapp.dev.yml \
-#     -f docker-compose.fullapp.traefik.yml \
-#     -f docker-compose.fullapp.traefik.dev.yml up --build
+#   docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml \
+#     -f starters/docker/compose.fullapp.traefik.yml \
+#     -f starters/docker/compose.fullapp.traefik.dev.yml up --build
 
 services:
   traefik:

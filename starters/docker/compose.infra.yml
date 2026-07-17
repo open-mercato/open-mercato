@@ -1,3 +1,10 @@
+# Hybrid dev infra: OpenCode + backing services in containers, the app and the
+# MCP server natively on the host (`yarn dev` runs both). Always invoke with
+# the project directory anchored at the repo root so .env interpolation and
+# relative paths resolve there:
+#   docker compose --project-directory . -f starters/docker/compose.infra.yml up -d
+# or simply: yarn infra:up
+
 services:
   opencode:
     build:
@@ -20,12 +27,37 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
-      # MCP configuration
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
+      # MCP wiring: the MCP server runs on the HOST (`yarn dev` starts it).
+      # host.docker.internal resolves natively on Docker Desktop (Win/mac) and
+      # via the host-gateway extra_hosts mapping below on native Linux.
+      # MCP_SERVER_API_KEY (env) wins when set; the file fallback reads the
+      # key `yarn dev` provisions into .mercato/mcp-shared on the host.
       OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     volumes:
+      # Host-provisioned MCP API key (see scripts/dev-mcp.mjs). Relative to the
+      # repo root because every invocation passes --project-directory.
+      - ${OM_MCP_SHARED_DIR:-./.mercato/mcp-shared}:/run/mcp-shared:ro
       # File-defined agents (delivery model A — dev bind-mount). Generated from
       # `agents/<id>/` dirs; OpenCode picks them up on new sessions (no guaranteed
       # hot-reload — restart this service after `yarn generate`).
@@ -121,6 +153,10 @@ services:
     image: verdaccio/verdaccio:6
     container_name: mercato-verdaccio
     restart: unless-stopped
+    # Only needed for standalone-app/package publishing workflows — opt in with
+    # `--profile registry` (it is not part of the default dev loop).
+    profiles:
+      - registry
     environment:
       VERDACCIO_PORT: 4873
       VERDACCIO_PUBLIC_URL: http://localhost:4873
