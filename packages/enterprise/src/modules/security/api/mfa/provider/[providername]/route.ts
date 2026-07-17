@@ -25,8 +25,8 @@ const confirmResponseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true },
-  PUT: { requireAuth: true },
+  POST: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
+  PUT: { requireAuth: true, requireFeatures: ['security.mfa.manage'] },
 }
 
 export async function POST(req: Request, context: { params: Promise<{ providername: string }> }) {
