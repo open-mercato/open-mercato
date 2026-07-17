@@ -156,3 +156,9 @@ apps/mercato/src/module-facts.generated.json
 
 # skills CLI lockfile (external skills are re-resolved on each install)
 skills-lock.json
+
+# Corporate proxy root CAs picked up by image builds (machine-specific, never commit)
+docker/certs/*
+!docker/certs/README.md
+docker/opencode/certs/*
+!docker/opencode/certs/README.md

@@ -1,8 +1,8 @@
 FROM debian:bookworm-slim
 # Pinned OpenCode version. The contract (agent-file frontmatter, per-message
 # `agent` selection, native skills, task delegation) is validated against THIS
-# tag — do not float to latest. ASSUMPTION-to-verify: the installer's version
-# pin env var is `VERSION`; confirm against the chosen release before bumping.
+# tag — do not float to latest. Verified: the installer accepts the pin both as
+# a VERSION env var and a --version flag; either skips its GitHub API lookup.
 ARG OPENCODE_VERSION=1.1.21
 
 # Install dependencies
@@ -10,9 +10,37 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     curl ca-certificates bash passwd \
     && rm -rf /var/lib/apt/lists/*
 
-# Install OpenCode (pinned) and move to system path
-RUN curl -fsSL https://opencode.ai/install | VERSION="${OPENCODE_VERSION}" bash && \
-    cp /root/.opencode/bin/opencode /usr/local/bin/opencode && \
+# Corporate TLS-intercepting proxies re-sign HTTPS with a root CA the host
+# trusts but this build does not, breaking the installer download below. Trust
+# any PEM dropped into certs/ (the Windows launcher mirrors docker/certs/ here;
+# see docker/certs/README.md). No-op when the directory is empty.
+# cert[s] is a glob + AGENTS.md an always-present anchor: the COPY then
+# succeeds even when certs/ is missing from a partial checkout.
+COPY AGENTS.md cert[s] /tmp/om-certs/
+RUN set -eu; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+    done; \
+    update-ca-certificates; \
+    rm -rf /tmp/om-certs
+
+# Install OpenCode (pinned) and move to system path. The install can fail
+# transiently on shared/corporate networks (rate limits, proxies), and
+# `curl | bash` masks download failures as a later `cp` error - so download the
+# installer to a file and retry the install up to 3 times.
+RUN set -eu; \
+    curl -fsSL --retry 3 --retry-delay 5 https://opencode.ai/install -o /tmp/opencode-install.sh; \
+    attempt=1; \
+    until bash /tmp/opencode-install.sh --version "$OPENCODE_VERSION"; do \
+        if [ "$attempt" -ge 3 ]; then echo "OpenCode install failed after $attempt attempts" >&2; exit 1; fi; \
+        attempt=$((attempt + 1)); \
+        echo "OpenCode install failed - retrying (attempt $attempt of 3)..." >&2; \
+        sleep 10; \
+    done; \
+    rm -f /tmp/opencode-install.sh; \
+    cp /root/.opencode/bin/opencode /usr/local/bin/opencode; \
     chmod +x /usr/local/bin/opencode
 
 # Create non-root user

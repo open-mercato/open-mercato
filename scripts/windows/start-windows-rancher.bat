@@ -1,12 +1,10 @@
 @echo off
 setlocal
-rem One-command Open Mercato dev environment for Windows.
-rem Double-click this file (repo path: scripts\windows\). It installs
-rem missing prerequisites (Git, WSL2, a container runtime), clones the repo
-rem when run standalone, and starts the fully containerized stack
-rem (app :3000, MCP :3001, OpenCode :4096).
-rem Auto-detects Docker Desktop vs Rancher Desktop; to force one, use
-rem start-windows-rancher.bat or start-windows-docker.bat instead.
+rem Open Mercato dev environment - Rancher Desktop edition.
+rem Same one-command setup as start-windows.bat, but pinned to Rancher
+rem Desktop (the usual choice on enterprise machines where Docker Desktop
+rem licensing is not permitted). When WSL2 is already present, Rancher
+rem installs per-user - no administrator rights needed at all.
 
 set "PS1=%~dp0start-dev.ps1"
 if not exist "%PS1%" (
@@ -20,7 +18,7 @@ if not exist "%PS1%" (
   )
 )
 
-powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -LauncherPath "%~f0" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -LauncherPath "%~f0" -Runtime rancher %*
 set "RC=%ERRORLEVEL%"
 if not "%RC%"=="0" if not "%RC%"=="10" pause
 endlocal & exit /b %RC%
