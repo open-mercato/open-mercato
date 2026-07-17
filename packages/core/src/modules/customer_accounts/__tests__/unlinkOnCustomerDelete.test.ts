@@ -2,6 +2,26 @@ import { CustomerUser } from '@open-mercato/core/modules/customer_accounts/data/
 import unlinkOnPersonDelete, { metadata as personMeta } from '@open-mercato/core/modules/customer_accounts/subscribers/unlinkOnPersonDelete'
 import unlinkOnCompanyDelete, { metadata as companyMeta } from '@open-mercato/core/modules/customer_accounts/subscribers/unlinkOnCompanyDelete'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
+
 type NativeUpdateCall = { entity: unknown; where: Record<string, unknown>; data: Record<string, unknown> }
 
 function makeEm() {
@@ -79,7 +99,8 @@ describe('customer_accounts unlink subscribers on CRM delete', () => {
         throw new Error('db down')
       },
     }
-    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+    mockLogger.error.mockClear()
+    const errorSpy = mockLogger.error
     await expect(
       unlinkOnPersonDelete({ entityId: 'id', tenantId: 't' }, makeCtx(errorEm)),
     ).resolves.toBeUndefined()

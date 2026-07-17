@@ -12,6 +12,7 @@ import {
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import type { StorageDriver, StoreFilePayload, StoredFile, ReadFileResult } from '@open-mercato/core/modules/attachments/lib/drivers'
 import {
+  assertS3KeyAddressableByTenantScope,
   assertS3KeyScopedToTenant,
   assertS3ListPrefixScopedToTenant,
   filterS3ObjectsToTenant,
@@ -120,6 +121,10 @@ export class S3StorageDriver implements StorageDriver {
     assertS3KeyScopedToTenant(storagePath, scope ?? this.scope, this.pathPrefix)
   }
 
+  private assertKeyAddressable(storagePath: string, scope?: S3TenantScope | null): void {
+    assertS3KeyAddressableByTenantScope(storagePath, scope ?? this.scope, this.pathPrefix)
+  }
+
   private assertPartitionScoped(partitionCode: string, storagePath: string): void {
     if (!partitionCode) return
     const prefix = this.pathPrefix && storagePath.startsWith(this.pathPrefix)
@@ -153,7 +158,7 @@ export class S3StorageDriver implements StorageDriver {
 
   async read(partitionCode: string, storagePath: string): Promise<ReadFileResult> {
     this.assertPartitionScoped(partitionCode, storagePath)
-    this.assertKeyScoped(storagePath)
+    this.assertKeyAddressable(storagePath)
     const response = await this.client.send(
       new GetObjectCommand({ Bucket: this.bucket, Key: storagePath }),
     )
@@ -166,7 +171,7 @@ export class S3StorageDriver implements StorageDriver {
 
   async delete(partitionCode: string, storagePath: string): Promise<void> {
     this.assertPartitionScoped(partitionCode, storagePath)
-    this.assertKeyScoped(storagePath)
+    this.assertKeyAddressable(storagePath)
     try {
       await this.client.send(
         new DeleteObjectCommand({ Bucket: this.bucket, Key: storagePath }),
@@ -180,17 +185,20 @@ export class S3StorageDriver implements StorageDriver {
     partitionCode: string,
     storagePath: string,
   ): Promise<{ filePath: string; cleanup: () => Promise<void> }> {
-    const tmpDir = path.join(os.tmpdir(), `s3-tmp-${randomUUID()}`)
-    await fs.mkdir(tmpDir, { recursive: true })
-    const fileName = path.basename(storagePath) || 'download'
-    const filePath = path.join(tmpDir, fileName)
-    const { buffer } = await this.read(partitionCode, storagePath)
-    await fs.writeFile(filePath, buffer)
-    return {
-      filePath,
-      cleanup: async () => {
-        await fs.rm(tmpDir, { recursive: true, force: true })
-      },
+    const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 's3-tmp-'))
+    const cleanup = async () => {
+      await fs.rm(tmpDir, { recursive: true, force: true })
+    }
+
+    try {
+      const fileName = path.basename(storagePath) || 'download'
+      const filePath = path.join(tmpDir, fileName)
+      const { buffer } = await this.read(partitionCode, storagePath)
+      await fs.writeFile(filePath, buffer, { flag: 'wx', mode: 0o600 })
+      return { filePath, cleanup }
+    } catch (error) {
+      await Promise.allSettled([cleanup()])
+      throw error
     }
   }
 
@@ -256,7 +264,11 @@ export class S3StorageDriver implements StorageDriver {
     contentType?: string,
     scope?: S3TenantScope | null,
   ): Promise<string> {
-    this.assertKeyScoped(storagePath, scope)
+    if (operation === 'upload') {
+      this.assertKeyScoped(storagePath, scope)
+    } else {
+      this.assertKeyAddressable(storagePath, scope)
+    }
     if (operation === 'upload') {
       const command = new PutObjectCommand({
         Bucket: this.bucket,

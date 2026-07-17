@@ -2,7 +2,10 @@ import crypto from 'node:crypto'
 import { generateDek, hashForLookup } from './aes'
 import { isEncryptionDebugEnabled, isTenantDataEncryptionEnabled } from './toggles'
 import { parseBooleanToken } from '../boolean'
+import { createLogger } from '../logger'
 import { fetchWithTimeout, resolveTimeoutMs } from '../http/fetchWithTimeout'
+
+const logger = createLogger('shared').child({ component: 'kms' })
 
 const DEFAULT_VAULT_REQUEST_TIMEOUT_MS = 1_000
 const DEFAULT_VAULT_RECOVERY_COOLDOWN_MS = 30_000
@@ -54,9 +57,7 @@ class FallbackKmsService implements KmsService {
     try {
       return await op()
     } catch (err) {
-      console.warn('⚠️ [encryption][kms] Primary KMS failed, will try fallback', {
-        error: (err as Error)?.message || String(err),
-      })
+      logger.warn('Primary KMS failed, will try fallback', { err })
       return null
     }
   }
@@ -199,13 +200,13 @@ export class HashicorpVaultKmsService implements KmsService {
       this.healthy = false
       this.misconfigured = true
       if (this.debugEnabled) {
-        console.warn('⚠️ [encryption][kms] Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
+        logger.warn('Vault misconfigured (missing VAULT_ADDR or VAULT_TOKEN)')
       }
     }
     if (this.healthy && !HashicorpVaultKmsService.loggedInit && this.debugEnabled) {
       HashicorpVaultKmsService.loggedInit = true
-      if(this.debugEnabled) {
-        console.info('🔐 [encryption][kms] Hashicorp Vault KMS enabled')
+      if (this.debugEnabled) {
+        logger.info('Hashicorp Vault KMS enabled')
       }
     }
   }
@@ -267,21 +268,17 @@ export class HashicorpVaultKmsService implements KmsService {
         // not-yet-created tenant DEK is the normal read-before-write path.
         if (res.status >= 500) this.markTransientFailure()
         else this.markHealthy()
-        console.warn('⚠️ [encryption][kms] Vault read failed', { path, status: res.status })
+        logger.warn('Vault read failed', { path, status: res.status })
         return null
       }
       this.markHealthy()
       if (this.debugEnabled) {
-        console.info('🔍 [encryption][kms] Vault read ok', { path })
+        logger.info('Vault read ok', { path })
       }
       return (await res.json()) as VaultReadResponse
     } catch (err) {
       this.markTransientFailure()
-      console.warn('⚠️ [encryption][kms] Vault read error', {
-        path,
-        error: (err as Error)?.message || String(err),
-        timeoutMs: this.requestTimeoutMs,
-      })
+      logger.warn('Vault read error', { path, err, timeoutMs: this.requestTimeoutMs })
       return null
     }
   }
@@ -313,19 +310,15 @@ export class HashicorpVaultKmsService implements KmsService {
       // not an unhealthy Vault — Vault is reachable, so close the breaker.
       if (typeof opts?.cas === 'number' && res.status === 400) {
         this.markHealthy()
-        console.warn('⚠️ [encryption][kms] Vault write CAS conflict (concurrent DEK create)', { path, status: res.status })
+        logger.warn('Vault write CAS conflict (concurrent DEK create)', { path, status: res.status })
         return 'conflict'
       }
       this.markTransientFailure()
-      console.warn('⚠️ [encryption][kms] Vault write failed', { path, status: res.status })
+      logger.warn('Vault write failed', { path, status: res.status })
       return 'error'
     } catch (err) {
       this.markTransientFailure()
-      console.warn('⚠️ [encryption][kms] Vault write error', {
-        path,
-        error: (err as Error)?.message || String(err),
-        timeoutMs: this.requestTimeoutMs,
-      })
+      logger.warn('Vault write error', { path, err, timeoutMs: this.requestTimeoutMs })
       return 'error'
     }
   }
@@ -348,7 +341,7 @@ export class HashicorpVaultKmsService implements KmsService {
     const res = await this.readVault(path)
     const key = res?.data?.data?.key
     if (!key) {
-      console.warn('⚠️ [encryption][kms] No tenant DEK found in Vault', { tenantId, path })
+      logger.warn('No tenant DEK found in Vault', { tenantId, path })
       return null
     }
     const dek: TenantDek = { tenantId, key, fetchedAt: this.now() }
@@ -371,7 +364,7 @@ export class HashicorpVaultKmsService implements KmsService {
     const key = generateDek()
     const outcome = await this.writeVault(path, key, { cas: 0 })
     if (outcome === 'ok') {
-      console.info('🔑 [encryption][kms] Stored tenant DEK in Vault', { tenantId, path })
+      logger.info('Stored tenant DEK in Vault', { tenantId, path })
       return this.remember({ tenantId, key, fetchedAt: this.now() })
     }
     if (outcome === 'conflict') {
@@ -380,11 +373,11 @@ export class HashicorpVaultKmsService implements KmsService {
       const winner = await this.readVault(path)
       const winnerKey = winner?.data?.data?.key
       if (winnerKey) {
-        console.info('🔑 [encryption][kms] Adopted concurrently-created tenant DEK', { tenantId, path })
+        logger.info('Adopted concurrently-created tenant DEK', { tenantId, path })
         return this.remember({ tenantId, key: winnerKey, fetchedAt: this.now() })
       }
     }
-    console.warn('⚠️ [encryption][kms] Failed to store tenant DEK in Vault', { tenantId, path })
+    logger.warn('Failed to store tenant DEK in Vault', { tenantId, path })
     return null
   }
 
@@ -419,12 +412,15 @@ function logDerivedKeyFallbackBanner(opts: DerivedSecret): void {
   const width = 110
   const border = `${redBg}${white}${'━'.repeat(width)}${reset}`
   const body = buildDerivedKeyFallbackBannerLines(opts)
-  console.warn(border)
-  for (const line of body) {
-    const padded = line.padEnd(width - 2, ' ')
-    console.warn(`${redBg}${white} ${padded} ${reset}`)
-  }
-  console.warn(border)
+  const bannerLines = [
+    border,
+    ...body.map((line) => `${redBg}${white} ${line.padEnd(width - 2, ' ')} ${reset}`),
+    border,
+  ]
+  process.stderr.write(bannerLines.join('\n') + '\n')
+  logger.warn('Using derived tenant encryption keys (Vault unavailable / no DEK)', {
+    secretFingerprint: fingerprintSecret(opts.secret),
+  })
 }
 
 export function createKmsService(): KmsService {
@@ -444,9 +440,7 @@ export function createKmsService(): KmsService {
       notifyFallback?.()
       return fallback
     }
-    console.warn(
-      '⚠️ [encryption][kms] Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS',
-    )
+    logger.warn('Vault not healthy or misconfigured (missing VAULT_ADDR/VAULT_TOKEN) and no fallback secret provided; falling back to noop KMS')
     return new NoopKmsService()
   }
 

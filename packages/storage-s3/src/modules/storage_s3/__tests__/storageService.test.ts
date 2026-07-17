@@ -40,6 +40,28 @@ describe('createStorageService', () => {
     expect(mockSend).not.toHaveBeenCalled()
   })
 
+  it('allows shared namespace downloads for the requested scope', async () => {
+    mockSend.mockResolvedValueOnce({
+      Body: {
+        on(event: string, callback: (chunk?: Buffer) => void) {
+          if (event === 'data') callback(Buffer.from('shared'))
+          if (event === 'end') callback()
+          return this
+        },
+      },
+      ContentType: 'text/plain',
+    })
+    const service = createStorageService(BASE_CONFIG)
+
+    const result = await service.download({
+      key: 'docs/org_shared/tenant_shared/shared.txt',
+      scope: TENANT_SCOPE,
+    })
+
+    expect(result.buffer.toString()).toBe('shared')
+    expect(mockSend).toHaveBeenCalledTimes(1)
+  })
+
   it('rejects cross-tenant deletes before calling S3', async () => {
     const service = createStorageService(BASE_CONFIG)
 
@@ -73,6 +95,20 @@ describe('createStorageService', () => {
       service.getSignedUrl({
         key: 'docs/org_org-owned/tenant_tenant-victim/file.txt',
         operation: 'download',
+        scope: TENANT_SCOPE,
+      }),
+    ).rejects.toThrow('S3 key is not scoped to the active tenant')
+
+    expect(mockGetSignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('keeps shared namespace unavailable for upload signed URLs', async () => {
+    const service = createStorageService(BASE_CONFIG)
+
+    await expect(
+      service.getSignedUrl({
+        key: 'docs/org_shared/tenant_shared/shared.txt',
+        operation: 'upload',
         scope: TENANT_SCOPE,
       }),
     ).rejects.toThrow('S3 key is not scoped to the active tenant')

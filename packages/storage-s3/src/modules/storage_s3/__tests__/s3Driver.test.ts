@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import path from 'path'
 import { Readable } from 'stream'
 
 const mockSend = jest.fn()
@@ -17,12 +18,14 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
 }))
 
 const mockMkdir = jest.fn().mockResolvedValue(undefined)
+const mockMkdtemp = jest.fn().mockResolvedValue('/tmp/s3-tmp-secure')
 const mockWriteFile = jest.fn().mockResolvedValue(undefined)
 const mockRm = jest.fn().mockResolvedValue(undefined)
 
 jest.mock('fs', () => ({
   promises: {
     mkdir: (...a: unknown[]) => mockMkdir(...a),
+    mkdtemp: (...a: unknown[]) => mockMkdtemp(...a),
     writeFile: (...a: unknown[]) => mockWriteFile(...a),
     rm: (...a: unknown[]) => mockRm(...a),
   },
@@ -41,6 +44,12 @@ beforeEach(() => {
   mockSend.mockReset()
   mockGetSignedUrl.mockReset()
   mockGetSignedUrl.mockResolvedValue('https://presigned.example.com/object?sig=abc')
+  mockMkdtemp.mockReset()
+  mockMkdtemp.mockResolvedValue('/tmp/s3-tmp-secure')
+  mockWriteFile.mockReset()
+  mockWriteFile.mockResolvedValue(undefined)
+  mockRm.mockReset()
+  mockRm.mockResolvedValue(undefined)
   ;(S3Client as jest.Mock).mockClear()
 })
 
@@ -194,6 +203,23 @@ describe('S3StorageDriver', () => {
       expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it('allows shared namespace keys when the driver is scoped', async () => {
+      mockSend.mockResolvedValueOnce({
+        Body: makeStream(Buffer.from('shared')),
+        ContentType: 'text/plain',
+      })
+      const driver = new S3StorageDriver({
+        ...BASE_CONFIG,
+        organizationId: 'org-owned',
+        tenantId: 'tenant-owned',
+      })
+
+      const result = await driver.read('', 'docs/org_shared/tenant_shared/shared.txt')
+
+      expect(result.buffer.toString()).toBe('shared')
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
     it('rejects keys outside the requested partition before reading', async () => {
       mockSend.mockResolvedValueOnce({
         Body: makeStream(Buffer.from('secret')),
@@ -204,6 +230,20 @@ describe('S3StorageDriver', () => {
       await expect(
         driver.read('docs', 'exports/org_o/tenant_t/file.txt'),
       ).rejects.toThrow('S3 key is not scoped to the requested partition')
+
+      expect(mockSend).not.toHaveBeenCalled()
+    })
+
+    it('rejects nested foreign scope segments before reading', async () => {
+      const driver = new S3StorageDriver({
+        ...BASE_CONFIG,
+        organizationId: 'org-owned',
+        tenantId: 'tenant-owned',
+      })
+
+      await expect(
+        driver.read('', 'docs/org_org-victim/tenant_tenant-owned/org_org-owned/tenant_tenant-owned/private.txt'),
+      ).rejects.toThrow('S3 key is not scoped to the active tenant')
 
       expect(mockSend).not.toHaveBeenCalled()
     })
@@ -256,6 +296,19 @@ describe('S3StorageDriver', () => {
       expect(mockSend).not.toHaveBeenCalled()
     })
 
+    it('allows deleting shared namespace keys when the driver is scoped', async () => {
+      mockSend.mockResolvedValueOnce({})
+      const driver = new S3StorageDriver({
+        ...BASE_CONFIG,
+        organizationId: 'org-owned',
+        tenantId: 'tenant-owned',
+      })
+
+      await driver.delete('', 'docs/org_shared/tenant_shared/shared.txt')
+
+      expect(mockSend).toHaveBeenCalledTimes(1)
+    })
+
     it('rejects keys outside the requested partition before deleting', async () => {
       const driver = new S3StorageDriver(BASE_CONFIG)
 
@@ -264,6 +317,55 @@ describe('S3StorageDriver', () => {
       ).rejects.toThrow('S3 key is not scoped to the requested partition')
 
       expect(mockSend).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('toLocalPath()', () => {
+    it('creates an owner-only temporary file without following an existing path', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      const result = await driver.toLocalPath('', 'docs/private.pdf')
+
+      expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringMatching(/s3-tmp-$/))
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        path.join('/tmp/s3-tmp-secure', 'private.pdf'),
+        Buffer.from('sensitive'),
+        { flag: 'wx', mode: 0o600 },
+      )
+      expect(result.filePath).toBe(path.join('/tmp/s3-tmp-secure', 'private.pdf'))
+    })
+
+    it('removes the temporary directory when the S3 download fails', async () => {
+      mockSend.mockRejectedValueOnce(new Error('download failed'))
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      await expect(driver.toLocalPath('', 'docs/private.pdf')).rejects.toThrow('download failed')
+
+      expect(mockRm).toHaveBeenCalledWith('/tmp/s3-tmp-secure', { recursive: true, force: true })
+    })
+
+    it('removes partial artifacts without masking a write failure', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      mockWriteFile.mockRejectedValueOnce(new Error('write failed'))
+      mockRm.mockRejectedValueOnce(new Error('cleanup failed'))
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      await expect(driver.toLocalPath('', 'docs/private.pdf')).rejects.toThrow('write failed')
+
+      expect(mockRm).toHaveBeenCalledWith('/tmp/s3-tmp-secure', { recursive: true, force: true })
+    })
+
+    it('returns an idempotent cleanup callback', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      const driver = new S3StorageDriver(BASE_CONFIG)
+      const result = await driver.toLocalPath('', 'docs/private.pdf')
+
+      await result.cleanup()
+      await result.cleanup()
+
+      expect(mockRm).toHaveBeenNthCalledWith(1, '/tmp/s3-tmp-secure', { recursive: true, force: true })
+      expect(mockRm).toHaveBeenNthCalledWith(2, '/tmp/s3-tmp-secure', { recursive: true, force: true })
     })
   })
 
@@ -292,6 +394,32 @@ describe('S3StorageDriver', () => {
 
       await expect(
         driver.getSignedUrl('docs/org_org-victim/tenant_tenant-owned/file.pdf', 'download'),
+      ).rejects.toThrow('S3 key is not scoped to the active tenant')
+
+      expect(mockGetSignedUrl).not.toHaveBeenCalled()
+    })
+
+    it('allows download signed URLs for shared namespace keys when scoped', async () => {
+      const driver = new S3StorageDriver({
+        ...BASE_CONFIG,
+        organizationId: 'org-owned',
+        tenantId: 'tenant-owned',
+      })
+
+      await driver.getSignedUrl('docs/org_shared/tenant_shared/shared.pdf', 'download')
+
+      expect(mockGetSignedUrl).toHaveBeenCalledTimes(1)
+    })
+
+    it('rejects upload signed URLs for shared namespace keys when scoped', async () => {
+      const driver = new S3StorageDriver({
+        ...BASE_CONFIG,
+        organizationId: 'org-owned',
+        tenantId: 'tenant-owned',
+      })
+
+      await expect(
+        driver.getSignedUrl('docs/org_shared/tenant_shared/shared.pdf', 'upload'),
       ).rejects.toThrow('S3 key is not scoped to the active tenant')
 
       expect(mockGetSignedUrl).not.toHaveBeenCalled()

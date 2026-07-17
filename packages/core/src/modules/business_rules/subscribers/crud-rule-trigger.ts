@@ -12,6 +12,9 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import { executeRules, resolveBusinessRuleDiscoveryCache } from '../lib/rule-engine'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('business_rules').child({ component: 'crud-rule-trigger' })
 
 export const metadata = {
   event: '*',
@@ -75,6 +78,6 @@ export default async function handle(
       organizationId,
     }, { cache })
   } catch (error) {
-    console.error(`[business_rules] Rule execution failed for event ${eventName}:`, error)
+    logger.error('Rule execution failed for event', { event: eventName, err: error })
   }
 }

@@ -6,12 +6,10 @@ import { format } from 'date-fns/format'
 import { isToday } from 'date-fns/isToday'
 import { isTomorrow } from 'date-fns/isTomorrow'
 import { startOfDay } from 'date-fns/startOfDay'
-import { CalendarClock } from 'lucide-react'
 import { useLocale, useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 import { Avatar } from '@open-mercato/ui/primitives/avatar'
 import { Button } from '@open-mercato/ui/primitives/button'
-import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { eventDisplayTitle, pluralCategory } from '../../lib/calendar/labels'
 import type { AgendaListProps, CalendarCategory, CalendarItem } from './types'
 
@@ -201,14 +199,6 @@ function AgendaRow({
 export function AgendaList({ anchor, horizonDays, items, typeLabels, onItemClick }: AgendaListProps) {
   const t = useT()
   const groups = React.useMemo(() => buildDayGroups(anchor, horizonDays, items), [anchor, horizonDays, items])
-  if (groups.length === 0) {
-    return (
-      <EmptyState
-        icon={<CalendarClock className="h-6 w-6" aria-hidden="true" />}
-        title={t('customers.calendar.empty.agenda', 'Nothing scheduled in this period')}
-      />
-    )
-  }
   return (
     <div className="flex w-full flex-col divide-y divide-border overflow-hidden border border-border bg-background">
       {groups.map((group) => (

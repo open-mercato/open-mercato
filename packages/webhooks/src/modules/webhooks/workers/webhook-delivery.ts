@@ -1,5 +1,8 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { processWebhookDeliveryJob, type WebhookDeliveryJob } from '../lib/delivery'
+
+const logger = createLogger('webhooks').child({ component: 'delivery' })
 
 export const metadata = {
   queue: 'webhook-deliveries',
@@ -15,10 +18,10 @@ export default async function handler(
   try {
     await processWebhookDeliveryJob(em, job.data)
   } catch (error) {
-    console.error('[webhooks:delivery] Job processing failed', {
+    logger.error('Job processing failed', {
       deliveryId: job.data.deliveryId,
       tenantId: job.data.tenantId,
-      error: error instanceof Error ? error.message : String(error),
+      err: error,
     })
     throw error
   }

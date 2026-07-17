@@ -21,7 +21,22 @@ import {
   type StaffLeaveRequestDecisionInput,
   type StaffLeaveRequestUpdateInput,
 } from '../data/validators'
-import { ensureOrganizationScope, ensureTenantScope, extractUndoPayload, requireTeamMember } from './shared'
+import {
+  applyScopeToWhere,
+  commandActorScope,
+  commandInputScope,
+  ensureOrganizationScope,
+  ensureTenantScope,
+  explicitStaffCommandScope,
+  extractUndoPayload,
+  requireTeamMember,
+  scopeForDecryption,
+  scopedStaffSnapshotWhere,
+  staffSnapshotDecryptionScope,
+  staffSnapshotScopeFromContext,
+  staffSnapshotScopeFromSnapshot,
+  type StaffSnapshotScope,
+} from './shared'
 import { E } from '#generated/entities.ids.generated'
 import { resolveNotificationService } from '../../notifications/lib/notificationService'
 import { buildFeatureNotificationFromType, buildNotificationFromType } from '../../notifications/lib/notificationBuilder'
@@ -118,8 +133,14 @@ function buildFullDayRrule(date: string): string | null {
   return buildAvailabilityRrule(start, end)
 }
 
-async function loadLeaveRequestSnapshot(em: EntityManager, id: string): Promise<LeaveRequestSnapshot | null> {
-  const request = await findOneWithDecryption(em, StaffLeaveRequest, { id }, undefined, { tenantId: null, organizationId: null })
+async function loadLeaveRequestSnapshot(em: EntityManager, id: string, scope?: StaffSnapshotScope | null): Promise<LeaveRequestSnapshot | null> {
+  const request = await findOneWithDecryption(
+    em,
+    StaffLeaveRequest,
+    scopedStaffSnapshotWhere(id, scope),
+    undefined,
+    staffSnapshotDecryptionScope(scope),
+  )
   if (!request) return null
   const memberId = typeof request.member === 'string' ? request.member : request.member.id
   return {
@@ -167,8 +188,18 @@ function leaveRequestSeedFromSnapshot(snapshot: LeaveRequestSnapshot): Record<st
   }
 }
 
-async function requireLeaveRequest(em: EntityManager, id: string): Promise<StaffLeaveRequest> {
-  const request = await findOneWithDecryption(em, StaffLeaveRequest, { id, deletedAt: null }, undefined, { tenantId: null, organizationId: null })
+async function requireLeaveRequest(
+  em: EntityManager,
+  id: string,
+  scope: ReturnType<typeof explicitStaffCommandScope>,
+): Promise<StaffLeaveRequest> {
+  const request = await findOneWithDecryption(
+    em,
+    StaffLeaveRequest,
+    applyScopeToWhere<StaffLeaveRequest>({ id, deletedAt: null }, scope),
+    undefined,
+    scopeForDecryption(scope),
+  )
   if (!request) throw new CrudHttpError(404, { error: 'Leave request not found.' })
   return request
 }
@@ -245,9 +276,15 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     const parsed = staffLeaveRequestCreateSchema.parse(rawInput)
     ensureTenantScope(ctx, parsed.tenantId)
     ensureOrganizationScope(ctx, parsed.organizationId)
+    const scope = commandInputScope(ctx, parsed.tenantId, parsed.organizationId)
 
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const member = await requireTeamMember(em, parsed.memberId, 'Team member not found')
+    const member = await requireTeamMember(
+      em,
+      parsed.memberId,
+      scope,
+      'Team member not found',
+    )
     ensureTenantScope(ctx, member.tenantId)
     ensureOrganizationScope(ctx, member.organizationId)
 
@@ -323,12 +360,12 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadLeaveRequestSnapshot(em, result.requestId)
+    return await loadLeaveRequestSnapshot(em, result.requestId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
+    const snapshot = await loadLeaveRequestSnapshot(em, result.requestId, staffSnapshotScopeFromContext(ctx))
     return {
       actionLabel: translate('staff.audit.leaveRequests.create', 'Create leave request'),
       resourceKind: 'staff.leave_request',
@@ -350,7 +387,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await em.findOne(StaffLeaveRequest, { id: after.id })
+    const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (request) {
       request.deletedAt = new Date()
       request.updatedAt = new Date()
@@ -379,7 +416,7 @@ const createLeaveRequestCommand: CommandHandler<StaffLeaveRequestCreateInput, { 
       findOneWithDecryption(
         em,
         StaffLeaveRequest,
-        { id },
+        scopedStaffSnapshotWhere(id, staffSnapshotScopeFromSnapshot(snapshot)),
         undefined,
         { tenantId: snapshot.tenantId, organizationId: snapshot.organizationId },
       ),
@@ -394,19 +431,20 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
   async prepare(rawInput, ctx) {
     const parsed = staffLeaveRequestUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id)
+    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestUpdateSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const scope = commandActorScope(ctx)
+    const request = await requireLeaveRequest(em, parsed.id, scope)
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
 
     if (parsed.memberId !== undefined) {
-      const member = await requireTeamMember(em, parsed.memberId, 'Team member not found')
+      const member = await requireTeamMember(em, parsed.memberId, scope, 'Team member not found')
       ensureTenantScope(ctx, member.tenantId)
       ensureOrganizationScope(ctx, member.organizationId)
       request.member = member
@@ -441,7 +479,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const before = snapshots.before as LeaveRequestSnapshot | undefined
     if (!before) return null
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadLeaveRequestSnapshot(em, before.id)
+    const after = await loadLeaveRequestSnapshot(em, before.id, staffSnapshotScopeFromSnapshot(before))
     const changes = after
       ? buildChanges(before as unknown as Record<string, unknown>, after as unknown as Record<string, unknown>, [
           'memberId',
@@ -478,7 +516,7 @@ const updateLeaveRequestCommand: CommandHandler<StaffLeaveRequestUpdateInput, { 
     const after = payload?.after
     if (!before || !after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await em.findOne(StaffLeaveRequest, { id: after.id })
+    const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (!request) return
     request.startDate = new Date(before.startDate)
     request.endDate = new Date(before.endDate)
@@ -514,7 +552,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.pick({ id: true }).parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
@@ -541,12 +579,12 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
   },
   captureAfter: async (_input, result, ctx) => {
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    return await loadLeaveRequestSnapshot(em, result.requestId)
+    return await loadLeaveRequestSnapshot(em, result.requestId, staffSnapshotScopeFromContext(ctx))
   },
   buildLog: async ({ result, ctx }) => {
     const { translate } = await resolveTranslations()
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const snapshot = await loadLeaveRequestSnapshot(em, result.requestId)
+    const snapshot = await loadLeaveRequestSnapshot(em, result.requestId, staffSnapshotScopeFromContext(ctx))
     return {
       actionLabel: translate('staff.audit.leaveRequests.delete', 'Delete leave request'),
       resourceKind: 'staff.leave_request',
@@ -568,7 +606,7 @@ const deleteLeaveRequestCommand: CommandHandler<{ id: string }, { requestId: str
     const after = payload?.after
     if (!after) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await em.findOne(StaffLeaveRequest, { id: after.id })
+    const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(after.id, staffSnapshotScopeFromSnapshot(after)))
     if (!request) return
     request.deletedAt = null
     request.updatedAt = new Date()
@@ -595,7 +633,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
@@ -701,7 +739,11 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadLeaveRequestSnapshot(em, result.requestId)
+    const after = await loadLeaveRequestSnapshot(
+      em,
+      result.requestId,
+      staffSnapshotScopeFromSnapshot(before) ?? staffSnapshotScopeFromContext(ctx),
+    )
     return {
       actionLabel: translate('staff.audit.leaveRequests.accept', 'Approve leave request'),
       resourceKind: 'staff.leave_request',
@@ -724,7 +766,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async prepare(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id)
+    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   undo: async ({ logEntry, ctx }) => {
@@ -733,7 +775,7 @@ const acceptLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const availabilityRuleIds = payload?.availabilityRuleIds ?? []
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await em.findOne(StaffLeaveRequest, { id: before.id })
+    const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!request) return
 
     // Fetch rules before mutating so the query cannot reset unit-of-work tracking
@@ -802,7 +844,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async execute(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await requireLeaveRequest(em, parsed.id)
+    const request = await requireLeaveRequest(em, parsed.id, commandActorScope(ctx))
     ensureTenantScope(ctx, request.tenantId)
     ensureOrganizationScope(ctx, request.organizationId)
     ensurePendingStatus(request)
@@ -864,14 +906,18 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
   async prepare(rawInput, ctx) {
     const parsed = staffLeaveRequestDecisionSchema.parse(rawInput)
     const em = (ctx.container.resolve('em') as EntityManager)
-    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id)
+    const snapshot = await loadLeaveRequestSnapshot(em, parsed.id, staffSnapshotScopeFromContext(ctx))
     return snapshot ? { before: snapshot } : {}
   },
   buildLog: async ({ result, ctx, snapshots }) => {
     const { translate } = await resolveTranslations()
     const before = snapshots.before as LeaveRequestSnapshot | undefined
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const after = await loadLeaveRequestSnapshot(em, result.requestId)
+    const after = await loadLeaveRequestSnapshot(
+      em,
+      result.requestId,
+      staffSnapshotScopeFromSnapshot(before) ?? staffSnapshotScopeFromContext(ctx),
+    )
     return {
       actionLabel: translate('staff.audit.leaveRequests.reject', 'Reject leave request'),
       resourceKind: 'staff.leave_request',
@@ -895,7 +941,7 @@ const rejectLeaveRequestCommand: CommandHandler<StaffLeaveRequestDecisionInput, 
     const before = payload?.before
     if (!before) return
     const em = (ctx.container.resolve('em') as EntityManager).fork()
-    const request = await em.findOne(StaffLeaveRequest, { id: before.id })
+    const request = await em.findOne(StaffLeaveRequest, scopedStaffSnapshotWhere(before.id, staffSnapshotScopeFromSnapshot(before)))
     if (!request) return
     request.status = before.status
     request.decisionComment = before.decisionComment

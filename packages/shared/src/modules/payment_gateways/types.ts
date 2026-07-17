@@ -117,6 +117,8 @@ export type PaymentGatewayClientSession =
 export interface CreateSessionInput {
   orderId?: string
   paymentId: string
+  /** Stable operation key for provider-native session creation idempotency. */
+  idempotencyKey?: string
   tenantId: string
   organizationId: string
   amount: number

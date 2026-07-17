@@ -1,6 +1,7 @@
 import { randomUUID } from 'crypto'
 import { S3StorageDriver } from './s3-driver'
 import {
+  assertS3KeyAddressableByTenantScope,
   assertS3KeyScopedToTenant,
   assertS3ListPrefixScopedToTenant,
 } from './key-scope'
@@ -105,16 +106,21 @@ export function createStorageService(config: S3Config): StorageService {
     },
 
     async download({ key, scope }): Promise<{ buffer: Buffer; contentType?: string }> {
-      assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.read('', key)
     },
 
     async delete({ key, scope }): Promise<void> {
-      assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.delete('', key)
     },
 
     async getSignedUrl({ key, operation, expiresIn = 3600, contentType, scope }): Promise<{ url: string; expiresAt: Date }> {
+      if (operation === 'upload') {
+        assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      } else {
+        assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
+      }
       const url = await driver.getSignedUrl(key, operation, expiresIn, contentType, scope)
       return { url, expiresAt: new Date(Date.now() + expiresIn * 1000) }
     },
@@ -129,7 +135,7 @@ export function createStorageService(config: S3Config): StorageService {
     },
 
     async toLocalPath({ key, scope }) {
-      assertS3KeyScopedToTenant(key, scope, pathPrefix)
+      assertS3KeyAddressableByTenantScope(key, scope, pathPrefix)
       return driver.toLocalPath('', key)
     },
   }

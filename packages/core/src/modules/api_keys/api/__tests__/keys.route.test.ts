@@ -7,6 +7,7 @@ const secretFixture = { secret: 'omk_test.secret', prefix: 'omk_testpref' }
 
 type QueueEntry = { entity?: unknown }
 type OrmEntityInput = { data: Record<string, unknown>; [key: string]: unknown }
+type DeleteOrmEntityInput = { where: Record<string, unknown>; [key: string]: unknown }
 
 interface MockEntityManager {
   findOne: jest.Mock<Promise<unknown>, [unknown, Record<string, unknown>?]>
@@ -18,6 +19,7 @@ interface MockEntityManager {
 interface MockDataEngine {
   __queue: QueueEntry[]
   createOrmEntity: jest.Mock<Promise<Record<string, unknown>>, [OrmEntityInput]>
+  deleteOrmEntity: jest.Mock<Promise<Record<string, unknown> | null>, [DeleteOrmEntityInput]>
   emitOrmEntityEvent: jest.Mock<Promise<void>, [QueueEntry | undefined]>
   markOrmEntityChange: jest.Mock<void, [QueueEntry | undefined]>
   flushOrmEntityChanges: jest.Mock<Promise<void>, []>
@@ -50,6 +52,7 @@ const mockEm: MockEntityManager = {
 const mockDataEngine: MockDataEngine = {
   __queue: queue,
   createOrmEntity: jest.fn<Promise<Record<string, unknown>>, [OrmEntityInput]>(),
+  deleteOrmEntity: jest.fn<Promise<Record<string, unknown> | null>, [DeleteOrmEntityInput]>(),
   emitOrmEntityEvent: jest.fn<Promise<void>, [QueueEntry | undefined]>(),
   markOrmEntityChange: jest.fn<void, [QueueEntry | undefined]>(),
   flushOrmEntityChanges: jest.fn<Promise<void>, []>(),
@@ -104,11 +107,13 @@ jest.mock('../../services/apiKeyService', () => {
 type RouteModule = typeof import('../keys/route')
 let routeMetadata: RouteModule['metadata']
 let postHandler: RouteModule['POST']
+let deleteHandler: RouteModule['DELETE']
 
 beforeAll(async () => {
   const routeModule = await import('../keys/route')
   routeMetadata = routeModule.metadata
   postHandler = routeModule.POST
+  deleteHandler = routeModule.DELETE
 })
 
 describe('API Keys route', () => {
@@ -118,7 +123,7 @@ describe('API Keys route', () => {
     mockFindOneWithDecryption.mockReset()
     mockFindOneWithDecryption.mockResolvedValue(null)
     mockEm.fork.mockReturnValue(mockEm)
-    mockEm.transactional.mockImplementation((cb) => cb())
+    mockEm.transactional.mockImplementation((cb) => cb(mockEm))
     mockGetAuthFromCookies.mockResolvedValue({
       sub: 'user-1',
       tenantId: '123e4567-e89b-12d3-a456-426614174000',
@@ -165,6 +170,7 @@ describe('API Keys route', () => {
       id: 'key-1',
       ...data,
     }))
+    mockDataEngine.deleteOrmEntity.mockResolvedValue(null)
     mockDataEngine.emitOrmEntityEvent.mockResolvedValue(undefined)
     mockDataEngine.markOrmEntityChange.mockImplementation((entry: QueueEntry | undefined) => {
       if (!entry?.entity) return
@@ -289,5 +295,209 @@ describe('API Keys route', () => {
     const payload = await res.json()
     expect(payload.error).toBe('Organization out of scope')
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('denies deletion when the resolved organization allowlist is empty', async () => {
+    const record = {
+      id: '11111111-1111-4111-8111-111111111111',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      deletedAt: null,
+    }
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: [], allowedIds: [] })
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=11111111-1111-4111-8111-111111111111', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Not found' })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      expect.any(Function),
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        organizationId: { $in: [] },
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: '123e4567-e89b-12d3-a456-426614174000', organizationId: null },
+    )
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('deletes an API key in an allowed organization', async () => {
+    const record = {
+      id: '22222222-2222-4222-8222-222222222222',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      deletedAt: null,
+    }
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=22222222-2222-4222-8222-222222222222', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true })
+    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: '22222222-2222-4222-8222-222222222222',
+        tenantId: '123e4567-e89b-12d3-a456-426614174000',
+        deletedAt: null,
+      },
+    }))
+  })
+
+  it('returns the same not-found response for a foreign organization without mutation', async () => {
+    const record = {
+      id: '33333333-3333-4333-8333-333333333333',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      deletedAt: null,
+    }
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=33333333-3333-4333-8333-333333333333', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Not found' })
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('allows a superadmin to delete across organizations', async () => {
+    const record = {
+      id: '44444444-4444-4444-8444-444444444444',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      deletedAt: null,
+    }
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: [], allowedIds: [] })
+    mockRbac.loadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=44444444-4444-4444-8444-444444444444', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true })
+    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves unrestricted legacy organization access for a non-superadmin', async () => {
+    const record = {
+      id: '77777777-7777-4777-8777-777777777777',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      deletedAt: null,
+    }
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: null, allowedIds: null })
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=77777777-7777-4777-8777-777777777777', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true })
+    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
+  it('preserves a superadmin selected-tenant override for lookup and deletion', async () => {
+    const selectedTenantId = '223e4567-e89b-12d3-a456-426614174000'
+    const overriddenAuth = {
+      sub: 'user-1',
+      tenantId: selectedTenantId,
+      actorTenantId: '123e4567-e89b-12d3-a456-426614174000',
+      orgId: null,
+      isSuperAdmin: true,
+    }
+    const record = {
+      id: '88888888-8888-4888-8888-888888888888',
+      tenantId: selectedTenantId,
+      organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      deletedAt: null,
+    }
+    mockGetAuthFromCookies.mockResolvedValueOnce(overriddenAuth)
+    mockGetAuthFromRequest.mockResolvedValueOnce(overriddenAuth)
+    mockResolveScope.mockResolvedValueOnce({
+      selectedId: record.organizationId,
+      filterIds: [record.organizationId],
+      allowedIds: null,
+      tenantId: selectedTenantId,
+    })
+    mockRbac.loadAcl.mockResolvedValueOnce({ isSuperAdmin: true })
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+    mockDataEngine.deleteOrmEntity.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=88888888-8888-4888-8888-888888888888', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ success: true })
+    expect(mockFindOneWithDecryption).toHaveBeenCalledWith(
+      mockEm,
+      expect.any(Function),
+      {
+        id: record.id,
+        tenantId: selectedTenantId,
+        deletedAt: null,
+      },
+      undefined,
+      { tenantId: selectedTenantId, organizationId: null },
+    )
+    expect(mockDataEngine.deleteOrmEntity).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id: record.id,
+        tenantId: selectedTenantId,
+        deletedAt: null,
+      },
+    }))
+  })
+
+  it('does not enumerate or mutate an API key from another tenant', async () => {
+    const record = {
+      id: '55555555-5555-4555-8555-555555555555',
+      tenantId: '223e4567-e89b-12d3-a456-426614174000',
+      organizationId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      deletedAt: null,
+    }
+    mockEm.findOne.mockResolvedValueOnce(record)
+    mockFindOneWithDecryption.mockResolvedValueOnce(record)
+
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=55555555-5555-4555-8555-555555555555', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Not found' })
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('returns not found for an unknown API key without mutation', async () => {
+    const response = await deleteHandler(
+      new Request('http://localhost/api/api_keys/keys?id=66666666-6666-4666-8666-666666666666', { method: 'DELETE' }),
+    )
+
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Not found' })
+    expect(mockDataEngine.deleteOrmEntity).not.toHaveBeenCalled()
   })
 })
