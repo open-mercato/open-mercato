@@ -44,6 +44,9 @@ param(
     [switch]$IncludeNativeToolchain,
     [switch]$Rebuild,
     [switch]$NoAdmin,
+    # Downgrades the RAM/disk preflight failures to warnings (small machines
+    # that accept the OOM / out-of-disk risk).
+    [switch]$SkipResourceCheck,
     # Container runtime: 'auto' uses whatever is already installed (Docker
     # Desktop or Rancher Desktop) and installs Docker Desktop on clean machines;
     # 'rancher' prefers/installs Rancher Desktop (common where Docker Desktop
@@ -1007,6 +1010,61 @@ function Invoke-RebootGate {
 }
 
 # ---------------------------------------------------------------------------
+# WSL2 memory sizing
+# ---------------------------------------------------------------------------
+
+function Ensure-WslMemoryConfig {
+    # WSL2's defaults are wrong for this stack on 16 GB machines: Windows 11
+    # caps the VM at min(50% of RAM, 8 GB) while the stack needs ~8-10 GB
+    # inside it (the OOM killer then surfaces as "app container
+    # crash-looping"), and Windows 10 lets the VM take up to 80% of RAM and
+    # starve the host. One explicit cap fixes both directions; Docker Desktop
+    # and Rancher Desktop both run on WSL2, so it covers either runtime.
+    # Fill-missing-only: an existing memory= line is never touched.
+    Write-StepHeader "WSL2 memory sizing (.wslconfig)" "instant"
+    if ($DryRun) { Write-Info "Would cap the WSL2 VM via %USERPROFILE%\.wslconfig on machines under 20 GB RAM."; return }
+    if (-not $script:TotalRamGb -or $script:TotalRamGb -le 0) {
+        Write-Ok "Total RAM unknown - leaving WSL2 defaults in place"
+        return
+    }
+    if ($script:TotalRamGb -ge 20) {
+        Write-Ok ("{0} GB RAM - WSL2 defaults are fine, leaving them in place" -f $script:TotalRamGb)
+        return
+    }
+    $configPath = Join-Path $env:USERPROFILE ".wslconfig"
+    $existing = ""
+    if (Test-Path $configPath) { $existing = [System.IO.File]::ReadAllText($configPath) }
+    if ($existing -match "(?im)^[ \t]*memory[ \t]*=") {
+        Write-Ok ".wslconfig already sets a WSL2 memory limit - leaving it untouched"
+        return
+    }
+    $memoryGb = [int][math]::Max(8, [math]::Floor($script:TotalRamGb) - 6)
+    $settings = "memory=${memoryGb}GB`r`nswap=8GB`r`nautoMemoryReclaim=gradual"
+    if ($existing -match "(?im)^[ \t]*\[wsl2\][ \t]*\r?$") {
+        # Keys must live under the EXISTING [wsl2] header - a duplicate
+        # section is undefined behavior for the .wslconfig parser. The
+        # lookahead keeps the header's own CRLF in place (in .NET multiline
+        # mode a bare $ never matches before the \r of \r\n).
+        $sectionRegex = New-Object System.Text.RegularExpressions.Regex("(?im)^[ \t]*\[wsl2\][ \t]*(?=\r?$)")
+        $newContent = $sectionRegex.Replace($existing, "[wsl2]`r`n$settings", 1)
+    } elseif ([string]::IsNullOrWhiteSpace($existing)) {
+        $newContent = "[wsl2]`r`n$settings`r`n"
+    } else {
+        $separator = if ($existing.EndsWith("`n")) { "" } else { "`r`n" }
+        $newContent = "{0}{1}[wsl2]`r`n{2}`r`n" -f $existing, $separator, $settings
+    }
+    [System.IO.File]::WriteAllText($configPath, $newContent)
+    Write-Ok ("Capped the WSL2 VM in {0}: memory={1}GB, swap=8GB, autoMemoryReclaim=gradual (delete those lines to revert)" -f $configPath, $memoryGb)
+    $engineRunning = Test-DockerEngineReady
+    if ((Test-CommandAvailable "wsl") -and -not $engineRunning) {
+        [void](Invoke-NativeQuiet "wsl" @("--shutdown"))
+        Write-Info "Applied via 'wsl --shutdown' (the container engine was not running yet)."
+    } elseif ($engineRunning) {
+        Write-Warn "The container engine is already running - the new WSL2 memory cap takes effect after you quit Docker Desktop / Rancher Desktop and run 'wsl --shutdown' (or reboot)."
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Docker engine
 # ---------------------------------------------------------------------------
 
@@ -1381,6 +1439,7 @@ function Invoke-StandaloneClone {
     if ($SkipLlmPrompt) { $forward += "-SkipLlmPrompt" }
     if ($Rebuild) { $forward += "-Rebuild" }
     if ($NoAdmin) { $forward += "-NoAdmin" }
+    if ($SkipResourceCheck) { $forward += "-SkipResourceCheck" }
     if ($Runtime -ne "auto") { $forward += @("-Runtime", $Runtime) }
     if ($SkipDefenderExclusion) { $forward += "-SkipDefenderExclusion" }
     if ($Yes) { $forward += "-Yes" }
@@ -1491,6 +1550,9 @@ function Initialize-EnvFiles {
         if ($null -eq (Get-EnvValue -FilePath $rootEnv -Key "OM_INIT_SUPERADMIN_PASSWORD")) {
             Write-Warn "Existing postgres volume detected - keeping compose default credentials (superadmin password 'password'). Use -Reset for a clean slate."
         }
+        if ([string]::IsNullOrWhiteSpace((Get-EnvValue -FilePath $rootEnv -Key "POSTGRES_PASSWORD"))) {
+            Write-Warn "Existing postgres volume but no POSTGRES_PASSWORD in .env - the app will try the compose default ('postgres'), which only works if the volume was created with it. If the app crash-loops on database auth, restore the original .env or run -Reset (deletes all data)."
+        }
     } else {
         Add-EnvValue -FilePath $rootEnv -Key "OM_INIT_SUPERADMIN_PASSWORD" -Value (Get-SecretHex 8) -Secret
         Add-EnvValue -FilePath $rootEnv -Key "POSTGRES_PASSWORD" -Value (Get-SecretHex 16) -Secret
@@ -1578,6 +1640,16 @@ function Set-AiProviderConfig {
 function Invoke-LlmProviderPrompt {
     Write-StepHeader "AI provider (LLM API key)" "waits for your input; have a provider API key ready"
     $rootEnv = Join-Path $script:RepoRoot ".env"
+
+    # A provider can be fully configured WITHOUT an API key (Ollama, LM
+    # Studio) - keys alone are not the "already configured" signal.
+    # OM_AI_PROVIDER in .env is: without this check every re-run would prompt
+    # again, and -NonInteractive re-runs of a working stack would fail.
+    $configuredProvider = Get-EnvValue -FilePath $rootEnv -Key "OM_AI_PROVIDER"
+    if (-not [string]::IsNullOrWhiteSpace($configuredProvider)) {
+        Write-Ok ("AI already configured: provider '{0}' (from .env)" -f $configuredProvider.Trim())
+        return
+    }
 
     # Already configured, in .env or the ambient environment?
     foreach ($entry in $script:LlmProviders) {
@@ -1758,15 +1830,21 @@ function Test-ServiceCrashLooping {
 }
 
 function Test-PortConflicts {
-    $ports = @($script:AppPort, $script:McpPort, $script:SplashPort, $script:OpencodePort, $script:KeycloakPort)
-    foreach ($port in $ports) {
+    $portMap = @(
+        @{ Port = $script:AppPort; Key = "APP_PORT" },
+        @{ Port = $script:McpPort; Key = "MCP_PORT" },
+        @{ Port = $script:SplashPort; Key = "OM_DEV_SPLASH_PORT" },
+        @{ Port = $script:OpencodePort; Key = "OPENCODE_PORT" },
+        @{ Port = $script:KeycloakPort; Key = "KEYCLOAK_PORT" }
+    )
+    foreach ($entry in $portMap) {
         try {
-            $connections = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue
+            $connections = Get-NetTCPConnection -LocalPort $entry.Port -State Listen -ErrorAction SilentlyContinue
             foreach ($conn in $connections) {
                 $ownerProcess = Get-Process -Id $conn.OwningProcess -ErrorAction SilentlyContinue
                 $processName = if ($ownerProcess) { $ownerProcess.ProcessName } else { "pid $($conn.OwningProcess)" }
                 if ($processName -notmatch "docker|com\.docker|vpnkit|wslrelay") {
-                    Write-Warn "Port $port is already in use by '$processName' - the stack may fail to bind it."
+                    Write-Warn "Port $($entry.Port) is already in use by '$processName' - compose will fail to bind it. Close that program, or set $($entry.Key)=<free port> in the repo-root .env and re-run."
                 }
             }
         } catch {}
@@ -2143,6 +2221,39 @@ try {
     if (-not (Test-VirtualizationEnabled)) {
         Write-Fail "CPU virtualization appears disabled. Enable Intel VT-x / AMD-V (SVM) in your BIOS/UEFI settings, then re-run."
     }
+    # Resource floor: the full containerized stack needs ~8-10 GB inside the
+    # WSL2 VM plus headroom for Windows itself, and the first run downloads
+    # images + fills dependency volumes. Probe failures skip the check.
+    $script:TotalRamGb = 0
+    try {
+        $script:TotalRamGb = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 1)
+    } catch {}
+    $freeDiskGb = -1
+    try {
+        $systemDriveName = ($env:SystemDrive -replace ":", "")
+        $freeDiskGb = [math]::Round((Get-PSDrive -Name $systemDriveName -ErrorAction Stop).Free / 1GB, 1)
+    } catch {}
+    if ($script:TotalRamGb -gt 0 -or $freeDiskGb -ge 0) {
+        Write-Host ("  RAM: {0} GB   Free disk ({1}): {2} GB" -f $script:TotalRamGb, $env:SystemDrive, $freeDiskGb)
+    }
+    if ($script:TotalRamGb -gt 0) {
+        if ($script:TotalRamGb -lt 12 -and -not $SkipResourceCheck) {
+            Write-Fail "This machine has $($script:TotalRamGb) GB RAM; the full containerized stack needs 12 GB minimum (16 GB recommended). Use the infra-only compose (docker-compose.yml) with a native dev setup instead - or accept the OOM risk with -SkipResourceCheck."
+        } elseif ($script:TotalRamGb -lt 12) {
+            Write-Warn "Only $($script:TotalRamGb) GB RAM (-SkipResourceCheck given) - expect out-of-memory crash-loops; 12 GB is the working minimum, 16 GB recommended."
+        } elseif ($script:TotalRamGb -lt 16) {
+            Write-Warn "This machine has $($script:TotalRamGb) GB RAM - the stack fits, but 16 GB is recommended; keep other heavy apps closed during the first build."
+        }
+    }
+    if ($freeDiskGb -ge 0) {
+        if ($freeDiskGb -lt 20 -and -not $SkipResourceCheck) {
+            Write-Fail "Only $freeDiskGb GB free on $env:SystemDrive - the first run needs ~20 GB (images, dependency volumes, the WSL2 virtual disk). Free up space, then re-run - or override with -SkipResourceCheck."
+        } elseif ($freeDiskGb -lt 20) {
+            Write-Warn "Only $freeDiskGb GB free on $env:SystemDrive (-SkipResourceCheck given) - the first build may run out of disk."
+        } elseif ($freeDiskGb -lt 40) {
+            Write-Warn "$freeDiskGb GB free on $env:SystemDrive - enough to start, but Docker images and volumes grow over time; 40 GB+ free is comfortable."
+        }
+    }
     if (Test-WingetAvailable) {
         Write-Ok "Windows build $build, virtualization available, winget present"
     } else {
@@ -2164,6 +2275,9 @@ try {
 
     # Step: reboot gate (exits with 10 when a restart is pending)
     Invoke-RebootGate
+
+    # Step: WSL2 memory sizing (must land before the engine's first start)
+    Ensure-WslMemoryConfig
 
     # Step: docker engine
     Start-DockerEngine
