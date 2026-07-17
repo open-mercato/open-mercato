@@ -22,7 +22,7 @@ most of the patterns listed below in a user's codebase.
 
 ---
 
-## 0.6.5 → 0.6.6 (unreleased)
+## 0.6.6 → 0.6.7 (unreleased)
 
 ### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
 
@@ -35,6 +35,8 @@ The local scheduler used to wrap a scheduled queue target's configured `targetPa
 Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after the spread, so they always win over conflicting `targetPayload` fields. Scheduler execution metadata (`scheduleId`, `scheduleName`, `scopeType`, `triggeredAt`) is no longer injected into the application payload. The async worker's idempotency key is now derived from the retry-stable execute-schedule job id instead of `Date.now()`, so BullMQ retries of one logical firing reuse the same `_idempotencyKey`.
 
 **Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
+
+## 0.6.5 → 0.6.6 (unreleased)
 
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
