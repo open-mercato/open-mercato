@@ -30,8 +30,16 @@ RUN set -eu; \
 # transiently on shared/corporate networks (rate limits, proxies), and
 # `curl | bash` masks download failures as a later `cp` error - so download the
 # installer to a file and retry the install up to 3 times.
+# A blocking proxy answers with an HTML page and HTTP 200, which curl -f cannot
+# reject; feeding that to bash yields `syntax error near unexpected token
+# 'newline'` and the retry loop just repeats it. Check the bytes and fail fast
+# with the real reason instead.
 RUN set -eu; \
     curl -fsSL --retry 3 --retry-delay 5 https://opencode.ai/install -o /tmp/opencode-install.sh; \
+    if head -c 512 /tmp/opencode-install.sh | grep -qi '<!doctype\|<html'; then \
+        echo "https://opencode.ai/install returned an HTML page instead of a script - a proxy is blocking it. Retrying cannot help; ask IT to allow opencode.ai." >&2; \
+        exit 1; \
+    fi; \
     attempt=1; \
     until bash /tmp/opencode-install.sh --version "$OPENCODE_VERSION"; do \
         if [ "$attempt" -ge 3 ]; then echo "OpenCode install failed after $attempt attempts" >&2; exit 1; fi; \

@@ -11,9 +11,12 @@ WORKDIR /app
 # The certs land in /usr/local/share/ca-certificates so a later
 # update-ca-certificates keeps them, AND get appended to the live bundle so the
 # very first apk fetch below already trusts the proxy.
-# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
 # succeeds even when docker/certs/ is missing from a partial checkout.
-COPY .dockerignore docker/cert[s] /tmp/om-certs/
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
 RUN set -eu; \
     mkdir -p /usr/local/share/ca-certificates; \
     for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
@@ -57,6 +60,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -99,9 +103,12 @@ ENV NODE_ENV=development     NEXT_TELEMETRY_DISABLED=1     TURBO_CACHE_DIR=/app/
 WORKDIR /app
 
 # Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
-# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
 # succeeds even when docker/certs/ is missing from a partial checkout.
-COPY .dockerignore docker/cert[s] /tmp/om-certs/
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
 RUN set -eu; \
     mkdir -p /usr/local/share/ca-certificates; \
     for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
@@ -142,6 +149,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -173,9 +181,12 @@ WORKDIR /app
 # Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
 # Baked into the runtime stage too: the entrypoint's fallback `yarn install`
 # and any in-container downloads hit the same intercepting proxy.
-# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
 # succeeds even when docker/certs/ is missing from a partial checkout.
-COPY .dockerignore docker/cert[s] /tmp/om-certs/
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
 RUN set -eu; \
     mkdir -p /usr/local/share/ca-certificates; \
     for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
@@ -236,9 +247,12 @@ ENV NODE_ENV=production \
 WORKDIR /app
 
 # Corporate proxy CA trust - see the builder stage comment / docker/certs/README.md.
-# cert[s] is a glob + .dockerignore an always-present anchor: the COPY then
+# cert[s] is a glob + docker/README.md an always-present anchor: the COPY then
 # succeeds even when docker/certs/ is missing from a partial checkout.
-COPY .dockerignore docker/cert[s] /tmp/om-certs/
+# The anchor MUST live inside docker/: BuildKit only transfers the paths a
+# COPY names, so anchoring outside it leaves the whole docker/ directory out
+# of the filtered context and the unmatched glob fails on `lstat /docker`.
+COPY docker/README.md docker/cert[s] /tmp/om-certs/
 RUN set -eu; \
     mkdir -p /usr/local/share/ca-certificates; \
     for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
@@ -283,6 +297,7 @@ COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/
+COPY --from=builder /app/packages/web-search/package.json ./packages/web-search/
 COPY --from=builder /app/packages/webhooks/package.json ./packages/webhooks/
 
 # Install only production dependencies
