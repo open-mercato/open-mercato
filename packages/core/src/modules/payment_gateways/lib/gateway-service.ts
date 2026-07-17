@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import {
   getGatewayAdapter,
   type CreateSessionInput,
@@ -15,10 +17,22 @@ import type { CredentialsService } from '../../integrations/lib/credentials-serv
 import type { IntegrationStateService } from '../../integrations/lib/state-service'
 import type { IntegrationLogService } from '../../integrations/lib/log-service'
 import { conflict } from '@open-mercato/shared/lib/crud/errors'
-import { GatewayTransaction } from '../data/entities'
+import { GatewaySessionInitialization, GatewayTransaction } from '../data/entities'
 import { canApplyManualAction, isValidTransition, type ManualGatewayAction } from './status-machine'
 import { emitPaymentGatewayEvent } from '../events'
 import { readGatewayMetadata, readWebhookLog } from './transaction-fields'
+import {
+  buildPaymentSessionOperationKey,
+  claimPaymentSessionInitialization,
+  findPaymentSessionInitialization,
+  reclaimPaymentSessionInitialization,
+  refreshPaymentSessionInitialization,
+  releasePaymentSessionInitialization,
+} from './session-idempotency'
+
+const PAYMENT_SESSION_CLAIM_STALE_MS = 30_000
+const PAYMENT_SESSION_WAIT_INTERVAL_MS = 25
+const logger = createLogger('payment_gateways').child({ component: 'gateway-service' })
 
 function assertManualActionAllowed(action: ManualGatewayAction, transaction: GatewayTransaction): void {
   const current = transaction.unifiedStatus as UnifiedPaymentStatus
@@ -48,11 +62,17 @@ export interface PaymentGatewayServiceDeps {
   integrationCredentialsService: CredentialsService
   integrationStateService?: IntegrationStateService
   integrationLogService?: IntegrationLogService
+  sessionClaimOptions?: {
+    staleAfterMs?: number
+    heartbeatIntervalMs?: number
+    pollIntervalMs?: number
+  }
 }
 
 export interface CreatePaymentSessionInput {
   providerKey: string
   paymentId: string
+  idempotencyKey?: string
   orderId?: string
   amount: number
   currencyCode: string
@@ -69,6 +89,12 @@ export interface CreatePaymentSessionInput {
 
 export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
   const { em, integrationCredentialsService, integrationLogService } = deps
+  const claimStaleAfterMs = Math.max(1, deps.sessionClaimOptions?.staleAfterMs ?? PAYMENT_SESSION_CLAIM_STALE_MS)
+  const claimHeartbeatIntervalMs = Math.max(
+    1,
+    deps.sessionClaimOptions?.heartbeatIntervalMs ?? Math.floor(claimStaleAfterMs / 3),
+  )
+  const claimPollIntervalMs = Math.max(1, deps.sessionClaimOptions?.pollIntervalMs ?? PAYMENT_SESSION_WAIT_INTERVAL_MS)
 
   async function findTransactionOrThrow(
     transactionId: string,
@@ -152,6 +178,109 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
     return { adapter, credentials }
   }
 
+  function createGatewayTransaction(
+    manager: EntityManager,
+    input: CreatePaymentSessionInput,
+    session: CreateSessionResult,
+    id?: string,
+  ): GatewayTransaction {
+    const data = {
+      paymentId: input.paymentId,
+      providerKey: input.providerKey,
+      providerSessionId: session.sessionId,
+      unifiedStatus: session.status,
+      redirectUrl: session.redirectUrl
+        ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
+      clientSecret: session.clientSecret ?? null,
+      amount: String(input.amount),
+      currencyCode: input.currencyCode,
+      gatewayMetadata: {
+        ...(session.providerData ?? {}),
+        ...(session.clientSession ? { clientSession: session.clientSession } : {}),
+      },
+      organizationId: input.organizationId,
+      tenantId: input.tenantId,
+      deletedAt: null,
+    }
+    return id
+      ? manager.create(GatewayTransaction, { id, ...data })
+      : manager.create(GatewayTransaction, data)
+  }
+
+  function restoreSession(transaction: GatewayTransaction): CreateSessionResult {
+    const metadata = readGatewayMetadata(transaction.gatewayMetadata)
+    const { clientSession, ...providerData } = metadata
+    return {
+      sessionId: readProviderSessionId(transaction),
+      status: transaction.unifiedStatus as UnifiedPaymentStatus,
+      ...(transaction.clientSecret ? { clientSecret: transaction.clientSecret } : {}),
+      ...(transaction.redirectUrl ? { redirectUrl: transaction.redirectUrl } : {}),
+      ...(Object.keys(providerData).length > 0 ? { providerData } : {}),
+      ...(clientSession && typeof clientSession === 'object'
+        ? { clientSession: clientSession as CreateSessionResult['clientSession'] }
+        : {}),
+    }
+  }
+
+  async function recordCreatedSession(
+    transaction: GatewayTransaction,
+    input: CreatePaymentSessionInput,
+    scope: { organizationId: string; tenantId: string },
+  ): Promise<void> {
+    await emitPaymentGatewayEvent('payment_gateways.session.created', {
+      transactionId: transaction.id,
+      paymentId: transaction.paymentId,
+      providerKey: transaction.providerKey,
+      status: transaction.unifiedStatus,
+      organizationId: transaction.organizationId,
+      tenantId: transaction.tenantId,
+    })
+    await writeTransactionLog(
+      transaction.providerKey,
+      scope,
+      transaction.id,
+      'info',
+      'Payment session created',
+      {
+        paymentId: transaction.paymentId,
+        providerSessionId: transaction.providerSessionId,
+        status: transaction.unifiedStatus,
+        amount: input.amount,
+        currencyCode: input.currencyCode,
+      },
+    )
+  }
+
+  function startClaimHeartbeat(
+    ownership: { id: string; claimToken: string },
+    scope: { organizationId: string; tenantId: string },
+  ): () => Promise<void> {
+    let stopped = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let pendingRefresh = Promise.resolve()
+
+    const schedule = () => {
+      timer = setTimeout(() => {
+        pendingRefresh = refreshPaymentSessionInitialization(em, ownership, scope, new Date())
+          .then(
+            (refreshed) => {
+              if (refreshed && !stopped) schedule()
+            },
+            () => {
+              if (!stopped) schedule()
+            },
+          )
+      }, claimHeartbeatIntervalMs)
+    }
+    schedule()
+
+    return async () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+      await pendingRefresh
+    }
+  }
+
   return {
     async createPaymentSession(input: CreatePaymentSessionInput): Promise<{ transaction: GatewayTransaction; session: CreateSessionResult }> {
       const scope = { organizationId: input.organizationId, tenantId: input.tenantId }
@@ -160,6 +289,7 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
       const sessionInput: CreateSessionInput = {
         paymentId: input.paymentId,
         orderId: input.orderId,
+        idempotencyKey: input.idempotencyKey,
         tenantId: input.tenantId,
         organizationId: input.organizationId,
         amount: input.amount,
@@ -174,50 +304,101 @@ export function createPaymentGatewayService(deps: PaymentGatewayServiceDeps) {
         credentials,
       }
 
-      const session = await adapter.createSession(sessionInput)
+      if (!input.idempotencyKey) {
+        const session = await adapter.createSession(sessionInput)
+        const transaction = createGatewayTransaction(em, input, session)
+        await em.persist(transaction).flush()
+        await recordCreatedSession(transaction, input, scope)
+        return { transaction, session }
+      }
 
-      const transaction = em.create(GatewayTransaction, {
+      const operationKey = buildPaymentSessionOperationKey({
+        idempotencyKey: input.idempotencyKey,
         paymentId: input.paymentId,
         providerKey: input.providerKey,
-        providerSessionId: session.sessionId,
-        unifiedStatus: session.status,
-        redirectUrl: session.redirectUrl
-          ?? (session.clientSession?.type === 'redirect' ? session.clientSession.redirectUrl : null),
-        clientSecret: session.clientSecret ?? null,
-        amount: String(input.amount),
-        currencyCode: input.currencyCode,
-        gatewayMetadata: {
-          ...(session.providerData ?? {}),
-          ...(session.clientSession ? { clientSession: session.clientSession } : {}),
-        },
-        organizationId: input.organizationId,
-        tenantId: input.tenantId,
-      })
-      await em.persist(transaction).flush()
-      await emitPaymentGatewayEvent('payment_gateways.session.created', {
-        transactionId: transaction.id,
-        paymentId: transaction.paymentId,
-        providerKey: transaction.providerKey,
-        status: transaction.unifiedStatus,
-        organizationId: transaction.organizationId,
-        tenantId: transaction.tenantId,
-      })
-      await writeTransactionLog(
-        transaction.providerKey,
         scope,
-        transaction.id,
-        'info',
-        'Payment session created',
-        {
-          paymentId: transaction.paymentId,
-          providerSessionId: transaction.providerSessionId,
-          status: transaction.unifiedStatus,
-          amount: input.amount,
-          currencyCode: input.currencyCode,
-        },
-      )
+      })
+      while (true) {
+        const existing = await findPaymentSessionInitialization(em, operationKey, input.providerKey, scope)
+        if (existing?.gatewayTransactionId) {
+          const transaction = await findOneWithDecryption(
+            em.fork(),
+            GatewayTransaction,
+            {
+              id: existing.gatewayTransactionId,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+              deletedAt: null,
+            },
+            undefined,
+            scope,
+          )
+          if (!transaction) {
+            throw new Error('[internal] Completed payment session is missing its gateway transaction')
+          }
+          return { transaction, session: restoreSession(transaction) }
+        }
 
-      return { transaction, session }
+        const claimedAt = new Date()
+        const staleBefore = new Date(claimedAt.getTime() - claimStaleAfterMs)
+        const ownership = existing
+          ? await reclaimPaymentSessionInitialization(em, existing, scope, claimedAt, staleBefore)
+          : await claimPaymentSessionInitialization(em, operationKey, input.providerKey, scope, claimedAt)
+
+        if (!ownership) {
+          await new Promise((resolve) => setTimeout(resolve, claimPollIntervalMs))
+          continue
+        }
+
+        let session: CreateSessionResult
+        const stopHeartbeat = startClaimHeartbeat(ownership, scope)
+        try {
+          session = await adapter.createSession({ ...sessionInput, idempotencyKey: operationKey })
+        } catch (error) {
+          try {
+            await releasePaymentSessionInitialization(em, ownership, scope)
+          } catch (releaseError) {
+            logger.warn('Failed to release payment session initialization claim', {
+              claimId: ownership.id,
+              providerKey: input.providerKey,
+              err: releaseError,
+            })
+          }
+          throw error
+        } finally {
+          await stopHeartbeat()
+        }
+
+        const transactionId = randomUUID()
+        const transaction = await em.fork().transactional(async (transactionEm) => {
+          const finalizedRows = await transactionEm.nativeUpdate(
+            GatewaySessionInitialization,
+            {
+              id: ownership.id,
+              claimToken: ownership.claimToken,
+              gatewayTransactionId: null,
+              organizationId: scope.organizationId,
+              tenantId: scope.tenantId,
+            },
+            {
+              gatewayTransactionId: transactionId,
+              claimToken: null,
+              claimedAt: null,
+              updatedAt: new Date(),
+            },
+          )
+          if (finalizedRows === 0) return null
+          const created = createGatewayTransaction(transactionEm, input, session, transactionId)
+          await transactionEm.persist(created).flush()
+          return created
+        })
+
+        if (!transaction) {
+          continue
+        }
+        await recordCreatedSession(transaction, input, scope)
+        return { transaction, session }
+      }
     },
 
     async capturePayment(transactionId: string, amount: number | undefined, scope: { organizationId: string; tenantId: string }): Promise<CaptureResult> {
