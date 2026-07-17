@@ -140,6 +140,15 @@ Phase 1 is independently shippable and already removes the pending-row seed leak
 #### Legacy fallback becomes a permanent second lookup path
 - **Severity**: Low. **Mitigation**: fallback is gated to `setupTokenHash IS NULL` rows (impossible for post-upgrade writes), documented with a removal target.
 
+## Final Compliance Report
+
+- **Backward compatibility**: all changes are additive — a new nullable column, new module files, and a new CLI command. No API route, event id, ACL feature, DI name, generated-file contract, or provider-interface surface is removed or altered; the client-visible setupId format is unchanged. The one transitional path (legacy `secret`-equality confirm fallback) follows the deprecation protocol: `@deprecated` marker, ≥1 minor release bridge, UPGRADE_NOTES entry, removal target recorded in this spec.
+- **API contracts**: no endpoint URLs, methods, request/response shapes, or `MfaProvider` signatures change. `setup()`/`confirmSetup()`/`verify()` are untouched.
+- **Data model**: one additive module-scoped migration (`user_mfa_methods.setup_token_hash` varchar(64) NULL + partial index), shipped with the updated `.snapshot-open-mercato.json` in the same commit per the default migration workflow. `secret` keeps its column type; only its content becomes ciphertext for encryption-enabled tenants.
+- **Migration & rollback stance**: rollout order (code → migration → per-tenant map seed → backfill) is documented in UPGRADE_NOTES; every intermediate state keeps reads and enrollments working (plaintext pass-through, legacy confirm fallback). Rollback is a plain code revert before the backfill; after the backfill, removing the encryption map is the single irreversible step and is called out as such.
+- **Test & integration coverage expectations**: unit tests pin both confirm-lookup paths (hash + legacy fallback), hash clearing on confirmation, unknown-setupId rejection, the encryption-map declaration, decryption-helper reads in `MfaVerificationService`, and backfill CLI idempotency (second run touches zero rows). Integration coverage for the implementing PR: the full enroll → confirm → verify flow against an encryption-enabled tenant, exercised both before and after running the backfill CLI, with self-contained fixtures per `.ai/qa/AGENTS.md`.
+- **Residual risk**: post-backfill map removal bricks TOTP for backfilled tenants (High — accepted, documented as the point of no return); the legacy confirm fallback briefly retains a plaintext-setupId lookup for pre-upgrade pending rows (Low — gated to `setup_token_hash IS NULL`, practical window is provider-TTL hours). No other unmitigated risks identified in the Risks & Impact Review.
+
 ## References
 
 - Issue [#3854](https://github.com/open-mercato/open-mercato/issues/3854) and the [confirm-flow blocker analysis](https://github.com/open-mercato/open-mercato/issues/3854#issuecomment-4999659365)
@@ -152,3 +161,4 @@ Phase 1 is independently shippable and already removes the pending-row seed leak
 
 ### 2026-07-17
 - Initial specification, derived from the #3854 audit finding and the confirm-flow blocker analysis.
+- Added the Final Compliance Report section summarizing checklist compliance (review feedback on #4256).
