@@ -7,7 +7,7 @@ export const metadata: ModuleInfo = {
   version: '0.1.0',
   description: 'Warehouse topology, inventory balances, reservations, and movement ledger.',
   author: 'Open Mercato Team',
-  license: 'Proprietary',
+  license: 'MIT',
   ejectable: true,
   requires: ['catalog', 'sales', 'feature_toggles'],
 }
