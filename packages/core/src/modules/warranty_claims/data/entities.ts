@@ -127,6 +127,9 @@ export class WarrantyClaim {
   @Property({ name: 'replacement_order_id', type: 'uuid', nullable: true })
   replacementOrderId?: string | null
 
+  @Property({ name: 'credit_memo_id', type: 'uuid', nullable: true })
+  creditMemoId?: string | null
+
   @Property({ name: 'source_claim_id', type: 'uuid', nullable: true })
   sourceClaimId?: string | null
 

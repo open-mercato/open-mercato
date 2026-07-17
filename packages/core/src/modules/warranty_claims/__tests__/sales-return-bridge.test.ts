@@ -12,6 +12,7 @@ const USER_ID = '77777777-7777-4777-8777-777777777777'
 const ORDER_ID = '99999999-9999-4999-8999-999999999999'
 const ORDER_LINE_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
 const CREATED_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const FRACTIONAL_LINE_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 
 const RETURN_UPDATED_AT = '2026-07-16T10:00:00.000Z'
 
@@ -266,6 +267,22 @@ describe('warranty_claims.claim.create_sales_return', () => {
     expect(dispatch.input.lines).toEqual([{ orderLineId: ORDER_LINE_ID, quantity: '3.0000' }])
   })
 
+  it('skips fractional approved quantities without dispatching them to sales', async () => {
+    seedClaim()
+    seedLine()
+    seedLine({ id: FRACTIONAL_LINE_ID, lineNo: 2, qtyApproved: '0.5000' })
+
+    const result = await createSalesReturnCommand.execute(
+      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
+      makeCtx(),
+    )
+    const [, dispatch] = commandBusExecuteMock.mock.calls[0]
+
+    expect(result.skippedLineIds).toContain(FRACTIONAL_LINE_ID)
+    expect(dispatch.input.lines).toEqual([{ orderLineId: ORDER_LINE_ID, quantity: '1.0000' }])
+    expect(dispatch.input.lines).not.toContainEqual({ orderLineId: ORDER_LINE_ID, quantity: '0.5000' })
+  })
+
   it('translates the sales shipped-quantity rejection', async () => {
     seedClaim()
     seedLine()
@@ -316,7 +333,7 @@ describe('warranty_claims.claim.create_sales_return', () => {
     expect(claim.salesReturnId).toBeNull()
   })
 
-  it('surfaces the original error and records the orphan when compensation also fails', async () => {
+  it('surfaces a 500-class orphan error and records the orphan when compensation also fails', async () => {
     const claim = seedClaim()
     seedLine()
     commandBusExecuteMock.mockImplementation(async (commandId: string) => {
@@ -327,7 +344,7 @@ describe('warranty_claims.claim.create_sales_return', () => {
       throw new Error('delete transport down')
     })
     await expect(createSalesReturnCommand.execute({ id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID }, makeCtx()))
-      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.salesReturnAlreadyLinked' } })
+      .rejects.toMatchObject({ status: 500, body: { error: 'warranty_claims.errors.save_failed' } })
     expect(mockEvents.some((event) => asRecord(event.payload).action === 'sales_return_orphaned')).toBe(true)
   })
 

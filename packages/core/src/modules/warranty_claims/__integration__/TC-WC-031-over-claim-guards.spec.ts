@@ -98,6 +98,32 @@ test.describe('TC-WC-031: over-claim quantity guards', () => {
     }
   })
 
+  test('does not apply the sold-quantity gate to lines without an order-line reference', async ({ request }) => {
+    const token = await getAuthToken(request, 'admin')
+    const stamp = uniqueLabel('tc-wc-031-unlinked')
+    let orderId: string | null = null
+    let claimId: string | null = null
+
+    try {
+      if (!(await canManageSalesOrders(request, token))) {
+        test.skip(true, 'sales order management is unavailable for the admin role on this database')
+      }
+      orderId = await createSalesOrderFixture(request, token)
+
+      const response = await apiRequest(request, 'POST', '/api/warranty_claims', {
+        token,
+        data: claimBody(orderId, stamp, [{ qtyClaimed: 999_999_999 }]),
+      })
+      const body = await readJsonSafe<{ id?: string | null }>(response)
+      expect(response.status(), `unlinked high-quantity line should succeed: ${JSON.stringify(body)}`).toBe(201)
+      claimId = body?.id ?? null
+      expect(claimId, 'created claim should include an id').toBeTruthy()
+    } finally {
+      await cleanupDraftClaimWithLines(request, token, claimId)
+      if (orderId) await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
+    }
+  })
+
   test('surfaces cross-claim cumulative over-claiming as an advisory risk signal', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     const stamp = uniqueLabel('tc-wc-031b')

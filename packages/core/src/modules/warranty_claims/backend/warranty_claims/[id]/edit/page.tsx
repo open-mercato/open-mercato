@@ -33,6 +33,7 @@ type ClaimEditRecord = {
   replacementOrderId: string | null
   advanceShippedAt: string | null
   salesReturnId: string | null
+  creditMemoId: string | null
   vendorName: string | null
   vendorRef: string | null
   resolutionSummary: string | null
@@ -75,6 +76,7 @@ function normalizeClaim(value: unknown): ClaimEditRecord | null {
     replacementOrderId: toStringOrNull(value.replacementOrderId),
     advanceShippedAt: toStringOrNull(value.advanceShippedAt),
     salesReturnId: toStringOrNull(value.salesReturnId),
+    creditMemoId: toStringOrNull(value.creditMemoId),
     vendorName: toStringOrNull(value.vendorName),
     vendorRef: toStringOrNull(value.vendorRef),
     resolutionSummary: toStringOrNull(value.resolutionSummary),
@@ -101,6 +103,64 @@ function normalizeDictionaryOption(item: unknown): CrudFieldOption | null {
   const value = toStringOrNull(item.value)
   if (!value) return null
   return { value, label: toStringOrNull(item.label) ?? value }
+}
+
+function normalizeCreditMemoOption(item: unknown, fallbackLabel: string): CrudFieldOption | null {
+  if (!isRecord(item)) return null
+  const id = toStringOrNull(item.id)
+  if (!id) return null
+  const creditMemoNumber = toStringOrNull(item.credit_memo_number) ?? toStringOrNull(item.creditMemoNumber)
+  return { value: id, label: creditMemoNumber ?? fallbackLabel }
+}
+
+export async function loadCreditMemoOptions(
+  query?: string,
+  params?: { orderId?: string | null; fallbackLabel?: string },
+): Promise<CrudFieldOption[]> {
+  if (!params?.orderId) return []
+  const searchParams = new URLSearchParams({ orderId: params.orderId, page: '1', pageSize: '50' })
+  const response = await apiCall<{ items?: unknown[] }>(
+    `/api/sales/credit-memos?${searchParams.toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  if (response.ok === false && response.status === 403) return []
+  const fallbackLabel = params.fallbackLabel ?? '—'
+  const items = Array.isArray(response.result?.items) ? response.result.items : []
+  const options = items
+    .map((item) => normalizeCreditMemoOption(item, fallbackLabel))
+    .filter((option): option is CrudFieldOption => option !== null)
+  const needle = query?.trim().toLowerCase()
+  if (!needle) return options
+  return options.filter((option) => option.label.toLowerCase().includes(needle))
+}
+
+export async function resolveCreditMemoLabel(value: string, fallbackLabel: string = '—'): Promise<string> {
+  const response = await apiCall<{ items?: unknown[] }>(
+    `/api/sales/credit-memos?${new URLSearchParams({ id: value, page: '1', pageSize: '1' }).toString()}`,
+    undefined,
+    { fallback: { items: [] } },
+  )
+  const option = (response.result?.items ?? [])
+    .map((item) => normalizeCreditMemoOption(item, fallbackLabel))
+    .find((item): item is CrudFieldOption => item !== null && item.value === value)
+  return option?.label ?? fallbackLabel
+}
+
+export function createCreditMemoFieldConfig(t: TranslateFn, orderId: string | null): CrudField {
+  const fallbackLabel = t('warranty_claims.form.creditMemoUnavailable', 'Credit memo unavailable')
+  return {
+    id: 'creditMemoId',
+    label: t('warranty_claims.form.creditMemoId'),
+    type: 'combobox',
+    loadOptions: (query?: string) => loadCreditMemoOptions(query, { orderId, fallbackLabel }),
+    allowCustomValues: false,
+    resolveLabel: (value: string) => resolveCreditMemoLabel(value, fallbackLabel),
+    seedOptions: [],
+    description: orderId
+      ? undefined
+      : t('warranty_claims.form.creditMemoId.noOrder', 'Link the claim to an order first to select a credit memo.'),
+  }
 }
 
 function nullableText(value: unknown): string | null {
@@ -283,6 +343,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
             ? undefined
             : t('warranty_claims.form.salesReturnId.noOrder', 'Link the claim to an order first to select a return.'),
         },
+        createCreditMemoFieldConfig(t, claimOrderId),
         { id: 'vendorName', label: t('warranty_claims.form.vendorName'), type: 'text' },
         { id: 'vendorRef', label: t('warranty_claims.form.vendorRef'), type: 'text' },
         { id: 'resolutionSummary', label: t('warranty_claims.form.resolutionSummary'), type: 'textarea', rows: 5, layout: 'full' },
@@ -379,6 +440,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
               payload.replacementOrderId = nullableText(values.replacementOrderId)
               payload.advanceShippedAt = nullableText(values.advanceShippedAt)
               payload.salesReturnId = nullableText(values.salesReturnId)
+              payload.creditMemoId = nullableText(values.creditMemoId)
               payload.vendorName = nullableText(values.vendorName)
               payload.vendorRef = nullableText(values.vendorRef)
               payload.resolutionSummary = nullableText(values.resolutionSummary)

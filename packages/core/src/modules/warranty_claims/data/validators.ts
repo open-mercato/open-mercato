@@ -131,6 +131,7 @@ export const CLAIM_FULFILLMENT_UPDATE_FIELDS = [
   'replacementOrderId',
   'advanceShippedAt',
   'salesReturnId',
+  'creditMemoId',
   'vendorName',
   'vendorRef',
   'resolutionSummary',
@@ -260,6 +261,7 @@ const claimUpdateFields = z.object({
   replacementOrderId: uuid().nullable().optional(),
   advanceShippedAt: z.coerce.date().nullable().optional(),
   salesReturnId: uuid().nullable().optional(),
+  creditMemoId: uuid().nullable().optional(),
   vendorName: clearableString(300),
   vendorRef: clearableString(191),
   resolutionSummary: clearableString(4000),
@@ -356,6 +358,21 @@ export const vendorRecoveryInputSchema = z
 export const claimCreateSalesReturnSchema = scopedSchema
   .extend({
     id: uuid(),
+    updatedAt: optimisticLockTokenSchema,
+  })
+  .strict()
+
+export const claimCreateCreditMemoSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    updatedAt: optimisticLockTokenSchema,
+  })
+  .strict()
+
+export const claimCreateReplacementOrderSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    pricing: z.enum(['zero', 'original']).default('zero'),
     updatedAt: optimisticLockTokenSchema,
   })
   .strict()
@@ -568,6 +585,8 @@ export type CommentClaimInput = z.infer<typeof commentClaimInputSchema>
 export type VendorRecoveryInput = z.infer<typeof vendorRecoveryInputSchema>
 export type ClaimSetReturnLabelInput = z.infer<typeof claimSetReturnLabelSchema>
 export type ClaimCreateSalesReturnInput = z.infer<typeof claimCreateSalesReturnSchema>
+export type ClaimCreateCreditMemoInput = z.infer<typeof claimCreateCreditMemoSchema>
+export type ClaimCreateReplacementOrderInput = z.infer<typeof claimCreateReplacementOrderSchema>
 export type PortalIntakeInput = z.infer<typeof portalIntakeInputSchema>
 export type ExternalClaimLineInput = z.infer<typeof externalClaimLineInputSchema>
 export type ExternalClaimIntakeInput = z.infer<typeof externalClaimIntakeSchema>

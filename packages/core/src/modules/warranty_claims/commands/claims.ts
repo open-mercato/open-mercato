@@ -22,6 +22,8 @@ import {
   claimCreateSchema,
   claimUpdateSchema,
   assignClaimInputSchema,
+  claimCreateCreditMemoSchema,
+  claimCreateReplacementOrderSchema,
   claimCreateSalesReturnSchema,
   claimSetReturnLabelSchema,
   commentClaimInputSchema,
@@ -31,6 +33,8 @@ import {
   type ClaimInitialLineCreateInput,
   type ClaimUpdateInput,
   type AssignClaimInput,
+  type ClaimCreateCreditMemoInput,
+  type ClaimCreateReplacementOrderInput,
   type ClaimCreateSalesReturnInput,
   type ClaimSetReturnLabelInput,
   type CommentClaimInput,
@@ -176,6 +180,7 @@ type ClaimSnapshot = {
   awaitingStaffReply: boolean
   salesReturnId: string | null
   replacementOrderId: string | null
+  creditMemoId: string | null
   sourceClaimId: string | null
   advanceReplacement: boolean
   advanceShippedAt: string | null
@@ -221,6 +226,7 @@ type ReferenceValidationInput = {
   orderId?: string | null
   salesReturnId?: string | null
   replacementOrderId?: string | null
+  creditMemoId?: string | null
   lineOrderRefs?: Array<{ orderLineId: string; orderId: string | null }>
 }
 
@@ -471,6 +477,7 @@ function snapshotClaim(claim: WarrantyClaim, lines: readonly WarrantyClaimLine[]
     awaitingStaffReply: claim.awaitingStaffReply === true,
     salesReturnId: claim.salesReturnId ?? null,
     replacementOrderId: claim.replacementOrderId ?? null,
+    creditMemoId: claim.creditMemoId ?? null,
     sourceClaimId: claim.sourceClaimId ?? null,
     advanceReplacement: claim.advanceReplacement,
     advanceShippedAt: toIso(claim.advanceShippedAt),
@@ -532,6 +539,7 @@ function restoreClaimFromSnapshot(claim: WarrantyClaim, snapshot: ClaimSnapshot)
   claim.awaitingStaffReply = snapshot.awaitingStaffReply === true
   claim.salesReturnId = snapshot.salesReturnId
   claim.replacementOrderId = snapshot.replacementOrderId
+  claim.creditMemoId = snapshot.creditMemoId
   claim.sourceClaimId = snapshot.sourceClaimId
   claim.advanceReplacement = snapshot.advanceReplacement
   claim.advanceShippedAt = toDate(snapshot.advanceShippedAt)
@@ -735,18 +743,31 @@ function readString(row: Record<string, unknown>, key: string): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
 }
 
-type SalesReferenceTable = 'sales_orders' | 'sales_returns' | 'sales_order_lines'
+type SalesReferenceTable = 'sales_orders' | 'sales_returns' | 'sales_credit_memos' | 'sales_order_lines'
 
 type SalesReferenceDb = {
   sales_orders: {
     id: string
+    currency_code: string
+    customer_entity_id: string | null
+    customer_contact_id: string | null
+    billing_address_id: string | null
+    shipping_address_id: string | null
+    channel_id: string | null
+    updated_at: Date | string | null
     tenant_id: string | null
     organization_id: string | null
     deleted_at: Date | null
   }
   sales_returns: {
     id: string
-    order_id: string | null
+    updated_at: Date | string | null
+    tenant_id: string | null
+    organization_id: string | null
+    deleted_at: Date | null
+  }
+  sales_credit_memos: {
+    id: string
     updated_at: Date | string | null
     tenant_id: string | null
     organization_id: string | null
@@ -755,7 +776,17 @@ type SalesReferenceDb = {
   sales_order_lines: {
     id: string
     order_id: string
+    product_id: string | null
+    product_variant_id: string | null
+    name: string | null
+    kind: 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
+    currency_code: string
     quantity: string | null
+    unit_price_net: string
+    unit_price_gross: string
+    tax_rate: string
+    total_net_amount: string
+    total_gross_amount: string
     tenant_id: string | null
     organization_id: string | null
     deleted_at: Date | null
@@ -802,6 +833,7 @@ async function querySalesReferenceRow(
 }
 
 const CLAIMED_QUANTITY_SCALE = 10_000n
+const TAX_RATE_FORMULA_SCALE = 1_000_000n
 
 function claimedQuantityUnits(value: string | number | null | undefined): bigint | null {
   if (value === null || value === undefined) return null
@@ -818,6 +850,25 @@ function claimedQuantityUnits(value: string | number | null | undefined): bigint
   let units = BigInt(whole) * CLAIMED_QUANTITY_SCALE + BigInt(scaledFraction)
   if (fraction.length > 4 && fraction[4] >= '5') units += 1n
   return sign === '-' ? -units : units
+}
+
+function roundHalfUpDivision(numerator: bigint, denominator: bigint): bigint {
+  if (denominator <= 0n) throw new Error('Positive denominator required')
+  if (numerator < 0n) return -roundHalfUpDivision(-numerator, denominator)
+  return (numerator + denominator / 2n) / denominator
+}
+
+function formatScaledUnits(units: bigint): string {
+  const sign = units < 0n ? '-' : ''
+  const absolute = units < 0n ? -units : units
+  const whole = absolute / CLAIMED_QUANTITY_SCALE
+  const fraction = String(absolute % CLAIMED_QUANTITY_SCALE).padStart(4, '0')
+  return `${sign}${whole}.${fraction}`
+}
+
+function netUnitsFromGross(grossUnits: bigint, taxRateUnits: bigint): bigint {
+  const denominator = TAX_RATE_FORMULA_SCALE + taxRateUnits
+  return roundHalfUpDivision(grossUnits * TAX_RATE_FORMULA_SCALE, denominator)
 }
 
 export async function assertClaimedQtyWithinSold(
@@ -1118,8 +1169,12 @@ export async function validateClaimReferences(
     const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_return'), 'sales_returns', scope, input.salesReturnId, ['id'])
     assertValidSalesReference(result)
   }
+  if (input.creditMemoId) {
+    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_credit_memo'), 'sales_credit_memos', scope, input.creditMemoId, ['id'])
+    assertValidSalesReference(result)
+  }
   for (const lineRef of input.lineOrderRefs ?? []) {
-    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_order_line'), 'sales_order_lines', scope, lineRef.orderLineId, ['id', 'order_id', 'quantity'])
+    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_order_line'), 'sales_order_lines', scope, lineRef.orderLineId, ['id', 'order_id'])
     assertValidSalesReference(result)
     if (result === 'unknown' || !lineRef.orderId) continue
     if (readString(result, 'order_id') !== lineRef.orderId) {
@@ -1203,6 +1258,7 @@ function applyClaimUpdate(claim: WarrantyClaim, input: ClaimUpdateInput, custome
   if (hasOwn(input, 'replacementOrderId')) claim.replacementOrderId = input.replacementOrderId ?? null
   if (hasOwn(input, 'advanceShippedAt')) claim.advanceShippedAt = input.advanceShippedAt ?? null
   if (hasOwn(input, 'salesReturnId')) claim.salesReturnId = input.salesReturnId ?? null
+  if (hasOwn(input, 'creditMemoId')) claim.creditMemoId = input.creditMemoId ?? null
   if (hasOwn(input, 'vendorName')) claim.vendorName = input.vendorName ?? null
   if (hasOwn(input, 'vendorRef')) claim.vendorRef = input.vendorRef ?? null
   if (hasOwn(input, 'resolutionSummary')) claim.resolutionSummary = input.resolutionSummary ?? null
@@ -1283,6 +1339,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
       orderId: input.orderId ?? null,
       salesReturnId: input.salesReturnId ?? null,
       replacementOrderId: input.replacementOrderId ?? null,
+      creditMemoId: null,
       lineOrderRefs: (input.lines ?? [])
         .filter((line): line is ClaimInitialLineCreateInput & { orderLineId: string } => typeof line.orderLineId === 'string')
         .map((line) => ({ orderLineId: line.orderLineId, orderId: input.orderId ?? null })),
@@ -1336,6 +1393,7 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
           orderNumber,
           salesReturnId: input.salesReturnId ?? null,
           replacementOrderId: input.replacementOrderId ?? null,
+          creditMemoId: null,
           sourceClaimId: null,
           advanceReplacement: input.advanceReplacement ?? false,
           advanceShippedAt: input.advanceShippedAt ?? null,
@@ -1429,6 +1487,7 @@ const updateClaimCommand: CommandHandler<ClaimUpdateInput, { claimId: string }> 
       orderId: hasOwn(input, 'orderId') && (input.orderId ?? null) !== (claim.orderId ?? null) ? input.orderId ?? null : null,
       salesReturnId: hasOwn(input, 'salesReturnId') && (input.salesReturnId ?? null) !== (claim.salesReturnId ?? null) ? input.salesReturnId ?? null : null,
       replacementOrderId: hasOwn(input, 'replacementOrderId') && (input.replacementOrderId ?? null) !== (claim.replacementOrderId ?? null) ? input.replacementOrderId ?? null : null,
+      creditMemoId: hasOwn(input, 'creditMemoId') && (input.creditMemoId ?? null) !== (claim.creditMemoId ?? null) ? input.creditMemoId ?? null : null,
     })
     const customerChanged = hasOwn(input, 'customerId') && (input.customerId ?? null) !== (claim.customerId ?? null)
     const shouldRefreshCustomerName = hasOwn(input, 'customerId') || hasOwn(input, 'customerName')
@@ -2247,6 +2306,7 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
             })
           }
         }
+        throw new CrudHttpError(500, { error: 'warranty_claims.errors.save_failed' })
       }
       throw err
     }
@@ -2306,6 +2366,768 @@ const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, Clai
   },
 }
 
+const creditMemoBridgeLogger = createLogger('warranty_claims')
+
+const CREDIT_MEMO_ELIGIBLE_CLAIM_STATUSES = new Set<WarrantyClaimStatus>(['received', 'inspecting', 'resolved'])
+const CREDIT_MEMO_ELIGIBLE_LINE_STATUSES = new Set<WarrantyClaimLineStatus>(['received', 'inspected', 'resolved'])
+const CREDIT_MEMO_ELIGIBLE_DISPOSITIONS = new Set<WarrantyClaimDisposition>(['credit', 'refund'])
+
+type CreditMemoLineInput = {
+  orderLineId: string
+  quantity: string
+  currencyCode: string
+  unitPriceNet: string
+  unitPriceGross: string
+  taxRate: string
+  taxAmount: string
+  totalNetAmount: string
+  totalGrossAmount: string
+  metadata: { warrantyClaimLineId: string }
+  name?: string
+}
+
+type CreditMemoCreateInput = {
+  organizationId: string
+  tenantId: string
+  orderId: string
+  currencyCode: string
+  reason: string
+  metadata: { warrantyClaimId: string; warrantyClaimNumber: string }
+  lines: CreditMemoLineInput[]
+  subtotalNetAmount: string
+  subtotalGrossAmount: string
+  taxTotalAmount: string
+  grandTotalNetAmount: string
+  grandTotalGrossAmount: string
+}
+
+type PreparedCreditMemoLine = {
+  input: CreditMemoLineInput
+  netUnits: bigint
+  grossUnits: bigint
+  taxUnits: bigint
+}
+
+type ClaimCreditMemoUndoPayload = ClaimUndoPayload & {
+  creditMemo?: { id: string; updatedAt: string | null } | null
+}
+
+type ClaimCreateCreditMemoResult = {
+  claimId: string
+  creditMemoId: string
+  creditMemoUpdatedAt: string | null
+  skippedLineIds: string[]
+  grandTotalGrossAmount: string
+  currencyCode: string
+}
+
+function minimumUnits(left: bigint, right: bigint): bigint {
+  return left < right ? left : right
+}
+
+function prepareCreditMemoLine(
+  claimLine: WarrantyClaimLine,
+  sourceLine: Record<string, unknown>,
+  creditedQuantityUnits: bigint,
+  currencyCode: string,
+): PreparedCreditMemoLine | null {
+  const orderQuantityUnits = claimedQuantityUnits(sourceLine.quantity as string | number | null | undefined)
+  const sourceGrossUnits = claimedQuantityUnits(sourceLine.total_gross_amount as string | number | null | undefined)
+  const sourceNetUnits = claimedQuantityUnits(sourceLine.total_net_amount as string | number | null | undefined)
+  const taxRateUnits = claimedQuantityUnits(sourceLine.tax_rate as string | number | null | undefined)
+  if (
+    orderQuantityUnits === null
+    || orderQuantityUnits <= 0n
+    || sourceGrossUnits === null
+    || sourceNetUnits === null
+    || taxRateUnits === null
+  ) {
+    return null
+  }
+
+  let netBasisUnits = sourceNetUnits
+  if (sourceGrossUnits > 0n && netBasisUnits <= 0n) {
+    netBasisUnits = netUnitsFromGross(sourceGrossUnits, taxRateUnits)
+  }
+  const proratedGrossUnits = roundHalfUpDivision(sourceGrossUnits * creditedQuantityUnits, orderQuantityUnits)
+  const proratedNetUnits = roundHalfUpDivision(netBasisUnits * creditedQuantityUnits, orderQuantityUnits)
+  const creditAmountUnits = claimedQuantityUnits(claimLine.creditAmount)
+  const restockingFeeUnits = claimedQuantityUnits(claimLine.restockingFee) ?? 0n
+  const coreCreditUnits = claimedQuantityUnits(claimLine.coreCreditAmount) ?? 0n
+  const baseGrossUnits = creditAmountUnits ?? proratedGrossUnits
+  const adjustedGrossUnits = baseGrossUnits - restockingFeeUnits + coreCreditUnits
+  const grossUnits = adjustedGrossUnits > 0n ? adjustedGrossUnits : 0n
+  let netUnits = grossUnits === proratedGrossUnits
+    ? proratedNetUnits
+    : netUnitsFromGross(grossUnits, taxRateUnits)
+  if (grossUnits > 0n && netUnits <= 0n) {
+    netUnits = netUnitsFromGross(grossUnits, taxRateUnits)
+  }
+  const taxUnits = grossUnits - netUnits
+  const input: CreditMemoLineInput = {
+    orderLineId: claimLine.orderLineId as string,
+    quantity: formatScaledUnits(creditedQuantityUnits),
+    currencyCode,
+    unitPriceNet: formatScaledUnits(roundHalfUpDivision(netUnits * CLAIMED_QUANTITY_SCALE, creditedQuantityUnits)),
+    unitPriceGross: formatScaledUnits(roundHalfUpDivision(grossUnits * CLAIMED_QUANTITY_SCALE, creditedQuantityUnits)),
+    taxRate: formatScaledUnits(taxRateUnits),
+    taxAmount: formatScaledUnits(taxUnits),
+    totalNetAmount: formatScaledUnits(netUnits),
+    totalGrossAmount: formatScaledUnits(grossUnits),
+    metadata: { warrantyClaimLineId: claimLine.id },
+  }
+  const name = readString(sourceLine, 'name')
+  if (name) input.name = name
+  return { input, netUnits, grossUnits, taxUnits }
+}
+
+async function dispatchCreditMemoDelete(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  creditMemoId: string,
+): Promise<void> {
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  await commandBus.execute(
+    'sales.credit_memos.delete',
+    {
+      input: { id: creditMemoId, organizationId: scope.organizationId, tenantId: scope.tenantId },
+      ctx: scrubbedDispatchContext(ctx),
+    },
+  )
+}
+
+const createCreditMemoCommand: CommandHandler<ClaimCreateCreditMemoInput, ClaimCreateCreditMemoResult> = {
+  id: 'warranty_claims.claim.create_credit_memo',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(claimCreateCreditMemoSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadClaimSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(claimCreateCreditMemoSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const claim = await requireScopedClaim(em, input.id, scope)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    if (!claim.orderId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoRequiresOrder' })
+    }
+    if (!CREDIT_MEMO_ELIGIBLE_CLAIM_STATUSES.has(claim.status as WarrantyClaimStatus)) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoInvalidStatus' })
+    }
+    if (claim.creditMemoId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoAlreadyLinked' })
+    }
+    if (!resolveOptionalEntityId('sales', 'sales_credit_memo')) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoSalesUnavailable' })
+    }
+
+    const sourceOrder = await querySalesReferenceRow(
+      ctx,
+      'sales_orders',
+      scope,
+      claim.orderId,
+      ['id', 'currency_code'],
+    )
+    const orderCurrencyCode = sourceOrder ? readString(sourceOrder, 'currency_code') : null
+    if (!sourceOrder || !orderCurrencyCode) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoRequiresOrder' })
+    }
+
+    const claimLines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      { claim: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+      {},
+      scope,
+    )
+    const preparedLines: PreparedCreditMemoLine[] = []
+    const skippedLineIds: string[] = []
+    for (const claimLine of claimLines) {
+      const approvedQuantityUnits = claimedQuantityUnits(claimLine.qtyApproved ?? claimLine.qtyClaimed) ?? 0n
+      const receivedQuantityUnits = claimedQuantityUnits(claimLine.qtyReceived) ?? 0n
+      const creditedQuantityUnits = minimumUnits(approvedQuantityUnits, receivedQuantityUnits)
+      const initiallyEligible = Boolean(claimLine.orderLineId)
+        && CREDIT_MEMO_ELIGIBLE_DISPOSITIONS.has(claimLine.disposition as WarrantyClaimDisposition)
+        && CREDIT_MEMO_ELIGIBLE_LINE_STATUSES.has(claimLine.lineStatus as WarrantyClaimLineStatus)
+        && creditedQuantityUnits > 0n
+      if (!initiallyEligible || !claimLine.orderLineId) {
+        skippedLineIds.push(claimLine.id)
+        continue
+      }
+
+      const sourceLine = await querySalesReferenceRow(
+        ctx,
+        'sales_order_lines',
+        scope,
+        claimLine.orderLineId,
+        [
+          'id',
+          'order_id',
+          'name',
+          'currency_code',
+          'quantity',
+          'total_net_amount',
+          'total_gross_amount',
+          'tax_rate',
+        ],
+      )
+      const sourceCurrencyCode = sourceLine ? readString(sourceLine, 'currency_code') : null
+      if (
+        !sourceLine
+        || sourceLine.order_id !== claim.orderId
+        || sourceCurrencyCode !== orderCurrencyCode
+      ) {
+        skippedLineIds.push(claimLine.id)
+        continue
+      }
+      const preparedLine = prepareCreditMemoLine(
+        claimLine,
+        sourceLine,
+        creditedQuantityUnits,
+        orderCurrencyCode,
+      )
+      if (!preparedLine) {
+        skippedLineIds.push(claimLine.id)
+        continue
+      }
+      preparedLines.push(preparedLine)
+    }
+    if (preparedLines.length === 0) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoNoEligibleLines' })
+    }
+
+    const totals = preparedLines.reduce(
+      (result, line) => ({
+        netUnits: result.netUnits + line.netUnits,
+        grossUnits: result.grossUnits + line.grossUnits,
+        taxUnits: result.taxUnits + line.taxUnits,
+      }),
+      { netUnits: 0n, grossUnits: 0n, taxUnits: 0n },
+    )
+    const grandTotalNetAmount = formatScaledUnits(totals.netUnits)
+    const grandTotalGrossAmount = formatScaledUnits(totals.grossUnits)
+    const creditMemoInput: CreditMemoCreateInput = {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      orderId: claim.orderId,
+      currencyCode: orderCurrencyCode,
+      reason: claim.claimNumber,
+      metadata: { warrantyClaimId: claim.id, warrantyClaimNumber: claim.claimNumber },
+      lines: preparedLines.map((line) => line.input),
+      subtotalNetAmount: grandTotalNetAmount,
+      subtotalGrossAmount: grandTotalGrossAmount,
+      taxTotalAmount: formatScaledUnits(totals.taxUnits),
+      grandTotalNetAmount,
+      grandTotalGrossAmount,
+    }
+
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    let creditMemoId: string | null = null
+    let creditMemoUpdatedAt: string | null = null
+    try {
+      const { result: dispatchedResult } = await commandBus.execute<CreditMemoCreateInput, { creditMemoId: string }>(
+        'sales.credit_memos.create',
+        { input: creditMemoInput, ctx: scrubbedDispatchContext(ctx) },
+      )
+      if (!dispatchedResult?.creditMemoId) {
+        throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+      }
+      creditMemoId = dispatchedResult.creditMemoId
+      const createdCreditMemoRow = await querySalesReferenceRow(
+        ctx,
+        'sales_credit_memos',
+        scope,
+        creditMemoId,
+        ['id', 'updated_at'],
+      )
+      creditMemoUpdatedAt = createdCreditMemoRow?.updated_at
+        ? new Date(createdCreditMemoRow.updated_at as string | Date).toISOString()
+        : null
+      await em.transactional(async (tx) => {
+        const lockedClaim = await requireScopedClaim(tx, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (lockedClaim.creditMemoId) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.creditMemoAlreadyLinked' })
+        }
+        lockedClaim.creditMemoId = creditMemoId
+        lockedClaim.updatedAt = new Date()
+        appendClaimEvent(tx, lockedClaim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'credit_memo_created', creditMemoId, grandTotalGrossAmount, currencyCode: orderCurrencyCode },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+        claim.creditMemoId = creditMemoId
+        claim.updatedAt = lockedClaim.updatedAt
+        await tx.flush()
+      })
+    } catch (err) {
+      if (!creditMemoId) throw err
+      try {
+        await dispatchCreditMemoDelete(ctx, scope, creditMemoId)
+      } catch (compensationErr) {
+        creditMemoBridgeLogger.error('warranty_claims.claim.create_credit_memo compensation failed — orphaned credit memo', {
+          err: compensationErr,
+          claimId: claim.id,
+          creditMemoId,
+        })
+        try {
+          const orphanEm = (ctx.container.resolve('em') as EntityManager).fork()
+          const orphanClaim = await findOneWithDecryption(
+            orphanEm,
+            WarrantyClaim,
+            { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+            {},
+            scope,
+          )
+          if (orphanClaim) {
+            appendClaimEvent(orphanEm, orphanClaim, 'system', {
+              visibility: 'internal',
+              payload: { action: 'credit_memo_orphaned', creditMemoId },
+              actorUserId: ctx.auth?.sub ?? null,
+            })
+            await orphanEm.flush()
+          }
+        } catch (orphanEventErr) {
+          creditMemoBridgeLogger.error('warranty_claims.claim.create_credit_memo orphan timeline write failed', {
+            err: orphanEventErr,
+            claimId: claim.id,
+            creditMemoId,
+          })
+        }
+        throw new CrudHttpError(500, { error: 'warranty_claims.errors.save_failed' })
+      }
+      throw err
+    }
+
+    await emitClaimCrud(ctx, 'updated', claim)
+    return {
+      claimId: claim.id,
+      creditMemoId,
+      creditMemoUpdatedAt,
+      skippedLineIds,
+      grandTotalGrossAmount,
+      currencyCode: orderCurrencyCode,
+    }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(claimCreateCreditMemoSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadClaimSnapshot(em, result.claimId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const base = buildClaimLog('warranty_claims.audit.claim.create_credit_memo', result.claimId, snapshots)
+    const undoPayload: ClaimCreditMemoUndoPayload = {
+      ...(base.payload.undo as ClaimUndoPayload),
+      creditMemo: { id: result.creditMemoId, updatedAt: result.creditMemoUpdatedAt },
+    }
+    return { ...base, payload: { undo: undoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ClaimCreditMemoUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const creditMemo = payload?.creditMemo ?? null
+    if (creditMemo?.id) {
+      const currentRow = await querySalesReferenceRow(ctx, 'sales_credit_memos', scope, creditMemo.id, ['id', 'updated_at'])
+      if (currentRow === undefined) {
+        throw new CrudHttpError(409, { error: 'warranty_claims.errors.creditMemoChangedUndoAborted' })
+      }
+      if (currentRow) {
+        const currentUpdatedAt = currentRow.updated_at
+          ? new Date(currentRow.updated_at as string | Date).toISOString()
+          : null
+        if (!creditMemo.updatedAt || !currentUpdatedAt || currentUpdatedAt !== creditMemo.updatedAt) {
+          throw new CrudHttpError(409, { error: 'warranty_claims.errors.creditMemoChangedUndoAborted' })
+        }
+        await dispatchCreditMemoDelete(ctx, scope, creditMemo.id)
+      } else {
+        creditMemoBridgeLogger.info('warranty_claims.claim.create_credit_memo undo found credit memo already absent', {
+          claimId: before.id,
+          creditMemoId: creditMemo.id,
+        })
+      }
+    }
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let claim!: WarrantyClaim
+    await withAtomicFlush(em, [
+      async () => {
+        claim = await restoreSnapshot(em, before)
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'undo_credit_memo_created' },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+    ], { transaction: true, label: 'warranty_claims.claim.create_credit_memo.undo' })
+    await emitClaimUndoCrud(ctx, 'updated', claim)
+  },
+}
+
+const replacementOrderBridgeLogger = createLogger('warranty_claims')
+
+const REPLACEMENT_ELIGIBLE_CLAIM_STATUSES = new Set<WarrantyClaimStatus>([
+  'approved',
+  'awaiting_return',
+  'received',
+  'inspecting',
+  'resolved',
+])
+const REPLACEMENT_ELIGIBLE_LINE_STATUSES = new Set<WarrantyClaimLineStatus>(['approved', 'received', 'inspected', 'resolved'])
+const ADVANCE_REPLACEMENT_CLAIM_STATUSES = new Set<WarrantyClaimStatus>(['approved', 'awaiting_return'])
+const SALES_ORDER_LINE_KINDS = new Set(['product', 'service', 'shipping', 'discount', 'adjustment'] as const)
+
+type SalesOrderLineKind = 'product' | 'service' | 'shipping' | 'discount' | 'adjustment'
+
+type ReplacementOrderLineInput = {
+  kind: SalesOrderLineKind
+  currencyCode: string
+  quantity: string
+  unitPriceNet: string
+  unitPriceGross: string
+  productId?: string
+  productVariantId?: string
+  name?: string
+  taxRate?: string
+}
+
+type ReplacementOrderCreateInput = {
+  organizationId: string
+  tenantId: string
+  currencyCode: string
+  metadata: { warrantyClaimId: string; warrantyClaimNumber: string }
+  lines: ReplacementOrderLineInput[]
+  customerEntityId?: string
+  customerContactId?: string
+  billingAddressId?: string
+  shippingAddressId?: string
+  channelId?: string
+}
+
+type ClaimReplacementOrderUndoPayload = ClaimUndoPayload & {
+  replacementOrder?: { id: string; updatedAt: string | null } | null
+}
+
+type ClaimCreateReplacementOrderResult = {
+  claimId: string
+  replacementOrderId: string
+  replacementOrderUpdatedAt: string | null
+  skippedLineIds: string[]
+  pricing: 'zero' | 'original'
+}
+
+function readSalesOrderLineKind(value: unknown): SalesOrderLineKind | null {
+  return typeof value === 'string' && SALES_ORDER_LINE_KINDS.has(value as SalesOrderLineKind)
+    ? value as SalesOrderLineKind
+    : null
+}
+
+async function dispatchSalesOrderDelete(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  replacementOrderId: string,
+): Promise<void> {
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  await commandBus.execute(
+    'sales.orders.delete',
+    {
+      input: { id: replacementOrderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      ctx: scrubbedDispatchContext(ctx),
+    },
+  )
+}
+
+const createReplacementOrderCommand: CommandHandler<ClaimCreateReplacementOrderInput, ClaimCreateReplacementOrderResult> = {
+  id: 'warranty_claims.claim.create_replacement_order',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(claimCreateReplacementOrderSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadClaimSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(claimCreateReplacementOrderSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const claim = await requireScopedClaim(em, input.id, scope)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    if (!claim.orderId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementOrderRequiresOrder' })
+    }
+    if (!REPLACEMENT_ELIGIBLE_CLAIM_STATUSES.has(claim.status as WarrantyClaimStatus)) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementInvalidStatus' })
+    }
+    if (claim.replacementOrderId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementAlreadyLinked' })
+    }
+    if (!resolveOptionalEntityId('sales', 'sales_order')) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementSalesUnavailable' })
+    }
+
+    const sourceOrder = await querySalesReferenceRow(
+      ctx,
+      'sales_orders',
+      scope,
+      claim.orderId,
+      [
+        'id',
+        'currency_code',
+        'customer_entity_id',
+        'customer_contact_id',
+        'billing_address_id',
+        'shipping_address_id',
+        'channel_id',
+      ],
+    )
+    const orderCurrencyCode = sourceOrder ? readString(sourceOrder, 'currency_code') : null
+    if (!sourceOrder || !orderCurrencyCode) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementOrderRequiresOrder' })
+    }
+
+    const lines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      { claim: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+      {},
+      scope,
+    )
+    const replacementLines: ReplacementOrderLineInput[] = []
+    const skippedLineIds: string[] = []
+    for (const line of lines) {
+      const effectiveQty = line.qtyApproved ?? line.qtyClaimed
+      const quantityUnits = claimedQuantityUnits(effectiveQty) ?? 0n
+      const initiallyEligible = line.disposition === 'replace'
+        && Boolean(line.orderLineId)
+        && REPLACEMENT_ELIGIBLE_LINE_STATUSES.has(line.lineStatus as WarrantyClaimLineStatus)
+        && quantityUnits > 0n
+        && quantityUnits % CLAIMED_QUANTITY_SCALE === 0n
+      if (!initiallyEligible || !line.orderLineId) {
+        skippedLineIds.push(line.id)
+        continue
+      }
+
+      const sourceLine = await querySalesReferenceRow(
+        ctx,
+        'sales_order_lines',
+        scope,
+        line.orderLineId,
+        [
+          'id',
+          'order_id',
+          'product_id',
+          'product_variant_id',
+          'name',
+          'kind',
+          'currency_code',
+          'unit_price_net',
+          'unit_price_gross',
+          'tax_rate',
+        ],
+      )
+      const productId = sourceLine ? readString(sourceLine, 'product_id') : null
+      const productVariantId = sourceLine ? readString(sourceLine, 'product_variant_id') : null
+      const name = sourceLine ? readString(sourceLine, 'name') : null
+      const kind = sourceLine ? readSalesOrderLineKind(sourceLine.kind) : null
+      const currencyCode = sourceLine ? readString(sourceLine, 'currency_code') : null
+      const unitPriceNet = sourceLine ? readString(sourceLine, 'unit_price_net') : null
+      const unitPriceGross = sourceLine ? readString(sourceLine, 'unit_price_gross') : null
+      const taxRate = sourceLine ? readString(sourceLine, 'tax_rate') : null
+      if (
+        !sourceLine
+        || sourceLine.order_id !== claim.orderId
+        || (!productId && !productVariantId && !name)
+        || !kind
+        || !currencyCode
+        || unitPriceNet === null
+        || unitPriceGross === null
+        || taxRate === null
+      ) {
+        skippedLineIds.push(line.id)
+        continue
+      }
+
+      const replacementLine: ReplacementOrderLineInput = {
+        kind,
+        currencyCode,
+        quantity: String(effectiveQty),
+        unitPriceNet: input.pricing === 'zero' ? '0' : unitPriceNet,
+        unitPriceGross: input.pricing === 'zero' ? '0' : unitPriceGross,
+      }
+      if (productId) replacementLine.productId = productId
+      if (productVariantId) replacementLine.productVariantId = productVariantId
+      if (name) replacementLine.name = name
+      if (input.pricing === 'original') replacementLine.taxRate = taxRate
+      replacementLines.push(replacementLine)
+    }
+    if (replacementLines.length === 0) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementNoEligibleLines' })
+    }
+
+    const orderInput: ReplacementOrderCreateInput = {
+      organizationId: scope.organizationId,
+      tenantId: scope.tenantId,
+      currencyCode: orderCurrencyCode,
+      metadata: { warrantyClaimId: claim.id, warrantyClaimNumber: claim.claimNumber },
+      lines: replacementLines,
+    }
+    const customerEntityId = readString(sourceOrder, 'customer_entity_id')
+    const customerContactId = readString(sourceOrder, 'customer_contact_id')
+    const billingAddressId = readString(sourceOrder, 'billing_address_id')
+    const shippingAddressId = readString(sourceOrder, 'shipping_address_id')
+    const channelId = readString(sourceOrder, 'channel_id')
+    if (customerEntityId) orderInput.customerEntityId = customerEntityId
+    if (customerContactId) orderInput.customerContactId = customerContactId
+    if (billingAddressId) orderInput.billingAddressId = billingAddressId
+    if (shippingAddressId) orderInput.shippingAddressId = shippingAddressId
+    if (channelId) orderInput.channelId = channelId
+
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    const { result: dispatchedResult } = await commandBus.execute<ReplacementOrderCreateInput, { orderId: string }>(
+      'sales.orders.create',
+      { input: orderInput, ctx: scrubbedDispatchContext(ctx) },
+    )
+    if (!dispatchedResult?.orderId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+    }
+    const replacementOrderId = dispatchedResult.orderId
+    let replacementOrderUpdatedAt: string | null = null
+    try {
+      const createdOrderRow = await querySalesReferenceRow(ctx, 'sales_orders', scope, replacementOrderId, ['id', 'updated_at'])
+      replacementOrderUpdatedAt = createdOrderRow?.updated_at
+        ? new Date(createdOrderRow.updated_at as string | Date).toISOString()
+        : null
+      await em.transactional(async (tx) => {
+        const lockedClaim = await requireScopedClaim(tx, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (lockedClaim.replacementOrderId) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.replacementAlreadyLinked' })
+        }
+        lockedClaim.replacementOrderId = replacementOrderId
+        if (ADVANCE_REPLACEMENT_CLAIM_STATUSES.has(lockedClaim.status as WarrantyClaimStatus)) {
+          lockedClaim.advanceReplacement = true
+        }
+        lockedClaim.updatedAt = new Date()
+        appendClaimEvent(tx, lockedClaim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'replacement_order_created', replacementOrderId, pricing: input.pricing },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+        claim.replacementOrderId = replacementOrderId
+        claim.advanceReplacement = lockedClaim.advanceReplacement
+        claim.updatedAt = lockedClaim.updatedAt
+        await tx.flush()
+      })
+    } catch (err) {
+      try {
+        await dispatchSalesOrderDelete(ctx, scope, replacementOrderId)
+      } catch (compensationErr) {
+        replacementOrderBridgeLogger.error('warranty_claims.claim.create_replacement_order compensation failed — orphaned sales order', {
+          err: compensationErr,
+          claimId: claim.id,
+          replacementOrderId,
+        })
+        try {
+          const orphanEm = (ctx.container.resolve('em') as EntityManager).fork()
+          const orphanClaim = await findOneWithDecryption(
+            orphanEm,
+            WarrantyClaim,
+            { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+            {},
+            scope,
+          )
+          if (orphanClaim) {
+            appendClaimEvent(orphanEm, orphanClaim, 'system', {
+              visibility: 'internal',
+              payload: { action: 'replacement_order_orphaned', replacementOrderId },
+              actorUserId: ctx.auth?.sub ?? null,
+            })
+            await orphanEm.flush()
+          }
+        } catch (orphanEventErr) {
+          replacementOrderBridgeLogger.error('warranty_claims.claim.create_replacement_order orphan timeline write failed', {
+            err: orphanEventErr,
+            claimId: claim.id,
+            replacementOrderId,
+          })
+        }
+        throw new CrudHttpError(500, { error: 'warranty_claims.errors.save_failed' })
+      }
+      throw err
+    }
+
+    await emitClaimCrud(ctx, 'updated', claim)
+    return {
+      claimId: claim.id,
+      replacementOrderId,
+      replacementOrderUpdatedAt,
+      skippedLineIds,
+      pricing: input.pricing,
+    }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(claimCreateReplacementOrderSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadClaimSnapshot(em, result.claimId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const base = buildClaimLog('warranty_claims.audit.claim.create_replacement_order', result.claimId, snapshots)
+    const undoPayload: ClaimReplacementOrderUndoPayload = {
+      ...(base.payload.undo as ClaimUndoPayload),
+      replacementOrder: {
+        id: result.replacementOrderId,
+        updatedAt: result.replacementOrderUpdatedAt,
+      },
+    }
+    return { ...base, payload: { undo: undoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ClaimReplacementOrderUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const replacementOrder = payload?.replacementOrder ?? null
+    if (replacementOrder?.id) {
+      const currentRow = await querySalesReferenceRow(ctx, 'sales_orders', scope, replacementOrder.id, ['id', 'updated_at'])
+      if (currentRow === undefined) {
+        throw new CrudHttpError(409, { error: 'warranty_claims.errors.replacementOrderChangedUndoAborted' })
+      }
+      if (currentRow) {
+        const currentUpdatedAt = currentRow.updated_at
+          ? new Date(currentRow.updated_at as string | Date).toISOString()
+          : null
+        if (!replacementOrder.updatedAt || !currentUpdatedAt || currentUpdatedAt !== replacementOrder.updatedAt) {
+          throw new CrudHttpError(409, { error: 'warranty_claims.errors.replacementOrderChangedUndoAborted' })
+        }
+        await dispatchSalesOrderDelete(ctx, scope, replacementOrder.id)
+      } else {
+        replacementOrderBridgeLogger.info('warranty_claims.claim.create_replacement_order undo found replacement order already absent', {
+          claimId: before.id,
+          replacementOrderId: replacementOrder.id,
+        })
+      }
+    }
+
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let claim!: WarrantyClaim
+    await withAtomicFlush(em, [
+      async () => {
+        claim = await restoreSnapshot(em, before)
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'undo_replacement_order_created' },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+    ], { transaction: true, label: 'warranty_claims.claim.create_replacement_order.undo' })
+    await emitClaimUndoCrud(ctx, 'updated', claim)
+  },
+}
+
 registerCommand(createClaimCommand)
 registerCommand(updateClaimCommand)
 registerCommand(deleteClaimCommand)
@@ -2317,6 +3139,8 @@ registerCommand(escalateClaimCommand)
 registerCommand(commentClaimCommand)
 registerCommand(createVendorRecoveryCommand)
 registerCommand(createSalesReturnCommand)
+registerCommand(createCreditMemoCommand)
+registerCommand(createReplacementOrderCommand)
 
 export const claimCommands = [
   createClaimCommand,
@@ -2330,6 +3154,8 @@ export const claimCommands = [
   commentClaimCommand,
   createVendorRecoveryCommand,
   createSalesReturnCommand,
+  createCreditMemoCommand,
+  createReplacementOrderCommand,
 ]
 
 export {
@@ -2345,4 +3171,6 @@ export {
   commentClaimCommand,
   createVendorRecoveryCommand,
   createSalesReturnCommand,
+  createCreditMemoCommand,
+  createReplacementOrderCommand,
 }

@@ -240,6 +240,7 @@ function transformClaimItem(item: unknown): unknown {
     returnCarrier: readString(record, 'return_carrier', 'returnCarrier'),
     salesReturnId: readString(record, 'sales_return_id', 'salesReturnId'),
     replacementOrderId: readString(record, 'replacement_order_id', 'replacementOrderId'),
+    creditMemoId: readString(record, 'credit_memo_id', 'creditMemoId'),
     sourceClaimId: readString(record, 'source_claim_id', 'sourceClaimId'),
     advanceReplacement: readBool(record, 'advance_replacement', 'advanceReplacement'),
     advanceShippedAt: toIso(record.advance_shipped_at ?? record.advanceShippedAt),
@@ -263,7 +264,7 @@ function transformClaimItem(item: unknown): unknown {
   }
 }
 
-const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'source_claim_id', 'return_label_url', 'return_tracking_number', 'return_carrier'] as const
+const CLAIM_DETAIL_ONLY_FIELDS = ['sales_return_id', 'replacement_order_id', 'credit_memo_id', 'source_claim_id', 'return_label_url', 'return_tracking_number', 'return_carrier'] as const
 
 const claimDetailFields = [
   'id',
@@ -288,6 +289,7 @@ const claimDetailFields = [
   'return_carrier',
   'sales_return_id',
   'replacement_order_id',
+  'credit_memo_id',
   'source_claim_id',
   'advance_replacement',
   'advance_shipped_at',
@@ -316,7 +318,7 @@ const claimGridFields = claimDetailFields.filter(
 )
 
 // Explicit view-scope export projection: keeps detail-only UUID references
-// (salesReturnId, replacementOrderId, sourceClaimId) out of grid exports while
+// (salesReturnId, replacementOrderId, creditMemoId, sourceClaimId) out of grid exports while
 // the JSON list response keeps those keys (serialized as null off the trimmed
 // grid projection).
 const CLAIM_EXPORT_COLUMN_FIELDS = [

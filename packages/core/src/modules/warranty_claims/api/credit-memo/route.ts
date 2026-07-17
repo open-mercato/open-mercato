@@ -9,9 +9,12 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { withScopedPayload } from '@open-mercato/shared/lib/api/scoped'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
-import { claimCreateSalesReturnSchema, type ClaimCreateSalesReturnInput } from '../../data/validators'
-import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../commands/shared'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import {
+  claimCreateCreditMemoSchema,
+  type ClaimCreateCreditMemoInput,
+} from '../../data/validators'
+import { WARRANTY_CLAIM_RESOURCE_KIND } from '../../commands/shared'
 
 const logger = createLogger('warranty_claims')
 
@@ -22,28 +25,29 @@ type ActionRouteContext = {
   translate: (key: string, fallback?: string) => string
 }
 
-type SalesReturnCommandResult = {
+type CreditMemoCommandResult = {
   claimId: string
-  salesReturnId: string
-  salesReturnUpdatedAt: string | null
+  creditMemoId: string
+  creditMemoUpdatedAt: string | null
   skippedLineIds: string[]
+  grandTotalGrossAmount: string
+  currencyCode: string
 }
 
-const uuid = z.string().uuid()
-const optimisticLockTokenSchema = z.string().datetime().nullable().optional()
-
-const salesReturnRequestSchema = z
+const creditMemoRequestSchema = z
   .object({
-    claimId: uuid,
-    updatedAt: optimisticLockTokenSchema,
+    claimId: z.string().uuid(),
+    updatedAt: z.string().datetime().nullable().optional(),
   })
   .strict()
 
-type SalesReturnRequest = z.infer<typeof salesReturnRequestSchema>
+type CreditMemoRequest = z.infer<typeof creditMemoRequestSchema>
 
-const salesReturnResponseSchema = z.object({
-  salesReturnId: z.string(),
-  skippedLineIds: z.array(z.string()),
+const creditMemoResponseSchema = z.object({
+  creditMemoId: z.string().uuid(),
+  skippedLineIds: z.array(z.string().uuid()),
+  grandTotalGrossAmount: z.string(),
+  currencyCode: z.string(),
 })
 
 const errorResponseSchema = z.object({
@@ -51,7 +55,7 @@ const errorResponseSchema = z.object({
 })
 
 export const metadata = {
-  POST: { requireAuth: true, requireFeatures: ['warranty_claims.claim.manage', 'sales.returns.create'] },
+  POST: { requireAuth: true, requireFeatures: ['warranty_claims.claim.manage', 'sales.credit_memos.manage'] },
 }
 
 function translateKey(key: string): string {
@@ -88,25 +92,25 @@ async function resolveActionContext(req: Request): Promise<ActionRouteContext> {
   }
 }
 
-function toSalesReturnRequest(payload: Record<string, unknown>): SalesReturnRequest {
-  return salesReturnRequestSchema.parse({
-    claimId: payload.claimId ?? payload.id,
-    updatedAt: payload.updatedAt,
-  })
+function toCreditMemoRequest(payload: Record<string, unknown>): CreditMemoRequest {
+  return creditMemoRequestSchema.parse(payload)
 }
 
-function toCommandInput(input: SalesReturnRequest, context: ActionRouteContext): ClaimCreateSalesReturnInput {
+function toCommandInput(
+  input: CreditMemoRequest,
+  context: ActionRouteContext,
+): ClaimCreateCreditMemoInput {
   const scopedPayload = withScopedPayload({
     id: input.claimId,
     updatedAt: input.updatedAt,
   }, context.ctx, context.translate)
-  return claimCreateSalesReturnSchema.parse(scopedPayload)
+  return claimCreateCreditMemoSchema.parse(scopedPayload)
 }
 
 async function runGuard(
   req: Request,
   context: ActionRouteContext,
-  input: SalesReturnRequest,
+  input: CreditMemoRequest,
 ): Promise<RouteMutationGuardResult> {
   const userId = context.ctx.auth?.sub
   if (!userId) {
@@ -132,48 +136,52 @@ async function runGuard(
 export async function POST(req: Request) {
   try {
     const context = await resolveActionContext(req)
-    const requestInput = toSalesReturnRequest(toRecord(await readJsonSafe(req, {})))
+    const requestInput = toCreditMemoRequest(toRecord(await readJsonSafe(req, {})))
     const guarded = await runGuard(req, context, requestInput)
     if (!guarded.ok) {
       return guarded.response
     }
-    const guardedInput = guarded.modifiedPayload ? toSalesReturnRequest(guarded.modifiedPayload) : requestInput
+    const guardedInput = guarded.modifiedPayload
+      ? toCreditMemoRequest(guarded.modifiedPayload)
+      : requestInput
     const commandBus = context.ctx.container.resolve('commandBus') as CommandBus
-    const { result } = await commandBus.execute<ClaimCreateSalesReturnInput, SalesReturnCommandResult>(
-      'warranty_claims.claim.create_sales_return',
+    const { result } = await commandBus.execute<ClaimCreateCreditMemoInput, CreditMemoCommandResult>(
+      'warranty_claims.claim.create_credit_memo',
       { input: toCommandInput(guardedInput, context), ctx: context.ctx },
     )
     if (!result) throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
     await guarded.runAfterSuccess()
-    return NextResponse.json({ salesReturnId: result.salesReturnId, skippedLineIds: result.skippedLineIds })
+    return NextResponse.json({
+      creditMemoId: result.creditMemoId,
+      skippedLineIds: result.skippedLineIds,
+      grandTotalGrossAmount: result.grandTotalGrossAmount,
+      currencyCode: result.currencyCode,
+    })
   } catch (err) {
     if (isCrudHttpError(err)) return NextResponse.json(err.body, { status: err.status })
     if (err instanceof z.ZodError) {
       return NextResponse.json({ error: 'warranty_claims.errors.invalidInput' }, { status: 400 })
     }
-    logger.error('warranty_claims.sales-return.post failed', { err })
+    logger.error('warranty_claims.credit-memo.post failed', { err })
     return NextResponse.json({ error: 'warranty_claims.errors.save_failed' }, { status: 500 })
   }
 }
 
 export const openApi: OpenApiRouteDoc = {
   tag: 'Warranty Claims',
-  summary: 'Create a sales return from an approved warranty claim',
+  summary: 'Create a credit memo from a warranty claim',
   methods: {
     POST: {
-      summary: 'Create a sales return document from the claim\'s eligible lines and link it to the claim',
-      requestBody: {
-        contentType: 'application/json',
-        schema: salesReturnRequestSchema,
-        description: 'Use claimId to identify the warranty claim. The id field is also accepted as an alias for claimId.',
-      },
+      summary: 'Create and link a credit memo from eligible received credit or refund lines',
+      description: 'Amounts are prorated from source order-line totals. Version 1 does not prorate order-level adjustments.',
+      requestBody: { contentType: 'application/json', schema: creditMemoRequestSchema },
       responses: [
         {
           status: 200,
-          description: 'Sales return created and linked; lines without an order-line reference are reported as skipped',
-          schema: salesReturnResponseSchema,
+          description: 'Credit memo created and linked; ineligible or unresolvable claim lines are reported as skipped',
+          schema: creditMemoResponseSchema,
         },
-        { status: 400, description: 'Invalid request or claim is not eligible for sales-return creation', schema: errorResponseSchema },
+        { status: 400, description: 'Invalid request or claim is not eligible for credit-memo creation', schema: errorResponseSchema },
         { status: 401, description: 'Authentication required', schema: errorResponseSchema },
         { status: 403, description: 'Insufficient permissions', schema: errorResponseSchema },
         { status: 409, description: 'Optimistic lock conflict', schema: errorResponseSchema },

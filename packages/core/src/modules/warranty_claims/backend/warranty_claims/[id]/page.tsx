@@ -129,6 +129,8 @@ type ClaimRecord = {
   orderId: string | null
   orderNumber: string | null
   salesReturnId: string | null
+  replacementOrderId: string | null
+  creditMemoId: string | null
   awaitingStaffReply: boolean
   vendorName: string | null
   vendorRef: string | null
@@ -412,6 +414,12 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
   if (event.kind === 'system' && action === 'sales_return_created') return t('warranty_claims.timeline.salesReturnCreated')
   if (event.kind === 'system' && action === 'sales_return_orphaned') return t('warranty_claims.timeline.salesReturnOrphaned')
   if (event.kind === 'system' && action === 'undo_sales_return_created') return t('warranty_claims.timeline.undoSalesReturnCreated')
+  if (event.kind === 'system' && action === 'replacement_order_created') return t('warranty_claims.timeline.replacementOrderCreated')
+  if (event.kind === 'system' && action === 'replacement_order_orphaned') return t('warranty_claims.timeline.replacementOrderOrphaned')
+  if (event.kind === 'system' && action === 'undo_replacement_order_created') return t('warranty_claims.timeline.undoReplacementOrderCreated')
+  if (event.kind === 'system' && action === 'credit_memo_created') return t('warranty_claims.timeline.creditMemoCreated')
+  if (event.kind === 'system' && action === 'credit_memo_orphaned') return t('warranty_claims.timeline.creditMemoOrphaned')
+  if (event.kind === 'system' && action === 'undo_credit_memo_created') return t('warranty_claims.timeline.undoCreditMemoCreated')
   if (event.kind === 'assignment') {
     const assigneeUserId = payload ? toStringOrNull(payload.assigneeUserId) : null
     if (!assigneeUserId) return t('warranty_claims.timeline.unassigned')
@@ -469,6 +477,8 @@ function normalizeClaim(value: unknown): ClaimRecord | null {
     orderId: toStringOrNull(value.orderId),
     orderNumber: toStringOrNull(value.orderNumber),
     salesReturnId: toStringOrNull(value.salesReturnId),
+    replacementOrderId: toStringOrNull(value.replacementOrderId),
+    creditMemoId: toStringOrNull(value.creditMemoId),
     awaitingStaffReply: parseBooleanFromUnknown(value.awaitingStaffReply) ?? false,
     vendorName: toStringOrNull(value.vendorName),
     vendorRef: toStringOrNull(value.vendorRef),
@@ -737,6 +747,8 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
     claimManage: false,
     receivingManage: false,
     salesReturnsCreate: false,
+    salesOrdersManage: false,
+    salesCreditMemosManage: false,
   })
 
   React.useEffect(() => {
@@ -761,7 +773,13 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
-          features: ['warranty_claims.claim.manage', 'warranty_claims.receiving.manage'],
+          features: [
+            'warranty_claims.claim.manage',
+            'warranty_claims.receiving.manage',
+            'sales.returns.create',
+            'sales.orders.manage',
+            'sales.credit_memos.manage',
+          ],
         }),
       },
       { fallback: { ok: false, granted: [] } },
@@ -774,11 +792,19 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           claimManage: allGranted || hasFeature(granted, 'warranty_claims.claim.manage'),
           receivingManage: allGranted || hasFeature(granted, 'warranty_claims.receiving.manage'),
           salesReturnsCreate: allGranted || hasFeature(granted, 'sales.returns.create'),
+          salesOrdersManage: allGranted || hasFeature(granted, 'sales.orders.manage'),
+          salesCreditMemosManage: allGranted || hasFeature(granted, 'sales.credit_memos.manage'),
         })
       })
       .catch(() => {
         if (!cancelled) {
-          setFeatureAccess({ claimManage: false, receivingManage: false, salesReturnsCreate: false })
+          setFeatureAccess({
+            claimManage: false,
+            receivingManage: false,
+            salesReturnsCreate: false,
+            salesOrdersManage: false,
+            salesCreditMemosManage: false,
+          })
         }
       })
     return () => {
@@ -1085,6 +1111,78 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       const skippedCount = call?.result?.skippedLineIds?.length ?? 0
       if (skippedCount > 0) {
         flash(t('warranty_claims.detail.createSalesReturnSkipped', undefined, { count: skippedCount }), 'info')
+      }
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      const message = translateErrorMessage(err, t, 'warranty_claims.detail.error.action')
+      flash(message, 'error')
+    }
+  }, [claim, loadData, mutationContext, runMutation, t])
+
+  const createReplacementOrder = React.useCallback(async () => {
+    if (!claim) return
+    const payload = { claimId: claim.id }
+    try {
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(claim.updatedAt),
+            () => apiCall<{ replacementOrderId?: string; skippedLineIds?: string[] }>('/api/warranty_claims/replacement-order', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          )
+          if (!response.ok) throw buildConflictError(response, t('warranty_claims.detail.error.action'), t)
+          return response
+        },
+        context: mutationContext,
+        mutationPayload: payload,
+      })
+      flash(t('warranty_claims.detail.createReplacementOrderSuccess'), 'success')
+      const skippedCount = call?.result?.skippedLineIds?.length ?? 0
+      if (skippedCount > 0) {
+        flash(t('warranty_claims.detail.createReplacementOrderSkipped', undefined, { count: skippedCount }), 'info')
+      }
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      const message = translateErrorMessage(err, t, 'warranty_claims.detail.error.action')
+      flash(message, 'error')
+    }
+  }, [claim, loadData, mutationContext, runMutation, t])
+
+  const createCreditMemo = React.useCallback(async () => {
+    if (!claim) return
+    const payload = { claimId: claim.id }
+    try {
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(claim.updatedAt),
+            () => apiCall<{ creditMemoId?: string; skippedLineIds?: string[]; grandTotalGrossAmount?: string; currencyCode?: string }>('/api/warranty_claims/credit-memo', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          )
+          if (!response.ok) throw buildConflictError(response, t('warranty_claims.detail.error.action'), t)
+          return response
+        },
+        context: mutationContext,
+        mutationPayload: payload,
+      })
+      flash(
+        t('warranty_claims.detail.createCreditMemoSuccess', undefined, {
+          amount: call?.result?.grandTotalGrossAmount ?? '',
+          currency: call?.result?.currencyCode ?? '',
+        }),
+        'success',
+      )
+      const skippedCount = call?.result?.skippedLineIds?.length ?? 0
+      if (skippedCount > 0) {
+        flash(t('warranty_claims.detail.createCreditMemoSkipped', undefined, { count: skippedCount }), 'info')
       }
       await loadData()
     } catch (err) {
@@ -1768,17 +1866,43 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
 
           <ReturnLabelPanel claim={claim} canManage={featureAccess.claimManage} onRefresh={loadData} />
 
-          {featureAccess.claimManage
-            && featureAccess.salesReturnsCreate
-            && claim.orderId
-            && !claim.salesReturnId
-            && ['approved', 'awaiting_return', 'received', 'inspecting'].includes(currentStatus ?? '') ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button type="button" variant="outline" onClick={() => { void createSalesReturn() }}>
-                {t('warranty_claims.detail.createSalesReturn')}
-              </Button>
-            </div>
-          ) : null}
+          {(() => {
+            const showSalesReturn = featureAccess.claimManage
+              && featureAccess.salesReturnsCreate
+              && claim.orderId
+              && !claim.salesReturnId
+              && ['approved', 'awaiting_return', 'received', 'inspecting'].includes(currentStatus ?? '')
+            const showReplacementOrder = featureAccess.claimManage
+              && featureAccess.salesOrdersManage
+              && claim.orderId
+              && !claim.replacementOrderId
+              && ['approved', 'awaiting_return', 'received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
+            const showCreditMemo = featureAccess.claimManage
+              && featureAccess.salesCreditMemosManage
+              && claim.orderId
+              && !claim.creditMemoId
+              && ['received', 'inspecting', 'resolved'].includes(currentStatus ?? '')
+            if (!showSalesReturn && !showReplacementOrder && !showCreditMemo) return null
+            return (
+              <div className="flex flex-wrap items-center gap-2">
+                {showSalesReturn ? (
+                  <Button type="button" variant="outline" onClick={() => { void createSalesReturn() }}>
+                    {t('warranty_claims.detail.createSalesReturn')}
+                  </Button>
+                ) : null}
+                {showReplacementOrder ? (
+                  <Button type="button" variant="outline" onClick={() => { void createReplacementOrder() }}>
+                    {t('warranty_claims.detail.createReplacementOrder')}
+                  </Button>
+                ) : null}
+                {showCreditMemo ? (
+                  <Button type="button" variant="outline" onClick={() => { void createCreditMemo() }}>
+                    {t('warranty_claims.detail.createCreditMemo')}
+                  </Button>
+                ) : null}
+              </div>
+            )
+          })()}
 
           <div className="flex flex-wrap items-center gap-2">
             {nextStatuses.length ? (

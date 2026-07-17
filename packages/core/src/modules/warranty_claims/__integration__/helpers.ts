@@ -184,6 +184,7 @@ export type WarrantyEntitlementResult = {
   hasPriorClaims?: boolean
   priorClaimCount?: number
   priorRegistrationCount?: number
+  relatedClaimNumbers?: string[]
 }
 
 export function uniqueSuffix(): string {
