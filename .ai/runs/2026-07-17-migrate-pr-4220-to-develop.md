@@ -56,7 +56,7 @@ Original commit: `ca661905601cb913b29f8378e7c372f049a040bf` (`build(deps): bump 
 
 ### Phase 2: Apply the dependency update
 
-- [ ] 2.1 Apply the PR #4220 lockfile update onto `develop` while preserving author credit.
+- [x] 2.1 Apply the PR #4220 lockfile update onto `develop` while preserving author credit. — 543c6f3bd
 
 ### Phase 3: Validate and publish
 
