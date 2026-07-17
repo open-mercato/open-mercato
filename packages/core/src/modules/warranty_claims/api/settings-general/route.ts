@@ -41,6 +41,7 @@ type SettingsRouteContext = {
 }
 
 type SettingsResponseResult = WarrantyClaimEffectiveSettings & {
+  returnWindowDays: number | null
   updatedAt: string | null
 }
 
@@ -92,6 +93,7 @@ async function buildSettingsResult(
   const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(em, scope)
   return {
     ...effectiveSettings,
+    returnWindowDays: record?.returnWindowDays ?? null,
     updatedAt: toIso(record?.updatedAt),
   }
 }
@@ -157,6 +159,7 @@ export async function PUT(req: Request) {
         adjudicationUseRules: result.adjudicationUseRules,
         quarantineGrades: result.quarantineGrades,
         returnLabelProvider: result.returnLabelProvider,
+        returnWindowDays: result.returnWindowDays,
         updatedAt: result.updatedAt,
       },
     })
@@ -185,6 +188,7 @@ const settingsResultSchema = z.object({
   adjudicationUseRules: z.boolean(),
   quarantineGrades: z.array(z.string()).nullable(),
   returnLabelProvider: z.string().nullable(),
+  returnWindowDays: z.number().nullable(),
   updatedAt: z.string().nullable(),
 })
 

@@ -22,6 +22,7 @@ export const WARRANTY_CLAIM_SETTINGS_RESOURCE_KIND = 'warranty_claims.settings'
 
 export type SaveWarrantyClaimSettingsResult = WarrantyClaimEffectiveSettings & {
   settingsId: string
+  returnWindowDays: number | null
   updatedAt: string | null
 }
 
@@ -78,6 +79,7 @@ function applySettingsUpdate(settings: WarrantyClaimSettings, input: WarrantyCla
   }
   if (hasOwn(input, 'quarantineGrades')) settings.quarantineGrades = input.quarantineGrades ?? null
   if (hasOwn(input, 'returnLabelProvider')) settings.returnLabelProvider = input.returnLabelProvider ?? null
+  if (hasOwn(input, 'returnWindowDays')) settings.returnWindowDays = input.returnWindowDays ?? null
 }
 
 function assertAutoApproveConfig(settings: WarrantyClaimSettings): void {
@@ -102,6 +104,7 @@ function buildResult(settings: WarrantyClaimSettings): SaveWarrantyClaimSettings
     adjudicationUseRules: settings.adjudicationUseRules,
     quarantineGrades: settings.quarantineGrades ?? null,
     returnLabelProvider: settings.returnLabelProvider ?? null,
+    returnWindowDays: settings.returnWindowDays ?? null,
     updatedAt: toIso(settings.updatedAt),
   }
 }
@@ -143,6 +146,7 @@ const saveWarrantyClaimSettingsCommand: CommandHandler<
         adjudicationUseRules: WARRANTY_CLAIM_SETTINGS_DEFAULTS.adjudicationUseRules,
         quarantineGrades: WARRANTY_CLAIM_SETTINGS_DEFAULTS.quarantineGrades,
         returnLabelProvider: WARRANTY_CLAIM_SETTINGS_DEFAULTS.returnLabelProvider,
+        returnWindowDays: null,
         createdAt: now,
         updatedAt: now,
       })

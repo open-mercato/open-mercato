@@ -128,6 +128,7 @@ type ClaimRecord = {
   customerName: string | null
   orderId: string | null
   orderNumber: string | null
+  salesReturnId: string | null
   awaitingStaffReply: boolean
   vendorName: string | null
   vendorRef: string | null
@@ -408,6 +409,9 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
   if (event.kind === 'system' && action === 'sla_paused') return t('warranty_claims.timeline.slaPaused')
   if (event.kind === 'system' && action === 'sla_resumed') return t('warranty_claims.timeline.slaResumed')
   if (event.kind === 'system' && action === 'auto_approved') return t('warranty_claims.timeline.autoApproved')
+  if (event.kind === 'system' && action === 'sales_return_created') return t('warranty_claims.timeline.salesReturnCreated')
+  if (event.kind === 'system' && action === 'sales_return_orphaned') return t('warranty_claims.timeline.salesReturnOrphaned')
+  if (event.kind === 'system' && action === 'undo_sales_return_created') return t('warranty_claims.timeline.undoSalesReturnCreated')
   if (event.kind === 'assignment') {
     const assigneeUserId = payload ? toStringOrNull(payload.assigneeUserId) : null
     if (!assigneeUserId) return t('warranty_claims.timeline.unassigned')
@@ -416,7 +420,12 @@ function formatTimelineBody(event: ClaimEvent, t: TranslateFn, userNames: Record
   const from = payload ? toStringOrNull(payload.from) ?? toStringOrNull(payload.fromStatus) : null
   const to = payload ? toStringOrNull(payload.to) ?? toStringOrNull(payload.toStatus) : null
   if (event.kind === 'status_changed' && from && to) {
-    return `${t(`warranty_claims.status.${from}`)} → ${t(`warranty_claims.status.${to}`)}`
+    const statusLine = `${t(`warranty_claims.status.${from}`)} → ${t(`warranty_claims.status.${to}`)}`
+    const systemNote = payload ? toStringOrNull(payload.systemNote) : null
+    if (systemNote && systemNote.startsWith('warranty_claims.')) {
+      return `${statusLine} — ${t(systemNote)}`
+    }
+    return statusLine
   }
   return null
 }
@@ -459,6 +468,7 @@ function normalizeClaim(value: unknown): ClaimRecord | null {
     customerName: toStringOrNull(value.customerName),
     orderId: toStringOrNull(value.orderId),
     orderNumber: toStringOrNull(value.orderNumber),
+    salesReturnId: toStringOrNull(value.salesReturnId),
     awaitingStaffReply: parseBooleanFromUnknown(value.awaitingStaffReply) ?? false,
     vendorName: toStringOrNull(value.vendorName),
     vendorRef: toStringOrNull(value.vendorRef),
@@ -726,6 +736,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
   const [featureAccess, setFeatureAccess] = React.useState({
     claimManage: false,
     receivingManage: false,
+    salesReturnsCreate: false,
   })
 
   React.useEffect(() => {
@@ -762,11 +773,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         setFeatureAccess({
           claimManage: allGranted || hasFeature(granted, 'warranty_claims.claim.manage'),
           receivingManage: allGranted || hasFeature(granted, 'warranty_claims.receiving.manage'),
+          salesReturnsCreate: allGranted || hasFeature(granted, 'sales.returns.create'),
         })
       })
       .catch(() => {
         if (!cancelled) {
-          setFeatureAccess({ claimManage: false, receivingManage: false })
+          setFeatureAccess({ claimManage: false, receivingManage: false, salesReturnsCreate: false })
         }
       })
     return () => {
@@ -1041,6 +1053,39 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
         mutationPayload: body,
       })
       flash(t(successKey), 'success')
+      await loadData()
+    } catch (err) {
+      if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
+      const message = translateErrorMessage(err, t, 'warranty_claims.detail.error.action')
+      flash(message, 'error')
+    }
+  }, [claim, loadData, mutationContext, runMutation, t])
+
+  const createSalesReturn = React.useCallback(async () => {
+    if (!claim) return
+    const payload = { claimId: claim.id }
+    try {
+      const call = await runMutation({
+        operation: async () => {
+          const response = await withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(claim.updatedAt),
+            () => apiCall<{ salesReturnId?: string; skippedLineIds?: string[] }>('/api/warranty_claims/sales-return', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(payload),
+            }),
+          )
+          if (!response.ok) throw buildConflictError(response, t('warranty_claims.detail.error.action'), t)
+          return response
+        },
+        context: mutationContext,
+        mutationPayload: payload,
+      })
+      flash(t('warranty_claims.detail.createSalesReturnSuccess'), 'success')
+      const skippedCount = call?.result?.skippedLineIds?.length ?? 0
+      if (skippedCount > 0) {
+        flash(t('warranty_claims.detail.createSalesReturnSkipped', undefined, { count: skippedCount }), 'info')
+      }
       await loadData()
     } catch (err) {
       if (surfaceRecordConflict(err, t, { onRefresh: loadData })) return
@@ -1722,6 +1767,18 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           </div>
 
           <ReturnLabelPanel claim={claim} canManage={featureAccess.claimManage} onRefresh={loadData} />
+
+          {featureAccess.claimManage
+            && featureAccess.salesReturnsCreate
+            && claim.orderId
+            && !claim.salesReturnId
+            && ['approved', 'awaiting_return', 'received', 'inspecting'].includes(currentStatus ?? '') ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button type="button" variant="outline" onClick={() => { void createSalesReturn() }}>
+                {t('warranty_claims.detail.createSalesReturn')}
+              </Button>
+            </div>
+          ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
             {nextStatuses.length ? (

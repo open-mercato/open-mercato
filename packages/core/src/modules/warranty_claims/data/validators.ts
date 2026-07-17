@@ -192,6 +192,7 @@ export const warrantyClaimSettingsUpdateSchema = z
     adjudicationUseRules: z.boolean().optional(),
     quarantineGrades: z.array(z.string().trim().min(1).max(20)).nullable().optional(),
     returnLabelProvider: clearableString(120),
+    returnWindowDays: z.coerce.number().int().min(1).max(3650).nullable().optional(),
   })
   .strict()
 
@@ -320,6 +321,7 @@ export const transitionClaimInputSchema = z
     toStatus: claimStatusSchema,
     rejectionReasonCode: clearableString(120),
     resolutionSummary: clearableString(4000),
+    systemNote: z.string().regex(/^warranty_claims\.[A-Za-z0-9_.]+$/).max(200).optional(),
     actorCustomerId: uuid().optional(),
   })
   .strict()
@@ -348,6 +350,13 @@ export const vendorRecoveryInputSchema = z
     lineIds: z.array(uuid()).min(1).max(200),
     vendorName: z.string().trim().min(1).max(300),
     vendorRef: clearableString(191),
+  })
+  .strict()
+
+export const claimCreateSalesReturnSchema = scopedSchema
+  .extend({
+    id: uuid(),
+    updatedAt: optimisticLockTokenSchema,
   })
   .strict()
 
@@ -558,6 +567,7 @@ export type AssignClaimInput = z.infer<typeof assignClaimInputSchema>
 export type CommentClaimInput = z.infer<typeof commentClaimInputSchema>
 export type VendorRecoveryInput = z.infer<typeof vendorRecoveryInputSchema>
 export type ClaimSetReturnLabelInput = z.infer<typeof claimSetReturnLabelSchema>
+export type ClaimCreateSalesReturnInput = z.infer<typeof claimCreateSalesReturnSchema>
 export type PortalIntakeInput = z.infer<typeof portalIntakeInputSchema>
 export type ExternalClaimLineInput = z.infer<typeof externalClaimLineInputSchema>
 export type ExternalClaimIntakeInput = z.infer<typeof externalClaimIntakeSchema>

@@ -86,6 +86,7 @@ type GeneralSettingsResult = {
   autoApproveCurrencyCode: string | null
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: number | null
+  returnWindowDays: number | null
   businessHours: Record<string, unknown> | null
   escalationTiers: unknown[] | null
   adjudicationUseRules: boolean
@@ -109,6 +110,7 @@ type GeneralSettingsFormValues = {
   autoApproveCurrencyCode: string
   autoApproveRequireInWarranty: boolean
   defaultWarrantyMonths: string
+  returnWindowDays: string
   businessHours: BusinessHoursFormValue
   escalationTiers: EscalationTierRow[]
   adjudicationUseRules: boolean
@@ -190,6 +192,8 @@ type GeneralSettingsTranslations = {
     slaAtRiskThresholdPctHelp: string
     defaultWarrantyMonths: string
     defaultWarrantyMonthsHelp: string
+    returnWindowDays: string
+    returnWindowDaysHelp: string
     autoApproveEnabled: string
     autoApproveEnabledHelp: string
     autoApproveMaxAmount: string
@@ -234,6 +238,7 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsResult = {
   slaPauseOnInfoRequested: true,
   slaAtRiskThresholdPct: 75,
   defaultWarrantyMonths: null,
+  returnWindowDays: null,
   autoApproveEnabled: false,
   autoApproveMaxAmount: null,
   autoApproveCurrencyCode: null,
@@ -373,6 +378,7 @@ function buildGeneralFormValues(settings: GeneralSettingsResult): GeneralSetting
     autoApproveCurrencyCode: settings.autoApproveCurrencyCode ?? '',
     autoApproveRequireInWarranty: settings.autoApproveRequireInWarranty,
     defaultWarrantyMonths: settings.defaultWarrantyMonths === null ? '' : String(settings.defaultWarrantyMonths),
+    returnWindowDays: settings.returnWindowDays === null ? '' : String(settings.returnWindowDays),
     businessHours: buildBusinessHoursFormValue(settings.businessHours),
     escalationTiers: buildEscalationTierRows(settings.escalationTiers),
     adjudicationUseRules: settings.adjudicationUseRules,
@@ -1052,6 +1058,8 @@ export default function WarrantyClaimSettingsPage() {
       slaAtRiskThresholdPctHelp: t('warranty_claims.settings.general.fields.slaAtRiskThresholdPct.help', 'Percent of the SLA window elapsed before a claim is marked at risk.'),
       defaultWarrantyMonths: t('warranty_claims.settings.general.fields.defaultWarrantyMonths.label', 'Default warranty months'),
       defaultWarrantyMonthsHelp: t('warranty_claims.settings.general.fields.defaultWarrantyMonths.help', 'Prefills warranty months on new claim lines and estimates portal entitlement. Leave empty to disable.'),
+      returnWindowDays: t('warranty_claims.settings.returnWindowDays.label', 'Return window (days)'),
+      returnWindowDaysHelp: t('warranty_claims.settings.returnWindowDays.help', 'Flag return and core-return claims submitted after this many days from order placement. Leave empty to disable.'),
       autoApproveEnabled: t('warranty_claims.settings.general.fields.autoApproveEnabled.label', 'Enable auto-approve'),
       autoApproveEnabledHelp: t('warranty_claims.settings.general.fields.autoApproveEnabled.help', 'Automatically approve eligible submitted claims when all configured limits match.'),
       autoApproveMaxAmount: t('warranty_claims.settings.general.fields.autoApproveMaxAmount.label', 'Auto-approve max amount'),
@@ -1252,6 +1260,8 @@ export default function WarrantyClaimSettingsPage() {
     const autoApproveMaxAmount = amountText.length ? Number(amountText) : null
     const warrantyMonthsText = generalForm.defaultWarrantyMonths.trim()
     const defaultWarrantyMonths = warrantyMonthsText.length ? Number(warrantyMonthsText) : null
+    const returnWindowDaysText = generalForm.returnWindowDays.trim()
+    const returnWindowDays = returnWindowDaysText.length ? Number(returnWindowDaysText) : null
     const currencyCode = toStringOrNull(generalForm.autoApproveCurrencyCode)?.toUpperCase() ?? null
     const businessHoursResult = validateBusinessHoursValue(generalForm.businessHours, generalTranslations.businessHours)
     const escalationTiersResult = validateEscalationTierRows(generalForm.escalationTiers, generalTranslations.escalationTiers)
@@ -1287,6 +1297,7 @@ export default function WarrantyClaimSettingsPage() {
       slaAtRiskThresholdPct > 100 ||
       (autoApproveMaxAmount !== null && (!Number.isFinite(autoApproveMaxAmount) || autoApproveMaxAmount < 0)) ||
       (defaultWarrantyMonths !== null && (!Number.isInteger(defaultWarrantyMonths) || defaultWarrantyMonths < 0 || defaultWarrantyMonths > 600)) ||
+      (returnWindowDays !== null && (!Number.isInteger(returnWindowDays) || returnWindowDays < 1 || returnWindowDays > 3650)) ||
       (currencyCode !== null && !/^[A-Z]{3}$/.test(currencyCode))
     ) {
       setGeneralSaveError(generalTranslations.invalidError)
@@ -1302,6 +1313,7 @@ export default function WarrantyClaimSettingsPage() {
       autoApproveCurrencyCode: currencyCode,
       autoApproveRequireInWarranty: generalForm.autoApproveRequireInWarranty,
       defaultWarrantyMonths,
+      returnWindowDays,
       businessHours: businessHoursResult.value,
       escalationTiers: escalationTiersResult.value,
       adjudicationUseRules: generalForm.adjudicationUseRules,
@@ -1639,6 +1651,16 @@ export default function WarrantyClaimSettingsPage() {
                       max={600}
                       disabled={generalSaving}
                       onChange={(value) => updateGeneralForm({ defaultWarrantyMonths: value })}
+                    />
+                    <GeneralNumberField
+                      id="warranty-claims-return-window-days"
+                      label={generalTranslations.fields.returnWindowDays}
+                      description={generalTranslations.fields.returnWindowDaysHelp}
+                      value={generalForm.returnWindowDays}
+                      min={1}
+                      max={3650}
+                      disabled={generalSaving}
+                      onChange={(value) => updateGeneralForm({ returnWindowDays: value })}
                     />
                     <GeneralSwitchField
                       id="warranty-claims-sla-pause"

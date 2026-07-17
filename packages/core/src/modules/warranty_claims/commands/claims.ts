@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto'
 import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
-import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
+import { registerCommand, type CommandBus, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects, emitCrudUndoSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -22,6 +22,7 @@ import {
   claimCreateSchema,
   claimUpdateSchema,
   assignClaimInputSchema,
+  claimCreateSalesReturnSchema,
   claimSetReturnLabelSchema,
   commentClaimInputSchema,
   transitionClaimInputSchema,
@@ -30,6 +31,7 @@ import {
   type ClaimInitialLineCreateInput,
   type ClaimUpdateInput,
   type AssignClaimInput,
+  type ClaimCreateSalesReturnInput,
   type ClaimSetReturnLabelInput,
   type CommentClaimInput,
   type TransitionClaimInput,
@@ -42,6 +44,7 @@ import {
   type WarrantyClaimType,
   type WarrantyClaimWarrantyStatus,
 } from '../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { WarrantyClaimNumberGenerator } from '../services/claimNumberGenerator'
 import { emitWarrantyClaimsEvent } from '../events'
 import { assertTransition, canResolveWithLineStatuses, computeHeaderRollups } from '../lib/stateMachine'
@@ -743,6 +746,8 @@ type SalesReferenceDb = {
   }
   sales_returns: {
     id: string
+    order_id: string | null
+    updated_at: Date | string | null
     tenant_id: string | null
     organization_id: string | null
     deleted_at: Date | null
@@ -750,10 +755,18 @@ type SalesReferenceDb = {
   sales_order_lines: {
     id: string
     order_id: string
+    quantity: string | null
     tenant_id: string | null
     organization_id: string | null
     deleted_at: Date | null
   }
+}
+
+export type ClaimedQuantityLine = {
+  id?: string | null
+  orderLineId?: string | null
+  qtyClaimed: string | number
+  deletedAt?: Date | string | null
 }
 
 function isMissingReferenceTableError(err: unknown): boolean {
@@ -785,6 +798,69 @@ async function querySalesReferenceRow(
   } catch (err) {
     if (isMissingReferenceTableError(err)) return undefined
     return undefined
+  }
+}
+
+const CLAIMED_QUANTITY_SCALE = 10_000n
+
+function claimedQuantityUnits(value: string | number | null | undefined): bigint | null {
+  if (value === null || value === undefined) return null
+  let normalized = String(value).trim()
+  if (/e/i.test(normalized)) {
+    const numeric = Number(normalized)
+    if (!Number.isFinite(numeric)) return null
+    normalized = numeric.toFixed(4)
+  }
+  const match = /^([+-]?)(\d+)(?:\.(\d+))?$/.exec(normalized)
+  if (!match) return null
+  const [, sign, whole, fraction = ''] = match
+  const scaledFraction = fraction.slice(0, 4).padEnd(4, '0')
+  let units = BigInt(whole) * CLAIMED_QUANTITY_SCALE + BigInt(scaledFraction)
+  if (fraction.length > 4 && fraction[4] >= '5') units += 1n
+  return sign === '-' ? -units : units
+}
+
+export async function assertClaimedQtyWithinSold(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  claimIdOrPendingLines: string | readonly ClaimedQuantityLine[],
+  candidateLine: ClaimedQuantityLine,
+): Promise<void> {
+  const orderLineId = candidateLine.orderLineId ?? null
+  if (!orderLineId || !resolveOptionalEntityId('sales', 'sales_order_line')) return
+
+  const salesLine = await querySalesReferenceRow(ctx, 'sales_order_lines', scope, orderLineId, ['id', 'quantity'])
+  const soldQuantity = claimedQuantityUnits(salesLine?.quantity as string | number | null | undefined)
+  if (salesLine === undefined || salesLine === null || soldQuantity === null) return
+
+  let lines: readonly ClaimedQuantityLine[]
+  if (typeof claimIdOrPendingLines === 'string') {
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    lines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      {
+        claim: claimIdOrPendingLines,
+        orderLineId,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+        deletedAt: null,
+      },
+      {},
+      scope,
+    )
+  } else {
+    lines = claimIdOrPendingLines
+  }
+
+  let claimedQuantity = claimedQuantityUnits(candidateLine.qtyClaimed) ?? 0n
+  for (const line of lines) {
+    if (line.deletedAt || (line.orderLineId ?? null) !== orderLineId) continue
+    if (candidateLine.id != null && line.id === candidateLine.id) continue
+    claimedQuantity += claimedQuantityUnits(line.qtyClaimed) ?? 0n
+  }
+  if (claimedQuantity > soldQuantity) {
+    throw new CrudHttpError(400, { error: 'warranty_claims.errors.qtyExceedsOrdered' })
   }
 }
 
@@ -1043,7 +1119,7 @@ export async function validateClaimReferences(
     assertValidSalesReference(result)
   }
   for (const lineRef of input.lineOrderRefs ?? []) {
-    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_order_line'), 'sales_order_lines', scope, lineRef.orderLineId, ['id', 'order_id'])
+    const result = await lookupSalesReference(ctx, resolveOptionalEntityId('sales', 'sales_order_line'), 'sales_order_lines', scope, lineRef.orderLineId, ['id', 'order_id', 'quantity'])
     assertValidSalesReference(result)
     if (result === 'unknown' || !lineRef.orderId) continue
     if (readString(result, 'order_id') !== lineRef.orderId) {
@@ -1211,6 +1287,21 @@ const createClaimCommand: CommandHandler<ClaimCreateInput, { claimId: string }> 
         .filter((line): line is ClaimInitialLineCreateInput & { orderLineId: string } => typeof line.orderLineId === 'string')
         .map((line) => ({ orderLineId: line.orderLineId, orderId: input.orderId ?? null })),
     })
+    const pendingLines = (input.lines ?? []).map((line) => ({
+      orderLineId: line.orderLineId ?? null,
+      qtyClaimed: amountString(line.qtyClaimed, '1') ?? '1',
+    }))
+    const pendingLinesByOrderLine = new Map<string, ClaimedQuantityLine[]>()
+    for (const line of pendingLines) {
+      if (!line.orderLineId) continue
+      const grouped = pendingLinesByOrderLine.get(line.orderLineId) ?? []
+      grouped.push(line)
+      pendingLinesByOrderLine.set(line.orderLineId, grouped)
+    }
+    await Promise.all(Array.from(pendingLinesByOrderLine.values()).map((groupedLines) => {
+      const candidateLine = groupedLines[groupedLines.length - 1]
+      return assertClaimedQtyWithinSold(ctx, scope, groupedLines.slice(0, -1), candidateLine)
+    }))
     const numberGenerator = resolveClaimNumberGenerator(ctx, em)
     const generated = await numberGenerator.generate({
       claimType: input.claimType,
@@ -1587,7 +1678,11 @@ const transitionClaimCommand: CommandHandler<TransitionClaimInput, { claimId: st
         claim.updatedAt = now
         appendClaimEvent(em, claim, 'status_changed', {
           visibility: 'customer',
-          payload: { from: fromStatus, to: input.toStatus },
+          payload: {
+            from: fromStatus,
+            to: input.toStatus,
+            ...(input.systemNote ? { systemNote: input.systemNote } : {}),
+          },
           actorUserId: input.actorCustomerId ? null : (ctx.auth?.sub ?? null),
           actorCustomerId: input.actorCustomerId ?? null,
         })
@@ -1974,6 +2069,243 @@ const createVendorRecoveryCommand: CommandHandler<VendorRecoveryInput, { claimId
   },
 }
 
+const salesReturnBridgeLogger = createLogger('warranty_claims')
+
+const SALES_RETURN_ELIGIBLE_CLAIM_STATUSES = new Set<WarrantyClaimStatus>(['approved', 'awaiting_return', 'received', 'inspecting'])
+const SALES_RETURN_ELIGIBLE_LINE_STATUSES = new Set<WarrantyClaimLineStatus>(['approved', 'received', 'inspected', 'resolved'])
+
+type ClaimSalesReturnUndoPayload = ClaimUndoPayload & {
+  salesReturn?: { id: string; orderId: string; updatedAt: string | null } | null
+}
+
+type ClaimCreateSalesReturnResult = {
+  claimId: string
+  salesReturnId: string
+  salesReturnUpdatedAt: string | null
+  skippedLineIds: string[]
+}
+
+function scrubbedDispatchContext(ctx: CommandRuntimeContext): CommandRuntimeContext {
+  return { ...ctx, request: undefined }
+}
+
+function isSalesQuantityRejection(err: unknown): boolean {
+  if (!(err instanceof CrudHttpError) || err.status !== 400) return false
+  const body = err.body as { error?: unknown } | null
+  const message = typeof body?.error === 'string' ? body.error : ''
+  return message.includes('quantityExceedsShipped') || message.includes('Cannot return more than the shipped quantity')
+}
+
+async function dispatchSalesReturnDelete(
+  ctx: CommandRuntimeContext,
+  scope: WarrantyClaimScope,
+  salesReturnId: string,
+  orderId: string,
+): Promise<void> {
+  const commandBus = ctx.container.resolve('commandBus') as CommandBus
+  await commandBus.execute(
+    'sales.returns.delete',
+    {
+      input: { id: salesReturnId, orderId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      ctx: scrubbedDispatchContext(ctx),
+    },
+  )
+}
+
+const createSalesReturnCommand: CommandHandler<ClaimCreateSalesReturnInput, ClaimCreateSalesReturnResult> = {
+  id: 'warranty_claims.claim.create_sales_return',
+  isUndoable: true,
+  prepare: async (rawInput, ctx) => {
+    const input = parseCommandInput(claimCreateSalesReturnSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return { before: await loadClaimSnapshot(em, input.id, scope) }
+  },
+  async execute(rawInput, ctx) {
+    const input = parseCommandInput(claimCreateSalesReturnSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    const claim = await requireScopedClaim(em, input.id, scope)
+    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    if (!claim.orderId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnRequiresOrder' })
+    }
+    if (!SALES_RETURN_ELIGIBLE_CLAIM_STATUSES.has(claim.status as WarrantyClaimStatus)) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnStatusNotEligible' })
+    }
+    if (claim.salesReturnId) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnAlreadyLinked' })
+    }
+    if (!resolveOptionalEntityId('sales', 'sales_return')) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesUnavailable' })
+    }
+    const lines = await findWithDecryption(
+      em,
+      WarrantyClaimLine,
+      { claim: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+      {},
+      scope,
+    )
+    const eligibleLines: Array<{ orderLineId: string; quantity: string }> = []
+    const skippedLineIds: string[] = []
+    for (const line of lines) {
+      const effectiveQty = line.qtyApproved ?? line.qtyClaimed
+      const quantityUnits = claimedQuantityUnits(effectiveQty) ?? 0n
+      const eligible = Boolean(line.orderLineId)
+        && SALES_RETURN_ELIGIBLE_LINE_STATUSES.has(line.lineStatus as WarrantyClaimLineStatus)
+        && quantityUnits > 0n
+        && quantityUnits % CLAIMED_QUANTITY_SCALE === 0n
+      if (eligible && line.orderLineId) {
+        eligibleLines.push({ orderLineId: line.orderLineId, quantity: String(effectiveQty) })
+      } else {
+        skippedLineIds.push(line.id)
+      }
+    }
+    if (eligibleLines.length === 0) {
+      throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnNoEligibleLines' })
+    }
+    const commandBus = ctx.container.resolve('commandBus') as CommandBus
+    let salesReturnId: string
+    try {
+      const { result: dispatchedResult } = await commandBus.execute<
+        { orderId: string; reason?: string; tenantId: string; organizationId: string; lines: Array<{ orderLineId: string; quantity: string }> },
+        { returnId: string }
+      >(
+        'sales.returns.create',
+        {
+          input: {
+            orderId: claim.orderId,
+            reason: claim.claimNumber,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            lines: eligibleLines,
+          },
+          ctx: scrubbedDispatchContext(ctx),
+        },
+      )
+      if (!dispatchedResult?.returnId) {
+        throw new CrudHttpError(400, { error: 'warranty_claims.errors.save_failed' })
+      }
+      salesReturnId = dispatchedResult.returnId
+    } catch (err) {
+      if (isSalesQuantityRejection(err)) {
+        throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnQuantityRejected' })
+      }
+      throw err
+    }
+    const createdReturnRow = await querySalesReferenceRow(ctx, 'sales_returns', scope, salesReturnId, ['id', 'updated_at'])
+    const salesReturnUpdatedAt = createdReturnRow && createdReturnRow.updated_at
+      ? new Date(createdReturnRow.updated_at as string | Date).toISOString()
+      : null
+    try {
+      await em.transactional(async (tx) => {
+        const lockedClaim = await requireScopedClaim(tx, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        if (lockedClaim.salesReturnId) {
+          throw new CrudHttpError(400, { error: 'warranty_claims.errors.salesReturnAlreadyLinked' })
+        }
+        lockedClaim.salesReturnId = salesReturnId
+        lockedClaim.updatedAt = new Date()
+        appendClaimEvent(tx, lockedClaim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'sales_return_created', salesReturnId },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+        claim.salesReturnId = salesReturnId
+        claim.updatedAt = lockedClaim.updatedAt
+        await tx.flush()
+      })
+    } catch (err) {
+      try {
+        await dispatchSalesReturnDelete(ctx, scope, salesReturnId, claim.orderId)
+      } catch (compensationErr) {
+        salesReturnBridgeLogger.error('warranty_claims.claim.create_sales_return compensation failed — orphaned sales return', {
+          err: compensationErr,
+          claimId: claim.id,
+          salesReturnId,
+        })
+        const orphanEm = (ctx.container.resolve('em') as EntityManager).fork()
+        const orphanClaim = await findOneWithDecryption(
+          orphanEm,
+          WarrantyClaim,
+          { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+          {},
+          scope,
+        )
+        if (orphanClaim) {
+          try {
+            appendClaimEvent(orphanEm, orphanClaim, 'system', {
+              visibility: 'internal',
+              payload: { action: 'sales_return_orphaned', salesReturnId },
+              actorUserId: ctx.auth?.sub ?? null,
+            })
+            await orphanEm.flush()
+          } catch (orphanEventErr) {
+            salesReturnBridgeLogger.error('warranty_claims.claim.create_sales_return orphan timeline write failed', {
+              err: orphanEventErr,
+              claimId: claim.id,
+              salesReturnId,
+            })
+          }
+        }
+      }
+      throw err
+    }
+    await emitClaimCrud(ctx, 'updated', claim)
+    return { claimId: claim.id, salesReturnId, salesReturnUpdatedAt, skippedLineIds }
+  },
+  captureAfter: async (rawInput, result, ctx) => {
+    const input = parseCommandInput(claimCreateSalesReturnSchema, rawInput)
+    const scope = resolveScope(ctx, input)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    return loadClaimSnapshot(em, result.claimId, scope)
+  },
+  buildLog: async ({ result, snapshots }) => {
+    const base = buildClaimLog('warranty_claims.audit.claim.create_sales_return', result.claimId, snapshots)
+    const after = snapshots.after as { orderId?: string | null } | null | undefined
+    const undoPayload: ClaimSalesReturnUndoPayload = {
+      ...(base.payload.undo as ClaimUndoPayload),
+      salesReturn: {
+        id: result.salesReturnId,
+        orderId: after?.orderId ?? '',
+        updatedAt: result.salesReturnUpdatedAt,
+      },
+    }
+    return { ...base, payload: { undo: undoPayload } }
+  },
+  undo: async ({ logEntry, ctx }) => {
+    const payload = extractUndoPayload<ClaimSalesReturnUndoPayload>(logEntry)
+    const before = payload?.before
+    if (!before) return
+    const scope: WarrantyClaimScope = { tenantId: before.tenantId, organizationId: before.organizationId }
+    const salesReturn = payload?.salesReturn ?? null
+    if (salesReturn?.id && salesReturn.orderId) {
+      const currentRow = await querySalesReferenceRow(ctx, 'sales_returns', scope, salesReturn.id, ['id', 'updated_at'])
+      if (currentRow) {
+        const currentUpdatedAt = currentRow.updated_at
+          ? new Date(currentRow.updated_at as string | Date).toISOString()
+          : null
+        if (!salesReturn.updatedAt || (currentUpdatedAt && currentUpdatedAt !== salesReturn.updatedAt)) {
+          throw new CrudHttpError(409, { error: 'warranty_claims.errors.salesReturnChangedUndoAborted' })
+        }
+        await dispatchSalesReturnDelete(ctx, scope, salesReturn.id, salesReturn.orderId)
+      }
+    }
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+    let claim!: WarrantyClaim
+    await withAtomicFlush(em, [
+      async () => {
+        claim = await restoreSnapshot(em, before)
+        appendClaimEvent(em, claim, 'system', {
+          visibility: 'internal',
+          payload: { action: 'undo_sales_return_created' },
+          actorUserId: ctx.auth?.sub ?? null,
+        })
+      },
+    ], { transaction: true, label: 'warranty_claims.claim.create_sales_return.undo' })
+    await emitClaimUndoCrud(ctx, 'updated', claim)
+  },
+}
+
 registerCommand(createClaimCommand)
 registerCommand(updateClaimCommand)
 registerCommand(deleteClaimCommand)
@@ -1984,6 +2316,7 @@ registerCommand(setReturnLabelCommand)
 registerCommand(escalateClaimCommand)
 registerCommand(commentClaimCommand)
 registerCommand(createVendorRecoveryCommand)
+registerCommand(createSalesReturnCommand)
 
 export const claimCommands = [
   createClaimCommand,
@@ -1996,6 +2329,7 @@ export const claimCommands = [
   escalateClaimCommand,
   commentClaimCommand,
   createVendorRecoveryCommand,
+  createSalesReturnCommand,
 ]
 
 export {
@@ -2010,4 +2344,5 @@ export {
   escalateClaimCommand,
   commentClaimCommand,
   createVendorRecoveryCommand,
+  createSalesReturnCommand,
 }

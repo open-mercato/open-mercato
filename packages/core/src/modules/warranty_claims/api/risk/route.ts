@@ -20,7 +20,7 @@ const querySchema = z.object({
 }).strict()
 
 const riskSignalSchema = z.object({
-  id: z.enum(['duplicate_serial', 'repeat_claimer', 'value_velocity']),
+  id: z.enum(['duplicate_serial', 'duplicate_order_claim', 'outside_return_window', 'over_quantity_claim', 'repeat_claimer', 'value_velocity']),
   level: z.enum(['low', 'medium', 'high']),
   messageKey: z.string(),
   params: z.record(z.string(), z.union([z.string(), z.number()])).optional(),

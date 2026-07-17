@@ -44,7 +44,7 @@ import {
   requireScopedClaim,
   type WarrantyClaimScope,
 } from './shared'
-import { validateClaimReferences } from './claims'
+import { assertClaimedQtyWithinSold, validateClaimReferences } from './claims'
 
 const claimCrudEvents: CrudEventsConfig = {
   module: 'warranty_claims',
@@ -618,6 +618,10 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
       {},
       scope,
     )
+    await assertClaimedQtyWithinSold(ctx, scope, existingLines, {
+      orderLineId: input.orderLineId ?? null,
+      qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
+    })
     const nextLineNo = input.lineNo ?? existingLines.reduce((max, line) => Math.max(max, line.lineNo), 0) + 1
     let line!: WarrantyClaimLine
     await withAtomicFlush(em, [
@@ -689,6 +693,15 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
       assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
       const grade = hasOwn(input, 'conditionGrade') ? toConditionGrade(input.conditionGrade ?? null) : toConditionGrade(line.conditionGrade)
       assertDispositionAllowedForGrade(grade, input.disposition ?? null)
+    }
+    if (hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')) {
+      await assertClaimedQtyWithinSold(ctx, scope, claim.id, {
+        id: line.id,
+        orderLineId: hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null),
+        qtyClaimed: hasOwn(input, 'qtyClaimed')
+          ? (amountString(input.qtyClaimed, '1') ?? '1')
+          : line.qtyClaimed,
+      })
     }
     await withAtomicFlush(em, [
       () => {

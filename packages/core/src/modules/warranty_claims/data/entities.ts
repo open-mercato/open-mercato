@@ -37,6 +37,11 @@ import { DEFAULT_SLA_HOURS } from './constants'
   expression:
     'create unique index "warranty_claims_intake_message_ref_unique" on "warranty_claims" ("tenant_id", "organization_id", "intake_message_ref") where "intake_message_ref" is not null and "deleted_at" is null',
 })
+@Index({
+  name: 'warranty_claims_return_tracking_idx',
+  expression:
+    'create index "warranty_claims_return_tracking_idx" on "warranty_claims" ("tenant_id", "organization_id", "return_tracking_number") where "return_tracking_number" is not null and "deleted_at" is null',
+})
 @Unique({
   name: 'warranty_claims_number_unique',
   properties: ['tenantId', 'organizationId', 'claimNumber'],
@@ -247,6 +252,9 @@ export class WarrantyClaimSettings {
 
   @Property({ name: 'return_label_provider', type: 'text', nullable: true })
   returnLabelProvider?: string | null
+
+  @Property({ name: 'return_window_days', type: 'int', nullable: true })
+  returnWindowDays?: number | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

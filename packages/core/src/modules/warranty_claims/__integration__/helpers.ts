@@ -115,6 +115,7 @@ export type WarrantyClaimSettingsResult = {
   adjudicationUseRules: boolean
   quarantineGrades: string[] | null
   returnLabelProvider: string | null
+  returnWindowDays: number | null
   updatedAt: string | null
 }
 
@@ -129,7 +130,7 @@ export type WarrantyClaimStatsResult = {
 }
 
 export type WarrantyClaimRiskSignal = {
-  id: 'duplicate_serial' | 'duplicate_order_claim' | 'repeat_claimer' | 'value_velocity'
+  id: 'duplicate_serial' | 'duplicate_order_claim' | 'repeat_claimer' | 'value_velocity' | 'over_quantity_claim' | 'outside_return_window'
   level: 'low' | 'medium' | 'high'
   messageKey: string
   params?: Record<string, string | number>

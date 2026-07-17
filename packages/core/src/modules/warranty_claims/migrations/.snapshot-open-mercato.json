@@ -1716,6 +1716,23 @@
           "enumItems": [],
           "mappedType": "text"
         },
+        "return_window_days": {
+          "name": "return_window_days",
+          "type": "int",
+          "unsigned": false,
+          "autoincrement": false,
+          "primary": false,
+          "nullable": true,
+          "unique": false,
+          "length": null,
+          "precision": null,
+          "scale": null,
+          "default": null,
+          "comment": null,
+          "collation": null,
+          "enumItems": [],
+          "mappedType": "integer"
+        },
         "sla_at_risk_threshold_pct": {
           "name": "sla_at_risk_threshold_pct",
           "type": "int",
@@ -3209,6 +3226,15 @@
           "keyName": "warranty_claims_pkey",
           "primary": true,
           "unique": true
+        },
+        {
+          "columnNames": [],
+          "composite": false,
+          "constraint": false,
+          "keyName": "warranty_claims_return_tracking_idx",
+          "primary": false,
+          "unique": false,
+          "expression": "create index \"warranty_claims_return_tracking_idx\" on \"warranty_claims\" (\"tenant_id\", \"organization_id\", \"return_tracking_number\") where \"return_tracking_number\" is not null and \"deleted_at\" is null"
         },
         {
           "columnNames": [
