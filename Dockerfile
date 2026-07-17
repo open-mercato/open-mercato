@@ -57,6 +57,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -142,6 +143,7 @@ COPY packages/shared/package.json ./packages/shared/
 COPY packages/storage-s3/package.json ./packages/storage-s3/
 COPY packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY packages/ui/package.json ./packages/ui/
+COPY packages/web-search/package.json ./packages/web-search/
 COPY packages/webhooks/package.json ./packages/webhooks/
 COPY scripts/official-modules-setup.mjs ./scripts/
 COPY scripts/lib/official-modules.mjs ./scripts/lib/
@@ -283,6 +285,7 @@ COPY --from=builder /app/packages/shared/package.json ./packages/shared/
 COPY --from=builder /app/packages/storage-s3/package.json ./packages/storage-s3/
 COPY --from=builder /app/packages/sync-akeneo/package.json ./packages/sync-akeneo/
 COPY --from=builder /app/packages/ui/package.json ./packages/ui/
+COPY --from=builder /app/packages/web-search/package.json ./packages/web-search/
 COPY --from=builder /app/packages/webhooks/package.json ./packages/webhooks/
 
 # Install only production dependencies
