@@ -58,9 +58,72 @@ describe('resolveMfaEnrollmentRedirect', () => {
     expect(redirect).toBeNull()
   })
 
-  test('returns null when enforcement service is unavailable', async () => {
+  test('fails closed to enrollment when the enforcement service is unavailable (#3853)', async () => {
     const redirect = await resolveMfaEnrollmentRedirect(
       buildArgs({
+        container: {
+          resolve: () => null,
+        },
+      }),
+    )
+    expect(redirect).toBe(
+      '/backend/profile/security/mfa?redirect=%2Fbackend%2Fcustomers%2Fpeople&reason=mfa_enrollment_required',
+    )
+  })
+
+  test('fails closed to enrollment when service resolution throws (#3853)', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => {
+            throw new Error('DI failure')
+          },
+        },
+      }),
+    )
+    expect(redirect).toContain('reason=mfa_enrollment_required')
+  })
+
+  test('fails closed to enrollment when the compliance check throws (#3853)', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        container: {
+          resolve: () => ({
+            checkUserCompliance: async () => {
+              throw new Error('transient db error')
+            },
+          }),
+        },
+      }),
+    )
+    expect(redirect).toBe(
+      '/backend/profile/security/mfa?redirect=%2Fbackend%2Fcustomers%2Fpeople&reason=mfa_enrollment_required',
+    )
+  })
+
+  test('keeps the enrollment page reachable during the fail-closed state', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        pathname: '/backend/profile/security/mfa',
+        container: {
+          resolve: () => {
+            throw new Error('DI failure')
+          },
+        },
+      }),
+    )
+    expect(redirect).toBeNull()
+  })
+
+  test('does not fail closed for a tenant-less principal', async () => {
+    const redirect = await resolveMfaEnrollmentRedirect(
+      buildArgs({
+        auth: {
+          sub: 'user-1',
+          tenantId: null,
+          orgId: null,
+          roles: ['superadmin'],
+        } as ResolveArgs['auth'],
         container: {
           resolve: () => null,
         },
