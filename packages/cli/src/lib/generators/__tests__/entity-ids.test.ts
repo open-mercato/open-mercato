@@ -154,6 +154,24 @@ describe('generateEntityIds', () => {
     )
   })
 
+  it('reports stale entity directory cleanup when every generated file is unchanged', async () => {
+    const moduleEntry: ModuleEntry = { id: 'orders', from: '@open-mercato/core' }
+    const entitiesFile = path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'orders', 'data', 'entities.ts')
+    fs.mkdirSync(path.dirname(entitiesFile), { recursive: true })
+    fs.writeFileSync(entitiesFile, 'export class SalesOrder { id!: string }\n')
+    const resolver = createMockResolver(tmpDir, [moduleEntry])
+    await generateEntityIds({ resolver, quiet: true })
+
+    const staleDirectory = path.join(resolver.getOutputDir(), 'entities', 'sales_line')
+    fs.mkdirSync(staleDirectory, { recursive: true })
+    fs.writeFileSync(path.join(staleDirectory, 'index.ts'), 'export const id = "id"\n')
+
+    const result = await generateEntityIds({ resolver, quiet: true })
+
+    expect(fs.existsSync(staleDirectory)).toBe(false)
+    expect(result.filesWritten).toEqual([staleDirectory])
+  })
+
   it('writes an inline entity fields registry without generated entity imports', async () => {
     const moduleEntry: ModuleEntry = { id: 'orders', from: '@open-mercato/core' }
     const entitiesFile = path.join(tmpDir, 'packages', 'core', 'src', 'modules', 'orders', 'data', 'entities.ts')

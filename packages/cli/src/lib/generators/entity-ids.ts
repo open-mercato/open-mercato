@@ -283,7 +283,9 @@ function writePerEntityFieldFiles(
   for (const entry of existingEntries) {
     if (!entry.isDirectory()) continue
     if (desiredEntities.has(entry.name)) continue
-    rimrafDir(path.join(outRoot, entry.name))
+    const staleDirectory = path.join(outRoot, entry.name)
+    rimrafDir(staleDirectory)
+    result.filesWritten.push(staleDirectory)
   }
 }
 
