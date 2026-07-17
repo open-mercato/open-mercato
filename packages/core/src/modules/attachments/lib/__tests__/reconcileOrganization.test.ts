@@ -28,6 +28,7 @@ function buildEm(scanRows: ScanRow[]) {
     flush: jest.fn(async () => {
       for (const ref of references) flushed.push({ id: ref.id, organizationId: ref.organizationId })
     }),
+    transactional: jest.fn(async (callback: () => Promise<unknown>) => callback()),
   }
   return { em, flushed }
 }
@@ -138,6 +139,41 @@ describe('reconcileAttachmentOrganizations', () => {
     expect(report.unresolved).toBe(1)
     expect(report.updated).toBe(0)
     expect(flushed).toEqual([])
+  })
+
+  it('still heals other groups when one entity group is unregistrable (#4145)', async () => {
+    const { em, flushed } = buildEm([
+      { id: 'att-bogus', entity_id: 'some:bogus_entity', record_id: 'x-1', organization_id: 'home-org' },
+      { id: 'att-good', entity_id: 'catalog:product', record_id: 'p-1', organization_id: 'home-org' },
+    ])
+    const queryEngine = buildQueryEngine({ 'catalog:product': { 'p-1': 'selected-org' } })
+
+    const report = await reconcileAttachmentOrganizations({
+      em: em as any,
+      queryEngine: queryEngine as any,
+      tenantId: 't1',
+    })
+
+    expect(report.unresolved).toBe(1)
+    expect(report.updated).toBe(1)
+    expect(report.byEntity['some:bogus_entity']).toEqual({ scanned: 1, updated: 0, unresolved: 1 })
+    expect(flushed).toEqual([{ id: 'att-good', organizationId: 'selected-org' }])
+  })
+
+  it('scopes every parent-resolution query to a nested transaction savepoint (#4145)', async () => {
+    const { em } = buildEm([
+      { id: 'att-1', entity_id: 'catalog:product', record_id: 'p-1', organization_id: 'org-a' },
+    ])
+    const queryEngine = buildQueryEngine({ 'catalog:product': { 'p-1': 'org-a' } })
+
+    await reconcileAttachmentOrganizations({
+      em: em as any,
+      queryEngine: queryEngine as any,
+      tenantId: 't1',
+    })
+
+    expect(em.transactional).toHaveBeenCalledTimes(1)
+    expect(queryEngine.query).toHaveBeenCalledTimes(1)
   })
 
   it('reconciles a mixed batch and reports per-entity stats', async () => {
