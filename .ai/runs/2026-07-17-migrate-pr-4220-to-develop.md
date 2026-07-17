@@ -52,7 +52,7 @@ Original commit: `ca661905601cb913b29f8378e7c372f049a040bf` (`build(deps): bump 
 
 ### Phase 1: Prepare the migration branch
 
-- [ ] 1.1 Create the tracking plan on a fresh `develop` branch.
+- [x] 1.1 Create the tracking plan on a fresh `develop` branch. — 2fb403738
 
 ### Phase 2: Apply the dependency update
 
