@@ -48,6 +48,8 @@ Original commit: `ca661905601cb913b29f8378e7c372f049a040bf` (`build(deps): bump 
 
 ## Progress
 
+PR: #4258
+
 > Convention: `- [ ]` pending, `- [x]` done. Append ` — <commit sha>` when a step lands. Do not rename step titles.
 
 ### Phase 1: Prepare the migration branch
@@ -60,6 +62,6 @@ Original commit: `ca661905601cb913b29f8378e7c372f049a040bf` (`build(deps): bump 
 
 ### Phase 3: Validate and publish
 
-- [ ] 3.1 Run the dependency-update validation strategy.
-- [ ] 3.2 Open the replacement PR against `develop`, normalize labels, and run the review pass.
-- [ ] 3.3 Link the replacement PR from PR #4220 and close PR #4220.
+- [x] 3.1 Run the dependency-update validation strategy. — 5e8a3a3be
+- [x] 3.2 Open the replacement PR against `develop`, normalize labels, and run the review pass. — #4258
+- [x] 3.3 Link the replacement PR from PR #4220 and close PR #4220. — #4258
