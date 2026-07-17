@@ -13,6 +13,14 @@ import type { McpServerOptions, McpToolContext } from './types'
 import type { SearchService } from '@open-mercato/search/service'
 import type { RbacService } from '@open-mercato/core/modules/auth/services/rbacService'
 
+
+const formatStderrError = (error: unknown): string =>
+  error instanceof Error ? error.stack ?? error.message : String(error)
+
+const writeStderrLine = (line: string): void => {
+  process.stderr.write(`${line}\n`)
+}
+
 /**
  * Create and configure an MCP server instance.
  */
@@ -43,7 +51,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     userId = authResult.userId
     userFeatures = authResult.features
     isSuperAdmin = authResult.isSuperAdmin
-    console.error(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
+    writeStderrLine(`[MCP Server] Authenticated via API key: ${authResult.keyName}`)
   } else if (context && context.userId) {
     // Manual context with a real user — load that user's ACL.
     tenantId = context.tenantId
@@ -67,7 +75,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       userFeatures = acl.features
       isSuperAdmin = acl.isSuperAdmin
     } catch (error) {
-      console.error('[MCP Server] Failed to load user ACL:', error)
+      writeStderrLine(`[MCP Server] Failed to load user ACL: ${formatStderrError(error)}`)
     }
   } else if (allowUnauthenticatedSuperadmin) {
     // Explicit, loud dev/testing opt-in. Without a user there is no ACL to load,
@@ -78,7 +86,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
       organizationId = context.organizationId
     }
     isSuperAdmin = true
-    console.error(
+    writeStderrLine(
       '[MCP Server] WARNING: allowUnauthenticatedSuperadmin is enabled — running with UNAUTHENTICATED SUPERADMIN access and no per-user ACL. Do not use this outside local development/testing.'
     )
   } else {
@@ -115,7 +123,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     )
 
     if (config.debug) {
-      console.error(
+      writeStderrLine(
         `[MCP Server] Listing ${accessibleTools.length}/${tools.length} tools (filtered by ACL)`
       )
     }
@@ -135,7 +143,7 @@ export async function createMcpServer(options: McpServerOptions): Promise<Server
     const { name, arguments: args } = request.params
 
     if (config.debug) {
-      console.error(`[MCP Server] Calling tool: ${name}`, JSON.stringify(args))
+      writeStderrLine(`[MCP Server] Calling tool: ${name} argKeys=${Object.keys(args ?? {}).join(',')}`)
     }
 
     const result = await executeTool(name, args ?? {}, toolContext)
@@ -181,18 +189,18 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     const orm = await getOrm()
     const graph = await extractEntityGraph(orm)
     cacheEntityGraph(graph)
-    console.error(`[MCP Server] Entity graph: ${graph.nodes.length} entities`)
+    writeStderrLine(`[MCP Server] Entity graph: ${graph.nodes.length} entities`)
   } catch (error) {
-    console.error('[MCP Server] Entity graph skipped:', error instanceof Error ? error.message : error)
+    writeStderrLine(`[MCP Server] Entity graph skipped: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // Pre-cache raw OpenAPI spec for Code Mode search tool
   try {
     const { getRawOpenApiSpec } = await import('./api-endpoint-index')
     await getRawOpenApiSpec()
-    console.error('[MCP Server] Raw OpenAPI spec cached for Code Mode')
+    writeStderrLine('[MCP Server] Raw OpenAPI spec cached for Code Mode')
   } catch (error) {
-    console.error('[MCP Server] Raw OpenAPI spec caching skipped:', error instanceof Error ? error.message : error)
+    writeStderrLine(`[MCP Server] Raw OpenAPI spec caching skipped: ${error instanceof Error ? error.message : String(error)}`)
   }
 
   // Load tools from all modules before starting
@@ -204,7 +212,7 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
     await indexToolsForSearch(searchService)
   } catch (error) {
     // Search service might not be configured - discovery will use fallback
-    console.error('[MCP Server] Search indexing skipped (search service not available)')
+    writeStderrLine('[MCP Server] Search indexing skipped (search service not available)')
   }
 
   const server = await createMcpServer(options)
@@ -212,27 +220,27 @@ export async function runMcpServer(options: McpServerOptions): Promise<void> {
 
   const toolCount = getToolRegistry().listToolNames().length
 
-  console.error(`[MCP Server] Starting ${options.config.name} v${options.config.version}`)
+  writeStderrLine(`[MCP Server] Starting ${options.config.name} v${options.config.version}`)
 
   if (options.apiKeySecret && options.apiKeySecret.trim().length > 0) {
-    console.error(`[MCP Server] Authentication: API key`)
+    writeStderrLine(`[MCP Server] Authentication: API key`)
   } else if (options.context && options.context.userId) {
-    console.error(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
-    console.error(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
-    console.error(`[MCP Server] User: ${options.context.userId}`)
+    writeStderrLine(`[MCP Server] Tenant: ${options.context.tenantId ?? '(none)'}`)
+    writeStderrLine(`[MCP Server] Organization: ${options.context.organizationId ?? '(none)'}`)
+    writeStderrLine(`[MCP Server] User: ${options.context.userId}`)
   } else {
-    console.error(`[MCP Server] Authentication: none (unauthenticated superadmin opt-in)`)
+    writeStderrLine(`[MCP Server] Authentication: none (unauthenticated superadmin opt-in)`)
   }
 
-  console.error(`[MCP Server] Tools registered: ${toolCount}`)
+  writeStderrLine(`[MCP Server] Tools registered: ${toolCount}`)
 
   await server.connect(transport)
 
-  console.error('[MCP Server] Connected and ready for requests')
+  writeStderrLine('[MCP Server] Connected and ready for requests')
 
   // Handle shutdown gracefully
   const shutdown = async () => {
-    console.error('[MCP Server] Shutting down...')
+    writeStderrLine('[MCP Server] Shutting down...')
     await server.close()
     process.exit(0)
   }

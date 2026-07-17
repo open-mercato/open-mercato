@@ -19,6 +19,9 @@ import {
   customerKindSettingsUpsertSchema,
   type CustomerKindSettingsUpsertInput,
 } from '../../../data/validators'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['customers.people.view'] },
@@ -82,7 +85,7 @@ export async function GET(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/dictionaries/kind-settings.GET]', err)
+    logger.error('customers/dictionaries/kind-settings.GET', { err })
     return NextResponse.json({ error: translate('customers.errors.kind_settings_load_failed', 'Failed to load kind settings') }, { status: 500 })
   }
 }
@@ -183,7 +186,7 @@ export async function PATCH(req: Request) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
-    console.error('[customers/dictionaries/kind-settings.PATCH]', err)
+    logger.error('customers/dictionaries/kind-settings.PATCH', { err })
     return NextResponse.json({ error: 'Failed to update kind setting' }, { status: 500 })
   }
 }

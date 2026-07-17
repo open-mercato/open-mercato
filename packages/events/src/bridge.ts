@@ -1,10 +1,13 @@
 import { Client, Pool } from 'pg'
 import { getSslConfig } from '@open-mercato/shared/lib/db/ssl'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EmitOptions, EventPayload } from './types'
 
 const BRIDGE_CHANNEL = 'om_event_bridge'
 const MAX_MESSAGE_BYTES = 7_000
 const RECONNECT_DELAY_MS = 1_000
+
+const logger = createLogger('events')
 
 type BridgeEnvelope = {
   event: string
@@ -66,7 +69,7 @@ async function dispatchEnvelope(envelope: BridgeEnvelope): Promise<void> {
     try {
       await Promise.resolve(listener(envelope))
     } catch (error) {
-      console.error(`[events] Cross-process listener error for "${envelope.event}":`, error)
+      logger.error('Cross-process listener error', { event: envelope.event, err: error })
     }
   }
 }
@@ -118,7 +121,7 @@ async function ensureCrossProcessListener(): Promise<void> {
         if (!parsed || typeof parsed.event !== 'string') return
         void dispatchEnvelope(parsed)
       } catch (error) {
-        console.warn('[events] Failed to parse cross-process bridge payload:', error)
+        logger.warn('Failed to parse cross-process bridge payload', { err: error })
       }
     })
 
@@ -137,7 +140,7 @@ async function ensureCrossProcessListener(): Promise<void> {
     listenerClient = client
   })()
     .catch((error) => {
-      console.warn('[events] Cross-process event bridge listener failed:', error)
+      logger.warn('Cross-process event bridge listener failed', { err: error })
       scheduleReconnect()
     })
     .finally(() => {
@@ -164,7 +167,7 @@ export async function publishCrossProcessEvent(
 
   const serialized = JSON.stringify(envelope)
   if (Buffer.byteLength(serialized, 'utf8') > MAX_MESSAGE_BYTES) {
-    console.warn(`[events] Cross-process event "${event}" dropped: payload exceeds ${MAX_MESSAGE_BYTES} bytes`)
+    logger.warn('Cross-process event dropped: payload exceeds size limit', { event, maxBytes: MAX_MESSAGE_BYTES })
     return
   }
 

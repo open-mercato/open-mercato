@@ -11,6 +11,9 @@ import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuarde
 import { startTimerEntry } from '../../../lib/timesheets-ui/startTimer'
 import { resolveTimerActionError } from '../../../lib/timesheets-ui/timerErrors'
 import { DEFAULT_SETTINGS, hydrateSettings, type TimeReportingSettings } from './config'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('staff')
 
 type ProjectOption = { id: string; name: string; code: string | null }
 
@@ -102,7 +105,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       }
 
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.load', err)
+      logger.error('staff.timesheets.timeReporting.load', { err })
       setError(t('staff.timesheets.widgets.timeReporting.error', 'Failed to load timer state'))
     } finally {
       setLoading(false)
@@ -164,7 +167,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       onSettingsChange({ ...hydrated, lastProjectId: selectedProjectId })
       await refreshActiveTimer()
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.start', err)
+      logger.error('staff.timesheets.timeReporting.start', { err })
       setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.startError', 'Failed to start timer')))
     } finally {
       setActionLoading(false)
@@ -195,7 +198,7 @@ const TimeReportingWidget: React.FC<DashboardWidgetComponentProps<TimeReportingS
       })
       await refreshActiveTimer()
     } catch (err) {
-      console.error('staff.timesheets.timeReporting.stop', err)
+      logger.error('staff.timesheets.timeReporting.stop', { err })
       setError(resolveTimerActionError(err, t('staff.timesheets.widgets.timeReporting.stopError', 'Failed to stop timer')))
     } finally {
       setActionLoading(false)

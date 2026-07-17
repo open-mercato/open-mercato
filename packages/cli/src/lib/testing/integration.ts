@@ -318,6 +318,7 @@ const FOLDER_TO_CATEGORY_CODE: Record<string, string> = {
   api: 'API',
   integration: 'INT',
 }
+const BACKEND_BROWSER_AUTH_REDIRECT_LIMIT = 6
 const BUILD_CACHE_STATE_VERSION = 2
 const BUILD_CACHE_ENV_KEYS = [
   'NODE_ENV',
@@ -393,11 +394,19 @@ type AuthenticatedApiProbeResult = {
   detail: string
 }
 
+type BackendBrowserAuthProbeResult = {
+  loginStatus: number | null
+  backendStatus: number | null
+  healthy: boolean
+  detail: string
+}
+
 type ApplicationReadinessProbeResult = {
   ready: boolean
   frontend: LoginPageProbeResult
   backend: BackendLoginProbeResult
   authenticated: AuthenticatedApiProbeResult
+  backendBrowserAuth: BackendBrowserAuthProbeResult
 }
 
 type PlaywrightFailureHealthCheckOptions = {
@@ -1473,18 +1482,236 @@ async function probeAuthenticatedApi(baseUrl: string): Promise<AuthenticatedApiP
   }
 }
 
+type HeadersWithSetCookie = Headers & {
+  getSetCookie?: () => string[]
+}
+
+function splitSetCookieHeader(header: string): string[] {
+  return header
+    .split(/,(?=\s*[^;,\s=]+=)/)
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0)
+}
+
+function getSetCookieHeaders(headers: Headers | undefined): string[] {
+  if (!headers) {
+    return []
+  }
+
+  const setCookieGetter = (headers as HeadersWithSetCookie).getSetCookie
+  if (typeof setCookieGetter === 'function') {
+    return setCookieGetter.call(headers)
+      .map((value) => value.trim())
+      .filter((value) => value.length > 0)
+  }
+
+  const combined = headers.get('set-cookie')
+  return combined ? splitSetCookieHeader(combined) : []
+}
+
+function parseSetCookiePair(header: string): { name: string; value: string } | null {
+  const pair = header.split(';', 1)[0]?.trim()
+  if (!pair) {
+    return null
+  }
+  const equalsIndex = pair.indexOf('=')
+  if (equalsIndex <= 0) {
+    return null
+  }
+  const name = pair.slice(0, equalsIndex).trim()
+  if (!name) {
+    return null
+  }
+  return {
+    name,
+    value: pair.slice(equalsIndex + 1),
+  }
+}
+
+function addSetCookieHeadersToJar(jar: Map<string, string>, headers: Headers | undefined): void {
+  for (const setCookieHeader of getSetCookieHeaders(headers)) {
+    const pair = parseSetCookiePair(setCookieHeader)
+    if (pair) {
+      jar.set(pair.name, pair.value)
+    }
+  }
+}
+
+function serializeCookieJar(jar: Map<string, string>): string {
+  return [...jar.entries()].map(([name, value]) => `${name}=${value}`).join('; ')
+}
+
+function formatCookieNames(jar: Map<string, string>): string {
+  const names = [...jar.keys()].sort((left, right) => left.localeCompare(right))
+  return names.length > 0 ? names.join(', ') : 'none'
+}
+
+function toReadinessPath(url: URL): string {
+  return url.pathname || '/'
+}
+
+function resolveReadinessRedirect(
+  baseUrl: URL,
+  currentUrl: URL,
+  rawLocation: string | null,
+): { url: URL; path: string } | { error: string } {
+  const location = rawLocation?.trim()
+  if (!location) {
+    return { error: 'missing Location header' }
+  }
+  if (location.startsWith('//')) {
+    return { error: 'protocol-relative redirect' }
+  }
+
+  let nextUrl: URL
+  try {
+    nextUrl = new URL(location, currentUrl)
+  } catch {
+    return { error: 'invalid Location header' }
+  }
+
+  if (nextUrl.origin !== baseUrl.origin) {
+    return { error: 'cross-origin redirect' }
+  }
+
+  return {
+    url: nextUrl,
+    path: toReadinessPath(nextUrl),
+  }
+}
+
+async function probeBackendBrowserAuth(baseUrl: string): Promise<BackendBrowserAuthProbeResult> {
+  try {
+    const base = new URL(baseUrl)
+    const form = new URLSearchParams()
+    form.set('email', 'admin@acme.com')
+    form.set('password', 'secret')
+    const loginResponse = await probeFetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    })
+
+    if (!loginResponse.ok) {
+      return {
+        loginStatus: loginResponse.status,
+        backendStatus: null,
+        healthy: false,
+        detail: `Backend browser auth login returned ${loginResponse.status}`,
+      }
+    }
+
+    const cookieJar = new Map<string, string>()
+    addSetCookieHeadersToJar(cookieJar, loginResponse.headers)
+    if (cookieJar.size === 0) {
+      return {
+        loginStatus: loginResponse.status,
+        backendStatus: null,
+        healthy: false,
+        detail: 'Backend browser auth login returned no cookies',
+      }
+    }
+
+    let currentUrl = new URL('/backend', base)
+    let backendStatus: number | null = null
+    const visitedPaths = new Set<string>()
+    const trace: string[] = []
+
+    for (let redirectCount = 0; redirectCount <= BACKEND_BROWSER_AUTH_REDIRECT_LIMIT; redirectCount += 1) {
+      const currentPath = toReadinessPath(currentUrl)
+      visitedPaths.add(currentPath)
+      const response = await probeFetch(currentUrl.toString(), {
+        method: 'GET',
+        redirect: 'manual',
+        headers: {
+          Cookie: serializeCookieJar(cookieJar),
+        },
+      })
+      backendStatus = response.status
+      addSetCookieHeadersToJar(cookieJar, response.headers)
+
+      const location = response.headers?.get('location') ?? null
+      const traceRedirect = location ? resolveReadinessRedirect(base, currentUrl, location) : null
+      const statusAndLocation = traceRedirect && !('error' in traceRedirect)
+        ? `${currentPath} ${response.status} -> ${traceRedirect.path}`
+        : `${currentPath} ${response.status}${location ? ' -> [unsafe]' : ''}`
+      trace.push(statusAndLocation)
+
+      if (response.status === 200 && currentPath === '/backend') {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: true,
+          detail: `Cookie-backed GET /backend returned 200 (cookies: ${formatCookieNames(cookieJar)})`,
+        }
+      }
+
+      if (response.status < 300 || response.status >= 400) {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Cookie-backed GET ${currentPath} returned ${response.status} (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+        }
+      }
+
+      const redirect = traceRedirect ?? resolveReadinessRedirect(base, currentUrl, location)
+      if ('error' in redirect) {
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Backend browser auth probe followed unsafe redirect: ${redirect.error} (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+        }
+      }
+
+      if (visitedPaths.has(redirect.path)) {
+        trace.push(redirect.path)
+        return {
+          loginStatus: loginResponse.status,
+          backendStatus,
+          healthy: false,
+          detail: `Backend browser auth probe detected redirect loop: ${trace.join(' | ')} (cookies: ${formatCookieNames(cookieJar)})`,
+        }
+      }
+
+      currentUrl = redirect.url
+    }
+
+    return {
+      loginStatus: loginResponse.status,
+      backendStatus,
+      healthy: false,
+      detail: `Backend browser auth probe exceeded ${BACKEND_BROWSER_AUTH_REDIRECT_LIMIT} redirects (cookies: ${formatCookieNames(cookieJar)}; trace: ${trace.join(' | ')})`,
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    return {
+      loginStatus: null,
+      backendStatus: null,
+      healthy: false,
+      detail: `Backend browser auth probe failed: ${message}`,
+    }
+  }
+}
+
 async function probeApplicationReadiness(baseUrl: string): Promise<ApplicationReadinessProbeResult> {
-  const [frontend, backend, authenticated] = await Promise.all([
+  const [frontend, backend, authenticated, backendBrowserAuth] = await Promise.all([
     probeLoginPage(baseUrl),
     probeBackendLoginEndpoint(baseUrl),
     probeAuthenticatedApi(baseUrl),
+    probeBackendBrowserAuth(baseUrl),
   ])
 
   return {
-    ready: frontend.healthy && backend.healthy && authenticated.healthy,
+    ready: frontend.healthy && backend.healthy && authenticated.healthy && backendBrowserAuth.healthy,
     frontend,
     backend,
     authenticated,
+    backendBrowserAuth,
   }
 }
 
@@ -1717,6 +1944,14 @@ function buildReusableEnvironment(
     APP_URL: baseUrl,
     NEXT_PUBLIC_APP_URL: baseUrl,
     NODE_ENV: 'production',
+    // Share the app server's cache backend with the test process and the
+    // queue-drain runners it spawns (drainIntegrationQueue children inherit
+    // this env). Without it those processes default to the in-memory cache
+    // strategy, their invalidateCrudCache calls never reach the app's sqlite
+    // cache, and any test whose drain-runner wins the job race then polls a
+    // stale CRUD response until the TTL (TC-CRM-028/079, TC-SX-001).
+    CACHE_STRATEGY: 'sqlite',
+    CACHE_SQLITE_PATH: EPHEMERAL_CACHE_DB_PATH,
     JWT_SECRET: process.env.JWT_SECRET ?? 'om-ephemeral-integration-jwt-secret',
     OM_SECURITY_MFA_SETUP_SECRET: process.env.OM_SECURITY_MFA_SETUP_SECRET ?? 'om-ephemeral-integration-mfa-setup-secret',
     // Integration probe + tests expect `admin@acme.com / secret` and
@@ -1904,9 +2139,10 @@ export async function waitForApplicationReadiness(
   const lastFrontendDetail = lastProbe?.frontend.detail ?? 'GET /login was never observed'
   const lastBackendDetail = lastProbe?.backend.detail ?? 'POST /api/auth/login was never observed'
   const lastAuthenticatedDetail = lastProbe?.authenticated.detail ?? 'Authenticated API probe was never observed'
+  const lastBackendBrowserAuthDetail = lastProbe?.backendBrowserAuth.detail ?? 'Backend browser auth probe was never observed'
   throw new Error(
     `Application did not become ready within ${options.timeoutMs / 1000} seconds. ` +
-    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}`,
+    `Last probe: ${lastFrontendDetail}; ${lastBackendDetail}; ${lastAuthenticatedDetail}; ${lastBackendBrowserAuthDetail}`,
   )
 }
 
@@ -3040,7 +3276,14 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
     const databaseHost = databaseContainer.getHost()
     const databasePort = databaseContainer.getMappedPort(5432)
     const databaseUrl = `postgres://${databaseUser}:${databasePassword}@${databaseHost}:${databasePort}/${databaseName}`
+    // Remove the WAL/SHM sidecars together with the main DB file: a fresh
+    // sqlite database paired with a stale -shm/-wal from a previous run fails
+    // to initialize, and the cache service silently falls back to per-process
+    // memory — the app then serves stale CRUD reads that queue workers can no
+    // longer invalidate cross-process (TC-CRM-028/079, TC-SX-001 staleness).
     await rm(EPHEMERAL_CACHE_DB_PATH, { force: true }).catch(() => undefined)
+    await rm(`${EPHEMERAL_CACHE_DB_PATH}-wal`, { force: true }).catch(() => undefined)
+    await rm(`${EPHEMERAL_CACHE_DB_PATH}-shm`, { force: true }).catch(() => undefined)
     await rm(EPHEMERAL_QUEUE_BASE_DIR, { recursive: true, force: true }).catch(() => undefined)
     const enterpriseModulesFlag = process.env.OM_ENABLE_ENTERPRISE_MODULES ?? 'false'
     const commandEnvironment = buildEnvironment({
@@ -3084,6 +3327,12 @@ export async function startEphemeralEnvironment(options: EphemeralRuntimeOptions
       ENABLE_CRUD_API_CACHE: 'true',
       MOCK_GATEWAY_WEBHOOK_SECRET: 'open-mercato-mock-dev-webhook-secret',
       MOCK_CARRIER_WEBHOOK_SECRET: 'open-mercato-mock-dev-carrier-webhook-secret',
+      // The mock inbound adapter refuses the dev-secret fallback under
+      // NODE_ENV=production; without this the app 400s every mock_inbound
+      // verification and the TC-WEBHOOK suite fails locally (CI exports the
+      // var at the workflow level, masking the gap). Keep in sync with the
+      // Playwright-process env block above.
+      MOCK_INBOUND_WEBHOOK_SECRET: 'open-mercato-mock-dev-inbound-webhook-secret',
       NEXT_PUBLIC_OM_EXAMPLE_INJECTION_WIDGETS_ENABLED: 'true',
       NEXT_PUBLIC_UMES_DEVTOOLS: 'true',
       CI: 'true',

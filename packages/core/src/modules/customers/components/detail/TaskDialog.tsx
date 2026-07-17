@@ -14,9 +14,11 @@ export type TaskDialogProps = {
   onSubmit: (payload: TaskFormPayload) => Promise<void>
   isSubmitting?: boolean
   contextMessage?: string
+  /** Forwarded to TaskForm to gate the rich status picker to the canonical interactions path. */
+  useCanonicalInteractions?: boolean
 }
 
-export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, isSubmitting, contextMessage }: TaskDialogProps) {
+export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, isSubmitting, contextMessage, useCanonicalInteractions = false }: TaskDialogProps) {
   const t = useT()
 
   const dialogTitle =
@@ -49,6 +51,7 @@ export function TaskDialog({ open, mode, onOpenChange, initialValues, onSubmit, 
           onSubmit={handleSubmit}
           onCancel={handleCancel}
           isSubmitting={isSubmitting}
+          useCanonicalInteractions={useCanonicalInteractions}
         />
       </DialogContent>
     </Dialog>

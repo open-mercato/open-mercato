@@ -31,6 +31,7 @@ import type { TagsSectionController } from '@open-mercato/ui/backend/detail'
 import { coerceDisplayName } from '../../../../lib/displayName'
 import { CompanyDetailHeader } from '../../../../components/detail/CompanyDetailHeader'
 import { CompanyDetailTabs, resolveLegacyTab, type CompanyTabId } from '../../../../components/detail/CompanyDetailTabs'
+import { useDealsAccess } from '../../../../components/detail/useDealsAccess'
 import { CompanyKpiBar } from '../../../../components/detail/CompanyKpiBar'
 import { ScheduleActivityDialog, type ScheduleActivityEditData } from '../../../../components/detail/ScheduleActivityDialog'
 import { ChangelogTab } from '../../../../components/detail/ChangelogTab'
@@ -44,6 +45,9 @@ import {
   type CompanyEditFormValues,
   type CompanyOverview,
 } from '../../../../components/formConfig'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 export default function CompanyDetailV2Page({ params }: { params?: { id?: string } }) {
   const id = params?.id
@@ -66,6 +70,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [searchParams])
   const [activeTab, setActiveTab] = React.useState<CompanyTabId>(initialTab)
   const [sectionAction, setSectionAction] = React.useState<SectionAction | null>(null)
+  const { canViewDeals, isReady: isDealsAccessReady } = useDealsAccess()
 
   // Form state
   const [isDirty, setIsDirty] = React.useState(false)
@@ -149,7 +154,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
   }, [id, t])
 
   React.useEffect(() => {
-    loadData().catch((err) => console.warn('[companies-v2] loadData failed', err))
+    loadData().catch((err) => logger.warn('loadData failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   React.useEffect(() => {
@@ -158,7 +163,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
 
   const handleActivityCreated = React.useCallback(() => {
     setActivityRefreshKey((k) => k + 1)
-    loadData().catch((err) => console.warn('[companies-v2] reload after activity failed', err))
+    loadData().catch((err) => logger.warn('reload after activity failed', { component: 'companies-v2', err }))
   }, [loadData])
 
   // Planned activities for the activity-log tab
@@ -325,6 +330,14 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
     setSectionAction(null)
   }, [activeTab])
 
+  // A `?tab=deals` deep link must not strand users without `customers.deals.view`
+  // on a tab that no longer exists for them. Wait for the granted features to load
+  // so a permitted user is never bounced off the tab mid-fetch.
+  React.useEffect(() => {
+    if (!isDealsAccessReady || canViewDeals) return
+    setActiveTab((current) => (current === 'deals' ? 'people' : current))
+  }, [isDealsAccessReady, canViewDeals])
+
   // Deals scope
   const dealsScope = React.useMemo(
     () => (currentCompanyId ? ({ kind: 'company', entityId: currentCompanyId } as const) : null),
@@ -470,7 +483,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
             onDelete={handleDelete}
             isDirty={isDirty}
             isSaving={isSaving}
-            onDataReload={() => { loadData().catch((err) => console.warn('[companies-v2] onDataReload failed', err)) }}
+            onDataReload={() => { loadData().catch((err) => logger.warn('onDataReload failed', { component: 'companies-v2', err })) }}
           />
 
           {/* KPI bar — always visible above zones */}
@@ -541,7 +554,7 @@ export default function CompanyDetailV2Page({ params }: { params?: { id?: string
                   />
                 )}
 
-                {activeTab === 'deals' && (
+                {activeTab === 'deals' && canViewDeals && (
                   <DealsSection
                     scope={dealsScope}
                     emptyLabel={t('customers.companies.detail.empty.deals', 'No deals linked to this company.')}

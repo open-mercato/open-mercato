@@ -1,3 +1,28 @@
+
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const globalStore = globalThis as typeof globalThis & { __omTestLoggerMock?: Record<string, jest.Mock> }
+  if (!globalStore.__omTestLoggerMock) {
+    const mocked: Record<string, jest.Mock> = {
+      debug: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn(),
+      child: jest.fn(),
+    }
+    mocked.child.mockImplementation(() => mocked)
+    globalStore.__omTestLoggerMock = mocked
+  }
+  const mocked = globalStore.__omTestLoggerMock
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const mockLogger = jest.requireMock('@open-mercato/shared/lib/logger').createLogger('test') as {
+  debug: jest.Mock
+  info: jest.Mock
+  warn: jest.Mock
+  error: jest.Mock
+}
+
 /** @jest-environment node */
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -163,7 +188,8 @@ describe('GET /api/currencies/options caching', () => {
   it('logs the failure without throwing when the cache write fails', async () => {
     process.env.ENABLE_CRUD_API_CACHE = 'true'
     process.env.QUERY_ENGINE_DEBUG_SQL = 'true'
-    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {})
+    mockLogger.debug.mockClear()
+    const debugSpy = mockLogger.debug
     const { GET } = await loadRoute()
     cache.get.mockResolvedValue(null)
     cache.set.mockRejectedValue(new Error('cache write failed'))
@@ -176,10 +202,8 @@ describe('GET /api/currencies/options caching', () => {
     expect(body.items).toEqual([{ value: 'USD', label: 'USD - US Dollar' }])
     expect(cache.set).toHaveBeenCalledTimes(1)
     expect(debugSpy).toHaveBeenCalledWith(
-      '[crud][cache]',
       'store',
       expect.objectContaining({ error: 'cache write failed' }),
     )
-    debugSpy.mockRestore()
   })
 })

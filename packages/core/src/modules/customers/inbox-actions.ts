@@ -21,6 +21,9 @@ import {
 } from '../inbox_ops/lib/executionHelpers'
 import { splitPersonName, stripTitleFromName } from '../inbox_ops/lib/contactValidation'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -66,7 +69,7 @@ async function resolveOrCreateCompany(
     )
     return result.entityId ?? null
   } catch (err) {
-    console.warn('[customers:inbox-action] Failed to create company (non-fatal):', err)
+    logger.warn('Failed to create company (non-fatal)', { component: 'inbox-action', err })
     return null
   }
 }

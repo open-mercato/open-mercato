@@ -35,6 +35,9 @@ import {
   setTokenPendingTransition,
   touchToken,
 } from './execution-token'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 // ============================================================================
 // Types and Interfaces
@@ -291,7 +294,7 @@ export async function findValidTransitions(
 
     return results
   } catch (error) {
-    console.error('Error finding valid transitions:', error)
+    logger.error('Error finding valid transitions', { err: error })
     return []
   }
 }
@@ -844,7 +847,7 @@ async function evaluatePreConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating pre-conditions:', error)
+    logger.error('Error evaluating pre-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],
@@ -968,7 +971,7 @@ async function evaluatePostConditions(
       errors: errors.length > 0 ? errors : undefined,
     }
   } catch (error) {
-    console.error('Error evaluating post-conditions:', error)
+    logger.error('Error evaluating post-conditions', { err: error })
     return {
       allowed: false,
       executedRules: [],
