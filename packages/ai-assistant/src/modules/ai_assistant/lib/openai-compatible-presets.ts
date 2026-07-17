@@ -214,6 +214,9 @@ const LITELLM_PRESET: OpenAICompatiblePreset = {
   baseURLEnvKeys: ['LITELLM_BASE_URL'],
   envKeys: ['LITELLM_API_KEY'],
   defaultModel: 'gpt-4o-mini',
+  // LiteLLM proxies arbitrary upstreams and commonly relays `vendor/model` ids
+  // (e.g. `anthropic/claude-…`), so a configured selection must not slash-split.
+  usesVendorPrefixedModelIds: true,
   defaultModels: [
     {
       id: 'gpt-4o-mini',
@@ -261,6 +264,9 @@ const OPENROUTER_PRESET: OpenAICompatiblePreset = {
   baseURLEnvKeys: ['OPENROUTER_BASE_URL'],
   envKeys: ['OPENROUTER_API_KEY'],
   defaultModel: 'meta-llama/llama-3.3-70b-instruct',
+  // OpenRouter model ids are `vendor/model` (e.g. `anthropic/claude-sonnet-4.5`);
+  // the leading `anthropic/` is part of the model id, not a native-provider pin.
+  usesVendorPrefixedModelIds: true,
   defaultModels: [
     {
       id: 'meta-llama/llama-3.3-70b-instruct',
@@ -282,6 +288,8 @@ const REQUESTY_PRESET: OpenAICompatiblePreset = {
   baseURLEnvKeys: ['REQUESTY_BASE_URL'],
   envKeys: ['REQUESTY_API_KEY'],
   defaultModel: 'openai/gpt-4o-mini',
+  // Requesty uses `provider/model` naming (e.g. `openai/gpt-4o-mini`) natively.
+  usesVendorPrefixedModelIds: true,
   defaultModels: [
     {
       id: 'openai/gpt-4o-mini',

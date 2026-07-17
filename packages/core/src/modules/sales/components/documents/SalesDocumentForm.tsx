@@ -57,6 +57,7 @@ import {
   type AddressValue,
 } from '@open-mercato/core/modules/customers/utils/addressFormat'
 import { AddressEditor, type AddressEditorDraft } from '@open-mercato/core/modules/customers/components/AddressEditor'
+import { useSalesChannelsEnabled } from '../useSalesChannelsEnabled'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { SalesOrderDraftLines, createSalesOrderLineDraft, type SalesOrderLineDraft } from './SalesOrderDraftLines'
 
@@ -170,6 +171,7 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
     async (values: PersonFormValues) => {
       setSaving(true)
       try {
+        const addresses = Array.isArray(values.addresses) ? values.addresses : []
         const payload = buildPersonPayload(values, organizationId)
         const { result } = await createCrud<{ id?: string; entityId?: string }>('customers/people', payload, {
           errorMessage: t('sales.documents.form.customer.quick.error', 'Failed to create customer.'),
@@ -179,6 +181,51 @@ function CustomerQuickCreate({ t, onCreated }: CustomerQuickCreateProps) {
           (result && typeof result.id === 'string' && result.id) ||
           null
         if (!id) throw new Error('Missing customer id')
+        if (addresses.length) {
+          const normalize = (value?: string | null) => {
+            if (typeof value !== 'string') return undefined
+            const trimmed = value.trim()
+            return trimmed.length ? trimmed : undefined
+          }
+          for (const entry of addresses) {
+            const normalizedLine1 = normalize(entry.addressLine1)
+            if (!normalizedLine1) continue
+            const body: Record<string, unknown> = {
+              entityId: id,
+              ...(organizationId ? { organizationId } : {}),
+              addressLine1: normalizedLine1,
+              isPrimary: entry.isPrimary ?? false,
+            }
+            const name = normalize(entry.name)
+            if (name !== undefined) body.name = name
+            const purpose = normalize(entry.purpose)
+            if (purpose !== undefined) body.purpose = purpose
+            const line2 = normalize(entry.addressLine2)
+            if (line2 !== undefined) body.addressLine2 = line2
+            const buildingNumber = normalize(entry.buildingNumber)
+            if (buildingNumber !== undefined) body.buildingNumber = buildingNumber
+            const flatNumber = normalize(entry.flatNumber)
+            if (flatNumber !== undefined) body.flatNumber = flatNumber
+            const city = normalize(entry.city)
+            if (city !== undefined) body.city = city
+            const region = normalize(entry.region)
+            if (region !== undefined) body.region = region
+            const postalCode = normalize(entry.postalCode)
+            if (postalCode !== undefined) body.postalCode = postalCode
+            const country = normalize(entry.country)
+            if (country !== undefined) body.country = country.toUpperCase()
+            if (typeof entry.latitude === 'number') body.latitude = entry.latitude
+            if (typeof entry.longitude === 'number') body.longitude = entry.longitude
+            try {
+              await createCrud('customers/addresses', body)
+            } catch (addressErr) {
+              const message =
+                (addressErr instanceof Error && addressErr.message ? addressErr.message : null) ||
+                t('customers.people.detail.addresses.error')
+              flash(message, 'error')
+            }
+          }
+        }
         const displayName =
           typeof values.displayName === 'string' && values.displayName.trim().length
             ? values.displayName.trim()
@@ -761,6 +808,7 @@ function CustomerGroupComponent({ values, setValue, t, customers, setCustomers, 
 export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind, inboxPreFill }: SalesDocumentFormProps) {
   const t = useT()
   const { organizationId, tenantId } = useOrganizationScopeDetail()
+  const { enabled: channelsEnabled } = useSalesChannelsEnabled()
   const [customers, setCustomers] = React.useState<CustomerOption[]>([])
   const [customerLoading, setCustomerLoading] = React.useState(false)
   const [channels, setChannels] = React.useState<ChannelOption[]>([])
@@ -1131,7 +1179,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
         />
       ),
     },
-    {
+    ...(channelsEnabled ? [{
       id: 'channelId',
       label: t('sales.documents.form.channel', 'Sales channel'),
       type: 'custom',
@@ -1153,7 +1201,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
           selectedHintLabel={(id) => t('sales.documents.form.channel.selected', 'Selected channel: {{id}}', { id })}
         />
       ),
-    },
+    } satisfies CrudField] : []),
     {
       id: 'shippingAddressSection',
       label: '',
@@ -1279,6 +1327,7 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
     addressOptions,
     addressesError,
     addressesLoading,
+    channelsEnabled,
     currencyLabels,
     defaultCurrency,
     organizationId,
@@ -1300,13 +1349,14 @@ export function SalesDocumentForm({ onCreated, isSubmitting = false, initialKind
       fields: [],
       component: (ctx) => <CustomerGroupComponent {...ctx} t={t} customers={customers} setCustomers={setCustomers} customerQuerySetter={customerQuerySetter} loadAddresses={loadAddresses} loadCustomers={loadCustomers} fetchCustomerEmail={fetchCustomerEmail} resetAddressFormState={resetAddressFormState} />,
     },
-    { id: 'channels-comments', title: '', column: 1, fields: ['channelId', 'comments'] },
+    { id: 'channels-comments', title: '', column: 1, fields: channelsEnabled ? ['channelId', 'comments'] : ['comments'] },
     { id: 'currency', title: '', column: 2, fields: ['currencyCode'] },
     { id: 'lines', title: '', column: 1, fields: ['lines'] },
     { id: 'shipping', title: '', column: 2, fields: ['shippingAddressSection'] },
     { id: 'billing', title: '', column: 2, fields: ['billingAddressSection'] },
     { id: 'custom', title: t('sales.documents.form.customFields', 'Custom fields'), column: 2, kind: 'customFields' },
   ], [
+    channelsEnabled,
     customers,
     fetchCustomerEmail,
     loadAddresses,

@@ -278,6 +278,7 @@ type SalesLineDialogProps = {
   organizationId: string | null;
   tenantId: string | null;
   initialLine?: SalesLineRecord | null;
+  shippedQuantity?: number;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => Promise<void> | void;
   onDraftSaved?: (payload: Record<string, unknown>, lineId: string | null) => Promise<void> | void;
@@ -473,6 +474,7 @@ export function LineItemDialog({
   organizationId,
   tenantId,
   initialLine,
+  shippedQuantity = 0,
   onOpenChange,
   onSaved,
   onDraftSaved,
@@ -1327,6 +1329,14 @@ export function LineItemDialog({
             ),
           },
         );
+      }
+      if (shippedQuantity > 0 && qtyNumber < shippedQuantity) {
+        const message = t(
+          "sales.documents.items.errorQuantityBelowShipped",
+          "You cannot lower the quantity below the {{shipped}} already shipped.",
+          { shipped: shippedQuantity },
+        );
+        throw createCrudFormError(message, { quantity: message });
       }
       const resolvedQuantityUnit = (() => {
         const entered = normalizeUnitCode(values.quantityUnit);

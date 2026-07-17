@@ -52,6 +52,7 @@ yarn workspace @open-mercato/shared build
 | `number.ts` | When parsing numeric strings from env/query params with a fallback and optional min/integer constraint | `@open-mercato/shared/lib/number` |
 | `openapi/` | When generating CRUD OpenAPI specs | `@open-mercato/shared/lib/openapi/crud` |
 | `profiler/` | When profiling with `OM_PROFILE` env flag | `@open-mercato/shared/lib/profiler` |
+| `string.ts` | When parsing comma-separated lists from CLI args/query params, or coercing a string to `undefined` when blank | `@open-mercato/shared/lib/string` |
 | `testing/` | When bootstrapping tests — register only what the test needs | `@open-mercato/shared/lib/testing/bootstrap` |
 
 ## Module Types (`src/modules/`)
@@ -92,6 +93,23 @@ const results = await findWithDecryption(em, 'Entity', filter, { tenantId, organ
 
 ```typescript
 import { parseBooleanToken, parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+```
+
+### Comma-Separated List Parsing — MUST use instead of ad-hoc splitting
+
+```typescript
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
+```
+
+`parseCommaSeparatedList(value)` splits on commas, trims each entry, and drops blanks. Non-string
+inputs (`null`/`undefined`) yield `[]`. MUST use it instead of hand-rolling
+`value.split(',').map((s) => s.trim()).filter(Boolean)` when reading CLI flags or query params.
+
+Keep the surrounding guard when a call site distinguishes "not supplied" (`undefined`) from
+"supplied but empty" (`[]`) — the helper always returns an array:
+
+```typescript
+const roleNames = rolesCsv ? parseCommaSeparatedList(rolesCsv) : undefined
 ```
 
 ### Browser Storage — use the shared helpers instead of raw `localStorage`
