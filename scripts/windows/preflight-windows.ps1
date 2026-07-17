@@ -302,6 +302,33 @@ function Test-Tools {
     } else {
         Add-Finding INFO "Rancher" "Rancher Desktop not installed yet."
     }
+
+    # Python (optional): only needed for host-side native node-module builds
+    # (node-gyp); the Dockerized stack bundles its own. On Windows a bare
+    # python3/python on PATH is frequently the Microsoft Store alias stub under
+    # WindowsApps, not a real interpreter - detect and skip it so we neither
+    # report a phantom install nor pop the Store open.
+    $pythonFound = $false
+    foreach ($candidate in @("python3", "python", "py")) {
+        $command = Get-Command $candidate -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $command) { continue }
+        $source = "$($command.Source)"
+        if ($source -like "*\WindowsApps\*") {
+            Add-Finding INFO "Python" ("'{0}' on PATH is the Microsoft Store alias stub, not a real interpreter - ignoring it." -f $candidate)
+            continue
+        }
+        try {
+            $version = if ($candidate -eq "py") { (py -3 --version 2>&1 | Out-String).Trim() } else { (& $candidate --version 2>&1 | Out-String).Trim() }
+            if ($version -match "Python\s+\d") {
+                Add-Finding PASS "Python" ("{0} ({1})" -f $version, $source)
+                $pythonFound = $true
+                break
+            }
+        } catch { }
+    }
+    if (-not $pythonFound) {
+        Add-Finding INFO "Python" "No real python3 found. Optional - only needed for host-side native node-module builds (node-gyp); the Docker stack has its own."
+    }
 }
 
 # ---------------------------------------------------------------------------
