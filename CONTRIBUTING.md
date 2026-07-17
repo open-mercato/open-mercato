@@ -69,6 +69,10 @@ PRs do not publish npm canary packages automatically. Maintainers can publish pk
 
 The legacy npm canary snapshot path is still available for comparison by dispatching the `NPM Snapshot Preview` workflow manually with the PR number on a trusted same-repository PR branch. That workflow publishes real npm canary packages and runs standalone app integration against the exact snapshot, so use it only when pkg.pr.new previews are not enough evidence. Both preview workflows are restricted to same-repository PR branches.
 
+## Developing on Windows
+
+The fastest way to a working dev environment on Windows is the one-command launcher: double-click `scripts\windows\start-windows.bat` (auto-detects Docker Desktop or Rancher Desktop; `start-windows-rancher.bat` / `start-windows-docker.bat` pin the runtime). It installs missing prerequisites, sizes the WSL2 VM for the stack, and boots the fully containerized environment — no Node.js on the host required. Hardware floor: 16 GB RAM recommended (12 GB minimum), ~20 GB free disk. On locked-down corporate machines, run the read-only `scripts\windows\check-windows.bat` preflight first. Printable EN/PL manuals with troubleshooting live in [`docs/manuals/windows/`](docs/manuals/windows/); the docs site covers the [Windows monorepo path](https://docs.openmercato.com/docs/installation/monorepo) and the [WSL2-native guide](https://docs.openmercato.com/docs/installation/wsl2).
+
 ## Helpful Resources
 
 - 📚 Documentation: [docs.openmercato.com](https://docs.openmercato.com/)

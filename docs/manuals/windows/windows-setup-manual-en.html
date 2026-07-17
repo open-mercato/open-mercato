@@ -37,13 +37,21 @@
 <h2>1. What this is</h2>
 <p>A single double-click of <code>scripts\windows\start-windows.bat</code> turns a Windows machine into a complete Open Mercato development environment running in Docker: the <strong>application</strong> (port 3000, hot reload), the <strong>MCP server</strong> (port 3001), the <strong>OpenCode AI agent</strong> (port 4096), plus PostgreSQL, Redis, and Meilisearch. The database is created and seeded automatically. The AI assistant (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> in the app) works out of the box once you provide an LLM provider API key during setup.</p>
 <p>Every step is idempotent: re-running <code>start-windows.bat</code> is always safe, skips what is already done, and repairs what is missing.</p>
+<p>There are <strong>three launchers</strong>, all sharing the same engine — pick by container runtime:</p>
+<table>
+  <tr><th>Launcher</th><th>Use when</th></tr>
+  <tr><td><code>start-windows.bat</code></td><td>Default: auto-detects Docker Desktop or Rancher Desktop; installs Docker Desktop on a clean machine</td></tr>
+  <tr><td><code>start-windows-rancher.bat</code></td><td>Your organization uses <strong>Rancher Desktop</strong> (typical where Docker Desktop licensing is not permitted). With WSL2 already present it installs Rancher per-user — <strong>no administrator rights at all</strong></td></tr>
+  <tr><td><code>start-windows-docker.bat</code></td><td>Force <strong>Docker Desktop</strong> explicitly</td></tr>
+</table>
+<p>Unsure whether a locked-down machine will let setup succeed? Run <code>scripts\windows\check-windows.bat</code> first — a read-only preflight that audits policies, WSL2, network egress (proxy/TLS interception, download hosts), antivirus, and ports, and ends with a READY / CAVEATS / LIKELY-BLOCKED verdict. It changes nothing.</p>
 
 <h2>2. Requirements</h2>
 <table>
   <tr><th>Requirement</th><th>Details</th></tr>
   <tr><td>Windows</td><td>Windows 10 2004+ (build 19041, incl. 22H2/Enterprise) or Windows 11</td></tr>
   <tr><td>CPU virtualization</td><td>Intel VT-x / AMD-V enabled in BIOS/UEFI (usually already on)</td></tr>
-  <tr><td>Memory / disk</td><td>12 GB+ RAM recommended; ~20 GB free disk</td></tr>
+  <tr><td>Memory / disk</td><td><strong>16 GB RAM recommended, 12 GB minimum</strong> (the launcher checks and refuses below 12 GB — override with <code>-SkipResourceCheck</code>); ~20 GB free disk for the first run, 40 GB+ comfortable</td></tr>
   <tr><td>Container runtime</td><td>Docker Desktop <em>or</em> Rancher Desktop — installed automatically if missing</td></tr>
   <tr><td>Administrator rights</td><td><strong>Only</strong> for the one-time install of Docker/WSL2. Not needed afterwards, and not needed at all when IT pre-installed the runtime (see <code>-NoAdmin</code>)</td></tr>
   <tr><td>LLM API key</td><td>One of: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
@@ -76,6 +84,7 @@
   <tr><td>Database health, application readiness, AI services</td><td>first boot ~10 min total; later runs seconds</td></tr>
 </table>
 <p>During long waits the console shows a spinner with elapsed time and a plain-language status. Build progress is also live at <code>http://localhost:4000</code> (blank until the dependency install finishes — that is expected).</p>
+<div class="note"><strong>Memory (WSL2):</strong> both Docker Desktop and Rancher Desktop run every container inside one WSL2 virtual machine, and Windows sizes that VM badly for this stack (Windows 11 caps it at 8 GB — too small; Windows 10 lets it take 80% of RAM — starves the host). On machines under 20 GB RAM the launcher therefore writes a cap into <code>C:\Users\&lt;you&gt;\.wslconfig</code> before the engine first starts: <code>memory=</code> (total RAM minus 6 GB, at least 8 GB — 10 GB on a 16 GB machine), <code>swap=8GB</code>, <code>autoMemoryReclaim=gradual</code>. It never touches an existing <code>memory=</code> line; edit or delete those lines to tune or revert (then quit the runtime and run <code>wsl --shutdown</code> to apply).</div>
 
 <h2>5. After setup — URLs and daily commands</h2>
 <table>
@@ -88,7 +97,8 @@
 </table>
 <table>
   <tr><th>Action</th><th>Command</th></tr>
-  <tr><td>Start / restart the stack</td><td><code>scripts\windows\start-windows.bat</code></td></tr>
+  <tr><td>Start / restart the stack</td><td><code>scripts\windows\start-windows.bat</code> (or <code>start-windows-rancher.bat</code> / <code>start-windows-docker.bat</code> to pin the runtime)</td></tr>
+  <tr><td>Read-only machine audit (before or after problems)</td><td><code>scripts\windows\check-windows.bat</code></td></tr>
   <tr><td>Stop (data preserved)</td><td><code>scripts\windows\stop-windows.bat</code></td></tr>
   <tr><td>Status of all services</td><td><code>powershell scripts\windows\start-dev.ps1 -Status</code></td></tr>
   <tr><td>Follow application logs</td><td><code>powershell scripts\windows\start-dev.ps1 -Logs</code></td></tr>
@@ -133,6 +143,8 @@
   <tr><td>"WARNING: DOCKER_INSECURE_NO_IPTABLES_RAW is set"</td><td>Benign Docker Desktop networking notice — safe to ignore. It does not stop setup.</td></tr>
   <tr><td>"The '&lt;service&gt;' container is crash-looping"</td><td>The launcher prints the failing container's last log lines — the real error is there. Most common: <code>.env</code> credentials no longer match an existing database volume → run <code>-Reset</code> (deletes data) or restore the old <code>.env</code>. Stop the restart churn with <code>stop-windows.bat</code>, fix, re-run.</td></tr>
   <tr><td>"Port 3000/3001/4096… already in use"</td><td>Another process owns the port (the launcher names it). Close it, or override ports in the repo-root <code>.env</code>: <code>APP_PORT</code>, <code>MCP_PORT</code>, <code>OPENCODE_PORT</code>, <code>OM_DEV_SPLASH_PORT</code>, <code>KEYCLOAK_PORT</code> — the launcher follows these automatically.</td></tr>
+  <tr><td>Containers keep dying / "app container crash-looping" on a 16 GB machine</td><td>Usually the WSL2 VM running out of memory. Check that <code>C:\Users\&lt;you&gt;\.wslconfig</code> has the launcher's <code>[wsl2]</code> memory cap (see the note in section 4), close other heavy applications during the first build, and if you raised or removed the cap yourself, restore it — then quit the runtime, <code>wsl --shutdown</code>, re-run the launcher.</td></tr>
+  <tr><td>Image build fails downloading (apk / yarn / TLS errors) on a corporate network</td><td>The launcher diagnoses this itself: it names the cause (VM DNS breakage, TLS-intercepting proxy, blocked host), auto-exports the proxy's root CA into <code>docker\certs\</code> and retries. If it cannot: see <code>docker\certs\README.md</code> for the manual certificate steps, ask IT to allow <code>dl-cdn.alpinelinux.org</code>, or set <code>ALPINE_MIRROR</code> in <code>.env</code> to an internal mirror.</td></tr>
 </table>
 
 <h3>Application and AI problems</h3>
@@ -152,7 +164,7 @@
 <p class="faq-q">Do I need administrator rights?</p>
 <p>Only once, to install Docker/WSL2. If IT pre-installed them, never — use <code>-NoAdmin</code>.</p>
 <p class="faq-q">We are not allowed to use Docker Desktop (licensing). What now?</p>
-<p>Use Rancher Desktop — fully supported. <code>-Runtime rancher</code> installs it, or the launcher auto-detects an existing one. It must use the dockerd (moby) engine.</p>
+<p>Use Rancher Desktop — fully supported. Double-click <code>start-windows-rancher.bat</code>: it installs Rancher (per-user, without admin, when WSL2 is already present) or uses an existing one. It must use the dockerd (moby) engine — the launcher requests this itself.</p>
 <p class="faq-q">Where are my login credentials?</p>
 <p>In the green summary at the end of setup, and in the repo-root <code>.env</code> (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). They are not written to any log file.</p>
 <p class="faq-q">Where does my data live? How do I wipe it?</p>
@@ -168,7 +180,7 @@
 <p class="faq-q">How do I remove everything?</p>
 <p><code>-Reset</code> (removes containers and data volumes), delete the repository folder, and uninstall Docker/Rancher Desktop from Windows Settings if no longer needed.</p>
 
-<div class="footer">Open Mercato — Windows one-command dev environment · Manual v1.0 · July 2026 · Sources: <code>scripts/windows/start-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, spec <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+<div class="footer">Open Mercato — Windows one-command dev environment · Manual v1.1 · July 2026 · Sources: <code>scripts/windows/start-windows*.bat</code>, <code>scripts/windows/check-windows.bat</code>, <code>scripts/windows/start-dev.ps1</code>, spec <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
 
 </body>
 </html>

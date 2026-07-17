@@ -11,5 +11,6 @@ if not exist "%PS1%" (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -Stop %*
-pause
-endlocal & exit /b %ERRORLEVEL%
+set "RC=%ERRORLEVEL%"
+if not "%RC%"=="0" pause
+endlocal & exit /b %RC%

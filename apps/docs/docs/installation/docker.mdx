@@ -16,7 +16,7 @@ This setup works on any OS. On **Windows**, it is slower than the [native monore
 - **Docker Desktop** — [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) · [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) · [Linux](https://docs.docker.com/desktop/setup/install/linux/)
 - Docker Compose v2+ (bundled with Docker Desktop)
 - **Git** — [Windows](https://git-scm.com/download/win) · macOS: `xcode-select --install` · Linux: `sudo apt install git`
-- At least **4 GB RAM** allocated to Docker (Docker Desktop → Settings → Resources)
+- At least **4 GB RAM** allocated to Docker for the infra-only compose (`docker-compose.yml`: databases + search, app on the host). Running the **full containerized stack** (`docker-compose.fullapp.dev.yml`: app + MCP + OpenCode + Keycloak + infra) needs **12 GB machine RAM minimum, 16 GB recommended** — on Windows the one-command launcher sizes the WSL2 VM for you (see the [Windows setup](./monorepo#windows-one-command))
 
 :::info Windows-specific
 - Enable the **WSL 2 backend** in Docker Desktop (Settings → General → "Use the WSL 2 based engine").
