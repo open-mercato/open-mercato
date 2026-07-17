@@ -271,9 +271,9 @@ describe('LocalSchedulerService', () => {
 
       expect(mockQueue.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({
-          scheduleId: 'test-1',
-          scheduleName: 'Test Schedule',
-          scopeType: 'system',
+          tenantId: null,
+          organizationId: null,
+          _idempotencyKey: expect.stringMatching(/^scheduler-test-1-/),
         })
       )
     })
@@ -548,9 +548,9 @@ describe('LocalSchedulerService', () => {
       )
     })
 
-    it('should pass payload to queue job', async () => {
+    it('should deliver the flat targetPayload contract to the queue job', async () => {
       const schedule = createSchedule({
-        targetPayload: { foo: 'bar', baz: 123 },
+        targetPayload: { foo: 'bar', baz: 123, tenantId: 'spoofed-tenant' },
       })
 
       mockForkedEm.find.mockResolvedValue([schedule])
@@ -565,9 +565,17 @@ describe('LocalSchedulerService', () => {
 
       expect(mockQueue.enqueue).toHaveBeenCalledWith(
         expect.objectContaining({
-          payload: { foo: 'bar', baz: 123 },
+          foo: 'bar',
+          baz: 123,
+          tenantId: schedule.tenantId,
+          organizationId: schedule.organizationId,
+          _idempotencyKey: expect.stringMatching(new RegExp(`^scheduler-${schedule.id}-`)),
         })
       )
+      const enqueued = mockQueue.enqueue.mock.calls[0][0] as Record<string, unknown>
+      expect(enqueued).not.toHaveProperty('payload')
+      expect(enqueued).not.toHaveProperty('scheduleId')
+      expect(enqueued).not.toHaveProperty('scheduleName')
     })
 
     it('should pass scope to command input', async () => {

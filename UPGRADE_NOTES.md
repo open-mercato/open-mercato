@@ -24,6 +24,18 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Scheduler queue targets now deliver one flat payload contract in both execution modes (#4221)
+
+The local scheduler used to wrap a scheduled queue target's configured `targetPayload` in an undocumented envelope (`{ scheduleId, scheduleName, scopeType, tenantId, organizationId, payload: { …targetPayload }, triggeredAt }`), while the asynchronous execute-schedule worker already spread `targetPayload` onto the worker payload root. Both paths now build their payload through one scheduler-owned helper (`packages/scheduler/src/modules/scheduler/lib/queueTargetPayload.ts`) and deliver the documented flat contract:
+
+```ts
+{ ...targetPayload, tenantId, organizationId, _idempotencyKey }
+```
+
+Scheduler-owned `tenantId`/`organizationId`/`_idempotencyKey` are applied after the spread, so they always win over conflicting `targetPayload` fields. Scheduler execution metadata (`scheduleId`, `scheduleName`, `scopeType`, `triggeredAt`) is no longer injected into the application payload. The async worker's idempotency key is now derived from the retry-stable execute-schedule job id instead of `Date.now()`, so BullMQ retries of one logical firing reuse the same `_idempotencyKey`.
+
+**Action for downstream:** workers written to the documented flat contract need no change and now also work under the local scheduler. A worker that relied on the undocumented local envelope (reading `job.payload.payload.*` or `scheduleId`/`scheduleName`/`triggeredAt` from the payload) must switch to the flat fields; include any identifiers it needs in `targetPayload` when registering the schedule.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).
