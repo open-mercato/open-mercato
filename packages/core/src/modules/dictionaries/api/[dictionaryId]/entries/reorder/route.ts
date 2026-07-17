@@ -130,6 +130,9 @@ export async function POST(req: Request, ctx: { params?: { dictionaryId?: string
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
     }
+    if (err instanceof z.ZodError) {
+      return NextResponse.json({ error: 'Invalid input', details: err.issues }, { status: 400 })
+    }
     logger.error('Failed to reorder dictionary entries', { err })
     return NextResponse.json({ error: 'Failed to reorder dictionary entries' }, { status: 500 })
   }
