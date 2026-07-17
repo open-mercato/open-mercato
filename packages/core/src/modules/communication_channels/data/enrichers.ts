@@ -43,6 +43,21 @@ type MessageRecord = Record<string, unknown> & {
   threadId?: string | null
 }
 
+type MessageParticipantDatabase = {
+  messages: {
+    id: string
+    tenant_id: string
+    organization_id: string | null
+    sender_user_id: string
+    deleted_at: Date | null
+  }
+  message_recipients: {
+    message_id: string
+    recipient_user_id: string
+    deleted_at: Date | null
+  }
+}
+
 type ResolvedCtx = EnricherContext & {
   em: EntityManager
 }
@@ -126,6 +141,41 @@ const messageChannelEnricher: ResponseEnricher<
     const organizationId = ctx.organizationId ?? null
     const dscope = { tenantId, organizationId }
 
+    const userId = typeof ctx.userId === 'string' ? ctx.userId : null
+    if (!userId) {
+      return records.map((record) => ({
+        ...record,
+        _channel: null,
+        _channelPayload: null,
+        _channelContact: null,
+      }))
+    }
+
+    const db = em.getKysely<MessageParticipantDatabase>()
+    let participantQuery = db
+      .selectFrom('messages as m')
+      .leftJoin('message_recipients as r', (join) => join
+        .onRef('m.id', '=', 'r.message_id')
+        .on('r.recipient_user_id', '=', userId)
+        .on('r.deleted_at', 'is', null))
+      .select('m.id')
+      .distinct()
+      .where('m.id', 'in', messageIds)
+      .where('m.tenant_id', '=', tenantId)
+      .where('m.deleted_at', 'is', null)
+      .where((eb) => eb.or([
+        eb('m.sender_user_id', '=', userId),
+        eb('r.message_id', 'is not', null),
+      ]))
+
+    participantQuery = organizationId !== null
+      ? participantQuery.where('m.organization_id', '=', organizationId)
+      : participantQuery.where('m.organization_id', 'is', null)
+
+    const participantRows = await participantQuery.execute()
+    const participantMessageIds = participantRows.map((row) => row.id)
+    const participantMessageIdSet = new Set(participantMessageIds)
+
     // 1) MessageChannelLink — one bounded `$in` query for the whole page, shared by
     // all three enrichments (channel metadata, channel payload, conversation
     // contact). The result set is already bounded by the `messageId $in messageIds`
@@ -135,7 +185,7 @@ const messageChannelEnricher: ResponseEnricher<
       em,
       MessageChannelLink,
       {
-        messageId: { $in: messageIds },
+        messageId: { $in: participantMessageIds },
         tenantId,
         organizationId,
       },
@@ -201,6 +251,10 @@ const messageChannelEnricher: ResponseEnricher<
     }
 
     return records.map((r) => {
+      if (!participantMessageIdSet.has(r.id)) {
+        return { ...r, _channel: null, _channelPayload: null, _channelContact: null }
+      }
+
       const link = linksByMessage.get(r.id)
       if (!link) {
         return { ...r, _channel: null, _channelPayload: null, _channelContact: null }

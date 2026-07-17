@@ -47,13 +47,13 @@ target when you want a deep read on exactly one thing.
 This skill is a specialization. Do not re-implement what these already
 cover — invoke or quote them:
 
-- `.ai/skills/om-code-review/SKILL.md` and its checklist at
-  `.ai/skills/om-code-review/references/review-checklist.md` are the
+- `.agents/skills/om-code-review/SKILL.md` and its checklist at
+  `.agents/skills/om-code-review/references/review-checklist.md` are the
   authoritative source for Open Mercato's security baseline
   (tenant scoping, `findWithDecryption`, zod validation, RBAC via
   `acl.ts`, password hashing, no raw `fetch`). Apply them first; only
   add OWASP/paranoid checks on top.
-- `.ai/skills/om-auto-review-pr/SKILL.md` defines the claim/lock/worktree
+- `.agents/skills/om-auto-review-pr/SKILL.md` defines the claim/lock/worktree
   pattern used here verbatim (see step 1 below).
 - `.ai/skills/om-spec-writing/references/spec-checklist.md` and
   `spec-writing/references/compliance-review.md` are the authoritative
@@ -70,7 +70,7 @@ cover — invoke or quote them:
 ### 1. Claim and isolate
 
 When `{target}` is `pr:{n}` or a bare PR number, apply the claim
-protocol from `.ai/skills/om-auto-review-pr/SKILL.md` step 0 verbatim
+protocol from `.agents/skills/om-auto-review-pr/SKILL.md` step 0 verbatim
 (assignee, `in-progress` label, 🤖 claim comment). Release the lock on
 finish via a trap/finally even on failure.
 
@@ -137,7 +137,7 @@ Run the sweep in two passes.
 #### Pass A — Baseline (code-review alignment)
 
 Apply every relevant item in
-`.ai/skills/om-code-review/references/review-checklist.md` to the unit.
+`.agents/skills/om-code-review/references/review-checklist.md` to the unit.
 Carry forward only items where the unit actually touched the surface.
 Record each finding as:
 
@@ -330,7 +330,7 @@ the same HTML rules documented in `om-auto-sec-report`:
 - Mirror every section. Preserve every PR/issue/CVE link as `<a>` with
   `rel="noopener noreferrer"`.
 
-After the artifacts exist, follow `.ai/skills/om-auto-create-pr/SKILL.md`
+After the artifacts exist, follow `.agents/skills/om-auto-create-pr/SKILL.md`
 verbatim to open a docs-only PR against `develop`. PR title:
 `docs(analysis): add auto-sec-report-pr for {target caption}`. Labels:
 `review`, `documentation`, `security`, `skip-qa`, plus one priority label and
@@ -373,7 +373,7 @@ the driver in the order it specifies.
 
 ### 8. Self-review and BC review
 
-Apply `.ai/skills/om-code-review/SKILL.md` to the diff of the artifact
+Apply `.agents/skills/om-code-review/SKILL.md` to the diff of the artifact
 files themselves (not the unit under analysis). Because the change is
 docs-only, the contract-surface risk is limited to accidentally
 exfiltrating PR-body or spec-body content that contains secrets or
@@ -382,13 +382,13 @@ internal URLs. Redact if found.
 ### 9. Autofix pass
 
 In standalone mode only: invoke
-`.ai/skills/om-auto-review-pr/SKILL.md` against the docs PR in autofix
+`.agents/skills/om-auto-review-pr/SKILL.md` against the docs PR in autofix
 mode. Apply fixes as new commits. Never rewrite history.
 
 ### 10. Summary comment
 
 Post the comprehensive summary comment required by
-`.ai/skills/om-auto-create-pr/SKILL.md` step 12. In the "What can go
+`.agents/skills/om-auto-create-pr/SKILL.md` step 12. In the "What can go
 wrong" section, be explicit about limits:
 
 - Classification is heuristic. Paranoid findings can be false
