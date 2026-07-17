@@ -25,6 +25,22 @@ import {
 import { purgeAppBuildCaches } from './dev-cache-purge.mjs'
 import { ensureDevInotifyLimits } from './dev-inotify-limits.mjs'
 import { killProcessTree } from './dev-shutdown-utils.mjs'
+import {
+  MCP_HEALTH_POLL_INTERVAL_MS,
+  MCP_HEALTH_TIMEOUT_MS,
+  MCP_MAX_FAST_CRASHES,
+  buildMcpCliArgs,
+  deriveMcpHealthUrl,
+  isFastMcpCrash,
+  isKeyRotationOutput,
+  looksLikePermissionError,
+  looksLikeUninitializedDatabase,
+  nextMcpKeyRetryDelayMs,
+  nextMcpRestartDelayMs,
+  resolveMcpKeyFilePath,
+  resolveMcpPort,
+  shouldStartMcp,
+} from './dev-mcp.mjs'
 import { resolveSpawnCommand } from './dev-spawn-utils.mjs'
 import { createDevSplashCodingFlow } from './dev-splash-coding-flow.mjs'
 import { createDevSplashGitRepoFlow } from './dev-splash-git-repo-flow.mjs'
@@ -198,6 +214,9 @@ const classic = args.includes('--classic') || isEnabledEnvFlag(process.env.OM_DE
 const verbose = args.includes('--verbose') || process.env.MERCATO_DEV_OUTPUT === 'verbose'
 const greenfield = isMonorepo && args.includes('--greenfield')
 const appOnly = args.includes('--app-only')
+const withMcp = shouldStartMcp({ args, env: process.env, appOnly })
+const mcpPort = resolveMcpPort(process.env)
+const mcpKeyFilePath = resolveMcpKeyFilePath(process.env, process.cwd())
 // Watch-scope CLI flags (e.g. `--watch=auto-optimized`, `--watch-popular`) are
 // translated into env vars and forwarded to the spawned package watcher, which
 // reads `OM_WATCH_SCOPE` / `OM_WATCH_PACKAGES`. CLI flags win over a pre-set env.
@@ -435,6 +454,7 @@ function spawnCommand(command, commandArgs, options = {}) {
 
   child.on('error', (error) => {
     console.error(error)
+    if (options.nonFatal) return
     shutdown(1)
   })
 
@@ -628,10 +648,23 @@ function applyLocalDevBackgroundServiceDefaults(childEnv) {
   return env
 }
 
+function buildMcpAppEnv() {
+  if (!withMcp) return {}
+  const env = {}
+  if (!process.env.MCP_SERVER_API_KEY && !process.env.MCP_SERVER_API_KEY_FILE) {
+    env.MCP_SERVER_API_KEY_FILE = mcpKeyFilePath
+  }
+  if (!process.env.MCP_URL) {
+    env.MCP_URL = `http://localhost:${mcpPort}`
+  }
+  return env
+}
+
 function buildAppDevEnv(options = {}) {
   return applyLocalDevBackgroundServiceDefaults({
     ...(buildSplashChildEnv(options) ?? {}),
     ...(memoryTraceEnabled ? { OM_DEV_MEMORY_TRACE_OWNER: 'parent' } : {}),
+    ...buildMcpAppEnv(),
   })
 }
 
@@ -641,6 +674,8 @@ function launchStandaloneDev(options = {}) {
     shutdown(1)
     return
   }
+
+  startMcpRuntime()
 
   const runtimeArgs = [standaloneRuntimeScript]
   if (classic) {
@@ -1109,7 +1144,9 @@ function announceShutdown() {
   const message = 'Shutting down services...'
   updateSplashState({
     phase: message,
-    detail: 'Stopping app runtime, watchers, workers, and scheduler',
+    detail: withMcp
+      ? 'Stopping app runtime, watchers, workers, scheduler, and MCP server'
+      : 'Stopping app runtime, watchers, workers, and scheduler',
     ready: false,
     progressLabel: message,
     activity: message,
@@ -1766,7 +1803,172 @@ function startPackageWatch() {
   return child
 }
 
+function sleepUnlessShuttingDown(ms) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now()
+    const timer = setInterval(() => {
+      if (shuttingDown || Date.now() - startedAt >= ms) {
+        clearInterval(timer)
+        resolve()
+      }
+    }, 250)
+    timer.unref?.()
+  })
+}
+
+function spawnMcpCommand(subcommandArgs, label, onLine) {
+  const child = spawnCommand(yarnCommand, buildMcpCliArgs(subcommandArgs, { isMonorepo }), {
+    label,
+    logFile: getDevRunnerLog(),
+    mirrorOutput: verbose,
+    nonFatal: true,
+  })
+  if (onLine && child.stdout && child.stderr) {
+    connectLineStream(child.stdout, onLine)
+    connectLineStream(child.stderr, onLine)
+  }
+  return child
+}
+
+async function provisionMcpApiKey() {
+  try {
+    fs.mkdirSync(path.dirname(mcpKeyFilePath), { recursive: true })
+  } catch (error) {
+    console.warn(`⚠️ Could not create ${path.dirname(mcpKeyFilePath)}: ${error instanceof Error ? error.message : String(error)}`)
+    console.warn('   ↳ if Docker created the directory as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
+  }
+
+  for (let attempt = 0; !shuttingDown; attempt++) {
+    const capturedLines = []
+    const child = spawnMcpCommand(['mcp:ensure-api-key', '--file', mcpKeyFilePath], 'MCP API key provisioning', (line) => {
+      capturedLines.push(line)
+      if (capturedLines.length > 200) capturedLines.shift()
+    })
+    const result = await waitForClose(child)
+    if (shuttingDown || isGracefulShutdownResult(result)) return false
+
+    if (resolveChildExitCode(result) === 0) {
+      if (isKeyRotationOutput(capturedLines)) {
+        const rotationHint = 'MCP API key rotated — restart the OpenCode container to pick it up'
+        console.warn(`🔑 ${rotationHint} (docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode)`)
+        updateSplashState({ activity: rotationHint })
+      }
+      return true
+    }
+
+    if (looksLikePermissionError(capturedLines)) {
+      console.warn(`⚠️ MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
+      console.warn('   ↳ if Docker created .mercato/mcp-shared as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
+    } else if (looksLikeUninitializedDatabase(capturedLines)) {
+      console.warn('⚠️ MCP API key provisioning failed — is the database initialized and reachable? Run `yarn infra:up`, then `yarn db:migrate && yarn initialize`.')
+    } else {
+      console.warn('⚠️ MCP API key provisioning failed — see the dev runner log for details.')
+    }
+    const delay = nextMcpKeyRetryDelayMs(attempt)
+    console.warn(`   ↳ retrying in ${Math.round(delay / 1000)}s (the app keeps running without MCP in the meantime)`)
+    await sleepUnlessShuttingDown(delay)
+  }
+  return false
+}
+
+async function waitForMcpHealthy() {
+  const healthUrl = deriveMcpHealthUrl(mcpPort)
+  const deadline = Date.now() + MCP_HEALTH_TIMEOUT_MS
+  while (!shuttingDown && Date.now() < deadline) {
+    try {
+      const response = await fetch(healthUrl, { signal: AbortSignal.timeout(2000) })
+      if (response.ok) return true
+    } catch {
+      // Not listening yet — keep polling until the deadline.
+    }
+    await sleepUnlessShuttingDown(MCP_HEALTH_POLL_INTERVAL_MS)
+  }
+  return false
+}
+
+async function checkOpencodeMcpWiring() {
+  const baseUrl = (process.env.OPENCODE_URL?.trim() || 'http://localhost:4096').replace(/\/+$/, '')
+  try {
+    const response = await fetch(`${baseUrl}/mcp`, { signal: AbortSignal.timeout(3000) })
+    if (!response.ok) return
+    const body = await response.json().catch(() => null)
+    const status = body?.['open-mercato']?.status
+    if (typeof status === 'string' && status !== 'connected') {
+      console.warn('⚠️ OpenCode is running but not connected to the MCP server (it may hold a stale key).')
+      console.warn('   ↳ restart it with: docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode')
+    }
+  } catch {
+    // OpenCode container not running — a legitimate state, stay silent.
+  }
+}
+
+async function runMcpLifecycle() {
+  let fastCrashes = 0
+  while (!shuttingDown) {
+    const provisioned = await provisionMcpApiKey()
+    if (!provisioned || shuttingDown) return
+
+    const startedAt = Date.now()
+    const capturedLines = []
+    const child = spawnMcpCommand(['mcp:serve-http', '--port', String(mcpPort)], 'MCP server', verbose ? null : (line) => {
+      capturedLines.push(line)
+      if (capturedLines.length > 200) capturedLines.shift()
+    })
+
+    void waitForMcpHealthy().then((healthy) => {
+      if (!healthy || shuttingDown) return
+      const readyMessage = `MCP server ready on http://localhost:${mcpPort}/mcp`
+      console.log(`🔌 ${readyMessage}`)
+      updateSplashState({ activity: readyMessage })
+      void checkOpencodeMcpWiring()
+    })
+
+    const result = await waitForClose(child)
+    if (shuttingDown || isGracefulShutdownResult(result)) return
+
+    const exitCode = resolveChildExitCode(result)
+    fastCrashes = isFastMcpCrash(Date.now() - startedAt) ? fastCrashes + 1 : 0
+    if (fastCrashes >= MCP_MAX_FAST_CRASHES) {
+      console.error(`❌ MCP server keeps crashing (exit ${exitCode}) — giving up on restarts. The app keeps running without MCP.`)
+      for (const line of extractFailureLines(capturedLines, 5)) {
+        console.error(`   ${line}`)
+      }
+      return
+    }
+    const delay = nextMcpRestartDelayMs(fastCrashes)
+    console.warn(`⚠️ MCP server exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s`)
+    await sleepUnlessShuttingDown(delay)
+  }
+}
+
+let mcpRuntimeStarted = false
+function startMcpRuntime() {
+  if (!withMcp || mcpRuntimeStarted || shuttingDown) return
+  mcpRuntimeStarted = true
+  void runMcpLifecycle().catch((error) => {
+    console.warn(`⚠️ MCP runtime stopped unexpectedly: ${error instanceof Error ? error.message : String(error)}`)
+  })
+}
+
+async function applyPendingMigrationsBestEffort() {
+  if (!shouldAutoMigrateOnDev()) return
+  console.log('🗄️ Applying database migrations...')
+  const child = spawnCommand(yarnCommand, ['db:migrate'], {
+    label: 'Applying database migrations',
+    logFile: getDevRunnerLog(),
+    mirrorOutput: verbose,
+    nonFatal: true,
+  })
+  const result = await waitForClose(child)
+  if (shuttingDown || isGracefulShutdownResult(result)) return
+  if (resolveChildExitCode(result) !== 0) {
+    console.warn('⚠️ Database migrations were not applied (database unreachable or migration failed).')
+    console.warn('   ↳ start the infra containers with `yarn infra:up`, then run `yarn db:migrate` (opt out of this check with OM_DEV_AUTO_MIGRATE=0)')
+  }
+}
+
 function launchMonorepoAppDev() {
+  startMcpRuntime()
   const appArgs = ['workspace', '@open-mercato/app', classic ? 'dev:classic' : 'dev']
   if (!classic && verbose) {
     appArgs.push('--verbose')
@@ -1811,6 +2013,7 @@ async function runStandardDev() {
     '--log-prefix=none',
   ])
 
+  await applyPendingMigrationsBestEffort()
   startPackageWatch()
   launchMonorepoAppDev()
 }
@@ -1818,6 +2021,7 @@ async function runStandardDev() {
 async function runClassicStandardDev() {
   await runRawYarnCommand(['build:packages'])
 
+  await applyPendingMigrationsBestEffort()
   startPackageWatch()
   launchMonorepoAppDev()
 }
