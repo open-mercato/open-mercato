@@ -7,6 +7,8 @@ description: Build and register payment gateway adapters with unified status tra
 
 The `payment_gateways` module provides a provider-agnostic hub for payment processing. Each payment provider (Stripe, PayU, etc.) is a separate npm package implementing the `GatewayAdapter` interface — zero provider-specific code lives in core.
 
+If you need recurring billing for an external application, pair this module with the [Subscriptions module](/framework/modules/subscriptions). `payment_gateways` still owns webhook verification and queueing; `subscriptions` consumes the typed gateway events and owns the billing-domain state.
+
 ## Architecture
 
 The system uses a two-layer architecture:

@@ -9,9 +9,10 @@ import { getWebhookHandler } from '@open-mercato/shared/modules/payment_gateways
 import type { IntegrationLogService } from '../../../../integrations/lib/log-service'
 import type { PaymentGatewayService } from '../../../lib/gateway-service'
 import type { CredentialsService } from '../../../../integrations/lib/credentials-service'
-import { GatewayTransaction } from '../../../data/entities'
+import { GatewaySubscriptionMapping, GatewayTransaction } from '../../../data/entities'
 import { getPaymentGatewayQueue } from '../../../lib/queue'
 import { processPaymentGatewayWebhookJob } from '../../../lib/webhook-processor'
+import { processSubscriptionWebhookJob } from '../../../lib/subscription-webhook-processor'
 import { paymentGatewaysTag } from '../../openapi'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 
@@ -21,6 +22,8 @@ export const metadata = {
   path: '/payment_gateways/webhook/[provider]',
   POST: { requireAuth: false },
 }
+
+type ScopeMatch = { organizationId: string; tenantId: string }
 
 const WEBHOOK_VERIFICATION_FAILED = 'Webhook verification failed'
 
@@ -51,18 +54,117 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
   const service = container.resolve('paymentGatewayService') as PaymentGatewayService
   const em = container.resolve('em') as EntityManager
   const integrationCredentialsService = container.resolve('integrationCredentialsService') as CredentialsService
-  const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
   const payload = await readJsonSafe<Record<string, unknown>>(rawBody)
+
+  const classification = registration.classifyEvent?.(payload) ?? 'transaction'
+
+  if (classification === 'subscription') {
+    const subscriptionQueue = getPaymentGatewayQueue(
+      registration.subscriptionQueue ?? 'payment-gateways-subscription-webhook',
+    )
+    const ref = registration.readSubscriptionRef?.(payload) ?? null
+    const subscriptionIdHint = ref?.providerSubscriptionId ?? null
+    const customerIdHint = ref?.providerCustomerId ?? null
+
+    try {
+      const candidates: GatewaySubscriptionMapping[] = []
+      if (subscriptionIdHint) {
+        const bySubscription = await findWithDecryption(
+          em,
+          GatewaySubscriptionMapping,
+          {
+            providerKey,
+            providerSubscriptionId: subscriptionIdHint,
+          },
+          { limit: 10, orderBy: { createdAt: 'desc' } },
+        )
+        candidates.push(...bySubscription)
+      }
+      if (customerIdHint && candidates.length === 0) {
+        const byCustomer = await findWithDecryption(
+          em,
+          GatewaySubscriptionMapping,
+          {
+            providerKey,
+            providerCustomerId: customerIdHint,
+          },
+          { limit: 10, orderBy: { createdAt: 'desc' } },
+        )
+        candidates.push(...byCustomer)
+      }
+
+      let mapping: GatewaySubscriptionMapping | null = null
+      let matchedScope: ScopeMatch | null = null
+      let event: Awaited<ReturnType<typeof registration.handler>> | null = null
+      let lastVerificationError: unknown = null
+
+      const seenScopes = new Set<string>()
+      for (const candidate of candidates) {
+        const candidateScope = { organizationId: candidate.organizationId, tenantId: candidate.tenantId }
+        const scopeKey = `${candidateScope.organizationId}::${candidateScope.tenantId}`
+        if (seenScopes.has(scopeKey)) continue
+        seenScopes.add(scopeKey)
+        const credentials = await integrationCredentialsService.resolve(`gateway_${providerKey}`, candidateScope) ?? {}
+        try {
+          event = await registration.handler({ rawBody, headers, credentials })
+          mapping = candidate
+          matchedScope = candidateScope
+          break
+        } catch (error: unknown) {
+          lastVerificationError = error
+        }
+      }
+
+      if (!event || !mapping || !matchedScope) {
+        throw lastVerificationError ?? new Error('Subscription webhook verification failed: no matching mapping')
+      }
+
+      const jobPayload = {
+        providerKey,
+        event,
+        scope: {
+          organizationId: matchedScope.organizationId,
+          tenantId: matchedScope.tenantId,
+          externalAccountId: mapping.externalAccountId,
+          subscriptionId: mapping.subscriptionId ?? null,
+          subjectEntityType: mapping.subjectEntityType ?? null,
+          subjectEntityId: mapping.subjectEntityId ?? null,
+        },
+        ref: {
+          providerSubscriptionId: ref?.providerSubscriptionId ?? mapping.providerSubscriptionId ?? null,
+          providerCustomerId: ref?.providerCustomerId ?? mapping.providerCustomerId,
+          providerInvoiceId: ref?.providerInvoiceId ?? null,
+          providerChargeId: ref?.providerChargeId ?? null,
+        },
+      }
+
+      if (process.env.QUEUE_STRATEGY === 'async') {
+        await subscriptionQueue.enqueue(jobPayload)
+      } else {
+        let integrationLogService: IntegrationLogService | undefined
+        try {
+          integrationLogService = container.resolve('integrationLogService') as IntegrationLogService
+        } catch {
+          integrationLogService = undefined
+        }
+        await processSubscriptionWebhookJob({ em, integrationLogService }, jobPayload)
+      }
+
+      return NextResponse.json({ received: true, queued: true }, { status: 202 })
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Subscription webhook verification failed'
+      return NextResponse.json({ error: message }, { status: 401 })
+    }
+  }
+
+  if (classification === 'unknown') {
+    return NextResponse.json({ received: true, processed: false }, { status: 200 })
+  }
+
+  const queue = getPaymentGatewayQueue(registration.queue ?? 'payment-gateways-webhook')
   const sessionIdHint = registration.readSessionIdHint?.(payload) ?? null
 
   try {
-    // The webhook endpoint is unauthenticated. Tenant/organization scope MUST come from a
-    // GatewayTransaction whose per-tenant credentials successfully verify the inbound
-    // signature — NEVER from attacker-controlled payload metadata. If no candidate
-    // transaction can be located by the provider-reported session id, or no candidate's
-    // credentials can verify the signature, we fail closed with 401. This prevents
-    // forged webhooks (e.g. mock gateway PoC) from mutating another tenant's payment
-    // state via `event.data.metadata.{organizationId,tenantId}`.
     const candidates = sessionIdHint
       ? await findWithDecryption(
         em,
@@ -77,7 +179,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
       : []
 
     let transaction: GatewayTransaction | null = null
-    let matchedScope: { organizationId: string; tenantId: string } | null = null
+    let matchedScope: ScopeMatch | null = null
     let event: Awaited<ReturnType<typeof registration.handler>> | null = null
     let lastVerificationError: unknown = null
 
@@ -108,10 +210,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ provide
     }
 
     if (process.env.QUEUE_STRATEGY === 'async') {
-      await queue.enqueue({
-        name: 'payment-gateway-webhook',
-        payload: jobPayload,
-      })
+      await queue.enqueue(jobPayload)
     } else {
       await processPaymentGatewayWebhookJob(
         {
@@ -159,9 +258,10 @@ export const openApi = {
   summary: 'Receive payment gateway webhook',
   methods: {
     POST: {
-      summary: 'Process inbound webhook from payment provider',
+      summary: 'Process inbound webhook from payment provider (transactions or subscriptions)',
       tags: [paymentGatewaysTag],
       responses: [
+        { status: 200, description: 'Event acknowledged (unknown classification, no side effects)' },
         { status: 202, description: 'Webhook accepted for async processing' },
         { status: 401, description: 'Signature verification failed' },
         { status: 404, description: 'Unknown provider' },

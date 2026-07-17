@@ -75,6 +75,53 @@ export class GatewayTransaction {
   deletedAt?: Date | null
 }
 
+@Entity({ tableName: 'gateway_subscription_mappings' })
+@Index({ name: 'gw_sub_map_provider_customer', properties: ['providerKey', 'providerCustomerId'] })
+@Index({ name: 'gw_sub_map_org_tenant_account', properties: ['organizationId', 'tenantId', 'externalAccountId'] })
+@Unique({
+  name: 'gw_sub_map_provider_sub_unique',
+  properties: ['providerKey', 'providerSubscriptionId'],
+})
+export class GatewaySubscriptionMapping {
+  [OptionalProps]?: 'providerSubscriptionId' | 'subscriptionId' | 'subjectEntityType' | 'subjectEntityId' | 'createdAt' | 'updatedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'provider_key', type: 'text' })
+  providerKey!: string
+
+  @Property({ name: 'provider_subscription_id', type: 'text', nullable: true })
+  providerSubscriptionId?: string | null
+
+  @Property({ name: 'provider_customer_id', type: 'text' })
+  providerCustomerId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'external_account_id', type: 'text' })
+  externalAccountId!: string
+
+  @Property({ name: 'subject_entity_type', type: 'text', nullable: true })
+  subjectEntityType?: string | null
+
+  @Property({ name: 'subject_entity_id', type: 'uuid', nullable: true })
+  subjectEntityId?: string | null
+
+  @Property({ name: 'subscription_id', type: 'uuid', nullable: true })
+  subscriptionId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+}
+
 @Entity({ tableName: 'gateway_webhook_events' })
 @Unique({
   name: 'gateway_webhook_events_idempotency_unique',

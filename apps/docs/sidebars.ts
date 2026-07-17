@@ -137,6 +137,7 @@ const sidebars: SidebarsConfig = {
             "user-guide/akeneo-pim",
             "user-guide/checkout",
             "user-guide/stripe-payments",
+            "user-guide/subscriptions",
             "user-guide/payment-transactions",
           ],
         },
@@ -239,6 +240,7 @@ const sidebars: SidebarsConfig = {
             "api/customers",
             "api/integrations-data-sync",
             "api/payment-gateways",
+            "api/subscriptions",
             "api/entities",
             "api/attachments",
             "api/vector",
@@ -265,6 +267,7 @@ const sidebars: SidebarsConfig = {
       items: [
         "cli/overview",
         "cli/api-keys",
+        "cli/subscriptions",
         {
           type: "category",
           label: "Bootstrap & Database",
@@ -390,6 +393,7 @@ const sidebars: SidebarsConfig = {
             "framework/modules/integrations-data-sync",
             "framework/modules/sales-providers",
             "framework/modules/payment-gateways",
+            "framework/modules/subscriptions",
             "framework/modules/shipping-carriers",
             "framework/modules/building-gateway-provider",
           ],

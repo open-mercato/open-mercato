@@ -8,6 +8,13 @@ const events = [
   { id: 'payment_gateways.payment.failed', label: 'Payment Failed', category: 'lifecycle', entity: 'payment' },
   { id: 'payment_gateways.payment.refunded', label: 'Payment Refunded', category: 'lifecycle', entity: 'payment' },
   { id: 'payment_gateways.payment.cancelled', label: 'Payment Cancelled', category: 'lifecycle', entity: 'payment' },
+  { id: 'payment_gateways.subscription.created', label: 'Subscription Created', category: 'lifecycle', entity: 'subscription' },
+  { id: 'payment_gateways.subscription.updated', label: 'Subscription Updated', category: 'lifecycle', entity: 'subscription' },
+  { id: 'payment_gateways.subscription.cancelled', label: 'Subscription Cancelled', category: 'lifecycle', entity: 'subscription' },
+  { id: 'payment_gateways.subscription.trial_will_end', label: 'Subscription Trial Will End', category: 'lifecycle', entity: 'subscription' },
+  { id: 'payment_gateways.invoice.paid', label: 'Invoice Paid', category: 'lifecycle', entity: 'invoice' },
+  { id: 'payment_gateways.invoice.payment_failed', label: 'Invoice Payment Failed', category: 'lifecycle', entity: 'invoice' },
+  { id: 'payment_gateways.charge.refunded', label: 'Charge Refunded', category: 'lifecycle', entity: 'charge' },
   { id: 'payment_gateways.webhook.received', label: 'Webhook Received', category: 'system', entity: 'webhook', excludeFromTriggers: true },
   { id: 'payment_gateways.webhook.failed', label: 'Webhook Processing Failed', category: 'system', entity: 'webhook', excludeFromTriggers: true },
 ] as const

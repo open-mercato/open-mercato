@@ -216,10 +216,22 @@ export interface WebhookEvent {
 
 // ── Webhook Handler ─────────────────────────────────────────────────────────
 
+export type WebhookEventClassification = 'transaction' | 'subscription' | 'unknown'
+
+export interface SubscriptionWebhookRef {
+  providerSubscriptionId?: string | null
+  providerCustomerId?: string | null
+  providerInvoiceId?: string | null
+  providerChargeId?: string | null
+}
+
 export interface WebhookHandlerRegistration {
   handler: (input: VerifyWebhookInput) => Promise<WebhookEvent>
   queue?: string
   readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+  classifyEvent?: (payload: Record<string, unknown> | null) => WebhookEventClassification
+  readSubscriptionRef?: (payload: Record<string, unknown> | null) => SubscriptionWebhookRef | null
+  subscriptionQueue?: string
 }
 
 // ── Adapter Registry Options ────────────────────────────────────────────────
@@ -314,6 +326,9 @@ export function registerWebhookHandler(
   options?: {
     queue?: string
     readSessionIdHint?: (payload: Record<string, unknown> | null) => string | null
+    classifyEvent?: (payload: Record<string, unknown> | null) => WebhookEventClassification
+    readSubscriptionRef?: (payload: Record<string, unknown> | null) => SubscriptionWebhookRef | null
+    subscriptionQueue?: string
   },
 ): () => void {
   const webhookHandlerRegistry = getWebhookHandlerRegistry()
@@ -321,6 +336,9 @@ export function registerWebhookHandler(
     handler,
     queue: options?.queue,
     readSessionIdHint: options?.readSessionIdHint,
+    classifyEvent: options?.classifyEvent,
+    readSubscriptionRef: options?.readSubscriptionRef,
+    subscriptionQueue: options?.subscriptionQueue,
   })
   return () => {
     webhookHandlerRegistry.delete(providerKey)
