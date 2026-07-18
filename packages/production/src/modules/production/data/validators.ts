@@ -348,6 +348,32 @@ export const reportListQuerySchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Analytics / MVP reports (task 6.1)
+// ---------------------------------------------------------------------------
+
+export const analyticsLateOrdersQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  atRiskDays: z.coerce.number().int().min(0).max(365).default(7),
+})
+
+const analyticsDateRangeSchema = {
+  dateFrom: z.coerce.date().optional(),
+  dateTo: z.coerce.date().optional(),
+}
+
+export const analyticsConsumptionQuerySchema = z.object({
+  ...analyticsDateRangeSchema,
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(20),
+  productId: z.string().uuid().optional(),
+})
+
+export const analyticsScrapReasonsQuerySchema = z.object({
+  ...analyticsDateRangeSchema,
+})
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -384,6 +410,10 @@ export type OrderListQuery = z.infer<typeof orderListQuerySchema>
 export type ReportCreateInput = z.infer<typeof reportCreateSchema>
 export type ReportReverseInput = z.infer<typeof reportReverseSchema>
 export type ReportListQuery = z.infer<typeof reportListQuerySchema>
+
+export type AnalyticsLateOrdersQuery = z.infer<typeof analyticsLateOrdersQuerySchema>
+export type AnalyticsConsumptionQuery = z.infer<typeof analyticsConsumptionQuerySchema>
+export type AnalyticsScrapReasonsQuery = z.infer<typeof analyticsScrapReasonsQuerySchema>
 
 // ---------------------------------------------------------------------------
 // MRP (Phase 5.2)
