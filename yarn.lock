@@ -7844,6 +7844,7 @@ __metadata:
   dependencies:
     "@open-mercato/core": "workspace:*"
     "@open-mercato/shared": "workspace:*"
+    "@open-mercato/ui": "workspace:*"
     "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     "@types/react": "npm:^19.0.0"
