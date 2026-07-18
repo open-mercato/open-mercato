@@ -1,6 +1,7 @@
 {
   "wms.audit.inventory.receive": "Recibir inventario",
   "wms.audit.salesOrder.assignWarehouse": "Asignar almacén al pedido",
+  "wms.audit.salesOrder.reRunReservation": "Volver a ejecutar la reserva del pedido",
   "wms.audit.salesOrder.unassignWarehouse": "Quitar asignación de almacén del pedido",
   "wms.backend.config.actions.addLocation": "Añadir ubicación",
   "wms.backend.config.actions.addProfile": "Añadir perfil",

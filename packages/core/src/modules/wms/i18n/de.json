@@ -1,6 +1,7 @@
 {
   "wms.audit.inventory.receive": "Wareneingang buchen",
   "wms.audit.salesOrder.assignWarehouse": "Lager dem Auftrag zuweisen",
+  "wms.audit.salesOrder.reRunReservation": "Reservierung für Auftrag erneut ausführen",
   "wms.audit.salesOrder.unassignWarehouse": "Lagerzuweisung vom Auftrag entfernen",
   "wms.backend.config.actions.addLocation": "Lagerort hinzufügen",
   "wms.backend.config.actions.addProfile": "Profil hinzufügen",

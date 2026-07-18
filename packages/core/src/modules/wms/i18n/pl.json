@@ -1,6 +1,7 @@
 {
   "wms.audit.inventory.receive": "Przyjmij zapas",
   "wms.audit.salesOrder.assignWarehouse": "Przypisz magazyn do zamówienia",
+  "wms.audit.salesOrder.reRunReservation": "Ponów rezerwację dla zamówienia",
   "wms.audit.salesOrder.unassignWarehouse": "Usuń przypisanie magazynu do zamówienia",
   "wms.backend.config.actions.addLocation": "Dodaj lokalizację",
   "wms.backend.config.actions.addProfile": "Dodaj profil",

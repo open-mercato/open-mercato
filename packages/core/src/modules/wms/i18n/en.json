@@ -1,6 +1,7 @@
 {
   "wms.audit.inventory.receive": "Receive inventory",
   "wms.audit.salesOrder.assignWarehouse": "Assign warehouse to order",
+  "wms.audit.salesOrder.reRunReservation": "Re-run reservation for order",
   "wms.audit.salesOrder.unassignWarehouse": "Remove warehouse assignment from order",
   "wms.backend.config.actions.addLocation": "Add location",
   "wms.backend.config.actions.addProfile": "Add profile",
