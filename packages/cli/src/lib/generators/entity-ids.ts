@@ -13,6 +13,7 @@ import {
   toSnake,
   rimrafDir,
   logGenerationResult,
+  writeIfChanged,
   type GeneratorResult,
   createGeneratorResult,
 } from '../utils'
@@ -240,7 +241,23 @@ function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[
   return result
 }
 
-function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMap): void {
+function writeTrackedFile(
+  filePath: string,
+  content: string,
+  result: GeneratorResult,
+): void {
+  if (writeIfChanged(filePath, content)) {
+    result.filesWritten.push(filePath)
+  } else {
+    result.filesUnchanged.push(filePath)
+  }
+}
+
+function writePerEntityFieldFiles(
+  outRoot: string,
+  fieldsByEntity: EntityFieldMap,
+  result: GeneratorResult,
+): void {
   fs.mkdirSync(outRoot, { recursive: true })
   const desiredEntities = new Set(Object.keys(fieldsByEntity))
   for (const [entity, fields] of Object.entries(fieldsByEntity)) {
@@ -259,18 +276,24 @@ function writePerEntityFieldFiles(outRoot: string, fieldsByEntity: EntityFieldMa
         ],
       })
     }
-    fs.writeFileSync(path.join(entDir, 'index.ts'), getSourceText(sourceFile))
+    writeTrackedFile(path.join(entDir, 'index.ts'), getSourceText(sourceFile), result)
   }
 
   const existingEntries = fs.existsSync(outRoot) ? fs.readdirSync(outRoot, { withFileTypes: true }) : []
   for (const entry of existingEntries) {
     if (!entry.isDirectory()) continue
     if (desiredEntities.has(entry.name)) continue
-    rimrafDir(path.join(outRoot, entry.name))
+    const staleDirectory = path.join(outRoot, entry.name)
+    rimrafDir(staleDirectory)
+    result.filesWritten.push(staleDirectory)
   }
 }
 
-function writeEntityFieldsRegistry(generatedRoot: string, fieldsByEntity: EntityFieldMap): void {
+function writeEntityFieldsRegistry(
+  generatedRoot: string,
+  fieldsByEntity: EntityFieldMap,
+  result: GeneratorResult,
+): void {
   const entities = Object.keys(fieldsByEntity).sort((a, b) => a.localeCompare(b))
   const registry: Record<string, Record<string, string>> = {}
   for (const entity of entities) {
@@ -302,8 +325,7 @@ function writeEntityFieldsRegistry(generatedRoot: string, fieldsByEntity: Entity
     statements: [returnStatement(elementAccess(identifier('entityFieldsRegistry'), identifier('slug')))],
   })
   const outPath = path.join(generatedRoot, 'entity-fields-registry.ts')
-  ensureDir(outPath)
-  fs.writeFileSync(outPath, getSourceText(sourceFile))
+  writeTrackedFile(outPath, getSourceText(sourceFile), result)
 }
 
 export async function generateEntityIds(options: EntityIdsOptions): Promise<GeneratorResult> {
@@ -472,9 +494,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
       type: 'typeof E',
     })
     const src = getSourceText(groupSourceFile)
-    ensureDir(out)
-    fs.writeFileSync(out, src)
-    result.filesWritten.push(out)
+    writeTrackedFile(out, src, result)
 
     const fieldsRoot = path.join(pkgOutputDir, 'entities')
     const fieldsByModule = fieldsByGroup[g] || {}
@@ -485,10 +505,10 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
         combined[entity] = Array.from(new Set([...(combined[entity] || []), ...fields]))
       }
     }
-    writePerEntityFieldFiles(fieldsRoot, combined)
+    writePerEntityFieldFiles(fieldsRoot, combined, result)
 
     // Generate static entity fields registry for Turbopack compatibility
-    writeEntityFieldsRegistry(pkgOutputDir, combined)
+    writeEntityFieldsRegistry(pkgOutputDir, combined, result)
   }
 
   // Write combined entity fields to root generated/ folder
@@ -500,8 +520,8 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
       }
     }
   }
-  writePerEntityFieldFiles(path.join(outputDir, 'entities'), combinedAll)
-  writeEntityFieldsRegistry(outputDir, combinedAll)
+  writePerEntityFieldFiles(path.join(outputDir, 'entities'), combinedAll, result)
+  writeEntityFieldsRegistry(outputDir, combinedAll, result)
 
   return result
 }

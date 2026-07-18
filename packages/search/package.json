@@ -1,6 +1,6 @@
 {
   "name": "@open-mercato/search",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
