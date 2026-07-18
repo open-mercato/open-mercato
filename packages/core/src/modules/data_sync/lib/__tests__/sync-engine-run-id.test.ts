@@ -367,4 +367,77 @@ describe('data sync engine forwards run context to adapters', () => {
     expect(progressService.markCancelled).not.toHaveBeenCalled()
     expect(streamImport).not.toHaveBeenCalled()
   })
+
+  it('resumes a running import from its committed cursor without duplicating an uncommitted batch', async () => {
+    const persistedRecords = new Map([['product-2', { name: 'already written before restart' }]])
+    const adapterUpsert = jest.fn((externalId: string, data: Record<string, unknown>) => {
+      persistedRecords.set(externalId, data)
+    })
+    const streamImport = jest.fn(async function* () {
+      adapterUpsert('product-2', { name: 'replayed after stalled-job recovery' })
+      yield {
+        items: [{ externalId: 'product-2', action: 'update', data: { name: 'replayed after stalled-job recovery' } }],
+        cursor: 'checkpoint-2',
+        hasMore: false,
+        batchIndex: 3,
+      }
+    })
+    const adapter: DataSyncAdapter = {
+      providerKey: 'excel',
+      direction: 'import',
+      supportedEntities: ['catalog.product'],
+      getMapping: jest.fn(async () => ({
+        entityType: 'catalog.product',
+        matchStrategy: 'externalId',
+        fields: [],
+      })),
+      streamImport,
+    }
+    const resumedRun = {
+      id: 'run-import-resume',
+      integrationId: 'sync_excel',
+      entityType: 'catalog.product',
+      direction: 'import' as const,
+      status: 'running' as const,
+      cursor: 'checkpoint-1',
+      progressJobId: null,
+    }
+    const syncRunService = {
+      getRun: jest.fn(async () => resumedRun),
+      markStatus: jest
+        .fn()
+        .mockResolvedValueOnce(resumedRun)
+        .mockResolvedValueOnce({ ...resumedRun, status: 'completed' }),
+      commitBatchProgress: jest.fn(async () => resumedRun),
+    } as unknown as SyncRunService
+
+    mockGetDataSyncAdapter.mockReturnValue(adapter)
+    const engine = createSyncEngine({
+      em: {} as EntityManager,
+      syncRunService,
+      integrationCredentialsService: {
+        resolve: jest.fn(async () => ({ uploadId: 'upload-1' })),
+      } as unknown as CredentialsService,
+      integrationLogService: {
+        write: jest.fn(async () => undefined),
+      } as unknown as IntegrationLogService,
+      integrationStateService: {
+        upsert: jest.fn(async () => undefined),
+      } as any,
+      progressService: createProgressService(),
+    })
+
+    await engine.runImport('run-import-resume', 100, createScope())
+
+    expect(streamImport).toHaveBeenCalledWith(expect.objectContaining({ cursor: 'checkpoint-1' }))
+    expect(adapterUpsert).toHaveBeenCalledTimes(1)
+    expect(persistedRecords.size).toBe(1)
+    expect(persistedRecords.get('product-2')).toEqual({ name: 'replayed after stalled-job recovery' })
+    expect((syncRunService as any).commitBatchProgress).toHaveBeenCalledWith(
+      'run-import-resume',
+      expect.objectContaining({ updatedCount: 1, batchesCompleted: 1 }),
+      'checkpoint-2',
+      createScope(),
+    )
+  })
 })

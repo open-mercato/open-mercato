@@ -82,13 +82,15 @@ export function resolveQueueStrategy(): QueueStrategyType {
  */
 export function createModuleQueue<T = unknown>(
   name: string,
-  options?: { concurrency?: number },
+  options?: Pick<AsyncQueueOptions, 'attempts' | 'concurrency' | 'maxStalledCount'>,
 ): Queue<T> {
   const strategy = resolveQueueStrategy()
   if (strategy === 'async') {
     return createAsyncQueue<T>(name, {
       connection: { url: getRedisUrlOrThrow('QUEUE') },
       concurrency: options?.concurrency,
+      attempts: options?.attempts,
+      maxStalledCount: options?.maxStalledCount,
     })
   }
   return createLocalQueue<T>(name, { concurrency: options?.concurrency })

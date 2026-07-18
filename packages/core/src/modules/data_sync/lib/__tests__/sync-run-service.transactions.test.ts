@@ -18,6 +18,8 @@ function buildFakeEm() {
     commit: jest.fn().mockResolvedValue(undefined),
     rollback: jest.fn().mockResolvedValue(undefined),
     flush: jest.fn().mockResolvedValue(undefined),
+    nativeUpdate: jest.fn().mockResolvedValue(1),
+    refresh: jest.fn().mockResolvedValue(undefined),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
   }
 }
@@ -149,5 +151,33 @@ describe('SyncRunService.updateCursor — UoW-safe cursor write (issue #2341)', 
     expect(em.flush).toHaveBeenCalledTimes(1)
     expect(run.cursor).toBe('advanced-cursor')
     expect(cursorRow.cursor).toBe('advanced-cursor')
+  })
+})
+
+describe('SyncRunService.markStatus — stalled-job recovery', () => {
+  beforeEach(() => {
+    ;(findOneWithDecryption as jest.Mock).mockReset()
+  })
+
+  it('idempotently reclaims a running run without admitting terminal statuses', async () => {
+    const em = buildFakeEm()
+    const run = buildRun({ status: 'running' })
+    mockLookups(run, null)
+
+    const service = createSyncRunService(em as any)
+    const result = await service.markStatus('run-1', 'running', SCOPE)
+
+    expect(em.nativeUpdate).toHaveBeenCalledWith(
+      SyncRun,
+      expect.objectContaining({
+        id: 'run-1',
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        status: { $in: ['pending', 'running'] },
+      }),
+      expect.objectContaining({ status: 'running' }),
+    )
+    expect(em.refresh).toHaveBeenCalledWith(run)
+    expect(result).toBe(run)
   })
 })
