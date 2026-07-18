@@ -130,8 +130,26 @@ function formatActivityTitle(
   }
 }
 
-function formatActivitySubtitle(row: OperationalDashboardActivityRow): string | null {
-  if (row.reason?.trim()) return row.reason.trim()
+const ACTIVITY_REASON_LABEL_KEYS: Record<string, string> = {
+  cycle_count: 'wms.backend.dashboard.activity.reasons.cycleCount',
+}
+
+const ACTIVITY_REASON_LABEL_FALLBACKS: Record<string, string> = {
+  cycle_count: 'Cycle count',
+}
+
+function formatActivitySubtitle(
+  row: OperationalDashboardActivityRow,
+  t: (key: string, fallback?: string) => string,
+): string | null {
+  const reason = row.reason?.trim()
+  if (reason) {
+    const reasonKey = ACTIVITY_REASON_LABEL_KEYS[reason]
+    if (reasonKey) {
+      return t(reasonKey, ACTIVITY_REASON_LABEL_FALLBACKS[reason] ?? reason)
+    }
+    return reason
+  }
   if (row.referenceType && row.referenceId) return `${row.referenceType} · ${row.referenceId}`
   return null
 }
@@ -567,7 +585,7 @@ export default function WmsOperationalDashboardPage() {
         id: 'details',
         header: t('wms.backend.dashboard.activity.columns.details', 'Details'),
         cell: ({ row }) => {
-          const subtitle = formatActivitySubtitle(row.original)
+          const subtitle = formatActivitySubtitle(row.original, t)
           return (
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{formatActivityTitle(row.original, t)}</p>

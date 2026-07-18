@@ -139,6 +139,7 @@
   "wms.backend.dashboard.activity.titles.reconciled": "Bestand abgeglichen — {sku}",
   "wms.backend.dashboard.activity.types.adjust": "Anpassen",
   "wms.backend.dashboard.activity.types.cycle_count": "Abgeglichen",
+  "wms.backend.dashboard.activity.reasons.cycleCount": "Inventur",
   "wms.backend.dashboard.activity.types.pack": "Reservieren",
   "wms.backend.dashboard.activity.types.pick": "Reservieren",
   "wms.backend.dashboard.activity.types.putaway": "Einlagerung",

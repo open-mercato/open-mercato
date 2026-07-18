@@ -139,6 +139,7 @@
   "wms.backend.dashboard.activity.titles.reconciled": "Inwentaryzacja — {sku}",
   "wms.backend.dashboard.activity.types.adjust": "Korekta",
   "wms.backend.dashboard.activity.types.cycle_count": "Inwentaryzacja",
+  "wms.backend.dashboard.activity.reasons.cycleCount": "Inwentaryzacja",
   "wms.backend.dashboard.activity.types.pack": "Alokacja",
   "wms.backend.dashboard.activity.types.pick": "Alokacja",
   "wms.backend.dashboard.activity.types.putaway": "Odłożenie",

@@ -139,6 +139,7 @@
   "wms.backend.dashboard.activity.titles.reconciled": "Inventory reconciled — {sku}",
   "wms.backend.dashboard.activity.types.adjust": "Adjust",
   "wms.backend.dashboard.activity.types.cycle_count": "Reconciled",
+  "wms.backend.dashboard.activity.reasons.cycleCount": "Cycle count",
   "wms.backend.dashboard.activity.types.pack": "Allocate",
   "wms.backend.dashboard.activity.types.pick": "Allocate",
   "wms.backend.dashboard.activity.types.putaway": "Putaway",
