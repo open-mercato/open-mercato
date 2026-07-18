@@ -8,7 +8,7 @@
 **Key points:**
 
 - `query_index.upsert_one` and `query_index.delete_one` currently select `organization_id` and `tenant_id` from every source table. That is invalid for legitimate global entities such as `feature_toggles.feature_toggle`, whose mapped table has neither column.
-- Make the existing scope-verification path metadata-aware. It will read only columns declared by the resolved MikroORM entity, skip the source read for a global entity, and keep source-row authority and mismatch rejection for tenant-scoped entities.
+- Make the existing scope-verification path metadata-aware. It will require the generated entity-ID registry and resolved MikroORM metadata, read only declared scope columns, skip the source read for a global entity, and keep source-row authority and mismatch rejection for tenant-scoped entities.
 - Correct the global feature-toggle command producer so every query-index event declares the global scope explicitly as `organizationId: null` and `tenantId: null`.
 
 **Scope:**
@@ -69,7 +69,7 @@ The producer adds a fourth issue. `featureToggleIdentifiers()` currently sends `
 
 | Decision | Rationale |
 |---|---|
-| Resolve registered table metadata, not `resolveEntityTableName()` fallback | The fallback pluralizes unregistered IDs. Index scope is security-sensitive and must not query an attacker- or typo-chosen table. `resolveRegisteredEntityTableName()` already provides the strict table-resolution primitive. |
+| Require generated entity-ID membership plus registered table metadata, not `resolveEntityTableName()` fallback | The fallback pluralizes unregistered IDs, and `resolveRegisteredEntityTableName()` alone can match a different module prefix that shares an entity segment. Index scope is security-sensitive and must not query an attacker- or typo-chosen table. |
 | Read `properties.organizationId?.fieldNames[0]` and `properties.tenantId?.fieldNames[0]` | The property presence describes whether a scope dimension exists; `fieldNames` supplies the mapped physical identifier. A missing property is a true absent dimension, not a nullable value. |
 | Carry a discriminated source-scope result | `global`, `row`, and `missing` are materially different states. Reusing `null` for all three would let a global entity or a metadata error bypass the correct validation rule. |
 | Remove `loadQueryIndexRowScope(...).catch(() => null)` | A missing row is a normal, explicit result. A metadata or SQL failure must reach the existing outer error handler rather than be mistaken for a deleted row. |
@@ -113,10 +113,10 @@ type QueryIndexSourceMetadata = {
 
 It MUST:
 
-1. Resolve `entityType` with `resolveRegisteredEntityTableName(em, entityType)`.
+1. Require `entityType` to be an exact member of the generated entity-ID registry, then resolve it with `resolveRegisteredEntityTableName(em, entityType)`.
 2. Find the matching MikroORM metadata entry by the resolved table name.
 3. Read `organizationId` and `tenantId` only from that metadata entry's properties. When present, require exactly one mapped `fieldNames` entry and use that physical column name.
-4. Throw `QueryIndexScopeError` if the table is not registered, metadata cannot be matched, or an expected scope property has no single physical field name.
+4. Throw `QueryIndexScopeError` if the ID is not registered, the table is not registered, metadata cannot be matched, or an expected scope property has no single physical field name.
 
 This descriptor is local to `query_index`; it does not introduce a new shared public API or DI service.
 
@@ -266,7 +266,7 @@ The existing `GET/POST/PUT/DELETE /api/feature_toggles/global` routes retain the
 | `TC-QI-SCOPE-002` | Registered tenant-only entity | The lookup selects only `tenant_id`; the absent organization dimension is null and a non-null payload organization is rejected. |
 | `TC-QI-SCOPE-003` | `FeatureToggle` global entity | No Kysely scope query is made; only explicit `organizationId: null, tenantId: null` resolves. |
 | `TC-QI-SCOPE-004` | Missing source row | Existing full explicit payload behavior remains valid for delete timing. |
-| `TC-QI-SCOPE-005` | Unknown or unmatched metadata | A `QueryIndexScopeError` is raised; no pluralized table fallback is used. |
+| `TC-QI-SCOPE-005` | Unknown, prefix-colliding, or unmatched metadata | A `QueryIndexScopeError` is raised; no pluralized-table or class-name collision fallback is used. |
 | `TC-QI-UPSERT-001` | Global upsert subscriber | Calls `upsertIndexRow` with null/null and does not record a missing-column source-read error. |
 | `TC-QI-DELETE-001` | Global delete subscriber | Coverage source probe includes only ID (no organization/tenant predicate); global `markDeleted` scope is null/null. |
 | `TC-FT-SCOPE-001` | Create/update/delete and undo/redo command paths | Every `markOrmEntityChange` identifier set is null/null even when the actor has a tenant ID. |
@@ -416,3 +416,12 @@ None.
 - Added metadata-driven scope resolution, strict unknown-entity handling, delete-coverage repair, unit/integration coverage, compatibility, risk, and compliance requirements.
 - Recorded an independent scope-cohesion **KEEP** review and explicit MVP boundary.
 - Corrected the integration delete expectation to match the established physical removal of `entity_indexes` rows by `markDeleted()`; this avoids an unrelated projection-storage semantics change.
+- Required exact generated entity-ID membership before resolving MikroORM metadata, because table resolution alone can match a class-name collision under another module prefix.
+
+## Implementation Status
+
+| Phase | Status | Date | Notes |
+|---|---|---|---|
+| Phase 1 — Establish the global producer contract | Done | 2026-07-18 | All feature-toggle lifecycle side effects now emit explicit null/null identifiers; unit and integration assertions were added. |
+| Phase 2 — Make query-index scope resolution metadata-aware | Done | 2026-07-18 | Registered entity-ID and metadata resolution distinguish global, row, and missing scope state; delete coverage uses declared predicates only. |
+| Phase 3 — Prove event paths and validate | In Progress | 2026-07-18 | Focused Jest suites pass; managed integration and repository validation gates remain. |
