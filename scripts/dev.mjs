@@ -1967,8 +1967,15 @@ async function applyPendingMigrationsBestEffort() {
   }
 }
 
-function launchMonorepoAppDev() {
-  startMcpRuntime()
+// App restart-on-crash is on by default (PM2-like resilience, mirroring the
+// MCP lifecycle); OM_DEV_APP_RESTART=0/false/no/off restores exit-on-crash.
+function shouldRestartAppOnCrash(env = process.env) {
+  const raw = env.OM_DEV_APP_RESTART
+  if (typeof raw !== 'string' || raw.trim() === '') return true
+  return !['0', 'false', 'no', 'off'].includes(raw.trim().toLowerCase())
+}
+
+async function runAppLifecycle() {
   const appArgs = ['workspace', '@open-mercato/app', classic ? 'dev:classic' : 'dev']
   if (!classic && verbose) {
     appArgs.push('--verbose')
@@ -1987,18 +1994,44 @@ function launchMonorepoAppDev() {
     progressLabel: 'Launching app runtime',
     activity: 'App runtime is starting',
   })
-  const app = spawnCommand(yarnCommand, appArgs, {
-    stdio: 'inherit',
-    env: buildAppDevEnv({ stageCurrent, stageTotal }),
-  })
 
-  app.on('close', (code, signal) => {
-    if (!shuttingDown) {
-      // Unexpected child exit MUST surface as non-zero even if the child reported
-      // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
-      const childCode = resolveChildExitCode({ code, signal }, 1)
-      shutdown(childCode === 0 ? 1 : childCode)
+  const restartEnabled = shouldRestartAppOnCrash()
+  let fastCrashes = 0
+  while (!shuttingDown) {
+    const startedAt = Date.now()
+    const app = spawnCommand(yarnCommand, appArgs, {
+      stdio: 'inherit',
+      env: buildAppDevEnv({ stageCurrent, stageTotal }),
+    })
+    const result = await waitForClose(app)
+    if (shuttingDown || isGracefulShutdownResult(result)) return
+
+    // Unexpected child exit MUST surface as non-zero even if the child reported
+    // code 0 — hiding a broken runtime as success masks failures from scripts/CI.
+    const childCode = resolveChildExitCode(result, 1)
+    const exitCode = childCode === 0 ? 1 : childCode
+    if (!restartEnabled) {
+      shutdown(exitCode)
+      return
     }
+    fastCrashes = isFastMcpCrash(Date.now() - startedAt) ? fastCrashes + 1 : 0
+    if (fastCrashes >= MCP_MAX_FAST_CRASHES) {
+      console.error(`❌ App runtime keeps crashing (exit ${exitCode}) — giving up on restarts.`)
+      shutdown(exitCode)
+      return
+    }
+    const delay = nextMcpRestartDelayMs(fastCrashes)
+    console.warn(`⚠️ App runtime exited (code ${exitCode}) — restarting in ${Math.round(delay / 1000)}s (OM_DEV_APP_RESTART=0 disables restarts)`)
+    updateSplashState({ activity: `App runtime crashed — restarting in ${Math.round(delay / 1000)}s` })
+    await sleepUnlessShuttingDown(delay)
+  }
+}
+
+function launchMonorepoAppDev() {
+  startMcpRuntime()
+  void runAppLifecycle().catch((error) => {
+    console.error(`❌ App runtime supervisor failed: ${error instanceof Error ? error.message : String(error)}`)
+    shutdown(1)
   })
 }
 
