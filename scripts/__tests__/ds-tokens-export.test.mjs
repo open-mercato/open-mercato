@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import {
   buildFigmaOps,
+  buildRestPayload,
   buildSnapshot,
   classifyValue,
   colorToHex,
@@ -192,6 +193,49 @@ test('buildFigmaOps emits RGBA colors and FLOAT scalars with WEB code syntax', (
   const radius = ops.find((op) => op.name === 'radius/md')
   assert.deepEqual(radius.valuesByMode, { Light: 8, Dark: 8 })
   assert.equal(ops.find((op) => op.name === 'focus-ring-inner'), undefined)
+})
+
+test('token lifecycle: added, removed, and new-family tokens flow through without code changes', () => {
+  const committed = buildSnapshot(FIXTURE)
+  const grown = FIXTURE
+    .replace('--accent-indigo: #6366f1;', '--accent-indigo: #6366f1;\n  --status-teal-bg: oklch(0.97 0.02 180);\n  --brand-ocean: #0061FF;')
+    .replace('  --brand-lime: #B4F372;\n', '')
+    .replace('  --color-brand-lime: var(--brand-lime);\n', '')
+  const live = buildSnapshot(grown)
+  const diffs = diffSnapshots(committed, live)
+  assert.ok(diffs.some((diff) => diff.token === 'status-teal-bg' && diff.to === 'added'))
+  assert.ok(diffs.some((diff) => diff.token === 'brand-ocean' && diff.to === 'added'))
+  assert.ok(diffs.some((diff) => diff.token === 'brand-lime' && diff.to === '(removed)'))
+  const ops = buildFigmaOps(live).ops
+  assert.ok(ops.some((op) => op.name === 'status/teal/bg'))
+  assert.ok(ops.some((op) => op.name === 'brand/ocean'))
+  assert.equal(ops.find((op) => op.name === 'brand/lime'), undefined)
+})
+
+test('figma ops declare full-state reconcile with pruning', () => {
+  const payload = buildFigmaOps(buildSnapshot(FIXTURE))
+  assert.deepEqual(payload.reconcile, { prune: true })
+})
+
+test('buildRestPayload upserts by name and deletes variables removed from the snapshot', () => {
+  const opsPayload = buildFigmaOps(buildSnapshot(FIXTURE))
+  const local = {
+    meta: {
+      variableCollections: {
+        c1: { id: 'c1', name: 'OM Tokens', modes: [{ modeId: 'm1', name: 'Light' }, { modeId: 'm2', name: 'Dark' }] },
+      },
+      variables: {
+        v1: { id: 'v1', name: 'brand/lime', variableCollectionId: 'c1' },
+        v2: { id: 'v2', name: 'brand/retired', variableCollectionId: 'c1' },
+        v3: { id: 'v3', name: 'unrelated/elsewhere', variableCollectionId: 'other' },
+      },
+    },
+  }
+  const payload = buildRestPayload(opsPayload, local)
+  assert.equal(payload.variables.find((v) => v.action === 'CREATE' && v.name === 'brand/lime'), undefined)
+  assert.ok(payload.variables.some((v) => v.action === 'CREATE' && v.name === 'accent/indigo'))
+  assert.deepEqual(payload.variables.filter((v) => v.action === 'DELETE'), [{ action: 'DELETE', id: 'v2' }])
+  assert.ok(payload.variableModeValues.some((v) => v.variableId === 'v1' && v.modeId === 'm1'))
 })
 
 test('hexToRgba round-trips 6- and 8-digit hex', () => {

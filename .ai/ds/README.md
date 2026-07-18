@@ -34,7 +34,11 @@ collection are overwritten on the next push; canon changes land in
    valuesByMode, codeSyntax }`) to `.ai/reports/ds-tokens-figma-ops.json`. Any
    agent session with Figma plugin tooling applies it via the
    `figma.variables` plugin API. The ops file is a regenerable working
-   artifact, not a source of truth.
+   artifact, not a source of truth. It carries `reconcile: { prune: true }` —
+   the ops list is the **full desired state** of the collection, so the
+   applier must also delete any variable in `OM Tokens` that is absent from
+   the list (tokens removed from `globals.css` must not rot in the mirror).
+   The REST adapter implements the same pruning with `DELETE` actions.
 2. **REST (Enterprise-gated)** — `node scripts/ds-tokens-export.mjs
    --push-figma` uses the Figma Variables REST API, which requires an
    Enterprise plan and a personal access token with `file_variables:read` +

@@ -206,14 +206,18 @@ function rgbToHex(r, g, b, alpha) {
 
 export function figmaFor(name, kind) {
   if (kind === 'shadow' || kind === 'fontStack' || kind === 'reference') return null
-  const statusMatch = name.match(/^status-(error|success|warning|info|neutral|pink)-(bg|text|border|icon)$/)
+  // Structural patterns, not enumerated values — a brand-new status hue or
+  // chart color groups correctly with zero code changes.
+  const statusMatch = name.match(/^status-([a-z0-9]+)-(bg|text|border|icon)$/)
   if (statusMatch) return { name: `status/${statusMatch[1]}/${statusMatch[2]}`, type: 'COLOR' }
   const chartMatch = name.match(/^chart-(.+)$/)
   if (chartMatch) return { name: `chart/${chartMatch[1]}`, type: 'COLOR' }
   const brandMatch = name.match(/^brand-(.+)$/)
   if (brandMatch) return { name: `brand/${brandMatch[1]}`, type: 'COLOR' }
-  const accentMatch = name.match(/^accent-indigo(-foreground)?$/)
-  if (accentMatch) return { name: `accent/indigo${accentMatch[1] ?? ''}`, type: 'COLOR' }
+  // accent-<hue>[-foreground] is the DS selection-accent family; bare
+  // accent/accent-foreground are the core semantic pair and stay flat names.
+  const accentMatch = name !== 'accent-foreground' && name.match(/^accent-([a-z0-9]+(?:-foreground)?)$/)
+  if (accentMatch) return { name: `accent/${accentMatch[1]}`, type: 'COLOR' }
   const zMatch = name.match(/^z-index-(.+)$/)
   if (zMatch) return { name: `z/${zMatch[1]}`, type: 'FLOAT' }
   if (name === 'radius') return { name: 'radius/base', type: 'FLOAT' }
@@ -398,7 +402,16 @@ export function buildFigmaOps(snapshot) {
       codeSyntax: { WEB: `var(--${name})` },
     })
   }
-  return { file: FIGMA_FILE_KEY, collection: FIGMA_COLLECTION, modes: ['Light', 'Dark'], ops }
+  // reconcile.prune: the ops list is the FULL desired state of the collection —
+  // appliers must also delete any variable in the collection that is absent
+  // from `ops`, so tokens removed from globals.css do not rot in Figma.
+  return {
+    file: FIGMA_FILE_KEY,
+    collection: FIGMA_COLLECTION,
+    modes: ['Light', 'Dark'],
+    reconcile: { prune: true },
+    ops,
+  }
 }
 
 export function hexToRgba(hex) {
@@ -477,6 +490,15 @@ export function buildRestPayload(opsPayload, local) {
     }
     payload.variableModeValues.push({ variableId, modeId: lightModeId, value: op.valuesByMode.Light })
     payload.variableModeValues.push({ variableId, modeId: darkModeId, value: op.valuesByMode.Dark })
+  }
+
+  if (existingCollection) {
+    const desiredNames = new Set(opsPayload.ops.map((op) => op.name))
+    for (const variable of existingVariables) {
+      if (variable.variableCollectionId === collectionId && !desiredNames.has(variable.name)) {
+        payload.variables.push({ action: 'DELETE', id: variable.id })
+      }
+    }
   }
   return payload
 }
