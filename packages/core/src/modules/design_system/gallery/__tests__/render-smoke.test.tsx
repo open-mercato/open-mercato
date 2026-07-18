@@ -4,19 +4,50 @@
 
 import * as React from 'react'
 import { render, cleanup } from '@testing-library/react'
-import { entries as buttonEntries } from '../entries/buttons'
+import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
+import { galleryFamilies } from '../registry'
+import type { GalleryEntry } from '../types'
 
-describe('design_system buttons family render smoke', () => {
-  afterEach(cleanup)
+// Every family's entries must mount under jsdom without throwing. Entries
+// render inside the same I18nProvider the backend shell provides (some
+// primitives call useT for their built-in labels).
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 
-  for (const entry of buttonEntries) {
-    describe(entry.title, () => {
-      for (const variant of entry.variants) {
-        it(`renders variant "${variant.id}" without throwing`, () => {
-          const { container } = render(<>{variant.render()}</>)
-          expect(container.firstChild).not.toBeNull()
-        })
-      }
-    })
+const families: Array<{ id: string; entries: GalleryEntry[] }> = []
+
+beforeAll(async () => {
+  ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock
+  for (const family of galleryFamilies) {
+    const { entries } = await family.load()
+    families.push({ id: family.id, entries })
   }
+})
+
+afterEach(cleanup)
+
+describe('design_system gallery render smoke', () => {
+  it('loads every family from the manifest', () => {
+    expect(families.length).toBe(galleryFamilies.length)
+    for (const family of families) expect(family.entries.length).toBeGreaterThan(0)
+  })
+
+  it('renders every variant of every entry without throwing', () => {
+    for (const family of families) {
+      for (const entry of family.entries) {
+        for (const variant of entry.variants) {
+          const { container, unmount } = render(
+            <I18nProvider locale="en" dict={{}}>
+              {variant.render()}
+            </I18nProvider>,
+          )
+          expect(container.firstChild).not.toBeNull()
+          unmount()
+        }
+      }
+    }
+  })
 })

@@ -30,4 +30,34 @@ export const galleryFamilies: GalleryFamily[] = [
     labelKey: 'design_system.families.buttons',
     load: () => import('./entries/buttons'),
   },
+  {
+    id: 'inputs',
+    labelKey: 'design_system.families.inputs',
+    load: () => import('./entries/inputs'),
+  },
+  {
+    id: 'dates',
+    labelKey: 'design_system.families.dates',
+    load: () => import('./entries/dates'),
+  },
+  {
+    id: 'feedback',
+    labelKey: 'design_system.families.feedback',
+    load: () => import('./entries/feedback'),
+  },
+  {
+    id: 'overlays',
+    labelKey: 'design_system.families.overlays',
+    load: () => import('./entries/overlays'),
+  },
+  {
+    id: 'navigation',
+    labelKey: 'design_system.families.navigation',
+    load: () => import('./entries/navigation'),
+  },
+  {
+    id: 'display',
+    labelKey: 'design_system.families.display',
+    load: () => import('./entries/display'),
+  },
 ]
