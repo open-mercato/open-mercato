@@ -233,8 +233,7 @@
     "ws@npm:^7.3.1": "7.5.11",
     "ws@npm:^8.17.1": "8.21.0",
     "ws@npm:^8.18.0": "8.21.0",
-    "ws@npm:~8.18.3": "8.21.0",
-    "websocket-driver": "0.7.5"
+    "ws@npm:~8.18.3": "8.21.0"
   },
   "dependenciesMeta": {
     "@datadog/pprof": {
