@@ -132,13 +132,22 @@ export async function reconcileAttachmentOrganizations(opts: {
     for (let index = 0; index < recordIds.length; index += batchSize) {
       const chunk = recordIds.slice(index, index + batchSize)
       try {
-        const result = await queryEngine.query(entityId as any, {
-          fields: ['id', 'organization_id'],
-          filters: { id: chunk.length === 1 ? { $eq: chunk[0] } : { $in: chunk } },
-          tenantId,
-          withDeleted: true,
-          page: { pageSize: Math.max(chunk.length, 1) },
-        })
+        // An unregistrable entity id makes the Query Engine emit SQL against a
+        // non-existent relation, and a failed statement aborts the surrounding
+        // Postgres transaction the caller runs this reconcile in — poisoning
+        // the whole backfill (#4145). Running each resolution query inside a
+        // nested transaction scopes the failure to a savepoint, so the catch
+        // below can mark just this group unresolved while every other group
+        // and the final flush keep working.
+        const result = await em.transactional(async () =>
+          queryEngine.query(entityId as any, {
+            fields: ['id', 'organization_id'],
+            filters: { id: chunk.length === 1 ? { $eq: chunk[0] } : { $in: chunk } },
+            tenantId,
+            withDeleted: true,
+            page: { pageSize: Math.max(chunk.length, 1) },
+          }),
+        )
         for (const item of result.items ?? []) {
           const record = item as Record<string, unknown>
           const recordId = record.id != null ? String(record.id) : null

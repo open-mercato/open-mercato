@@ -143,4 +143,5 @@ Rules:
 After modifying generator logic, run the generator and verify the output files in `apps/mercato/.mercato/generated/`. Check that all expected modules, entities, and registrations appear correctly.
 
 When `packages/create-app/agentic/` or standalone guide discovery changes, keep `packages/cli/src/lib/agentic-setup.ts` and `packages/cli/build.mjs` in sync so `yarn mercato agentic:init` matches newly scaffolded standalone apps.
+Skills install into the canonical cross-agent directory `.agents/skills/`; only agents that cannot read it (Claude Code) get their own `.claude/skills/` symlinks, so `generateCodex`/`generateCursor` MUST NOT seed a skills directory. `packages/create-app/src/setup/tools/{claude-code,codex,cursor}.ts` and the `agentic-setup.ts` mirror are guarded by `packages/create-app/src/lib/agentic-skills-standalone-overlays.test.ts`.
 The standalone QA config contract is `.ai/qa/tests/playwright.config.ts`; keep that path aligned across `packages/create-app/agentic/shared/`, `packages/create-app/template/package.json.template`, and `packages/cli/src/lib/testing/integration.ts`.
