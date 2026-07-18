@@ -1,5 +1,6 @@
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { AuthService } from '@open-mercato/core/modules/auth/services/authService'
 import { signJwt } from '@open-mercato/shared/lib/auth/jwt'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
@@ -11,6 +12,7 @@ import { emitAuthEvent } from '@open-mercato/core/modules/auth/events'
 export const metadata = { requireAuth: false }
 
 const accessTokenMaxAgeSeconds = 60 * 60 * 8
+const logger = createLogger('auth').child({ component: 'autologin' })
 
 // Demo-only convenience: when OM_AUTOLOGIN_* credentials are configured, sign the
 // visitor in with those credentials and redirect into the app. Gated entirely
@@ -47,7 +49,7 @@ export async function GET(req: Request) {
   const ok = await auth.verifyPassword(user, credentials.password)
   if (!user || !ok) {
     // Misconfigured demo credentials — never loop; drop to the manual form.
-    console.warn('[autologin] OM_AUTOLOGIN credentials did not resolve to a single valid user; falling back to /login')
+    logger.warn('OM_AUTOLOGIN credentials did not resolve to a single valid user; falling back to login')
     return buildSafeRedirectResponse(req, '/login')
   }
 
