@@ -60,6 +60,7 @@
   "sales.channels.actions.backToList": "Powrót do kanałów",
   "sales.channels.actions.create": "Dodaj kanał",
   "sales.channels.create": "Utwórz kanał sprzedaży",
+  "sales.channels.disabledNotice": "Kanały sprzedaży są wyłączone dla tego najemcy. Włącz przełącznik funkcji \"Sales Channels\", aby nimi zarządzać.",
   "sales.channels.form.address1": "Adres linia 1",
   "sales.channels.form.address2": "Adres linia 2",
   "sales.channels.form.city": "Miasto",

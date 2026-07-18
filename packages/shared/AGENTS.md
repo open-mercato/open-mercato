@@ -168,6 +168,30 @@ import { hasFeature, hasAllFeatures } from '@open-mercato/shared/security/featur
 - Use `hasAllFeatures(granted, required)` for arrays such as `features`, `requireFeatures`, or handler guard lists.
 - MUST NOT gate raw feature arrays with `includes(...)`, `Set.has(...)`, or ad hoc `every(...includes(...))` checks in shared registries or runners; wildcard grants like `module.*` and `*` are part of the RBAC contract.
 
+### CRUD HTTP Errors — MUST use the shared helpers instead of hand-rolling `CrudHttpError`
+
+`@open-mercato/shared/lib/crud/errors` owns the standardized error shapes. Use the helper, not a raw `new CrudHttpError(...)`:
+
+```typescript
+import { assertFound, notFound, badRequest, forbidden, conflict } from '@open-mercato/shared/lib/crud/errors'
+
+const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+```
+
+| Status | Helper |
+|--------|--------|
+| 400 | `badRequest(message)` |
+| 403 | `forbidden(message?)` |
+| 404 | `notFound(message?)` — or `assertFound(value, message)` when guarding a lookup |
+| 409 | `conflict(message)` |
+
+MUST rules:
+- MUST NOT hand-roll `throw new CrudHttpError(404, { error: msg })`. Pick the helper that fits the call site:
+  - **Inline lookup** → `const deal = assertFound(await em.findOne(Deal, { id }), msg)`. It throws the standardized 404 and returns the value narrowed to `T`, so there is no nullable intermediate binding.
+  - **Guard statement** (multi-line lookup, or a compound condition such as `if (!entity || entity.tenantId !== auth.tenantId)`) → `throw notFound(msg)`. TypeScript already narrows the value after the throw, so this keeps tenant-scoping conditions explicit without losing type safety.
+- `message` is passed through verbatim and is never derived from an entity name — keep routing 404 copy through `translate(...)` so it stays translatable.
+- `assertFound` treats every falsy value as missing. Use it for entity/object lookups only, never to guard numbers or strings where `0`/`''` are valid results.
+
 ### CRUD Multi-ID Filtering
 
 - Use `parseIdsParam()` and `mergeIdFilter()` from `@open-mercato/shared/lib/crud/ids` for factory-level `ids` query support.

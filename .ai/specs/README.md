@@ -103,6 +103,7 @@ Specs awaiting implementation or partially complete. Focus here for actionable w
 | [Dictionary Custom Field Multiselect](2026-06-19-dictionary-custom-field-multiselect.md) | 2026-06-19 | Dictionary Custom Field Multiselect | Dictionary-backed custom fields can opt into multi-select CRUD form rendering while reusing existing EAV array persistence |
 | [Package Previews](2026-06-22-label-based-package-previews.md) | 2026-06-22 | Label-Based Package Previews | Label-triggered pkg.pr.new previews with npm canary snapshots moved behind a separate opt-in label |
 | [Bulk-Import Side-Effect Suppression](2026-07-08-bulk-import-side-effect-suppression.md) | 2026-07-08 | Bulk-Import Side-Effect Suppression | Opt-in `ctx.bulkImport` flag lets a backfill defer per-record reindex/events/notifications (rebuilt in one batched pass); concurrency-safe via parameter threading, no shared engine state |
+| [Scoped Staff Member Directory](2026-07-15-staff-member-directory.md) | 2026-07-15 | Scoped Staff Member Directory | Narrow optional-module DI contract for resolving active, tenant- and organization-scoped staff scheduling references from trusted user IDs |
 
 ### Implemented Specifications
 
