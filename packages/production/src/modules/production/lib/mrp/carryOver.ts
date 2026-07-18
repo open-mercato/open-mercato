@@ -52,7 +52,7 @@ export interface PriorResolvedSuggestion {
 export function buildDemandSourceKey(pegging: MrpPeggingRef[]): string {
   return pegging
     .map((ref) => `${ref.source.type}:${ref.source.id ?? ''}`)
-    .sort()
+    .sort((a, b) => (a < b ? -1 : a > b ? 1 : 0))
     .join(',')
 }
 
