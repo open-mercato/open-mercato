@@ -31,6 +31,7 @@
 - Shop traveler PDF + operation QR codes (no platform print engine; new production dependency requires maintainer approval)
 - PIN/badge login and offline kiosk mode for the operator panel (requires platform-level auth work)
 - Purchasing integration for MRP buy suggestions; full warehouse module (StockProvider extraction), inventory valuation, transfers, stocktaking
+- Purchase/acquisition price source for the cost rollup (new purchase-type `CatalogPriceKind` or a production-owned cost table) — until then the rollup is a `catalog_list_price` estimate and is labeled as such in the UI
 - Batch genealogy report (data model is batch-ready from Phase 2; the report is deferred), routing operation alternatives, downtime events / OEE, process manufacturing, subcontracting, forecast demand sources
 
 **Concerns:**
@@ -176,9 +177,9 @@ All routes under `/api/production/*`, `makeCrudRoute` with `indexer: { entityTyp
 | Resource | Routes | Notes |
 |----------|--------|-------|
 | Work centers | CRUD `/api/production/work-centers` | |
-| BOMs | CRUD `/api/production/boms` (+ `POST …/[id]/copy-version`, `POST …/[id]/activate`, `GET …/[id]/cost-rollup`) | activate validates cycles + missing components |
-| Routings | CRUD `/api/production/routings` (+ copy-version, activate) | |
-| Planning params | CRUD `/api/production/planning-params` | |
+| BOMs | CRUD `/api/production/boms` (+ `GET …/[id]` detail with items, `POST …/[id]/copy-version`, `POST …/[id]/activate`, `GET …/[id]/cost-rollup`) | activate validates cycles (missing-components validation is a tracked follow-up); cost-rollup returns a **list-price-based estimate** with `priceBasis: 'catalog_list_price'` — catalog has no purchase/cost price kind, so a true acquisition-cost basis is deferred until a purchase-price source exists (see Deferred) |
+| Routings | CRUD `/api/production/routings` (+ `GET …/[id]` detail with operations, copy-version, activate) | |
+| Planning params | CRUD `/api/production/planning-params` | gated by `production.mrp.view/manage` (planning master data is the planista's domain; the technology features stay with technolog) |
 | Stock | `GET /api/production/stock`, `GET /api/production/stock/batches`, `POST /api/production/stock/receipts`, `POST /api/production/stock/issues`, `POST /api/production/stock/adjustments`, `POST /api/production/stock/import` (CSV, streaming) | mutations are commands emitting movements; storno via `POST /api/production/stock/movements/[id]/reverse` |
 | Orders | CRUD `/api/production/orders` (+ `POST …/[id]/release`, `POST …/[id]/cancel`, `GET …/[id]/shortages`) | sub-resources guarded by parent `updated_at` |
 | Reports | `POST /api/production/reports` (+ `POST …/[id]/reverse`) | final report on last reporting point triggers FG receipt |
@@ -253,4 +254,5 @@ Performance: seeded MRP benchmark (P5) documented with measured result in this s
 
 ## Changelog
 
+- **2026-07-18 (rev 2, Phase 0+1 implemented)**: Toggle identifier fixed as `production_enabled`; role key `magazynier-lite`; planning-params ACL assigned to `production.mrp.view/manage`; BOM/routing single-record `GET …/[id]` detail routes added (multi-org scope via the module's `resolveOrganizationScopeFilter`, mirroring `makeCrudRoute`); BOM activate validates cycles (missing-components validation tracked as follow-up); cost rollup shipped as a **list-price-based estimate** (`priceBasis: 'catalog_list_price'`) because catalog exposes no purchase-price kind — purchase-price basis moved to Deferred. Integration specs TC-PROD-001..004.
 - **2026-07-18**: Initial draft (rev 1). Platform-mapped rewrite of `open-mercato-modul-produkcja-spec.md` v0.1 with decisions (a)–(k) fixed after research + adversarial review panel: planner calendars reuse, dictionaries reason codes, per-tenant async MRP, degraded buy suggestions, operator auth without PIN, list-based reporting MVP, row-copy technology snapshot, append-only ledger with storno, `productionStockProvider` seam, mini-ledger scope fence, per-phase test matrix.
