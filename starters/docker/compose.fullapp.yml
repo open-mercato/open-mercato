@@ -2,9 +2,9 @@
 
 services:
   opencode:
-    build:
-      context: ./docker/opencode
-    image: opencode-mvp
+    # Published image first (pull > build behind corporate proxies); the
+    # starter falls back to building ./docker/opencode under the same tag.
+    image: ${OPENCODE_IMAGE:-openmercatocom/open-mercato-opencode:latest}
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
@@ -19,6 +19,22 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
       # In-network MCP wiring. MCP_SERVER_API_KEY (env) wins when set; the
       # file fallback reads the key the mcp service provisioned into the
       # shared volume after waiting for the MCP /health endpoint.
@@ -27,6 +43,9 @@ services:
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
     volumes:
       - mcp_shared:/run/mcp-shared:ro
+      # Corporate CA bundle for pulled images (entrypoint exports
+      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS when certs are present).
+      - ./docker/opencode/certs:/run/om-certs:ro
     depends_on:
       mcp:
         condition: service_started
@@ -97,7 +116,7 @@ services:
       meilisearch:
         condition: service_healthy
       app:
-        condition: service_started
+        condition: service_healthy
     # Visibility only (compose ps / smoke tests): startup ordering is owned by
     # the entrypoint wait loops, not by this healthcheck.
     healthcheck:
@@ -181,6 +200,22 @@ services:
       GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
       MEILISEARCH_HOST: http://mercato-meilisearch-${DEPLOY_ENV:-local}:7700
       MEILISEARCH_API_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
       NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED: ${NEXT_PUBLIC_UPGRADE_ACTIONS_ENABLED:-true}
@@ -214,6 +249,14 @@ services:
         condition: service_healthy
       meilisearch:
         condition: service_healthy
+    # Gates mcp (and the traefik overlay) on the app actually serving HTTP.
+    # The generous start_period covers first-boot init-or-migrate + seed.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:${CONTAINER_PORT:-3000}"]
+      interval: 30s
+      timeout: 10s
+      retries: 40
+      start_period: 900s
     networks:
       - mercato-network-fullapp
 
@@ -239,6 +282,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mercato-redis-${DEPLOY_ENV:-local}
+    restart: unless-stopped
     # ports not exposed - only accessible within docker network
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf

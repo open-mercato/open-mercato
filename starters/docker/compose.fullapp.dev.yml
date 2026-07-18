@@ -3,9 +3,9 @@
 
 services:
   opencode:
-    build:
-      context: ./docker/opencode
-    image: opencode-mvp
+    # Published image first (pull > build behind corporate proxies); the
+    # starter falls back to building ./docker/opencode under the same tag.
+    image: ${OPENCODE_IMAGE:-openmercatocom/open-mercato-opencode:latest}
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
@@ -53,6 +53,9 @@ services:
       # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
       # loaded on new sessions (restart this service after `yarn generate`).
       - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # Corporate CA bundle for pulled images (entrypoint exports
+      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS when certs are present).
+      - ./docker/opencode/certs:/run/om-certs:ro
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     depends_on:
@@ -304,7 +307,8 @@ services:
       OM_INIT_SUPERADMIN_EMAIL: ${OM_INIT_SUPERADMIN_EMAIL:-}
       OM_INIT_SUPERADMIN_PASSWORD: ${OM_INIT_SUPERADMIN_PASSWORD:-password}
       SSO_DEV_SEED: ${SSO_DEV_SEED:-true}
-      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://mercato-keycloak-local:8080/realms/open-mercato}
+      # Service DNS, not the container_name: survives DEPLOY_ENV != local.
+      SSO_DEV_ISSUER: ${SSO_DEV_ISSUER:-http://keycloak:8080/realms/open-mercato}
       SSO_DEV_CLIENT_ID: ${SSO_DEV_CLIENT_ID:-open-mercato-app}
       SSO_DEV_CLIENT_SECRET: ${SSO_DEV_CLIENT_SECRET:-}
       SSO_DEV_ALLOWED_DOMAINS: ${SSO_DEV_ALLOWED_DOMAINS:-example.com}
@@ -362,6 +366,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mercato-redis-${DEPLOY_ENV:-local}
+    restart: unless-stopped
     # ports not exposed - only accessible within docker network
     volumes:
       - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
@@ -381,8 +386,8 @@ services:
     restart: unless-stopped
     command: start-dev
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
     healthcheck:

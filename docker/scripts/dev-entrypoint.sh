@@ -19,7 +19,7 @@ seed_prebuilt() {
   PREBUILT=/opt/prebuilt
   [ -d "$PREBUILT/node_modules" ] || return 0
   if ! cmp -s /app/yarn.lock "$PREBUILT/yarn.lock"; then
-    echo "[app] Prebuilt image artifacts are stale (yarn.lock changed) - running the full install instead. Rebuild the image to re-enable fast boots: powershell starters\docker\windows\start-dev.ps1 -Rebuild"
+    echo "[app] Prebuilt image artifacts are stale (yarn.lock changed) - running the full install instead. Rebuild the image to re-enable fast boots: npx @open-mercato/starter up --mode docker --rebuild"
     return 0
   fi
   if [ ! -f /app/node_modules/.prebuilt-seeded ]; then

@@ -7,9 +7,13 @@
 
 services:
   opencode:
-    build:
-      context: ./docker/opencode
-    image: opencode-mvp
+    # Published image first — pulling goes through the container engine's
+    # trust (which honors the OS certificate store on Docker/Rancher Desktop),
+    # far more reliable on managed devices than building through a TLS-
+    # intercepting proxy. The starter falls back to a local build of
+    # ./docker/opencode (same tag) when the pull fails; override the tag with
+    # OPENCODE_IMAGE in .env.
+    image: ${OPENCODE_IMAGE:-openmercatocom/open-mercato-opencode:latest}
     container_name: mercato-opencode
     restart: unless-stopped
     environment:
@@ -65,8 +69,17 @@ services:
       # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
       # loaded on new sessions (restart this service after `yarn generate`).
       - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # Corporate CA bundle for pulled images: the entrypoint exports
+      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS from any certs found here (baked-in
+      # certs only exist in locally built images). No-op when empty.
+      - ./docker/opencode/certs:/run/om-certs:ro
     extra_hosts:
-      - "host.docker.internal:host-gateway"
+      # host-gateway is right on native Linux and Docker Desktop. On Rancher
+      # Desktop (WSL2) it can resolve to the WSL distro instead of the Windows
+      # host — the doctor detects that and tells you to set OM_HOST_GATEWAY in
+      # .env to the IP that reaches the host (or to the literal value the
+      # engine resolves natively).
+      - "host.docker.internal:${OM_HOST_GATEWAY:-host-gateway}"
     networks:
       - mercato-network
 
@@ -93,6 +106,7 @@ services:
   redis:
     image: redis:7-alpine
     container_name: mercato-redis
+    restart: unless-stopped
     ports:
       - "${REDIS_PORT:-6379}:6379"
     volumes:
@@ -124,6 +138,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - mercato-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: mercato-keycloak
+    restart: unless-stopped
+    # SSO development against a local IdP — opt in with `--profile sso`.
+    profiles:
+      - sso
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | grep -q '200'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     networks:
       - mercato-network
 
