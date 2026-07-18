@@ -58,6 +58,9 @@
     "./*/*/*/*/*.json": "./src/*/*/*/*/*.json",
     "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json"
   },
+  "dependencies": {
+    "@open-mercato/core": "workspace:*"
+  },
   "peerDependencies": {
     "@mikro-orm/core": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
