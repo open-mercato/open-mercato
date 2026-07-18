@@ -7,6 +7,9 @@ import {
   Routing,
   RoutingOperation,
   ProductPlanningParams,
+  ProductionOrder,
+  ProductionOrderOperation,
+  ProductionOrderMaterial,
 } from '../entities'
 import { E } from '../../../../../generated/entities.ids.generated'
 import { extensions } from '../extensions'
@@ -184,6 +187,102 @@ describe('ProductPlanningParams entity', () => {
     expect(meta.uniques.length).toBeGreaterThan(0)
     const properties = meta.uniques.flatMap((u: any) => u.properties)
     expect(properties).toEqual(expect.arrayContaining(['tenantId', 'organizationId', 'productId', 'variantId']))
+  })
+})
+
+describe('ProductionOrder entity', () => {
+  it('maps to production_orders table', () => {
+    const meta = metaFor(ProductionOrder)
+    expect(meta.tableName).toBe('production_orders')
+  })
+
+  it('has standard tenant/org/audit columns', () => {
+    expectStandardColumns(ProductionOrder)
+  })
+
+  it('has key columns from spec', () => {
+    const meta = metaFor(ProductionOrder)
+    const props = Object.keys(meta.properties)
+    expect(props).toEqual(expect.arrayContaining([
+      'number',
+      'productId',
+      'variantId',
+      'qtyPlanned',
+      'uom',
+      'dueDate',
+      'priority',
+      'status',
+      'sourceType',
+      'sourceId',
+      'bomVersionId',
+      'routingVersionId',
+      'releasedAt',
+      'qtyCompleted',
+      'qtyScrapped',
+    ]))
+  })
+
+  it('has a unique constraint on tenant/org/number', () => {
+    const meta = metaFor(ProductionOrder)
+    expect(meta.uniques.length).toBeGreaterThan(0)
+    const properties = meta.uniques.flatMap((u: any) => u.properties)
+    expect(properties).toEqual(expect.arrayContaining(['tenantId', 'organizationId', 'number']))
+  })
+})
+
+describe('ProductionOrderOperation entity', () => {
+  it('maps to production_order_operations table', () => {
+    const meta = metaFor(ProductionOrderOperation)
+    expect(meta.tableName).toBe('production_order_operations')
+  })
+
+  it('has standard tenant/org/audit columns', () => {
+    expectStandardColumns(ProductionOrderOperation)
+  })
+
+  it('has key columns from spec, incl. the traceability-only sourceOperationId', () => {
+    const meta = metaFor(ProductionOrderOperation)
+    const props = Object.keys(meta.properties)
+    expect(props).toEqual(expect.arrayContaining([
+      'orderId',
+      'sequence',
+      'name',
+      'workCenterId',
+      'setupTimeMinutes',
+      'runTimePerUnitSeconds',
+      'isReportingPoint',
+      'status',
+      'qtyGood',
+      'qtyScrap',
+      'sourceOperationId',
+    ]))
+  })
+})
+
+describe('ProductionOrderMaterial entity', () => {
+  it('maps to production_order_materials table', () => {
+    const meta = metaFor(ProductionOrderMaterial)
+    expect(meta.tableName).toBe('production_order_materials')
+  })
+
+  it('has standard tenant/org/audit columns', () => {
+    expectStandardColumns(ProductionOrderMaterial)
+  })
+
+  it('has key columns from spec, incl. the traceability-only sourceBomItemId', () => {
+    const meta = metaFor(ProductionOrderMaterial)
+    const props = Object.keys(meta.properties)
+    expect(props).toEqual(expect.arrayContaining([
+      'orderId',
+      'operationSequence',
+      'componentProductId',
+      'componentVariantId',
+      'qtyRequired',
+      'uom',
+      'scrapFactor',
+      'qtyIssued',
+      'sourceBomItemId',
+    ]))
   })
 })
 

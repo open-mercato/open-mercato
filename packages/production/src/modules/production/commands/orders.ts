@@ -6,6 +6,7 @@ import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
 import type { CrudEventsConfig, CrudIndexerConfig } from '@open-mercato/shared/lib/crud/types'
 import {
@@ -19,7 +20,13 @@ import {
 } from '../data/entities.js'
 import type { OrderCreateInput, OrderUpdateInput } from '../data/validators.js'
 import { assertOrderTransition, canCancelFromStatus, IllegalOrderTransitionError } from '../lib/orderStatusMachine.js'
-import type { ProductionStockProvider, StockMovementRef } from '../lib/stockProvider.js'
+import {
+  InsufficientStockError,
+  StockUomMismatchError,
+  type ProductionStockProvider,
+  type StockMovementRef,
+} from '../lib/stockProvider.js'
+import { loadStockItemsByProduct, findStockItemFor, type ShortageLine } from '../lib/materialShortages.js'
 import { emitProductionEvent } from '../events.js'
 import { enforceProductionOrderOptimisticLock } from './shared.js'
 import { E } from '../../../../generated/entities.ids.generated.js'
@@ -139,7 +146,27 @@ const createOrderCommand: CommandHandler<OrderCreateInput, { id: string }> = {
       qtyScrapped: '0',
     } as never)
 
-    await withAtomicFlush(em, [() => { em.persist(order) }], { transaction: true, label: 'production.orders.create' })
+    try {
+      await withAtomicFlush(em, [() => { em.persist(order) }], { transaction: true, label: 'production.orders.create' })
+    } catch (err) {
+      // The per-org sequence number is derived by reading the max existing
+      // number inside `nextOrderNumber` — a TOCTOU race lets two concurrent
+      // creates both read the same max and try to persist the same number.
+      // `production_orders_scope_number_unique` is the actual guard; surface
+      // its violation as a translated, retryable 409 rather than a raw
+      // `[internal]` DB exception (same pattern as `mapStockProviderError`'s
+      // `DoubleReversalError` translation in `commands/stock.ts`).
+      if (err instanceof UniqueConstraintViolationException) {
+        const { translate } = await resolveTranslations()
+        throw new CrudHttpError(409, {
+          error: translate(
+            'production.errors.order_number_conflict',
+            'Another production order was just created with this number. Please try again.',
+          ),
+        })
+      }
+      throw err
+    }
 
     await emitCrudSideEffects({
       dataEngine: resolveDataEngine(ctx),
@@ -344,21 +371,118 @@ const planOrderCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
 
 /**
  * Reservation seam (spec § Status machine: "release ... emits reservations +
- * shortage list"). Task 3.2 wires this to `productionStockProvider.reserve`
- * against the freshly-copied `ProductionOrderMaterial` rows; for this task
- * (3.1 — status machine + snapshot immutability + aggregate lock) it is a
- * documented no-op seam so `release` does not silently start reserving stock
- * ahead of that task's shortage-list/UoM-conversion work.
+ * shortage list"). Wires the freshly-copied `ProductionOrderMaterial` rows
+ * to `productionStockProvider.reserve`, one line per material.
+ *
+ * Decision (task 3.2 brief): release NEVER blocks on a shortage. For every
+ * material line this reserves whatever is currently free on-hand (a partial
+ * reservation when on-hand can't cover the full requirement) and reports the
+ * unmet remainder as a {@link ShortageLine} — this mirrors the netting a
+ * later MRP run will perform, rather than treating a shortage as an error.
+ * Reads are batched by product id (one `StockItem` query for every material
+ * line on the order) to avoid an N+1 lookup per line.
  */
 async function reserveMaterialsForOrder(
-  _ctx: CommandRuntimeContext,
-  _order: ProductionOrder,
-  _materials: ProductionOrderMaterial[],
-): Promise<void> {
-  // Intentionally empty — see doc comment above (task 3.2 seam).
+  ctx: CommandRuntimeContext,
+  em: EntityManager,
+  order: ProductionOrder,
+  materials: ProductionOrderMaterial[],
+): Promise<{ reservations: number; shortages: ShortageLine[] }> {
+  const scope = { tenantId: order.tenantId, organizationId: order.organizationId }
+  const stockProvider = resolveStockProvider(ctx)
+  const ref: StockMovementRef = { scope, sourceType: 'order', sourceId: order.id }
+
+  const productIds = [...new Set(materials.map((m) => m.componentProductId))]
+  const stockItems = await loadStockItemsByProduct(em, scope, productIds)
+  // Tracks stock this release pass has already committed to a reservation,
+  // keyed by stock item id — so a second material line referencing the same
+  // component correctly sees reduced (not stale) availability.
+  const consumedByStockItem = new Map<string, number>()
+
+  const shortages: ShortageLine[] = []
+  let reservations = 0
+
+  for (const material of materials) {
+    const netNeeded = Math.max(0, Number(material.qtyRequired) - Number(material.qtyIssued))
+    if (netNeeded <= 0) continue
+
+    const variantId = material.componentVariantId ?? null
+    const stockItem = findStockItemFor(stockItems, material.componentProductId, variantId)
+
+    if (!stockItem) {
+      shortages.push({
+        componentProductId: material.componentProductId,
+        variantId,
+        qtyRequired: netNeeded,
+        qtyAvailable: 0,
+        qtyShort: netNeeded,
+        uom: material.uom,
+        reason: 'no_stock_item',
+      })
+      continue
+    }
+    if (stockItem.uom !== material.uom) {
+      shortages.push({
+        componentProductId: material.componentProductId,
+        variantId,
+        qtyRequired: netNeeded,
+        qtyAvailable: 0,
+        qtyShort: netNeeded,
+        uom: material.uom,
+        reason: 'uom_mismatch',
+      })
+      continue
+    }
+
+    const alreadyConsumed = consumedByStockItem.get(stockItem.id) ?? 0
+    const available = Math.max(0, Number(stockItem.onHand) - Number(stockItem.reserved) - alreadyConsumed)
+    const qtyToReserve = Math.min(netNeeded, available)
+
+    let actuallyReserved = 0
+    let raceReason: ShortageLine['reason'] | null = null
+    if (qtyToReserve > 0) {
+      // Review finding: the pre-check above reads a snapshot of `stockItem`
+      // taken before this loop started, so a concurrent release/reservation
+      // against the SAME stock item between that read and this call can make
+      // the provider's own fresh availability check fail even though
+      // `qtyToReserve <= available` held here. Release must never fail (or
+      // leave the just-committed status transition without its side effects
+      // and event) because of this race — reclassify any provider domain
+      // error into a shortage line instead of letting it propagate.
+      try {
+        await stockProvider.reserve(
+          [{ productId: material.componentProductId, variantId, qty: qtyToReserve, uom: material.uom }],
+          ref,
+        )
+        actuallyReserved = qtyToReserve
+        reservations += 1
+        consumedByStockItem.set(stockItem.id, alreadyConsumed + qtyToReserve)
+      } catch (err) {
+        if (err instanceof InsufficientStockError) raceReason = 'insufficient_stock'
+        else if (err instanceof StockUomMismatchError) raceReason = 'uom_mismatch'
+        else throw err
+        // actuallyReserved stays 0 — the whole netNeeded amount is reported
+        // as short below, since the reservation attempt failed entirely.
+      }
+    }
+
+    if (actuallyReserved < netNeeded) {
+      shortages.push({
+        componentProductId: material.componentProductId,
+        variantId,
+        qtyRequired: netNeeded,
+        qtyAvailable: raceReason ? 0 : available,
+        qtyShort: netNeeded - actuallyReserved,
+        uom: material.uom,
+        reason: raceReason ?? 'insufficient_stock',
+      })
+    }
+  }
+
+  return { reservations, shortages }
 }
 
-const releaseOrderCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
+const releaseOrderCommand: CommandHandler<{ id: string }, { ok: boolean; reservations: number; shortages: ShortageLine[] }> = {
   id: 'production.orders.release',
   isUndoable: false,
 
@@ -466,7 +590,7 @@ const releaseOrderCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
       { transaction: true, label: 'production.orders.release' },
     )
 
-    await reserveMaterialsForOrder(ctx, order, createdMaterials)
+    const { reservations, shortages } = await reserveMaterialsForOrder(ctx, em, order, createdMaterials)
 
     await emitCrudSideEffects({
       dataEngine: resolveDataEngine(ctx),
@@ -481,7 +605,7 @@ const releaseOrderCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
       organizationId: order.organizationId,
     })
 
-    return { ok: true }
+    return { ok: true, reservations, shortages }
   },
 
   async buildLog({ input }) {
@@ -526,6 +650,10 @@ const cancelOrderCommand: CommandHandler<{ id: string }, { ok: boolean }> = {
       })
     }
 
+    // Load-bearing as of task 3.2: `reserveMaterialsForOrder` now actually
+    // creates active `MaterialReservation` rows at release time (previously
+    // a documented no-op seam, task 3.1), so this call releases real,
+    // possibly-partial reservations rather than a guaranteed-empty set.
     const stockProvider = resolveStockProvider(ctx)
     const ref: StockMovementRef = {
       scope: { tenantId: order.tenantId, organizationId: order.organizationId },

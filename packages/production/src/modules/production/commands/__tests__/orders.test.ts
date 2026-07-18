@@ -162,6 +162,63 @@ function loadCommands(): Record<string, any> {
   return commands
 }
 
+/**
+ * Same as {@link loadCommands}, but also returns the `@mikro-orm/core`
+ * module instance loaded inside the SAME `jest.isolateModules` sandbox as
+ * `../orders`. `jest.resetModules()` (run in `beforeEach`) means a plain
+ * top-of-file `import { UniqueConstraintViolationException } from
+ * '@mikro-orm/core'` is a DIFFERENT class instance than the one `../orders`
+ * sees once re-required inside `isolateModules` — an `instanceof` check
+ * against the two would silently fail. Constructing the thrown error from
+ * this isolated module keeps class identity aligned with what `orders.ts`'s
+ * `err instanceof UniqueConstraintViolationException` check actually sees
+ * (same fix `catalog/commands/__tests__/variants.sku.test.ts` documents for
+ * this exact isolateModules/instanceof interaction).
+ */
+function loadCommandsWithMikroOrmCore(): { commands: Record<string, any>; mikroOrmCore: typeof import('@mikro-orm/core') } {
+  const byFullId: Record<string, any> = {}
+  let mikroOrmCore!: typeof import('@mikro-orm/core')
+  jest.isolateModules(() => {
+    require('../orders')
+    mikroOrmCore = require('@mikro-orm/core')
+    for (const [cmd] of registerCommand.mock.calls) {
+      byFullId[cmd.id] = cmd
+    }
+  })
+  const commands: Record<string, any> = {}
+  for (const [fullId, cmd] of Object.entries(byFullId)) {
+    commands[fullId.replace('production.orders.', '')] = cmd
+  }
+  return { commands, mikroOrmCore }
+}
+
+/**
+ * Same isolateModules/instanceof concern as {@link loadCommandsWithMikroOrmCore},
+ * but for `../lib/stockProvider`'s domain errors: a mocked
+ * `stockProvider.reserve` must reject with the SAME `InsufficientStockError`
+ * class `orders.ts`'s `err instanceof InsufficientStockError` check sees
+ * inside the isolated registry, not the top-of-file import's instance.
+ */
+function loadCommandsWithStockProviderErrors(): {
+  commands: Record<string, any>
+  stockProviderErrors: typeof import('../../lib/stockProvider')
+} {
+  const byFullId: Record<string, any> = {}
+  let stockProviderErrors!: typeof import('../../lib/stockProvider')
+  jest.isolateModules(() => {
+    require('../orders')
+    stockProviderErrors = require('../../lib/stockProvider')
+    for (const [cmd] of registerCommand.mock.calls) {
+      byFullId[cmd.id] = cmd
+    }
+  })
+  const commands: Record<string, any> = {}
+  for (const [fullId, cmd] of Object.entries(byFullId)) {
+    commands[fullId.replace('production.orders.', '')] = cmd
+  }
+  return { commands, stockProviderErrors }
+}
+
 const SCOPE = { tenantId: 'tenant-1', organizationId: 'org-1' }
 
 function optimisticLockHeaderRequest(expectedIso: string): Request {
@@ -476,5 +533,288 @@ describe('production.orders commands', () => {
       'production.order.cancelled',
       expect.objectContaining({ id: orderId }),
     )
+  })
+
+  describe('release-time material reservations + shortage list (task 3.2)', () => {
+    async function releaseWithBomItem(
+      em: ReturnType<typeof makeMockEm>['em'],
+      seed: ReturnType<typeof makeMockEm>['seed'],
+      ctx: ReturnType<typeof makeCtx>,
+      cmds: Record<string, any>,
+      opts: { qtyPerUnit: string; componentProductId?: string },
+    ) {
+      const { id: orderId } = await cmds.create.execute(
+        { productId: 'product-1', variantId: null, qtyPlanned: 5, uom: 'pcs', dueDate: null, priority: 0, sourceType: 'manual', sourceId: null },
+        ctx,
+      )
+      seed({ name: 'ProductionBom' }, {
+        id: 'bom-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'product-1', variantId: null, version: 1, status: 'active', name: 'BOM v1', deletedAt: null,
+      })
+      seed({ name: 'ProductionBomItem' }, {
+        id: 'bom-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, bomId: 'bom-1',
+        componentProductId: opts.componentProductId ?? 'component-1', componentVariantId: null, qtyPerUnit: opts.qtyPerUnit, uom: 'pcs',
+        scrapFactor: '0', isPhantom: false, operationSequence: 1, deletedAt: null,
+      })
+      seed({ name: 'Routing' }, {
+        id: 'routing-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'product-1', variantId: null, version: 1, status: 'active', name: 'Routing v1', deletedAt: null,
+      })
+      await cmds.plan.execute({ id: orderId }, ctx)
+      const result = await cmds.release.execute({ id: orderId }, ctx)
+      return { orderId, result }
+    }
+
+    /**
+     * Same shape as {@link releaseWithBomItem}, but seeds N `ProductionBomItem`
+     * rows (each becomes its own `ProductionOrderMaterial` snapshot line at
+     * release) instead of exactly one — used for the shared-component and
+     * mid-loop-provider-failure regression tests below.
+     */
+    async function releaseWithBomItems(
+      em: ReturnType<typeof makeMockEm>['em'],
+      seed: ReturnType<typeof makeMockEm>['seed'],
+      ctx: ReturnType<typeof makeCtx>,
+      cmds: Record<string, any>,
+      items: Array<{ id: string; componentProductId: string; qtyPerUnit: string; operationSequence: number }>,
+    ) {
+      const { id: orderId } = await cmds.create.execute(
+        { productId: 'product-1', variantId: null, qtyPlanned: 5, uom: 'pcs', dueDate: null, priority: 0, sourceType: 'manual', sourceId: null },
+        ctx,
+      )
+      seed({ name: 'ProductionBom' }, {
+        id: 'bom-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'product-1', variantId: null, version: 1, status: 'active', name: 'BOM v1', deletedAt: null,
+      })
+      for (const item of items) {
+        seed({ name: 'ProductionBomItem' }, {
+          id: item.id, tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId, bomId: 'bom-1',
+          componentProductId: item.componentProductId, componentVariantId: null, qtyPerUnit: item.qtyPerUnit, uom: 'pcs',
+          scrapFactor: '0', isPhantom: false, operationSequence: item.operationSequence, deletedAt: null,
+        })
+      }
+      seed({ name: 'Routing' }, {
+        id: 'routing-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'product-1', variantId: null, version: 1, status: 'active', name: 'Routing v1', deletedAt: null,
+      })
+      await cmds.plan.execute({ id: orderId }, ctx)
+      const result = await cmds.release.execute({ id: orderId }, ctx)
+      return { orderId, result }
+    }
+
+    it('reserves the full requirement and reports zero shortages when stock fully covers it', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const cmds = loadCommands()
+
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-1', variantId: null, uom: 'pcs', onHand: '20', reserved: '0', deletedAt: null,
+      })
+
+      const { result } = await releaseWithBomItem(em, seed, ctx, cmds, { qtyPerUnit: '2' })
+
+      expect(result.ok).toBe(true)
+      expect(result.reservations).toBe(1)
+      expect(result.shortages).toEqual([])
+      expect(ctx.__stockProvider.reserve).toHaveBeenCalledTimes(1)
+      const [lines, ref] = ctx.__stockProvider.reserve.mock.calls[0]
+      expect(lines).toEqual([{ productId: 'component-1', variantId: null, qty: 2, uom: 'pcs' }])
+      expect(ref).toMatchObject({ sourceType: 'order' })
+    })
+
+    it('partially reserves and reports an insufficient_stock shortage line when stock is short', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const cmds = loadCommands()
+
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-1', variantId: null, uom: 'pcs', onHand: '1', reserved: '0', deletedAt: null,
+      })
+
+      // qtyPerUnit '2' -> qtyRequired snapshot is '2' (task 3.1 semantics), only 1 available.
+      const { result } = await releaseWithBomItem(em, seed, ctx, cmds, { qtyPerUnit: '2' })
+
+      expect(result.ok).toBe(true)
+      expect(result.reservations).toBe(1)
+      expect(ctx.__stockProvider.reserve).toHaveBeenCalledTimes(1)
+      const [lines] = ctx.__stockProvider.reserve.mock.calls[0]
+      expect(lines).toEqual([{ productId: 'component-1', variantId: null, qty: 1, uom: 'pcs' }])
+      expect(result.shortages).toEqual([
+        expect.objectContaining({
+          componentProductId: 'component-1',
+          qtyRequired: 2,
+          qtyAvailable: 1,
+          qtyShort: 1,
+          reason: 'insufficient_stock',
+        }),
+      ])
+    })
+
+    it('reports a no_stock_item shortage and still succeeds when no stock item exists for the component', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const cmds = loadCommands()
+
+      const { result } = await releaseWithBomItem(em, seed, ctx, cmds, { qtyPerUnit: '3' })
+
+      expect(result.ok).toBe(true)
+      expect(result.reservations).toBe(0)
+      expect(ctx.__stockProvider.reserve).not.toHaveBeenCalled()
+      expect(result.shortages).toEqual([
+        expect.objectContaining({
+          componentProductId: 'component-1',
+          qtyRequired: 3,
+          qtyAvailable: 0,
+          qtyShort: 3,
+          reason: 'no_stock_item',
+        }),
+      ])
+    })
+
+    it('reports a uom_mismatch shortage (not a crash) when the stock item uom differs from the material uom', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const cmds = loadCommands()
+
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-1', variantId: null, uom: 'kg', onHand: '100', reserved: '0', deletedAt: null,
+      })
+
+      const { result } = await releaseWithBomItem(em, seed, ctx, cmds, { qtyPerUnit: '2' })
+
+      expect(result.ok).toBe(true)
+      expect(result.reservations).toBe(0)
+      expect(ctx.__stockProvider.reserve).not.toHaveBeenCalled()
+      expect(result.shortages).toEqual([
+        expect.objectContaining({
+          componentProductId: 'component-1',
+          reason: 'uom_mismatch',
+          qtyShort: 2,
+        }),
+      ])
+    })
+
+    it('reclassifies a concurrent stockProvider.reserve failure on the 2nd line into a shortage instead of failing the whole release (review finding)', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const { commands: cmds, stockProviderErrors } = loadCommandsWithStockProviderErrors()
+
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-1', variantId: null, uom: 'pcs', onHand: '10', reserved: '0', deletedAt: null,
+      })
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-2', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-2', variantId: null, uom: 'pcs', onHand: '10', reserved: '0', deletedAt: null,
+      })
+
+      // Pre-check (`getOnHand`-equivalent read) passes for both lines — the
+      // provider itself only fails the SECOND call, simulating a concurrent
+      // reservation/release racing in between this release's own read and
+      // its second `reserve()` call.
+      ctx.__stockProvider.reserve
+        .mockImplementationOnce(async () => ({ reservationIds: ['reservation-1'] }))
+        .mockImplementationOnce(async () => {
+          throw new stockProviderErrors.InsufficientStockError('concurrent reservation raced this line to zero')
+        })
+
+      const { result } = await releaseWithBomItems(em, seed, ctx, cmds, [
+        { id: 'bom-item-1', componentProductId: 'component-1', qtyPerUnit: '2', operationSequence: 1 },
+        { id: 'bom-item-2', componentProductId: 'component-2', qtyPerUnit: '3', operationSequence: 2 },
+      ])
+
+      // Release completes successfully — a provider-side race on one line
+      // never fails the whole command.
+      expect(result.ok).toBe(true)
+      expect(result.reservations).toBe(1)
+      expect(ctx.__stockProvider.reserve).toHaveBeenCalledTimes(2)
+      expect(result.shortages).toEqual([
+        expect.objectContaining({
+          componentProductId: 'component-2',
+          qtyRequired: 3,
+          qtyShort: 3,
+          reason: 'insufficient_stock',
+        }),
+      ])
+
+      // Side effects and the lifecycle event still fire despite the race.
+      expect(ctx.__dataEngine.markOrmEntityChange).toHaveBeenCalled()
+      expect(emitProductionEventMock).toHaveBeenCalledWith(
+        'production.order.released',
+        expect.anything(),
+      )
+    })
+
+    it('never over-reserves a shared component across two material lines (sum of reserve() quantities never exceeds on-hand)', async () => {
+      const { em, seed } = makeMockEm()
+      const ctx = makeCtx(em)
+      const cmds = loadCommands()
+
+      // Only 5 on-hand, but the two order-material lines below request 3 + 4
+      // = 7 of the SAME component — the second line must see the first
+      // line's consumption already deducted, never re-reading the stale
+      // on-hand/reserved snapshot.
+      seed({ name: 'StockItem' }, {
+        id: 'stock-item-1', tenantId: SCOPE.tenantId, organizationId: SCOPE.organizationId,
+        productId: 'component-shared', variantId: null, uom: 'pcs', onHand: '5', reserved: '0', deletedAt: null,
+      })
+
+      const { result } = await releaseWithBomItems(em, seed, ctx, cmds, [
+        { id: 'bom-item-1', componentProductId: 'component-shared', qtyPerUnit: '3', operationSequence: 1 },
+        { id: 'bom-item-2', componentProductId: 'component-shared', qtyPerUnit: '4', operationSequence: 2 },
+      ])
+
+      expect(result.ok).toBe(true)
+      expect(ctx.__stockProvider.reserve).toHaveBeenCalledTimes(2)
+      const reservedQuantities = ctx.__stockProvider.reserve.mock.calls.map(
+        ([lines]: [Array<{ qty: number }>]) => lines[0].qty,
+      )
+      const totalReserved = reservedQuantities.reduce((sum: number, qty: number) => sum + qty, 0)
+
+      // The combined reservation across both lines must never exceed on-hand.
+      expect(totalReserved).toBe(5)
+      expect(reservedQuantities).toEqual([3, 2])
+
+      // The remaining 2 units of unmet demand (3 + 4 = 7 required, 5 reserved)
+      // surface as a shortage against the second line.
+      expect(result.shortages).toEqual([
+        expect.objectContaining({
+          componentProductId: 'component-shared',
+          qtyRequired: 4,
+          qtyAvailable: 2,
+          qtyShort: 2,
+          reason: 'insufficient_stock',
+        }),
+      ])
+    })
+  })
+
+  it('create translates a unique-constraint number race into a translated 409 conflict', async () => {
+    const { em } = makeMockEm()
+    const ctx = makeCtx(em)
+    const { commands: cmds, mikroOrmCore } = loadCommandsWithMikroOrmCore()
+    const { create } = cmds
+
+    const originalFlush = em.flush
+    em.flush = jest.fn(async () => {
+      throw new mikroOrmCore.UniqueConstraintViolationException(
+        new Error('duplicate key value violates unique constraint "production_orders_scope_number_unique"'),
+      )
+    })
+
+    await expect(
+      create.execute(
+        {
+          productId: 'product-1', variantId: null, qtyPlanned: 10, uom: 'pcs', dueDate: null,
+          priority: 0, sourceType: 'manual', sourceId: null,
+        },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ status: 409 })
+
+    em.flush = originalFlush
   })
 })

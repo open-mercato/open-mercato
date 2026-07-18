@@ -5,12 +5,27 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveProductionActionContext } from '../../../actionRouteContext.js'
-import { defaultOkResponseSchema } from '../../../openapi.js'
 
 export const metadata = {
   requireAuth: true,
   requireFeatures: ['production.orders.manage'],
 }
+
+const releaseResponseSchema = z.object({
+  ok: z.literal(true),
+  reservations: z.number(),
+  shortages: z.array(
+    z.object({
+      componentProductId: z.string().uuid(),
+      variantId: z.string().uuid().nullable(),
+      qtyRequired: z.number(),
+      qtyAvailable: z.number(),
+      qtyShort: z.number(),
+      uom: z.string(),
+      reason: z.enum(['no_stock_item', 'uom_mismatch', 'insufficient_stock']),
+    }),
+  ),
+})
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> | { id: string } }) {
   const { translate } = await resolveTranslations()
@@ -24,9 +39,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
 
     const commandBus = ctx.container.resolve('commandBus') as CommandBus
-    await commandBus.execute('production.orders.release', { input: { id }, ctx })
+    const { result } = await commandBus.execute<{ id: string }, { ok: boolean; reservations: number; shortages: unknown[] }>(
+      'production.orders.release',
+      { input: { id }, ctx },
+    )
 
-    return NextResponse.json({ ok: true })
+    return NextResponse.json({ ok: true, reservations: result.reservations, shortages: result.shortages })
   } catch (err) {
     if (isCrudHttpError(err)) {
       return NextResponse.json(err.body, { status: err.status })
@@ -48,7 +66,11 @@ export const openApi: OpenApiRouteDoc = {
       description:
         'Transitions a production order from `planned` to `released`, requiring an active BOM+routing version pair for the product/variant. The active BOM items and routing operations are copied into `ProductionOrderMaterial`/`ProductionOrderOperation` as independent snapshot rows (spec decision g) — a later edit to the source BOM/routing never affects an already-released order.',
       responses: [
-        { status: 200, description: 'Production order released', schema: defaultOkResponseSchema },
+        {
+          status: 200,
+          description: 'Production order released, with the material reservation count and any shortage lines',
+          schema: releaseResponseSchema,
+        },
       ],
       errors: [
         { status: 400, description: 'Invalid request', schema: z.object({ error: z.string() }) },
