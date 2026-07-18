@@ -1837,13 +1837,13 @@ export function CycleCountWizardDialog({
           </div>
 
           <DialogFooter bordered={false} className="border-t px-6 py-4 sm:justify-between">
-            <p className="hidden text-xs text-muted-foreground sm:inline-flex sm:items-center sm:gap-1.5">
+            <p className="hidden text-xs text-muted-foreground md:inline-flex md:items-center md:gap-1.5">
               <KbdShortcut keys={['⌘', 'Enter']} />
               <span>/</span>
               <KbdShortcut keys={['Ctrl', 'Enter']} />
               <span>{shortcutHint}</span>
             </p>
-            <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row">
+            <div className="flex w-full flex-col-reverse gap-2 md:w-auto md:flex-row md:flex-wrap md:justify-end">
               {step === 1 ? (
                 <Button
                   type="button"
