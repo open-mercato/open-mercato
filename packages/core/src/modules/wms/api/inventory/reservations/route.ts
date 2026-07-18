@@ -11,6 +11,7 @@ import {
   attachVariantLabelsToListItems,
   attachWarehouseLabelsToListItems,
 } from '../../listEnrichers'
+import { buildReservationSearchOrFilters } from '../../listSearch'
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['wms.view'] },
@@ -56,7 +57,7 @@ const crud = makeCrudRoute({
       createdAt: 'created_at',
       updatedAt: 'updated_at',
     },
-    buildFilters: async (query) => {
+    buildFilters: async (query, ctx) => {
       const filters: Record<string, unknown> = {}
       if (query.warehouseId) filters.warehouse_id = { $eq: query.warehouseId }
       if (query.catalogVariantId) filters.catalog_variant_id = { $eq: query.catalogVariantId }
@@ -66,8 +67,7 @@ const crud = makeCrudRoute({
       if (query.status) filters.status = { $eq: query.status }
       const term = query.search?.trim()
       if (term) {
-        const like = `%${escapeLikePattern(term)}%`
-        filters.$or = [{ serial_number: { $ilike: like } }]
+        filters.$or = await buildReservationSearchOrFilters(ctx, term, escapeLikePattern)
       }
       return filters
     },
