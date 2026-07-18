@@ -3,6 +3,9 @@ import { Entity, Enum, Index, PrimaryKey, Property, Unique } from '@mikro-orm/de
 export type WorkCenterKind = 'machine' | 'manual' | 'line' | 'subcontractor'
 export type TechnologyStatus = 'draft' | 'active' | 'archived'
 export type ProcurementType = 'make' | 'buy'
+export type StockMovementType = 'receipt' | 'issue' | 'adjustment'
+export type StockMovementSourceType = 'order' | 'report' | 'import' | 'manual'
+export type MaterialReservationStatus = 'active' | 'released' | 'consumed'
 
 @Entity({ tableName: 'production_work_centers' })
 @Index({ name: 'production_work_centers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -265,6 +268,192 @@ export class ProductPlanningParams {
 
   @Property({ name: 'backflush', type: 'boolean', default: true })
   backflush: boolean = true
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// ---------------------------------------------------------------------------
+// Stock ledger (spec § Data Models, decisions h/i/j — Phase 2 mini-ledger).
+// `production_stock_items`/`production_stock_batches` track on-hand quantity
+// only (no valuation, fence j); `production_stock_movements` is append-only
+// (decision h — corrections are compensating movements referencing
+// `reversesMovementId`, rows are never updated/deleted after creation, so this
+// entity intentionally has no `deletedAt`/mutable `updatedAt` semantics).
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'production_stock_items' })
+@Index({ name: 'production_stock_items_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Unique({
+  name: 'production_stock_items_scope_product_unique',
+  properties: ['tenantId', 'organizationId', 'productId', 'variantId'],
+})
+export class StockItem {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Property({ name: 'on_hand', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  onHand: string = '0'
+
+  @Property({ name: 'reserved', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  reserved: string = '0'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'production_stock_batches' })
+@Index({ name: 'production_stock_batches_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_stock_batches_stock_item_idx', properties: ['stockItemId'] })
+@Unique({
+  name: 'production_stock_batches_item_number_unique',
+  properties: ['stockItemId', 'batchNumber'],
+})
+export class StockBatch {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'stock_item_id', type: 'uuid' })
+  stockItemId!: string
+
+  @Property({ name: 'batch_number', type: 'text' })
+  batchNumber!: string
+
+  @Property({ name: 'on_hand', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  onHand: string = '0'
+
+  @Property({ name: 'expires_at', type: Date, nullable: true })
+  expiresAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'production_stock_movements' })
+@Index({ name: 'production_stock_movements_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_stock_movements_product_idx', properties: ['productId', 'variantId'] })
+@Unique({
+  name: 'production_stock_movements_reverses_unique',
+  properties: ['reversesMovementId'],
+})
+export class StockMovement {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Enum({ items: ['receipt', 'issue', 'adjustment'], type: 'text', name: 'movement_type' })
+  movementType!: StockMovementType
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'batch_id', type: 'uuid', nullable: true })
+  batchId?: string | null
+
+  @Property({ type: 'numeric', precision: 18, scale: 6 })
+  qty!: string
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Property({ name: 'reason_entry_id', type: 'uuid', nullable: true })
+  reasonEntryId?: string | null
+
+  @Enum({ items: ['order', 'report', 'import', 'manual'], type: 'text', name: 'source_type' })
+  sourceType!: StockMovementSourceType
+
+  @Property({ name: 'source_id', type: 'uuid', nullable: true })
+  sourceId?: string | null
+
+  @Property({ name: 'reverses_movement_id', type: 'uuid', nullable: true })
+  reversesMovementId?: string | null
+
+  // Append-only (decision h): rows are created once and never updated or
+  // soft-deleted, so this entity deliberately omits `updatedAt`/`deletedAt`.
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'production_material_reservations' })
+@Index({ name: 'production_material_reservations_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_material_reservations_stock_item_idx', properties: ['stockItemId'] })
+export class MaterialReservation {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'order_id', type: 'uuid', nullable: true })
+  orderId?: string | null
+
+  @Property({ name: 'order_material_id', type: 'uuid', nullable: true })
+  orderMaterialId?: string | null
+
+  @Property({ name: 'stock_item_id', type: 'uuid' })
+  stockItemId!: string
+
+  @Property({ name: 'batch_id', type: 'uuid', nullable: true })
+  batchId?: string | null
+
+  @Property({ type: 'numeric', precision: 18, scale: 6 })
+  qty!: string
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Enum({ items: ['active', 'released', 'consumed'], type: 'text', name: 'status', default: 'active' })
+  status: MaterialReservationStatus = 'active'
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
