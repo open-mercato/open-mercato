@@ -1,0 +1,74 @@
+# OpenCode base image — built and pushed to a registry ONCE, then consumed by
+# docker/opencode/Dockerfile via `FROM`. This is the only place OpenCode is
+# downloaded, so application/dev builds never run the installer and never hit
+# its TLS-proxy / rate-limit failures.
+#
+# Rebuild + push this image only when bumping OPENCODE_VERSION. See BASE_IMAGE.md
+# for the build/tag/push commands.
+#
+# Build context is docker/opencode/ (same as the thin image) so the cert anchor
+# below can reuse AGENTS.md + certs/.
+FROM debian:bookworm-slim
+
+# Pin the OpenCode version. The contract (agent-file frontmatter, per-message
+# `agent` selection, native skills, task delegation, and the opencode.jsonc
+# schema written by entrypoint.sh) is validated against THIS tag — do not float
+# to latest. Bumping it is a breaking-risk change: rebuild the base, push it,
+# and re-verify the agentic flow end to end before shipping.
+ARG OPENCODE_VERSION=1.18.3
+
+# Install dependencies. Debian's apt fetches over plain HTTP, so this step still
+# works behind a TLS-intercepting proxy and bootstraps the cert tooling the
+# HTTPS install below needs.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates bash passwd \
+    && rm -rf /var/lib/apt/lists/*
+
+# Corporate TLS-intercepting proxies re-sign HTTPS with a root CA the host
+# trusts but this build does not, breaking the installer download below. Trust
+# any PEM/CRT dropped into certs/ (see docker/certs/README.md). No-op when the
+# directory is empty. cert[s] is a glob + AGENTS.md an always-present anchor, so
+# the COPY succeeds even when certs/ is missing from a partial checkout.
+COPY AGENTS.md cert[s] /tmp/om-certs/
+RUN set -eu; \
+    for cert in /tmp/om-certs/*.crt /tmp/om-certs/*.pem; do \
+        [ -f "$cert" ] || continue; \
+        name="$(basename "$cert")"; \
+        cp "$cert" "/usr/local/share/ca-certificates/om-extra-${name%.*}.crt"; \
+    done; \
+    update-ca-certificates; \
+    rm -rf /tmp/om-certs
+
+# Install OpenCode (pinned) to the system path. Download to a file rather than
+# piping into bash: a blocking proxy answers with an HTML page and HTTP 200,
+# which curl -f cannot reject, and `curl | bash` masks download failures as a
+# later `cp` error. Guard against HTML, then retry the install up to 3 times.
+RUN set -eu; \
+    curl -fsSL --retry 3 --retry-delay 5 https://opencode.ai/install -o /tmp/opencode-install.sh; \
+    if head -c 512 /tmp/opencode-install.sh | grep -qi '<!doctype\|<html'; then \
+        echo "https://opencode.ai/install returned an HTML page instead of a script - a proxy is blocking it. Retrying cannot help; ask IT to allow opencode.ai." >&2; \
+        exit 1; \
+    fi; \
+    attempt=1; \
+    until bash /tmp/opencode-install.sh --version "$OPENCODE_VERSION"; do \
+        if [ "$attempt" -ge 3 ]; then echo "OpenCode install failed after $attempt attempts" >&2; exit 1; fi; \
+        attempt=$((attempt + 1)); \
+        echo "OpenCode install failed - retrying (attempt $attempt of 3)..." >&2; \
+        sleep 10; \
+    done; \
+    rm -f /tmp/opencode-install.sh; \
+    cp /root/.opencode/bin/opencode /usr/local/bin/opencode; \
+    chmod +x /usr/local/bin/opencode
+
+# Non-root user + config skeleton the thin image fills in with agents/skills.
+RUN useradd -m -s /bin/bash opencode \
+    && mkdir -p /home/opencode/.config/opencode \
+    && chown -R opencode:opencode /home/opencode/.config
+
+# Record the baked version for `docker inspect` / provenance.
+LABEL org.opencontainers.image.title="open-mercato-opencode" \
+      org.opencontainers.image.description="Debian slim + pinned OpenCode CLI, base for the Open Mercato opencode service" \
+      com.open-mercato.opencode.version="${OPENCODE_VERSION}"
+
+USER opencode
+WORKDIR /home/opencode
