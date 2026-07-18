@@ -7843,11 +7843,15 @@ __metadata:
   resolution: "@open-mercato/production@workspace:packages/production"
   dependencies:
     "@open-mercato/shared": "workspace:*"
+    "@types/jest": "npm:^30.0.0"
     "@types/node": "npm:^26.0.1"
     "@types/react": "npm:^19.0.0"
+    jest: "npm:^30.4.2"
     react: "npm:^19.2.0"
+    ts-jest: "npm:^29.4.11"
     typescript: "npm:^6.0.3"
   peerDependencies:
+    "@mikro-orm/core": ^7.0.14
     "@open-mercato/shared": "workspace:*"
     react: ^19.0.0
     zod: ">=3.23.0"

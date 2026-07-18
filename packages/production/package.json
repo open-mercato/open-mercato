@@ -8,6 +8,7 @@
   "scripts": {
     "build": "node build.mjs",
     "watch": "node watch.mjs",
+    "test": "jest --config jest.config.cjs",
     "typecheck": "tsc --noEmit"
   },
   "exports": {
@@ -58,15 +59,19 @@
     "./*/*/*/*/*/*.json": "./src/*/*/*/*/*/*.json"
   },
   "peerDependencies": {
+    "@mikro-orm/core": "^7.0.14",
     "@open-mercato/shared": "workspace:*",
     "react": "^19.0.0",
     "zod": ">=3.23.0"
   },
   "devDependencies": {
     "@open-mercato/shared": "workspace:*",
+    "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
     "@types/react": "^19.0.0",
+    "jest": "^30.4.2",
     "react": "^19.2.0",
+    "ts-jest": "^29.4.11",
     "typescript": "^6.0.3"
   },
   "publishConfig": {
