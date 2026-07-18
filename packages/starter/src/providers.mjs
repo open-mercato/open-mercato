@@ -3,11 +3,10 @@ import readline from 'node:readline'
 import { addEnvValue, readEnvValue } from './env-file.mjs'
 import { secretFingerprint } from './secrets.mjs'
 
-// Every OM-supported chat provider (from apps/mercato/.env.example). Kept in
-// sync by hand with $script:LlmProviders in
-// starters/docker/windows/start-dev.ps1 (which must stay Node-less).
-// Embedding-only providers (Mistral, Cohere, AWS Bedrock) are excluded — the
-// assistant needs a chat model.
+// Every OM-supported chat provider (from apps/mercato/.env.example). This is
+// the SINGLE copy — the hand-synced PowerShell duplicate died with the old
+// Windows launcher. Embedding-only providers (Mistral, Cohere, AWS Bedrock)
+// are excluded — the assistant needs a chat model.
 export const LLM_PROVIDERS = [
   { provider: 'openai', label: 'OpenAI', keyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL', keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. gpt-5-mini' },
   { provider: 'anthropic', label: 'Anthropic (Claude)', keyEnv: 'ANTHROPIC_API_KEY', baseUrlEnv: null, keyRequired: true, baseUrlRequired: false, baseUrl: '', modelRequired: false, modelHint: 'e.g. claude-haiku-4-5-20251001' },

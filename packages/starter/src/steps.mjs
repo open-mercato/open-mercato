@@ -1,0 +1,396 @@
+import { spawnSync } from 'node:child_process'
+import crypto from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
+
+import { detectDocker, parseComposePsOutput, runCompose, runStreamingSync } from './compose.mjs'
+import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
+import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
+import { CAPTURED_CA_BUNDLE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
+import { checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2 } from './doctor.mjs'
+import { ensureEnvFiles } from './env-setup.mjs'
+import { readEnvValue } from './env-file.mjs'
+import { ensureMcpSharedDir, infraUp } from './infra.mjs'
+import { ensureLlmProvider } from './providers.mjs'
+import { color, formatDuration, guideBox, statusLine, stepHeader } from './ui.mjs'
+
+// The idempotent convergence pipeline behind `up`. Every step follows the same
+// contract so re-running is always safe and always cheap when nothing changed:
+//   check(ctx)  -> { ok, detail }        did reality already match the goal?
+//   apply(ctx)  -> void (throws on fail) converge; must be a no-op on re-run
+//   guide(ctx)  -> string[]              printed when the step cannot self-fix
+// A step without apply() is detect-and-guide only (per policy: WSL2 and the
+// container runtime are proposed, never installed by us).
+
+export class StepBlocked extends Error {
+  constructor(stepId, guide) {
+    super(`step blocked: ${stepId}`)
+    this.stepId = stepId
+    this.guide = guide
+  }
+}
+
+function stateFile(repoRoot, name) {
+  return path.join(repoRoot, STARTER_STATE_DIR, name)
+}
+
+function readState(repoRoot, name) {
+  try {
+    return fs.readFileSync(stateFile(repoRoot, name), 'utf8').trim()
+  } catch {
+    return null
+  }
+}
+
+function writeState(repoRoot, name, value) {
+  fs.mkdirSync(path.join(repoRoot, STARTER_STATE_DIR), { recursive: true })
+  fs.writeFileSync(stateFile(repoRoot, name), `${value}\n`)
+}
+
+function hashFiles(repoRoot, files) {
+  const hash = crypto.createHash('sha256')
+  for (const file of files) {
+    const filePath = path.join(repoRoot, file)
+    hash.update(file)
+    hash.update(fs.existsSync(filePath) ? fs.readFileSync(filePath) : Buffer.alloc(0))
+  }
+  return hash.digest('hex')
+}
+
+function runYarn(ctx, args) {
+  const status = runStreamingSync('yarn', args, { cwd: ctx.repoRoot, env: ctx.env })
+  if (status !== 0) {
+    throw new Error(`yarn ${args.join(' ')} failed (exit ${status}) — fix the error above and re-run; completed steps are skipped.`)
+  }
+}
+
+// ── Steps ────────────────────────────────────────────────────────────────────
+
+export const prerequisitesStep = {
+  id: 'prerequisites',
+  expectation: 'instant (activates yarn via corepack when missing)',
+  title: 'Toolchain (Node 24, yarn, git)',
+  async check(ctx) {
+    const node = checkNodeVersion()
+    const git = checkGit()
+    const yarnRun = spawnSync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' })
+    const yarnOk = !yarnRun.error && yarnRun.status === 0
+    if (node.level === 'fail' || git.level === 'fail') {
+      const blockers = [node, git].filter((entry) => entry.level === 'fail')
+      throw new StepBlocked(this.id, blockers.flatMap((entry) => [`${entry.title}: ${entry.detail}`, ...entry.guide]))
+    }
+    ctx.hasYarn = yarnOk
+    return { ok: yarnOk, detail: yarnOk ? `node v${process.versions.node}, yarn ${String(yarnRun.stdout).trim()}` : 'yarn missing — activating via corepack' }
+  },
+  async apply(ctx) {
+    // Node exists (we are running on it), so yarn is ours to install: enable
+    // corepack and activate the exact version pinned in package.json.
+    const spec = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, 'package.json'), 'utf8')).packageManager.split('+')[0]
+    const enable = runStreamingSync('corepack', ['enable'], { cwd: ctx.repoRoot, env: ctx.env })
+    if (enable !== 0) ctx.log('⚠️ corepack enable failed (PATH not writable?) — continuing, the shim may still resolve.')
+    const prepare = runStreamingSync('corepack', ['prepare', spec, '--activate'], { cwd: ctx.repoRoot, env: ctx.env })
+    if (prepare !== 0) {
+      throw new Error(`corepack prepare ${spec} failed. Behind a corporate proxy? Set HTTPS_PROXY and re-run — the starter provisions the corporate CA automatically in the next step; if this step itself is blocked, set COREPACK_NPM_REGISTRY to your internal mirror (see starters/company/).`)
+    }
+  },
+}
+
+export const containerRuntimeStep = {
+  id: 'container-runtime',
+  expectation: 'instant check; install guidance if missing',
+  title: 'Container runtime (Docker Desktop / Rancher Desktop / engine)',
+  appliesTo: (ctx) => !ctx.flags.noInfra,
+  async check(ctx) {
+    const runtime = checkContainerRuntime()
+    if (runtime.level === 'pass') return { ok: true, detail: runtime.detail }
+    // Policy: we never install WSL2 or a container runtime — propose only.
+    const wsl = checkWsl2()
+    const guide = []
+    if (wsl && wsl.level !== 'pass') guide.push(`WSL2 first: ${wsl.detail}`, ...wsl.guide, '')
+    guide.push(...runtime.guide)
+    guide.push('', 'Re-run this starter once the runtime is up — every completed step is skipped.')
+    if (ctx.mode === 'hybrid') guide.push('No container runtime at all? `up --no-infra` starts just the app against services you point .env at.')
+    throw new StepBlocked(this.id, guide)
+  },
+}
+
+export const corporateCertsStep = {
+  id: 'corporate-certs',
+  expectation: 'a few seconds (network probes)',
+  title: 'Corporate TLS trust (proxy CA capture + provisioning)',
+  async check(ctx) {
+    const companyBundles = resolveCompanyCertBundles(ctx.repoRoot, ctx.company)
+    const vendorBundles = findVendorCaBundles()
+    const probes = await probeTlsInterception()
+    const { intercepted, unreachable } = summarizeProbeResults(probes)
+    ctx.tlsProbes = probes
+    if (intercepted.length === 0 && companyBundles.length === 0 && vendorBundles.length === 0) {
+      if (unreachable.length > 0) {
+        ctx.log(`   ⚠️ unreachable during TLS probe: ${unreachable.map((entry) => `${entry.host} (${entry.reason})`).join(', ')} — continuing; expect trouble if installs need those hosts.`)
+      }
+      return { ok: true, detail: 'no TLS interception detected' }
+    }
+    ctx.certsWork = { companyBundles: [...companyBundles, ...vendorBundles], intercepted }
+    return { ok: false, detail: intercepted.length > 0 ? `interception detected on ${intercepted.map((entry) => entry.host).join(', ')}` : 'corporate CA bundle(s) found' }
+  },
+  async apply(ctx) {
+    const { companyBundles, intercepted } = ctx.certsWork
+    let captured = []
+    if (intercepted.length > 0 && ctx.company.certs.capture) {
+      // Two capture channels, merged: what the proxy presents on the wire
+      // (intermediates rotate — Zscaler rotates weekly) and what group policy
+      // deployed into the Windows store (the root often is NOT on the wire).
+      captured = await captureInterceptionCas(intercepted.map((entry) => entry.host))
+      const harvested = harvestWindowsStoreCas()
+      const known = new Set(captured.map((cert) => cert.fingerprint))
+      for (const cert of harvested) {
+        if (!known.has(cert.fingerprint)) captured.push(cert)
+      }
+      for (const cert of captured) ctx.log(`   trusted CA: ${cert.subject}`)
+      if (captured.length === 0 && companyBundles.length === 0) {
+        throw new Error('TLS interception detected but no CA could be captured. Ask IT for the corporate root CA (PEM) and point starters/company/config.mjs certs.bundles at it.')
+      }
+    }
+    const bundlePath = writeCaBundle(ctx.repoRoot, { companyBundles, capturedPems: captured })
+    if (!bundlePath) return
+    ctx.env = hostTrustEnv(bundlePath, ctx.env)
+    const provisioned = provisionDockerCerts(ctx.repoRoot, bundlePath)
+    ctx.log(`   host tooling: NODE_EXTRA_CA_CERTS=${path.relative(ctx.repoRoot, bundlePath)} + --use-system-ca`)
+    for (const target of provisioned) ctx.log(`   image builds:  ${path.relative(ctx.repoRoot, target)} (baked into app/opencode images)`)
+    const rancherScript = provisionRancherDesktopCa(ctx.repoRoot, bundlePath)
+    if (rancherScript) ctx.log(`   rancher engine: ${rancherScript} (applied on the next Rancher Desktop restart)`)
+    if (process.platform === 'win32') {
+      // Mixed fleets: schannel became the fresh-install default only in Git
+      // 2.48.1, upgrades keep the old openssl choice — set it explicitly so
+      // git trusts the GPO-deployed root from the Windows store.
+      const gitConfig = spawnSync('git', ['config', '--global', 'http.sslBackend', 'schannel'], { stdio: 'ignore', windowsHide: true })
+      if (!gitConfig.error && gitConfig.status === 0) ctx.log('   git: http.sslBackend=schannel (uses the Windows certificate store)')
+      ctx.log('   ↳ persist for your own shells:  setx NODE_EXTRA_CA_CERTS "' + bundlePath + '"')
+      ctx.log('   ↳ Docker Desktop reads the Windows certificate store — restart it after IT installs new CAs.')
+    } else {
+      ctx.log(`   ↳ persist for your own shells:  export NODE_EXTRA_CA_CERTS="${bundlePath}"`)
+    }
+  },
+}
+
+export const envFilesStep = {
+  id: 'env-files',
+  expectation: 'instant; secrets generated once, never rotated',
+  title: 'Environment files (.env, secrets)',
+  async check() {
+    // ensureEnvFiles is fill-missing-only and cheap — always converge.
+    return { ok: false, detail: 'converging (never overwrites existing values)' }
+  },
+  async apply(ctx) {
+    ensureEnvFiles(ctx.repoRoot, { log: (line) => ctx.log(`   ${line}`), warn: (line) => ctx.log(`   ⚠️ ${line}`), extraDefaults: ctx.company.env })
+  },
+}
+
+export const workspaceInstallStep = {
+  id: 'workspace-install',
+  expectation: 'a few minutes on the first run, skipped afterwards',
+  title: 'Workspace dependencies (yarn install)',
+  async check(ctx) {
+    const current = hashFiles(ctx.repoRoot, ['yarn.lock', 'package.json'])
+    ctx.installHash = current
+    const previous = readState(ctx.repoRoot, 'install.hash')
+    const nodeModulesExists = fs.existsSync(path.join(ctx.repoRoot, 'node_modules'))
+    return { ok: nodeModulesExists && previous === current, detail: nodeModulesExists && previous === current ? 'lockfile unchanged' : 'lockfile changed or first run' }
+  },
+  async apply(ctx) {
+    if (ctx.company.mirrors.npmRegistry) {
+      ctx.env = { ...ctx.env, COREPACK_NPM_REGISTRY: ctx.company.mirrors.npmRegistry, YARN_NPM_REGISTRY_SERVER: ctx.company.mirrors.npmRegistry }
+    }
+    runYarn(ctx, ['install'])
+    writeState(ctx.repoRoot, 'install.hash', ctx.installHash)
+    ctx.installChanged = true
+  },
+}
+
+export const workspaceBuildStep = {
+  id: 'workspace-build',
+  expectation: '1-3 minutes on the first run, cached by turbo afterwards',
+  title: 'Build workspace packages + generate module artifacts',
+  async check(ctx) {
+    // The database step shells out to the `mercato` CLI, which only exists
+    // after packages are built (turbo's db:migrate task declares no build
+    // dependency) — so this must converge before any DB work on a fresh clone.
+    const cliBuilt = fs.existsSync(path.join(ctx.repoRoot, 'packages', 'cli', 'dist', 'bin.js'))
+    return { ok: cliBuilt && !ctx.installChanged, detail: cliBuilt && !ctx.installChanged ? 'packages built, dependencies unchanged' : 'building (turbo caches make re-runs fast)' }
+  },
+  async apply(ctx) {
+    runYarn(ctx, ['build:packages'])
+    runYarn(ctx, ['generate'])
+  },
+}
+
+export const llmProviderStep = {
+  id: 'llm-provider',
+  expectation: 'waits for your input on first run; have an API key ready',
+  title: 'AI provider (LLM API key)',
+  async apply(ctx) {
+    const outcome = await ensureLlmProvider(path.join(ctx.repoRoot, '.env'), {
+      skipPrompt: ctx.flags.skipLlmPrompt,
+      nonInteractive: ctx.flags.nonInteractive,
+      log: (line) => ctx.log(`   ${line}`),
+      warn: (line) => ctx.log(`   ⚠️ ${line}`),
+    })
+    if (outcome === 'failed') {
+      throw new Error('No LLM provider configured. Pass --skip-llm-prompt to continue without AI, or set a provider key in .env.')
+    }
+  },
+  async check() {
+    return { ok: false, detail: 'checking configured provider' }
+  },
+}
+
+export function resolveOpencodeImage(repoRoot, env = process.env) {
+  return env.OPENCODE_IMAGE
+    ?? readEnvValue(path.join(repoRoot, '.env'), 'OPENCODE_IMAGE')?.trim()
+    ?? 'openmercatocom/open-mercato-opencode:latest'
+}
+
+// Published image first: a `docker pull` goes through the engine's trust
+// (which honors the OS certificate store on Docker/Rancher Desktop), so it
+// survives corporate TLS interception that would break a local image BUILD.
+// Local build of docker/opencode (same tag) stays as the fallback for
+// air-gapped registries and as the explicit --rebuild path.
+export function ensureOpencodeImage(ctx) {
+  const image = resolveOpencodeImage(ctx.repoRoot, ctx.env)
+  const exists = spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0
+  if (exists && !ctx.flags.rebuild) {
+    ctx.log(`   opencode image: ${image} (already present)`)
+    return
+  }
+  if (!ctx.flags.rebuild) {
+    ctx.log(`   pulling ${image} ...`)
+    const pull = spawnSync('docker', ['pull', image], { stdio: 'inherit' })
+    if (pull.status === 0) return
+    ctx.log('   pull failed — falling back to a local build of docker/opencode (bakes the corporate CA, if any).')
+  }
+  const build = spawnSync('docker', ['build', '-t', image, path.join(ctx.repoRoot, 'docker', 'opencode')], { stdio: 'inherit', cwd: ctx.repoRoot })
+  if (build.status !== 0) {
+    throw new Error(`Could not obtain the OpenCode image: pull of ${image} failed and the local build failed too. Behind a proxy that blocks registry-1.docker.io? Set OPENCODE_IMAGE in .env to your internal mirror, or fix the build error above and re-run.`)
+  }
+}
+
+export const infraUpStep = {
+  id: 'infra-up',
+  expectation: 'first run pulls the OpenCode image (a few minutes); seconds afterwards',
+  title: 'Infra containers (postgres, redis, meilisearch, opencode)',
+  appliesTo: (ctx) => ctx.mode === 'hybrid' && !ctx.flags.noInfra,
+  async check(ctx) {
+    const ps = runCompose(ctx.repoRoot, ['ps', '--format', 'json'], { stdio: 'pipe' })
+    const services = parseComposePsOutput(ps.stdout ?? '')
+    const running = new Set(services.filter((entry) => entry.State === 'running').map((entry) => entry.Service))
+    const required = ['postgres', 'redis', 'meilisearch', 'opencode']
+    const missing = required.filter((service) => !running.has(service))
+    ctx.infraMissing = missing
+    return { ok: missing.length === 0 && !ctx.flags.rebuild, detail: missing.length === 0 ? 'all infra containers running' : `starting: ${missing.join(', ')}` }
+  },
+  async apply(ctx) {
+    const ports = resolveStackPorts(ctx.repoRoot)
+    ensureMcpSharedDir(ctx.repoRoot)
+    ensureOpencodeImage(ctx)
+    const status = infraUp(ctx.repoRoot, { build: false, profiles: ctx.flags.profiles })
+    if (status !== 0) {
+      const hints = ['docker compose up failed — see the output above. Re-running resumes from this step.']
+      if (ctx.tlsProbes?.some((entry) => entry.status === 'intercepted')) {
+        hints.push('TLS/certificate errors from the engine usually mean it does not trust the corporate CA yet: restart Docker Desktop (it re-imports the Windows certificate store) or Rancher Desktop (the starter wrote a provisioning script for it), then re-run.')
+      }
+      hints.push(`Port conflicts? Something else may own ${ports.postgres}/${ports.redis}/${ports.meilisearch}/${ports.opencode} — override the *_PORT vars in .env.`)
+      throw new Error(hints.join('\n'))
+    }
+  },
+}
+
+export const databaseStep = {
+  id: 'database',
+  expectation: 'migrations + seed take a minute or two on first run',
+  title: 'Database (migrations + first-run initialization)',
+  appliesTo: (ctx) => !ctx.flags.skipDb,
+  async check(ctx) {
+    const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
+    const marker = `db-initialized-${crypto.createHash('sha256').update(dbUrl).digest('hex').slice(0, 12)}`
+    ctx.dbMarker = marker
+    const initialized = readState(ctx.repoRoot, marker) !== null
+    return { ok: false, detail: initialized ? 'applying pending migrations' : 'first run — migrate + initialize' }
+  },
+  async apply(ctx) {
+    runYarn(ctx, ['db:migrate'])
+    if (readState(ctx.repoRoot, ctx.dbMarker) === null) {
+      runYarn(ctx, ['initialize'])
+      writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
+    }
+  },
+}
+
+export function buildUpSteps(ctx) {
+  const base = [
+    prerequisitesStep,
+    containerRuntimeStep,
+    corporateCertsStep,
+    envFilesStep,
+    workspaceInstallStep,
+    workspaceBuildStep,
+    llmProviderStep,
+    infraUpStep,
+    databaseStep,
+  ]
+  const disabled = new Set(ctx.company.steps.disable)
+  return [...base.filter((step) => !disabled.has(step.id)), ...ctx.company.steps.extra]
+}
+
+export async function createStepContext(repoRoot, { mode = 'hybrid', flags = {}, log = console.log } = {}) {
+  const company = await loadCompanyConfig(repoRoot)
+  const existingBundle = path.join(repoRoot, CAPTURED_CA_BUNDLE)
+  // --use-system-ca / proxy env fixes apply even before any capture ran; the
+  // bundle is added when it already exists from a previous run.
+  const env = hostTrustEnv(fs.existsSync(existingBundle) ? existingBundle : null)
+  return {
+    repoRoot,
+    company,
+    mode,
+    env,
+    log,
+    flags: {
+      nonInteractive: false,
+      skipLlmPrompt: false,
+      skipDb: false,
+      noInfra: false,
+      rebuild: false,
+      profiles: [],
+      ...flags,
+    },
+  }
+}
+
+export async function runSteps(steps, ctx) {
+  const active = steps.filter((step) => !step.appliesTo || step.appliesTo(ctx))
+  let index = 0
+  for (const step of active) {
+    index += 1
+    stepHeader(index, active.length, step.title, step.expectation, { log: ctx.log })
+    const startedAt = Date.now()
+    try {
+      const checked = step.check ? await step.check(ctx) : { ok: false, detail: '' }
+      if (checked.ok) {
+        statusLine('ok', `${checked.detail || 'already satisfied'} ${color.dim('(skipped — already done)')}`, { log: ctx.log })
+        continue
+      }
+      if (checked.detail) statusLine('info', checked.detail, { log: ctx.log })
+      if (!step.apply) continue
+      await step.apply(ctx)
+      statusLine('ok', `done ${color.dim(`in ${formatDuration(Date.now() - startedAt)}`)}`, { log: ctx.log })
+    } catch (error) {
+      if (error instanceof StepBlocked) {
+        statusLine('fail', 'blocked — this starter proposes, it does not install system components', { log: ctx.log })
+        guideBox('What to do next', error.guide, { log: ctx.log })
+        return { ok: false, blockedStep: step.id }
+      }
+      statusLine('fail', error instanceof Error ? error.message : String(error), { log: ctx.log })
+      return { ok: false, failedStep: step.id }
+    }
+  }
+  return { ok: true }
+}

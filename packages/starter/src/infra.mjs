@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Hybrid infra lifecycle: OpenCode + postgres/redis/meilisearch containers.
-// Usage: node starters/lib/infra.mjs up [--no-build] [--profile <name>]
-//        node starters/lib/infra.mjs down [--volumes --yes]
+// Preferred entry: `yarn om infra up|down` (or npx @open-mercato/starter).
+// Direct usage: node packages/starter/src/infra.mjs up [--profile <name>]
+//               node packages/starter/src/infra.mjs down [--volumes --yes]
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -14,7 +15,7 @@ export function ensureMcpSharedDir(repoRoot) {
   fs.mkdirSync(path.join(repoRoot, '.mercato', 'mcp-shared'), { recursive: true })
 }
 
-export function infraUp(repoRooot, { build = true, profiles = [] } = {}) {
+export function infraUp(repoRooot, { profiles = [] } = {}) {
   const repoRoot = repoRooot ?? resolveRepoRoot()
   ensureMcpSharedDir(repoRoot)
   const upArgs = []
@@ -23,8 +24,10 @@ export function infraUp(repoRooot, { build = true, profiles = [] } = {}) {
   }
   // --wait blocks on the postgres/redis/meilisearch healthchecks; opencode has
   // no healthcheck here and counts as started immediately (its entrypoint
-  // waits for the host MCP server on its own).
-  upArgs.push('up', '-d', ...(build ? ['--build'] : []), '--wait')
+  // waits for the host MCP server on its own). The opencode image is obtained
+  // beforehand (pull-or-build, see steps.mjs ensureOpencodeImage) — this file
+  // never builds.
+  upArgs.push('up', '-d', '--wait')
   return runCompose(repoRoot, upArgs).status ?? 1
 }
 
@@ -36,6 +39,10 @@ function main() {
   const args = process.argv.slice(2)
   const action = args[0]
   const repoRoot = resolveRepoRoot()
+  if (!repoRoot) {
+    console.error('❌ No Open Mercato checkout found above the current directory.')
+    process.exit(2)
+  }
 
   const docker = detectDocker()
   if (!docker.ok) {
@@ -70,7 +77,7 @@ function main() {
     process.exit(infraDown(repoRoot, { volumes }))
   }
 
-  console.error('Usage: node starters/lib/infra.mjs <up|down> [--no-build] [--profile <name>] [--volumes --yes]')
+  console.error('Usage: yarn om infra <up|down> [--profile <name>] [--volumes --yes]')
   process.exit(1)
 }
 

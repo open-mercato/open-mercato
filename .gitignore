@@ -163,3 +163,7 @@ docker/certs/*
 !docker/certs/README.md
 docker/opencode/certs/*
 !docker/opencode/certs/README.md
+
+# Starter company overlay: per-machine override + private CA bundles stay local
+starters/company/config.local.mjs
+starters/company/certs/

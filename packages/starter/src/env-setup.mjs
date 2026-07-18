@@ -19,7 +19,7 @@ function postgresVolumeExists() {
     .includes('mercato-postgres-data')
 }
 
-export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.warn } = {}) {
+export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.warn, extraDefaults = {} } = {}) {
   const rootEnv = path.join(repoRoot, '.env')
   const appEnvExample = path.join(repoRoot, 'apps', 'mercato', '.env.example')
   const appEnv = path.join(repoRoot, 'apps', 'mercato', '.env')
@@ -47,6 +47,9 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
   setSecret('MEILISEARCH_MASTER_KEY', meiliKey)
   setValue('APP_URL', `http://localhost:${readEnvValue(rootEnv, 'APP_PORT')?.trim() || '3000'}`)
   setValue('OM_INIT_SUPERADMIN_EMAIL', 'superadmin@acme.com')
+  for (const [key, value] of Object.entries(extraDefaults)) {
+    setValue(key, value)
+  }
 
   let postgresPassword = readEnvValue(rootEnv, 'POSTGRES_PASSWORD')?.trim() || ''
   if (volumeExists) {
@@ -74,15 +77,17 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
       content = replaceEnvLine(content, 'AUTH_SECRET', secretHex(32))
       content = replaceEnvLine(content, 'LOOKUP_HASH_PEPPER', secretHex(16))
       if (postgresPassword) {
+        // 127.0.0.1, never `localhost`: on modern Windows localhost resolves
+        // to ::1 first while the published container ports listen on IPv4.
         content = replaceEnvLine(
           content,
           'DATABASE_URL',
-          `postgres://postgres:${postgresPassword}@localhost:5432/open-mercato`,
+          `postgres://postgres:${postgresPassword}@127.0.0.1:5432/open-mercato`,
         )
       }
       // The hybrid starter runs a meilisearch container, so point the app at it
       // (the example ships these commented out).
-      content = uncommentEnvLine(content, 'MEILISEARCH_HOST', 'http://localhost:7700')
+      content = uncommentEnvLine(content, 'MEILISEARCH_HOST', 'http://127.0.0.1:7700')
       content = uncommentEnvLine(content, 'MEILISEARCH_API_KEY', meiliKey)
       writeEnvFileText(appEnv, content)
       log(`Created ${appEnv} from .env.example (placeholder secrets replaced)`)
