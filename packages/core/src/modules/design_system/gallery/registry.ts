@@ -60,4 +60,44 @@ export const galleryFamilies: GalleryFamily[] = [
     labelKey: 'design_system.families.display',
     load: () => import('./entries/display'),
   },
+  {
+    id: 'charts',
+    labelKey: 'design_system.families.charts',
+    load: () => import('./entries/charts'),
+  },
+  {
+    id: 'filters',
+    labelKey: 'design_system.families.filters',
+    load: () => import('./entries/filters'),
+  },
+  {
+    id: 'detail',
+    labelKey: 'design_system.families.detail',
+    load: () => import('./entries/detail'),
+  },
+  {
+    id: 'scaffolding',
+    labelKey: 'design_system.families.scaffolding',
+    load: () => import('./entries/scaffolding'),
+  },
+  {
+    id: 'banners',
+    labelKey: 'design_system.families.banners',
+    load: () => import('./entries/banners'),
+  },
+  {
+    id: 'notifications',
+    labelKey: 'design_system.families.notifications',
+    load: () => import('./entries/notifications'),
+  },
+  {
+    id: 'schedule',
+    labelKey: 'design_system.families.schedule',
+    load: () => import('./entries/schedule'),
+  },
+  {
+    id: 'messages',
+    labelKey: 'design_system.families.messages',
+    load: () => import('./entries/messages'),
+  },
 ]

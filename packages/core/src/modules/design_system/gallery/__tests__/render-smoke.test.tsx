@@ -4,6 +4,12 @@
 
 import * as React from 'react'
 import { render, cleanup } from '@testing-library/react'
+
+jest.mock('next/navigation', () => ({
+  useRouter: () => ({ push: jest.fn(), replace: jest.fn(), back: jest.fn(), prefetch: jest.fn() }),
+  useSearchParams: () => new URLSearchParams(),
+  usePathname: () => '/backend/design-system',
+}))
 import { I18nProvider } from '@open-mercato/shared/lib/i18n/context'
 import { galleryFamilies } from '../registry'
 import type { GalleryEntry } from '../types'
