@@ -16,6 +16,7 @@ export type ProductionOrderStatus =
   | 'cancelled'
 export type ProductionOrderSourceType = 'sales_order' | 'mrp' | 'manual'
 export type ProductionOrderOperationStatus = 'pending' | 'in_progress' | 'done'
+export type ProductionReportType = 'partial' | 'final'
 
 @Entity({ tableName: 'production_work_centers' })
 @Index({ name: 'production_work_centers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -676,4 +677,66 @@ export class ProductionOrderMaterial {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+// ---------------------------------------------------------------------------
+// Shop-floor reports (spec § Data Models / Status machine, Phase 4).
+//
+// `ProductionReport` is **append-only + storno** (decision h, same exemption
+// as `StockMovement`): a correction is a new compensating report row
+// referencing `reversesReportId` (UNIQUE — a report can be reversed at most
+// once), never a mutation/deletion of the original. This is why this entity
+// intentionally has no `updatedAt`/`deletedAt` — see the `StockMovement`
+// doc comment above for the identical reasoning.
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'production_reports' })
+@Index({ name: 'production_reports_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_reports_operation_idx', properties: ['orderOperationId'] })
+@Unique({
+  name: 'production_reports_reverses_unique',
+  properties: ['reversesReportId'],
+})
+export class ProductionReport {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'order_operation_id', type: 'uuid' })
+  orderOperationId!: string
+
+  @Property({ name: 'reporter_user_id', type: 'uuid' })
+  reporterUserId!: string
+
+  @Property({ name: 'qty_good', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyGood: string = '0'
+
+  @Property({ name: 'qty_scrap', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyScrap: string = '0'
+
+  @Property({ name: 'scrap_reason_entry_id', type: 'uuid', nullable: true })
+  scrapReasonEntryId?: string | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'finished_at', type: Date, nullable: true })
+  finishedAt?: Date | null
+
+  @Enum({ items: ['partial', 'final'], type: 'text', name: 'report_type' })
+  reportType!: ProductionReportType
+
+  @Property({ name: 'reverses_report_id', type: 'uuid', nullable: true })
+  reversesReportId?: string | null
+
+  // Append-only (decision h): rows are created once and never updated or
+  // soft-deleted, so this entity deliberately omits `updatedAt`/`deletedAt`
+  // (matches `StockMovement`).
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

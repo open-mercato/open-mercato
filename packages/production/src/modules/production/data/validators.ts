@@ -319,6 +319,35 @@ export const orderListQuerySchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Shop-floor reports (Phase 4)
+// ---------------------------------------------------------------------------
+
+export const reportTypeSchema = z.enum(['partial', 'final'])
+
+export const reportCreateSchema = z
+  .object({
+    orderOperationId: z.string().uuid('orderOperationId is required'),
+    qtyGood: nonNegativeNumberSchema.default(0),
+    qtyScrap: nonNegativeNumberSchema.default(0),
+    scrapReasonEntryId: z.string().uuid().optional().nullable(),
+    startedAt: z.coerce.date().optional().nullable(),
+    finishedAt: z.coerce.date().optional().nullable(),
+    reportType: reportTypeSchema,
+  })
+  .refine((value) => value.qtyGood > 0 || value.qtyScrap > 0, {
+    message: 'At least one of qtyGood/qtyScrap must be greater than zero',
+    path: ['qtyGood'],
+  })
+
+export const reportReverseSchema = z.object({ id: z.string().uuid() })
+
+export const reportListQuerySchema = z.object({
+  ...listBaseSchema,
+  orderId: z.string().uuid().optional(),
+  orderOperationId: z.string().uuid().optional(),
+})
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -351,3 +380,7 @@ export type StockImportRow = z.infer<typeof stockImportRowSchema>
 export type OrderCreateInput = z.infer<typeof orderCreateSchema>
 export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
 export type OrderListQuery = z.infer<typeof orderListQuerySchema>
+
+export type ReportCreateInput = z.infer<typeof reportCreateSchema>
+export type ReportReverseInput = z.infer<typeof reportReverseSchema>
+export type ReportListQuery = z.infer<typeof reportListQuerySchema>

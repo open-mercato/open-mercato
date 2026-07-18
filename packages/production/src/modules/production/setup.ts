@@ -25,6 +25,11 @@ export const setup: ModuleSetupConfig = {
       'production.orders.view',
       'production.orders.manage',
       'production.reports.view',
+      // `production.operator.report` (not just `reports.manage`) is required
+      // to POST /api/production/reports — see the route metadata doc comment
+      // in `api/reports/route.ts` for why the report-submission route is
+      // gated on this single feature instead of an OR of two features.
+      'production.operator.report',
       'production.mrp.view',
       'production.mrp.manage',
     ],
@@ -34,6 +39,7 @@ export const setup: ModuleSetupConfig = {
       'production.orders.view',
       'production.reports.view',
       'production.reports.manage',
+      'production.operator.report',
       'production.mrp.view',
     ],
     'magazynier-lite': [

@@ -774,6 +774,29 @@ export function transitionOrderToCompleted(order: ProductionOrder): void {
   order.updatedAt = new Date()
 }
 
+/**
+ * Reversal-only reopen: `completed` -> `in_progress` (task 4.1 review
+ * decision). Deliberately bypasses `assertOrderTransition`/
+ * `ALLOWED_TRANSITIONS` (`lib/orderStatusMachine.ts`) rather than adding an
+ * outbound edge from `completed` to the PUBLIC status machine — that map is
+ * intentionally strict (its only outbound edge from `completed` is
+ * `-> closed`) so no ordinary user action (plan/release/cancel/close) can
+ * ever reopen a completed order.
+ *
+ * The ONLY caller is `commands/reports.ts#reverseReportCommand`, storno-ing
+ * the true last-reporting-point FINAL report: reversing that report also
+ * reverses its finished-goods receipt, so the order must be reopened or it
+ * would be stuck `completed` with reversed stock and no way to submit a
+ * corrected report. A formal, guarded `completed -> in_progress` transition
+ * is a documented spec delta for task 4.4; until then this narrowly-scoped,
+ * explicitly-named helper is the escape hatch — never call it from a
+ * user-facing route/command directly.
+ */
+export function reopenOrderFromReversal(order: ProductionOrder): void {
+  order.status = 'in_progress'
+  order.updatedAt = new Date()
+}
+
 registerCommand(createOrderCommand)
 registerCommand(updateOrderCommand)
 registerCommand(deleteOrderCommand)
