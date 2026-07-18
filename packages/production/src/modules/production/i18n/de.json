@@ -344,6 +344,7 @@
   "production.orders.operations.field.run_time_per_unit_seconds": "Laufzeit pro Einheit (s)",
   "production.orders.operations.field.sequence": "Nr.",
   "production.orders.operations.field.setup_time_minutes": "Rüstzeit (Min.)",
+  "production.orders.operations.field.status": "Status",
   "production.orders.operations.field.work_center_id": "Arbeitsplatz",
   "production.orders.operations.status.done": "Erledigt",
   "production.orders.operations.status.in_progress": "In Bearbeitung",

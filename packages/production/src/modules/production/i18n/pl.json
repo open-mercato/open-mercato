@@ -344,6 +344,7 @@
   "production.orders.operations.field.run_time_per_unit_seconds": "Czas wykonania na jednostkę (s)",
   "production.orders.operations.field.sequence": "Nr",
   "production.orders.operations.field.setup_time_minutes": "Czas przezbrojenia (min)",
+  "production.orders.operations.field.status": "Status",
   "production.orders.operations.field.work_center_id": "Gniazdo robocze",
   "production.orders.operations.status.done": "Zakończona",
   "production.orders.operations.status.in_progress": "W trakcie",

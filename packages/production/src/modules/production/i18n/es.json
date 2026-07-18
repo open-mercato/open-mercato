@@ -344,6 +344,7 @@
   "production.orders.operations.field.run_time_per_unit_seconds": "Tiempo de ejecución por unidad (s)",
   "production.orders.operations.field.sequence": "Sec.",
   "production.orders.operations.field.setup_time_minutes": "Tiempo de preparación (min)",
+  "production.orders.operations.field.status": "Estado",
   "production.orders.operations.field.work_center_id": "Centro de trabajo",
   "production.orders.operations.status.done": "Completado",
   "production.orders.operations.status.in_progress": "En curso",
