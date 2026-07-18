@@ -122,10 +122,14 @@ export function LocationEditDialog({ open, onOpenChange, mode, row, onSaved }: L
     try {
       await runMutation({
         operation: async () => {
+          // Opt out of apiFetch's global 403 flash so flashMutationError can
+          // surface a translated, permission-specific toast instead of a bare
+          // "Forbidden" followed by a second generic Access denied banner.
           const call = await apiCall(
             '/api/wms/locations',
             {
               method: mode === 'edit' ? 'PUT' : 'POST',
+              headers: { 'x-om-forbidden-redirect': '0' },
               body: JSON.stringify(mode === 'edit' && row ? { id: row.id, ...values } : values),
             },
           )

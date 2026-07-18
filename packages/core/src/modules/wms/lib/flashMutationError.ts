@@ -61,6 +61,14 @@ function resolveForbiddenFeatureMessage(error: unknown, t?: TranslateFn): string
  */
 export function flashMutationError(error: unknown, fallbackMessage: string, t?: TranslateFn): void {
   const forbiddenMessage = resolveForbiddenFeatureMessage(error, t)
-  const message = forbiddenMessage ?? (error instanceof Error ? error.message : fallbackMessage)
-  flash(message, 'error')
+  if (forbiddenMessage) {
+    flash(forbiddenMessage, 'error')
+    return
+  }
+  // apiFetch throws ForbiddenError with a bare "Forbidden" message when the
+  // ACL body has no mappable feature — prefer the dialog-specific fallback
+  // over flashing the untranslated server token.
+  const rawMessage = error instanceof Error ? error.message.trim() : ''
+  const isGenericForbidden = rawMessage.length === 0 || /^forbidden$/i.test(rawMessage)
+  flash(isGenericForbidden ? fallbackMessage : rawMessage, 'error')
 }
