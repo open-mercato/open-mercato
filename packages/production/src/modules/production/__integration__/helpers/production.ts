@@ -309,11 +309,18 @@ export async function createCatalogUnitConversion(
   return String(body!.id)
 }
 
-/** Registers `make` planning parameters for a product (task 3.4 fixture helper). */
+/**
+ * Registers `make` planning parameters for a product (task 3.4 fixture
+ * helper). `safetyStock` (task 5.4, TC-PROD-009) is optional and additive —
+ * setting it above the product's free stock (0, when no `StockItem` fixture
+ * exists) is what synthesizes a `min_stock` MRP demand entry (`loaders.ts`
+ * `computeMinStockDeficits`), which is the simplest deterministic way to
+ * drive a real MRP run without a sales-module dependency.
+ */
 export async function createPlanningParams(
   request: APIRequestContext,
   token: string,
-  overrides: { productId: string; variantId?: string | null; procurement?: 'make' | 'buy' },
+  overrides: { productId: string; variantId?: string | null; procurement?: 'make' | 'buy'; safetyStock?: number },
 ): Promise<string> {
   const response = await apiRequest(request, 'POST', '/api/production/planning-params', {
     token,
@@ -321,12 +328,23 @@ export async function createPlanningParams(
       productId: overrides.productId,
       variantId: overrides.variantId ?? null,
       procurement: overrides.procurement ?? 'make',
+      ...(overrides.safetyStock !== undefined ? { safetyStock: overrides.safetyStock } : {}),
     },
   })
   expect(response.status(), 'POST /api/production/planning-params should return 201').toBe(201)
   const body = await readJsonSafe<{ id?: string }>(response)
   expect(typeof body?.id === 'string', 'planning params creation response should include an id').toBe(true)
   return String(body!.id)
+}
+
+/** Teardown counterpart to `createPlanningParams` (task 5.4 fixture helper). */
+export async function deletePlanningParamsIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  id: string | null,
+): Promise<void> {
+  if (!token || !id) return
+  await apiRequest(request, 'DELETE', '/api/production/planning-params', { token, data: { id } }).catch(() => null)
 }
 
 /**
