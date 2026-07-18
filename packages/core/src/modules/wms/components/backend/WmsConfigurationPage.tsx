@@ -266,7 +266,12 @@ function SectionCard({
   )
 }
 
-export function WarehouseSection() {
+type ConfigSectionOptions = {
+  /** When set, show a "View all" link to the standalone list page. Omit on that list page itself. */
+  viewAllHref?: string
+}
+
+export function WarehouseSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -469,8 +474,8 @@ export function WarehouseSection() {
         title={t('wms.backend.config.warehouses.title', 'Warehouses')}
         description={t('wms.backend.config.warehouses.description', 'Manage the high-level warehouse nodes used by WMS reservations and inventory movements.')}
         icon={<Warehouse className="size-5" />}
-        viewAllHref="/backend/wms/warehouses"
-        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
       >
         <DataTable
           embedded
@@ -548,7 +553,7 @@ export function WarehouseSection() {
   )
 }
 
-export function ZoneSection() {
+export function ZoneSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
   const queryClient = useQueryClient()
   const { confirm, ConfirmDialogElement } = useConfirmDialog()
@@ -729,8 +734,8 @@ export function ZoneSection() {
         title={t('wms.backend.config.zones.title', 'Zones')}
         description={t('wms.backend.config.zones.description', 'Group locations into functional zones (e.g. receiving, pick face, bulk) to drive routing and priority.')}
         icon={<Layers className="size-5" />}
-        viewAllHref="/backend/wms/zones"
-        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
       >
         <DataTable
           embedded
@@ -808,7 +813,7 @@ export function ZoneSection() {
   )
 }
 
-export function LocationSection() {
+export function LocationSection({ viewAllHref }: ConfigSectionOptions = {}) {
   const t = useT()
   const router = useRouter()
   const queryClient = useQueryClient()
@@ -930,8 +935,8 @@ export function LocationSection() {
         title={t('wms.backend.config.locations.title', 'Locations')}
         description={t('wms.backend.config.locations.description', 'Maintain aisle/bin/dock level topology buckets that hold operational inventory.')}
         icon={<MapPinned className="size-5" />}
-        viewAllHref="/backend/wms/locations"
-        viewAllLabel={t('wms.backend.config.viewAll', 'View all →')}
+        viewAllHref={viewAllHref}
+        viewAllLabel={viewAllHref ? t('wms.backend.config.viewAll', 'View all →') : undefined}
       >
         <DataTable
           embedded
@@ -1324,9 +1329,9 @@ export default function WmsConfigurationPage() {
               </p>
             </div>
           </section>
-          <WarehouseSection />
-          <ZoneSection />
-          <LocationSection />
+          <WarehouseSection viewAllHref="/backend/wms/warehouses" />
+          <ZoneSection viewAllHref="/backend/wms/zones" />
+          <LocationSection viewAllHref="/backend/wms/locations" />
           <InventoryProfilesSection />
         </div>
       </PageBody>
