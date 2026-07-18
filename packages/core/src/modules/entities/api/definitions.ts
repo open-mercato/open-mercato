@@ -393,6 +393,11 @@ export async function GET(req: Request) {
         label: d.configJson?.label || d.key,
         description: d.configJson?.description || undefined,
         multi: Boolean(d.configJson?.multi),
+        // Relation target (README: relation fields carry `relatedEntityId` in config).
+        // Exposed so list/detail UIs can resolve display labels instead of raw record ids.
+        relatedEntityId: d.kind === 'relation' && typeof d.configJson?.relatedEntityId === 'string'
+          ? d.configJson.relatedEntityId
+          : undefined,
         options: (() => {
           if (d.kind === 'currency') return undefined
           const normalizedOptions = normalizeCustomFieldOptions(d.configJson?.options)
