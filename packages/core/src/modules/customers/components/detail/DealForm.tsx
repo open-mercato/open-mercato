@@ -281,6 +281,14 @@ function normalizeCurrency(value: string | null | undefined): string {
   return value.trim().slice(0, 3).toUpperCase()
 }
 
+function formatReadonlyDateTime(value: unknown): string {
+  if (typeof value !== 'string' || !value.trim()) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return '—'
+  const pad = (part: number) => String(part).padStart(2, '0')
+  return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 function sanitizeIdList(input: unknown): string[] {
   if (!Array.isArray(input)) return []
   const set = new Set<string>()
@@ -1004,6 +1012,19 @@ export function DealForm({
       type: 'date',
       layout: 'half',
     },
+    ...(mode === 'edit' && typeof initialValues?.createdAt === 'string'
+      ? [{
+          id: 'createdAt',
+          label: t('customers.people.detail.deals.fields.createdAt', 'Created at'),
+          type: 'custom',
+          layout: 'half',
+          component: ({ value }) => (
+            <div className="flex h-10 items-center rounded-md border border-border bg-muted/30 px-3 text-sm text-muted-foreground">
+              {formatReadonlyDateTime(value)}
+            </div>
+          ),
+        } as CrudField]
+      : []),
     {
       id: 'description',
       label: t('customers.people.detail.deals.fields.description', 'Description'),
@@ -1050,7 +1071,7 @@ export function DealForm({
         />
       ),
     } as CrudField,
-  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, searchCompanies, searchPeople, t])
+  ], [currencyDictionaryLabels, fetchCurrencyOptions, resolvedCurrencyError, pipelines, pipelineStages, loadStagesForPipeline, dictionaryLabels.status, disabled, fetchCompaniesByIds, fetchPeopleByIds, initialValues?.createdAt, mode, searchCompanies, searchPeople, t])
 
   const groups = React.useMemo<CrudFormGroup[]>(() => {
     const nextGroups: CrudFormGroup[] = [
@@ -1058,7 +1079,18 @@ export function DealForm({
         id: 'details',
         title: t('customers.people.detail.deals.form.details', 'Deal details'),
         column: 1,
-        fields: ['title', 'status', 'pipelineId', 'pipelineStageId', 'valueAmount', 'valueCurrency', 'probability', 'expectedCloseAt', 'description'],
+        fields: [
+          'title',
+          'status',
+          'pipelineId',
+          'pipelineStageId',
+          'valueAmount',
+          'valueCurrency',
+          'probability',
+          'expectedCloseAt',
+          ...(mode === 'edit' && typeof initialValues?.createdAt === 'string' ? ['createdAt'] : []),
+          'description',
+        ],
       },
       ...(showAssociationsGroup
         ? [{
@@ -1076,7 +1108,7 @@ export function DealForm({
       },
     ]
     return nextGroups.map((group) => (singleColumnGroups ? { ...group, column: 1 } : group))
-  }, [showAssociationsGroup, singleColumnGroups, t])
+  }, [initialValues?.createdAt, mode, showAssociationsGroup, singleColumnGroups, t])
 
   const embeddedInitialValues = React.useMemo(() => {
     const normalizeNumber = (value: unknown): number | null => {
@@ -1115,6 +1147,7 @@ export function DealForm({
       valueCurrency: normalizeCurrency(initialValues?.valueCurrency ?? null),
       probability: normalizeNumber(initialValues?.probability ?? null),
       expectedCloseAt: toDateInputValue(initialValues?.expectedCloseAt ?? null),
+      createdAt: typeof initialValues?.createdAt === 'string' ? initialValues.createdAt : undefined,
       description: initialValues?.description ?? '',
       personIds: sanitizeIdList(initialValues?.personIds ?? resolveIdsFromSource(initialValues?.people)),
       companyIds: sanitizeIdList(initialValues?.companyIds ?? resolveIdsFromSource(initialValues?.companies)),

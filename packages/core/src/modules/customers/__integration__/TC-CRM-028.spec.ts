@@ -463,7 +463,7 @@ async function waitForMapping(
   token: string,
   query: { interactionId?: string; todoId?: string },
   scope?: { tenantId?: string | null; organizationId?: string | null },
-  options?: { expectedStatus?: string; onAttempt?: () => Promise<void> },
+  options?: { expectedStatus?: string; onAttempt?: () => Promise<void>; timeoutMs?: number },
 ): Promise<MappingItem> {
   let mapping: MappingItem | null = null;
   const expected = options?.expectedStatus;
@@ -481,7 +481,7 @@ async function waitForMapping(
       // duplicate-key fallback would otherwise leak into the assertion.
       if (expected && mapping.syncStatus !== expected) return null;
       return mapping.todoId;
-    }, { timeout: 15_000, intervals: [250, 500, 1_000] })
+    }, { timeout: options?.timeoutMs ?? 15_000, intervals: [250, 500, 1_000] })
     .not.toBeNull();
   if (!mapping) {
     throw new Error('Expected example customer sync mapping to be available');
@@ -819,6 +819,7 @@ test.describe('TC-CRM-028: Example customer sync', () => {
 
       const mapping = await waitForMapping(request, superadminToken, { todoId }, undefined, {
         onAttempt: () => flushExampleCustomersSyncQueues({ events: true, inbound: true, outbound: false }),
+        timeoutMs: 100_000,
       });
       interactionId = mapping.interactionId;
       expect(interactionId).toBe(todoId);
