@@ -106,10 +106,16 @@ Read more on the [Open Mercato Architecture](https://docs.openmercato.com/archit
 
 ### ⚡ Quick start
 
-**You need:** [Node.js 24](https://nodejs.org/en/download) · [Git](https://git-scm.com/) · PostgreSQL + Redis (easiest via [Docker Desktop](https://www.docker.com/products/docker-desktop/))
+**One command.** With [Node.js](https://nodejs.org/en/download) (any recent version) installed:
+
+```bash
+npx @open-mercato/starter
+```
+
+It clones the repo if needed, audits your machine (`doctor`), handles corporate proxies/TLS interception, generates `.env` + secrets, starts the infra containers, initializes the database, and boots the supervised dev runtime — idempotently, so re-running always resumes where it stopped. Inside a clone use `yarn om`. No Node at all? Use the no-admin bootstraps in [`packages/starter/platform/`](packages/starter/platform/) (`start.cmd` double-click on Windows, `start.sh` on macOS/Linux). A container runtime ([Docker Desktop](https://www.docker.com/products/docker-desktop/) or [Rancher Desktop](https://rancherdesktop.io)) is detected and guided, never installed for you. See [`packages/starter/README.md`](packages/starter/README.md).
 
 <details>
-<summary><strong>🔧 Monorepo</strong> — core development / full demo</summary>
+<summary><strong>🔧 Monorepo, manual steps</strong> — if you prefer to run each stage yourself</summary>
 
 ```bash
 # macOS / Linux
@@ -125,7 +131,7 @@ yarn dev:greenfield                   # installs, builds, seeds, starts the app
 ```
 
 ```powershell
-# Windows (PowerShell as Administrator — or use Git Bash / cmd)
+# Windows (PowerShell — or use Git Bash / cmd)
 # 1. Install Node.js 24 MSI from https://nodejs.org/en/download, then open a new terminal
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
 corepack enable; corepack prepare yarn@4.12.0 --activate

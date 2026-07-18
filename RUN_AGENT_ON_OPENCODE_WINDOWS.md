@@ -22,17 +22,20 @@ orchestrator tools, the outcome is captured, persisted, and shown in the Playgro
 
 ## 1. Boot the stack (one command)
 
-Double-click **`starters\docker\windows\start-windows.bat`** in the repo — or
-`start-windows-rancher.bat` on Rancher Desktop machines. It installs anything missing
-(Git, WSL2, a container runtime), generates `.env` secrets, prompts for an LLM provider,
-builds and starts the full stack (app :3000, MCP :3001, OpenCode :4096, PostgreSQL, Redis,
-Meilisearch), and prints the superadmin credentials at the end.
+Double-click **`packages\starter\platform\start.cmd`** in the repo (installs a portable
+Node 24 without admin, then runs the starter), or run `npx @open-mercato/starter up --mode docker`
+if you already have Node. The starter audits prerequisites (WSL2 and the container runtime
+are detected and proposed with exact instructions, never installed for you), handles
+corporate proxy/TLS-interception trust, generates `.env` secrets, prompts for an LLM
+provider, builds and starts the full stack (app :3000, MCP :3001, OpenCode :4096,
+PostgreSQL, Redis, Meilisearch), and prints the superadmin credentials at the end.
 
 - The shipped example agents use **Anthropic** models — pick **Anthropic (Claude)** at the
   LLM prompt and paste your `sk-ant-...` key.
 - Requirements, troubleshooting, and the full manual live in
   [`docs/manuals/windows/`](docs/manuals/windows/). On locked-down corporate machines run
-  the read-only `starters\docker\windows\check-windows.bat` first.
+  the read-only audit first: `npx @open-mercato/starter doctor` (prints a "hand this to IT"
+  sheet for anything that needs admin rights).
 
 > **Do NOT set `MCP_SERVER_API_KEY` yourself.** In this stack the `mcp` container
 > provisions a real database-backed key into a shared volume and OpenCode reads it from
@@ -128,7 +131,7 @@ Keep agents **propose-only**: read-only `tools` allowlist, no `isMutation:true` 
 Quick recap:
 
 ```powershell
-starters\docker\windows\start-windows.bat    # full stack; pick Anthropic at the LLM prompt
+packages\starter\platform\start.cmd up --mode docker   # full stack; pick Anthropic at the LLM prompt
 #   apps\mercato\.env: OM_ENABLE_ENTERPRISE_MODULES=true + OM_ENABLE_ENTERPRISE_MODULES_AGENTS=true
 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart app mcp opencode
 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml exec app yarn mercato auth sync-role-acls

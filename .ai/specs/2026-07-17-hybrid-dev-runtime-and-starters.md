@@ -1,5 +1,11 @@
 # Hybrid Dev Runtime + `starters/` Consolidation
 
+> **Superseded (2026-07-19)** for the script surface: the `starters/hybrid/` and
+> `starters/docker/windows/` entry scripts described below were replaced by the
+> `@open-mercato/starter` package (`packages/starter/`, `yarn om`,
+> `npx @open-mercato/starter`). The hybrid runtime topology and compose layout
+> remain accurate. See `.ai/specs/2026-07-19-unified-starter-package.md`.
+
 - **Date**: 2026-07-17
 - **Status**: Implemented
 - **Scope**: OSS — dev environment, no runtime product behavior changes
