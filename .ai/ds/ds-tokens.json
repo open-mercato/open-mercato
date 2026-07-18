@@ -1,0 +1,1486 @@
+{
+  "source": "apps/mercato/src/app/globals.css",
+  "generator": "scripts/ds-tokens-export.mjs",
+  "tokens": {
+    "accent": {
+      "kind": "color",
+      "light": "oklch(0.97 0 0)",
+      "dark": "oklch(0.269 0 0)",
+      "hex": {
+        "light": "#f5f5f5",
+        "dark": "#262626"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-accent",
+      "figma": {
+        "name": "accent",
+        "type": "COLOR"
+      }
+    },
+    "accent-foreground": {
+      "kind": "color",
+      "light": "oklch(0.205 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#171717",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-accent-foreground",
+      "figma": {
+        "name": "accent-foreground",
+        "type": "COLOR"
+      }
+    },
+    "accent-indigo": {
+      "kind": "color",
+      "light": "#6366f1",
+      "dark": "#818cf8",
+      "hex": {
+        "light": "#6366f1",
+        "dark": "#818cf8"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-accent-indigo",
+      "figma": {
+        "name": "accent/indigo",
+        "type": "COLOR"
+      },
+      "note": "Accent indigo — used for selection controls (checkbox, radio, switch)"
+    },
+    "accent-indigo-foreground": {
+      "kind": "color",
+      "light": "#ffffff",
+      "dark": "#ffffff",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#ffffff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-accent-indigo-foreground",
+      "figma": {
+        "name": "accent/indigo-foreground",
+        "type": "COLOR"
+      }
+    },
+    "background": {
+      "kind": "color",
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.145 0 0)",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#0a0a0a"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-background",
+      "figma": {
+        "name": "background",
+        "type": "COLOR"
+      }
+    },
+    "bg-disabled": {
+      "kind": "color",
+      "light": "#f7f7f7",
+      "dark": "oklch(0.25 0 0)",
+      "hex": {
+        "light": "#f7f7f7",
+        "dark": "#222222"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-bg-disabled",
+      "figma": {
+        "name": "bg-disabled",
+        "type": "COLOR"
+      },
+      "note": "Disabled control tokens (Figma: bg/weak-25, text/disabled-300, stroke-soft-200)"
+    },
+    "border": {
+      "kind": "color",
+      "light": "oklch(0.922 0 0)",
+      "dark": "oklch(1 0 0 / 10%)",
+      "hex": {
+        "light": "#e5e5e5",
+        "dark": "#ffffff1a"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-border",
+      "figma": {
+        "name": "border",
+        "type": "COLOR"
+      }
+    },
+    "border-disabled": {
+      "kind": "color",
+      "light": "#ebebeb",
+      "dark": "oklch(0.30 0 0)",
+      "hex": {
+        "light": "#ebebeb",
+        "dark": "#2e2e2e"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-border-disabled",
+      "figma": {
+        "name": "border-disabled",
+        "type": "COLOR"
+      }
+    },
+    "brand-apple": {
+      "kind": "color",
+      "light": "#000000",
+      "dark": null,
+      "hex": {
+        "light": "#000000",
+        "dark": "#000000"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-apple",
+      "figma": {
+        "name": "brand/apple",
+        "type": "COLOR"
+      },
+      "note": "Social brand colors — theme-invariant"
+    },
+    "brand-dropbox": {
+      "kind": "color",
+      "light": "#0061FF",
+      "dark": null,
+      "hex": {
+        "light": "#0061ff",
+        "dark": "#0061ff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-dropbox",
+      "figma": {
+        "name": "brand/dropbox",
+        "type": "COLOR"
+      }
+    },
+    "brand-facebook": {
+      "kind": "color",
+      "light": "#1877F2",
+      "dark": null,
+      "hex": {
+        "light": "#1877f2",
+        "dark": "#1877f2"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-facebook",
+      "figma": {
+        "name": "brand/facebook",
+        "type": "COLOR"
+      }
+    },
+    "brand-github": {
+      "kind": "color",
+      "light": "#181717",
+      "dark": null,
+      "hex": {
+        "light": "#181717",
+        "dark": "#181717"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-github",
+      "figma": {
+        "name": "brand/github",
+        "type": "COLOR"
+      }
+    },
+    "brand-google-stroke": {
+      "kind": "color",
+      "light": "#DADCE0",
+      "dark": null,
+      "hex": {
+        "light": "#dadce0",
+        "dark": "#dadce0"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-google-stroke",
+      "figma": {
+        "name": "brand/google-stroke",
+        "type": "COLOR"
+      }
+    },
+    "brand-lime": {
+      "kind": "color",
+      "light": "#B4F372",
+      "dark": null,
+      "hex": {
+        "light": "#b4f372",
+        "dark": "#b4f372"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-lime",
+      "figma": {
+        "name": "brand/lime",
+        "type": "COLOR"
+      },
+      "note": "Brand lime — theme-invariant (no .dark override). Brand violet is themed (see below + .dark)."
+    },
+    "brand-linkedin": {
+      "kind": "color",
+      "light": "#0A66C2",
+      "dark": null,
+      "hex": {
+        "light": "#0a66c2",
+        "dark": "#0a66c2"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-linkedin",
+      "figma": {
+        "name": "brand/linkedin",
+        "type": "COLOR"
+      }
+    },
+    "brand-violet": {
+      "kind": "color",
+      "light": "#BC9AFF",
+      "dark": "#BC9AFF",
+      "hex": {
+        "light": "#bc9aff",
+        "dark": "#bc9aff"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-violet",
+      "figma": {
+        "name": "brand/violet",
+        "type": "COLOR"
+      }
+    },
+    "brand-violet-foreground": {
+      "kind": "color",
+      "light": "#0C0C0C",
+      "dark": "#0C0C0C",
+      "hex": {
+        "light": "#0c0c0c",
+        "dark": "#0c0c0c"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-violet-foreground",
+      "figma": {
+        "name": "brand/violet-foreground",
+        "type": "COLOR"
+      }
+    },
+    "brand-x": {
+      "kind": "color",
+      "light": "#000000",
+      "dark": null,
+      "hex": {
+        "light": "#000000",
+        "dark": "#000000"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-brand-x",
+      "figma": {
+        "name": "brand/x",
+        "type": "COLOR"
+      }
+    },
+    "card": {
+      "kind": "color",
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.205 0 0)",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#171717"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-card",
+      "figma": {
+        "name": "card",
+        "type": "COLOR"
+      }
+    },
+    "card-foreground": {
+      "kind": "color",
+      "light": "oklch(0.145 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#0a0a0a",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-card-foreground",
+      "figma": {
+        "name": "card-foreground",
+        "type": "COLOR"
+      }
+    },
+    "chart-1": {
+      "kind": "color",
+      "light": "oklch(0.646 0.222 41.116)",
+      "dark": "oklch(0.488 0.243 264.376)",
+      "hex": {
+        "light": "#f54900",
+        "dark": "#1447e6"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-1",
+      "figma": {
+        "name": "chart/1",
+        "type": "COLOR"
+      }
+    },
+    "chart-2": {
+      "kind": "color",
+      "light": "oklch(0.6 0.118 184.704)",
+      "dark": "oklch(0.696 0.17 162.48)",
+      "hex": {
+        "light": "#009689",
+        "dark": "#00bc7d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-2",
+      "figma": {
+        "name": "chart/2",
+        "type": "COLOR"
+      }
+    },
+    "chart-3": {
+      "kind": "color",
+      "light": "oklch(0.398 0.07 227.392)",
+      "dark": "oklch(0.769 0.188 70.08)",
+      "hex": {
+        "light": "#104e64",
+        "dark": "#fe9a00"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-3",
+      "figma": {
+        "name": "chart/3",
+        "type": "COLOR"
+      }
+    },
+    "chart-4": {
+      "kind": "color",
+      "light": "oklch(0.828 0.189 84.429)",
+      "dark": "oklch(0.627 0.265 303.9)",
+      "hex": {
+        "light": "#ffb900",
+        "dark": "#ad46ff"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-4",
+      "figma": {
+        "name": "chart/4",
+        "type": "COLOR"
+      }
+    },
+    "chart-5": {
+      "kind": "color",
+      "light": "oklch(0.769 0.188 70.08)",
+      "dark": "oklch(0.645 0.246 16.439)",
+      "hex": {
+        "light": "#fe9a00",
+        "dark": "#ff2056"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-chart-5",
+      "figma": {
+        "name": "chart/5",
+        "type": "COLOR"
+      }
+    },
+    "chart-amber": {
+      "kind": "color",
+      "light": "oklch(0.769 0.188 70.08)",
+      "dark": "oklch(0.82 0.16 84.429)",
+      "hex": {
+        "light": "#fe9a00",
+        "dark": "#f4ba26"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/amber",
+        "type": "COLOR"
+      }
+    },
+    "chart-blue": {
+      "kind": "color",
+      "light": "oklch(0.546 0.245 262.881)",
+      "dark": "oklch(0.623 0.214 259.815)",
+      "hex": {
+        "light": "#155dfc",
+        "dark": "#2b7fff"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/blue",
+        "type": "COLOR"
+      },
+      "note": "Chart named colors - light theme"
+    },
+    "chart-cyan": {
+      "kind": "color",
+      "light": "oklch(0.715 0.143 215.221)",
+      "dark": "oklch(0.789 0.154 211.53)",
+      "hex": {
+        "light": "#00b8db",
+        "dark": "#00d3f2"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/cyan",
+        "type": "COLOR"
+      }
+    },
+    "chart-emerald": {
+      "kind": "color",
+      "light": "oklch(0.596 0.145 163.225)",
+      "dark": "oklch(0.696 0.17 162.48)",
+      "hex": {
+        "light": "#009966",
+        "dark": "#00bc7d"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/emerald",
+        "type": "COLOR"
+      }
+    },
+    "chart-indigo": {
+      "kind": "color",
+      "light": "oklch(0.511 0.262 276.966)",
+      "dark": "oklch(0.585 0.233 277.117)",
+      "hex": {
+        "light": "#4f39f6",
+        "dark": "#615fff"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/indigo",
+        "type": "COLOR"
+      }
+    },
+    "chart-orange": {
+      "kind": "color",
+      "light": "oklch(0.705 0.213 47.604)",
+      "dark": "oklch(0.792 0.184 56.043)",
+      "hex": {
+        "light": "#ff6900",
+        "dark": "#ff9624"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/orange",
+        "type": "COLOR"
+      }
+    },
+    "chart-pink": {
+      "kind": "color",
+      "light": "oklch(0.656 0.241 354.308)",
+      "dark": "oklch(0.718 0.202 349.761)",
+      "hex": {
+        "light": "#f6339a",
+        "dark": "#fb64b6"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/pink",
+        "type": "COLOR"
+      }
+    },
+    "chart-rose": {
+      "kind": "color",
+      "light": "oklch(0.645 0.246 16.439)",
+      "dark": "oklch(0.712 0.194 13.428)",
+      "hex": {
+        "light": "#ff2056",
+        "dark": "#ff637e"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/rose",
+        "type": "COLOR"
+      }
+    },
+    "chart-teal": {
+      "kind": "color",
+      "light": "oklch(0.627 0.134 175.001)",
+      "dark": "oklch(0.704 0.14 180.72)",
+      "hex": {
+        "light": "#00a284",
+        "dark": "#00bba4"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/teal",
+        "type": "COLOR"
+      }
+    },
+    "chart-violet": {
+      "kind": "color",
+      "light": "oklch(0.606 0.25 292.717)",
+      "dark": "oklch(0.702 0.183 293.541)",
+      "hex": {
+        "light": "#8e51ff",
+        "dark": "#a684ff"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "chart/violet",
+        "type": "COLOR"
+      }
+    },
+    "destructive": {
+      "kind": "color",
+      "light": "oklch(0.577 0.245 27.325)",
+      "dark": "oklch(0.704 0.191 22.216)",
+      "hex": {
+        "light": "#e7000b",
+        "dark": "#ff6467"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-destructive",
+      "figma": {
+        "name": "destructive",
+        "type": "COLOR"
+      }
+    },
+    "focus-ring-inner": {
+      "kind": "color",
+      "light": "rgba(255, 255, 255, 1)",
+      "dark": "var(--background)",
+      "hex": {
+        "light": "#ffffff",
+        "dark": null
+      },
+      "themeInvariant": false,
+      "figma": null,
+      "note": "Focus ring tokens (Figma dual-shadow spec — opt-in via .focus-ring-fancy)"
+    },
+    "focus-ring-outer": {
+      "kind": "color",
+      "light": "rgba(153, 160, 174, 0.16)",
+      "dark": "rgba(255, 255, 255, 0.18)",
+      "hex": {
+        "light": "#99a0ae29",
+        "dark": "#ffffff2e"
+      },
+      "themeInvariant": false,
+      "figma": {
+        "name": "focus-ring-outer",
+        "type": "COLOR"
+      }
+    },
+    "font-geist-mono": {
+      "kind": "fontStack",
+      "light": "ui-monospace, \"SFMono-Regular\", \"SF Mono\", Consolas, \"Liberation Mono\", Menlo, monospace",
+      "dark": null,
+      "themeInvariant": true,
+      "themeAlias": "font-mono",
+      "figma": null
+    },
+    "font-geist-sans": {
+      "kind": "fontStack",
+      "light": "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, \"Segoe UI\", sans-serif",
+      "dark": null,
+      "themeInvariant": true,
+      "themeAlias": "font-sans",
+      "figma": null
+    },
+    "font-size-overline": {
+      "kind": "dimension",
+      "value": "0.6875rem",
+      "figma": null,
+      "note": "═══ Design System: Typography ═══"
+    },
+    "font-size-overline--line-height": {
+      "kind": "dimension",
+      "value": "1rem",
+      "figma": null
+    },
+    "foreground": {
+      "kind": "color",
+      "light": "oklch(0.145 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#0a0a0a",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-foreground",
+      "figma": {
+        "name": "foreground",
+        "type": "COLOR"
+      }
+    },
+    "input": {
+      "kind": "color",
+      "light": "oklch(0.922 0 0)",
+      "dark": "oklch(1 0 0 / 15%)",
+      "hex": {
+        "light": "#e5e5e5",
+        "dark": "#ffffff26"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-input",
+      "figma": {
+        "name": "input",
+        "type": "COLOR"
+      }
+    },
+    "muted": {
+      "kind": "color",
+      "light": "oklch(0.97 0 0)",
+      "dark": "oklch(0.269 0 0)",
+      "hex": {
+        "light": "#f5f5f5",
+        "dark": "#262626"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-muted",
+      "figma": {
+        "name": "muted",
+        "type": "COLOR"
+      }
+    },
+    "muted-foreground": {
+      "kind": "color",
+      "light": "oklch(0.556 0 0)",
+      "dark": "oklch(0.708 0 0)",
+      "hex": {
+        "light": "#737373",
+        "dark": "#a1a1a1"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-muted-foreground",
+      "figma": {
+        "name": "muted-foreground",
+        "type": "COLOR"
+      }
+    },
+    "popover": {
+      "kind": "color",
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.205 0 0)",
+      "hex": {
+        "light": "#ffffff",
+        "dark": "#171717"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-popover",
+      "figma": {
+        "name": "popover",
+        "type": "COLOR"
+      }
+    },
+    "popover-foreground": {
+      "kind": "color",
+      "light": "oklch(0.145 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#0a0a0a",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-popover-foreground",
+      "figma": {
+        "name": "popover-foreground",
+        "type": "COLOR"
+      }
+    },
+    "primary": {
+      "kind": "color",
+      "light": "oklch(0.205 0 0)",
+      "dark": "oklch(0.922 0 0)",
+      "hex": {
+        "light": "#171717",
+        "dark": "#e5e5e5"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-primary",
+      "figma": {
+        "name": "primary",
+        "type": "COLOR"
+      }
+    },
+    "primary-foreground": {
+      "kind": "color",
+      "light": "oklch(0.985 0 0)",
+      "dark": "oklch(0.205 0 0)",
+      "hex": {
+        "light": "#fafafa",
+        "dark": "#171717"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-primary-foreground",
+      "figma": {
+        "name": "primary-foreground",
+        "type": "COLOR"
+      }
+    },
+    "primary-hover": {
+      "kind": "color",
+      "light": "oklch(0.145 0 0)",
+      "dark": "oklch(0.85 0 0)",
+      "hex": {
+        "light": "#0a0a0a",
+        "dark": "#cecece"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-primary-hover",
+      "figma": {
+        "name": "primary-hover",
+        "type": "COLOR"
+      }
+    },
+    "radius": {
+      "kind": "dimension",
+      "light": "0.625rem",
+      "dark": null,
+      "resolvedPx": 10,
+      "themeInvariant": true,
+      "figma": {
+        "name": "radius/base",
+        "type": "FLOAT"
+      }
+    },
+    "radius-lg": {
+      "kind": "expression",
+      "value": "var(--radius)",
+      "resolvedPx": 10,
+      "figma": {
+        "name": "radius/lg",
+        "type": "FLOAT"
+      }
+    },
+    "radius-md": {
+      "kind": "expression",
+      "value": "calc(var(--radius) - 2px)",
+      "resolvedPx": 8,
+      "figma": {
+        "name": "radius/md",
+        "type": "FLOAT"
+      }
+    },
+    "radius-sm": {
+      "kind": "expression",
+      "value": "calc(var(--radius) - 4px)",
+      "resolvedPx": 6,
+      "figma": {
+        "name": "radius/sm",
+        "type": "FLOAT"
+      }
+    },
+    "radius-xl": {
+      "kind": "expression",
+      "value": "calc(var(--radius) + 6px)",
+      "resolvedPx": 16,
+      "figma": {
+        "name": "radius/xl",
+        "type": "FLOAT"
+      }
+    },
+    "ring": {
+      "kind": "color",
+      "light": "oklch(0.708 0 0)",
+      "dark": "oklch(0.556 0 0)",
+      "hex": {
+        "light": "#a1a1a1",
+        "dark": "#737373"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-ring",
+      "figma": {
+        "name": "ring",
+        "type": "COLOR"
+      }
+    },
+    "secondary": {
+      "kind": "color",
+      "light": "oklch(0.97 0 0)",
+      "dark": "oklch(0.269 0 0)",
+      "hex": {
+        "light": "#f5f5f5",
+        "dark": "#262626"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-secondary",
+      "figma": {
+        "name": "secondary",
+        "type": "COLOR"
+      }
+    },
+    "secondary-foreground": {
+      "kind": "color",
+      "light": "oklch(0.205 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#171717",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-secondary-foreground",
+      "figma": {
+        "name": "secondary-foreground",
+        "type": "COLOR"
+      }
+    },
+    "shadow-2xl": {
+      "kind": "shadow",
+      "value": "0 25px 50px rgb(16 24 40 / 0.20)",
+      "dark": "0 25px 50px rgb(0 0 0 / 0.80)",
+      "themeInvariant": false,
+      "figma": null
+    },
+    "shadow-focus": {
+      "kind": "shadow",
+      "value": "0 0 0 2px var(--focus-ring-inner), 0 0 0 4px var(--focus-ring-outer)",
+      "figma": null,
+      "note": "Figma button focus: 2px white inner + 4px slate-alpha-16 outer"
+    },
+    "shadow-lg": {
+      "kind": "shadow",
+      "value": "0 12px 32px rgb(16 24 40 / 0.10)",
+      "dark": "0 12px 32px rgb(0 0 0 / 0.60)",
+      "themeInvariant": false,
+      "figma": null
+    },
+    "shadow-md": {
+      "kind": "shadow",
+      "value": "0 4px 12px rgb(16 24 40 / 0.08)",
+      "dark": "0 4px 12px rgb(0 0 0 / 0.50)",
+      "themeInvariant": false,
+      "figma": null
+    },
+    "shadow-sm": {
+      "kind": "shadow",
+      "value": "0 1px 3px rgb(16 24 40 / 0.08), 0 1px 2px rgb(16 24 40 / 0.06)",
+      "dark": "0 1px 3px rgb(0 0 0 / 0.40), 0 1px 2px rgb(0 0 0 / 0.30)",
+      "themeInvariant": false,
+      "figma": null
+    },
+    "shadow-switch-thumb": {
+      "kind": "shadow",
+      "value": "0 1px 2px rgb(10 13 20 / 0.10), 0 0 0 0.5px rgb(10 13 20 / 0.04)",
+      "dark": "0 1px 2px rgb(0 0 0 / 0.40), 0 0 0 0.5px rgb(0 0 0 / 0.30)",
+      "themeInvariant": false,
+      "figma": null,
+      "note": "Switch thumb: thin drop shadow + hairline outline (matches Figma switch spec)."
+    },
+    "shadow-xl": {
+      "kind": "shadow",
+      "value": "0 20px 40px rgb(16 24 40 / 0.12)",
+      "dark": "0 20px 40px rgb(0 0 0 / 0.70)",
+      "themeInvariant": false,
+      "figma": null
+    },
+    "shadow-xs": {
+      "kind": "shadow",
+      "value": "0 1px 2px rgb(16 24 40 / 0.05)",
+      "dark": "0 1px 2px rgb(0 0 0 / 0.30)",
+      "themeInvariant": false,
+      "figma": null,
+      "note": "═══ Design System: Shadow Scale ═══ Tuned to ink #101828. Dark mode overrides in .dark below. xs → flat controls (button, input, icon-button) sm → cards, panels, sections md → hover elevation, slightly raised cards lg → dialogs, overlays, popovers xl → floating panels (drawers, side sheets) 2xl → top-level modals, command palette"
+    },
+    "sidebar": {
+      "kind": "color",
+      "light": "oklch(0.985 0 0)",
+      "dark": "oklch(0.205 0 0)",
+      "hex": {
+        "light": "#fafafa",
+        "dark": "#171717"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar",
+      "figma": {
+        "name": "sidebar",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-accent": {
+      "kind": "color",
+      "light": "oklch(0.97 0 0)",
+      "dark": "oklch(0.269 0 0)",
+      "hex": {
+        "light": "#f5f5f5",
+        "dark": "#262626"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-accent",
+      "figma": {
+        "name": "sidebar-accent",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-accent-foreground": {
+      "kind": "color",
+      "light": "oklch(0.205 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#171717",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-accent-foreground",
+      "figma": {
+        "name": "sidebar-accent-foreground",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-border": {
+      "kind": "color",
+      "light": "oklch(0.922 0 0)",
+      "dark": "oklch(1 0 0 / 10%)",
+      "hex": {
+        "light": "#e5e5e5",
+        "dark": "#ffffff1a"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-border",
+      "figma": {
+        "name": "sidebar-border",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-foreground": {
+      "kind": "color",
+      "light": "oklch(0.145 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#0a0a0a",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-foreground",
+      "figma": {
+        "name": "sidebar-foreground",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-primary": {
+      "kind": "color",
+      "light": "oklch(0.205 0 0)",
+      "dark": "oklch(0.488 0.243 264.376)",
+      "hex": {
+        "light": "#171717",
+        "dark": "#1447e6"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-primary",
+      "figma": {
+        "name": "sidebar-primary",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-primary-foreground": {
+      "kind": "color",
+      "light": "oklch(0.985 0 0)",
+      "dark": "oklch(0.985 0 0)",
+      "hex": {
+        "light": "#fafafa",
+        "dark": "#fafafa"
+      },
+      "themeInvariant": true,
+      "themeAlias": "color-sidebar-primary-foreground",
+      "figma": {
+        "name": "sidebar-primary-foreground",
+        "type": "COLOR"
+      }
+    },
+    "sidebar-ring": {
+      "kind": "color",
+      "light": "oklch(0.708 0 0)",
+      "dark": "oklch(0.556 0 0)",
+      "hex": {
+        "light": "#a1a1a1",
+        "dark": "#737373"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-sidebar-ring",
+      "figma": {
+        "name": "sidebar-ring",
+        "type": "COLOR"
+      }
+    },
+    "status-error-bg": {
+      "kind": "color",
+      "light": "oklch(0.971 0.013 17.38)",
+      "dark": "oklch(0.258 0.092 26.042)",
+      "hex": {
+        "light": "#fef2f2",
+        "dark": "#460809"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-error-bg",
+      "figma": {
+        "name": "status/error/bg",
+        "type": "COLOR"
+      },
+      "note": "red-50 #fef2f2"
+    },
+    "status-error-border": {
+      "kind": "color",
+      "light": "oklch(0.885 0.062 18.334)",
+      "dark": "oklch(0.444 0.177 26.899)",
+      "hex": {
+        "light": "#ffc9c9",
+        "dark": "#9f0712"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-error-border",
+      "figma": {
+        "name": "status/error/border",
+        "type": "COLOR"
+      },
+      "note": "red-200 #fecaca"
+    },
+    "status-error-icon": {
+      "kind": "color",
+      "light": "oklch(0.577 0.245 27.325)",
+      "dark": "oklch(0.637 0.237 25.331)",
+      "hex": {
+        "light": "#e7000b",
+        "dark": "#fb2c36"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-error-icon",
+      "figma": {
+        "name": "status/error/icon",
+        "type": "COLOR"
+      },
+      "note": "red-600 #dc2626 = --destructive"
+    },
+    "status-error-text": {
+      "kind": "color",
+      "light": "oklch(0.396 0.141 25.723)",
+      "dark": "oklch(0.808 0.114 19.571)",
+      "hex": {
+        "light": "#82181a",
+        "dark": "#ffa2a2"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-error-text",
+      "figma": {
+        "name": "status/error/text",
+        "type": "COLOR"
+      },
+      "note": "red-900 #7f1d1d"
+    },
+    "status-info-bg": {
+      "kind": "color",
+      "light": "oklch(0.962 0.018 272.314)",
+      "dark": "oklch(0.257 0.09 281.288)",
+      "hex": {
+        "light": "#eef2ff",
+        "dark": "#1e1a4d"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-info-bg",
+      "figma": {
+        "name": "status/info/bg",
+        "type": "COLOR"
+      },
+      "note": "indigo-50 #eef2ff"
+    },
+    "status-info-border": {
+      "kind": "color",
+      "light": "oklch(0.870 0.065 274.039)",
+      "dark": "oklch(0.398 0.195 277.366)",
+      "hex": {
+        "light": "#c6d2ff",
+        "dark": "#372aac"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-info-border",
+      "figma": {
+        "name": "status/info/border",
+        "type": "COLOR"
+      },
+      "note": "indigo-200 #c7d2fe"
+    },
+    "status-info-icon": {
+      "kind": "color",
+      "light": "oklch(0.511 0.262 276.966)",
+      "dark": "oklch(0.585 0.233 277.117)",
+      "hex": {
+        "light": "#4f39f6",
+        "dark": "#615fff"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-info-icon",
+      "figma": {
+        "name": "status/info/icon",
+        "type": "COLOR"
+      },
+      "note": "indigo-600 #4f46e5 = --chart-indigo"
+    },
+    "status-info-text": {
+      "kind": "color",
+      "light": "oklch(0.359 0.144 278.697)",
+      "dark": "oklch(0.785 0.115 274.713)",
+      "hex": {
+        "light": "#312c85",
+        "dark": "#a3b3ff"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-info-text",
+      "figma": {
+        "name": "status/info/text",
+        "type": "COLOR"
+      },
+      "note": "indigo-900 #312e81"
+    },
+    "status-neutral-bg": {
+      "kind": "color",
+      "light": "oklch(0.97 0 0)",
+      "dark": "oklch(0.205 0 0)",
+      "hex": {
+        "light": "#f5f5f5",
+        "dark": "#171717"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-neutral-bg",
+      "figma": {
+        "name": "status/neutral/bg",
+        "type": "COLOR"
+      },
+      "note": "neutral-100 #f5f5f5"
+    },
+    "status-neutral-border": {
+      "kind": "color",
+      "light": "oklch(0.922 0 0)",
+      "dark": "oklch(0.371 0 0)",
+      "hex": {
+        "light": "#e5e5e5",
+        "dark": "#404040"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-neutral-border",
+      "figma": {
+        "name": "status/neutral/border",
+        "type": "COLOR"
+      },
+      "note": "neutral-200 #e5e5e5 (≈ Figma #ebebeb)"
+    },
+    "status-neutral-icon": {
+      "kind": "color",
+      "light": "oklch(0.556 0 0)",
+      "dark": "oklch(0.708 0 0)",
+      "hex": {
+        "light": "#737373",
+        "dark": "#a1a1a1"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-neutral-icon",
+      "figma": {
+        "name": "status/neutral/icon",
+        "type": "COLOR"
+      },
+      "note": "neutral-500 #737373 (≈ Figma #7b7b7b)"
+    },
+    "status-neutral-text": {
+      "kind": "color",
+      "light": "oklch(0.371 0 0)",
+      "dark": "oklch(0.872 0 0)",
+      "hex": {
+        "light": "#404040",
+        "dark": "#d5d5d5"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-neutral-text",
+      "figma": {
+        "name": "status/neutral/text",
+        "type": "COLOR"
+      },
+      "note": "neutral-700 #404040"
+    },
+    "status-pink-bg": {
+      "kind": "color",
+      "light": "oklch(0.965 0.020 340)",
+      "dark": "oklch(0.225 0.045 340)",
+      "hex": {
+        "light": "#fdeff8",
+        "dark": "#291322"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-pink-bg",
+      "figma": {
+        "name": "status/pink/bg",
+        "type": "COLOR"
+      },
+      "note": "pink-50 #FDF2F8"
+    },
+    "status-pink-border": {
+      "kind": "color",
+      "light": "oklch(0.840 0.090 340)",
+      "dark": "oklch(0.405 0.155 340)",
+      "hex": {
+        "light": "#f3b4dd",
+        "dark": "#7b1763"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-pink-border",
+      "figma": {
+        "name": "status/pink/border",
+        "type": "COLOR"
+      },
+      "note": "pink-200 #FBCFE8"
+    },
+    "status-pink-icon": {
+      "kind": "color",
+      "light": "oklch(0.633 0.238 340)",
+      "dark": "oklch(0.700 0.225 340)",
+      "hex": {
+        "light": "#df36b6",
+        "dark": "#f357c9"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-pink-icon",
+      "figma": {
+        "name": "status/pink/icon",
+        "type": "COLOR"
+      },
+      "note": "pink-500 #EC4899"
+    },
+    "status-pink-text": {
+      "kind": "color",
+      "light": "oklch(0.388 0.180 340)",
+      "dark": "oklch(0.815 0.135 340)",
+      "hex": {
+        "light": "#7b0062",
+        "dark": "#fc9fde"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-pink-text",
+      "figma": {
+        "name": "status/pink/text",
+        "type": "COLOR"
+      },
+      "note": "pink-700 #BE185D"
+    },
+    "status-success-bg": {
+      "kind": "color",
+      "light": "oklch(0.982 0.018 155.826)",
+      "dark": "oklch(0.266 0.065 152.934)",
+      "hex": {
+        "light": "#f0fdf4",
+        "dark": "#032e15"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-success-bg",
+      "figma": {
+        "name": "status/success/bg",
+        "type": "COLOR"
+      },
+      "note": "green-50 #f0fdf4"
+    },
+    "status-success-border": {
+      "kind": "color",
+      "light": "oklch(0.925 0.084 155.995)",
+      "dark": "oklch(0.448 0.119 151.328)",
+      "hex": {
+        "light": "#b9f8cf",
+        "dark": "#016630"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-success-border",
+      "figma": {
+        "name": "status/success/border",
+        "type": "COLOR"
+      },
+      "note": "green-200 #bbf7d0"
+    },
+    "status-success-icon": {
+      "kind": "color",
+      "light": "oklch(0.627 0.194 149.214)",
+      "dark": "oklch(0.723 0.219 149.579)",
+      "hex": {
+        "light": "#00a63e",
+        "dark": "#00c950"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-success-icon",
+      "figma": {
+        "name": "status/success/icon",
+        "type": "COLOR"
+      },
+      "note": "green-600 #16a34a"
+    },
+    "status-success-text": {
+      "kind": "color",
+      "light": "oklch(0.393 0.095 152.535)",
+      "dark": "oklch(0.871 0.15 154.449)",
+      "hex": {
+        "light": "#0d542b",
+        "dark": "#7bf1a8"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-success-text",
+      "figma": {
+        "name": "status/success/text",
+        "type": "COLOR"
+      },
+      "note": "green-900 #14532d"
+    },
+    "status-warning-bg": {
+      "kind": "color",
+      "light": "oklch(0.987 0.022 95.277)",
+      "dark": "oklch(0.279 0.077 45.635)",
+      "hex": {
+        "light": "#fffbeb",
+        "dark": "#461901"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-warning-bg",
+      "figma": {
+        "name": "status/warning/bg",
+        "type": "COLOR"
+      },
+      "note": "amber-50 #fffbeb"
+    },
+    "status-warning-border": {
+      "kind": "color",
+      "light": "oklch(0.924 0.12 95.746)",
+      "dark": "oklch(0.473 0.137 46.201)",
+      "hex": {
+        "light": "#fee685",
+        "dark": "#973c00"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-warning-border",
+      "figma": {
+        "name": "status/warning/border",
+        "type": "COLOR"
+      },
+      "note": "amber-200 #fde68a"
+    },
+    "status-warning-icon": {
+      "kind": "color",
+      "light": "oklch(0.666 0.179 58.318)",
+      "dark": "oklch(0.769 0.188 70.08)",
+      "hex": {
+        "light": "#e17100",
+        "dark": "#fe9a00"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-warning-icon",
+      "figma": {
+        "name": "status/warning/icon",
+        "type": "COLOR"
+      },
+      "note": "amber-600 #d97706"
+    },
+    "status-warning-text": {
+      "kind": "color",
+      "light": "oklch(0.414 0.112 45.904)",
+      "dark": "oklch(0.879 0.169 91.605)",
+      "hex": {
+        "light": "#7b3306",
+        "dark": "#ffd230"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-status-warning-text",
+      "figma": {
+        "name": "status/warning/text",
+        "type": "COLOR"
+      },
+      "note": "amber-900 #78350f"
+    },
+    "text-disabled": {
+      "kind": "color",
+      "light": "#d1d1d1",
+      "dark": "oklch(0.45 0 0)",
+      "hex": {
+        "light": "#d1d1d1",
+        "dark": "#555555"
+      },
+      "themeInvariant": false,
+      "themeAlias": "color-text-disabled",
+      "figma": {
+        "name": "text-disabled",
+        "type": "COLOR"
+      }
+    },
+    "z-index-banner": {
+      "kind": "number",
+      "value": "70",
+      "figma": {
+        "name": "z/banner",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-base": {
+      "kind": "number",
+      "value": "0",
+      "figma": {
+        "name": "z/base",
+        "type": "FLOAT"
+      },
+      "note": "═══ Design System: Z-Index Scale ═══"
+    },
+    "z-index-dropdown": {
+      "kind": "number",
+      "value": "20",
+      "figma": {
+        "name": "z/dropdown",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-modal": {
+      "kind": "number",
+      "value": "40",
+      "figma": {
+        "name": "z/modal",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-modal-elevated": {
+      "kind": "number",
+      "value": "55",
+      "figma": {
+        "name": "z/modal-elevated",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-overlay": {
+      "kind": "number",
+      "value": "30",
+      "figma": {
+        "name": "z/overlay",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-popover": {
+      "kind": "number",
+      "value": "45",
+      "figma": {
+        "name": "z/popover",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-sticky": {
+      "kind": "number",
+      "value": "10",
+      "figma": {
+        "name": "z/sticky",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-toast": {
+      "kind": "number",
+      "value": "50",
+      "figma": {
+        "name": "z/toast",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-tooltip": {
+      "kind": "number",
+      "value": "60",
+      "figma": {
+        "name": "z/tooltip",
+        "type": "FLOAT"
+      }
+    },
+    "z-index-top": {
+      "kind": "number",
+      "value": "100",
+      "figma": {
+        "name": "z/top",
+        "type": "FLOAT"
+      }
+    }
+  }
+}
