@@ -1,0 +1,19 @@
+{
+  "design_system.entries.button.description": "Disparador de acción principal con toda la escala de variantes y tamaños del DS.",
+  "design_system.entries.buttonGroup.description": "Grupo unido de botones de acción relacionados que comparten un borde.",
+  "design_system.entries.fancyButton.description": "Botón con degradado, de estilo promocional, para acciones destacadas.",
+  "design_system.entries.iconButton.description": "Botón cuadrado solo con icono; siempre requiere un aria-label.",
+  "design_system.entries.linkButton.description": "Enlace de texto con estilo de control del DS.",
+  "design_system.entries.socialButton.description": "Botón de autenticación con colores de marca para inicio de sesión social.",
+  "design_system.families.buttons": "Botones",
+  "design_system.gallery.copied": "Fragmento copiado al portapapeles",
+  "design_system.gallery.copy": "Copiar código",
+  "design_system.gallery.copyFailed": "No se pudo copiar el fragmento",
+  "design_system.gallery.familiesGroup": "Familias",
+  "design_system.gallery.noResults": "Ningún componente coincide con la búsqueda",
+  "design_system.gallery.openInFigma": "Abrir en Figma",
+  "design_system.gallery.searchPlaceholder": "Buscar componentes…",
+  "design_system.gallery.viewDocs": "Ver documentación",
+  "design_system.nav.group": "Desarrollador",
+  "design_system.nav.title": "Sistema de diseño"
+}

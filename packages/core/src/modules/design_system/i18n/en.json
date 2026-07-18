@@ -1,0 +1,19 @@
+{
+  "design_system.entries.button.description": "Primary action trigger with the full DS variant and size scale.",
+  "design_system.entries.buttonGroup.description": "Joined group of related action buttons sharing one border.",
+  "design_system.entries.fancyButton.description": "Gradient, marketing-grade button for standout actions.",
+  "design_system.entries.iconButton.description": "Square icon-only button; always requires an aria-label.",
+  "design_system.entries.linkButton.description": "Inline text link styled as a DS control.",
+  "design_system.entries.socialButton.description": "Brand-colored authentication button for social sign-in.",
+  "design_system.families.buttons": "Buttons",
+  "design_system.gallery.copied": "Snippet copied to clipboard",
+  "design_system.gallery.copy": "Copy code",
+  "design_system.gallery.copyFailed": "Could not copy the snippet",
+  "design_system.gallery.familiesGroup": "Families",
+  "design_system.gallery.noResults": "No components match your search",
+  "design_system.gallery.openInFigma": "Open in Figma",
+  "design_system.gallery.searchPlaceholder": "Search components…",
+  "design_system.gallery.viewDocs": "View docs",
+  "design_system.nav.group": "Developer",
+  "design_system.nav.title": "Design system"
+}

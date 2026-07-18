@@ -80,6 +80,9 @@ export const enabledModules: ModuleEntry[] = [
   { id: 'content', from: '@open-mercato/content' },
   { id: 'onboarding', from: '@open-mercato/onboarding' },
   { id: 'api_docs', from: '@open-mercato/core' },
+  // Live DS component gallery at /backend/design-system (feature-gated by
+  // design_system.view). Disable by removing this line.
+  { id: 'design_system', from: '@open-mercato/core' },
   { id: 'business_rules', from: '@open-mercato/core' },
   { id: 'feature_toggles', from: '@open-mercato/core' },
   { id: 'workflows', from: '@open-mercato/core' },
