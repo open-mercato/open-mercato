@@ -26,6 +26,7 @@ import {
 } from '@open-mercato/ui/primitives/dialog'
 import { apiCall } from '@open-mercato/ui/backend/utils/apiCall'
 import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { useAppEvent } from '@open-mercato/ui/backend/injection/useAppEvent'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { cn } from '@open-mercato/shared/lib/utils'
 
@@ -85,6 +86,27 @@ interface CompanyResearchTriggerProps {
   data?: CompanyOverviewLike | null
 }
 
+interface RunProgressPayload {
+  runId?: string
+  agentId?: string
+  sequence?: number
+  callId?: string
+  tool?: string
+  phase?: 'started' | 'finished'
+  status?: 'ok' | 'error' | null
+  label?: string | null
+}
+
+type ProgressStepState = 'running' | 'done' | 'error'
+
+interface ProgressStep {
+  callId: string
+  tool: string
+  label: string | null
+  state: ProgressStepState
+  seq: number
+}
+
 function readString(value: unknown): string | null {
   return typeof value === 'string' && value.length > 0 ? value : null
 }
@@ -129,8 +151,40 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
   const [isRunning, setIsRunning] = React.useState(false)
   const [result, setResult] = React.useState<{ data: ResearchResult; runId: string | null } | null>(null)
   const [error, setError] = React.useState<string | null>(null)
+  const [steps, setSteps] = React.useState<ProgressStep[]>([])
+  const runningRef = React.useRef(false)
+  const activeRunIdRef = React.useRef<string | null>(null)
 
   const input = React.useMemo(() => buildInput(context, data), [context, data])
+
+  // Live per-step progress while a run is in flight. The synchronous run POST
+  // does not resolve until the run finishes, so the runId is unknown up front;
+  // we accept the first `run.progress` event for this agent, latch its runId,
+  // then filter subsequent events to that run and upsert one line per callId.
+  useAppEvent('agent_orchestrator.run.progress', (event) => {
+    if (!runningRef.current) return
+    const payload = event.payload as RunProgressPayload | undefined
+    if (!payload || payload.agentId !== COMPANY_RESEARCH_AGENT_ID || !payload.callId) return
+    if (activeRunIdRef.current == null && typeof payload.runId === 'string') {
+      activeRunIdRef.current = payload.runId
+    }
+    if (activeRunIdRef.current && payload.runId && payload.runId !== activeRunIdRef.current) return
+    const callId = payload.callId
+    const nextState: ProgressStepState =
+      payload.phase === 'finished' ? (payload.status === 'error' ? 'error' : 'done') : 'running'
+    setSteps((prev) => {
+      const idx = prev.findIndex((step) => step.callId === callId)
+      if (idx === -1) {
+        return [
+          ...prev,
+          { callId, tool: payload.tool ?? 'tool', label: payload.label ?? null, state: nextState, seq: payload.sequence ?? prev.length },
+        ]
+      }
+      const copy = prev.slice()
+      copy[idx] = { ...copy[idx], state: nextState, label: payload.label ?? copy[idx].label }
+      return copy
+    })
+  })
 
   const { runMutation } = useGuardedMutation<{ entityType: string }>({
     contextId: 'agent_examples:company-research',
@@ -186,6 +240,9 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
     setIsRunning(true)
     setError(null)
     setResult(null)
+    setSteps([])
+    activeRunIdRef.current = null
+    runningRef.current = true
     try {
       await runMutation({
         context: { entityType: 'customers:company' },
@@ -231,6 +288,7 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
         prev ?? t('agent_examples.companyResearch.error.generic', 'Failed to run company research.'),
       )
     } finally {
+      runningRef.current = false
       setIsRunning(false)
     }
   }, [input, isRunning, messageForFailure, runMutation, t])
@@ -258,6 +316,24 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
     high: t('agent_examples.companyResearch.likelihood.high', 'High'),
     medium: t('agent_examples.companyResearch.likelihood.medium', 'Medium'),
     low: t('agent_examples.companyResearch.likelihood.low', 'Low'),
+  }
+  const toolLabelFor = (tool: string): string => {
+    switch (tool) {
+      case 'web_search':
+        return t('agent_examples.companyResearch.tool.webSearch', 'Searching the web')
+      case 'web_fetch':
+        return t('agent_examples.companyResearch.tool.webFetch', 'Reading a page')
+      case 'run_skill_script':
+        return t('agent_examples.companyResearch.tool.score', 'Scoring the prospect')
+      case 'load_skill':
+        return t('agent_examples.companyResearch.tool.skill', 'Loading the playbook')
+      case 'task':
+        return t('agent_examples.companyResearch.tool.subagent', 'Consulting the revenue estimator')
+      case 'submit_outcome':
+        return t('agent_examples.companyResearch.tool.finalize', 'Finalizing the assessment')
+      default:
+        return tool
+    }
   }
 
   return (
@@ -296,18 +372,24 @@ export default function CompanyResearchTriggerWidget({ context, data }: CompanyR
 
           <div className="min-h-0 flex-1 overflow-y-auto pr-1">
             {isRunning ? (
-              <div className="flex items-center gap-2 py-6 text-sm text-muted-foreground">
-                <Spinner className="size-4" />
-                <span>
-                  {t(
-                    'agent_examples.companyResearch.running',
-                    'Researching {company} on the public web…',
-                  ).replace('{company}', input.companyName)}
-                </span>
+              <div className="space-y-3 py-2">
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner className="size-4" />
+                  <span>
+                    {t(
+                      'agent_examples.companyResearch.running',
+                      'Researching {company} on the public web…',
+                    ).replace('{company}', input.companyName)}
+                  </span>
+                </div>
+                {steps.length > 0 ? <StepsList steps={steps} toolLabelFor={toolLabelFor} /> : null}
               </div>
             ) : error ? (
-              <div className="rounded-md border p-3 text-sm" data-ai-company-research-error="">
-                {error}
+              <div className="space-y-3">
+                <div className="rounded-md border p-3 text-sm" data-ai-company-research-error="">
+                  {error}
+                </div>
+                {steps.length > 0 ? <StepsList steps={steps} toolLabelFor={toolLabelFor} /> : null}
               </div>
             ) : result ? (
               <ResearchReport
@@ -456,5 +538,36 @@ function ReportRow({ label, value }: { label: string; value: string }) {
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="break-words">{value}</span>
     </div>
+  )
+}
+
+function StepsList({
+  steps,
+  toolLabelFor,
+}: {
+  steps: ProgressStep[]
+  toolLabelFor: (tool: string) => string
+}) {
+  return (
+    <ul className="space-y-1.5" data-ai-company-research-steps="">
+      {steps.map((step) => (
+        <li key={step.callId} className="flex items-start gap-2 text-sm">
+          <StepIcon state={step.state} />
+          <span className="min-w-0">
+            <span className="font-medium">{toolLabelFor(step.tool)}</span>
+            {step.label ? <span className="text-muted-foreground"> — {step.label}</span> : null}
+          </span>
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+function StepIcon({ state }: { state: ProgressStepState }) {
+  if (state === 'running') return <Spinner className="mt-0.5 size-3.5 shrink-0" />
+  return (
+    <span className="mt-0.5 w-3.5 shrink-0 text-center text-muted-foreground" aria-hidden>
+      {state === 'error' ? '✗' : '✓'}
+    </span>
   )
 }

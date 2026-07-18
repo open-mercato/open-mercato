@@ -49,6 +49,13 @@ const events = [
   // (clientBroadcast) so the open Processes list refetches the changed row.
   // excludeFromTriggers: it is a derived read-model echo, not a domain fact.
   { id: 'agent_orchestrator.process.updated', label: 'Agent Process Projection Updated', entity: 'process', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+  // Live run progress (per tool call). clientBroadcast so a UI trigger can show
+  // step-by-step progress while a synchronous run is in flight (the run POST does
+  // not return until the run finishes). Payload: { runId, agentId, tenantId,
+  // organizationId, sequence, callId, tool, phase: 'started'|'finished', status,
+  // label }. excludeFromTriggers: it is a transient per-step echo, not a domain
+  // fact — like process.updated it must never drive workflow triggers.
+  { id: 'agent_orchestrator.run.progress', label: 'Agent Run Progress', entity: 'run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({
