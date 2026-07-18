@@ -1,4 +1,5 @@
 import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+import { seedScrapReasonDictionary } from './cli.js'
 
 /**
  * Default role grants (spec § Access Control). The module-specific roles
@@ -7,6 +8,12 @@ import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
  * operator (shop-floor surface ONLY — spec decision e).
  */
 export const setup: ModuleSetupConfig = {
+  seedDefaults: async (ctx) => {
+    // New-tenant path (task 4.2); existing tenants use the
+    // `production seed-scrap-reasons` CLI backfill in `cli.ts`.
+    await seedScrapReasonDictionary(ctx.em, { tenantId: ctx.tenantId, organizationId: ctx.organizationId })
+  },
+
   defaultRoleFeatures: {
     admin: ['production.*'],
     employee: [

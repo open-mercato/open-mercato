@@ -27,6 +27,7 @@ import {
 import { orderUpdateSchema } from '../../../../data/validators.js'
 import { OrderStatusBadge, type OrderStatus } from '../../components/OrderStatusBadge'
 import { ShortagesTable, type ShortageLine } from '../../components/ShortagesTable'
+import { extractServerErrorMessage } from '../../../../lib/serverErrorMessage.js'
 
 const orderEditSchema = orderUpdateSchema.omit({ id: true })
 type OrderEditValues = z.infer<typeof orderEditSchema>
@@ -78,30 +79,6 @@ type OrderDetail = {
 }
 
 const EDITABLE_STATUSES: OrderStatus[] = ['draft', 'planned']
-
-/**
- * Extracts the server's already-translated business-rule message from an
- * action-route error (e.g. the cancel-blocked-with-partial-issue 409 body
- * `{ error: '...' }`, which is not an optimistic-lock conflict and is never
- * consumed by `surfaceRecordConflict`). `runOrderAction`/`handleDelete` throw
- * `Object.assign(new Error(...), { status, ...body })` on a non-ok response
- * (mirrors `mapCrudServerErrorToFormErrors`'s own `error`/`message` read
- * order), so the server's `error` string lands as a top-level property.
- * Falls back to `null` so callers can use their generic per-action message.
- */
-function extractServerErrorMessage(err: unknown): string | null {
-  if (!err || typeof err !== 'object') return null
-  const candidate = err as { error?: unknown; message?: unknown }
-  if (typeof candidate.error === 'string' && candidate.error.trim()) return candidate.error
-  if (
-    typeof candidate.message === 'string' &&
-    candidate.message.trim() &&
-    !candidate.message.startsWith('[internal]')
-  ) {
-    return candidate.message
-  }
-  return null
-}
 
 export default function ProductionOrderDetailPage({ params }: { params?: { id?: string } }) {
   const t = useT()
