@@ -1,4 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { emitCrudSideEffects } from '@open-mercato/shared/lib/commands/helpers'
 import type { DataEngine } from '@open-mercato/shared/lib/data/engine'
@@ -27,6 +28,18 @@ import { E } from '../../../../generated/entities.ids.generated.js'
  * Every mutation runs inside `withAtomicFlush({ transaction: true })` so the
  * movement row and the on-hand/reserved/batch updates it implies commit or
  * roll back together (decision h — append-only ledger, no negative stock).
+ *
+ * Side-effect flush contract: every mutating method here calls
+ * `emitCrudSideEffects` itself (inline, right after the atomic phase commits)
+ * rather than deferring reindex/event emission to the caller. This means the
+ * flush happens the same way whether a method is invoked through the command
+ * bus (`commands/stock.ts`) or from a raw, non-command route — callers of
+ * *this* provider never need `flushOrmEntityChanges`. This is an
+ * implementation choice of `StockLedgerService`, not a guarantee of the
+ * `ProductionStockProvider` interface: a future implementation that instead
+ * batches/defers its side effects would need callers reached via a raw route
+ * (i.e. not through `commandBus.execute`, which flushes on its own) to call
+ * `flushOrmEntityChanges` explicitly after the mutation.
  */
 export class StockLedgerService implements ProductionStockProvider {
   constructor(
@@ -107,21 +120,39 @@ export class StockLedgerService implements ProductionStockProvider {
     stockItem: StockItem,
     batchId: string | null | undefined,
     batchNumber: string | null | undefined,
+    expiresAt?: Date | null,
   ): Promise<StockBatch | null> {
     if (batchId) {
-      const existing = await em.findOne(StockBatch, { id: batchId, stockItemId: stockItem.id })
+      // Defense-in-depth (2.1 review carried minor #1): scope the lookup by
+      // tenant/organization too, not just the (already tenant-scoped)
+      // stockItem.id, so a cross-tenant/org batchId can never be matched here.
+      const existing = await em.findOne(StockBatch, {
+        id: batchId,
+        stockItemId: stockItem.id,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
       if (!existing) throw new InsufficientStockError(`Batch ${batchId} not found for stock item ${stockItem.id}`)
       return existing
     }
     if (batchNumber) {
-      const existing = await em.findOne(StockBatch, { stockItemId: stockItem.id, batchNumber })
+      const existing = await em.findOne(StockBatch, {
+        stockItemId: stockItem.id,
+        batchNumber,
+        tenantId: scope.tenantId,
+        organizationId: scope.organizationId,
+      })
       if (existing) return existing
+      // `expiresAt` is only ever applied when creating a brand-new batch — an
+      // existing batch's expiry is never silently overwritten by a later
+      // receipt line that happens to omit/repeat the same batch number.
       const created = em.create(StockBatch, {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         stockItemId: stockItem.id,
         batchNumber,
         onHand: '0',
+        expiresAt: expiresAt ?? null,
       } as never)
       em.persist(created)
       return created
@@ -198,7 +229,7 @@ export class StockLedgerService implements ProductionStockProvider {
         async () => {
           for (const line of lines) {
             const stockItem = await this.resolveOrCreateStockItem(em, ref.scope, line.productId, line.variantId, line.uom)
-            const batch = await this.resolveOrCreateBatch(em, ref.scope, stockItem, line.batchId, line.batchNumber)
+            const batch = await this.resolveOrCreateBatch(em, ref.scope, stockItem, line.batchId, line.batchNumber, line.expiresAt)
             this.applyOnHandDelta(stockItem, line.qty)
             if (batch) this.applyBatchOnHandDelta(batch, line.qty)
             stockItem.updatedAt = new Date()
@@ -283,7 +314,7 @@ export class StockLedgerService implements ProductionStockProvider {
       [
         async () => {
           const stockItem = await this.resolveOrCreateStockItem(em, ref.scope, line.productId, line.variantId, line.uom)
-          const batch = await this.resolveOrCreateBatch(em, ref.scope, stockItem, line.batchId, line.batchNumber)
+          const batch = await this.resolveOrCreateBatch(em, ref.scope, stockItem, line.batchId, line.batchNumber, line.expiresAt)
 
           this.applyOnHandDelta(stockItem, line.qty)
           if (batch) this.applyBatchOnHandDelta(batch, line.qty)
@@ -366,7 +397,13 @@ export class StockLedgerService implements ProductionStockProvider {
             status: 'active',
           })
           for (const reservation of active) {
-            const stockItem = await em.findOne(StockItem, { id: reservation.stockItemId })
+            // Defense-in-depth (2.1 review carried minor #1): scope by
+            // tenant/organization too, not just id.
+            const stockItem = await em.findOne(StockItem, {
+              id: reservation.stockItemId,
+              tenantId: ref.scope.tenantId,
+              organizationId: ref.scope.organizationId,
+            })
             if (stockItem) {
               stockItem.reserved = String(Math.max(0, Number(stockItem.reserved) - Number(reservation.qty)))
               stockItem.updatedAt = new Date()
@@ -412,45 +449,67 @@ export class StockLedgerService implements ProductionStockProvider {
     const em = this.resolveEm()
     let reversal: StockMovement | undefined
 
-    await withAtomicFlush(
-      em,
-      [
-        async () => {
-          const original = await em.findOne(StockMovement, {
-            id: movementId,
-            tenantId: scope.tenantId,
-            organizationId: scope.organizationId,
-          })
-          if (!original) throw new InsufficientStockError(`Stock movement ${movementId} not found`)
+    try {
+      await withAtomicFlush(
+        em,
+        [
+          async () => {
+            const original = await em.findOne(StockMovement, {
+              id: movementId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+            })
+            if (!original) throw new InsufficientStockError(`Stock movement ${movementId} not found`)
 
-          const existingReversal = await em.findOne(StockMovement, { reversesMovementId: movementId })
-          if (existingReversal) throw new DoubleReversalError(movementId)
+            // Defense-in-depth (2.1 review carried minor #1): scope this
+            // lookup by tenant/organization too, not just the movement id.
+            const existingReversal = await em.findOne(StockMovement, {
+              reversesMovementId: movementId,
+              tenantId: scope.tenantId,
+              organizationId: scope.organizationId,
+            })
+            if (existingReversal) throw new DoubleReversalError(movementId)
 
-          const stockItem = await this.findStockItem(em, scope, original.productId, original.variantId)
-          if (!stockItem) throw new InsufficientStockError(`Stock item for product ${original.productId} not found`)
-          const batch = original.batchId ? await em.findOne(StockBatch, { id: original.batchId }) : null
+            const stockItem = await this.findStockItem(em, scope, original.productId, original.variantId)
+            if (!stockItem) throw new InsufficientStockError(`Stock item for product ${original.productId} not found`)
+            const batch = original.batchId
+              ? await em.findOne(StockBatch, { id: original.batchId, tenantId: scope.tenantId, organizationId: scope.organizationId })
+              : null
 
-          const compensatingQty = -Number(original.qty)
-          this.applyOnHandDelta(stockItem, compensatingQty)
-          if (batch) this.applyBatchOnHandDelta(batch, compensatingQty)
-          stockItem.updatedAt = new Date()
+            const compensatingQty = -Number(original.qty)
+            this.applyOnHandDelta(stockItem, compensatingQty)
+            if (batch) this.applyBatchOnHandDelta(batch, compensatingQty)
+            stockItem.updatedAt = new Date()
 
-          reversal = this.buildMovement(em, scope, {
-            movementType: original.movementType,
-            productId: original.productId,
-            variantId: original.variantId ?? null,
-            batchId: original.batchId ?? null,
-            qty: compensatingQty,
-            uom: original.uom,
-            reasonEntryId: original.reasonEntryId ?? null,
-            sourceType: original.sourceType,
-            sourceId: original.sourceId ?? null,
-            reversesMovementId: original.id,
-          })
-        },
-      ],
-      { transaction: true, label: 'production.stock.reverseMovement' },
-    )
+            reversal = this.buildMovement(em, scope, {
+              movementType: original.movementType,
+              productId: original.productId,
+              variantId: original.variantId ?? null,
+              batchId: original.batchId ?? null,
+              qty: compensatingQty,
+              uom: original.uom,
+              reasonEntryId: original.reasonEntryId ?? null,
+              sourceType: original.sourceType,
+              sourceId: original.sourceId ?? null,
+              reversesMovementId: original.id,
+            })
+          },
+        ],
+        { transaction: true, label: 'production.stock.reverseMovement' },
+      )
+    } catch (err) {
+      // Carried minor #2 (2.1 review): the pre-check above (`existingReversal`)
+      // is a TOCTOU race under concurrent double-storno — two requests can both
+      // pass the check before either flushes. The unique index on
+      // `reverses_movement_id` (`production_stock_movements_reverses_unique`)
+      // is the actual guard; translate its violation into the same
+      // `DoubleReversalError` the pre-check throws, so callers see one
+      // consistent error regardless of which path caught the race.
+      if (err instanceof UniqueConstraintViolationException) {
+        throw new DoubleReversalError(movementId)
+      }
+      throw err
+    }
 
     await this.emitMovementCreated(reversal as StockMovement)
     return { movementId: (reversal as StockMovement).id }

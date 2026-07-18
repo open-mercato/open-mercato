@@ -190,6 +190,76 @@ export const planningParamsListQuerySchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
+// Stock ledger (Phase 2 — manual receipt, opening balance/correction, storno)
+// ---------------------------------------------------------------------------
+
+export const stockReceiveSchema = z.object({
+  productId: z.string().uuid('productId is required'),
+  variantId: z.string().uuid().optional().nullable(),
+  qty: positiveQtySchema,
+  uom: uomSchema,
+  batchNumber: z.string().trim().min(1).max(100).optional().nullable(),
+  expiresAt: z.coerce.date().optional().nullable(),
+  reasonEntryId: z.string().uuid().optional().nullable(),
+  // Only 'manual' (the API/UI receipt route) and 'import' (the CSV import
+  // route) are reachable through this schema — 'order'/'report' are Phase
+  // 3/4 concerns emitted internally, not via a user-facing receive call.
+  sourceType: z.enum(['manual', 'import']).default('manual'),
+})
+
+export const stockAdjustSchema = z.object({
+  productId: z.string().uuid('productId is required'),
+  variantId: z.string().uuid().optional().nullable(),
+  // Signed: positive increases on-hand, negative decreases it (opening
+  // balance load or a correction), matching StockLedgerService.adjust.
+  qty: z.coerce.number().refine((value) => value !== 0, 'Adjustment quantity must not be zero'),
+  uom: uomSchema,
+  batchNumber: z.string().trim().min(1).max(100).optional().nullable(),
+  // TODO(dictionaries): once a `production.stock.adjustment_reason` dictionary
+  // exists this becomes `reasonEntryId` (uuid FK), matching `reasonEntryId` on
+  // `StockMovement`. Until then this is a required free-text note that is
+  // only carried in the command's audit-log context (see commands/stock.ts) —
+  // it is NOT persisted on the movement row itself.
+  reason: z.string().trim().min(1, 'Reason is required').max(500),
+})
+
+export const stockReverseMovementSchema = z.object({
+  movementId: z.string().uuid('movementId is required'),
+})
+
+export const stockListQuerySchema = z.object({
+  ...listBaseSchema,
+  productId: z.string().uuid().optional(),
+  variantId: z.string().uuid().optional(),
+})
+
+export const stockMovementsListQuerySchema = z.object({
+  ...listBaseSchema,
+  productId: z.string().uuid('productId is required'),
+  variantId: z.string().uuid().optional(),
+})
+
+export const stockBatchesListQuerySchema = z.object({
+  productId: z.string().uuid('productId is required'),
+})
+
+/**
+ * One row of the CSV stock-import file (`api/stock/import/route.ts`).
+ * Column names mirror the CSV header verbatim (snake_case), matching the
+ * `sync_excel` adapter convention this route mirrors.
+ */
+export const stockImportRowSchema = z.object({
+  product_id: z.string().uuid('product_id must be a UUID'),
+  variant_id: z.string().uuid().optional().nullable(),
+  qty: positiveQtySchema,
+  uom: uomSchema,
+  batch_number: z.string().trim().min(1).max(100).optional().nullable(),
+  expires_at: z.coerce.date().optional().nullable(),
+})
+
+export const STOCK_IMPORT_MAX_ROWS = 10_000
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -210,3 +280,11 @@ export type RoutingListQuery = z.infer<typeof routingListQuerySchema>
 export type PlanningParamsCreateInput = z.infer<typeof planningParamsCreateSchema>
 export type PlanningParamsUpdateInput = z.infer<typeof planningParamsUpdateSchema>
 export type PlanningParamsListQuery = z.infer<typeof planningParamsListQuerySchema>
+
+export type StockReceiveInput = z.infer<typeof stockReceiveSchema>
+export type StockAdjustInput = z.infer<typeof stockAdjustSchema>
+export type StockReverseMovementInput = z.infer<typeof stockReverseMovementSchema>
+export type StockListQuery = z.infer<typeof stockListQuerySchema>
+export type StockMovementsListQuery = z.infer<typeof stockMovementsListQuerySchema>
+export type StockBatchesListQuery = z.infer<typeof stockBatchesListQuerySchema>
+export type StockImportRow = z.infer<typeof stockImportRowSchema>

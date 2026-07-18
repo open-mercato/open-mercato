@@ -1,5 +1,6 @@
 export {}
 
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import { StockLedgerService } from '../stockLedgerService'
 import { StockItem, StockBatch, StockMovement, MaterialReservation } from '../../data/entities'
 import { InsufficientStockError, DoubleReversalError } from '../../lib/stockProvider'
@@ -229,5 +230,57 @@ describe('StockLedgerService', () => {
 
     const afterBatches = await service.findBatches(SCOPE, 'prod-1')
     expect(afterBatches[0].onHand).toBe(7)
+  })
+
+  it('sets expiresAt only when a batch is newly created, never on an existing batch match (task 2.2)', async () => {
+    const { em, store } = makeMockEm()
+    const dataEngine = makeDataEngine()
+    const service = makeService(em, dataEngine)
+    const firstExpiry = new Date('2027-01-01T00:00:00.000Z')
+    const secondExpiry = new Date('2027-06-01T00:00:00.000Z')
+
+    await service.receive(
+      [{ productId: 'prod-1', variantId: null, qty: 10, uom: 'pcs', batchNumber: 'B-EXP', expiresAt: firstExpiry }],
+      { scope: SCOPE, sourceType: 'manual' },
+    )
+    const firstBatches = await service.findBatches(SCOPE, 'prod-1')
+    expect(firstBatches[0].expiresAt).toEqual(firstExpiry)
+
+    // Receiving again against the SAME batch number must not overwrite the
+    // already-established expiry with a later receipt's (different) value.
+    await service.receive(
+      [{ productId: 'prod-1', variantId: null, qty: 5, uom: 'pcs', batchNumber: 'B-EXP', expiresAt: secondExpiry }],
+      { scope: SCOPE, sourceType: 'manual' },
+    )
+    const secondBatches = await service.findBatches(SCOPE, 'prod-1')
+    expect(secondBatches).toHaveLength(1)
+    expect(secondBatches[0].expiresAt).toEqual(firstExpiry)
+    expect(secondBatches[0].onHand).toBe(15)
+  })
+
+  it('concurrent double storno: a unique-constraint violation on reverses_movement_id (raised despite the pre-check passing, i.e. a TOCTOU race) is translated to DoubleReversalError, not a raw DB error (2.1 review carried minor #2)', async () => {
+    const { em } = makeMockEm()
+    const dataEngine = makeDataEngine()
+    const service = makeService(em, dataEngine)
+
+    const { movementIds } = await service.receive([{ productId: 'prod-1', variantId: null, qty: 10, uom: 'pcs' }], { scope: SCOPE, sourceType: 'manual' })
+    const receiptId = movementIds[0]
+
+    // The in-memory mock has no real unique index, so the pre-check
+    // (`existingReversal` read) would normally pass here (no reversal exists
+    // yet) exactly like it would for the second of two concurrent callers
+    // racing past that same read. Force the flush that would persist the
+    // reversal to throw the exception the real unique index raises for that
+    // race, and assert the service translates it into `DoubleReversalError`
+    // instead of letting the raw DB exception escape.
+    const originalFlush = em.flush
+    em.flush = jest.fn(async () => {
+      throw new UniqueConstraintViolationException(
+        new Error('duplicate key value violates unique constraint "production_stock_movements_reverses_unique"'),
+      )
+    })
+
+    await expect(service.reverseMovement(receiptId, SCOPE)).rejects.toBeInstanceOf(DoubleReversalError)
+    em.flush = originalFlush
   })
 })
