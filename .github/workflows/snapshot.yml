@@ -188,36 +188,36 @@ jobs:
           EOF
           )
 
-          # `npm view … version` only proves the version's METADATA is public.
-          # npm briefly QUARANTINES a freshly published version's tarball for a
-          # security scan while its metadata is already visible, so the old probe
-          # passed instantly and the downstream `yarn install` then failed with
-          # YN0016 "… are quarantined". Probe the actual tarball with `npm pack`
-          # so we wait for install-readiness, not mere visibility.
-          PROBE_DIR="$(mktemp -d)"
-          echo "Waiting for Open Mercato packages @ ${VERSION} to be installable on npm..."
+          # Wait for the published version's METADATA to propagate. This does NOT
+          # cover npm's post-publish tarball QUARANTINE (metadata goes public
+          # first while the tarball stays quarantined for a security scan) — that
+          # is handled by retrying the real scaffold/install steps below via
+          # scripts/ci/npm-retry-on-quarantine.sh.
+          echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
           for pkg in "${PACKAGES[@]}"; do
             echo "Checking ${pkg}@${VERSION}..."
             ok=false
-            for i in $(seq 1 40); do
-              if npm pack "${pkg}@${VERSION}" --pack-destination "$PROBE_DIR" >/dev/null 2>&1; then
-                echo "  ${pkg} installable after attempt ${i}"
+            for i in $(seq 1 30); do
+              if npm view "${pkg}@${VERSION}" version 2>/dev/null; then
+                echo "  ${pkg} available after attempt ${i}"
                 ok=true
                 break
               fi
-              echo "  Attempt ${i}/40: metadata may be visible but tarball not installable yet (quarantine); waiting 15s..."
-              sleep 15
+              echo "  Attempt ${i}/30: waiting 10s..."
+              sleep 10
             done
             if [ "$ok" != "true" ]; then
-              echo "Package ${pkg}@${VERSION} not installable after 10 minutes (still quarantined?)"
+              echo "Package ${pkg}@${VERSION} not available after 5 minutes"
               exit 1
             fi
           done
-          rm -rf "$PROBE_DIR"
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
-        run: npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: |
+          bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" \
+            npx "create-mercato-app@${{ needs.snapshot.outputs.snapshot_version }}" /tmp/standalone-app --skip-agentic-setup --registry https://registry.npmjs.org
 
       - name: Configure standalone app environment
         working-directory: /tmp/standalone-app
@@ -270,14 +270,16 @@ jobs:
         env:
           YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        run: yarn install
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn install
 
       - name: Install standalone enterprise package
         working-directory: /tmp/standalone-app
         env:
           YARN_ENABLE_HARDENED_MODE: '0'
           YARN_ENABLE_IMMUTABLE_INSTALLS: '0'
-        run: yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
+        # Retry through npm's post-publish quarantine window (see the script).
+        run: bash "$GITHUB_WORKSPACE/scripts/ci/npm-retry-on-quarantine.sh" yarn add "@open-mercato/enterprise@${{ needs.snapshot.outputs.snapshot_version }}"
 
       - name: Generate standalone app modules
         working-directory: /tmp/standalone-app
