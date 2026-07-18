@@ -1,7 +1,7 @@
 // Note: Generated files and DI container are imported statically to avoid ESM/CJS interop issues.
 // Commands that need to run before generation (e.g., `init`) handle missing modules gracefully.
 
-import { runWorker } from '@open-mercato/queue/worker'
+import { registerWorkerShutdownHook, runWorker } from '@open-mercato/queue/worker'
 import type { Module, ModuleWorker } from '@open-mercato/shared/modules/registry'
 import { getCliModules, hasCliModules, registerCliModules } from './registry'
 export { getCliModules, hasCliModules, registerCliModules }
@@ -28,7 +28,7 @@ import {
   resolveLazySchedulerPollMs,
   resolveLazySchedulerRestart,
 } from './lib/auto-spawn-scheduler'
-import { startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
+import { probeEnabledSchedules, startLazySchedulerSupervisor } from './lib/scheduler-supervisor'
 import {
   startInProcessGenerateWatcher,
   type GenerateWatcherHandle,
@@ -42,6 +42,7 @@ import { resolveNextBuildIdCandidate } from './lib/next-build-id'
 import { acquireServerStartLock } from './lib/server-start-lock'
 import { assertSingleInstanceStrategies } from './lib/single-instance-strategy-guard'
 import { createDevEnvReloader, watchDevEnvFiles } from './lib/dev-env-reload'
+import { quotePostgresIdentifier } from './lib/db/identifiers'
 // Lazy-imported to avoid pulling in `testcontainers` (devDependency) at startup
 const lazyIntegration = () => import('./lib/testing/integration')
 import type { ChildProcess } from 'node:child_process'
@@ -74,6 +75,10 @@ function getRegisteredCliWorkers(modules: Module[] = getCliModules()): ModuleWor
     }
   }
   return allWorkers
+}
+
+function shouldEmbedLocalSchedulerInSharedWorker(env: NodeJS.ProcessEnv = process.env): boolean {
+  return parseBooleanToken(env.OM_DEV_EMBED_SCHEDULER_IN_SHARED_WORKER) === true
 }
 
 export function padByCodePointWidth(value: string, targetWidth: number): string {
@@ -745,7 +750,7 @@ async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void
  * so the watcher embedded in the server lifecycle can reuse the same closure
  * without re-importing the closure-scoped version inside `buildBaseModules`.
  */
-async function runGeneratorSuite(quiet: boolean): Promise<void> {
+async function runGeneratorSuite(quiet: boolean): Promise<boolean> {
   const { createResolver } = await import('./lib/resolver')
   const {
     generateEntityIds,
@@ -758,35 +763,84 @@ async function runGeneratorSuite(quiet: boolean): Promise<void> {
     generateOpenApi,
   } = await import('./lib/generators')
   const resolver = createResolver()
-  await generateEntityIds({ resolver, quiet })
-  await generateModuleRegistry({ resolver, quiet })
-  await generateModuleRegistryApp({ resolver, quiet })
-  await generateModuleRegistryCli({ resolver, quiet })
-  await generateModuleEntities({ resolver, quiet })
-  await generateModuleDi({ resolver, quiet })
-  await generateModulePackageSources({ resolver, quiet })
-  await generateOpenApi({ resolver, quiet })
+  const results = [
+    await generateEntityIds({ resolver, quiet }),
+    await generateModuleRegistry({ resolver, quiet }),
+    await generateModuleRegistryApp({ resolver, quiet }),
+    await generateModuleRegistryCli({ resolver, quiet }),
+    await generateModuleEntities({ resolver, quiet }),
+    await generateModuleDi({ resolver, quiet }),
+    await generateModulePackageSources({ resolver, quiet }),
+    await generateOpenApi({ resolver, quiet }),
+  ]
+  return results.some((result) => (result?.filesWritten.length ?? 0) > 0)
+}
+
+async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Promise<void> {
+  const generatedFilesChanged = await runGeneratorSuite(quiet)
+  if (!generatedFilesChanged) {
+    if (!quiet) {
+      console.log('[generate] Generated outputs unchanged; skipping structural cache purge.')
+    }
+    return
+  }
+  await runPostGenerateStructuralCachePurge(quiet)
 }
 
 /**
- * Builds the structural-fingerprint function used by the in-process generate
- * watcher. Walks the same module roots the legacy `mercato generate watch`
- * CLI command tracked, so the polling semantics are byte-for-byte identical.
+ * Builds the event-gated structural fingerprint runtime used by generate
+ * watchers. Filesystem events mark the tree dirty; the existing full content
+ * checksum remains the final authority and the fallback when watching fails.
  */
-function createGenerateWatchChecksumFn(): () => Promise<string> {
-  return async () => {
-    const { createResolver } = await import('./lib/resolver')
-    const { calculateGenerateWatchStructureChecksum } = await import('./lib/generate-watch-structure')
+async function createGenerateWatchRuntime() {
+  const [
+    { createResolver },
+    { calculateGenerateWatchStructureChecksum },
+    { createGenerateWatchChangeSignal },
+    { resolveStandaloneSourceMirrorBase },
+  ] = await Promise.all([
+    import('./lib/resolver'),
+    import('./lib/generate-watch-structure'),
+    import('./lib/generate-watch-events'),
+    import('./lib/generators/scanner'),
+  ])
+
+  const collectWatchState = () => {
     const resolver = createResolver()
     const moduleRoots = []
     for (const entry of resolver.loadEnabledModules()) {
       const roots = resolver.getModulePaths(entry)
       moduleRoots.push({ appBase: roots.appBase, pkgBase: roots.pkgBase })
     }
-    return calculateGenerateWatchStructureChecksum({
-      modulesFile: path.join(resolver.getAppDir(), 'src', 'modules.ts'),
+    return {
+      modulesFile: resolver.getModulesConfigPath(),
       moduleRoots,
-    })
+    }
+  }
+
+  return {
+    computeStructureChecksum: async () => {
+      return calculateGenerateWatchStructureChecksum(collectWatchState())
+    },
+    changeSignal: createGenerateWatchChangeSignal({
+      getWatchTargets: () => {
+        const state = collectWatchState()
+        const targets: Array<{ directory: string; recursive: boolean; fileName?: string }> = [{
+          directory: path.dirname(state.modulesFile),
+          recursive: false,
+          fileName: path.basename(state.modulesFile),
+        }]
+        for (const roots of state.moduleRoots) {
+          targets.push({ directory: path.dirname(roots.appBase), recursive: true })
+          targets.push({ directory: path.dirname(roots.pkgBase), recursive: true })
+          const sourceMirror = resolveStandaloneSourceMirrorBase(roots.pkgBase)
+          if (sourceMirror) {
+            targets.push({ directory: path.dirname(sourceMirror), recursive: true })
+          }
+        }
+        return targets
+      },
+    }),
   }
 }
 
@@ -913,7 +967,7 @@ export async function run(argv = process.argv) {
             await client.query('BEGIN')
             try {
               for (const t of dropTargets) {
-                await client.query(`DROP TABLE IF EXISTS "${t}" CASCADE`)
+                await client.query(`DROP TABLE IF EXISTS ${quotePostgresIdentifier(t)} CASCADE`)
                 dropped += 1
               }
               await client.query('COMMIT')
@@ -1547,6 +1601,7 @@ export async function run(argv = process.argv) {
         command: 'worker',
         run: async (args: string[]) => {
           const isAllQueues = args.includes('--all')
+          const runSchedulerInWorker = isAllQueues && args.includes('--with-scheduler')
           const queueName = isAllQueues ? null : args[0]
 
           // Collect all discovered workers from modules
@@ -1614,6 +1669,26 @@ export async function run(argv = process.argv) {
             })
 
             await Promise.all(workerPromises)
+
+            if (runSchedulerInWorker) {
+              const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
+              if (queueStrategy !== 'local') {
+                throw new Error('[worker] --with-scheduler is supported only with QUEUE_STRATEGY=local.')
+              }
+              const schedulerContainer = await createRequestContainer()
+              const localScheduler = schedulerContainer.resolve('localSchedulerService') as {
+                start?: () => Promise<void>
+                stop?: () => Promise<void>
+              } | undefined
+              if (!localScheduler?.start || !localScheduler.stop) {
+                throw new Error('[worker] Local scheduler service is unavailable.')
+              }
+              await localScheduler.start()
+              registerWorkerShutdownHook(async () => {
+                await localScheduler.stop?.()
+              })
+              console.log('[worker] Local scheduler started in the shared worker process.')
+            }
 
             console.log('[worker] All workers started. Press Ctrl+C to stop')
 
@@ -1751,8 +1826,7 @@ export async function run(argv = process.argv) {
           const quiet = args.includes('--quiet') || args.includes('-q')
 
           console.log('Running all generators...')
-          await runGeneratorSuite(quiet)
-          await runPostGenerateStructuralCachePurge(quiet)
+          await runGeneratorSuiteWithStructuralInvalidation(quiet)
           console.log('All generators completed.')
         },
       },
@@ -1765,14 +1839,14 @@ export async function run(argv = process.argv) {
           const parsedInterval = intervalArg ? Number.parseInt(intervalArg.split('=')[1] ?? '', 10) : NaN
           const intervalMs = Number.isFinite(parsedInterval) && parsedInterval >= 250 ? parsedInterval : 1000
 
+          const generateWatchRuntime = await createGenerateWatchRuntime()
           const watcher = startInProcessGenerateWatcher({
             pollMs: intervalMs,
             skipInitial,
             quiet,
-            computeStructureChecksum: createGenerateWatchChecksumFn(),
+            ...generateWatchRuntime,
             runGenerators: async () => {
-              await runGeneratorSuite(true)
-              await runPostGenerateStructuralCachePurge(true)
+              await runGeneratorSuiteWithStructuralInvalidation(true)
             },
           })
 
@@ -2087,6 +2161,13 @@ export async function run(argv = process.argv) {
               const autoSpawnSchedulerMode = resolveAutoSpawnSchedulerMode(process.env)
               const queueStrategy = process.env.QUEUE_STRATEGY || 'local'
               const schedulerCommand = lookupModuleCommand(getCliModules(), 'scheduler', 'start')
+              const embedSchedulerInSharedWorker =
+                shouldEmbedLocalSchedulerInSharedWorker(process.env)
+                && queueStrategy === 'local'
+                && autoSpawnWorkersMode === 'lazy'
+                && resolveLazySpawnMode(process.env) === 'shared'
+                && autoSpawnSchedulerMode !== 'off'
+                && schedulerCommand.status === 'ok'
               const nextRuntime = startNextDev(runtimeEnv)
               const restartPromise = waitForDevRestart()
               const backgroundStartAbort = new AbortController()
@@ -2138,6 +2219,23 @@ export async function run(argv = process.argv) {
                       pollMs: resolveLazyPollMs(process.env),
                       restartOnUnexpectedExit: resolveLazyRestart(process.env),
                       spawnMode: lazySpawnMode,
+                      ...(embedSchedulerInSharedWorker
+                        ? {
+                            sharedWorkerArgs: ['--with-scheduler'],
+                            shouldStartSharedWorker: async () => {
+                              const schedules = await probeEnabledSchedules(runtimeEnv)
+                              return !schedules.error && schedules.enabledSchedules > 0
+                            },
+                            ...(resolveLazySchedulerRestart(process.env)
+                              ? {
+                                  shouldRestartSharedWorker: async () => {
+                                    const schedules = await probeEnabledSchedules(runtimeEnv)
+                                    return !schedules.error && schedules.enabledSchedules > 0
+                                  },
+                                }
+                              : {}),
+                          }
+                        : {}),
                     })
                   } else {
                     console.log('[server] Eager worker auto-spawn enabled - starting workers for all queues...')
@@ -2151,7 +2249,9 @@ export async function run(argv = process.argv) {
                   }
                 }
 
-                if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
+                if (embedSchedulerInSharedWorker && activeLazySupervisor) {
+                  console.log('[server] Local scheduler will run inside the lazy shared worker process.')
+                } else if (autoSpawnSchedulerMode !== 'off' && queueStrategy === 'local') {
                   if (schedulerCommand.status !== 'ok') {
                     console.log(`[server] Skipping scheduler auto-start — ${describeMissingModuleCommand(schedulerCommand)}`)
                   } else if (autoSpawnSchedulerMode === 'lazy') {
@@ -2186,6 +2286,7 @@ export async function run(argv = process.argv) {
                 // (measured against the legacy sidecar). Opt back into the
                 // sidecar with `OM_DEV_GENERATE_WATCH_MODE=legacy` if needed.
                 console.log('[server] In-process generate watcher enabled — structural changes will regenerate without a sidecar process.')
+                const generateWatchRuntime = await createGenerateWatchRuntime()
                 activeGenerateWatcher = startInProcessGenerateWatcher({
                   // `--skip-initial` equivalent: `yarn dev` always runs an
                   // initial `mercato generate` before reaching the server
@@ -2194,10 +2295,9 @@ export async function run(argv = process.argv) {
                   // twice in a row.
                   skipInitial: true,
                   quiet: false,
-                  computeStructureChecksum: createGenerateWatchChecksumFn(),
+                  ...generateWatchRuntime,
                   runGenerators: async () => {
-                    await runGeneratorSuite(true)
-                    await runPostGenerateStructuralCachePurge(true)
+                    await runGeneratorSuiteWithStructuralInvalidation(true)
                   },
                 })
               } else {

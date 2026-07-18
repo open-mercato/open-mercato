@@ -20,6 +20,28 @@ docker compose -f docker-compose.fullapp.dev.yml up --build
 
 The app container mounts the repo, runs `yarn dev` (packages watch + Next.js dev server), and does init/migrate + generate on start. Named volumes keep `node_modules` and `.next` in the container.
 
+### AI assistant services in the fullapp stacks (mcp + opencode)
+
+Both fullapp compose files run the complete agentic stack as three wired services:
+
+| Service | Port (host) | Role |
+|---------|-------------|------|
+| `app` | 3000 (+ splash 4000 in dev) | Next.js app; talks to OpenCode via `OPENCODE_URL=http://opencode:4096` |
+| `mcp` | 3001 (dev only; internal in prod) | MCP Streamable HTTP server (`mcp:serve-http`); reaches the app via `APP_URL=http://app:3000` |
+| `opencode` | 4096 (dev only; internal in prod) | OpenCode agent; reaches MCP via `OPENCODE_MCP_URL=http://mcp:3001/mcp` |
+
+The `mcp` service reuses the app image and (in dev) the app's named volumes — it never runs `yarn install` or builds. Its entrypoint (`docker/scripts/mcp-entrypoint.sh`) waits until the app answers HTTP, then provisions the MCP API key idempotently via `yarn mercato ai_assistant mcp:ensure-api-key` into the shared `mcp_shared` volume; the OpenCode entrypoint waits for MCP `/health` and reads the key file. **Leave `MCP_SERVER_API_KEY` unset in `.env` for these stacks** — a set env value overrides the auto-provisioned file and breaks OpenCode → MCP auth unless it is itself a valid `omk_` key.
+
+Wiring smoke test from the host (dev stack):
+
+```bash
+curl http://localhost:3001/health          # {"status":"ok","tools":N}
+curl http://localhost:4096/global/health   # {"healthy":true,...}
+curl http://localhost:4096/mcp             # {"open-mercato":{"status":"connected"}}
+```
+
+Two operational notes: OpenCode reads the key **once at startup** — after a DB reset, `mcp:ensure-api-key --rotate`, or anything else that rotates the key, run `docker compose restart opencode`. And after restarting only the `app` container (which re-runs install/build in the shared volumes), restart `mcp` too once the app is back up.
+
 ## Quick Start
 
 ```bash
@@ -160,7 +182,7 @@ yarn docker:mercato test:integration
 | `install-skills` | works (Unix) | `yarn docker:install-skills` | unsupported-by-design | Requires bash + symlinks; external skills need network (`npx skills add`, skip with `--no-external`); use container |
 | `clean:generated` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
 | `clean:packages` | works (Unix) | manual | unsupported-by-design | Bash script; run natively on Unix or in container shell |
-| `mcp:serve` | works | works-with-wrapper | unsupported-by-design | Use `docker compose exec app yarn mcp:serve` |
+| `mcp:serve` | works | dedicated `mcp` service | dedicated `mcp` service | The fullapp stacks run the MCP server as their own container (port 3001 in dev); no manual start needed |
 | `registry:*` / `release:*` | works (Unix) | unsupported-by-design | unsupported-by-design | CI/release pipeline scripts |
 
 ### Troubleshooting

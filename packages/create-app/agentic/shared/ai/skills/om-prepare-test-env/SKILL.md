@@ -17,9 +17,9 @@ these `package.json` / CLI commands instead of inventing a boot procedure. They 
 caching, database provisioning (testcontainers), seeding, readiness waits, and their own
 owner lock — never re-implement any of that.
 
-- Boot app-only ephemeral env: `yarn mercato test:ephemeral`. Preferred app port `5001`; the
-  actual port and database URL land in `.ai/qa/ephemeral-env.json` (CLI-owned and authoritative
-  for its own reuse decisions — never write it by hand).
+- Boot app-only ephemeral env: `yarn test:integration:ephemeral:start` (= `yarn mercato test:ephemeral`).
+  Preferred app port `5001`; the actual port and database URL land in `.ai/qa/ephemeral-env.json`
+  (CLI-owned and authoritative for its own reuse decisions — never write it by hand).
 - Full suite with managed env: `yarn test:integration:ephemeral` (= `yarn mercato test:integration`).
   It reuses a healthy running ephemeral env from the state file, else provisions one.
 - Filtered run: `yarn mercato test:integration <substring>` — batches all specs whose path
@@ -28,6 +28,32 @@ owner lock — never re-implement any of that.
 - Readiness marker in the boot log: `Application is ready at <baseUrl>`.
 - Reuse TTL: `OM_INTEGRATION_BUILD_CACHE_TTL_SECONDS` (default 600s) gates the CLI's own reuse;
   keep any wrapper TTL in lockstep with it.
+
+## Choosing the run mode — prefer ephemeral, ask the user
+
+`yarn test:integration:ephemeral` is ALWAYS preferred over plain `yarn test:integration`: the
+ephemeral variant provisions (or safely reuses) its own isolated app + database, so it is more
+autonomous and cannot touch the developer's dev data. Plain `yarn test:integration` only works
+with the full runner env block exported (see the MUST below) — treat it as an internal detail
+of the CLI runner, never as the command you reach for first.
+
+Two supported run modes:
+
+1. **Fully managed ephemeral (default, safest):** `yarn test:integration:ephemeral [filter]` —
+   one command provisions the env, runs the tests, and leaves teardown to the CLI's own
+   lifecycle. Best for full-suite runs and unattended/autonomous work.
+2. **Reuse a running ephemeral env (fast iteration):** boot once with
+   `yarn test:integration:ephemeral:start`, then run small filtered batches with
+   `yarn mercato test:integration <filter>` against the same env. Best for short author/debug
+   loops where re-provisioning per run would dominate wall-clock time; reuse is still gated by
+   the CLI's TTL and freshness checks.
+
+When a user is present and has not already said which mode they want, ASK before the first run
+(one question, two options): fully managed ephemeral per run, or boot-once-and-reuse for
+iterative loops. Recommend the fully managed ephemeral mode — it is more autonomous and safer
+regarding data. When running unattended (no user to ask), default to the fully managed ephemeral
+mode. Do not re-ask once the user has chosen; keep their answer for the rest of the session
+unless they change it.
 
 ## MUST: suite runs go through the CLI runner
 

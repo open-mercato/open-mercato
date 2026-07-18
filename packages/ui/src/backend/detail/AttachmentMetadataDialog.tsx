@@ -6,6 +6,7 @@ import { Button } from '../../primitives/button'
 import { IconButton } from '../../primitives/icon-button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
 import { Input } from '@open-mercato/ui/primitives/input'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { TagsInput } from '@open-mercato/ui/backend/inputs/TagsInput'
 import { CrudForm, type CrudField, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customFieldValues'
@@ -576,29 +577,21 @@ export function AttachmentMetadataDialog({ open, onOpenChange, item, availableTa
             </div>
             {isImage ? (
               <div className="rounded border">
-                <div className="flex flex-wrap gap-4 border-b px-3 py-2 text-sm font-medium" role="tablist">
-                  {(['preview', 'resize'] as const).map((tab) => (
-                    <Button
-                      key={tab}
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      role="tab"
-                      aria-selected={imageTab === tab}
-                      onClick={() => setImageTab(tab)}
-                      className={cn(
-                        'h-auto -mb-px rounded-none border-b-2 border-transparent px-0 py-1',
-                        imageTab === tab
-                          ? 'border-accent-indigo text-foreground'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                    >
-                      {tab === 'preview'
-                        ? t('attachments.library.metadata.preview', 'Preview')
-                        : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
-                    </Button>
-                  ))}
-                </div>
+                <Tabs
+                  value={imageTab}
+                  onValueChange={(value) => setImageTab(value as 'preview' | 'resize')}
+                  variant="underline"
+                >
+                  <TabsList className="w-full flex-wrap px-3">
+                    {(['preview', 'resize'] as const).map((tab) => (
+                      <TabsTrigger key={tab} value={tab}>
+                        {tab === 'preview'
+                          ? t('attachments.library.metadata.preview', 'Preview')
+                          : t('attachments.library.metadata.resizeTool.title', 'Generate resized URL')}
+                      </TabsTrigger>
+                    ))}
+                  </TabsList>
+                </Tabs>
                 <div className="space-y-3 p-3">
                   {imageTab === 'preview' ? (
                     previewUrl ? (
