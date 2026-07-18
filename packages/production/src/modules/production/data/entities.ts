@@ -17,6 +17,9 @@ export type ProductionOrderStatus =
 export type ProductionOrderSourceType = 'sales_order' | 'mrp' | 'manual'
 export type ProductionOrderOperationStatus = 'pending' | 'in_progress' | 'done'
 export type ProductionReportType = 'partial' | 'final'
+export type MrpRunStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type MrpSuggestionType = 'make' | 'buy' | 'reschedule' | 'cancel'
+export type MrpSuggestionStatus = 'open' | 'accepted' | 'dismissed' | 'superseded'
 
 @Entity({ tableName: 'production_work_centers' })
 @Index({ name: 'production_work_centers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -739,4 +742,106 @@ export class ProductionReport {
   // (matches `StockMovement`).
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
+}
+
+@Entity({ tableName: 'production_mrp_runs' })
+@Index({ name: 'production_mrp_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+export class MrpRun {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Enum({ items: ['pending', 'running', 'completed', 'failed'], type: 'text', name: 'status', default: 'pending' })
+  status: MrpRunStatus = 'pending'
+
+  @Property({ name: 'params', type: 'jsonb', nullable: true })
+  params?: Record<string, unknown> | null
+
+  @Property({ name: 'progress_job_id', type: 'uuid', nullable: true })
+  progressJobId?: string | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'finished_at', type: Date, nullable: true })
+  finishedAt?: Date | null
+
+  @Property({ name: 'stats', type: 'jsonb', nullable: true })
+  stats?: Record<string, unknown> | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'production_mrp_suggestions' })
+@Index({ name: 'production_mrp_suggestions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_mrp_suggestions_run_idx', properties: ['runId'] })
+@Index({ name: 'production_mrp_suggestions_status_idx', properties: ['tenantId', 'organizationId', 'status'] })
+export class MrpSuggestion {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  @Enum({ items: ['make', 'buy', 'reschedule', 'cancel'], type: 'text', name: 'suggestion_type' })
+  suggestionType!: MrpSuggestionType
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'qty', type: 'numeric', precision: 18, scale: 6 })
+  qty!: string
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Property({ name: 'due_date', type: Date })
+  dueDate!: Date
+
+  // Pegging refs (spec § Data Models: "demand_source jsonb (pegging)") — an
+  // array of `{ productKey, source: { type, id }, qty }` entries copied
+  // verbatim from the engine's `MrpSuggestion.pegging` (see `lib/mrp/types.ts`).
+  @Property({ name: 'demand_source', type: 'jsonb', nullable: true })
+  demandSource?: unknown
+
+  @Enum({
+    items: ['open', 'accepted', 'dismissed', 'superseded'],
+    type: 'text',
+    name: 'status',
+    default: 'open',
+  })
+  status: MrpSuggestionStatus = 'open'
+
+  @Property({ name: 'carried_from_suggestion_id', type: 'uuid', nullable: true })
+  carriedFromSuggestionId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
 }

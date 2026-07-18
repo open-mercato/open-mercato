@@ -70,11 +70,22 @@ async function loadSalesDemand(
   const SalesOrderLine = tryResolve<new (...args: unknown[]) => unknown>(params.resolve, 'SalesOrderLine')
   if (!SalesOrderLine) return []
 
-  const lines = (await em.find(SalesOrderLine as never, {
-    tenantId: params.tenantId,
-    organizationId: params.organizationId,
-    deletedAt: null,
-  } as never)) as SalesOrderLineRecord[]
+  // `orderBy: { id: 'asc' }` (review finding, hardening): without an
+  // explicit ORDER BY, Postgres does not guarantee row order between two
+  // otherwise-identical SELECTs. `carryOver.ts`'s match key already sorts
+  // pegging refs so it is order-independent regardless, but a stable query
+  // order here means `MrpDemand[]`/pegging order does not flip between runs
+  // over unchanged data in the first place (belt-and-braces, not just relying
+  // on the downstream sort).
+  const lines = (await em.find(
+    SalesOrderLine as never,
+    {
+      tenantId: params.tenantId,
+      organizationId: params.organizationId,
+      deletedAt: null,
+    } as never,
+    { orderBy: { id: 'asc' } as never },
+  )) as SalesOrderLineRecord[]
 
   const demands: MrpDemand[] = []
   for (const line of lines) {
@@ -130,8 +141,13 @@ function computeMinStockDeficits(
 export async function loadMrpInputs(em: EntityManager, params: LoadMrpInputsParams): Promise<MrpInputs> {
   const scope = { tenantId: params.tenantId, organizationId: params.organizationId, deletedAt: null }
 
+  // `orderBy: { id: 'asc' }` on `ProductPlanningParams` (review finding,
+  // hardening): its row order drives `computeMinStockDeficits`'s synthesized
+  // `min_stock` demand order below, which in turn feeds pegging order — an
+  // unordered SELECT could otherwise flip that order between two runs over
+  // unchanged data (see `loadSalesDemand`'s matching comment above).
   const [planningParams, stockItems, activeBoms, openOrders] = await Promise.all([
-    em.find(ProductPlanningParams, scope),
+    em.find(ProductPlanningParams, scope, { orderBy: { id: 'asc' } }),
     em.find(StockItem, scope),
     em.find(ProductionBom, { ...scope, status: 'active' }),
     // `planned` orders are intentionally excluded from open supply: a

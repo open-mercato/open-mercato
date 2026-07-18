@@ -384,3 +384,35 @@ export type OrderListQuery = z.infer<typeof orderListQuerySchema>
 export type ReportCreateInput = z.infer<typeof reportCreateSchema>
 export type ReportReverseInput = z.infer<typeof reportReverseSchema>
 export type ReportListQuery = z.infer<typeof reportListQuerySchema>
+
+// ---------------------------------------------------------------------------
+// MRP (Phase 5.2)
+// ---------------------------------------------------------------------------
+
+export const mrpRunCreateSchema = z.object({
+  asOfDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'asOfDate must be an ISO YYYY-MM-DD date').optional(),
+})
+
+export const mrpRunListQuerySchema = z.object({
+  ...listBaseSchema,
+  status: z.enum(['pending', 'running', 'completed', 'failed']).optional(),
+})
+
+export const mrpSuggestionListQuerySchema = z.object({
+  ...listBaseSchema,
+  status: z.enum(['open', 'accepted', 'dismissed', 'superseded']).default('open'),
+  suggestionType: z.enum(['make', 'buy', 'reschedule', 'cancel']).optional(),
+})
+
+export const mrpSuggestionsBulkActionSchema = z.object({
+  // Bound mirrors the bulk DataTable-selection bulk actions elsewhere in the
+  // platform (e.g. `messages` attachments bulk ops), not the full-table
+  // `catalog` bulk-delete bound (10000) — this is a user-selected batch of
+  // suggestions to accept/dismiss, not a whole-table sweep.
+  ids: z.array(z.string().uuid()).min(1, 'At least one suggestion id is required').max(500, 'At most 500 suggestion ids per request'),
+})
+
+export type MrpRunCreateInput = z.infer<typeof mrpRunCreateSchema>
+export type MrpRunListQuery = z.infer<typeof mrpRunListQuerySchema>
+export type MrpSuggestionListQuery = z.infer<typeof mrpSuggestionListQuerySchema>
+export type MrpSuggestionsBulkActionInput = z.infer<typeof mrpSuggestionsBulkActionSchema>
