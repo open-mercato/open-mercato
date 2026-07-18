@@ -3,8 +3,10 @@
 import * as React from 'react'
 import { Clock, Search } from 'lucide-react'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
-import { apiCallOrThrow, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
+import { apiCallOrThrow, readApiResultOrThrow, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
 import type { SectionAction, TabEmptyStateConfig } from '@open-mercato/ui/backend/detail'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Kbd } from '@open-mercato/ui/primitives/kbd'
@@ -111,6 +113,7 @@ export function ActivitiesSection({
   runGuardedMutation,
 }: ActivitiesSectionProps) {
   const t = useT()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
   const [filterTypes, setFilterTypes] = React.useState<string[]>([])
   const [filterDateFrom, setFilterDateFrom] = React.useState('')
   const [filterDateTo, setFilterDateTo] = React.useState('')
@@ -292,6 +295,43 @@ export function ActivitiesSection({
     }
   }, [loadActivities, runGuardedMutation, t])
 
+  const handleDelete = React.useCallback(async (activity: InteractionSummary) => {
+    const confirmed = await confirm({
+      title: t('customers.activities.actions.deleteConfirmTitle', 'Delete activity?'),
+      description: t(
+        'customers.activities.actions.deleteConfirmDescription',
+        'The activity will be removed from the timeline.',
+      ),
+      confirmText: t('customers.activities.actions.delete', 'Delete activity'),
+      cancelText: t('customers.activities.actions.deleteCancel', 'Cancel'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      const operation = () =>
+        withScopedApiRequestHeaders(buildOptimisticLockHeader(activity.updatedAt), () =>
+          apiCallOrThrow('/api/customers/interactions', {
+            method: 'DELETE',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ id: activity.id }),
+          }),
+        )
+      if (runGuardedMutation) {
+        await runGuardedMutation(operation, {
+          id: activity.id,
+          operation: 'deleteActivity',
+        })
+      } else {
+        await operation()
+      }
+      flash(t('customers.activities.actions.deleteSuccess', 'Activity deleted'), 'success')
+      await loadActivities()
+    } catch (err) {
+      logger.warn('Delete activity failed', { component: 'ActivitiesSection', activityId: activity.id, err })
+      flash(t('customers.activities.actions.deleteError', 'Could not delete activity'), 'error')
+    }
+  }, [confirm, loadActivities, runGuardedMutation, t])
+
   const resolvedUserIdsRef = React.useRef(new Set<string>())
 
   // Resolve missing author names from user IDs
@@ -349,6 +389,7 @@ export function ActivitiesSection({
 
   return (
     <div className="flex flex-col gap-3.5 rounded-[10px] border border-border bg-card pt-4 pb-[18px] px-[18px]">
+      {ConfirmDialogElement}
       <div className="flex items-center gap-2">
         <Clock className="size-[15px] text-muted-foreground" />
         <h3 className="text-[13px] font-semibold text-foreground">
@@ -399,6 +440,7 @@ export function ActivitiesSection({
             activities={visibleActivities}
             onEdit={onEditActivity}
             onMarkDone={handleMarkDone}
+            onDelete={handleDelete}
           />
           {totalCount > 0 ? (
             <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-3">
