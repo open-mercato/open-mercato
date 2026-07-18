@@ -13,6 +13,7 @@ import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { bomUpdateSchema } from '../../../../data/validators.js'
 import { BomItemsEditor, type BomItemRow } from '../../components/BomItemsEditor'
+import { CostRollupPanel } from '../../components/CostRollupPanel'
 
 const bomEditSchema = bomUpdateSchema.omit({ id: true })
 type BomEditValues = z.infer<typeof bomEditSchema>
@@ -142,6 +143,7 @@ export default function EditBomPage({ params }: { params?: { id?: string } }) {
   return (
     <Page>
       <PageBody>
+        <CostRollupPanel bomId={record.id} t={t} />
         <CrudForm<BomEditValues>
           title={t('production.boms.edit.title', 'Edit BOM')}
           backHref="/backend/production/boms"

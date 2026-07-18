@@ -1,6 +1,7 @@
 import { expect, type APIRequestContext } from '@playwright/test'
 import { apiRequest, getAuthToken } from '@open-mercato/core/helpers/integration/api'
 import { readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { deleteCatalogProductIfExists } from '@open-mercato/core/helpers/integration/catalogFixtures'
 
 /**
  * Feature-toggle identifier gating the production module surface (mirrors
@@ -224,4 +225,88 @@ export async function deleteRoutingIfExists(
   await apiRequest(request, 'DELETE', '/api/production/routings', { token, data: { id } }).catch(() => null)
 }
 
-export { getAuthToken, apiRequest, readJsonSafe }
+/**
+ * Creates a real catalog product with a `defaultUnit` (the cost-rollup
+ * route reads catalog prices as denominated in this unit — task 1.4). Not
+ * reusing `createProductFixture` from `catalogFixtures.ts` since that helper
+ * does not accept `defaultUnit`; this stays a thin direct POST instead of
+ * widening a shared core helper for a single call site.
+ */
+export async function createCatalogProductWithDefaultUnit(
+  request: APIRequestContext,
+  token: string,
+  overrides: Partial<{ title: string; sku: string; defaultUnit: string }> = {},
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/catalog/products', {
+    token,
+    data: {
+      title: overrides.title ?? uniqueName('Integration Cost Rollup Product'),
+      sku: overrides.sku ?? `QA-PROD-${Date.now()}-${++sequence}`,
+      description:
+        'Long enough description for SEO checks in QA automation flows. This text keeps the create validation satisfied.',
+      defaultUnit: overrides.defaultUnit ?? 'kg',
+    },
+  })
+  expect(response.status(), 'POST /api/catalog/products should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id === 'string', 'product creation response should include an id').toBe(true)
+  return String(body!.id)
+}
+
+/**
+ * Fetches an existing catalog price kind (seeded per tenant, e.g. `regular`)
+ * and creates a `unitPriceNet` price for `productId` in that kind/currency.
+ * Mirrors the fixture pattern in
+ * `packages/core/src/modules/catalog/__integration__/TC-CAT-011.spec.ts`.
+ */
+export async function createCatalogListPrice(
+  request: APIRequestContext,
+  token: string,
+  overrides: { productId: string; unitPriceNet: number; currencyCode?: string },
+): Promise<string> {
+  const priceKindsResponse = await apiRequest(request, 'GET', '/api/catalog/price-kinds?page=1&pageSize=1', { token })
+  expect(priceKindsResponse.status(), 'GET /api/catalog/price-kinds should return 200').toBe(200)
+  const priceKindsBody = await readJsonSafe<{ items?: Array<{ id?: string; currencyCode?: string | null; currency_code?: string | null }> }>(priceKindsResponse)
+  const priceKind = (priceKindsBody?.items ?? [])[0]
+  expect(priceKind?.id, 'at least one catalog price kind should be configured').toBeTruthy()
+
+  const response = await apiRequest(request, 'POST', '/api/catalog/prices', {
+    token,
+    data: {
+      productId: overrides.productId,
+      priceKindId: priceKind!.id,
+      currencyCode: overrides.currencyCode ?? priceKind!.currencyCode ?? priceKind!.currency_code ?? 'USD',
+      unitPriceNet: overrides.unitPriceNet,
+    },
+  })
+  expect(response.status(), 'POST /api/catalog/prices should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id === 'string', 'price creation response should include an id').toBe(true)
+  return String(body!.id)
+}
+
+/**
+ * Creates a `CatalogProductUnitConversion` row (`unitCode` -> `toBaseFactor`
+ * of the product's `defaultUnit`) so the cost-rollup route can convert a
+ * BOM line's non-base UoM (e.g. `g`) into the price's base UoM (e.g. `kg`).
+ */
+export async function createCatalogUnitConversion(
+  request: APIRequestContext,
+  token: string,
+  overrides: { productId: string; unitCode: string; toBaseFactor: number },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/catalog/product-unit-conversions', {
+    token,
+    data: {
+      productId: overrides.productId,
+      unitCode: overrides.unitCode,
+      toBaseFactor: overrides.toBaseFactor,
+    },
+  })
+  expect(response.status(), 'POST /api/catalog/product-unit-conversions should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id === 'string', 'unit conversion creation response should include an id').toBe(true)
+  return String(body!.id)
+}
+
+export { getAuthToken, apiRequest, readJsonSafe, deleteCatalogProductIfExists }

@@ -49,7 +49,7 @@ function requireScopeIds(ctx: CommandRuntimeContext): { tenantId: string; organi
   return { tenantId, organizationId }
 }
 
-function productKeyOf(productId: string, variantId?: string | null): string {
+export function productKeyOf(productId: string, variantId?: string | null): string {
   return variantId ? `${productId}:${variantId}` : productId
 }
 
@@ -479,14 +479,22 @@ async function nextBomVersion(em: EntityManager, scope: { tenantId: string; orga
  * Builds the tenant/org-scoped BOM item graph (active versions only), with
  * `overrideProductKey`/`overrideItems` substituted in place of whatever is
  * currently persisted for that product — used to simulate "what would the
- * graph look like if this BOM were active" before committing an activation.
+ * graph look like if this BOM were active" before committing an activation,
+ * and reused by the cost-rollup route (task 1.4) to explode a multi-level
+ * standard cost without re-querying/re-deriving the same BOM item graph.
+ *
+ * Also returns `uomByComponentKey`: the BOM-line unit of measure for each
+ * component key encountered while building the graph (root/override items
+ * win over active-BOM items for the same key), since `BomItemsByProductKey`
+ * itself carries no UoM — the cost rollup needs it to know which unit each
+ * exploded quantity is expressed in.
  */
-async function loadActiveBomGraph(
+export async function loadActiveBomGraph(
   em: EntityManager,
   scope: { tenantId: string; organizationId: string },
   overrideProductKey: string,
   overrideItems: BomItemInputPayload[],
-): Promise<BomItemsByProductKey> {
+): Promise<{ graph: BomItemsByProductKey; uomByComponentKey: Record<string, string> }> {
   const activeBoms = await em.find(ProductionBom, {
     tenantId: scope.tenantId,
     organizationId: scope.organizationId,
@@ -497,26 +505,35 @@ async function loadActiveBomGraph(
   const items = activeBomIds.length ? await em.find(ProductionBomItem, { bomId: { $in: activeBomIds }, deletedAt: null }) : []
 
   const graph: BomItemsByProductKey = {}
+  const uomByComponentKey: Record<string, string> = {}
   for (const bom of activeBoms) {
     const key = productKeyOf(bom.productId, bom.variantId)
     graph[key] = items
       .filter((i) => i.bomId === bom.id)
-      .map((i) => ({
-        componentKey: productKeyOf(i.componentProductId, i.componentVariantId),
-        qtyPerUnit: Number(i.qtyPerUnit),
-        scrapFactor: Number(i.scrapFactor),
-        isPhantom: i.isPhantom,
-      }))
+      .map((i) => {
+        const componentKey = productKeyOf(i.componentProductId, i.componentVariantId)
+        uomByComponentKey[componentKey] = i.uom
+        return {
+          componentKey,
+          qtyPerUnit: Number(i.qtyPerUnit),
+          scrapFactor: Number(i.scrapFactor),
+          isPhantom: i.isPhantom,
+        }
+      })
   }
 
-  graph[overrideProductKey] = overrideItems.map((i) => ({
-    componentKey: productKeyOf(i.componentProductId, i.componentVariantId ?? null),
-    qtyPerUnit: i.qtyPerUnit,
-    scrapFactor: i.scrapFactor,
-    isPhantom: i.isPhantom,
-  }))
+  graph[overrideProductKey] = overrideItems.map((i) => {
+    const componentKey = productKeyOf(i.componentProductId, i.componentVariantId ?? null)
+    uomByComponentKey[componentKey] = i.uom
+    return {
+      componentKey,
+      qtyPerUnit: i.qtyPerUnit,
+      scrapFactor: i.scrapFactor,
+      isPhantom: i.isPhantom,
+    }
+  })
 
-  return graph
+  return { graph, uomByComponentKey }
 }
 
 const createBomCommand: CommandHandler<BomCreateInput, { id: string }> = {
@@ -915,7 +932,7 @@ const activateBomCommand: CommandHandler<{ id: string }, { ok: boolean; archived
 
     const items = await em.find(ProductionBomItem, { bomId: bom.id, deletedAt: null })
     const productKey = productKeyOf(bom.productId, bom.variantId ?? null)
-    const graph = await loadActiveBomGraph(
+    const { graph } = await loadActiveBomGraph(
       em,
       { tenantId: bom.tenantId, organizationId: bom.organizationId },
       productKey,

@@ -127,6 +127,20 @@ function loadCommands() {
   return commands
 }
 
+/**
+ * Loads the technology commands module fresh (isolated, matching
+ * `loadCommands()`) and returns it directly so plain exported helpers
+ * (`loadActiveBomGraph`, `productKeyOf`) can be exercised without going
+ * through the `registerCommand` mock-call collection `loadCommands()` uses.
+ */
+function loadTechnologyModule(): typeof import('../technology') {
+  let mod: typeof import('../technology') | undefined
+  jest.isolateModules(() => {
+    mod = require('../technology')
+  })
+  return mod!
+}
+
 function persistedLogEntry(snapshots: { before?: unknown; after?: unknown }) {
   return {
     commandPayload: { undo: { ...snapshots } },
@@ -244,6 +258,79 @@ describe('production.work_centers commands', () => {
     const calls = (ctx.__dataEngine.markOrmEntityChange as jest.Mock).mock.calls.map(([opts]) => opts)
     expect(calls.map((c: any) => c.action)).toEqual(['updated', 'updated'])
     expect(calls.every((c: any) => c.indexer?.entityType === E.production.work_center)).toBe(true)
+  })
+})
+
+describe('loadActiveBomGraph', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.resetModules()
+  })
+
+  it('returns uomByComponentKey alongside the graph, from both active-BOM items and override items (task 1.4)', async () => {
+    const { loadActiveBomGraph } = loadTechnologyModule()
+
+    const { em, seed } = makeMockEm()
+    const ProductionBom = { name: 'ProductionBom' }
+    const ProductionBomItem = { name: 'ProductionBomItem' }
+
+    // Active BOM for product-b: its item's uom (KG) should show up in the map.
+    seed(ProductionBom, {
+      id: 'bom-b',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      productId: 'product-b',
+      variantId: null,
+      version: 1,
+      status: 'active',
+      validFrom: null,
+      validTo: null,
+      name: 'B BOM',
+      deletedAt: null,
+    })
+    seed(ProductionBomItem, {
+      id: 'item-b-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+      bomId: 'bom-b',
+      componentProductId: 'product-c',
+      componentVariantId: null,
+      qtyPerUnit: '1',
+      uom: 'KG',
+      scrapFactor: '0',
+      isPhantom: false,
+      operationSequence: null,
+      deletedAt: null,
+    })
+
+    const { graph, uomByComponentKey } = await loadActiveBomGraph(
+      em,
+      { tenantId: 'tenant-1', organizationId: 'org-1' },
+      'product-a',
+      [
+        {
+          componentProductId: 'product-b',
+          componentVariantId: null,
+          qtyPerUnit: 2,
+          uom: 'PCS',
+          scrapFactor: 0,
+          isPhantom: false,
+        },
+      ],
+    )
+
+    // Graph itself is unchanged behavior: override product key present, active BOM present.
+    expect(graph['product-a']).toEqual([
+      { componentKey: 'product-b', qtyPerUnit: 2, scrapFactor: 0, isPhantom: false },
+    ])
+    expect(graph['product-b']).toEqual([
+      { componentKey: 'product-c', qtyPerUnit: 1, scrapFactor: 0, isPhantom: false },
+    ])
+
+    // uomByComponentKey: override item's uom (PCS for product-b) AND the
+    // active-BOM item's uom (KG for product-c) are both present.
+    expect(uomByComponentKey['product-b']).toBe('PCS')
+    expect(uomByComponentKey['product-c']).toBe('KG')
   })
 })
 
