@@ -1,5 +1,5 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
-import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
+import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import {
   InventoryBalance,
   InventoryMovement,
@@ -236,12 +236,18 @@ export async function repairBalanceDrift(
 ): Promise<number> {
   let repaired = 0
   for (const row of driftRows) {
-    const balance = await em.findOne(InventoryBalance, {
-      id: row.balanceId,
-      organizationId: scope.organizationId,
-      tenantId: scope.tenantId,
-      deletedAt: null,
-    })
+    const balance = await findOneWithDecryption(
+      em,
+      InventoryBalance,
+      {
+        id: row.balanceId,
+        organizationId: scope.organizationId,
+        tenantId: scope.tenantId,
+        deletedAt: null,
+      },
+      undefined,
+      scope,
+    )
     if (!balance) continue
     balance.quantityOnHand = String(row.expectedOnHand)
     balance.quantityReserved = String(row.expectedReserved)

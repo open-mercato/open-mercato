@@ -990,11 +990,12 @@ const deleteWarehouseCommand: CommandHandler<{ id?: string }, { warehouseId: str
 }
 
 async function restoreZoneFromSnapshot(em: EntityManager, before: WarehouseZoneSnapshot): Promise<void> {
-  const warehouseRef = await em.findOne(Warehouse, { id: before.warehouseId })
+  const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+  const warehouseRef = await findOneWithDecryption(em, Warehouse, { id: before.warehouseId }, undefined, scope)
   if (!warehouseRef) {
     throw new CrudHttpError(409, { error: 'Cannot undo zone: parent warehouse no longer exists.' })
   }
-  let record = await em.findOne(WarehouseZone, { id: before.id })
+  let record = await findOneWithDecryption(em, WarehouseZone, { id: before.id }, undefined, scope)
   if (!record) {
     record = em.create(WarehouseZone, {
       id: before.id,
@@ -1061,7 +1062,13 @@ const createWarehouseZoneCommand: CommandHandler<WarehouseZoneCreateInput, { zon
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await em.findOne(WarehouseZone, { id: after.id })
+    const record = await findOneWithDecryption(
+      em,
+      WarehouseZone,
+      { id: after.id },
+      undefined,
+      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+    )
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1160,18 +1167,19 @@ const deleteWarehouseZoneCommand: CommandHandler<{ id?: string }, { zoneId: stri
 }
 
 async function restoreLocationFromSnapshot(em: EntityManager, before: WarehouseLocationSnapshot): Promise<void> {
-  const warehouseRef = await em.findOne(Warehouse, { id: before.warehouseId })
+  const scope = { tenantId: before.tenantId, organizationId: before.organizationId }
+  const warehouseRef = await findOneWithDecryption(em, Warehouse, { id: before.warehouseId }, undefined, scope)
   if (!warehouseRef) {
     throw new CrudHttpError(409, { error: 'Cannot undo location: parent warehouse no longer exists.' })
   }
   let parentRef: WarehouseLocation | null = null
   if (before.parentId) {
-    parentRef = await em.findOne(WarehouseLocation, { id: before.parentId })
+    parentRef = await findOneWithDecryption(em, WarehouseLocation, { id: before.parentId }, undefined, scope)
     // Parent may have been deleted independently — fall back to root level
     // rather than blocking the undo (the audit log still records the original
     // parent id for manual reconciliation).
   }
-  let record = await em.findOne(WarehouseLocation, { id: before.id })
+  let record = await findOneWithDecryption(em, WarehouseLocation, { id: before.id }, undefined, scope)
   if (!record) {
     record = em.create(WarehouseLocation, {
       id: before.id,
@@ -1251,7 +1259,13 @@ const createWarehouseLocationCommand: CommandHandler<WarehouseLocationCreateInpu
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await em.findOne(WarehouseLocation, { id: after.id })
+    const record = await findOneWithDecryption(
+      em,
+      WarehouseLocation,
+      { id: after.id },
+      undefined,
+      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+    )
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1416,7 +1430,13 @@ const createProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await em.findOne(ProductInventoryProfile, { id: after.id })
+    const record = await findOneWithDecryption(
+      em,
+      ProductInventoryProfile,
+      { id: after.id },
+      undefined,
+      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+    )
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1485,7 +1505,13 @@ const updateProductInventoryProfileCommand: CommandHandler<ProductInventoryProfi
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(ProductInventoryProfile, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      ProductInventoryProfile,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(ProductInventoryProfile, {
         id: before.id,
@@ -1540,7 +1566,13 @@ const deleteProductInventoryProfileCommand: CommandHandler<{ id?: string }, { pr
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(ProductInventoryProfile, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      ProductInventoryProfile,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(ProductInventoryProfile, {
         id: before.id,
@@ -1620,7 +1652,13 @@ const createInventoryLotCommand: CommandHandler<InventoryLotCreateInput, { lotId
     const after = payload?.after
     if (!after) return
     const em = resolveEm(ctx)
-    const record = await em.findOne(InventoryLot, { id: after.id })
+    const record = await findOneWithDecryption(
+      em,
+      InventoryLot,
+      { id: after.id },
+      undefined,
+      resolveScope(ctx, { tenantId: after.tenantId, organizationId: after.organizationId }),
+    )
     if (!record) return
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
@@ -1685,7 +1723,13 @@ const updateInventoryLotCommand: CommandHandler<InventoryLotUpdateInput, { lotId
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(InventoryLot, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      InventoryLot,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(InventoryLot, {
         id: before.id,
@@ -1739,7 +1783,13 @@ const deleteInventoryLotCommand: CommandHandler<{ id?: string }, { lotId: string
     const before = payload?.before
     if (!before) return
     const em = resolveEm(ctx)
-    let record = await em.findOne(InventoryLot, { id: before.id })
+    let record = await findOneWithDecryption(
+      em,
+      InventoryLot,
+      { id: before.id },
+      undefined,
+      resolveScope(ctx, { tenantId: before.tenantId, organizationId: before.organizationId }),
+    )
     if (!record) {
       record = em.create(InventoryLot, {
         id: before.id,
