@@ -1323,7 +1323,8 @@ export function CycleCountWizardDialog({
                         setExpectedSkusTouched(true)
                         patchForm({ expectedSkus: Math.floor(parsed) })
                       }}
-                      className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                      className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none"
+                      inputClassName="text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       disabled={loadingBalance || submitting || loadingScopeEstimate}
                     />
                     <IconButton
@@ -1605,7 +1606,8 @@ export function CycleCountWizardDialog({
                             if (!Number.isFinite(parsed) || parsed < 0) return
                             patchForm({ countedQuantity: parsed })
                           }}
-                          className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent px-0 text-center shadow-none focus-visible:ring-0"
+                          className="h-8 w-auto min-w-0 flex-1 border-0 bg-transparent p-0 shadow-none"
+                          inputClassName="text-center [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                           disabled={loadingBalance || submitting}
                         />
                         <IconButton
