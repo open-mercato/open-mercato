@@ -3,7 +3,7 @@
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
-import { Button } from '@open-mercato/ui/primitives/button'
+import { Tabs, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
 import { ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
 import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
@@ -196,28 +196,22 @@ export default function PlannerAvailabilityRuleSetDetailPage({ params }: { param
     <Page>
       <PageBody>
         <div className="space-y-6">
-          <div className="border-b">
-            <nav className="flex flex-wrap items-center gap-5 text-sm" aria-label={translate('planner.availabilityRuleSets.tabs.label', 'Schedule sections')}>
+          <Tabs
+            value={activeTab}
+            onValueChange={(value) => setActiveTab(value as 'details' | 'availability')}
+            variant="underline"
+          >
+            <TabsList
+              className="w-full flex-wrap"
+              aria-label={translate('planner.availabilityRuleSets.tabs.label', 'Schedule sections')}
+            >
               {tabs.map((tab) => (
-                <Button
-                  key={tab.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={activeTab === tab.id}
-                  variant="ghost"
-                  size="sm"
-                  className={`relative -mb-px h-auto rounded-none border-b-2 px-0 py-2 font-medium ${
-                    activeTab === tab.id
-                      ? 'border-accent-indigo text-foreground'
-                      : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                  onClick={() => setActiveTab(tab.id as 'details' | 'availability')}
-                >
+                <TabsTrigger key={tab.id} value={tab.id}>
                   {tab.label}
-                </Button>
+                </TabsTrigger>
               ))}
-            </nav>
-          </div>
+            </TabsList>
+          </Tabs>
 
           {activeTab === 'details' ? (
             <AvailabilityRuleSetForm

@@ -548,7 +548,11 @@ describe('generate post-step structural invalidation', () => {
   it('uses the lightweight invalidation helper after successful generation', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
     const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
     const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
     const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
@@ -597,10 +601,58 @@ describe('generate post-step structural invalidation', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('skips structural invalidation when every generated output is unchanged', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const unchangedResult = {
+      filesWritten: [],
+      filesUnchanged: ['/tmp/test-app/.mercato/generated/unchanged.generated.ts'],
+      errors: [],
+    }
+    const generators = {
+      generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistry: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistryApp: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistryCli: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
+      generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
+      generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+    }
+    const invalidate = jest.fn()
+
+    jest.doMock('../lib/generators', () => generators)
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
+      }),
+    }))
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(invalidate).not.toHaveBeenCalled()
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[generate] Generated outputs unchanged; skipping structural invalidation.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('keeps generation successful when lightweight invalidation fails', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
     const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
     const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
     const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
