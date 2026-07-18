@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { makeCrudRoute, type CrudCtx } from '@open-mercato/shared/lib/crud/factory'
 import { resolveCrudRecordId } from '@open-mercato/shared/lib/api/scoped'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -15,6 +15,9 @@ import {
   createPagedListResponseSchema,
   defaultOkResponseSchema,
 } from '../openapi.js'
+import { buildOrderListFilters } from '../../lib/orderListFilters.js'
+
+export { buildOrderListFilters }
 
 const rawBodySchema = z.object({}).passthrough()
 
@@ -40,6 +43,7 @@ const crud = makeCrudRoute({
   list: {
     entityId: E.production.production_order,
     schema: orderListQuerySchema,
+    buildFilters: async (query: Record<string, unknown>, _ctx: CrudCtx) => buildOrderListFilters(query),
     fields: [
       'id',
       'number',

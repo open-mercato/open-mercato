@@ -298,6 +298,7 @@ export const orderListQuerySchema = z.object({
     .enum(['draft', 'planned', 'released', 'in_progress', 'completed', 'closed', 'cancelled'])
     .optional(),
   sourceType: orderSourceTypeSchema.optional(),
+  sourceId: z.string().uuid().optional(),
 })
 
 // ---------------------------------------------------------------------------
