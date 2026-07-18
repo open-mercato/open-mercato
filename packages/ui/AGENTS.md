@@ -14,6 +14,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 - Use i18n keys and `useT()` for user-facing copy.
 - Keep UMES spot IDs, replacement handles, field/group IDs, and portal page metadata stable.
 - Follow `.ai/ds-rules.md` and `.ai/ui-components.md` for tokens, primitives, and component contracts.
+- When adding or renaming a primitive documented in `.ai/ui-components.md`, update its Code Connect mapping in `figma/*.figma.tsx` in the same PR (new primitives in the mapped families get a new mapping); `yarn ds:code-connect:check` must pass.
 
 ## Ask First
 
@@ -36,6 +37,7 @@ UI usage patterns based on customers, sales, and staff modules. Use these defaul
 ```bash
 yarn workspace @open-mercato/ui test
 yarn workspace @open-mercato/ui build
+yarn ds:code-connect:check
 yarn i18n:check
 ```
 
