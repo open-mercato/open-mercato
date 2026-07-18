@@ -290,13 +290,30 @@ export const orderReleaseSchema = z.object({ id: z.string().uuid() })
 export const orderCancelSchema = z.object({ id: z.string().uuid() })
 export const orderCloseSchema = z.object({ id: z.string().uuid() })
 
+export const orderStatusSchema = z.enum([
+  'draft',
+  'planned',
+  'released',
+  'in_progress',
+  'completed',
+  'closed',
+  'cancelled',
+])
+
 export const orderListQuerySchema = z.object({
   ...listBaseSchema,
   productId: z.string().uuid().optional(),
   variantId: z.string().uuid().optional(),
+  // Comma-separated list of statuses (the orders list UI's multi-select
+  // status filter, task 3.4) — a single value stays backward compatible
+  // with the pre-existing equality filter (see `buildOrderListFilters`).
   status: z
-    .enum(['draft', 'planned', 'released', 'in_progress', 'completed', 'closed', 'cancelled'])
-    .optional(),
+    .string()
+    .optional()
+    .refine(
+      (value) => value === undefined || value.split(',').every((part) => orderStatusSchema.safeParse(part.trim()).success),
+      'status must be one of the allowed values',
+    ),
   sourceType: orderSourceTypeSchema.optional(),
   sourceId: z.string().uuid().optional(),
 })

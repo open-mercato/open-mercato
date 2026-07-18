@@ -309,4 +309,70 @@ export async function createCatalogUnitConversion(
   return String(body!.id)
 }
 
+/** Registers `make` planning parameters for a product (task 3.4 fixture helper). */
+export async function createPlanningParams(
+  request: APIRequestContext,
+  token: string,
+  overrides: { productId: string; variantId?: string | null; procurement?: 'make' | 'buy' },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/production/planning-params', {
+    token,
+    data: {
+      productId: overrides.productId,
+      variantId: overrides.variantId ?? null,
+      procurement: overrides.procurement ?? 'make',
+    },
+  })
+  expect(response.status(), 'POST /api/production/planning-params should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id === 'string', 'planning params creation response should include an id').toBe(true)
+  return String(body!.id)
+}
+
+/**
+ * Creates a production order (task 3.4). Mirrors the "Create production
+ * order" backend UI form: `productId`/`qtyPlanned`/`uom` are required,
+ * `sourceType`/`sourceId` model the sales-order-triggered flow the spec's
+ * happy path exercises — production APIs never resolve `sourceId` against
+ * the sales module (matches the existing `uniqueUuid()` fixture convention),
+ * so a plain fixture UUID stands in for a real sales order id.
+ */
+export async function createProductionOrder(
+  request: APIRequestContext,
+  token: string,
+  overrides: {
+    productId: string
+    variantId?: string | null
+    qtyPlanned?: number
+    uom?: string
+    sourceType?: 'sales_order' | 'mrp' | 'manual'
+    sourceId?: string | null
+  },
+): Promise<string> {
+  const response = await apiRequest(request, 'POST', '/api/production/orders', {
+    token,
+    data: {
+      productId: overrides.productId,
+      variantId: overrides.variantId ?? null,
+      qtyPlanned: overrides.qtyPlanned ?? 10,
+      uom: overrides.uom ?? 'PCS',
+      sourceType: overrides.sourceType ?? 'manual',
+      sourceId: overrides.sourceId ?? null,
+    },
+  })
+  expect(response.status(), 'POST /api/production/orders should return 201').toBe(201)
+  const body = await readJsonSafe<{ id?: string }>(response)
+  expect(typeof body?.id === 'string', 'production order creation response should include an id').toBe(true)
+  return String(body!.id)
+}
+
+export async function deleteProductionOrderIfExists(
+  request: APIRequestContext,
+  token: string | null,
+  id: string | null,
+): Promise<void> {
+  if (!token || !id) return
+  await apiRequest(request, 'DELETE', '/api/production/orders', { token, data: { id } }).catch(() => null)
+}
+
 export { getAuthToken, apiRequest, readJsonSafe, deleteCatalogProductIfExists }

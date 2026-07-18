@@ -15,7 +15,16 @@ export function buildOrderListFilters(query: Record<string, unknown>): Record<st
   const filters: Record<string, unknown> = {}
   if (query.productId) filters.productId = { $eq: query.productId }
   if (query.variantId) filters.variantId = { $eq: query.variantId }
-  if (query.status) filters.status = { $eq: query.status }
+  if (query.status) {
+    // `?status=` accepts a single value (kept as `$eq` for backward
+    // compatibility) or a comma-separated list (the orders list UI's
+    // multi-select status filter, task 3.4).
+    const values = String(query.status)
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+    filters.status = values.length > 1 ? { $in: values } : { $eq: values[0] }
+  }
   if (query.sourceType) filters.sourceType = { $eq: query.sourceType }
   if (query.sourceId) filters.sourceId = { $eq: query.sourceId }
   return filters

@@ -6,7 +6,7 @@ import { isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { resolveProductionActionContext } from '../../actionRouteContext.js'
 import { resolveOrganizationScopeFilter } from '../../organizationScopeFilter.js'
-import { ProductionOrder, ProductionOrderOperation, ProductionOrderMaterial } from '../../../data/entities.js'
+import { ProductionOrder, ProductionOrderOperation, ProductionOrderMaterial, MaterialReservation } from '../../../data/entities.js'
 
 export const metadata = {
   requireAuth: true,
@@ -37,6 +37,7 @@ const orderMaterialDetailSchema = z.object({
   scrapFactor: z.string(),
   qtyIssued: z.string(),
   sourceBomItemId: z.string().uuid().nullable(),
+  reservedQty: z.number(),
 })
 
 const orderDetailSchema = z.object({
@@ -111,6 +112,24 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
       { orderBy: { createdAt: 'ASC' } },
     )
 
+    // Current active reservations per order material (spec § UI: order
+    // detail materials section shows "issued + current reservations"
+    // alongside the release-time shortage snapshot). Additive field —
+    // does not change any existing consumer's shape.
+    const activeReservations = await em.find(MaterialReservation, {
+      orderId: order.id,
+      tenantId,
+      status: 'active',
+      ...orgScopeFilter,
+      deletedAt: null,
+    })
+    const reservedByMaterialId = new Map<string, number>()
+    for (const reservation of activeReservations) {
+      if (!reservation.orderMaterialId) continue
+      const current = reservedByMaterialId.get(reservation.orderMaterialId) ?? 0
+      reservedByMaterialId.set(reservation.orderMaterialId, current + Number(reservation.qty))
+    }
+
     return NextResponse.json({
       id: order.id,
       number: order.number,
@@ -153,6 +172,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         scrapFactor: m.scrapFactor,
         qtyIssued: m.qtyIssued,
         sourceBomItemId: m.sourceBomItemId ?? null,
+        reservedQty: reservedByMaterialId.get(m.id) ?? 0,
       })),
     })
   } catch (err) {

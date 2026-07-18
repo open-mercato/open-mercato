@@ -34,4 +34,16 @@ describe('buildOrderListFilters', () => {
   it('ignores unrelated query keys (pagination/sort)', () => {
     expect(buildOrderListFilters({ page: 1, pageSize: 50, sortField: 'number' })).toEqual({})
   })
+
+  it('maps a comma-separated status list to $in (the list UI multi-select filter)', () => {
+    expect(buildOrderListFilters({ status: 'draft,planned,released' })).toEqual({
+      status: { $in: ['draft', 'planned', 'released'] },
+    })
+  })
+
+  it('trims whitespace around comma-separated status values', () => {
+    expect(buildOrderListFilters({ status: 'draft, planned' })).toEqual({
+      status: { $in: ['draft', 'planned'] },
+    })
+  })
 })
