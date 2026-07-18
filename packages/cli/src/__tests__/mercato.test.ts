@@ -541,8 +541,12 @@ describe('generate post-step structural cache purge', () => {
   it('runs structural cache purge after successful generation when configs cache CLI is available', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistries = jest.fn().mockResolvedValue(undefined)
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
@@ -585,11 +589,56 @@ describe('generate post-step structural cache purge', () => {
     consoleLogSpy.mockRestore()
   })
 
+  it('skips structural invalidation when every generated output is unchanged', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
+    const unchangedResult = {
+      filesWritten: [],
+      filesUnchanged: ['/tmp/test-app/.mercato/generated/unchanged.generated.ts'],
+      errors: [],
+    }
+    const generators = {
+      generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistries: jest.fn().mockResolvedValue([unchangedResult, unchangedResult, unchangedResult]),
+      generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
+      generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
+      generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
+    }
+    const bootstrapFromAppRoot = jest.fn()
+
+    jest.doMock('../lib/generators', () => generators)
+    jest.doMock('../lib/resolver', () => ({
+      createResolver: () => ({
+        getAppDir: () => '/tmp/test-app',
+      }),
+    }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
+      bootstrapFromAppRoot,
+    }))
+
+    const mercato = await import('../mercato')
+    const exitCode = await mercato.run(['node', 'mercato', 'generate'])
+
+    expect(exitCode).toBe(0)
+    expect(bootstrapFromAppRoot).not.toHaveBeenCalled()
+    expect(consoleLogSpy).toHaveBeenCalledWith(
+      '[generate] Generated outputs unchanged; skipping structural cache purge.',
+    )
+
+    consoleErrorSpy.mockRestore()
+    consoleLogSpy.mockRestore()
+  })
+
   it('keeps generation successful when the post-generate cache purge bootstrap fails', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const generateEntityIds = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistries = jest.fn().mockResolvedValue(undefined)
+    const generateEntityIds = jest.fn().mockResolvedValue({
+      filesWritten: ['/tmp/test-app/.mercato/generated/entities.ids.generated.ts'],
+      filesUnchanged: [],
+      errors: [],
+    })
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)

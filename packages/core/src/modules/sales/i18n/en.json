@@ -60,6 +60,7 @@
   "sales.channels.actions.backToList": "Back to channels",
   "sales.channels.actions.create": "Add channel",
   "sales.channels.create": "Create sales channel",
+  "sales.channels.disabledNotice": "Sales channels are disabled for this tenant. Enable the \"Sales Channels\" feature toggle to manage them.",
   "sales.channels.form.address1": "Address line 1",
   "sales.channels.form.address2": "Address line 2",
   "sales.channels.form.city": "City",
