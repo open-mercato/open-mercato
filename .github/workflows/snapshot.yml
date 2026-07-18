@@ -188,24 +188,32 @@ jobs:
           EOF
           )
 
-          echo "Waiting for Open Mercato packages @ ${VERSION} on npm..."
+          # `npm view … version` only proves the version's METADATA is public.
+          # npm briefly QUARANTINES a freshly published version's tarball for a
+          # security scan while its metadata is already visible, so the old probe
+          # passed instantly and the downstream `yarn install` then failed with
+          # YN0016 "… are quarantined". Probe the actual tarball with `npm pack`
+          # so we wait for install-readiness, not mere visibility.
+          PROBE_DIR="$(mktemp -d)"
+          echo "Waiting for Open Mercato packages @ ${VERSION} to be installable on npm..."
           for pkg in "${PACKAGES[@]}"; do
             echo "Checking ${pkg}@${VERSION}..."
             ok=false
-            for i in $(seq 1 30); do
-              if npm view "${pkg}@${VERSION}" version 2>/dev/null; then
-                echo "  ${pkg} available after attempt ${i}"
+            for i in $(seq 1 40); do
+              if npm pack "${pkg}@${VERSION}" --pack-destination "$PROBE_DIR" >/dev/null 2>&1; then
+                echo "  ${pkg} installable after attempt ${i}"
                 ok=true
                 break
               fi
-              echo "  Attempt ${i}/30: waiting 10s..."
-              sleep 10
+              echo "  Attempt ${i}/40: metadata may be visible but tarball not installable yet (quarantine); waiting 15s..."
+              sleep 15
             done
             if [ "$ok" != "true" ]; then
-              echo "Package ${pkg}@${VERSION} not available after 5 minutes"
+              echo "Package ${pkg}@${VERSION} not installable after 10 minutes (still quarantined?)"
               exit 1
             fi
           done
+          rm -rf "$PROBE_DIR"
 
       # --- Scaffold & build standalone app ---
       - name: Scaffold standalone app
