@@ -25,6 +25,7 @@ import { registerFileAgent, getAgentEntry, type AgentRegistryEntry } from '../li
 import { aiTools, SUBMIT_OUTCOME_TOOL_ID } from '../ai-tools'
 import { compileOutcome } from '../lib/sdk/outcomeSchema'
 import { InMemoryAgentRunSessionStore } from '../lib/runtime/agentRunSessionStore'
+import { setGlobalEventBus, getGlobalEventBus } from '@open-mercato/shared/modules/events'
 import type { AiToolDefinition } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/types'
 
 const submitOutcomeTool = aiTools.find((t) => t.name === SUBMIT_OUTCOME_TOOL_ID) as AiToolDefinition
@@ -356,6 +357,111 @@ describe('OpenCodeAgentRunner (integration, fake client)', () => {
     const result = await service.run(entry.id, { dealId: 'deal-1' }, runCtx)
     expect(result.kind).toBe('actionable')
     expect(agentSentRef.value).toBe(OPENCODE_AGENT_NAME)
+  })
+
+  it('broadcasts a run.progress event on each tool call open and finish (live progress feed)', async () => {
+    const entry = registerExampleFileAgent()
+    const { commandBus, container } = makeHarness()
+    const sessionTokenRef = { value: '' }
+
+    // Capture events hitting the global bus. Only run.progress reaches it here —
+    // run.completed/proposal.created flow through the mocked command bus, not the
+    // event bus — so the filter below is exact.
+    const emitted: Array<{ event: string; payload: Record<string, unknown> }> = []
+    const previousBus = getGlobalEventBus()
+    setGlobalEventBus({
+      async emit(event: string, payload: unknown) {
+        emitted.push({ event, payload: payload as Record<string, unknown> })
+      },
+    })
+
+    try {
+      const sessionId = 'ses_fake_1'
+      let emit: ((event: { type: string; properties: Record<string, unknown> }) => void) | null = null
+      const client: OpenCodeRunnerClient = {
+        async createSession() {
+          return { id: sessionId }
+        },
+        async sendMessage(_sessionId, message) {
+          const tokenMatch = /Session Authorization: (sess_[a-z0-9_]+)/i.exec(message)
+          if (tokenMatch) sessionTokenRef.value = tokenMatch[1]
+          // One web_search call: opens at `running`, closes at `completed`.
+          emit?.({
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                type: 'tool',
+                id: 'prt-1',
+                sessionID: sessionId,
+                callID: 'tc-1',
+                tool: 'open-mercato_agent_orchestrator_web_search',
+                state: { status: 'running', input: { query: 'Acme funding' } },
+              },
+            },
+          })
+          emit?.({
+            type: 'message.part.updated',
+            properties: {
+              part: {
+                type: 'tool',
+                id: 'prt-1',
+                sessionID: sessionId,
+                callID: 'tc-1',
+                tool: 'open-mercato_agent_orchestrator_web_search',
+                state: { status: 'completed', input: { query: 'Acme funding' }, output: { results: [] } },
+              },
+            },
+          })
+          await submitOutcomeTool.handler!(
+            { outcome: validOutcome },
+            { sessionId: sessionTokenRef.value, container } as unknown as Parameters<
+              NonNullable<typeof submitOutcomeTool.handler>
+            >[1],
+          )
+          setTimeout(() => {
+            emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'busy' } } })
+            emit?.({ type: 'session.status', properties: { sessionID: sessionId, status: { type: 'idle' } } })
+          }, 0)
+          return {}
+        },
+        subscribeToEvents(onEvent) {
+          emit = onEvent
+          return () => {
+            emit = null
+          }
+        },
+      }
+
+      const runner = new OpenCodeAgentRunner({
+        container: container as never,
+        commandBus: commandBus as never,
+        openCodeClient: client,
+      })
+
+      await runner.run(entry, { companyName: 'Acme' }, runCtx)
+
+      const progress = emitted.filter((e) => e.event === 'agent_orchestrator.run.progress')
+      expect(progress.length).toBe(2)
+      // The tool id is shortened for the feed, args yield a human label, and the
+      // run/agent/org ids are carried so a widget can attribute + org-scope steps.
+      expect(progress[0].payload).toMatchObject({
+        runId: 'run-123',
+        agentId: FILE_AGENT_ID,
+        organizationId: 'org-1',
+        tenantId: 'tenant-1',
+        tool: 'web_search',
+        phase: 'started',
+        label: 'Acme funding',
+      })
+      expect(progress[1].payload).toMatchObject({
+        tool: 'web_search',
+        phase: 'finished',
+        status: 'ok',
+        label: 'Acme funding',
+      })
+    } finally {
+      setGlobalEventBus(previousBus as never)
+    }
   })
 
   it('propose-only: the example file agent declares NO mutation tool in its allowlist', () => {
