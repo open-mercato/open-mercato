@@ -24,6 +24,10 @@ export interface BomItemInput {
   qtyPerUnit: number
   scrapFactor?: number
   isPhantom?: boolean
+  /** Unit of measure this line's `qtyPerUnit` is expressed in. Optional for
+   * callers (e.g. `costRollup.ts`) that never need it; the Phase 5 MRP
+   * engine (`explodeOneLevel`) requires it to carry UoM through the graph. */
+  uom?: string
 }
 
 export type BomItemsByProductKey = Record<BomComponentKey, BomItemInput[] | undefined>
@@ -120,6 +124,68 @@ export function explodeBom(
     out.push({ componentKey, qtyPerRootUnit, qty: qtyPerRootUnit * rootQty })
   }
   return out
+}
+
+export interface ResolvedBomLine {
+  componentKey: BomComponentKey
+  /** Effective qty per unit of the ROOT product: scrap-adjusted, and with
+   * any phantom chain flattened into the real component beneath it. */
+  qtyPerUnit: number
+  uom: string
+}
+
+/**
+ * Extension point for the Phase 5 MRP engine (spec § MRP engine, point 2:
+ * "low-level-coded BOM explosion ... phantom pass-through"). Unlike
+ * `explodeBom`, this resolves exactly ONE level: it stops at the first
+ * non-phantom component and does NOT recurse into that component's own
+ * subtree — the caller (the level-by-level MRP netting loop) is responsible
+ * for re-exploding that component's own BOM at its own turn, once its own
+ * net requirement (aggregated across every parent that demands it) is
+ * known. A phantom item is chased through transparently (its own qty +
+ * scrap factor multiplies into whatever is found beneath it) and never
+ * appears in the result itself.
+ */
+export function explodeOneLevel(
+  bomItemsByProductKey: BomItemsByProductKey,
+  rootProductKey: BomComponentKey,
+  opts: ExplodeBomOptions = {},
+): ResolvedBomLine[] {
+  const maxLevels = opts.maxLevels ?? DEFAULT_MAX_LEVELS
+  const result = new Map<BomComponentKey, ResolvedBomLine>()
+
+  function walk(productKey: BomComponentKey, multiplier: number, pathStack: Set<BomComponentKey>, depth: number): void {
+    if (pathStack.has(productKey)) {
+      throw new Error(`BOM cycle detected while exploding "${productKey}"`)
+    }
+    if (depth > maxLevels) {
+      throw new Error(`BOM explosion exceeded max levels (${maxLevels}) at "${productKey}"`)
+    }
+
+    const items = bomItemsByProductKey[productKey] ?? []
+    const nextStack = new Set(pathStack)
+    nextStack.add(productKey)
+
+    for (const item of items) {
+      const scrapFactor = item.scrapFactor ?? 0
+      const effectiveQtyPerUnit = item.qtyPerUnit * (1 + scrapFactor) * multiplier
+
+      if (item.isPhantom) {
+        walk(item.componentKey, effectiveQtyPerUnit, nextStack, depth + 1)
+        continue
+      }
+
+      const existing = result.get(item.componentKey)
+      result.set(item.componentKey, {
+        componentKey: item.componentKey,
+        qtyPerUnit: (existing?.qtyPerUnit ?? 0) + effectiveQtyPerUnit,
+        uom: item.uom ?? existing?.uom ?? '',
+      })
+    }
+  }
+
+  walk(rootProductKey, 1, new Set(), 0)
+  return [...result.values()]
 }
 
 /**

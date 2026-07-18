@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals'
-import { explodeBom, findBomCycle, type BomItemsByProductKey } from '../bomGraph'
+import { explodeBom, explodeOneLevel, findBomCycle, type BomItemsByProductKey } from '../bomGraph'
 
 describe('explodeBom', () => {
   it('explodes a multi-level BOM (3+ levels) rolling up quantities correctly', () => {
@@ -88,6 +88,75 @@ describe('explodeBom', () => {
     }
 
     expect(() => explodeBom(bom, 'A', 1)).toThrow(/cycle/i)
+  })
+})
+
+describe('explodeOneLevel', () => {
+  it('stops at the first real component and does NOT recurse into its own subtree', () => {
+    // A -> B (x2) -> C (x3): one level down from A must return ONLY B, not C.
+    const bom: BomItemsByProductKey = {
+      A: [{ componentKey: 'B', qtyPerUnit: 2, uom: 'pcs' }],
+      B: [{ componentKey: 'C', qtyPerUnit: 3, uom: 'pcs' }],
+    }
+
+    const result = explodeOneLevel(bom, 'A')
+
+    expect(result).toEqual([{ componentKey: 'B', qtyPerUnit: 2, uom: 'pcs' }])
+  })
+
+  it('chases a phantom item through transparently, never listing the phantom itself', () => {
+    // A -> P (phantom, x2) -> X (x5): one level down from A must return X
+    // (qty 2*5=10), never P.
+    const bom: BomItemsByProductKey = {
+      A: [{ componentKey: 'P', qtyPerUnit: 2, uom: 'pcs', isPhantom: true }],
+      P: [{ componentKey: 'X', qtyPerUnit: 5, uom: 'kg' }],
+    }
+
+    const result = explodeOneLevel(bom, 'A')
+
+    expect(result).toEqual([{ componentKey: 'X', qtyPerUnit: 10, uom: 'kg' }])
+  })
+
+  it('compounds scrap factor multiplicatively through a phantom chain', () => {
+    // A -> P (phantom, x2, 10% scrap) -> X (x5, 20% scrap)
+    // effective = 2*1.1 * 5*1.2 = 2.2 * 6 = 13.2
+    const bom: BomItemsByProductKey = {
+      A: [{ componentKey: 'P', qtyPerUnit: 2, uom: 'pcs', isPhantom: true, scrapFactor: 0.1 }],
+      P: [{ componentKey: 'X', qtyPerUnit: 5, uom: 'kg', scrapFactor: 0.2 }],
+    }
+
+    const result = explodeOneLevel(bom, 'A')
+
+    expect(result).toHaveLength(1)
+    expect(result[0].componentKey).toBe('X')
+    expect(result[0].qtyPerUnit).toBeCloseTo(13.2, 6)
+  })
+
+  it('aggregates a component reached both directly and through a phantom into one entry', () => {
+    // A -> X directly (x1) AND A -> P (phantom, x1) -> X (x2): total qtyPerUnit = 1 + 2 = 3.
+    const bom: BomItemsByProductKey = {
+      A: [
+        { componentKey: 'X', qtyPerUnit: 1, uom: 'pcs' },
+        { componentKey: 'P', qtyPerUnit: 1, uom: 'pcs', isPhantom: true },
+      ],
+      P: [{ componentKey: 'X', qtyPerUnit: 2, uom: 'pcs' }],
+    }
+
+    const result = explodeOneLevel(bom, 'A')
+
+    expect(result).toEqual([{ componentKey: 'X', qtyPerUnit: 3, uom: 'pcs' }])
+  })
+
+  it('throws on a phantom self-cycle, matching explodeBom safety-net behavior', () => {
+    // A non-phantom self-reference is a harmless leaf entry (explodeOneLevel
+    // never recurses into a REAL component's own subtree by design) -- only
+    // a phantom chain recurses, so the cycle guard is exercised via a
+    // phantom self-loop.
+    const bom: BomItemsByProductKey = {
+      A: [{ componentKey: 'A', qtyPerUnit: 1, uom: 'pcs', isPhantom: true }],
+    }
+
+    expect(() => explodeOneLevel(bom, 'A')).toThrow(/cycle/i)
   })
 })
 
