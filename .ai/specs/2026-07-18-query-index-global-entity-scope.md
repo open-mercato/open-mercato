@@ -424,4 +424,4 @@ None.
 |---|---|---|---|
 | Phase 1 — Establish the global producer contract | Done | 2026-07-18 | All feature-toggle lifecycle side effects now emit explicit null/null identifiers; unit and integration assertions were added. |
 | Phase 2 — Make query-index scope resolution metadata-aware | Done | 2026-07-18 | Registered entity-ID and metadata resolution distinguish global, row, and missing scope state; delete coverage uses declared predicates only. |
-| Phase 3 — Prove event paths and validate | In Progress | 2026-07-18 | Focused Jest suites pass; managed integration and repository validation gates remain. |
+| Phase 3 — Prove event paths and validate | Blocked | 2026-07-18 | Focused Jest suites, full local validation, and the managed `TC-FT-001` scenario pass. The repository-wide managed suite is blocked before test execution by stale sibling `.worktrees` that discovery does not ignore. |

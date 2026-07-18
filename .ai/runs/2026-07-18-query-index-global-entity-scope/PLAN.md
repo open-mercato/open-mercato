@@ -12,11 +12,12 @@
 
 | Phase | Step | Title | Status | Commit |
 |---|---|---|---|---|
-| 0 | 0.1 | Land source specification and pre-implementation analysis | todo | — |
-| 1 | 1.1 | Make global feature-toggle index identifiers explicit | todo | — |
-| 2 | 2.1 | Resolve registered source metadata and strict scope state | todo | — |
-| 2 | 2.2 | Apply metadata-aware scope handling to upsert and delete coverage | todo | — |
-| 3 | 3.1 | Extend focused unit and feature-toggle integration coverage | todo | — |
+| 0 | 0.1 | Land source specification and pre-implementation analysis | done | 5df9fb7c4 |
+| 1 | 1.1 | Make global feature-toggle index identifiers explicit | done | b57d4c804 |
+| 2 | 2.1 | Resolve registered source metadata and strict scope state | done | b57d4c804 |
+| 2 | 2.2 | Apply metadata-aware scope handling to upsert and delete coverage | done | b57d4c804 |
+| 3 | 3.1 | Extend focused unit and feature-toggle integration coverage | done | b57d4c804 |
+| 3 | 3.2 | Run the managed feature-toggle integration scenario | done | pending commit |
 | 4 | 4.1 | Run validation, review, and create the pull request | todo | — |
 
 ## Goal
@@ -47,6 +48,11 @@ Correct query-index scope handling for registered global ORM entities without we
 - Managed ephemeral integration run filtered to `TC-FT-001`.
 - Full configured validation gate using one selected runner, then `git diff --check` and template parity review.
 - No DS review is needed because no UI file changes.
+
+## Gate result
+
+- The isolated managed `TC-FT-001` scenario passed after exercising create, update, and delete projection state.
+- The repository-wide managed Playwright command remains blocked before execution by stale sibling `.worktrees` that its discovery does not ignore; those worktrees load incompatible `@playwright/test` copies and stale `dist/` imports. This is outside the feature diff and must be cleared or excluded before rerunning the full suite.
 
 ## File manifest
 

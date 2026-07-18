@@ -21,7 +21,11 @@ function createMetadata(input: Omit<MetadataShape, 'properties'> & { organizatio
   return { className: input.className, tableName: input.tableName, properties }
 }
 
-function createEm(metadata: MetadataShape, row?: Record<string, string | null>) {
+function createEm(
+  metadata: MetadataShape,
+  row?: Record<string, string | null>,
+  metadataCollection: MetadataShape[] | Map<string, MetadataShape> = [metadata],
+) {
   const executeTakeFirst = jest.fn().mockResolvedValue(row)
   const where = jest.fn(() => ({ executeTakeFirst }))
   const select = jest.fn(() => ({ where }))
@@ -31,7 +35,7 @@ function createEm(metadata: MetadataShape, row?: Record<string, string | null>) 
     getKysely,
     getMetadata: () => ({
       find: (className: string) => className === metadata.className ? metadata : undefined,
-      getAll: () => [metadata],
+      getAll: () => metadataCollection,
     }),
   } as unknown as EntityManager
   return { em, getKysely, selectFrom, select, where }
@@ -95,6 +99,17 @@ describe('resolveQueryIndexSourceMetadata', () => {
 
     await expect(loadQueryIndexRowScope(em, source, 'record-1')).resolves.toEqual({ kind: 'global' })
     expect(getKysely).not.toHaveBeenCalled()
+  })
+
+  it('reads MikroORM v7 Map metadata for a global entity', async () => {
+    const metadata = createMetadata({ className: 'FeatureToggle', tableName: 'feature_toggles' })
+    const { em } = createEm(metadata, undefined, new Map([[metadata.className, metadata]]))
+
+    expect(resolveQueryIndexSourceMetadata(em, 'feature_toggles:feature_toggle')).toEqual({
+      table: 'feature_toggles',
+      organizationColumn: null,
+      tenantColumn: null,
+    })
   })
 
   it('distinguishes a missing scoped source row from a global entity', async () => {

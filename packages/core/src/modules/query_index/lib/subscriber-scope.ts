@@ -18,6 +18,11 @@ export type QueryIndexSourceScope =
   | { kind: 'missing' }
   | { kind: 'row'; scope: QueryIndexScope }
 
+type QueryIndexEntityMetadata = {
+  tableName?: unknown
+  properties?: Record<string, { fieldNames?: unknown }>
+}
+
 export class QueryIndexScopeError extends Error {
   constructor(message: string) {
     super(message)
@@ -55,8 +60,12 @@ export function resolveQueryIndexSourceMetadata(
 
   const registry = em.getMetadata?.()
   const allMetadataRaw = typeof registry?.getAll === 'function' ? registry.getAll() : null
-  const allMetadata = Array.isArray(allMetadataRaw) ? allMetadataRaw : Object.values(allMetadataRaw ?? {})
-  const metadata = allMetadata.find((candidate) => String(candidate?.tableName ?? '') === table)
+  const allMetadata: QueryIndexEntityMetadata[] = Array.isArray(allMetadataRaw)
+    ? allMetadataRaw as QueryIndexEntityMetadata[]
+    : allMetadataRaw instanceof Map
+      ? Array.from(allMetadataRaw.values()) as QueryIndexEntityMetadata[]
+      : Object.values(allMetadataRaw ?? {}) as QueryIndexEntityMetadata[]
+  const metadata = allMetadata.find((candidate) => String(candidate.tableName ?? '') === table)
   if (!metadata) {
     throw new QueryIndexScopeError(`Query index entity metadata was not found for table: ${table}`)
   }
@@ -173,7 +182,7 @@ function isSameScopeValue(left: string | null | undefined, right: string | null)
   return (left ?? null) === right
 }
 
-function resolveScopeColumn(metadata: { properties?: Record<string, { fieldNames?: unknown }> }, property: string, table: string): string | null {
+function resolveScopeColumn(metadata: QueryIndexEntityMetadata, property: string, table: string): string | null {
   const scopeProperty = metadata.properties?.[property]
   if (!scopeProperty) return null
   const fieldNames = scopeProperty.fieldNames
