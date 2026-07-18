@@ -6,6 +6,16 @@ export type ProcurementType = 'make' | 'buy'
 export type StockMovementType = 'receipt' | 'issue' | 'adjustment'
 export type StockMovementSourceType = 'order' | 'report' | 'import' | 'manual'
 export type MaterialReservationStatus = 'active' | 'released' | 'consumed'
+export type ProductionOrderStatus =
+  | 'draft'
+  | 'planned'
+  | 'released'
+  | 'in_progress'
+  | 'completed'
+  | 'closed'
+  | 'cancelled'
+export type ProductionOrderSourceType = 'sales_order' | 'mrp' | 'manual'
+export type ProductionOrderOperationStatus = 'pending' | 'in_progress' | 'done'
 
 @Entity({ tableName: 'production_work_centers' })
 @Index({ name: 'production_work_centers_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
@@ -454,6 +464,209 @@ export class MaterialReservation {
 
   @Enum({ items: ['active', 'released', 'consumed'], type: 'text', name: 'status', default: 'active' })
   status: MaterialReservationStatus = 'active'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+// ---------------------------------------------------------------------------
+// Production orders (spec § Status machine / Data Models, Phase 3).
+//
+// `ProductionOrderOperation`/`ProductionOrderMaterial` are SNAPSHOT rows
+// (decision g): `release` copies the currently-active `RoutingOperation`/
+// `ProductionBomItem` rows into these tables as independent copies. A later
+// edit to the source BOM/routing (even a whole new active version) never
+// touches an already-released order — the order's operations/materials are
+// its own persisted history, not a live view over the technology tables.
+// `sourceOperationId`/`sourceBomItemId` are traceability-only FK-ids back to
+// the row that was copied; they are NOT foreign keys the order re-reads at
+// runtime.
+//
+// Sub-resources (operations, materials) are guarded by the PARENT order's
+// `updated_at` (sales-document aggregate pattern, `enforceCommandOptimisticLock`
+// — see `commands/shared.ts`), so neither entity below carries its own
+// `updatedAt`-based lock surface.
+// ---------------------------------------------------------------------------
+
+@Entity({ tableName: 'production_orders' })
+@Index({ name: 'production_orders_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Unique({
+  name: 'production_orders_scope_number_unique',
+  properties: ['tenantId', 'organizationId', 'number'],
+})
+export class ProductionOrder {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ type: 'integer' })
+  number!: number
+
+  @Property({ name: 'product_id', type: 'uuid' })
+  productId!: string
+
+  @Property({ name: 'variant_id', type: 'uuid', nullable: true })
+  variantId?: string | null
+
+  @Property({ name: 'qty_planned', type: 'numeric', precision: 18, scale: 6 })
+  qtyPlanned!: string
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Property({ name: 'due_date', type: Date, nullable: true })
+  dueDate?: Date | null
+
+  @Property({ type: 'integer', default: 0 })
+  priority: number = 0
+
+  @Enum({
+    items: ['draft', 'planned', 'released', 'in_progress', 'completed', 'closed', 'cancelled'],
+    type: 'text',
+    name: 'status',
+    default: 'draft',
+  })
+  status: ProductionOrderStatus = 'draft'
+
+  @Enum({ items: ['sales_order', 'mrp', 'manual'], type: 'text', name: 'source_type', default: 'manual' })
+  sourceType: ProductionOrderSourceType = 'manual'
+
+  @Property({ name: 'source_id', type: 'uuid', nullable: true })
+  sourceId?: string | null
+
+  @Property({ name: 'bom_version_id', type: 'uuid', nullable: true })
+  bomVersionId?: string | null
+
+  @Property({ name: 'routing_version_id', type: 'uuid', nullable: true })
+  routingVersionId?: string | null
+
+  @Property({ name: 'released_at', type: Date, nullable: true })
+  releasedAt?: Date | null
+
+  @Property({ name: 'qty_completed', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyCompleted: string = '0'
+
+  @Property({ name: 'qty_scrapped', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyScrapped: string = '0'
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'production_order_operations' })
+@Index({ name: 'production_order_operations_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_order_operations_order_idx', properties: ['orderId', 'sequence'] })
+export class ProductionOrderOperation {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'order_id', type: 'uuid' })
+  orderId!: string
+
+  @Property({ type: 'integer' })
+  sequence!: number
+
+  @Property({ type: 'text' })
+  name!: string
+
+  @Property({ name: 'work_center_id', type: 'uuid' })
+  workCenterId!: string
+
+  @Property({ name: 'setup_time_minutes', type: 'numeric', precision: 12, scale: 2, default: 0 })
+  setupTimeMinutes: string = '0'
+
+  @Property({ name: 'run_time_per_unit_seconds', type: 'numeric', precision: 12, scale: 4, default: 0 })
+  runTimePerUnitSeconds: string = '0'
+
+  @Property({ name: 'is_reporting_point', type: 'boolean', default: false })
+  isReportingPoint: boolean = false
+
+  @Enum({ items: ['pending', 'in_progress', 'done'], type: 'text', name: 'status', default: 'pending' })
+  status: ProductionOrderOperationStatus = 'pending'
+
+  @Property({ name: 'qty_good', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyGood: string = '0'
+
+  @Property({ name: 'qty_scrap', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyScrap: string = '0'
+
+  /** Traceability-only FK-id (spec decision g) — see module doc above. */
+  @Property({ name: 'source_operation_id', type: 'uuid', nullable: true })
+  sourceOperationId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'updated_at', type: Date, onUpdate: () => new Date() })
+  updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'production_order_materials' })
+@Index({ name: 'production_order_materials_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'production_order_materials_order_idx', properties: ['orderId'] })
+export class ProductionOrderMaterial {
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'order_id', type: 'uuid' })
+  orderId!: string
+
+  @Property({ name: 'operation_sequence', type: 'integer', nullable: true })
+  operationSequence?: number | null
+
+  @Property({ name: 'component_product_id', type: 'uuid' })
+  componentProductId!: string
+
+  @Property({ name: 'component_variant_id', type: 'uuid', nullable: true })
+  componentVariantId?: string | null
+
+  @Property({ name: 'qty_required', type: 'numeric', precision: 18, scale: 6 })
+  qtyRequired!: string
+
+  @Property({ type: 'text' })
+  uom!: string
+
+  @Property({ name: 'scrap_factor', type: 'numeric', precision: 8, scale: 6, default: 0 })
+  scrapFactor: string = '0'
+
+  @Property({ name: 'qty_issued', type: 'numeric', precision: 18, scale: 6, default: 0 })
+  qtyIssued: string = '0'
+
+  /** Traceability-only FK-id (spec decision g) — see module doc above. */
+  @Property({ name: 'source_bom_item_id', type: 'uuid', nullable: true })
+  sourceBomItemId?: string | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()

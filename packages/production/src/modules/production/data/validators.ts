@@ -260,6 +260,47 @@ export const stockImportRowSchema = z.object({
 export const STOCK_IMPORT_MAX_ROWS = 10_000
 
 // ---------------------------------------------------------------------------
+// Production orders (Phase 3)
+// ---------------------------------------------------------------------------
+
+export const orderSourceTypeSchema = z.enum(['sales_order', 'mrp', 'manual'])
+
+export const orderCreateSchema = z.object({
+  productId: z.string().uuid('productId is required'),
+  variantId: z.string().uuid().optional().nullable(),
+  qtyPlanned: positiveQtySchema,
+  uom: uomSchema,
+  dueDate: z.coerce.date().optional().nullable(),
+  priority: z.coerce.number().int().min(0).default(0),
+  sourceType: orderSourceTypeSchema.default('manual'),
+  sourceId: z.string().uuid().optional().nullable(),
+})
+
+export const orderUpdateSchema = z.object({
+  id: z.string().uuid(),
+  qtyPlanned: positiveQtySchema.optional(),
+  uom: uomSchema.optional(),
+  dueDate: z.coerce.date().optional().nullable(),
+  priority: z.coerce.number().int().min(0).optional(),
+})
+
+export const orderDeleteSchema = z.object({ id: z.string().uuid() })
+export const orderPlanSchema = z.object({ id: z.string().uuid() })
+export const orderReleaseSchema = z.object({ id: z.string().uuid() })
+export const orderCancelSchema = z.object({ id: z.string().uuid() })
+export const orderCloseSchema = z.object({ id: z.string().uuid() })
+
+export const orderListQuerySchema = z.object({
+  ...listBaseSchema,
+  productId: z.string().uuid().optional(),
+  variantId: z.string().uuid().optional(),
+  status: z
+    .enum(['draft', 'planned', 'released', 'in_progress', 'completed', 'closed', 'cancelled'])
+    .optional(),
+  sourceType: orderSourceTypeSchema.optional(),
+})
+
+// ---------------------------------------------------------------------------
 // Type exports
 // ---------------------------------------------------------------------------
 
@@ -288,3 +329,7 @@ export type StockListQuery = z.infer<typeof stockListQuerySchema>
 export type StockMovementsListQuery = z.infer<typeof stockMovementsListQuerySchema>
 export type StockBatchesListQuery = z.infer<typeof stockBatchesListQuerySchema>
 export type StockImportRow = z.infer<typeof stockImportRowSchema>
+
+export type OrderCreateInput = z.infer<typeof orderCreateSchema>
+export type OrderUpdateInput = z.infer<typeof orderUpdateSchema>
+export type OrderListQuery = z.infer<typeof orderListQuerySchema>
