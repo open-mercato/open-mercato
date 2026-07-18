@@ -5,6 +5,11 @@ services:
   opencode:
     build:
       context: ./docker/opencode
+      args:
+        # OpenCode is pre-installed in this base image (see
+        # docker/opencode/BASE_IMAGE.md); the build only COPYs project files, so
+        # it needs no network. Override to pin a different pushed base tag.
+        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
     image: opencode-mvp
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
