@@ -1,0 +1,38 @@
+---
+title: Production Planning
+description: Optional manufacturing vertical — BOMs, routings, production orders, MRP, and shop-floor reporting
+---
+
+# Production Planning (`@open-mercato/production`)
+
+An **optional vertical module** for SMB discrete manufacturing (make-to-order and make-to-stock): technology master data, production orders with lifecycle and technology snapshots, a minimal production stock ledger, net MRP, and shop-floor reporting.
+
+Full design record: [`.ai/specs/2026-07-18-production-planning-module.md`](https://github.com/open-mercato/open-mercato/blob/develop/.ai/specs/2026-07-18-production-planning-module.md).
+
+## Enabling the module
+
+1. The module is wired in `apps/mercato/src/modules.ts` as `{ id: 'production', from: '@open-mercato/production' }`.
+2. The entire surface is **fail-closed behind the `production_enabled` feature toggle** (default off). Create the boolean toggle and set it to `true` for a tenant (Backend → Feature Toggles), or add a per-tenant override.
+3. Sync role grants for existing tenants: `yarn mercato auth sync-role-acls`. Backfill the scrap-reason dictionary: `yarn mercato production seed-scrap-reasons`.
+
+With the toggle off, the module contributes no navigation, pages, cron runs, or observable behavior.
+
+## What it provides
+
+| Area | Highlights |
+|------|-----------|
+| **Technology** | Versioned BOMs (scrap factors, phantoms, per-operation material assignment, units of measure via catalog conversions), versioned routings, work centers (cost rates; optional availability calendars reusing the planner module's RRULE rules), per-product planning parameters (make/buy, lead time, lot sizing, safety stock), BOM cycle detection on activate, and a list-price-based cost estimate. |
+| **Stock ledger** | Minimal, module-owned: on-hand/reserved per product+variant, optional batches, **append-only movements with storno** (compensating reversals), manual receipts, opening balances, streaming CSV import. Exposed behind the `productionStockProvider` DI seam so a future warehouse module can replace the implementation. |
+| **Production orders** | `draft → planned → released → in_progress → completed → closed` (+ cancel), technology **snapshot as copied rows** at release (later BOM edits never affect in-flight orders), material reservations up to free availability with an honest shortage list, aggregate-level optimistic locking. |
+| **Sales integration** | Injection-only (zero core edits): a "Production" tab on the sales order detail, an opt-in idempotent MTO subscriber (`production.mto_auto_draft` module config, default off), and a caller-feature-gated `_production` response enricher. Degrades silently when the sales module is absent. |
+| **Shop floor** | Partial/final operation reports with dictionary scrap reasons, configurable backflush, finished-goods receipt on the last reporting-point final report, storno-based correction, and an operator "lite" touch panel gated on a minimal two-feature role with client-side inactivity logout. |
+| **MRP** | Net requirements as per-tenant async runs (queue worker + progress, scheduler cron fan-out that respects the toggle): multi-level netting, backward scheduling, lot sizing, suggestions (make/buy/reschedule/cancel) with **order-stable carry-over** (no re-emitted noise), bulk accept into draft orders, buy-suggestion CSV export + notification. Benchmark: 10k products / 5-level BOMs computed in ~73 ms (KPI: 60 s). |
+| **Analytics** | Quantity-based: late/at-risk orders, actual vs standard consumption (on the same basis backflush issues against), scrap by reason. |
+
+## Roles
+
+`setup.ts` seeds grants for `admin` (all), `employee` (read-only), and the module personas `technolog`, `planista`, `kierownik`, `magazynier-lite`, and `operator` (shop-floor surface only — `production.operator.view/report`).
+
+## Deliberately out of scope (MVP)
+
+Finite-capacity scheduling (APS/Gantt/CTP), the QR/PDF shop traveler, PIN/kiosk login, purchasing integration for buy suggestions, inventory valuation/transfers/stocktaking, batch genealogy reports, and OEE — all tracked in the spec's Deferred section with their platform prerequisites.
