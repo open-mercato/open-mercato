@@ -7838,6 +7838,22 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/production@workspace:packages/production":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/production@workspace:packages/production"
+  dependencies:
+    "@open-mercato/shared": "workspace:*"
+    "@types/node": "npm:^26.0.1"
+    "@types/react": "npm:^19.0.0"
+    react: "npm:^19.2.0"
+    typescript: "npm:^6.0.3"
+  peerDependencies:
+    "@open-mercato/shared": "workspace:*"
+    react: ^19.0.0
+    zod: ">=3.23.0"
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/queue@workspace:*, @open-mercato/queue@workspace:packages/queue":
   version: 0.0.0-use.local
   resolution: "@open-mercato/queue@workspace:packages/queue"
@@ -12095,7 +12111,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@types/react@npm:^19.2.17":
+"@types/react@npm:^19.0.0, @types/react@npm:^19.2.17":
   version: 19.2.17
   resolution: "@types/react@npm:19.2.17"
   dependencies:
@@ -26620,7 +26636,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"react@npm:19.2.7, react@npm:^19.2.7":
+"react@npm:19.2.7, react@npm:^19.2.0, react@npm:^19.2.7":
   version: 19.2.7
   resolution: "react@npm:19.2.7"
   checksum: 10/2939997e87d7f0ee0d9d2bb556866b616b999dfb7916283647034eda867a045a39c4f7a736c8ea6beffffcd78397fc30f63a7a3aaf8425b683c3060670859560

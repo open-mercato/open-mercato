@@ -12,7 +12,7 @@
 
 **Key Points:**
 - New optional vertical module for SMB discrete manufacturing: technology (BOM + routings + work centers), production orders with lifecycle and technology snapshot, simplified net MRP, shop-floor reporting, and a minimal production stock ledger.
-- Ships as a dedicated workspace package **`packages/production`** (module id `production`), enabled by one `apps/mercato/src/modules.ts` entry and gated by a **`production` feature toggle**. **Zero modifications to core modules** — all integration happens through events, widget injection, response enrichers, FK-id + snapshot, and `tryResolve` soft dependencies.
+- Ships as a dedicated workspace package **`packages/production`** (module id `production`), enabled by one `apps/mercato/src/modules.ts` entry and gated by a **`production_enabled` feature toggle**. **Zero modifications to core modules** — all integration happens through events, widget injection, response enrichers, FK-id + snapshot, and `tryResolve` soft dependencies.
 - The platform has **no warehouse, no purchasing, and no print-template engine** (verified 2026-07-18). This spec resolves those gaps explicitly: a minimal module-owned stock ledger behind a **`productionStockProvider` DI seam** (decision *i*), MRP "buy" suggestions degraded to export + notification (decision *d*), and the QR/PDF shop traveler deferred (decision *f*).
 - Delivery is **one PR per phase** (P0+P1, P2, P3, P4, P5, P6), each shipping its own integration tests, all behind the feature toggle.
 
@@ -42,7 +42,7 @@
 
 Open Mercato today covers CRM, catalog, and sales but offers nothing for manufacturers: no bill of materials, no production orders, no material requirements planning, no shop-floor capture. SMB manufacturers (make-to-order and make-to-stock) either run a separate MES/APS or spreadsheets. This module gives them a single place to define technology, plan and release production, record execution, and keep component/finished-goods quantities consistent — without an enterprise system and without forking the platform.
 
-The module is an **optional vertical**: platform installations that do not enable the `production` feature toggle see no UI, no routes, and no behavior change.
+The module is an **optional vertical**: platform installations that do not enable the `production_enabled` feature toggle see no UI, no routes, and no behavior change.
 
 ## Problem Statement
 
@@ -112,7 +112,7 @@ packages/production/                      # new workspace package @open-mercato/
 ```
 
 - Enabled via one entry in `apps/mercato/src/modules.ts`: `{ id: 'production', from: '@open-mercato/production' }` (same wiring as `scheduler`).
-- Entire surface (menu items, routes, pages, subscribers, cron) is gated by the `production` feature toggle (module `feature_toggles`); toggle off ⇒ no observable change.
+- Entire surface (menu items, routes, pages, subscribers, cron) is gated by the `production_enabled` feature toggle (module `feature_toggles`); toggle off ⇒ no observable change.
 - **No core module is modified.** Sales integration uses existing injection spots; planner/resources/dictionaries are referenced by FK-id via `data/extensions.ts`; absence of any soft peer is handled with module-local `tryResolve` and verified by the module-decoupling test.
 
 ### Dependencies
