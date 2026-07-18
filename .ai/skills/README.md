@@ -71,6 +71,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | `core` | yes | 11 | Daily-driver skills installed by default. |
 | `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
+| `analysis` | opt-in | 2 | Business/engagement analysis skills (app specs, platform gap analysis). Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
 | external | always | 25 | Shared pipeline skills from [open-mercato/skills](https://github.com/open-mercato/skills), installed via `npx skills add` and refreshed via `npx skills update` (skip with `--no-external`). |
@@ -195,6 +196,15 @@ These skills are installed from [open-mercato/skills](https://github.com/open-me
 |-------|-------------|
 | `om-auto-sec-report` | Driver that loops `om-auto-sec-report-pr` across a window (date, PR-number floor, branch, spec, or default last 7 days of merged PRs) and aggregates findings into one docs-only PR against `develop`. Writes markdown + HTML under `.ai/analysis/` with a top-level "Next steps — go deeper" list. |
 | `om-auto-sec-report-pr` | Paranoid OWASP-oriented security analysis for a SINGLE unit of work — one PR, one spec under `.ai/specs/`, or one branch diff. Hunts non-obvious attack vectors beyond OWASP Top 10, flags same-pattern hotspots elsewhere, and emits "Next steps — go deeper" follow-ups. Writes markdown + HTML under `.ai/analysis/`; runs standalone or as a sub-unit of `om-auto-sec-report`. |
+
+### analysis
+
+Moved here from [open-mercato/skills](https://github.com/open-mercato/skills) — they are engagement/project-oriented rather than pipeline-agnostic. Authored by Maciej Gren.
+
+| Skill | When to use |
+|-------|-------------|
+| `om-app-spec-writing` | Write and review a business-level App Spec — domain model, workflows with ROI, user stories with failure paths, platform gap analysis in atomic commits, and a phased rollout — BEFORE any feature spec or code exists. One level above `om-spec-writing`, which decomposes the finished App Spec into feature specs. Use when the user says "create an app spec", "define business requirements", "what should we build". |
+| `om-gap-analysis` | Grounded platform gap analysis at engagement scale — turn a folder of client docs into an Epic/Story tree where every coverage verdict is re-run by executable gates against a validated checkout of the platform, scored in atomic commits, license-tier-tagged, and synthesized into a client-facing summary + backlog. Verifies coverage against the platform's code; it does not author requirements or specs. |
 
 ### migration
 
