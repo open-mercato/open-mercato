@@ -18,7 +18,7 @@
 | 2 | 2.2 | Apply metadata-aware scope handling to upsert and delete coverage | done | b57d4c804 |
 | 3 | 3.1 | Extend focused unit and feature-toggle integration coverage | done | b57d4c804 |
 | 3 | 3.2 | Run the managed feature-toggle integration scenario | done | pending commit |
-| 4 | 4.1 | Run validation, review, and create the pull request | todo | — |
+| 4 | 4.1 | Run validation, review, and create the blocked draft pull request | todo | — |
 
 ## Goal
 
@@ -53,6 +53,7 @@ Correct query-index scope handling for registered global ORM entities without we
 
 - The isolated managed `TC-FT-001` scenario passed after exercising create, update, and delete projection state.
 - The repository-wide managed Playwright command remains blocked before execution by stale sibling `.worktrees` that its discovery does not ignore; those worktrees load incompatible `@playwright/test` copies and stale `dist/` imports. This is outside the feature diff and must be cleared or excluded before rerunning the full suite.
+- Draft PR: https://github.com/open-mercato/open-mercato/pull/4285. Required upstream labels could not be applied because the GitHub API token has read-only upstream permission.
 
 ## File manifest
 

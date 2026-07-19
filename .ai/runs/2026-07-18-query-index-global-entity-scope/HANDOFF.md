@@ -3,7 +3,8 @@
 ## Current state
 
 - Branch: `fix/query-index-global-entity-scope` from `origin/develop`.
-- Resume at: Step 4.1 — create the blocked draft PR, then rerun the full managed integration suite once stale sibling worktrees are removed or excluded from discovery.
+- Draft PR: https://github.com/open-mercato/open-mercato/pull/4285.
+- Resume at: rerun the full managed integration suite once stale sibling worktrees are removed or excluded from discovery, then update the draft PR.
 - Unrelated working-tree file preserved: `.ai/reports/ds-health-2026-07-02.txt`.
 
 ## Decisions already made
@@ -20,3 +21,4 @@
 - Review: independent final review found no actionable findings.
 - Blocked external gate: `yarn test:integration:ephemeral` fails during global discovery because stale `.worktrees` are not excluded. It errors before feature tests run with missing stale `dist` imports and duplicate `@playwright/test` loads.
 - Template parity: `yarn template:sync` reports 25 pre-existing unrelated template drifts; no template surface was changed in this work.
+- GitHub handoff: the branch is in the configured writable fork and the draft PR is open. The upstream API token can create/comment but cannot assign or mutate labels, so a maintainer must apply the intended `bug`, `priority-high`, `risk-high`, and `blocked` labels (and release any claim state once the integration gate is resolved).
