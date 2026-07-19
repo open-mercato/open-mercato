@@ -75,3 +75,11 @@ export const OPENCODE_CERTS_DIR = path.join('docker', 'opencode', 'certs')
 export const DEV_LOG_DIR = path.join('.mercato', 'logs')
 
 export const FULLAPP_DEV_COMPOSE_FILE = path.join('starters', 'docker', 'compose.fullapp.dev.yml')
+
+// The published OpenCode image is a BASE (binary + non-root user, no
+// entrypoint/agents — docker/opencode/BASE_IMAGE.md). The runnable service
+// image is the thin local build FROM it, tagged opencode-mvp. Keep the default
+// tag in sync with the compose files' OPENCODE_BASE_IMAGE default and the
+// docker/opencode/Dockerfile ARG.
+export const DEFAULT_OPENCODE_BASE_IMAGE = 'docker.io/openmercatocom/open-mercato-opencode:1.18.3'
+export const OPENCODE_SERVICE_IMAGE = 'opencode-mvp'

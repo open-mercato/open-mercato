@@ -9,6 +9,7 @@ import {
 import { UserRole } from '@open-mercato/core/modules/auth/data/entities'
 import { findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { normalizeOpenCodeToolPart } from '@open-mercato/shared/lib/ai/opencode-tool-parts'
+import { emitAgentOrchestratorEvent } from '../../events'
 import type { AgentRegistryEntry } from '../sdk/defineAgent'
 import { type AgentResult } from '../../data/validators'
 import {
@@ -39,6 +40,20 @@ type CapturedToolCall = {
   status: 'ok' | 'error'
   startedAt: string
   endedAt?: string
+}
+
+/**
+ * A meaningful state change for a single tool call, surfaced live so the run can
+ * emit a progress event. Only the first open (`started`) and the terminal
+ * `finished` are reported — intermediate arg-refinement ticks are swallowed so
+ * the progress feed stays one-line-per-call and never floods the event bus.
+ */
+type CapturedTransition = {
+  callId: string
+  toolName: string
+  phase: 'started' | 'finished'
+  status: 'ok' | 'error'
+  input?: unknown
 }
 
 /**
@@ -196,6 +211,32 @@ export class OpenCodeAgentRunner {
     // the final outcome.
     const capturedToolCalls: CapturedToolCall[] = []
 
+    // Live progress: broadcast a clientBroadcast event on each tool call's open
+    // and finish so a UI trigger can show step-by-step progress while this
+    // synchronous run is in flight. Best-effort — a progress emit failure must
+    // never affect the run. Correlated on the org (DOM Event Bridge scope) and
+    // the run/agent id so a widget can attribute steps without knowing the runId
+    // in advance (the first event delivers it).
+    let progressSeq = 0
+    const emitProgress = (transition: CapturedTransition): void => {
+      const sequence = progressSeq++
+      void emitAgentOrchestratorEvent('agent_orchestrator.run.progress', {
+        id: runId,
+        runId,
+        agentId,
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        sequence,
+        callId: transition.callId,
+        tool: friendlyToolName(transition.toolName),
+        phase: transition.phase,
+        status: transition.status,
+        label: deriveProgressLabel(transition.input),
+      }).catch((err) => {
+        console.warn(`[internal] run.progress emit failed for "${agentId}":`, err)
+      })
+    }
+
     try {
       const message = this.buildMessage(sessionToken, input)
 
@@ -207,6 +248,7 @@ export class OpenCodeAgentRunner {
         sessionToken,
         store,
         toolCallSink: capturedToolCalls,
+        onProgress: emitProgress,
       })
 
       if (capturedOutcome === NO_OUTCOME) {
@@ -364,8 +406,9 @@ export class OpenCodeAgentRunner {
     sessionToken: string
     store: AgentRunSessionStore
     toolCallSink: CapturedToolCall[]
+    onProgress?: (transition: CapturedTransition) => void
   }): Promise<unknown | typeof NO_OUTCOME> {
-    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink)
+    const idleSignal = this.subscribeSession(args.sessionId, args.toolCallSink, args.onProgress)
     const deadline = createDeadline(resolveRunTimeoutMs())
     // The send is synchronous server-side (holds until the loop finishes), so use
     // the long run deadline as its timeout — aborting at the 30s chat default
@@ -437,7 +480,11 @@ export class OpenCodeAgentRunner {
    * arrives in that window is LATCHED instead of dropped, so the next `nextIdle()`
    * resolves immediately rather than blocking on a transition that already passed.
    */
-  private subscribeSession(sessionId: string, toolCallSink: CapturedToolCall[]): {
+  private subscribeSession(
+    sessionId: string,
+    toolCallSink: CapturedToolCall[],
+    onTransition?: (transition: CapturedTransition) => void,
+  ): {
     nextIdle: () => Promise<void>
     unsubscribe: () => void
   } {
@@ -474,7 +521,8 @@ export class OpenCodeAgentRunner {
         // that signals idle also carries the tool_use/tool_result parts; the chat
         // path parses them identically (opencode-handlers `message.part.updated`).
         if (type === 'message.part.updated') {
-          captureToolPart(toolCallSink, properties.part)
+          const transition = captureToolPart(toolCallSink, properties.part)
+          if (transition && onTransition) onTransition(transition)
           return
         }
         if (type !== 'session.status') return
@@ -548,23 +596,24 @@ const NO_OUTCOME = Symbol('no-outcome')
  * `finish`. The legacy `tool_use` / `tool_result` shape is handled by the same
  * helper for older OpenCode builds.
  */
-function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): void {
+function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): CapturedTransition | null {
   const update = normalizeOpenCodeToolPart(rawPart)
-  if (!update) return
+  if (!update) return null
   const existing = sink.find((call) => call.id === update.callId)
   if (update.phase === 'progress') {
     if (existing) {
+      // Mid-flight arg refinement for an already-open call — no new transition.
       if (update.input !== undefined) existing.args = update.input
-    } else {
-      sink.push({
-        id: update.callId,
-        toolName: update.toolName,
-        args: update.input,
-        status: 'ok',
-        startedAt: new Date().toISOString(),
-      })
+      return null
     }
-    return
+    sink.push({
+      id: update.callId,
+      toolName: update.toolName,
+      args: update.input,
+      status: 'ok',
+      startedAt: new Date().toISOString(),
+    })
+    return { callId: update.callId, toolName: update.toolName, phase: 'started', status: 'ok', input: update.input }
   }
   if (existing) {
     if (existing.args === undefined && update.input !== undefined) existing.args = update.input
@@ -583,6 +632,36 @@ function captureToolPart(sink: CapturedToolCall[], rawPart: unknown): void {
       endedAt: now,
     })
   }
+  return {
+    callId: update.callId,
+    toolName: update.toolName ?? update.callId,
+    phase: 'finished',
+    status: update.status,
+    input: update.input,
+  }
+}
+
+/**
+ * Shorten an OpenCode MCP tool id to the bare action for the progress feed:
+ * `open-mercato_agent_orchestrator_web_search` → `web_search`. The sub-agent
+ * delegation tool (`task`) and any unprefixed id pass through unchanged.
+ */
+function friendlyToolName(rawToolName: string): string {
+  return rawToolName.replace(/^open-mercato_agent_orchestrator_/, '')
+}
+
+/**
+ * Best-effort short human label for a tool call's arguments — the search query
+ * or fetched URL — so the progress feed can show "Searching the web — Acme
+ * funding". Returns null for tools whose args carry no obvious label. Never
+ * exposes the full arg object; only the `query` / `url` / `q` string field.
+ */
+function deriveProgressLabel(input: unknown): string | null {
+  if (!input || typeof input !== 'object') return null
+  const obj = input as Record<string, unknown>
+  const candidate = obj.query ?? obj.url ?? obj.q
+  if (typeof candidate !== 'string' || candidate.length === 0) return null
+  return candidate.length > 120 ? `${candidate.slice(0, 117)}…` : candidate
 }
 
 function delay(ms: number): Promise<void> {

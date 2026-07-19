@@ -6,7 +6,7 @@ import path from 'node:path'
 import { detectDocker, parseComposePsOutput, runCompose, runStreamingSync } from './compose.mjs'
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
-import { CAPTURED_CA_BUNDLE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
+import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
 import { checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2 } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
 import { readEnvValue } from './env-file.mjs'
@@ -244,39 +244,51 @@ export const llmProviderStep = {
   },
 }
 
-export function resolveOpencodeImage(repoRoot, env = process.env) {
-  return env.OPENCODE_IMAGE
-    ?? readEnvValue(path.join(repoRoot, '.env'), 'OPENCODE_IMAGE')?.trim()
-    ?? 'openmercatocom/open-mercato-opencode:latest'
+export function resolveOpencodeBaseImage(repoRoot, env = process.env) {
+  return env.OPENCODE_BASE_IMAGE
+    ?? readEnvValue(path.join(repoRoot, '.env'), 'OPENCODE_BASE_IMAGE')?.trim()
+    ?? DEFAULT_OPENCODE_BASE_IMAGE
 }
 
-// Published image first: a `docker pull` goes through the engine's trust
-// (which honors the OS certificate store on Docker/Rancher Desktop), so it
-// survives corporate TLS interception that would break a local image BUILD.
-// Local build of docker/opencode (same tag) stays as the fallback for
-// air-gapped registries and as the explicit --rebuild path.
+// The published image is a BASE (OpenCode binary + user, no entrypoint or
+// agents — docker/opencode/BASE_IMAGE.md); the runnable service image is the
+// thin local build FROM it. The only network step is the base pull, which
+// goes through the engine's trust (OS certificate store on Docker/Rancher
+// Desktop) and therefore survives corporate TLS interception that breaks
+// build-stage egress; the thin build itself only COPYs project files.
+// --rebuild forces the thin rebuild (e.g. after yarn generate in prod mode).
 export function ensureOpencodeImage(ctx) {
-  const image = resolveOpencodeImage(ctx.repoRoot, ctx.env)
-  const exists = spawnSync('docker', ['image', 'inspect', image], { stdio: 'ignore' }).status === 0
-  if (exists && !ctx.flags.rebuild) {
-    ctx.log(`   opencode image: ${image} (already present)`)
+  const baseImage = resolveOpencodeBaseImage(ctx.repoRoot, ctx.env)
+  const baseExists = spawnSync('docker', ['image', 'inspect', baseImage], { stdio: 'ignore' }).status === 0
+  if (baseExists) {
+    ctx.log(`   opencode base image: ${baseImage} (already present)`)
+  } else {
+    ctx.log(`   pulling OpenCode base image ${baseImage} ...`)
+    const pull = spawnSync('docker', ['pull', baseImage], { stdio: 'inherit' })
+    if (pull.status !== 0) {
+      throw new Error(`Could not pull the OpenCode base image ${baseImage}. Behind a proxy that blocks registry-1.docker.io? Set OPENCODE_BASE_IMAGE in .env to your internal mirror (build/push runbook: docker/opencode/BASE_IMAGE.md), then re-run.`)
+    }
+  }
+  const serviceExists = spawnSync('docker', ['image', 'inspect', OPENCODE_SERVICE_IMAGE], { stdio: 'ignore' }).status === 0
+  if (serviceExists && !ctx.flags.rebuild) {
+    ctx.log(`   opencode image: ${OPENCODE_SERVICE_IMAGE} (already built)`)
     return
   }
-  if (!ctx.flags.rebuild) {
-    ctx.log(`   pulling ${image} ...`)
-    const pull = spawnSync('docker', ['pull', image], { stdio: 'inherit' })
-    if (pull.status === 0) return
-    ctx.log('   pull failed — falling back to a local build of docker/opencode (bakes the corporate CA, if any).')
-  }
-  const build = spawnSync('docker', ['build', '-t', image, path.join(ctx.repoRoot, 'docker', 'opencode')], { stdio: 'inherit', cwd: ctx.repoRoot })
+  ctx.log(`   building ${OPENCODE_SERVICE_IMAGE} from ${baseImage} (project files only — no network) ...`)
+  const build = spawnSync('docker', [
+    'build',
+    '-t', OPENCODE_SERVICE_IMAGE,
+    '--build-arg', `OPENCODE_BASE_IMAGE=${baseImage}`,
+    path.join(ctx.repoRoot, 'docker', 'opencode'),
+  ], { stdio: 'inherit', cwd: ctx.repoRoot })
   if (build.status !== 0) {
-    throw new Error(`Could not obtain the OpenCode image: pull of ${image} failed and the local build failed too. Behind a proxy that blocks registry-1.docker.io? Set OPENCODE_IMAGE in .env to your internal mirror, or fix the build error above and re-run.`)
+    throw new Error('Local build of the OpenCode service image failed — see the output above, then re-run.')
   }
 }
 
 export const infraUpStep = {
   id: 'infra-up',
-  expectation: 'first run pulls the OpenCode image (a few minutes); seconds afterwards',
+  expectation: 'first run pulls the OpenCode base image (a few minutes); seconds afterwards',
   title: 'Infra containers (postgres, redis, meilisearch, opencode)',
   appliesTo: (ctx) => ctx.mode === 'hybrid' && !ctx.flags.noInfra,
   async check(ctx) {

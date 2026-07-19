@@ -7,13 +7,18 @@
 
 services:
   opencode:
-    # Published image first — pulling goes through the container engine's
-    # trust (which honors the OS certificate store on Docker/Rancher Desktop),
-    # far more reliable on managed devices than building through a TLS-
-    # intercepting proxy. The starter falls back to a local build of
-    # ./docker/opencode (same tag) when the pull fails; override the tag with
-    # OPENCODE_IMAGE in .env.
-    image: ${OPENCODE_IMAGE:-openmercatocom/open-mercato-opencode:latest}
+    build:
+      context: ./docker/opencode
+      args:
+        # OpenCode is pre-installed in this published base image (see
+        # docker/opencode/BASE_IMAGE.md); the local build only COPYs project
+        # files (agents, skills, entrypoint), so it needs no proxy-hostile
+        # network — the FROM pull goes through the container engine's trust,
+        # which honors the OS certificate store on Docker/Rancher Desktop.
+        # The starter pre-pulls this tag (yarn om) and prints a mirror hint
+        # when the registry is blocked. Override to pin a different base tag.
+        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
+    image: opencode-mvp
     container_name: mercato-opencode
     restart: unless-stopped
     environment:

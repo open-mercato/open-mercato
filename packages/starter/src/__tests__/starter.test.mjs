@@ -6,9 +6,9 @@ import { test } from 'node:test'
 
 import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
-import { DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
+import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue } from '../env-file.mjs'
-import { StepBlocked, runSteps } from '../steps.mjs'
+import { StepBlocked, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -126,4 +126,25 @@ test('runSteps reports step failures without throwing', async () => {
   ], quietCtx())
   assert.equal(outcome.ok, false)
   assert.equal(outcome.failedStep, 'boom')
+})
+
+test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-starter-opencode-'))
+  try {
+    assert.equal(
+      resolveOpencodeBaseImage(root, {}),
+      DEFAULT_OPENCODE_BASE_IMAGE,
+    )
+    fs.writeFileSync(path.join(root, '.env'), 'OPENCODE_BASE_IMAGE=registry.corp/opencode-base:1.18.3\n')
+    assert.equal(
+      resolveOpencodeBaseImage(root, {}),
+      'registry.corp/opencode-base:1.18.3',
+    )
+    assert.equal(
+      resolveOpencodeBaseImage(root, { OPENCODE_BASE_IMAGE: 'override/base:2' }),
+      'override/base:2',
+    )
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true })
+  }
 })

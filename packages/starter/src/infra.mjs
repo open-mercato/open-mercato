@@ -25,8 +25,8 @@ export function infraUp(repoRooot, { profiles = [] } = {}) {
   // --wait blocks on the postgres/redis/meilisearch healthchecks; opencode has
   // no healthcheck here and counts as started immediately (its entrypoint
   // waits for the host MCP server on its own). The opencode image is obtained
-  // beforehand (pull-or-build, see steps.mjs ensureOpencodeImage) — this file
-  // never builds.
+  // beforehand (base pull + thin local build, see steps.mjs
+  // ensureOpencodeImage) — this file never builds.
   upArgs.push('up', '-d', '--wait')
   return runCompose(repoRoot, upArgs).status ?? 1
 }

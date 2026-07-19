@@ -2,9 +2,16 @@
 
 services:
   opencode:
-    # Published image first (pull > build behind corporate proxies); the
-    # starter falls back to building ./docker/opencode under the same tag.
-    image: ${OPENCODE_IMAGE:-openmercatocom/open-mercato-opencode:latest}
+    build:
+      context: ./docker/opencode
+      args:
+        # OpenCode is pre-installed in this published base image (see
+        # docker/opencode/BASE_IMAGE.md); the local build only COPYs project
+        # files, so it needs no proxy-hostile network — the FROM pull goes
+        # through the container engine's trust (OS certificate store).
+        # Override to pin a different pushed base tag.
+        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
+    image: opencode-mvp
     container_name: mercato-opencode-${DEPLOY_ENV:-local}
     restart: unless-stopped
     environment:
