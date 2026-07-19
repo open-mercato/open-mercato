@@ -37,6 +37,12 @@ type UseDocumentCommentsInput = {
   canShare: boolean
 }
 
+type GrantAccessDecision = 'share' | 'skip' | 'cancel'
+
+type GrantAccessResolution =
+  | { cancelled: true }
+  | { cancelled: false; grantAccessTo?: string[] }
+
 export function useDocumentComments({ documentId, editor, canComment, canShare }: UseDocumentCommentsInput) {
   const t = useT()
   const [state, setState] = React.useState<CommentsState>({ status: 'loading' })
@@ -47,7 +53,8 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
   const [isSubmitting, setIsSubmitting] = React.useState(false)
   const [resolvingCommentId, setResolvingCommentId] = React.useState<string | null>(null)
   const [grantAccessNames, setGrantAccessNames] = React.useState<string[] | null>(null)
-  const grantResolver = React.useRef<((share: boolean) => void) | null>(null)
+  const grantResolver = React.useRef<((decision: GrantAccessDecision) => void) | null>(null)
+  const submissionContextSequence = React.useRef(0)
   const reloadSequence = React.useRef(0)
   const activeReload = React.useRef<AbortController | null>(null)
   const activeDocumentId = React.useRef<string | null>(null)
@@ -124,7 +131,21 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
       activeReload.current = null
     }
   }, [reload])
-  React.useEffect(() => () => { grantResolver.current?.(false) }, [])
+
+  const cancelPendingGrantAccess = React.useCallback(() => {
+    const resolve = grantResolver.current
+    grantResolver.current = null
+    resolve?.('cancel')
+  }, [])
+
+  React.useEffect(() => {
+    setGrantAccessNames(null)
+    setIsSubmitting(false)
+    return () => {
+      submissionContextSequence.current += 1
+      cancelPendingGrantAccess()
+    }
+  }, [cancelPendingGrantAccess, documentId])
 
   const labelFor = React.useCallback((userId: string) => {
     const labels = state.status === 'ready' ? state.userLabels : {}
@@ -142,68 +163,88 @@ export function useDocumentComments({ documentId, editor, canComment, canShare }
     const resolve = grantResolver.current
     grantResolver.current = null
     setGrantAccessNames(null)
-    resolve?.(share)
+    resolve?.(share ? 'share' : 'skip')
   }, [])
 
-  const requestGrantAccess = React.useCallback((names: string[]) => new Promise<boolean>((resolve) => {
-    grantResolver.current?.(false)
+  const requestGrantAccess = React.useCallback((names: string[]) => new Promise<GrantAccessDecision>((resolve) => {
+    cancelPendingGrantAccess()
     grantResolver.current = resolve
     setGrantAccessNames(names)
-  }), [])
+  }), [cancelPendingGrantAccess])
 
-  const resolveGrantAccessTo = React.useCallback(async (): Promise<string[] | undefined> => {
+  const resolveGrantAccessTo = React.useCallback(async (
+    isCurrentSubmission: () => boolean,
+  ): Promise<GrantAccessResolution> => {
     const userIds = Array.from(new Set(activePendingMentions.map((mention) => mention.userId.toLowerCase())))
-    if (userIds.length === 0) return undefined
+    if (userIds.length === 0) return { cancelled: false }
     // Intentionally outside useGuardedMutation: access-check is read-shaped
     // (a POST only to carry the user-id list in the body) and mutates nothing.
     const call = await apiCall<unknown>(
       `/api/documents/${encodeURIComponent(documentId)}/comments/access-check`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ userIds }) },
     )
+    if (!isCurrentSubmission()) return { cancelled: true }
     if (!call.ok) throw new Error(t('documents.comments.error.save'))
     const withoutAccess = readWithoutAccess(call.result)
-    if (withoutAccess.length === 0) return undefined
+    if (withoutAccess.length === 0) return { cancelled: false }
     if (!canShare) {
       flash(t('documents.comments.grant.noAccessInfo'), 'info')
-      return []
+      return { cancelled: false, grantAccessTo: [] }
     }
     const pendingMentionNames = new Map(
       activePendingMentions.map((mention) => [mention.userId.toLowerCase(), mention.name]),
     )
-    const share = await requestGrantAccess(withoutAccess.map((user) => (
+    const decision = await requestGrantAccess(withoutAccess.map((user) => (
       pendingMentionNames.get(user.userId) ?? user.label ?? labelFor(user.userId)
     )))
-    return share ? withoutAccess.map((user) => user.userId) : []
+    if (decision === 'cancel' || !isCurrentSubmission()) return { cancelled: true }
+    return {
+      cancelled: false,
+      grantAccessTo: decision === 'share' ? withoutAccess.map((user) => user.userId) : [],
+    }
   }, [activePendingMentions, canShare, documentId, labelFor, requestGrantAccess, t])
 
   const submit = React.useCallback(async () => {
     const trimmedBody = body.trim()
     if (!trimmedBody || !canComment) return
+    const submissionSequence = submissionContextSequence.current
+    const isCurrentSubmission = () => submissionContextSequence.current === submissionSequence
     setIsSubmitting(true)
     try {
-      const grantAccessTo = await resolveGrantAccessTo()
+      const grantResolution = await resolveGrantAccessTo(isCurrentSubmission)
+      if (grantResolution.cancelled || !isCurrentSubmission()) return
       const anchor = pendingAnchor ?? (editor
         ? (await import('./CommentAnchorNavigation')).captureCommentAnchor(editor)
         : null)
+      if (!isCurrentSubmission()) return
       const mentions = activePendingMentions.map(({ userId }) => ({ userId }))
       await runMutation({
         operation: () => apiCallOrThrow(
           `/api/documents/${encodeURIComponent(documentId)}/comments`,
           {
             method: 'POST', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ body: trimmedBody, anchor, parentCommentId, mentions, grantAccessTo }),
+            body: JSON.stringify({
+              body: trimmedBody,
+              anchor,
+              parentCommentId,
+              mentions,
+              grantAccessTo: grantResolution.grantAccessTo,
+            }),
           },
           { errorMessage: t('documents.comments.error.save') },
         ),
         context: { formId: mutationContextId, resourceKind: 'documents.document_comment', resourceId: documentId, retryLastMutation },
         mutationPayload: { body: trimmedBody, parentCommentId, mentions },
       })
+      if (!isCurrentSubmission()) return
       resetComposer()
       await reload()
     } catch (error) {
-      flash(error instanceof Error ? error.message : t('documents.comments.error.save'), 'error')
+      if (isCurrentSubmission()) {
+        flash(error instanceof Error ? error.message : t('documents.comments.error.save'), 'error')
+      }
     } finally {
-      setIsSubmitting(false)
+      if (isCurrentSubmission()) setIsSubmitting(false)
     }
   }, [activePendingMentions, body, canComment, documentId, editor, mutationContextId, parentCommentId, pendingAnchor, reload, resetComposer, resolveGrantAccessTo, retryLastMutation, runMutation, t])
 

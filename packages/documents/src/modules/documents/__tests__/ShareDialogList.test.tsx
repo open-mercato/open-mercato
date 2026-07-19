@@ -43,6 +43,7 @@ describe('ShareDialogList', () => {
         isLoading={false}
         error={null}
         canManage
+        pendingShareIds={new Set()}
         onPermissionChange={jest.fn(async () => undefined)}
         onRemove={jest.fn(async () => undefined)}
       />,
@@ -62,6 +63,7 @@ describe('ShareDialogList', () => {
         isLoading={false}
         error="Failed to load access"
         canManage
+        pendingShareIds={new Set()}
         onRetry={onRetry}
         onPermissionChange={jest.fn(async () => undefined)}
         onRemove={jest.fn(async () => undefined)}
@@ -70,5 +72,31 @@ describe('ShareDialogList', () => {
 
     screen.getByRole('button', { name: 'documents.actions.retry' }).click()
     expect(onRetry).toHaveBeenCalledTimes(1)
+  })
+
+  it('disables both row mutations while that share is pending', () => {
+    render(
+      <ShareDialogList
+        shares={[{
+          id: SHARE_ID,
+          principalType: 'user',
+          principalId: PRINCIPAL_ID,
+          principalLabel: 'Ada Lovelace',
+          principalSecondary: 'ada@example.com',
+          resolved: true,
+          permission: 'editor',
+          updatedAt: '2026-07-10T10:00:00.000Z',
+        }]}
+        isLoading={false}
+        error={null}
+        canManage
+        pendingShareIds={new Set([SHARE_ID])}
+        onPermissionChange={jest.fn(async () => undefined)}
+        onRemove={jest.fn(async () => undefined)}
+      />,
+    )
+
+    expect((screen.getByRole('combobox', { name: 'Permission: Ada Lovelace' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((screen.getByRole('button', { name: 'Remove access: Ada Lovelace' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })

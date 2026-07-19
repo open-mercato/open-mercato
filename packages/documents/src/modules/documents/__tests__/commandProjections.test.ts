@@ -63,7 +63,7 @@ describe('documents post-log command projections', () => {
   })
 
   it('targets only the commands that return custom projection descriptors', () => {
-    expect(interceptors.map((interceptor) => interceptor.targetCommand)).toEqual([
+    expect(interceptors.filter((interceptor) => interceptor.afterExecute).map((interceptor) => interceptor.targetCommand)).toEqual([
       'documents.content.replace',
       'documents.share.create',
       'documents.share.update',
@@ -71,6 +71,9 @@ describe('documents post-log command projections', () => {
       'documents.comment.create',
       'documents.comment.resolve',
       'documents.version.restore',
+      'documents.document.archive',
+      'documents.document.unarchive',
+      'documents.document.duplicate',
     ])
   })
 

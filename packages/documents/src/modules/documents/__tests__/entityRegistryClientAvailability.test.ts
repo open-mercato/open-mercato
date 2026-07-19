@@ -19,15 +19,16 @@ describe('Documents entity-registry client module availability', () => {
       'customer-person',
       'customer-company',
       'deal',
+      'document',
     ])
-    expect(available.every((entry) => entry.requiredModule === 'customers')).toBe(true)
+    expect(available.every((entry) => entry.requiredModule === 'customers' || entry.requiredModule === 'documents')).toBe(true)
   })
 
   it('requires both the renderer and feature-owner modules for catalog offers', () => {
     expect(filterDocumentEntityRegistryByEnabledModules(
       DOCUMENT_ENTITY_REGISTRY,
       new Set(['documents', 'catalog']),
-    ).map((entry) => entry.type)).toEqual(['product'])
+    ).map((entry) => entry.type)).toEqual(['product', 'document'])
 
     expect(filterDocumentEntityRegistryByEnabledModules(
       DOCUMENT_ENTITY_REGISTRY,
@@ -37,6 +38,7 @@ describe('Documents entity-registry client module availability', () => {
       'catalog-offer',
       'quote',
       'sales-order',
+      'document',
     ])
   })
 })

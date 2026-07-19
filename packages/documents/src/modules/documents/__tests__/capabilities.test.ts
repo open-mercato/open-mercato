@@ -13,6 +13,8 @@ describe('document capability projection', () => {
       canDelete: false,
       canCreate: false,
       canManageTemplates: false,
+      canArchive: false,
+      canDuplicate: false,
     })
   })
 
@@ -29,6 +31,8 @@ describe('document capability projection', () => {
       canDelete: false,
       canCreate: false,
       canManageTemplates: false,
+      canArchive: false,
+      canDuplicate: false,
     })
   })
 
@@ -78,6 +82,8 @@ describe('document capability projection', () => {
       canDelete: false,
       canCreate: true,
       canManageTemplates: true,
+      canArchive: false,
+      canDuplicate: true,
     })
   })
 })

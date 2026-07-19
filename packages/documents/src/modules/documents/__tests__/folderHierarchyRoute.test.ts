@@ -35,6 +35,7 @@ jest.mock('../lib/visibility', () => ({
 }))
 
 jest.mock('../api/_shared', () => ({
+  assertDocumentNotArchived: jest.fn(async () => undefined),
   resolveDocumentsContext: jest.fn(async () => routeContext),
   readBody: jest.fn(async (request: Request) => request.json()),
   resolveActorUserId: jest.fn(() => userId),

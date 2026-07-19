@@ -15,6 +15,7 @@ const mockFindWithDecryption = jest.fn()
 const mockResolveViewerSafeUserLabels = jest.fn()
 
 jest.mock('../api/_shared', () => ({
+  assertDocumentNotArchived: jest.fn(async () => undefined),
   handleDocumentsRouteError: (error: unknown) => Response.json(
     { error: error instanceof Error ? error.message : 'failed' },
     { status: 500 },

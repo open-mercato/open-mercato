@@ -4,6 +4,8 @@ export const DOCUMENTS_ENTITY_IDS = {
   documentFolder: 'documents:document_folder',
   documentShare: 'documents:document_share',
   documentComment: 'documents:document_comment',
+  documentFavorite: 'documents:document_favorite',
+  documentWatcher: 'documents:document_watcher',
   documentVersion: 'documents:document_version',
   documentAttachment: 'documents:document_attachment',
   documentTemplate: 'documents:document_template',

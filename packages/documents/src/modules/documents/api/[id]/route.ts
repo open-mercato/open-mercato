@@ -4,10 +4,16 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { documentUpdateSchema } from '../../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../../lib/constants'
+import { deriveDocumentCapabilities } from '../../lib/capabilities'
+import { isDocumentFavorite } from '../../lib/favorites'
+import { isDocumentWatched } from '../../lib/watchers'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
+  hasDocumentsFeature,
   loadScopedDocument,
   readBody,
+  resolveActorUserId,
   resolveDocumentCapabilityProjection,
   resolveDocumentsContext,
   routeErrorSchema,
@@ -37,6 +43,8 @@ const capabilitiesSchema = z.object({
   canDelete: z.boolean(),
   canCreate: z.boolean(),
   canManageTemplates: z.boolean(),
+  canArchive: z.boolean(),
+  canDuplicate: z.boolean(),
 })
 
 const detailResponseSchema = z.object({
@@ -46,6 +54,9 @@ const detailResponseSchema = z.object({
   ownerUserId: z.string().uuid(),
   createdByUserId: z.string().uuid(),
   isActive: z.boolean(),
+  archivedAt: z.string().nullable(),
+  isFavorite: z.boolean(),
+  isWatching: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
   tier: z.enum(['owner', 'editor', 'commenter', 'viewer']),
@@ -84,11 +95,39 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
     const document = await loadScopedDocument(ctx, id)
+    const archivedAt = document.archivedAt?.toISOString() ?? null
+    const capabilities = deriveDocumentCapabilities({
+      relationshipTier: projection.relationshipTier,
+      managerOverride: hasDocumentsFeature(ctx.auth, 'documents.manage'),
+      archived: archivedAt !== null,
+      userFeatures: ctx.auth.features,
+    })
+    const isFavorite = await isDocumentFavorite(
+      ctx.em,
+      {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: resolveActorUserId(ctx.auth),
+      },
+      id,
+    )
+    const isWatching = await isDocumentWatched(
+      ctx.em,
+      {
+        tenantId: ctx.tenantId,
+        organizationId: ctx.organizationId,
+        userId: resolveActorUserId(ctx.auth),
+      },
+      id,
+    )
     return NextResponse.json({
       ...serializeDocument(document),
+      archivedAt,
+      isFavorite,
+      isWatching,
       tier: projection.relationshipTier,
-      canShare: projection.capabilities.canShare,
-      capabilities: projection.capabilities,
+      canShare: capabilities.canShare,
+      capabilities,
     })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.detail')
@@ -103,6 +142,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     if (!projection.capabilities.canEdit) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
+    await assertDocumentNotArchived(ctx, id)
     const body = await readBody(request)
     const input = documentUpdateSchema.parse({ ...body, id })
     const guardResult = await validateMutationGuard(ctx, {

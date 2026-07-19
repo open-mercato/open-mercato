@@ -11,6 +11,7 @@ export type EntityPickerItem = {
   label: string
   subtitle?: string
   href?: string
+  archivedAt?: string | null
 }
 
 export type EntityTokenField = {
@@ -152,6 +153,18 @@ function mapSalesDocumentItem(
   const label = readDisplayString(item, ...numberKeys, 'number', 'title')
   if (!id || !label) return null
   return { id, label, subtitle: optionalSubtitle(readDisplayString(item, 'status')) }
+}
+
+function mapDocumentItem(item: Record<string, unknown>): EntityPickerItem | null {
+  const id = readString(item, 'id')
+  const label = readDisplayString(item, 'title')
+  if (!id || !label) return null
+  const archivedAt = item.archivedAt ?? item.archived_at
+  return {
+    id,
+    label,
+    archivedAt: typeof archivedAt === 'string' && archivedAt.length > 0 ? archivedAt : null,
+  }
 }
 
 function field(fieldName: string, labelKey: string, keys: string[]): EntityTokenField {
@@ -305,6 +318,19 @@ export const DOCUMENT_ENTITY_REGISTRY: DocumentEntityRegistryEntry[] = [
       field('status', 'documents.entityFields.status', ['status']),
       field('total', 'documents.entityFields.total', ['grandTotalGross', 'grand_total_gross', 'total']),
       field('currency', 'documents.entityFields.currency', ['currencyCode', 'currency_code']),
+    ],
+  }),
+  buildIdAddressableEntry({
+    type: 'document',
+    labelKey: 'documents.entities.document',
+    searchPath: '/api/documents',
+    mapItem: mapDocumentItem,
+    href: (id) => exactIdPath('/backend/documents', id),
+    requiredModule: 'documents',
+    requiredFeatureModule: 'documents',
+    requiredFeature: 'documents.view',
+    tokenFields: [
+      field('title', 'documents.entityFields.title', ['title']),
     ],
   }),
 ]

@@ -45,6 +45,7 @@ export function TemplateSlotsEditor({ slots, onChange }: { slots: TemplateContex
       {slots.length === 0 ? <p className="rounded-md border border-border bg-muted/20 p-3 text-sm text-muted-foreground">{t('documents.templates.slots.empty')}</p> : null}
       {slots.map((slot, index) => {
         const inputId = `document-template-slot-${index}`
+        const entityTypeInputId = `document-template-slot-entity-type-${index}`
         const error = !slot.slot ? t('documents.templates.validation.slotRequired') : !TEMPLATE_SLOT_KEY_PATTERN.test(slot.slot) ? t('documents.templates.validation.slotKey') : null
         const currentEntry = getEntityRegistryEntry(slot.entityType)
         return (
@@ -57,9 +58,9 @@ export function TemplateSlotsEditor({ slots, onChange }: { slots: TemplateContex
               </div>
               <IconButton type="button" variant="ghost" aria-label={t('documents.templates.slots.remove')} title={t('documents.templates.slots.remove')} onClick={() => onChange(slots.filter((_, itemIndex) => itemIndex !== index))}><Trash2 /></IconButton>
             </div>
-            <Label>{t('documents.templates.slots.entityType')}</Label>
+            <Label htmlFor={entityTypeInputId}>{t('documents.templates.slots.entityType')}</Label>
             <Select value={slot.entityType} disabled={availableEntries.length === 0} onValueChange={(value) => onChange(slots.map((item, itemIndex) => itemIndex === index ? { ...item, entityType: value as DocumentEntityType, slot: deriveSlotKey(value as DocumentEntityType, slots, index) } : item))}>
-              <SelectTrigger><SelectValue>{currentEntry ? t(currentEntry.labelKey) : t('documents.relatedRecords.restricted')}</SelectValue></SelectTrigger>
+              <SelectTrigger id={entityTypeInputId}><SelectValue>{currentEntry ? t(currentEntry.labelKey) : t('documents.relatedRecords.restricted')}</SelectValue></SelectTrigger>
               <SelectContent>{availableEntries.map((entry) => <SelectItem key={entry.type} value={entry.type}>{t(entry.labelKey)}</SelectItem>)}</SelectContent>
             </Select>
             <CheckboxField label={t('documents.templates.slots.required')} checked={slot.required === true} onCheckedChange={(checked) => onChange(slots.map((item, itemIndex) => itemIndex === index ? { ...item, required: checked === true } : item))} />

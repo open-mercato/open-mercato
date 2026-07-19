@@ -9,6 +9,8 @@ import {
   type DocumentCapabilities,
 } from '../lib/capabilities'
 import { resolveSubjectAccess } from '../lib/permissions'
+import { Document } from '../data/entities'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { hasResolvedDocumentsOrganizationAccess } from '../lib/organizationAccess'
 import { resolveOrganizationScopeService } from '../lib/platformServices'
 
@@ -188,9 +190,20 @@ export async function assertDocumentCommandCapability(
     },
     ctx.container,
   )
+  // Routes enforce the archived clamp with a specific 403; this command-level
+  // derivation repeats it so redo and any future non-route dispatch cannot
+  // mutate an archived document.
+  const documentRow = await findOneWithDecryption(
+    em,
+    Document,
+    { id: documentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { fields: ['id', 'archivedAt'], filters: false },
+    scope,
+  )
   const capabilities = deriveDocumentCapabilities({
     relationshipTier,
     managerOverride: hasAllFeatures(['documents.manage'], features),
+    archived: documentRow?.archivedAt != null,
     userFeatures: features,
   })
   if (!capabilities[capability]) {

@@ -24,6 +24,7 @@ import {
   resolveDocumentsCommandBus,
 } from '../../_commands'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   loadScopedShare,
   readBody,
@@ -90,6 +91,14 @@ async function assertCanShare(
   if (!projection.capabilities.canShare) {
     throw new CrudHttpError(403, { error: 'Forbidden' })
   }
+}
+
+async function assertCanMutateShares(
+  ctx: Awaited<ReturnType<typeof resolveDocumentsContext>>,
+  documentId: string,
+): Promise<void> {
+  await assertCanShare(ctx, documentId)
+  await assertDocumentNotArchived(ctx, documentId)
 }
 
 type PrincipalLabel = { label: string; secondary?: string | null }
@@ -167,7 +176,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.share'])
-    await assertCanShare(ctx, documentId)
+    await assertCanMutateShares(ctx, documentId)
     const input = documentShareCreateSchema.parse(await readBody(request))
     const guardResourceId = `${documentId}:${input.principalType}:${input.principalId}`
     const guardResult = await validateMutationGuard(ctx, {
@@ -223,7 +232,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.share'])
-    await assertCanShare(ctx, documentId)
+    await assertCanMutateShares(ctx, documentId)
     const input = documentShareUpdateSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
     await enforceCommandOptimisticLockWithGuards(ctx.container, {
@@ -271,7 +280,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
   try {
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.share'])
-    await assertCanShare(ctx, documentId)
+    await assertCanMutateShares(ctx, documentId)
     const input = shareDeleteSchema.parse(await readBody(request))
     const share = await loadScopedShare(ctx, documentId, input.id)
     await enforceCommandOptimisticLockWithGuards(ctx.container, {

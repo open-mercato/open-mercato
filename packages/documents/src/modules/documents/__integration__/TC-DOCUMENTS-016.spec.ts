@@ -53,6 +53,7 @@ const TAB_LABELS: Record<DocumentEntityType, string> = {
   deal: 'Deal',
   product: 'Product',
   'catalog-offer': 'Catalog offer',
+  document: 'Document',
   quote: 'Quote',
   'sales-order': 'Sales order',
 }

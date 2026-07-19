@@ -9,6 +9,7 @@ import { DOCUMENTS_VERSION_LIST_PAGE_SIZE } from '../../../lib/historyLimits'
 import { assertTier } from '../../../lib/permissions'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
   resolveDocumentsContext,
@@ -130,6 +131,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, documentId, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, documentId)
     const input = versionCreateSchema.parse(await readBody(request))
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentVersion,

@@ -9,6 +9,9 @@ export type DocumentDetail = {
   title: string
   tier: DocumentTier
   updatedAt: string | null
+  archivedAt: string | null
+  isFavorite: boolean
+  isWatching: boolean
   capabilities: DocumentCapabilities
 }
 
@@ -88,6 +91,12 @@ function readCapabilities(record: Record<string, unknown>, tier: DocumentTier): 
     canManageTemplates: capabilities
       ? readBoolean(capabilities, 'canManageTemplates', 'can_manage_templates') ?? false
       : false,
+    canArchive: capabilities
+      ? readBoolean(capabilities, 'canArchive', 'can_archive') ?? false
+      : false,
+    canDuplicate: capabilities
+      ? readBoolean(capabilities, 'canDuplicate', 'can_duplicate') ?? false
+      : false,
   }
 }
 
@@ -103,6 +112,9 @@ export function normalizeDocumentDetail(payload: unknown): DocumentDetail | null
     title,
     tier,
     updatedAt: readString(record, 'updatedAt', 'updated_at'),
+    archivedAt: readString(record, 'archivedAt', 'archived_at'),
+    isFavorite: readBoolean(record, 'isFavorite', 'is_favorite') ?? false,
+    isWatching: readBoolean(record, 'isWatching', 'is_watching') ?? false,
     capabilities: readCapabilities(record, tier),
   }
 }

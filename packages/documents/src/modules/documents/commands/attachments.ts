@@ -26,7 +26,7 @@ import {
   type DocumentsCommandScope,
 } from './shared'
 
-const DOCUMENT_ATTACHMENT_PARTITION_CODE = 'privateAttachments'
+export const DOCUMENT_ATTACHMENT_PARTITION_CODE = 'privateAttachments'
 const ATTACHMENT_ENTITY_ID = 'attachments:attachment'
 const logger = createLogger('documents').child({ component: 'attachments' })
 

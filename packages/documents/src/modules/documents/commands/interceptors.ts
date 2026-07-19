@@ -1,11 +1,17 @@
+import type { EntityManager } from '@mikro-orm/postgresql'
 import type {
   CommandInterceptor,
   CommandInterceptorContext,
   CommandInterceptorUndoContext,
 } from '@open-mercato/shared/lib/commands/command-interceptor'
 import { extractUndoPayload } from '@open-mercato/shared/lib/commands/undo'
+import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { createLogger } from '@open-mercato/shared/lib/logger'
+import { Document } from '../data/entities'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
+import { resolveWatcherRecipients } from '../lib/watchers'
+import type { DocumentsServiceContainer } from '../lib/platformServices'
 import { emitDocumentsEvent } from '../events'
 import type {
   DocumentsProjectedCommandResult,
@@ -23,6 +29,9 @@ const PROJECTED_COMMAND_IDS = [
   'documents.comment.create',
   'documents.comment.resolve',
   'documents.version.restore',
+  'documents.document.archive',
+  'documents.document.unarchive',
+  'documents.document.duplicate',
 ] as const
 
 type DocumentsNotificationService = {
@@ -116,6 +125,94 @@ async function emitMentionProjection(
   }
 }
 
+const WATCH_NOTIFICATION_TITLE_KEYS: Record<string, string> = {
+  'documents.watch.commented': 'documents.notifications.watch.commented.title',
+  'documents.watch.changed': 'documents.notifications.watch.changed.title',
+}
+
+async function emitWatchProjection(
+  descriptor: Extract<DocumentsProjectionDescriptor, { kind: 'watch-notification' }>,
+  context: CommandInterceptorContext,
+): Promise<void> {
+  try {
+    const notificationService = resolveDocumentsNotificationService(context.container)
+    await notificationService.create(
+      {
+        recipientUserId: descriptor.recipientUserId,
+        type: descriptor.notificationType,
+        titleKey: WATCH_NOTIFICATION_TITLE_KEYS[descriptor.notificationType],
+        bodyKey: descriptor.bodyKey,
+        severity: 'info',
+        titleVariables: { documentTitle: descriptor.documentTitle },
+        bodyVariables: { documentTitle: descriptor.documentTitle },
+        sourceEntityType: descriptor.sourceEntityType,
+        sourceEntityId: descriptor.sourceEntityId,
+        linkHref: descriptor.linkHref,
+      },
+      {
+        tenantId: descriptor.tenantId,
+        organizationId: descriptor.organizationId,
+      },
+    )
+  } catch (error) {
+    logger.error('Watch notification projection failed', {
+      commandId: context.commandId,
+      documentId: descriptor.documentId,
+      recipientUserId: descriptor.recipientUserId,
+      err: error,
+    })
+  }
+}
+
+async function emitWatchFanoutProjection(
+  descriptor: Extract<DocumentsProjectionDescriptor, { kind: 'watch-notification-fanout' }>,
+  context: CommandInterceptorContext,
+): Promise<void> {
+  try {
+    const em = context.container.resolve('em') as EntityManager
+    const scope = { tenantId: descriptor.tenantId, organizationId: descriptor.organizationId }
+    const document = await findOneWithDecryption(
+      em,
+      Document,
+      { id: descriptor.documentId, tenantId: scope.tenantId, organizationId: scope.organizationId, deletedAt: null },
+      { fields: ['id', 'title'] },
+      scope,
+    )
+    if (!document) return
+    const recipientUserIds = await resolveWatcherRecipients({
+      em,
+      container: context.container as unknown as DocumentsServiceContainer,
+      scope,
+      documentId: descriptor.documentId,
+      actorUserId: context.auth?.userId ?? context.auth?.sub ?? descriptor.actorUserId,
+    })
+    for (const recipientUserId of recipientUserIds) {
+      await emitWatchProjection(
+        {
+          kind: 'watch-notification',
+          recipientUserId,
+          tenantId: descriptor.tenantId,
+          organizationId: descriptor.organizationId,
+          documentId: descriptor.documentId,
+          documentTitle: document.title,
+          notificationType: descriptor.notificationType,
+          bodyKey: descriptor.bodyKey,
+          sourceEntityType: descriptor.sourceEntityType,
+          sourceEntityId: descriptor.sourceEntityId,
+          linkHref: descriptor.linkHref,
+        },
+        context,
+      )
+    }
+  } catch (error) {
+    logger.error('Watch notification fanout projection failed', {
+      commandId: context.commandId,
+      documentId: descriptor.documentId,
+      err: error,
+    })
+  }
+}
+
 async function emitDocumentIndexProjection(
   descriptor: Extract<DocumentsProjectionDescriptor, { kind: 'document-index' }>,
   context: CommandInterceptorContext,
@@ -177,6 +274,8 @@ async function projectDescriptors(
       await emitProjectedEvent(projection, context, { overrideActor: options.overrideEventActor })
     }
     else if (projection.kind === 'mention-notification') await emitMentionProjection(projection, context)
+    else if (projection.kind === 'watch-notification') await emitWatchProjection(projection, context)
+    else if (projection.kind === 'watch-notification-fanout') await emitWatchFanoutProjection(projection, context)
     else if (projection.kind === 'document-index') await emitDocumentIndexProjection(projection, context)
     else await deleteMentionNotificationProjection(projection, context)
   }
@@ -206,11 +305,88 @@ function buildProjectionInterceptor(commandId: typeof PROJECTED_COMMAND_IDS[numb
   }
 }
 
+const ARCHIVED_UNDO_GUARDED_COMMAND_IDS = [
+  'documents.document.update',
+  'documents.share.create',
+  'documents.share.update',
+  'documents.share.delete',
+  'documents.comment.create',
+  'documents.comment.resolve',
+  'documents.link.create',
+  'documents.link.delete',
+  'documents.version.restore',
+] as const
+
+type UndoLogEntryShape = {
+  resourceKind?: string | null
+  resourceId?: string | null
+  parentResourceKind?: string | null
+  parentResourceId?: string | null
+  tenantId?: string | null
+  organizationId?: string | null
+  commandPayload?: unknown
+}
+
+function resolveUndoDocumentId(logEntry: UndoLogEntryShape): string | null {
+  if (logEntry.parentResourceKind === DOCUMENTS_ENTITY_IDS.document && logEntry.parentResourceId) {
+    return logEntry.parentResourceId
+  }
+  if (logEntry.resourceKind === DOCUMENTS_ENTITY_IDS.document && logEntry.resourceId) {
+    return logEntry.resourceId
+  }
+  const payload = logEntry.commandPayload
+  if (payload && typeof payload === 'object') {
+    const redoInput = (payload as { __redoInput?: unknown }).__redoInput
+    if (redoInput && typeof redoInput === 'object') {
+      const documentId = (redoInput as { documentId?: unknown }).documentId
+      if (typeof documentId === 'string' && documentId.length > 0) return documentId
+    }
+  }
+  return null
+}
+
+/**
+ * Read-only means the undo path too: reversing a pre-archive share, comment,
+ * link, or restore would mutate an archived document, so the guard refuses
+ * with the same error the execute path uses. Delete-like undos (duplicate,
+ * instantiate) stay allowed, matching delete-of-archived semantics.
+ */
+function buildArchivedUndoGuard(commandId: typeof ARCHIVED_UNDO_GUARDED_COMMAND_IDS[number]): CommandInterceptor {
+  return {
+    id: `documents.${commandId.slice('documents.'.length).replaceAll('.', '-')}-archived-undo-guard`,
+    targetCommand: commandId,
+    priority: 100,
+    async beforeUndo(
+      undoContext: CommandInterceptorUndoContext,
+      context: CommandInterceptorContext,
+    ): Promise<void> {
+      const logEntry = undoContext.logEntry as UndoLogEntryShape
+      const documentId = resolveUndoDocumentId(logEntry)
+      if (!documentId || !logEntry.tenantId || !logEntry.organizationId) return
+      const em = context.container.resolve('em') as EntityManager
+      const scope = { tenantId: logEntry.tenantId, organizationId: logEntry.organizationId }
+      const document = await findOneWithDecryption(
+        em,
+        Document,
+        { id: documentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+        { fields: ['id', 'archivedAt'], filters: false },
+        scope,
+      )
+      if (document?.archivedAt) {
+        throw new CrudHttpError(403, { error: 'documents.errors.documentArchived' })
+      }
+    },
+  }
+}
+
 /**
  * Projection hooks are deliberately post-command. CommandBus persists the
  * ActionLog (or marks it undone) before these hooks run, so a flaky event bus
  * or notification store can never roll back an acknowledged document write.
  */
-export const interceptors: CommandInterceptor[] = PROJECTED_COMMAND_IDS.map(buildProjectionInterceptor)
+export const interceptors: CommandInterceptor[] = [
+  ...PROJECTED_COMMAND_IDS.map(buildProjectionInterceptor),
+  ...ARCHIVED_UNDO_GUARDED_COMMAND_IDS.map(buildArchivedUndoGuard),
+]
 
 export default interceptors

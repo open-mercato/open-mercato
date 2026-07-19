@@ -15,6 +15,7 @@ import {
   resolveDocumentsCommandBus,
 } from '../../../../_commands'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   resolveActorUserId,
   resolveDocumentCapabilityProjection,
@@ -54,6 +55,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     const projection = await resolveDocumentCapabilityProjection(ctx, documentId)
     if (!projection.capabilities.canEdit) throw new CrudHttpError(403, { error: 'Forbidden' })
+    await assertDocumentNotArchived(ctx, documentId)
 
     const targetVersion = await findOneWithDecryption(
       ctx.em,

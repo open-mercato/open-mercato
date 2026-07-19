@@ -22,6 +22,7 @@ jest.mock('../events', () => ({
 }))
 
 jest.mock('../api/_shared', () => ({
+  assertDocumentNotArchived: jest.fn(async () => undefined),
   handleDocumentsRouteError: (...args: unknown[]) => mockHandleDocumentsRouteError(...args),
   readBody: async (request: Request) => request.json(),
   resolveDocumentsContext: (...args: unknown[]) => mockResolveDocumentsContext(...args),

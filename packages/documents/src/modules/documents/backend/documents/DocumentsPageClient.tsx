@@ -99,6 +99,13 @@ export function DocumentsPageClient() {
               onShare={setShareDocument}
               onMove={setMoveDocument}
               onDelete={(row) => void documents.deleteDocument(row)}
+              archivedFilter={documents.archivedFilter}
+              favoritesOnly={documents.favoritesOnly}
+              onArchivedFilterChange={documents.setArchivedFilter}
+              onFavoritesOnlyChange={documents.setFavoritesOnly}
+              onToggleFavorite={(row) => void documents.toggleFavorite(row)}
+              onDuplicate={(row) => void documents.duplicateDocument(row)}
+              onArchiveToggle={(row) => void documents.archiveToggle(row)}
             />
           </div>
           </div>

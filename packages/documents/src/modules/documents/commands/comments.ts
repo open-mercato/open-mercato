@@ -22,6 +22,7 @@ import {
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { assertDocumentCommentCapacity } from '../lib/historyLimits'
 import { resolveUserAccess } from '../lib/permissions'
+import { resolveWatcherRecipients } from '../lib/watchers'
 import type { DocumentsProjectionDescriptor } from './projection-types'
 import {
   assertDocumentCommandCapability,
@@ -539,6 +540,27 @@ function mentionProjections(
   ])
 }
 
+function watchCommentProjections(
+  input: { tenantId: string; organizationId: string; documentId: string; commentId: string },
+  documentTitle: string,
+  recipientUserIds: readonly string[],
+  bodyKey: string,
+): DocumentsProjectionDescriptor[] {
+  return recipientUserIds.map((recipientUserId) => ({
+    kind: 'watch-notification',
+    recipientUserId,
+    tenantId: input.tenantId,
+    organizationId: input.organizationId,
+    documentId: input.documentId,
+    documentTitle,
+    notificationType: 'documents.watch.commented',
+    bodyKey,
+    sourceEntityType: DOCUMENTS_ENTITY_IDS.documentComment,
+    sourceEntityId: input.commentId,
+    linkHref: `/backend/documents/${encodeURIComponent(input.documentId)}?commentId=${encodeURIComponent(input.commentId)}`,
+  }))
+}
+
 function commentCreatedProjection(
   input: CommentCreateCommandInput,
 ): DocumentsProjectionDescriptor {
@@ -691,10 +713,24 @@ export const createCommentCommand: CommandHandler<CommentCreateCommandInput, Com
     }
     const afterState = after as CommentState | null
     if (!afterState) throw new Error('[internal] comment create produced no after snapshot')
+    const watcherRecipientIds = await resolveWatcherRecipients({
+      em,
+      container: ctx.container,
+      scope: { tenantId: input.tenantId, organizationId: input.organizationId },
+      documentId: input.documentId,
+      actorUserId: input.actorUserId,
+      excludeUserIds: notifyMentionedIds,
+    })
     const projections = [
       commentCreatedProjection(input),
       ...shareMutations.map((mutation) => shareProjection('documents.document.shared', input, mutation.after)),
       ...mentionProjections(input, finalDocument, notifyMentionedIds),
+      ...watchCommentProjections(
+        { ...input, commentId: input.commentId },
+        finalDocument.title,
+        watcherRecipientIds,
+        'documents.notifications.watch.commented.body',
+      ),
     ]
     const projectionsAfterUndo: DocumentsProjectionDescriptor[] = [
       ...shareMutations.map((mutation) => shareProjection(
@@ -841,6 +877,27 @@ export const resolveCommentCommand: CommandHandler<CommentResolveCommandInput, C
     const beforeState = before as CommentState | null
     const afterState = after as CommentState | null
     if (!finalComment || !beforeState || !afterState) throw new Error('[internal] comment resolve produced no row')
+    const resolvedDocument = await findOneWithDecryption(
+      em,
+      Document,
+      {
+        id: input.documentId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        deletedAt: null,
+      },
+      { fields: ['id', 'title'] },
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    const watcherRecipientIds = resolvedDocument
+      ? await resolveWatcherRecipients({
+          em,
+          container: ctx.container,
+          scope: { tenantId: input.tenantId, organizationId: input.organizationId },
+          documentId: input.documentId,
+          actorUserId: input.actorUserId,
+        })
+      : []
     return {
       id: finalComment.id,
       resolvedAt: afterState.resolvedAt,
@@ -848,7 +905,17 @@ export const resolveCommentCommand: CommandHandler<CommentResolveCommandInput, C
       updatedAt: finalComment.updatedAt.toISOString(),
       before: beforeState,
       after: afterState,
-      projections: [resolutionProjection(input, afterState)],
+      projections: [
+        resolutionProjection(input, afterState),
+        ...(resolvedDocument
+          ? watchCommentProjections(
+              { ...input, commentId: finalComment.id },
+              resolvedDocument.title,
+              watcherRecipientIds,
+              'documents.notifications.watch.commented.resolvedBody',
+            )
+          : []),
+      ],
     }
   },
   async buildLog({ input, result }) {

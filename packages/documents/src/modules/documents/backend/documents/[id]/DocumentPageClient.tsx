@@ -4,7 +4,7 @@ import * as React from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { History, Trash2 } from 'lucide-react'
+import { Archive, ArchiveRestore, Bell, Copy, History, Star, Trash2 } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import { Page, PageBody, PageHeader } from '@open-mercato/ui/backend/Page'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
@@ -133,6 +133,94 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     setEditorEpoch((current) => current + 1)
   }, [])
 
+  const setDocumentState = React.useCallback((mutate: (document: DocumentDetail) => DocumentDetail) => {
+    setState((current) => current.status === 'ready'
+      ? { ...current, document: mutate(current.document) }
+      : current)
+  }, [])
+
+  const pendingToggles = React.useRef<Set<'favorite' | 'watch'>>(new Set())
+  const runPersonalToggle = React.useCallback(async (
+    kind: 'favorite' | 'watch',
+    active: boolean,
+  ) => {
+    if (state.status !== 'ready' || pendingToggles.current.has(kind)) return
+    pendingToggles.current.add(kind)
+    const flag = kind === 'favorite' ? 'isFavorite' as const : 'isWatching' as const
+    setDocumentState((document) => ({ ...document, [flag]: active }))
+    try {
+      await runMutation({
+        operation: () => apiCallOrThrow(
+          `/api/documents/${encodeURIComponent(documentId)}/${kind}`,
+          { method: active ? 'POST' : 'DELETE' },
+        ),
+        context: {
+          formId: mutationContextId,
+          resourceKind: kind === 'favorite' ? 'documents.document_favorite' : 'documents.document_watcher',
+          resourceId: documentId,
+          retryLastMutation,
+        },
+        mutationPayload: { documentId, active },
+      })
+    } catch (error) {
+      setDocumentState((document) => ({ ...document, [flag]: !active }))
+      flash(error instanceof Error ? error.message : t('documents.editor.error.load'), 'error')
+    } finally {
+      pendingToggles.current.delete(kind)
+    }
+  }, [documentId, mutationContextId, retryLastMutation, runMutation, setDocumentState, state.status, t])
+
+  const handleDuplicate = React.useCallback(async () => {
+    if (state.status !== 'ready') return
+    try {
+      const created = await runMutation({
+        operation: () => apiCallOrThrow<{ id: string }>(
+          `/api/documents/${encodeURIComponent(documentId)}/duplicate`,
+          { method: 'POST', body: JSON.stringify({}), headers: { 'content-type': 'application/json' } },
+        ),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'documents.document',
+          resourceId: documentId,
+          retryLastMutation,
+        },
+        mutationPayload: { action: 'duplicate', sourceDocumentId: documentId },
+      })
+      flash(t('documents.duplicate.success'), 'success')
+      const createdId = created?.result?.id
+      if (createdId) router.push(`/backend/documents/${encodeURIComponent(createdId)}`)
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('documents.duplicate.error'), 'error')
+    }
+  }, [documentId, mutationContextId, retryLastMutation, router, runMutation, state.status, t])
+
+  const handleArchiveToggle = React.useCallback(async () => {
+    if (state.status !== 'ready' || !state.document.capabilities.canArchive) return
+    const archived = state.document.archivedAt !== null
+    const action = archived ? 'unarchive' : 'archive'
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(state.document.updatedAt),
+          () => apiCallOrThrow(`/api/documents/${encodeURIComponent(documentId)}/${action}`, { method: 'POST' }),
+        ),
+        context: {
+          formId: mutationContextId,
+          resourceKind: 'documents.document',
+          resourceId: documentId,
+          retryLastMutation,
+        },
+        mutationPayload: { action, documentId },
+      })
+      flash(t(archived ? 'documents.archive.success.unarchive' : 'documents.archive.success.archive'), 'success')
+      await loadDocument()
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: () => { void loadDocument() } })) {
+        flash(error instanceof Error ? error.message : t('documents.archive.error'), 'error')
+      }
+    }
+  }, [documentId, loadDocument, mutationContextId, retryLastMutation, runMutation, state, t])
+
   const handleDelete = React.useCallback(async () => {
     if (state.status !== 'ready' || !state.document.capabilities.canDelete) return
     const confirmed = await confirm({
@@ -197,15 +285,57 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       <PageHeader title={t('documents.nav.document')} actions={(
         <>
           <LinkButton asChild variant="gray"><Link href="/backend/documents">{t('documents.actions.backToList')}</Link></LinkButton>
+          <Button
+            type="button"
+            variant={document.isFavorite ? 'secondary' : 'outline'}
+            onClick={() => void runPersonalToggle('favorite', !document.isFavorite)}
+            aria-pressed={document.isFavorite}
+            aria-label={t(document.isFavorite ? 'documents.actions.unfavorite' : 'documents.actions.favorite')}
+          >
+            <Star />
+          </Button>
+          <Button
+            type="button"
+            variant={document.isWatching ? 'secondary' : 'outline'}
+            onClick={() => void runPersonalToggle('watch', !document.isWatching)}
+            aria-pressed={document.isWatching}
+            aria-label={t(document.isWatching ? 'documents.actions.unwatch' : 'documents.actions.watch')}
+          >
+            <Bell />
+          </Button>
           <Button type="button" variant={showVersions ? 'secondary' : 'outline'} onClick={() => setShowVersions((value) => !value)} aria-pressed={showVersions}>
             <History />{t('documents.actions.versions')}
           </Button>
           <ExportMenu documentId={document.id} editor={editor} />
+          {capabilities.canDuplicate ? (
+            <Button type="button" variant="outline" onClick={() => void handleDuplicate()}>
+              <Copy />{t('documents.actions.duplicate')}
+            </Button>
+          ) : null}
+          {capabilities.canArchive ? (
+            <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
+              {document.archivedAt ? <ArchiveRestore /> : <Archive />}
+              {t(document.archivedAt ? 'documents.actions.unarchive' : 'documents.actions.archive')}
+            </Button>
+          ) : null}
           {capabilities.canShare ? <Button type="button" variant="outline" onClick={() => setShareOpen(true)}>{t('documents.actions.share')}</Button> : null}
           {capabilities.canDelete ? <Button type="button" variant="destructive" onClick={() => void handleDelete()}><Trash2 />{t('documents.actions.delete')}</Button> : null}
         </>
       )} />
       <PageBody>
+        {document.archivedAt ? (
+          <div
+            role="status"
+            className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-md border border-status-warning-border bg-status-warning-bg px-4 py-3 text-sm text-status-warning-text"
+          >
+            <span>{t('documents.archive.banner')}</span>
+            {capabilities.canArchive ? (
+              <Button type="button" variant="outline" onClick={() => void handleArchiveToggle()}>
+                <ArchiveRestore />{t('documents.actions.unarchive')}
+              </Button>
+            ) : null}
+          </div>
+        ) : null}
         <div className="flex flex-col gap-4 xl:flex-row">
           <div className="min-w-0 flex-1">
             <DocumentEditorErrorBoundary

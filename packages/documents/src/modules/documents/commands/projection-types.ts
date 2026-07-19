@@ -2,6 +2,9 @@ import type { EventPayload } from '@open-mercato/shared/modules/events'
 
 export type DocumentsProjectedEventId =
   | 'documents.document.updated'
+  | 'documents.document.archived'
+  | 'documents.document.duplicated'
+  | 'documents.document.unarchived'
   | 'documents.document.shared'
   | 'documents.document.unshared'
   | 'documents.comment.created'
@@ -26,6 +29,31 @@ export type DocumentsProjectionDescriptor =
       documentTitle: string
       commentId: string
       authorUserId: string
+    }
+  | {
+      kind: 'watch-notification'
+      recipientUserId: string
+      tenantId: string
+      organizationId: string
+      documentId: string
+      documentTitle: string
+      notificationType: 'documents.watch.commented' | 'documents.watch.changed'
+      bodyKey: string
+      sourceEntityType: string
+      sourceEntityId: string
+      linkHref: string
+    }
+  | {
+      kind: 'watch-notification-fanout'
+      tenantId: string
+      organizationId: string
+      documentId: string
+      actorUserId: string
+      notificationType: 'documents.watch.commented' | 'documents.watch.changed'
+      bodyKey: string
+      sourceEntityType: string
+      sourceEntityId: string
+      linkHref: string
     }
   | {
       kind: 'document-index'

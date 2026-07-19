@@ -4,6 +4,7 @@ import * as React from 'react'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
+const panelApiCallMock = jest.fn()
 const apiCallOrThrowMock = jest.fn()
 const translate = (key: string) => key
 
@@ -101,6 +102,12 @@ describe('document side-panel reload freshness', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     apiCallMock.mockReset()
+    panelApiCallMock.mockReset()
+    apiCallMock.mockImplementation((path: unknown, ...rest: unknown[]) => (
+      typeof path === 'string' && path.includes('entityType=document')
+        ? Promise.resolve({ ok: true, status: 200, result: { items: [] } })
+        : panelApiCallMock(path, ...rest)
+    ))
     apiCallOrThrowMock.mockReset()
     apiCallOrThrowMock.mockResolvedValue({ ok: true, status: 201, result: {} })
   })
@@ -108,7 +115,7 @@ describe('document side-panel reload freshness', () => {
   it('aborts and ignores an obsolete related-record load after linking', async () => {
     const staleLoad = deferred<ReturnType<typeof relatedRecordsResponse>>()
     let staleSignal: AbortSignal | undefined
-    apiCallMock
+    panelApiCallMock
       .mockImplementationOnce((_path: string, options?: RequestInit) => {
         staleSignal = options?.signal ?? undefined
         return staleLoad.promise
@@ -116,7 +123,7 @@ describe('document side-panel reload freshness', () => {
       .mockResolvedValueOnce(relatedRecordsResponse('Fresh company'))
 
     render(<RelatedRecordsPanel documentId={DOCUMENT_ID} canEdit editor={null} />)
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(panelApiCallMock).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'pick-record' }))
 
     await waitFor(() => expect(screen.getByText('Fresh company')).toBeTruthy())
@@ -133,7 +140,7 @@ describe('document side-panel reload freshness', () => {
   it('aborts and ignores an obsolete version load after creating a snapshot', async () => {
     const staleLoad = deferred<ReturnType<typeof versionsResponse>>()
     let staleSignal: AbortSignal | undefined
-    apiCallMock
+    panelApiCallMock
       .mockImplementationOnce((_path: string, options?: RequestInit) => {
         staleSignal = options?.signal ?? undefined
         return staleLoad.promise
@@ -147,7 +154,7 @@ describe('document side-panel reload freshness', () => {
         contentUpdatedAt={UPDATED_AT}
       />,
     )
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(panelApiCallMock).toHaveBeenCalledTimes(1))
     fireEvent.click(screen.getByRole('button', { name: 'documents.versions.actions.snapshot' }))
 
     await waitFor(() => expect(screen.getByText('Fresh snapshot')).toBeTruthy())
@@ -165,7 +172,7 @@ describe('document side-panel reload freshness', () => {
     const staleMutation = deferred<{ ok: boolean; status: number; result: Record<string, never> }>()
     const currentLoad = deferred<ReturnType<typeof relatedRecordsResponse>>()
     let currentSignal: AbortSignal | undefined
-    apiCallMock
+    panelApiCallMock
       .mockResolvedValueOnce(relatedRecordsResponse('Document A company'))
       .mockImplementationOnce((_path: string, options?: RequestInit) => {
         currentSignal = options?.signal ?? undefined
@@ -179,7 +186,7 @@ describe('document side-panel reload freshness', () => {
     await waitFor(() => expect(apiCallOrThrowMock).toHaveBeenCalledTimes(1))
 
     rerender(<RelatedRecordsPanel documentId={OTHER_DOCUMENT_ID} canEdit editor={null} />)
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(panelApiCallMock).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('Document A company')).toBeNull())
     expect(currentSignal?.aborted).toBe(false)
 
@@ -188,7 +195,7 @@ describe('document side-panel reload freshness', () => {
       await staleMutation.promise
       await flushPromises()
     })
-    expect(apiCallMock).toHaveBeenCalledTimes(2)
+    expect(panelApiCallMock).toHaveBeenCalledTimes(2)
     expect(currentSignal?.aborted).toBe(false)
     expect(screen.queryByText('Document A company')).toBeNull()
 
@@ -204,7 +211,7 @@ describe('document side-panel reload freshness', () => {
     const staleMutation = deferred<{ ok: boolean; status: number; result: Record<string, never> }>()
     const currentLoad = deferred<ReturnType<typeof versionsResponse>>()
     let currentSignal: AbortSignal | undefined
-    apiCallMock
+    panelApiCallMock
       .mockResolvedValueOnce(versionsResponse('Document A snapshot'))
       .mockImplementationOnce((_path: string, options?: RequestInit) => {
         currentSignal = options?.signal ?? undefined
@@ -222,7 +229,7 @@ describe('document side-panel reload freshness', () => {
     rerender(
       <VersionHistoryPanel documentId={OTHER_DOCUMENT_ID} canRestore contentUpdatedAt={UPDATED_AT} />,
     )
-    await waitFor(() => expect(apiCallMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(panelApiCallMock).toHaveBeenCalledTimes(2))
     await waitFor(() => expect(screen.queryByText('Document A snapshot')).toBeNull())
     expect(currentSignal?.aborted).toBe(false)
 
@@ -231,7 +238,7 @@ describe('document side-panel reload freshness', () => {
       await staleMutation.promise
       await flushPromises()
     })
-    expect(apiCallMock).toHaveBeenCalledTimes(2)
+    expect(panelApiCallMock).toHaveBeenCalledTimes(2)
     expect(currentSignal?.aborted).toBe(false)
     expect(screen.queryByText('Document A snapshot')).toBeNull()
 

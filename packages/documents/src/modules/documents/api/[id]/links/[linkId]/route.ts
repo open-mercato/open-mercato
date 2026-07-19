@@ -4,6 +4,7 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { DOCUMENTS_ENTITY_IDS } from '../../../../lib/constants'
 import { assertTier } from '../../../../lib/permissions'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   resolveDocumentsContext,
   routeErrorSchema,
@@ -36,6 +37,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     const params = await context.params
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, params.id, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, params.id)
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentEntityLink,
       resourceId: params.linkId,

@@ -37,6 +37,8 @@ export function useDocumentsList() {
   const [total, setTotal] = React.useState(0)
   const [totalPages, setTotalPages] = React.useState(1)
   const [search, setSearch] = React.useState('')
+  const [archivedFilter, setArchivedFilter] = React.useState<'exclude' | 'include' | 'only'>('exclude')
+  const [favoritesOnly, setFavoritesOnly] = React.useState(false)
   const [isLoading, setIsLoading] = React.useState(true)
   const [isCreating, setIsCreating] = React.useState(false)
   const [loadError, setLoadError] = React.useState<string | null>(null)
@@ -59,6 +61,8 @@ export function useDocumentsList() {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) })
     if (search.trim()) params.set('search', search.trim())
     if (selectedFolderId) params.set('folderId', selectedFolderId)
+    if (archivedFilter !== 'exclude') params.set('archived', archivedFilter)
+    if (favoritesOnly) params.set('favorite', 'true')
     void Promise.all([
       apiCall<unknown>('/api/documents/folders', undefined, { fallback: { items: [] } }),
       apiCall<unknown>(`/api/documents?${params.toString()}`, undefined, { fallback: { items: [] } }),
@@ -93,7 +97,7 @@ export function useDocumentsList() {
     }).finally(() => {
       if (requestId.current === currentRequestId) setIsLoading(false)
     })
-  }, [page, pageSize, reloadToken, search, selectedFolderId, t])
+  }, [archivedFilter, favoritesOnly, page, pageSize, reloadToken, search, selectedFolderId, t])
 
   React.useEffect(() => {
     let active = true
@@ -220,9 +224,77 @@ export function useDocumentsList() {
     }
   }, [confirm, mutationContextId, refresh, retryLastMutation, runMutation, selectedFolderId, t])
 
+  const pendingFavoriteIds = React.useRef<Set<string>>(new Set())
+  const toggleFavorite = React.useCallback(async (row: DocumentRow) => {
+    if (pendingFavoriteIds.current.has(row.id)) return
+    pendingFavoriteIds.current.add(row.id)
+    const nextActive = !row.isFavorite
+    setRows((current) => current.map((candidate) => candidate.id === row.id
+      ? { ...candidate, isFavorite: nextActive }
+      : candidate))
+    try {
+      await runMutation({
+        operation: () => apiCallOrThrow(
+          `/api/documents/${encodeURIComponent(row.id)}/favorite`,
+          { method: nextActive ? 'POST' : 'DELETE' },
+        ),
+        context: { formId: mutationContextId, resourceKind: 'documents.document_favorite', resourceId: row.id, retryLastMutation },
+        mutationPayload: { id: row.id, active: nextActive },
+      })
+      if (favoritesOnly && !nextActive) refresh()
+    } catch (error) {
+      setRows((current) => current.map((candidate) => candidate.id === row.id
+        ? { ...candidate, isFavorite: !nextActive }
+        : candidate))
+      flash(error instanceof Error ? error.message : t('documents.list.error.load'), 'error')
+    } finally {
+      pendingFavoriteIds.current.delete(row.id)
+    }
+  }, [favoritesOnly, mutationContextId, refresh, retryLastMutation, runMutation, t])
+
+  const duplicateDocument = React.useCallback(async (row: DocumentRow) => {
+    try {
+      const created = await runMutation({
+        operation: () => apiCallOrThrow<{ id: string }>(
+          `/api/documents/${encodeURIComponent(row.id)}/duplicate`,
+          { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({}) },
+        ),
+        context: { formId: mutationContextId, resourceKind: 'documents.document', resourceId: row.id, retryLastMutation },
+        mutationPayload: { action: 'duplicate', sourceDocumentId: row.id },
+      })
+      flash(t('documents.duplicate.success'), 'success')
+      const createdId = created?.result?.id
+      if (createdId) router.push(`/backend/documents/${encodeURIComponent(createdId)}`)
+    } catch (error) {
+      flash(error instanceof Error ? error.message : t('documents.duplicate.error'), 'error')
+    }
+  }, [mutationContextId, retryLastMutation, router, runMutation, t])
+
+  const archiveToggle = React.useCallback(async (row: DocumentRow) => {
+    const action = row.archivedAt ? 'unarchive' : 'archive'
+    try {
+      await runMutation({
+        operation: () => withScopedApiRequestHeaders(
+          buildOptimisticLockHeader(row.updatedAt),
+          () => apiCallOrThrow(`/api/documents/${encodeURIComponent(row.id)}/${action}`, { method: 'POST' }),
+        ),
+        context: { formId: mutationContextId, resourceKind: 'documents.document', resourceId: row.id, retryLastMutation },
+        mutationPayload: { action, id: row.id },
+      })
+      flash(t(row.archivedAt ? 'documents.archive.success.unarchive' : 'documents.archive.success.archive'), 'success')
+      refresh()
+    } catch (error) {
+      if (!surfaceRecordConflict(error, t, { onRefresh: refresh })) {
+        flash(error instanceof Error ? error.message : t('documents.archive.error'), 'error')
+      }
+    }
+  }, [mutationContextId, refresh, retryLastMutation, runMutation, t])
+
   return {
     rows, folders, selectedFolderId, setSelectedFolderId, page, setPage, pageSize, setPageSize,
     total, totalPages, search, setSearch, isLoading, isCreating, loadError, hasTemplates, collectionCapabilities, refresh,
+    archivedFilter, setArchivedFilter, favoritesOnly, setFavoritesOnly,
     createDocument, deleteDocument, moveDocument, saveFolder, deleteFolder, ConfirmDialogElement,
+    toggleFavorite, duplicateDocument, archiveToggle,
   }
 }

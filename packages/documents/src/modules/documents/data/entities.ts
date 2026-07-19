@@ -17,7 +17,7 @@ export type DocumentEntityLinkSource = 'chip' | 'template' | 'related-panel'
     'create index "documents_list_sort_idx" on "documents" ("organization_id", "tenant_id", "updated_at") where "deleted_at" is null',
 })
 export class Document {
-  [OptionalProps]?: 'folderId' | 'isActive' | 'createdAt' | 'updatedAt' | 'deletedAt'
+  [OptionalProps]?: 'folderId' | 'isActive' | 'archivedAt' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -47,6 +47,9 @@ export class Document {
 
   @Property({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean = true
+
+  @Property({ name: 'archived_at', type: Date, nullable: true })
+  archivedAt?: Date | null
 
   @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
   createdAt: Date = new Date()
@@ -190,6 +193,76 @@ export class DocumentShare {
 
   @Property({ name: 'updated_at', type: Date, onUpdate: preserveMonotonicDocumentVersionOnUpdate })
   updatedAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'document_favorites' })
+@Index({
+  name: 'document_favorites_active_user_uq',
+  expression:
+    'create unique index "document_favorites_active_user_uq" on "document_favorites" ("document_id", "user_id") where "deleted_at" is null',
+})
+@Index({
+  name: 'document_favorites_user_lookup_idx',
+  properties: ['tenantId', 'organizationId', 'userId'],
+})
+export class DocumentFavorite {
+  [OptionalProps]?: 'createdAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
+  documentId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}
+
+@Entity({ tableName: 'document_watchers' })
+@Index({
+  name: 'document_watchers_active_user_uq',
+  expression:
+    'create unique index "document_watchers_active_user_uq" on "document_watchers" ("document_id", "user_id") where "deleted_at" is null',
+})
+@Index({
+  name: 'document_watchers_user_lookup_idx',
+  properties: ['tenantId', 'organizationId', 'userId'],
+})
+export class DocumentWatcher {
+  [OptionalProps]?: 'createdAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @ManyToOne(() => Document, { fieldName: 'document_id', mapToPk: true, deleteRule: 'cascade' })
+  documentId!: string
+
+  @Property({ name: 'user_id', type: 'uuid' })
+  userId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
@@ -413,6 +486,11 @@ export class DocumentTemplate {
     'create unique index "document_entity_links_sales_order_active_uq" on "document_entity_links" ("document_id", "sales_order_id") where "sales_order_id" is not null and "deleted_at" is null',
 })
 @Index({
+  name: 'document_entity_links_linked_document_active_uq',
+  expression:
+    'create unique index "document_entity_links_linked_document_active_uq" on "document_entity_links" ("document_id", "linked_document_id") where "linked_document_id" is not null and "deleted_at" is null',
+})
+@Index({
   name: 'document_entity_links_customer_reverse_idx',
   expression:
     'create index "document_entity_links_customer_reverse_idx" on "document_entity_links" ("tenant_id", "organization_id", "customer_entity_id") where "customer_entity_id" is not null and "deleted_at" is null',
@@ -442,15 +520,24 @@ export class DocumentTemplate {
   expression:
     'create index "document_entity_links_sales_order_reverse_idx" on "document_entity_links" ("tenant_id", "organization_id", "sales_order_id") where "sales_order_id" is not null and "deleted_at" is null',
 })
+@Index({
+  name: 'document_entity_links_linked_document_reverse_idx',
+  expression:
+    'create index "document_entity_links_linked_document_reverse_idx" on "document_entity_links" ("tenant_id", "organization_id", "linked_document_id") where "linked_document_id" is not null and "deleted_at" is null',
+})
 @Check({
   name: 'document_entity_links_exactly_one_target_chk',
   expression:
-    'num_nonnulls("customer_entity_id", "deal_id", "product_id", "catalog_offer_id", "quote_id", "sales_order_id") = 1',
+    'num_nonnulls("customer_entity_id", "deal_id", "product_id", "catalog_offer_id", "quote_id", "sales_order_id", "linked_document_id") = 1',
 })
 @Check({
   name: 'document_entity_links_customer_kind_chk',
   expression:
     '(("customer_entity_id" is not null and "customer_kind" in (\'person\', \'company\')) or ("customer_entity_id" is null and "customer_kind" is null))',
+})
+@Check({
+  name: 'document_entity_links_no_self_link_chk',
+  expression: '"document_id" <> "linked_document_id"',
 })
 export class DocumentEntityLink {
   [OptionalProps]?:
@@ -461,6 +548,7 @@ export class DocumentEntityLink {
     | 'catalogOfferId'
     | 'quoteId'
     | 'salesOrderId'
+    | 'linkedDocumentId'
     | 'createdAt'
     | 'updatedAt'
     | 'deletedAt'
@@ -498,6 +586,14 @@ export class DocumentEntityLink {
   @Property({ name: 'sales_order_id', type: 'uuid', nullable: true })
   salesOrderId?: string | null
 
+  @ManyToOne(() => Document, {
+    fieldName: 'linked_document_id',
+    mapToPk: true,
+    nullable: true,
+    deleteRule: 'cascade',
+  })
+  linkedDocumentId?: string | null
+
   @Property({ name: 'label_snapshot', type: 'text' })
   labelSnapshot!: string
 
@@ -525,6 +621,8 @@ export default [
   DocumentContent,
   DocumentFolder,
   DocumentShare,
+  DocumentFavorite,
+  DocumentWatcher,
   DocumentComment,
   DocumentVersion,
   DocumentAttachment,

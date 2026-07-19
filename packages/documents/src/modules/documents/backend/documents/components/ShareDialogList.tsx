@@ -17,6 +17,7 @@ type ShareDialogListProps = {
   isLoading: boolean
   error: string | null
   canManage: boolean
+  pendingShareIds: ReadonlySet<string>
   onRetry?: () => void
   onPermissionChange: (share: ShareRow, permission: DocumentSharePermission) => Promise<void>
   onRemove: (share: ShareRow) => Promise<void>
@@ -27,6 +28,7 @@ export function ShareDialogList({
   isLoading,
   error,
   canManage,
+  pendingShareIds,
   onRetry,
   onPermissionChange,
   onRemove,
@@ -57,6 +59,7 @@ export function ShareDialogList({
           <p className="text-sm font-medium">{t('documents.share.dialog.current')}</p>
           <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
             {shares.map((share) => {
+              const isPending = pendingShareIds.has(share.id)
               const principalTypeLabel = t(`documents.share.principalTypes.${share.principalType}`)
               const permissionLabel = t('documents.share.dialog.permission')
               const removeLabel = t('documents.actions.unshare')
@@ -79,7 +82,7 @@ export function ShareDialogList({
                     <Select
                       value={share.permission}
                       onValueChange={(value) => void onPermissionChange(share, readPermission(value))}
-                      disabled={!canManage}
+                      disabled={!canManage || isPending}
                     >
                       <SelectTrigger aria-label={`${permissionLabel}: ${share.principalLabel}`}>
                         <SelectValue />
@@ -99,7 +102,7 @@ export function ShareDialogList({
                     className="shrink-0"
                     aria-label={`${removeLabel}: ${share.principalLabel}`}
                     onClick={() => void onRemove(share)}
-                    disabled={!canManage}
+                    disabled={!canManage || isPending}
                   >
                     {removeLabel}
                   </Button>

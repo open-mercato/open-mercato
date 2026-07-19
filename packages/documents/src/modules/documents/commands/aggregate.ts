@@ -84,7 +84,7 @@ export async function assertNoPostCreateDocumentDependents(
   em: EntityManager,
   documentId: string,
   scope: DocumentsCommandScope,
-  options: { allowedLinkIds?: readonly string[] } = {},
+  options: { allowedLinkIds?: readonly string[]; allowedAttachmentIds?: readonly string[] } = {},
 ): Promise<void> {
   const base = {
     documentId,
@@ -103,6 +103,18 @@ export async function assertNoPostCreateDocumentDependents(
     throw new CrudHttpError(409, { error: 'Record changed by another user' })
   }
 
+  const attachments = await findWithDecryption(
+    em,
+    DocumentAttachment,
+    { ...base, deletedAt: null },
+    undefined,
+    scope,
+  )
+  const allowedAttachmentIds = new Set(options.allowedAttachmentIds ?? [])
+  if (attachments.some((attachment) => !allowedAttachmentIds.has(attachment.id))) {
+    throw new CrudHttpError(409, { error: 'Record changed by another user' })
+  }
+
   // Keep dependent reads sequential on the transaction's single connection.
   // Every write path locks the parent document first, so the root lock closes
   // the check-then-delete window while these scoped probes run.
@@ -110,7 +122,6 @@ export async function assertNoPostCreateDocumentDependents(
     await hasScopedRows(em, DocumentShare, { ...base, deletedAt: null }, scope)
     || await hasScopedRows(em, DocumentComment, { ...base, deletedAt: null }, scope)
     || await hasScopedRows(em, DocumentVersion, base, scope)
-    || await hasScopedRows(em, DocumentAttachment, { ...base, deletedAt: null }, scope)
   ) {
     throw new CrudHttpError(409, { error: 'Record changed by another user' })
   }

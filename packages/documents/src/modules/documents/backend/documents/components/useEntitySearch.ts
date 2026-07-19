@@ -34,7 +34,7 @@ function isPermanentlyUnavailableStatus(status: number | undefined): boolean {
   return status === 403 || status === 404
 }
 
-export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]) {
+export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[], excludeId?: string) {
   const typeFilterKey = typeFilter?.join('|') ?? ''
   const requestSequence = React.useRef(0)
   const activeRequest = React.useRef<AbortController | null>(null)
@@ -142,7 +142,8 @@ export function useEntitySearch(open: boolean, typeFilter?: DocumentEntityType[]
         }
         const next = readItemsArray(call.result).flatMap((rawItem) => {
           const item = entry.mapItem(rawItem)
-          return item ? [{ ...item, rawItem }] : []
+          if (!item || (excludeId && item.id === excludeId)) return []
+          return [{ ...item, rawItem }]
         })
         resultContext.current = requestContext
         setErrorContext(null)

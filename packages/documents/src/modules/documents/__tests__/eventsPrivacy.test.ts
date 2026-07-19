@@ -26,6 +26,8 @@ describe('Documents events privacy contract', () => {
     expect(crossProcessIds).toEqual([
       'documents.document.updated',
       'documents.document.deleted',
+      'documents.document.archived',
+      'documents.document.unarchived',
       'documents.document.shared',
       'documents.document.unshared',
       'documents.version.restored',

@@ -44,6 +44,84 @@ function useEditorEditable(editor: Editor | null): boolean {
   return editable
 }
 
+type BacklinkItem = { id: string; title: string }
+type BacklinksState = { status: 'loading' } | { status: 'error' } | { status: 'ready'; items: BacklinkItem[]; total: number }
+
+function BacklinksSection({ documentId }: { documentId: string }) {
+  const t = useT()
+  const [state, setState] = React.useState<BacklinksState>({ status: 'loading' })
+  const requestSequence = React.useRef(0)
+
+  const load = React.useCallback(async () => {
+    const requestId = ++requestSequence.current
+    setState({ status: 'loading' })
+    const call = await apiCall<unknown>(
+      `/api/documents?entityType=document&entityId=${encodeURIComponent(documentId)}&pageSize=10`,
+      undefined,
+      { fallback: null },
+    )
+    if (requestSequence.current !== requestId) return
+    if (!call.ok) return setState({ status: 'error' })
+    const items = readArrayPayload(call.result)
+      .flatMap((candidate) => {
+        const record = candidate && typeof candidate === 'object' && !Array.isArray(candidate)
+          ? candidate as Record<string, unknown>
+          : null
+        const id = typeof record?.id === 'string' ? record.id : null
+        const title = typeof record?.title === 'string' && record.title.trim().length > 0 ? record.title : null
+        return id && title ? [{ id, title }] : []
+      })
+    const payloadRecord = call.result && typeof call.result === 'object' && !Array.isArray(call.result)
+      ? call.result as Record<string, unknown>
+      : null
+    const total = typeof payloadRecord?.total === 'number' ? payloadRecord.total : items.length
+    setState({ status: 'ready', items, total })
+  }, [documentId])
+
+  React.useEffect(() => {
+    void load()
+    return () => { requestSequence.current += 1 }
+  }, [load])
+
+  return (
+    <div className="mt-4 border-t border-border pt-3">
+      <SectionHeader
+        title={t('documents.relatedRecords.referencedBy.title')}
+        count={state.status === 'ready' ? state.total : undefined}
+      />
+      <div className="mt-2">
+        {state.status === 'loading' ? <LoadingMessage label={t('documents.relatedRecords.loading')} /> : null}
+        {state.status === 'error' ? (
+          <ErrorMessage label={t('documents.relatedRecords.error.load')} action={(
+            <Button type="button" variant="outline" size="sm" onClick={() => void load()}>{t('documents.actions.retry')}</Button>
+          )} />
+        ) : null}
+        {state.status === 'ready' && state.items.length === 0 ? (
+          <p className="text-sm text-muted-foreground">{t('documents.relatedRecords.referencedBy.empty')}</p>
+        ) : null}
+        {state.status === 'ready' && state.items.length > 0 ? (
+          <>
+            <ul className="space-y-1">
+              {state.items.map((item) => (
+                <li key={item.id}>
+                  <Link href={`/backend/documents/${encodeURIComponent(item.id)}`} className="text-sm font-medium hover:underline">
+                    {item.title}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+            {state.total > state.items.length ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('documents.relatedRecords.referencedBy.more', { count: state.total - state.items.length })}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedRecordsPanelProps) {
   const t = useT()
   const [state, setState] = React.useState<LoadState>({ status: 'loading' })
@@ -226,7 +304,8 @@ export function RelatedRecordsPanel({ documentId, canEdit, editor }: RelatedReco
           </div>
         ) : null}
       </div>
-      {canEdit ? <EntityPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={(pick) => void handleLink(pick)} /> : null}
+      <BacklinksSection documentId={documentId} />
+      {canEdit ? <EntityPicker open={pickerOpen} onOpenChange={setPickerOpen} onPick={(pick) => void handleLink(pick)} excludeId={documentId} /> : null}
       <RecordFieldsDialog
         documentId={documentId}
         linkId={recordFieldsLinkId}

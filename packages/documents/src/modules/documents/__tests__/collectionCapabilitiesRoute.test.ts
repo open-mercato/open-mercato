@@ -139,6 +139,7 @@ describe('GET /api/documents collection capabilities', () => {
     groupedQuery.where.mockReturnValue(groupedQuery)
     groupedQuery.groupBy.mockReturnValue(groupedQuery)
     em.createQueryBuilder.mockReturnValue(groupedQuery)
+    em.find.mockResolvedValue([])
     const { GET } = await import('../api/route')
 
     const response = await GET(new Request('http://localhost/api/documents?page=1&pageSize=100'))

@@ -38,7 +38,10 @@ function harness(organizations: string[], persistedOrganizations: Array<{
   descendantIds: string[]
 }>) {
   const authorizationOrder: string[] = []
-  const em = { find: jest.fn(async () => []) }
+  const em = {
+    find: jest.fn(async () => []),
+    findOne: jest.fn(async () => ({ id: 'document-1', archivedAt: null })),
+  }
   const rbacService = {
     invalidateUserCache: jest.fn(async () => {
       authorizationOrder.push('invalidate')

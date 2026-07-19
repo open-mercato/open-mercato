@@ -8,6 +8,7 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../../lib/constants'
 import { resolveAttachmentServicePort } from '../../../../lib/attachmentServicePort'
 import { assertTier } from '../../../../lib/permissions'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   resolveDocumentsContext,
   routeErrorSchema,
@@ -99,6 +100,7 @@ export async function DELETE(request: Request, context: RouteContext): Promise<R
     const { documentId, attachmentId } = await resolveParams(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, documentId, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, documentId)
     const documentAttachment = await loadDocumentAttachment(ctx, documentId, attachmentId)
     const guardResult = await validateMutationGuard(ctx, {
       resourceKind: DOCUMENTS_ENTITY_IDS.documentAttachment,

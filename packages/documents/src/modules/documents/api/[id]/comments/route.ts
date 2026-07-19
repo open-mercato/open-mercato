@@ -26,6 +26,7 @@ import {
   resolveDocumentsCommandBus,
 } from '../../_commands'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
   resolveActorUserId,
@@ -292,6 +293,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     await assertTier(ctx.em, documentId, ctx.auth, 'commenter')
+    await assertDocumentNotArchived(ctx, documentId)
     const input = documentCommentCreateSchema.parse(await readBody(request))
     const userId = resolveActorUserId(ctx.auth)
     const guardResult = await validateMutationGuard(ctx, {
@@ -338,6 +340,7 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
     const tier = await assertTier(ctx.em, documentId, ctx.auth, 'viewer')
+    await assertDocumentNotArchived(ctx, documentId)
     const input = commentResolveSchema.parse(await readBody(request))
     const comment = await loadScopedComment(documentId, input.id, ctx)
     const userId = resolveActorUserId(ctx.auth)

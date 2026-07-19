@@ -4,12 +4,14 @@ import { randomUUID } from 'node:crypto'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { QueryEngine } from '@open-mercato/shared/lib/query/types'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { documentCreateSchema, documentEntityTypeSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { resolveUserLabels } from '../lib/userLabels'
 import { deriveDocumentCapabilities } from '../lib/capabilities'
 import { getVisibleDocumentPage } from '../lib/visibility'
 import { loadDocumentShareCounts } from '../lib/shareCounts'
+import { loadDocumentFavoriteIds } from '../lib/favorites'
 import { getEntityRegistryEntry } from '../lib/entityRegistry'
 import { verifyEntityRegistryTargetAccess } from '../lib/entityRegistry.server'
 import { isDocumentEntityRegistryModuleEnabled } from '../lib/entityRegistryAvailability.server'
@@ -34,6 +36,9 @@ const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(50),
   search: z.string().trim().optional(),
+  id: z.string().uuid().optional(),
+  archived: z.enum(['exclude', 'include', 'only']).default('exclude'),
+  favorite: z.string().optional().transform((value) => parseBooleanWithDefault(value, false)),
   folderId: z.string().uuid().optional().nullable(),
   entityType: documentEntityTypeSchema.optional(),
   entityId: z.string().uuid().optional(),
@@ -54,6 +59,8 @@ const capabilitiesSchema = z.object({
   canDelete: z.boolean(),
   canCreate: z.boolean(),
   canManageTemplates: z.boolean(),
+  canArchive: z.boolean(),
+  canDuplicate: z.boolean(),
 })
 
 const collectionCapabilitiesSchema = z.object({
@@ -72,6 +79,8 @@ const documentListItemSchema = z.object({
   ownerLabel: z.string().nullable(),
   createdByUserId: z.string().uuid(),
   isActive: z.boolean(),
+  archivedAt: z.string().nullable(),
+  isFavorite: z.boolean(),
   sharedWithCount: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -126,6 +135,20 @@ function readDate(record: Record<string, unknown>, ...keys: string[]): string {
   return new Date(0).toISOString()
 }
 
+function readNullableDate(record: Record<string, unknown>, ...keys: string[]): string | null {
+  for (const key of keys) {
+    const value = record[key]
+    if (value === null || value === undefined) continue
+    const date = value instanceof Date
+      ? value
+      : typeof value === 'string' && value.length > 0
+        ? new Date(value)
+        : null
+    if (date && !Number.isNaN(date.getTime())) return date.toISOString()
+  }
+  return null
+}
+
 export async function GET(request: Request): Promise<Response> {
   try {
     const ctx = await resolveDocumentsContext(request, ['documents.view'])
@@ -152,16 +175,20 @@ export async function GET(request: Request): Promise<Response> {
       }
     }
 
+    const actorUserId = resolveActorUserId(ctx.auth)
     const managerOverride = hasDocumentsFeature(ctx.auth, 'documents.manage')
     const visiblePage = await getVisibleDocumentPage({
       em: ctx.em,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
-      userId: resolveActorUserId(ctx.auth),
+      userId: actorUserId,
       roleIds: ctx.auth.roleIds,
       managerOverride,
       page: query.page,
       pageSize: query.pageSize,
+      id: query.id ?? null,
+      archived: query.archived,
+      favoriteUserId: query.favorite ? actorUserId : null,
       search: query.search ?? null,
       folderId: query.folderId ?? null,
       relationFilter,
@@ -175,7 +202,7 @@ export async function GET(request: Request): Promise<Response> {
           filters: { id: { $in: orderedIds } },
           page: { page: 1, pageSize: orderedIds.length },
           extensions: {
-            userId: resolveActorUserId(ctx.auth),
+            userId: actorUserId,
             container: ctx.container,
             userFeatures: ctx.auth.features,
             resolve: <T = unknown>(name: string) => ctx.container.resolve(name) as T,
@@ -202,12 +229,18 @@ export async function GET(request: Request): Promise<Response> {
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
       orderedIds,
     )
+    const favoriteDocumentIds = await loadDocumentFavoriteIds(
+      ctx.em,
+      { tenantId: ctx.tenantId, organizationId: ctx.organizationId, userId: actorUserId },
+      orderedIds,
+    )
     const visibleRowsById = new Map(visiblePage.rows.map((row) => [row.id, row]))
     const items = pageDocuments.map((document) => {
       const id = readString(document, 'id') ?? ''
       const ownerUserId = readString(document, 'ownerUserId', 'owner_user_id') ?? ''
       const visibleRow = visibleRowsById.get(id)
       const relationshipTier = visibleRow?.relationshipTier ?? null
+      const archivedAt = readNullableDate(document, 'archivedAt', 'archived_at')
       return {
         id,
         title: readString(document, 'title') ?? '',
@@ -216,6 +249,8 @@ export async function GET(request: Request): Promise<Response> {
         ownerLabel: ownerLabels.get(ownerUserId)?.label ?? null,
         createdByUserId: readString(document, 'createdByUserId', 'created_by_user_id') ?? '',
         isActive: readBoolean(document, 'isActive', 'is_active'),
+        archivedAt,
+        isFavorite: favoriteDocumentIds.has(id),
         sharedWithCount: shareCounts.get(id) ?? 0,
         createdAt: readDate(document, 'createdAt', 'created_at'),
         updatedAt: readDate(document, 'updatedAt', 'updated_at'),
@@ -223,6 +258,7 @@ export async function GET(request: Request): Promise<Response> {
         capabilities: deriveDocumentCapabilities({
           relationshipTier,
           managerOverride,
+          archived: archivedAt !== null,
           userFeatures: ctx.auth.features,
         }),
       }

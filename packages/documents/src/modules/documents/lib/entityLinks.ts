@@ -31,6 +31,7 @@ type LinkTargetFields = Pick<
   | 'catalogOfferId'
   | 'quoteId'
   | 'salesOrderId'
+  | 'linkedDocumentId'
 >
 
 export type DocumentEntityLinkCreateData = LinkTargetFields & {
@@ -52,6 +53,7 @@ const EMPTY_TARGET: LinkTargetFields = {
   catalogOfferId: null,
   quoteId: null,
   salesOrderId: null,
+  linkedDocumentId: null,
 }
 
 function sanitizeDocumentEntityValue(value: unknown): string | null {
@@ -75,6 +77,8 @@ export function buildDocumentEntityLinkTarget(
     target.catalogOfferId = entityId
   } else if (entityType === 'quote') {
     target.quoteId = entityId
+  } else if (entityType === 'document') {
+    target.linkedDocumentId = entityId
   } else {
     target.salesOrderId = entityId
   }
@@ -96,6 +100,7 @@ export function getDocumentEntityLinkType(link: DocumentEntityLink): DocumentEnt
   if (link.productId) return 'product'
   if (link.catalogOfferId) return 'catalog-offer'
   if (link.quoteId) return 'quote'
+  if (link.linkedDocumentId) return 'document'
   return 'sales-order'
 }
 
@@ -105,6 +110,7 @@ export function getDocumentEntityLinkEntityId(link: DocumentEntityLink): string 
     ?? link.productId
     ?? link.catalogOfferId
     ?? link.quoteId
+    ?? link.linkedDocumentId
     ?? link.salesOrderId
     ?? ''
 }

@@ -411,6 +411,7 @@ Integration fixtures must be created by the tests and cleaned up afterward. The 
 - `packages/create-app/template/package.json.template`
 - `packages/create-app/template/src/modules.ts`
 - `packages/create-app/template/types/html-to-docx/index.d.ts`
+- `packages/ui/src/backend/icons/lucideRegistry.generated.tsx`
 - `scripts/__tests__/{dockerfile-runtime-copy,fullapp-compose-app-allowed-origins}.test.mjs`
 - `yarn.lock` (required workspace and direct/transitive dependency resolution for the new package)
 
@@ -475,6 +476,13 @@ Directory, or Attachments instead of producing an all-403 module.
 
 ## Changelog
 
+- **2026-07-15:** Closed the latest Documents-only review findings. Comment submissions now distinguish
+  skip-sharing from lifecycle cancellation and cannot cross a document change or unmount while awaiting
+  access confirmation. Bubble and template editor controls subscribe to TipTap selection state, template
+  entity selectors have associated labels, and share-row mutations use synchronous per-row locks plus
+  abortable, context-generation-scoped reloads. The expected-change manifest now records the generated
+  Lucide icon registry entry; focused lifecycle, selection, accessibility, and share-concurrency regressions
+  cover the corrected behavior.
 - **2026-07-15:** Remediated the post-review Redis delivery failure path. Durable fanout now releases
   the Hocuspocus save/Redis lock before using a dedicated command-bounded publisher, bounds a stalled
   lock release by the lock expiry so it cannot retain the save mutex indefinitely, coalesces each

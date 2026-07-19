@@ -27,6 +27,9 @@ export type GetVisibleDocumentPageInput = {
   managerOverride: boolean
   page: number
   pageSize: number
+  id?: string | null
+  archived?: 'exclude' | 'include' | 'only'
+  favoriteUserId?: string | null
   search?: string | null
   folderId?: string | null
   relationFilter?: { entityType: DocumentEntityType; entityId: string } | null
@@ -168,6 +171,7 @@ const RELATION_TARGET_COLUMNS: Record<DocumentEntityType, string> = {
   'catalog-offer': 'catalog_offer_id',
   quote: 'quote_id',
   'sales-order': 'sales_order_id',
+  document: 'linked_document_id',
 }
 
 function addDocumentRelationPredicate(
@@ -198,6 +202,25 @@ function addDocumentRelationPredicate(
   ])
 }
 
+function addDocumentFavoritePredicate(
+  query: VisibilityPredicateQuery,
+  input: Pick<
+    GetVisibleDocumentPageInput,
+    'tenantId' | 'organizationId' | 'favoriteUserId'
+  >,
+): void {
+  if (!input.favoriteUserId) return
+  query.andWhere(`exists (
+    select 1
+    from document_favorites as document_favorite
+    where document_favorite.document_id = document.id
+      and document_favorite.tenant_id = ?
+      and document_favorite.organization_id = ?
+      and document_favorite.user_id = ?
+      and document_favorite.deleted_at is null
+  )`, [input.tenantId, input.organizationId, input.favoriteUserId])
+}
+
 function normalizeTier(value: unknown): DocumentTier | null {
   return value === 'owner' || value === 'editor' || value === 'commenter' || value === 'viewer'
     ? value
@@ -216,16 +239,21 @@ function assertPageInput(page: number, pageSize: number): void {
 }
 
 function buildVisibleDocumentQuery(input: GetVisibleDocumentPageInput) {
+  const archived = input.archived ?? 'exclude'
   const query = input.em
     .createQueryBuilder(Document, 'document')
     .where({
       tenantId: input.tenantId,
       organizationId: input.organizationId,
       deletedAt: null,
+      ...(input.id ? { id: input.id } : {}),
+      ...(!input.id && archived === 'exclude' ? { archivedAt: null } : {}),
+      ...(!input.id && archived === 'only' ? { archivedAt: { $ne: null } } : {}),
     })
 
   addDocumentVisibilityPredicate(query, input)
   addDocumentRelationPredicate(query, input)
+  addDocumentFavoritePredicate(query, input)
   if (input.search?.trim()) {
     query.andWhere('document.title ilike ?', [`%${escapeLikePattern(input.search.trim())}%`])
   }

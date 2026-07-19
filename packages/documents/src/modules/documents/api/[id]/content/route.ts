@@ -13,6 +13,7 @@ import type {
   ReplaceDocumentContentCommandResult,
 } from '../../../commands/content'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   readBody,
   resolveDocumentsContext,
@@ -77,6 +78,7 @@ export async function PUT(request: Request, context: RouteContext): Promise<Resp
     const id = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, id, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, id)
     const input = documentContentPutSchema.parse(await readBody(
       request,
       DOCUMENTS_JSON_BODY_LIMITS.content,

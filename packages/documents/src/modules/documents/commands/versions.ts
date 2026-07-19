@@ -8,7 +8,8 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { DocumentContent, DocumentVersion } from '../data/entities'
+import { Document, DocumentContent, DocumentVersion } from '../data/entities'
+import { resolveWatcherRecipients } from '../lib/watchers'
 import { documentVersionLabelSchema } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import {
@@ -447,6 +448,27 @@ const restoreVersionCommand: CommandHandler<RestoreVersionCommandInput, RestoreV
       throw new Error('[internal] version restore did not capture content state')
     }
     await bufferDocumentIndexRefresh(ctx, finalContent)
+    const restoredDocument = await findOneWithDecryption(
+      em,
+      Document,
+      {
+        id: input.documentId,
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+        deletedAt: null,
+      },
+      { fields: ['id', 'title'] },
+      { tenantId: input.tenantId, organizationId: input.organizationId },
+    )
+    const watcherRecipientIds = restoredDocument
+      ? await resolveWatcherRecipients({
+          em,
+          container: ctx.container,
+          scope: { tenantId: input.tenantId, organizationId: input.organizationId },
+          documentId: input.documentId,
+          actorUserId: input.actorUserId,
+        })
+      : []
     return {
       contentHtml: finalContent.contentHtml ?? '',
       contentText: finalContent.contentText ?? '',
@@ -455,12 +477,29 @@ const restoreVersionCommand: CommandHandler<RestoreVersionCommandInput, RestoreV
       preRestoreVersionId: input.preRestoreVersionId,
       preRestoreSnapshot: captureVersion(finalPreRestoreVersion),
       restoredSnapshot: captureVersion(finalTargetVersion),
-      projections: [buildVersionRestoredProjection(
-        input,
-        input.versionId,
-        input.preRestoreVersionId,
-        { includeActor: true },
-      )],
+      projections: [
+        buildVersionRestoredProjection(
+          input,
+          input.versionId,
+          input.preRestoreVersionId,
+          { includeActor: true },
+        ),
+        ...(restoredDocument
+          ? watcherRecipientIds.map((recipientUserId): DocumentsProjectionDescriptor => ({
+              kind: 'watch-notification',
+              recipientUserId,
+              tenantId: input.tenantId,
+              organizationId: input.organizationId,
+              documentId: input.documentId,
+              documentTitle: restoredDocument.title,
+              notificationType: 'documents.watch.changed',
+              bodyKey: 'documents.notifications.watch.changed.restoredBody',
+              sourceEntityType: DOCUMENTS_ENTITY_IDS.document,
+              sourceEntityId: input.documentId,
+              linkHref: `/backend/documents/${encodeURIComponent(input.documentId)}`,
+            }))
+          : []),
+      ],
     }
   },
   async buildLog({ input, result }) {

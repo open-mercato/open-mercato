@@ -9,6 +9,8 @@ export type DocumentRow = {
   ownerLabel: string
   sharedWithCount: number
   updatedAt: string | null
+  archivedAt: string | null
+  isFavorite: boolean
   capabilities: DocumentCapabilities
 }
 
@@ -48,6 +50,8 @@ function readCapabilities(record: Record<string, unknown>): DocumentCapabilities
     canDelete: readBoolean(capabilities, 'canDelete', 'can_delete') ?? false,
     canCreate: readBoolean(capabilities, 'canCreate', 'can_create') ?? false,
     canManageTemplates: readBoolean(capabilities, 'canManageTemplates', 'can_manage_templates') ?? false,
+    canArchive: readBoolean(capabilities, 'canArchive', 'can_archive') ?? false,
+    canDuplicate: readBoolean(capabilities, 'canDuplicate', 'can_duplicate') ?? false,
   }
 }
 
@@ -99,6 +103,8 @@ export function normalizeDocuments(payload: unknown, folders: FolderRow[], unkno
         'share_count',
       ) ?? 0,
       updatedAt: readString(record, 'updatedAt', 'updated_at'),
+      archivedAt: readString(record, 'archivedAt', 'archived_at'),
+      isFavorite: readBoolean(record, 'isFavorite', 'is_favorite') ?? false,
       capabilities: readCapabilities(record),
     }]
   })

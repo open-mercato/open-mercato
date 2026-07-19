@@ -13,6 +13,7 @@ import {
 import { resolveUserLabels } from '../../../lib/userLabels'
 import { resolveCollaborationUserColor } from '../../../lib/collaborationAwareness'
 import {
+  loadDocumentArchivedState,
   handleDocumentsRouteError,
   resolveActorUserId,
   resolveDocumentCapabilityProjection,
@@ -72,7 +73,14 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     if (ctx.auth.isApiKey === true || ctx.auth.sub.startsWith('api_key:')) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
-    const projection = await resolveDocumentCapabilityProjection(ctx, id)
+    const baseProjection = await resolveDocumentCapabilityProjection(ctx, id)
+    if (!baseProjection.relationshipTier || !baseProjection.capabilities.canView) {
+      throw new CrudHttpError(403, { error: 'Forbidden' })
+    }
+    const archivedState = await loadDocumentArchivedState(ctx, id)
+    const projection = await resolveDocumentCapabilityProjection(ctx, id, {
+      archived: archivedState.archivedAt !== null,
+    })
     if (!projection.relationshipTier || !projection.capabilities.canView) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }

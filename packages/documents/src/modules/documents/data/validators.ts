@@ -90,6 +90,7 @@ export const documentEntityTypeSchema = z.enum([
   'catalog-offer',
   'quote',
   'sales-order',
+  'document',
 ])
 export const documentEntityLinkSourceSchema = z.enum(['chip', 'template', 'related-panel'])
 export const documentTitleSchema = requiredTrimmedString(512, 'documents.validation.title.required')

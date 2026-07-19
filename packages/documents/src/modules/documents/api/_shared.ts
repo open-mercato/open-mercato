@@ -212,10 +212,12 @@ export function hasAnyDocumentsFeature(auth: DocumentsAuthContext, features: str
 export function deriveCapabilitiesForContext(
   ctx: DocumentsRouteContext,
   relationshipTier: DocumentTier | null,
+  options: { archived?: boolean } = {},
 ): DocumentCapabilities {
   return deriveDocumentCapabilities({
     relationshipTier,
     managerOverride: hasDocumentsFeature(ctx.auth, 'documents.manage'),
+    archived: options.archived === true,
     userFeatures: ctx.auth.features,
   })
 }
@@ -223,11 +225,42 @@ export function deriveCapabilitiesForContext(
 export async function resolveDocumentCapabilityProjection(
   ctx: DocumentsRouteContext,
   documentId: string,
+  options: { archived?: boolean } = {},
 ): Promise<DocumentCapabilityProjection> {
   const relationshipTier = await resolvePermission(ctx.em, documentId, ctx.auth)
   return {
     relationshipTier,
-    capabilities: deriveCapabilitiesForContext(ctx, relationshipTier),
+    capabilities: deriveCapabilitiesForContext(ctx, relationshipTier, options),
+  }
+}
+
+export async function loadDocumentArchivedState(
+  ctx: DocumentsRouteContext,
+  documentId: string,
+): Promise<{ archivedAt: Date | null }> {
+  const document = await findOneWithDecryption(
+    ctx.em,
+    Document,
+    {
+      id: documentId,
+      tenantId: ctx.tenantId,
+      organizationId: ctx.organizationId,
+      deletedAt: null,
+    },
+    { fields: ['id', 'archivedAt'] },
+    { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
+  )
+  if (!document) throw new CrudHttpError(404, { error: 'documents.documents.notFound' })
+  return { archivedAt: document.archivedAt ?? null }
+}
+
+export async function assertDocumentNotArchived(
+  ctx: DocumentsRouteContext,
+  documentId: string,
+): Promise<void> {
+  const state = await loadDocumentArchivedState(ctx, documentId)
+  if (state.archivedAt !== null) {
+    throw new CrudHttpError(403, { error: 'documents.errors.documentArchived' })
   }
 }
 

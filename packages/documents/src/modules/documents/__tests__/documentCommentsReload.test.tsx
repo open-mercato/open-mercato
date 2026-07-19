@@ -3,6 +3,8 @@
 import { act, renderHook, waitFor } from '@testing-library/react'
 
 const apiCallMock = jest.fn()
+const runMutationMock = jest.fn()
+const retryLastMutationMock = jest.fn()
 
 jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
   apiCall: (...args: unknown[]) => apiCallMock(...args),
@@ -12,8 +14,8 @@ jest.mock('@open-mercato/ui/backend/utils/apiCall', () => ({
 
 jest.mock('@open-mercato/ui/backend/injection/useGuardedMutation', () => ({
   useGuardedMutation: () => ({
-    runMutation: jest.fn(),
-    retryLastMutation: jest.fn(),
+    runMutation: runMutationMock,
+    retryLastMutation: retryLastMutationMock,
   }),
 }))
 
@@ -57,7 +59,11 @@ async function flushPromises(iterations = 4): Promise<void> {
 }
 
 describe('document comments reload', () => {
-  beforeEach(() => apiCallMock.mockReset())
+  beforeEach(() => {
+    apiCallMock.mockReset()
+    runMutationMock.mockReset()
+    retryLastMutationMock.mockReset()
+  })
 
   it('loads page one first, then fetches remaining pages concurrently in chronological order', async () => {
     const documentId = 'document-one'
@@ -130,5 +136,90 @@ describe('document comments reload', () => {
       await flushPromises()
     })
     expect(result.current.comments.map((entry) => entry.documentId)).toEqual([secondDocumentId])
+  })
+
+  it('cancels an open grant-access prompt when the document context changes', async () => {
+    const firstDocumentId = 'document-one'
+    const secondDocumentId = 'document-two'
+    apiCallMock.mockImplementation((path: string) => {
+      if (path.endsWith('/comments/access-check')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            withoutAccessUsers: [{ userId: 'mentioned-user', label: 'Mentioned user', secondary: null }],
+          },
+        })
+      }
+      const documentId = path.includes(secondDocumentId) ? secondDocumentId : firstDocumentId
+      return Promise.resolve({ ok: true, status: 200, result: pagePayload(documentId, 1, 1) })
+    })
+
+    const { result, rerender } = renderHook(
+      ({ documentId }: { documentId: string }) => useDocumentComments({
+        documentId,
+        editor: null,
+        canComment: true,
+        canShare: true,
+      }),
+      { initialProps: { documentId: firstDocumentId } },
+    )
+
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    act(() => {
+      result.current.setBody('Hello @Mentioned user')
+      result.current.setPendingMentions([{ userId: 'mentioned-user', name: 'Mentioned user' }])
+    })
+
+    let submitPromise: Promise<void> | undefined
+    act(() => { submitPromise = result.current.submit() })
+    await waitFor(() => expect(result.current.grantAccessNames).toEqual(['Mentioned user']))
+
+    rerender({ documentId: secondDocumentId })
+    await act(async () => { await submitPromise })
+
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    expect(result.current.comments.map((entry) => entry.documentId)).toEqual([secondDocumentId])
+    expect(result.current.grantAccessNames).toBeNull()
+    expect(result.current.isSubmitting).toBe(false)
+    expect(runMutationMock).not.toHaveBeenCalled()
+  })
+
+  it('cancels an open grant-access prompt when the comments rail unmounts', async () => {
+    const documentId = 'document-one'
+    apiCallMock.mockImplementation((path: string) => {
+      if (path.endsWith('/comments/access-check')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          result: {
+            withoutAccessUsers: [{ userId: 'mentioned-user', label: 'Mentioned user', secondary: null }],
+          },
+        })
+      }
+      return Promise.resolve({ ok: true, status: 200, result: pagePayload(documentId, 1, 1) })
+    })
+
+    const { result, unmount } = renderHook(() => useDocumentComments({
+      documentId,
+      editor: null,
+      canComment: true,
+      canShare: true,
+    }))
+
+    await waitFor(() => expect(result.current.state.status).toBe('ready'))
+    act(() => {
+      result.current.setBody('Hello @Mentioned user')
+      result.current.setPendingMentions([{ userId: 'mentioned-user', name: 'Mentioned user' }])
+    })
+
+    let submitPromise: Promise<void> | undefined
+    act(() => { submitPromise = result.current.submit() })
+    await waitFor(() => expect(result.current.grantAccessNames).toEqual(['Mentioned user']))
+
+    unmount()
+    await act(async () => { await submitPromise })
+
+    expect(runMutationMock).not.toHaveBeenCalled()
   })
 })

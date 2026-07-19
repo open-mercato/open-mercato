@@ -2,13 +2,22 @@
 
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
-import { EditorContent, useEditor } from '@tiptap/react'
+import { EditorContent, useEditor, useEditorState } from '@tiptap/react'
 import { Bold, Heading1, Heading2, Italic, List, ListOrdered } from 'lucide-react'
 import { IconButton } from '@open-mercato/ui/primitives/icon-button'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { getDocumentEditorExtensions } from '../../../lib/editorConfig'
+
+const EMPTY_TEMPLATE_EDITOR_STATE = {
+  bold: false,
+  italic: false,
+  heading1: false,
+  heading2: false,
+  bulletList: false,
+  orderedList: false,
+}
 
 function EditorButton({ editor, label, active, children, onClick }: {
   editor: Editor | null
@@ -47,17 +56,28 @@ export function TemplateBodyEditor({ bodyHtml, tokenOptions, onChange }: {
   React.useEffect(() => {
     if (editor && editor.getHTML() !== bodyHtml) editor.commands.setContent(bodyHtml)
   }, [bodyHtml, editor])
+  const editorState = useEditorState({
+    editor,
+    selector: ({ editor: current }) => current ? {
+      bold: current.isActive('bold'),
+      italic: current.isActive('italic'),
+      heading1: current.isActive('heading', { level: 1 }),
+      heading2: current.isActive('heading', { level: 2 }),
+      bulletList: current.isActive('bulletList'),
+      orderedList: current.isActive('orderedList'),
+    } : EMPTY_TEMPLATE_EDITOR_STATE,
+  }) ?? EMPTY_TEMPLATE_EDITOR_STATE
   return (
     <div className="space-y-3">
       <Label id={editorLabelId}>{t('documents.templates.fields.body')}</Label>
       <div className="rounded-md border border-border bg-card">
         <div className="flex flex-wrap items-center gap-1 border-b border-border p-2">
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.bold')} active={editor?.isActive('bold') ?? false} onClick={(current) => { current.chain().focus().toggleBold().run() }}><Bold /></EditorButton>
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.italic')} active={editor?.isActive('italic') ?? false} onClick={(current) => { current.chain().focus().toggleItalic().run() }}><Italic /></EditorButton>
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.heading1')} active={editor?.isActive('heading', { level: 1 }) ?? false} onClick={(current) => { current.chain().focus().toggleHeading({ level: 1 }).run() }}><Heading1 /></EditorButton>
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.heading2')} active={editor?.isActive('heading', { level: 2 }) ?? false} onClick={(current) => { current.chain().focus().toggleHeading({ level: 2 }).run() }}><Heading2 /></EditorButton>
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.bulletList')} active={editor?.isActive('bulletList') ?? false} onClick={(current) => { current.chain().focus().toggleBulletList().run() }}><List /></EditorButton>
-          <EditorButton editor={editor} label={t('documents.editor.toolbar.orderedList')} active={editor?.isActive('orderedList') ?? false} onClick={(current) => { current.chain().focus().toggleOrderedList().run() }}><ListOrdered /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.bold')} active={editorState.bold} onClick={(current) => { current.chain().focus().toggleBold().run() }}><Bold /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.italic')} active={editorState.italic} onClick={(current) => { current.chain().focus().toggleItalic().run() }}><Italic /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.heading1')} active={editorState.heading1} onClick={(current) => { current.chain().focus().toggleHeading({ level: 1 }).run() }}><Heading1 /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.heading2')} active={editorState.heading2} onClick={(current) => { current.chain().focus().toggleHeading({ level: 2 }).run() }}><Heading2 /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.bulletList')} active={editorState.bulletList} onClick={(current) => { current.chain().focus().toggleBulletList().run() }}><List /></EditorButton>
+          <EditorButton editor={editor} label={t('documents.editor.toolbar.orderedList')} active={editorState.orderedList} onClick={(current) => { current.chain().focus().toggleOrderedList().run() }}><ListOrdered /></EditorButton>
           <div className="min-w-52">
             <Select value={token} onValueChange={(value) => {
               setToken(value)

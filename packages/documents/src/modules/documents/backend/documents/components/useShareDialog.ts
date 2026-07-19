@@ -37,7 +37,24 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
   const [principalId, setPrincipalId] = React.useState('')
   const [permission, setPermission] = React.useState<DocumentSharePermission>('viewer')
   const [isSubmitting, setIsSubmitting] = React.useState(false)
+  const [pendingShareIds, setPendingShareIds] = React.useState<ReadonlySet<string>>(() => new Set())
   const submitInFlight = React.useRef(false)
+  const shareMutationsInFlight = React.useRef(new Set<string>())
+  const loadSequence = React.useRef(0)
+  const activeLoad = React.useRef<AbortController | null>(null)
+  const activeDialogContext = React.useRef({ documentId, open, generation: 0 })
+  if (activeDialogContext.current.documentId !== documentId || activeDialogContext.current.open !== open) {
+    activeDialogContext.current = {
+      documentId,
+      open,
+      generation: activeDialogContext.current.generation + 1,
+    }
+  }
+  const dialogContextGeneration = activeDialogContext.current.generation
+  const isActiveDialogContext = React.useCallback(() => (
+    activeDialogContext.current.generation === dialogContextGeneration
+      && activeDialogContext.current.open
+  ), [dialogContextGeneration])
   const mutationContextId = `documents-share-dialog:${documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<ShareMutationContext>({
     contextId: mutationContextId,
@@ -52,34 +69,75 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
   }), [mutationContextId, retryLastMutation])
 
   const loadShares = React.useCallback(async () => {
+    if (!isActiveDialogContext()) return
+    const loadId = ++loadSequence.current
+    const controller = new AbortController()
+    activeLoad.current?.abort()
+    activeLoad.current = controller
+    const isCurrent = () => isActiveDialogContext()
+      && loadSequence.current === loadId
+      && !controller.signal.aborted
     setIsLoading(true)
     setError(null)
     const fallback: SharesResponse = { items: [] }
     try {
       const call = await apiCall<SharesResponse>(
         `/api/documents/${encodeURIComponent(documentId)}/shares`,
-        undefined,
+        { signal: controller.signal },
         { fallback },
       )
+      if (!isCurrent()) return
       if (!call.ok) {
         setError(t('documents.share.dialog.error.load'))
         return
       }
       setShares(readShareItems(call.result ?? fallback, t('documents.share.removedPrincipal')))
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : t('documents.share.dialog.error.load'))
+      if (isCurrent()) {
+        setError(caught instanceof Error ? caught.message : t('documents.share.dialog.error.load'))
+      }
     } finally {
-      setIsLoading(false)
+      if (activeLoad.current === controller) activeLoad.current = null
+      if (isCurrent()) setIsLoading(false)
     }
-  }, [documentId, t])
+  }, [documentId, isActiveDialogContext, t])
 
   React.useEffect(() => {
-    if (open) void loadShares()
+    if (!open) {
+      loadSequence.current += 1
+      activeLoad.current?.abort()
+      activeLoad.current = null
+      setIsLoading(false)
+      return
+    }
+    void loadShares()
+    return () => {
+      loadSequence.current += 1
+      activeLoad.current?.abort()
+      activeLoad.current = null
+    }
   }, [loadShares, open])
+
+  const beginShareMutation = React.useCallback((shareId: string) => {
+    if (shareMutationsInFlight.current.has(shareId)) return false
+    shareMutationsInFlight.current.add(shareId)
+    setPendingShareIds((current) => new Set(current).add(shareId))
+    return true
+  }, [])
+
+  const finishShareMutation = React.useCallback((shareId: string) => {
+    shareMutationsInFlight.current.delete(shareId)
+    setPendingShareIds((current) => {
+      if (!current.has(shareId)) return current
+      const next = new Set(current)
+      next.delete(shareId)
+      return next
+    })
+  }, [])
 
   const addShare = React.useCallback(async () => {
     const trimmedPrincipal = principalId.trim()
-    if (!trimmedPrincipal || !canManage || submitInFlight.current) return
+    if (!trimmedPrincipal || !canManage || submitInFlight.current || !isActiveDialogContext()) return
     submitInFlight.current = true
     setIsSubmitting(true)
     try {
@@ -98,23 +156,26 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
         context: mutationContext('documents.document_share', documentId),
         mutationPayload: { principalType, principalId: trimmedPrincipal, permission },
       })
+      if (!isActiveDialogContext()) return
       setPrincipalId('')
       setPermission('viewer')
       await loadShares()
+      if (!isActiveDialogContext()) return
       flash(t('documents.share.dialog.success.add'), 'success')
     } catch (caught) {
+      if (!isActiveDialogContext()) return
       flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.add'), 'error')
     } finally {
       submitInFlight.current = false
       setIsSubmitting(false)
     }
-  }, [canManage, documentId, loadShares, mutationContext, permission, principalId, principalType, runMutation, t])
+  }, [canManage, documentId, isActiveDialogContext, loadShares, mutationContext, permission, principalId, principalType, runMutation, t])
 
   const changePermission = React.useCallback(async (
     share: ShareRow,
     nextPermission: DocumentSharePermission,
   ) => {
-    if (!canManage || share.permission === nextPermission) return
+    if (!canManage || share.permission === nextPermission || !isActiveDialogContext() || !beginShareMutation(share.id)) return
     try {
       await runMutation({
         operation: () => withScopedApiRequestHeaders(
@@ -132,20 +193,25 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
         context: mutationContext('documents.document_share', share.id),
         mutationPayload: { id: share.id, permission: nextPermission },
       })
+      if (!isActiveDialogContext()) return
       setShares((current) => current.map((row) => (
         row.id === share.id ? { ...row, permission: nextPermission } : row
       )))
       await loadShares()
+      if (!isActiveDialogContext()) return
       flash(t('documents.share.dialog.success.update'), 'success')
     } catch (caught) {
+      if (!isActiveDialogContext()) return
       if (!surfaceRecordConflict(caught, t, { onRefresh: () => { void loadShares() } })) {
         flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.update'), 'error')
       }
+    } finally {
+      finishShareMutation(share.id)
     }
-  }, [canManage, documentId, loadShares, mutationContext, runMutation, t])
+  }, [beginShareMutation, canManage, documentId, finishShareMutation, isActiveDialogContext, loadShares, mutationContext, runMutation, t])
 
   const removeShare = React.useCallback(async (share: ShareRow) => {
-    if (!canManage) return
+    if (!canManage || !isActiveDialogContext() || !beginShareMutation(share.id)) return
     try {
       await runMutation({
         operation: () => withScopedApiRequestHeaders(
@@ -163,14 +229,18 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
         context: mutationContext('documents.document_share', share.id),
         mutationPayload: { id: share.id },
       })
+      if (!isActiveDialogContext()) return
       setShares((current) => current.filter((row) => row.id !== share.id))
       flash(t('documents.share.dialog.success.remove'), 'success')
     } catch (caught) {
+      if (!isActiveDialogContext()) return
       if (!surfaceRecordConflict(caught, t, { onRefresh: () => { void loadShares() } })) {
         flash(caught instanceof Error ? caught.message : t('documents.share.dialog.error.remove'), 'error')
       }
+    } finally {
+      finishShareMutation(share.id)
     }
-  }, [canManage, documentId, loadShares, mutationContext, runMutation, t])
+  }, [beginShareMutation, canManage, documentId, finishShareMutation, isActiveDialogContext, loadShares, mutationContext, runMutation, t])
 
   const changePrincipalType = React.useCallback((nextType: DocumentSharePrincipalType) => {
     setPrincipalType(nextType)
@@ -185,6 +255,7 @@ export function useShareDialog({ documentId, open, canManage }: UseShareDialogIn
     principalId,
     permission,
     isSubmitting,
+    pendingShareIds,
     setPrincipalId,
     setPermission,
     changePrincipalType,

@@ -26,6 +26,7 @@ import { isDocumentEntityRegistryModuleEnabled } from '../../../lib/entityRegist
 import { verifyEntityRegistryTargetAccess } from '../../../lib/entityRegistry.server'
 import { assertTier } from '../../../lib/permissions'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   hasDocumentsFeature,
   readBody,
@@ -52,6 +53,7 @@ const linkItemSchema = z.object({
   label: z.string(),
   href: z.string().nullable(),
   canOpen: z.boolean(),
+  archivedAt: z.string().nullable().optional(),
   values: z.record(
     z.string().min(1).max(64),
     z.string().max(10000).nullable(),
@@ -94,6 +96,18 @@ type LinkTargetVerificationInput = {
   entityId: string
 }
 
+type VerifiedLinkTarget = DocumentEntityLinkCanonicalTarget & {
+  archivedAt?: string | null
+}
+
+function getLinkEntityType(link: DocumentEntityLink): z.infer<typeof documentEntityTypeSchema> {
+  return link.linkedDocumentId ? 'document' : getDocumentEntityLinkType(link)
+}
+
+function getLinkEntityId(link: DocumentEntityLink): string {
+  return link.linkedDocumentId ?? getDocumentEntityLinkEntityId(link)
+}
+
 function linkTargetVerificationKey(input: LinkTargetVerificationInput): string {
   return JSON.stringify([input.entityType, input.entityId])
 }
@@ -101,8 +115,8 @@ function linkTargetVerificationKey(input: LinkTargetVerificationInput): string {
 async function verifyLinkTargets(
   request: Request,
   inputs: LinkTargetVerificationInput[],
-): Promise<Map<string, DocumentEntityLinkCanonicalTarget | null>> {
-  const results = new Map<string, DocumentEntityLinkCanonicalTarget | null>()
+): Promise<Map<string, VerifiedLinkTarget | null>> {
+  const results = new Map<string, VerifiedLinkTarget | null>()
   let nextIndex = 0
   const workers = Array.from(
     { length: Math.min(LINK_TARGET_VERIFICATION_CONCURRENCY, inputs.length) },
@@ -119,6 +133,7 @@ async function verifyLinkTargets(
             label: verified.label,
             href: verified.href,
             values: verified.values,
+            archivedAt: verified.archivedAt,
           })
         } catch {
           results.set(key, null)
@@ -147,7 +162,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const verificationInputByLinkId = new Map<string, LinkTargetVerificationInput>()
     const uniqueVerificationInputs = new Map<string, LinkTargetVerificationInput>()
     for (const link of links) {
-      const entityType = getDocumentEntityLinkType(link)
+      const entityType = getLinkEntityType(link)
       const entry = getEntityRegistryEntry(entityType)
       if (
         !entry
@@ -158,7 +173,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       }
       const input = {
         entityType,
-        entityId: getDocumentEntityLinkEntityId(link),
+        entityId: getLinkEntityId(link),
       }
       verificationInputByLinkId.set(link.id, input)
       uniqueVerificationInputs.set(linkTargetVerificationKey(input), input)
@@ -169,15 +184,23 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     )
     return NextResponse.json({
       items: links.map((link) => {
+        const entityType = getLinkEntityType(link)
         const verificationInput = verificationInputByLinkId.get(link.id)
         const canonicalTarget = verificationInput
           ? verifiedTargets.get(linkTargetVerificationKey(verificationInput)) ?? null
           : null
-        return serializeDocumentEntityLink(link, {
+        const serialized = serializeDocumentEntityLink(link, {
           canOpen: Boolean(canonicalTarget),
           restrictedLabel: translate('documents.links.restrictedRecord', 'Restricted record'),
           canonicalTarget: canonicalTarget ?? undefined,
         })
+        if (entityType !== 'document') return serialized
+        return {
+          ...serialized,
+          entityType,
+          entityId: canonicalTarget?.id ?? null,
+          ...(canonicalTarget ? { archivedAt: canonicalTarget.archivedAt ?? null } : {}),
+        }
       }),
     })
   } catch (error) {
@@ -190,7 +213,11 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, documentId, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, documentId)
     const input = documentEntityLinkCreateSchema.parse(await readBody(request))
+    if (input.entityType === 'document' && input.entityId === documentId) {
+      throw new CrudHttpError(400, { error: 'documents.links.selfLinkForbidden' })
+    }
     const registryEntry = getEntityRegistryEntry(input.entityType)
     if (
       !registryEntry

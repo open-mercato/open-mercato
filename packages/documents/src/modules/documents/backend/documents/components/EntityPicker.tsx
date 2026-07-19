@@ -33,13 +33,14 @@ export type EntityPickerProps = {
   onOpenChange: (open: boolean) => void
   onPick: (pick: EntityPickerSelection) => void
   typeFilter?: DocumentEntityType[]
+  excludeId?: string
 }
 
-export function EntityPicker({ open, onOpenChange, onPick, typeFilter }: EntityPickerProps) {
+export function EntityPicker({ open, onOpenChange, onPick, typeFilter, excludeId }: EntityPickerProps) {
   const t = useT()
   const inputId = `documents-entity-picker-${React.useId()}`
   const listId = `${inputId}-results`
-  const search = useEntitySearch(open, typeFilter)
+  const search = useEntitySearch(open, typeFilter, excludeId)
 
   const selectItem = React.useCallback((item: EntitySearchItem) => {
     if (!search.activeEntry || !search.isResultCurrent()) return

@@ -8,6 +8,7 @@ let mockBubbleShouldShow: ((selection: { from: number; to: number }) => boolean)
 
 jest.mock('@tiptap/react', () => ({
   EditorContent: () => <div data-testid="editor-content" />,
+  useEditorState: ({ editor, selector }: { editor: Editor | null; selector: (context: { editor: Editor | null }) => unknown }) => selector({ editor }),
 }))
 
 jest.mock('@tiptap/react/menus', () => ({

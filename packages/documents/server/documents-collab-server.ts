@@ -2032,6 +2032,7 @@ export type CollabAuthorizationSnapshot = {
   features: string[]
   organizations: string[] | null
   organizationScope?: ResolvedDocumentsOrganizationScope | null
+  archived?: boolean
 }
 
 export function isCollabAuthorizationCurrent(
@@ -2052,6 +2053,7 @@ export function isCollabAuthorizationCurrent(
   const capabilities = deriveDocumentCapabilities({
     relationshipTier,
     managerOverride,
+    archived: snapshot.archived === true,
     userFeatures: features,
   })
 
@@ -2119,12 +2121,19 @@ export async function authorizeCollabContext(
           context.userId,
           container,
         )
+    const documentRow = await em.findOne(
+      Document,
+      { id: context.documentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+      { fields: ['id', 'archivedAt', 'deletedAt'], filters: false },
+    )
+    if (!documentRow || documentRow.deletedAt) return false
     return isCollabAuthorizationCurrent(context, {
       relationshipTier,
       isSuperAdmin: acl.isSuperAdmin,
       features: acl.features,
       organizations: acl.organizations,
       organizationScope,
+      archived: documentRow?.archivedAt != null,
     })
   } catch (error) {
     // Fail closed, but leave a trace: an RBAC/DB outage otherwise surfaces
@@ -2897,7 +2906,12 @@ export type CollabRoomEventAction = 'ignore' | 'reauth' | 'invalidate'
  * room's stale Y.Doc from overwriting the authoritative database state.
  */
 export function resolveCollabRoomEventAction(event: string, payload?: unknown): CollabRoomEventAction {
-  if (event === 'documents.document.shared' || event === 'documents.document.unshared') {
+  if (
+    event === 'documents.document.shared'
+    || event === 'documents.document.unshared'
+    || event === 'documents.document.archived'
+    || event === 'documents.document.unarchived'
+  ) {
     return 'reauth'
   }
   const record = payload && typeof payload === 'object' ? payload as Record<string, unknown> : null

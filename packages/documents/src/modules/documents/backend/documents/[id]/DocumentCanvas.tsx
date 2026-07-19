@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import type { Editor } from '@tiptap/core'
-import { EditorContent } from '@tiptap/react'
+import { EditorContent, useEditorState } from '@tiptap/react'
 import { BubbleMenu } from '@tiptap/react/menus'
 import { Bold, Italic, Link2, MessageSquare, Underline } from 'lucide-react'
 import { Alert, AlertDescription } from '@open-mercato/ui/primitives/alert'
@@ -24,6 +24,13 @@ type TitleModel = {
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void
 }
 
+const EMPTY_BUBBLE_MENU_STATE = {
+  bold: false,
+  italic: false,
+  underline: false,
+  link: false,
+}
+
 export function DocumentCanvas({
   editor,
   title,
@@ -42,6 +49,15 @@ export function DocumentCanvas({
   onComment?: (anchor: CommentAnchor) => void
 }) {
   const t = useT()
+  const editorState = useEditorState({
+    editor,
+    selector: ({ editor: current }) => current ? {
+      bold: current.isActive('bold'),
+      italic: current.isActive('italic'),
+      underline: current.isActive('underline'),
+      link: current.isActive('link'),
+    } : EMPTY_BUBBLE_MENU_STATE,
+  }) ?? EMPTY_BUBBLE_MENU_STATE
   const keepSelection = React.useCallback((event: React.MouseEvent<HTMLButtonElement>) => event.preventDefault(), [])
   const comment = React.useCallback(() => {
     if (!editor || !onComment) return
@@ -78,10 +94,10 @@ export function DocumentCanvas({
             <BubbleMenu editor={editor} shouldShow={shouldShow} className="z-popover flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow-md">
               {!readOnly ? (
                 <>
-                  <IconButton type="button" size="sm" variant={editor.isActive('bold') ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.bold')} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleBold().run()}><Bold /></IconButton>
-                  <IconButton type="button" size="sm" variant={editor.isActive('italic') ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.italic')} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic /></IconButton>
-                  <IconButton type="button" size="sm" variant={editor.isActive('underline') ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.underline')} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleMark('underline').run()}><Underline /></IconButton>
-                  <IconButton type="button" size="sm" variant={editor.isActive('link') ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.link')} onMouseDown={keepSelection} onClick={onOpenLink}><Link2 /></IconButton>
+                  <IconButton type="button" size="sm" variant={editorState.bold ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.bold')} aria-pressed={editorState.bold} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleBold().run()}><Bold /></IconButton>
+                  <IconButton type="button" size="sm" variant={editorState.italic ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.italic')} aria-pressed={editorState.italic} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleItalic().run()}><Italic /></IconButton>
+                  <IconButton type="button" size="sm" variant={editorState.underline ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.underline')} aria-pressed={editorState.underline} onMouseDown={keepSelection} onClick={() => editor.chain().focus().toggleMark('underline').run()}><Underline /></IconButton>
+                  <IconButton type="button" size="sm" variant={editorState.link ? 'outline' : 'ghost'} aria-label={t('documents.editor.toolbar.link')} aria-pressed={editorState.link} onMouseDown={keepSelection} onClick={onOpenLink}><Link2 /></IconButton>
                 </>
               ) : null}
               {onComment ? <Button type="button" size="sm" variant="ghost" onMouseDown={keepSelection} onClick={comment}><MessageSquare />{t('documents.editor.toolbar.comment')}</Button> : null}

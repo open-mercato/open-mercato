@@ -72,6 +72,7 @@ jest.mock('../lib/attachmentServicePort', () => ({
 }))
 
 jest.mock('../api/_shared', () => ({
+  assertDocumentNotArchived: jest.fn(async () => undefined),
   resolveDocumentsContext: async (request: Request) => ({ ...routeContext, request }),
   loadScopedDocument: (...args: unknown[]) => mockLoadScopedDocument(...args),
   resolveActorUserId: () => USER_ID,

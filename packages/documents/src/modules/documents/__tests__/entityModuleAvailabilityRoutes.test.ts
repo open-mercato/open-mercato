@@ -19,6 +19,7 @@ jest.mock('../api/_shared', () => {
   const actual = jest.requireActual('../api/_shared')
   return {
     ...actual,
+    assertDocumentNotArchived: async () => undefined,
     resolveDocumentsContext: (...args: unknown[]) => mockResolveDocumentsContext(...args),
     handleDocumentsRouteError: (error: unknown) => {
       const candidate = error as { status?: unknown; body?: unknown }

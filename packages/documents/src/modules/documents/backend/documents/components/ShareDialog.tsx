@@ -70,6 +70,7 @@ export function ShareDialog({
             isLoading={dialog.isLoading}
             error={dialog.error}
             canManage={canManage}
+            pendingShareIds={dialog.pendingShareIds}
             onRetry={() => void dialog.reload()}
             onPermissionChange={dialog.changePermission}
             onRemove={dialog.removeShare}

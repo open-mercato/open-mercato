@@ -11,6 +11,7 @@ import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
 import { readAttachmentUploadForm, resolveAttachmentServicePort } from '../../../lib/attachmentServicePort'
 import { assertTier } from '../../../lib/permissions'
 import {
+  assertDocumentNotArchived,
   handleDocumentsRouteError,
   loadScopedDocument,
   resolveDocumentsContext,
@@ -68,6 +69,7 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.edit'])
     await assertTier(ctx.em, documentId, ctx.auth, 'editor')
+    await assertDocumentNotArchived(ctx, documentId)
     await loadScopedDocument(ctx, documentId)
     const attachmentService = resolveAttachmentServicePort(ctx.container)
     assertMultipartUpload(request)
