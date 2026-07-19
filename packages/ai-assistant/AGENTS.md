@@ -494,7 +494,7 @@ packages/ai-assistant/
 │   ├── modules/ai_assistant/
 │   │   ├── index.ts                # Module exports
 │   │   ├── acl.ts                  # Permission definitions
-│   │   ├── cli.ts                  # CLI commands (mcp:serve, mcp:serve-http)
+│   │   ├── cli.ts                  # CLI commands (mcp:serve, mcp:serve-http, mcp:ensure-api-key)
 │   │   ├── di.ts                   # Module DI container
 │   │   │
 │   │   ├── lib/
@@ -811,7 +811,9 @@ Configure via `.mcp.json`:
 Use for web-based AI chat. Requires two-tier auth: server API key + user session tokens.
 
 ```bash
-# Requires MCP_SERVER_API_KEY in .env
+# Host mode: requires a valid omk_ key in MCP_SERVER_API_KEY (.env).
+# The containerized fullapp stacks skip this entirely — their mcp service
+# self-provisions a key via `mercato ai_assistant mcp:ensure-api-key`.
 yarn mcp:serve
 ```
 
@@ -1158,16 +1160,17 @@ console.log('[AI Chat] DIAGNOSTIC - Request received:', {
 Use this tier to validate that requests come from an authorized AI agent (e.g., OpenCode).
 
 ```
-Request → Check x-api-key header → Compare with MCP_SERVER_API_KEY env var
+Request → Check x-api-key header → Validate against the api_keys table (findApiKeyBySecret)
 ```
 
 | Aspect | MUST rules |
 |--------|------------|
 | **Header** | MUST use `x-api-key` — no other header name |
-| **Value** | MUST match `MCP_SERVER_API_KEY` environment variable exactly |
-| **Configured In** | MUST set in `opencode.json` or `opencode.jsonc` |
-| **Validation** | MUST use constant-time string comparison |
-| **Result** | Grants access to call MCP endpoints (but no user permissions) |
+| **Value** | MUST be a valid, non-expired `omk_` API-key secret from the `api_keys` table |
+| **Delivery to OpenCode** | `MCP_SERVER_API_KEY` env var when set (wins); otherwise the file at `MCP_SERVER_API_KEY_FILE` — the containerized stacks' `mcp` service provisions it idempotently via `mercato ai_assistant mcp:ensure-api-key` into the shared `mcp_shared` volume |
+| **Configured In** | Generated into `opencode.jsonc` by `docker/opencode/entrypoint.sh` |
+| **Validation** | Prefix-indexed lookup + bcrypt verification (`findApiKeyBySecret`) |
+| **Result** | Grants access to call MCP endpoints; header-only calls resolve ACL context via the key's `createdBy` user |
 
 **Code reference**: `packages/ai-assistant/src/modules/ai_assistant/lib/http-server.ts:370-391`
 
@@ -1465,6 +1468,16 @@ Agents that need multi-step tool loops configure the `loop` block on `AiAgentDef
 ---
 
 ## Changelog
+
+### 2026-07-07 - Containerized MCP server + file-based key delivery
+
+**What changed**:
+- New CLI command `mercato ai_assistant mcp:ensure-api-key --file <path> [--name] [--email] [--rotate]` (`cli.ts` + `lib/mcp-ensure-api-key.ts`): idempotently ensures a valid `__mcp_server__` API key exists (anchored on the plaintext secret file — the DB stores only bcrypt hashes) and rotates it when the file secret no longer resolves. The key is created with `createdBy` = the superadmin user (resolved via the encrypted-email-aware `$or` emailHash lookup) so header-only MCP calls get an ACL context; stale-key cleanup is scoped to the owner's tenant. The secret is never printed or logged.
+- The fullapp compose stacks gain a dedicated `mcp` service (port 3001) that reuses the app image, waits for the app over HTTP, provisions the key into the shared `mcp_shared` volume (world-readable inside the volume — the OpenCode container reads it as a non-root user; the volume boundary is the security boundary), then runs `mcp:serve-http`.
+- `docker/opencode/entrypoint.sh` gains a file fallback: when `MCP_SERVER_API_KEY` is empty and `MCP_SERVER_API_KEY_FILE` is set, it waits for MCP `/health` before reading the file; on timeout or read failure it starts headerless (old degraded behavior) with loud warnings instead of crash-looping.
+- `GET /api/ai_assistant/settings` `mcpKeyConfigured` now also validates a file-delivered key against the `api_keys` table (existence alone would go stale across DB resets).
+
+**Backward compatibility**: additive. With `MCP_SERVER_API_KEY_FILE` unset the OpenCode entrypoint behaves byte-for-byte as before; host-MCP mode (`yarn mcp:serve` + `MCP_SERVER_API_KEY`) is unchanged. Spec: `.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md`.
 
 ### 2026-06-24 - MCP dev server loads ai-tools for @app local modules (#3524)
 

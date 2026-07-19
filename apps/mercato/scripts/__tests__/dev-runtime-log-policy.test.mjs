@@ -12,6 +12,7 @@ import {
   isInteractivePromptHintLine,
   isStatelessRuntimeNoiseLine,
   shouldIgnoreSplashPassthroughLine,
+  stripStructuredLogPrefix,
 } from '../dev-runtime-log-policy.mjs'
 
 test('ignores derived tenant key fallback lines', () => {
@@ -24,6 +25,72 @@ test('ignores derived tenant key fallback lines', () => {
     true,
   )
   assert.equal(isIgnorableDerivedKeyWarningLine('Error: database unavailable'), false)
+})
+
+test('stripStructuredLogPrefix removes the pretty transport timestamp and level', () => {
+  assert.equal(
+    stripStructuredLogPrefix('12:16:22.204 WARN  [shared:kms] Vault read error path=secret/data/tenant_key_123 timeoutMs=1000'),
+    '[shared:kms] Vault read error path=secret/data/tenant_key_123 timeoutMs=1000',
+  )
+  assert.equal(stripStructuredLogPrefix('TypeError: fetch failed'), 'TypeError: fetch failed')
+  assert.equal(stripStructuredLogPrefix(undefined), '')
+})
+
+test('ignores structured-logger KMS Vault fallback lines', () => {
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 WARN  [shared:kms] Vault read error path=secret/data/tenant_key_61905439-c148-4818-97e0-7a92bf469379 timeoutMs=1000'),
+    true,
+  )
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 WARN  [shared:kms] Vault read failed path=secret/data/tenant_key_123 status=503'),
+    true,
+  )
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 WARN  [shared:kms] Vault write error path=secret/data/tenant_key_123 timeoutMs=1000'),
+    true,
+  )
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 WARN  [shared:kms] No tenant DEK found in Vault tenantId=61905439-c148-4818-97e0-7a92bf469379 path=secret/data/tenant_key_61905439-c148-4818-97e0-7a92bf469379'),
+    true,
+  )
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 WARN  [shared:kms] Using derived tenant encryption keys (Vault unavailable / no DEK) secretFingerprint=c7eabc7b8d9e7cd0'),
+    true,
+  )
+  assert.equal(isIgnorableDerivedKeyWarningLine('TypeError: fetch failed'), true)
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine('12:16:22.204 ERROR [sales:orders] Payment capture failed orderId=42'),
+    false,
+  )
+  assert.equal(isIgnorableDerivedKeyWarningLine('TypeError: cannot read properties of undefined'), false)
+})
+
+test('ignores the derived-key fallback banner body lines', () => {
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine(' 🚨 Using derived tenant encryption keys (Vault unavailable / no DEK)'),
+    true,
+  )
+  assert.equal(isIgnorableDerivedKeyWarningLine(' Source: TENANT_DATA_ENCRYPTION_FALLBACK_KEY'), true)
+  assert.equal(isIgnorableDerivedKeyWarningLine(' Source: TENANT_DATA_ENCRYPTION_KEY'), true)
+  assert.equal(isIgnorableDerivedKeyWarningLine(' Source: dev default secret (do NOT use in production)'), true)
+  assert.equal(isIgnorableDerivedKeyWarningLine(' Secret fingerprint (sha256, truncated): c7eabc7b8d9e7cd0'), true)
+  assert.equal(
+    isIgnorableDerivedKeyWarningLine(' Persist this secret securely. Without it, encrypted tenant data cannot be recovered after restart.'),
+    true,
+  )
+})
+
+test('structured-logger KMS fallback lines count as stateless runtime noise', () => {
+  assert.equal(
+    isStatelessRuntimeNoiseLine('12:16:22.204 WARN  [shared:kms] Vault read error path=secret/data/tenant_key_123 timeoutMs=1000'),
+    true,
+  )
+  assert.equal(isStatelessRuntimeNoiseLine('TypeError: fetch failed'), true)
+  assert.equal(isStatelessRuntimeNoiseLine('Secret fingerprint (sha256, truncated): c7eabc7b8d9e7cd0'), true)
+  assert.equal(
+    isStatelessRuntimeNoiseLine('12:16:22.204 ERROR [sales:orders] Payment capture failed orderId=42'),
+    false,
+  )
 })
 
 test('treats search strategy failures as non-blocking warnings', () => {

@@ -15,7 +15,7 @@ import { LockMode } from "@mikro-orm/core";
 import type { EntityManager } from "@mikro-orm/postgresql";
 import type { EventBus } from "@open-mercato/events";
 import type { DataEngine } from "@open-mercato/shared/lib/data/engine";
-import { CrudHttpError } from "@open-mercato/shared/lib/crud/errors";
+import { CrudHttpError, notFound } from "@open-mercato/shared/lib/crud/errors";
 import {
   deriveResourceFromCommandId,
   invalidateCrudCache,
@@ -125,6 +125,7 @@ import {
   type SalesLineCalculationResult,
   type SalesDocumentCalculationResult,
 } from "../lib/types";
+import { loadShippedQuantityByLine } from "../lib/shipments/snapshots";
 import { resolveDictionaryEntryValue } from "../lib/dictionaries";
 import { resolveStatusEntryIdByValue } from "../lib/statusHelpers";
 import { SalesDocumentNumberGenerator } from "../services/salesDocumentNumberGenerator";
@@ -4853,7 +4854,7 @@ const deleteQuoteCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const quote = await findOneWithDecryption(em, SalesQuote, { id });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     const [addresses, notes, tags, adjustments, lines] = await Promise.all([
       findWithDecryption(
@@ -4983,7 +4984,7 @@ const updateQuoteCommand: CommandHandler<
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const shouldInvalidateSentToken = (quote.status ?? null) === "sent";
@@ -5215,7 +5216,7 @@ const updateOrderCommand: CommandHandler<
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const previousStatus = normalizeStatusValue(order.status);
@@ -5860,7 +5861,7 @@ const deleteOrderCommand: CommandHandler<
     const em = (ctx.container.resolve("em") as EntityManager).fork();
     const order = await findOneWithDecryption(em, SalesOrder, { id });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     const shipments = await em.find(SalesShipment, { order: order.id });
     const shipmentIds = shipments.map((entry) => entry.id);
@@ -6054,22 +6055,18 @@ const convertQuoteToOrderCommand: CommandHandler<
       );
       const { translate } = await resolveTranslations();
       if (!quote)
-        throw new CrudHttpError(404, {
-          error: translate(
+        throw notFound(translate(
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
-          ),
-        });
+          ));
       ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
       await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
       const snapshot = await loadQuoteSnapshot(em, payload.quoteId);
       if (!snapshot)
-        throw new CrudHttpError(404, {
-          error: translate(
+        throw notFound(translate(
             "sales.documents.detail.error",
             "Document not found or inaccessible.",
-          ),
-        });
+          ));
       const orderId = payload.orderId ?? quote.id;
       const existingOrder = await findOneWithDecryption(em, SalesOrder, {
         id: orderId,
@@ -6521,6 +6518,69 @@ const quoteAdjustmentDeleteSchema = z.object({
   quoteId: z.string().uuid(),
 });
 
+const SHIPPED_QUANTITY_TOLERANCE = 1e-6;
+
+const hasNumericChange = (
+  next: number | null | undefined,
+  previous: number | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  if (previous === undefined || previous === null) return true;
+  return Math.abs(next - previous) > SHIPPED_QUANTITY_TOLERANCE;
+};
+
+const hasUnitChange = (
+  next: string | null | undefined,
+  previous: string | null | undefined,
+): boolean => {
+  if (next === undefined || next === null) return false;
+  const normalizedPrevious = (previous ?? "").trim().toLowerCase();
+  if (!normalizedPrevious) return false;
+  return next.trim().toLowerCase() !== normalizedPrevious;
+};
+
+async function assertShippedOrderLineEditable(
+  em: EntityManager,
+  order: SalesOrder,
+  existingSnapshot: SalesLineSnapshot | null,
+  parsed: z.infer<typeof orderLineUpsertSchema>,
+): Promise<void> {
+  const lineId = existingSnapshot?.id;
+  if (!existingSnapshot || !lineId) return;
+  const shippedByLine = await loadShippedQuantityByLine(em, order.id, {
+    tenantId: order.tenantId,
+    organizationId: order.organizationId,
+  });
+  const shippedQuantity = shippedByLine.get(lineId) ?? 0;
+  if (shippedQuantity <= 0) return;
+
+  const { translate } = await resolveTranslations();
+  const nextQuantity = parsed.quantity ?? existingSnapshot.quantity;
+  if (nextQuantity < shippedQuantity - SHIPPED_QUANTITY_TOLERANCE) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorQuantityBelowShipped",
+        "You cannot lower the quantity below the {{shipped}} already shipped.",
+        { shipped: shippedQuantity },
+      ),
+    });
+  }
+
+  const pricingChanged =
+    hasNumericChange(parsed.unitPriceNet, existingSnapshot.unitPriceNet) ||
+    hasNumericChange(parsed.unitPriceGross, existingSnapshot.unitPriceGross) ||
+    hasNumericChange(parsed.taxRate, existingSnapshot.taxRate) ||
+    hasUnitChange(parsed.quantityUnit, existingSnapshot.quantityUnit);
+  if (pricingChanged) {
+    throw new CrudHttpError(409, {
+      error: translate(
+        "sales.documents.items.errorPriceShipped",
+        "You cannot change the price or unit of a line that has shipped items.",
+      ),
+    });
+  }
+}
+
 const orderLineUpsertCommand: CommandHandler<
   { body?: Record<string, unknown>; query?: Record<string, unknown> },
   { orderId: string; lineId: string }
@@ -6549,7 +6609,7 @@ const orderLineUpsertCommand: CommandHandler<
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
@@ -6565,6 +6625,7 @@ const orderLineUpsertCommand: CommandHandler<
     const existingSnapshot = parsed.id
       ? (lineSnapshots.find((line) => line.id === parsed.id) ?? null)
       : null;
+    await assertShippedOrderLineEditable(em, order, existingSnapshot, parsed);
     const priceMode =
       parsed.priceMode === "gross"
         ? "gross"
@@ -6865,12 +6926,10 @@ const orderLineDeleteCommand: CommandHandler<
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, {
-        error: translate(
+      throw notFound(translate(
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
-        ),
-      });
+        ));
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     const shipmentCount = await em.count(SalesShipmentItem, {
@@ -6897,12 +6956,10 @@ const orderLineDeleteCommand: CommandHandler<
     );
     const filtered = existingLines.filter((line) => line.id !== parsed.id);
     if (filtered.length === existingLines.length) {
-      throw new CrudHttpError(404, {
-        error: translate(
+      throw notFound(translate(
           "sales.documents.detail.error",
           "Document not found or inaccessible.",
-        ),
-      });
+        ));
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapOrderLineEntityToSnapshot(line),
@@ -7041,7 +7098,7 @@ const quoteLineUpsertCommand: CommandHandler<
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const [existingLines, adjustments] = await Promise.all([
@@ -7353,7 +7410,7 @@ const quoteLineDeleteCommand: CommandHandler<
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     const existingLines = await em.find(
@@ -7368,7 +7425,7 @@ const quoteLineDeleteCommand: CommandHandler<
     );
     const filtered = existingLines.filter((line) => line.id !== parsed.id);
     if (filtered.length === existingLines.length) {
-      throw new CrudHttpError(404, { error: "Quote line not found" });
+      throw notFound("Quote line not found");
     }
     const sourceInputs = filtered.map((line, index) => ({
       ...mapQuoteLineEntityToSnapshot(line),
@@ -7507,7 +7564,7 @@ const orderAdjustmentUpsertCommand: CommandHandler<
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
     if (parsed.scope === "line") {
@@ -7801,7 +7858,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
       deletedAt: null,
     });
     if (!order)
-      throw new CrudHttpError(404, { error: "Sales order not found" });
+      throw notFound("Sales order not found");
     ensureOrderScope(ctx, order.organizationId, order.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, order, SALES_RESOURCE_KIND_ORDER);
 
@@ -7815,7 +7872,7 @@ const orderAdjustmentDeleteCommand: CommandHandler<
     ]);
     const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
     if (filtered.length === adjustments.length) {
-      throw new CrudHttpError(404, { error: "Adjustment not found" });
+      throw notFound("Adjustment not found");
     }
     const lineSnapshots = existingLines.map(mapOrderLineEntityToSnapshot);
     const calcLines = lineSnapshots.map((line, index) =>
@@ -7966,7 +8023,7 @@ const quoteAdjustmentUpsertCommand: CommandHandler<
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
     if (parsed.scope === "line") {
@@ -8258,7 +8315,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
       deletedAt: null,
     });
     if (!quote)
-      throw new CrudHttpError(404, { error: "Sales quote not found" });
+      throw notFound("Sales quote not found");
     ensureQuoteScope(ctx, quote.organizationId, quote.tenantId);
     await enforceSalesDocumentOptimisticLock(ctx, quote, SALES_RESOURCE_KIND_QUOTE);
 
@@ -8272,7 +8329,7 @@ const quoteAdjustmentDeleteCommand: CommandHandler<
     ]);
     const filtered = adjustments.filter((adj) => adj.id !== parsed.id);
     if (filtered.length === adjustments.length) {
-      throw new CrudHttpError(404, { error: "Adjustment not found" });
+      throw notFound("Adjustment not found");
     }
     const lineSnapshots = existingLines.map(mapQuoteLineEntityToSnapshot);
     const calcLines = lineSnapshots.map((line, index) =>
