@@ -24,6 +24,26 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Skills install into the canonical `.agents/skills/` directory (#4155)
+
+`yarn install-skills` (monorepo) and `mercato agentic:init` / `yarn install-skills` (standalone apps) used to write every skill into each agent's own folder — local tier skills were symlinked into both `.claude/skills/` and `.codex/skills/`, and external skills landed in `.agents/skills/` **plus** `.claude/skills/` **plus** a hand-made `.codex/skills/` mirror: three copies of the same skill.
+
+Skills now install **once**, into the canonical cross-agent directory `.agents/skills/`. An agent only gets its own per-skill symlinks when it cannot read that directory: Claude Code does (automatic, unchanged for its users), while Codex and Cursor read `.agents/skills/` natively and no longer get a `.codex/skills/` or `.cursor/skills/` directory at all. Scaffolded apps no longer seed `.codex/skills` / `.cursor/skills` symlinks either.
+
+All existing flags and exit behavior of `yarn install-skills` are unchanged; the new flags are additive. Only gitignored dev-tooling directories are affected — no application code, no committed files.
+
+Contributor action:
+
+- Re-run the installer once so stale `.codex/skills/` (and any `.cursor/skills/`) links from the old layout are swept away:
+
+  ```bash
+  yarn install-skills --clean && yarn install-skills
+  ```
+
+  A plain `yarn install-skills` also self-heals (it sweeps the legacy per-agent links); the `--clean` form just makes it explicit.
+- If a setup still depends on the old layout, `yarn install-skills --legacy-links` restores it.
+- To keep an agent's directory from being written at all, pass `--ignore-agents <csv>` or add a persistent `{ "agents": { "ignore": ["cursor"] } }` block to `.ai/skills/tiers.json`.
+
 ### New `theme.css` brand-override convention (additive, opt-in)
 
 Freshly scaffolded standalone apps now include a user-owned `src/app/theme.css` (imported in `layout.tsx` directly after `globals.css`) as the supported place for brand token overrides, plus a new `mercato theme init` CLI command that generates a WCAG-validated theme from a brand primary. Nothing breaks without it: apps scaffolded before this release simply do not have the file.
