@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8">
-<title>Open Mercato — Instrukcja uruchomienia i rozwiązywania problemów (Windows)</title>
+<title>Open Mercato — Instrukcja instalacji i rozwiązywania problemów (Windows)</title>
 <style>
   @page { size: A4; margin: 18mm 16mm; }
   * { box-sizing: border-box; }
@@ -31,156 +31,181 @@
 </head>
 <body>
 
-<h1>Open Mercato w systemie Windows</h1>
-<p class="subtitle">Środowisko developerskie jednym poleceniem — instrukcja uruchomienia i rozwiązywania problemów</p>
+<h1>Open Mercato na Windows</h1>
+<p class="subtitle">Środowisko developerskie uruchamiane jednym poleceniem — instrukcja instalacji i rozwiązywania problemów</p>
 
 <h2>1. Co to jest</h2>
-<p>Dwukrotne kliknięcie pliku <code>starters\docker\windows\start-windows.bat</code> zamienia komputer z systemem Windows w kompletne środowisko developerskie Open Mercato działające w Dockerze: <strong>aplikacja</strong> (port 3000, hot reload), <strong>serwer MCP</strong> (port 3001), <strong>agent AI OpenCode</strong> (port 4096) oraz PostgreSQL, Redis i Meilisearch. Baza danych jest tworzona i wypełniana danymi automatycznie. Asystent AI (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> w aplikacji) działa od razu — wystarczy podać podczas instalacji klucz API dostawcy LLM.</p>
-<p>Każdy krok jest idempotentny: ponowne uruchomienie <code>start-windows.bat</code> jest zawsze bezpieczne — pomija to, co już zrobione, i naprawia to, czego brakuje.</p>
-<p>Dostępne są <strong>trzy launchery</strong> — wszystkie korzystają z tego samego silnika, wybierz według środowiska kontenerów:</p>
+<p>Jedno polecenie zamienia komputer z Windows w kompletne środowisko developerskie Open Mercato. Tym poleceniem jest wieloplatformowy <strong>starter</strong> (<code>@open-mercato/starter</code>). Wykonuje on audyt „tylko do odczytu”, instaluje wszystko, co w pełni kontroluje (prywatny Node.js, zależności, sekrety, certyfikaty korporacyjne), uruchamia usługi pomocnicze w Dockerze, inicjalizuje bazę danych i startuje aplikację.</p>
+<p>Domyślnie starter działa w <strong>trybie hybrydowym</strong>, który jest najszybszy do pracy developerskiej:</p>
 <table>
-  <tr><th>Launcher</th><th>Kiedy używać</th></tr>
-  <tr><td><code>start-windows.bat</code></td><td>Domyślny: sam wykrywa Docker Desktop lub Rancher Desktop; na czystej maszynie instaluje Docker Desktop</td></tr>
-  <tr><td><code>start-windows-rancher.bat</code></td><td>Twoja organizacja używa <strong>Rancher Desktop</strong> (typowe tam, gdzie licencja Docker Desktop nie jest dozwolona). Gdy WSL2 już jest, instaluje Ranchera per-user — <strong>zupełnie bez uprawnień administratora</strong></td></tr>
-  <tr><td><code>start-windows-docker.bat</code></td><td>Jawne wymuszenie <strong>Docker Desktop</strong></td></tr>
+  <tr><th>Działa na Twoim komputerze (natywnie, przez <code>yarn dev</code>)</th><th>Działa w kontenerach Docker</th></tr>
+  <tr>
+    <td><strong>Aplikacja</strong> (port 3000, hot reload), <strong>serwer MCP</strong> (port 3001), procesy kolejek i scheduler</td>
+    <td><strong>Agent AI OpenCode</strong> (port 4096), <strong>PostgreSQL</strong>, <strong>Redis</strong> i <strong>Meilisearch</strong></td>
+  </tr>
 </table>
-<p>Nie wiesz, czy zablokowana firmowa maszyna pozwoli na instalację? Uruchom najpierw <code>starters\docker\windows\check-windows.bat</code> — kontrolę wstępną tylko-do-odczytu, która sprawdza polityki, WSL2, dostęp sieciowy (proxy/inspekcja TLS, hosty pobierania), antywirusa i porty, a kończy werdyktem READY / CAVEATS / LIKELY-BLOCKED. Niczego nie zmienia.</p>
+<p>Ponieważ aplikacja działa natywnie, podpowiedzi w edytorze (IntelliSense) działają od razu, a iteracja jest błyskawiczna. Baza danych jest tworzona i wypełniana automatycznie. Asystent AI (<span class="kbd">Ctrl</span>+<span class="kbd">K</span> w aplikacji) działa po podaniu klucza API dostawcy LLM podczas instalacji.</p>
+<p>Każde polecenie jest <strong>idempotentne</strong>: ponowne uruchomienie startera jest zawsze bezpieczne — pomija to, co już zrobione, i naprawia to, czego brakuje.</p>
+<div class="note"><strong>Wolisz wszystko w kontenerach?</strong> Uruchom starter z <code>up --mode docker</code> — aplikacja i serwer MCP działają wtedy również w Dockerze (przydatne tam, gdzie uruchamianie procesów Node bezpośrednio na hoście jest niedozwolone). Wybrany tryb jest zapamiętywany. Ta instrukcja opisuje domyślny tryb <strong>hybrydowy</strong>, o ile nie zaznaczono inaczej.</div>
 
 <h2>2. Wymagania</h2>
+<p>Starter kieruje się ścisłą zasadą: <strong>nigdy nie instaluje oprogramowania systemowego.</strong> Instaluje tylko to, czym w pełni zarządza (prywatny Node.js, Yarn przez corepack, pliki <code>.env</code>, pakiety certyfikatów, stan repozytorium). Wszystko, co wymaga uprawnień administratora lub funkcji Windows, jest <em>wykrywane i wyjaśniane</em> — nigdy zmieniane po cichu. Polecenie <code>doctor</code> (tylko do odczytu) drukuje gotową listę „przekaż to działowi IT” dla takich pozycji.</p>
 <table>
-  <tr><th>Wymaganie</th><th>Szczegóły</th></tr>
-  <tr><td>Windows</td><td>Windows 10 2004+ (kompilacja 19041, w tym 22H2/Enterprise) lub Windows 11</td></tr>
-  <tr><td>Wirtualizacja CPU</td><td>Intel VT-x / AMD-V włączone w BIOS/UEFI (zwykle już włączone)</td></tr>
-  <tr><td>Pamięć / dysk</td><td><strong>Zalecane 16 GB RAM, minimum 12 GB</strong> (launcher to sprawdza i poniżej 12 GB odmawia — obejście: <code>-SkipResourceCheck</code>); ok. 20 GB wolnego miejsca na pierwszy start, komfortowo 40 GB+</td></tr>
-  <tr><td>Środowisko kontenerów</td><td>Docker Desktop <em>lub</em> Rancher Desktop — instalowane automatycznie, jeśli brakuje</td></tr>
-  <tr><td>Uprawnienia administratora</td><td><strong>Wyłącznie</strong> do jednorazowej instalacji Dockera/WSL2. Później niepotrzebne; niepotrzebne w ogóle, gdy dział IT zainstalował je wcześniej (zob. <code>-NoAdmin</code>)</td></tr>
-  <tr><td>Klucz API LLM</td><td>Jeden z: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
+  <tr><th>Wymaganie</th><th>Kto zapewnia</th><th>Szczegóły</th></tr>
+  <tr><td>Windows</td><td>—</td><td>Windows 10 2004+ (kompilacja 19041, w tym 22H2/Enterprise) lub Windows 11</td></tr>
+  <tr><td>Wirtualizacja CPU</td><td>Ty / IT</td><td>Intel VT-x / AMD-V włączone w BIOS/UEFI (zwykle już jest) — wymagane przez WSL2</td></tr>
+  <tr><td>WSL2</td><td>Ty / IT</td><td>Wymagane przez Docker Desktop i Rancher Desktop. Włączenie wymaga uprawnień administratora i restartu, dlatego starter je proponuje, ale nie włącza.</td></tr>
+  <tr><td>Silnik kontenerów</td><td>Ty / IT</td><td><strong>Docker Desktop</strong> lub <strong>Rancher Desktop</strong> — musi być zainstalowany i uruchomiony. Starter go wykrywa i, jeśli brakuje, podaje dokładne polecenie instalacji; nie instaluje go za Ciebie.</td></tr>
+  <tr><td>Git</td><td>Ty / IT</td><td>Potrzebny do pobrania i aktualizacji kodu (instalacja w profilu użytkownika działa bez administratora).</td></tr>
+  <tr><td>Pamięć / dysk</td><td>—</td><td><strong>16 GB RAM zalecane, 12 GB minimum</strong>; ~20 GB wolnego dysku na pierwsze uruchomienie, 40 GB+ komfortowo</td></tr>
+  <tr><td>Klucz API LLM</td><td>Ty</td><td>Jeden z: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
 </table>
-<div class="note"><strong>Niepotrzebne:</strong> Node.js, winget / Instalator aplikacji, Visual Studio Build Tools, znajomość WSL. Wszystko działa w kontenerach; gdy winget jest niedostępny, instalatory pobierane są bezpośrednio z oficjalnych źródeł.</div>
+<div class="note"><strong>NIE potrzebujesz Node.js, Yarn, winget ani Visual Studio Build Tools.</strong> Bootstrap startera instaluje prywatny, zweryfikowany sumą kontrolną <strong>Node 24 bez uprawnień administratora</strong> (przenośna kopia w <code>%LOCALAPPDATA%\OpenMercato</code>, dodana do <code>PATH</code> tylko na czas tej sesji), a następnie aktywuje Yarn przez corepack. Nic nie zaśmieca środowiska globalnego.</div>
+<div class="warn"><strong>Nie masz pewności, czy zablokowany komputer zadziała?</strong> Uruchom najpierw <code>yarn om doctor</code> (lub <code>npx @open-mercato/starter doctor</code>). Jest to audyt tylko do odczytu — niczego nie zmienia — i sprawdza Node, Git, silnik kontenerów, WSL2, sprzęt, dostęp do sieci (proxy / przechwytywanie TLS), rozwiązywanie <code>localhost</code>, porty i lokalizację repozytorium, kończąc werdyktem i listą pozycji do przekazania działowi IT.</div>
 
 <h2>3. Szybki start</h2>
-<h3>A. Masz już repozytorium (git clone lub ZIP)</h3>
-<ol>
-  <li>Kliknij dwukrotnie <code>starters\docker\windows\start-windows.bat</code> w repozytorium.</li>
-  <li>Jeśli trzeba zainstalować Dockera/WSL2, zatwierdź monit UAC (administrator). Jeśli Windows poprosi o restart — zrestartuj; <strong>instalacja wznowi się automatycznie po zalogowaniu</strong>.</li>
-  <li>Na pytanie o dostawcę LLM wybierz go i wklej klucz API (wpisywanie jest ukryte). To wymagane — klucz zasila asystenta AI.</li>
-  <li>Poczekaj. <strong>Pierwsze uruchomienie trwa około 10 minut</strong> (do ~20 na wolnych dyskach) — instalowane są zależności i wypełniana baza danych. Każdy kolejny start zajmuje sekundy.</li>
-  <li>Na końcu zielone podsumowanie wyświetli wszystkie adresy oraz <strong>login i hasło superadministratora</strong>. Otwórz <code>http://localhost:3000/backend</code> i zaloguj się.</li>
-</ol>
-<h3>B. Zupełnie czysta maszyna (bez Gita, bez repozytorium)</h3>
-<p>Pobierz sam plik <code>start-windows.bat</code> (z folderu <code>starters/docker/windows/</code> repozytorium na GitHubie) i kliknij go dwukrotnie. Skrypt pobierze launcher, zainstaluje Git (lub pobierze repozytorium jako ZIP), sklonuje projekt do <code>%USERPROFILE%\open-mercato</code> i będzie kontynuował jak wyżej.</p>
 
-<h2>4. Co się dzieje krok po kroku</h2>
+<h3>Bootstrap jednym poleceniem (instaluje Node za Ciebie, a potem uruchamia starter)</h3>
+<p>Poniższe polecenia działają na komputerze, na którym <strong>nie ma nic poza systemem</strong> (oraz silnikiem kontenerów — patrz sekcja 2). Każde pobiera jeden mały skrypt, instaluje prywatny Node 24 bez uprawnień administratora, a następnie uruchamia starter, który sklonuje repozytorium, jeśli nie jesteś jeszcze w jego wnętrzu.</p>
 <table>
-  <tr><th>Krok</th><th>Przewidywany czas</th></tr>
-  <tr><td>Kontrola wstępna (wersja Windows, wirtualizacja, polityki AppLocker)</td><td>natychmiast</td></tr>
-  <tr><td>Raport wymagań + instalacja braków (Git, WSL2, Docker/Rancher)</td><td>kontrola natychmiast; instalacje 5–15 min</td></tr>
-  <tr><td>Kontrola restartu (automatyczne wznowienie po zalogowaniu)</td><td>natychmiast</td></tr>
-  <tr><td>Start silnika kontenerów</td><td>30–90 s; pierwsze uruchomienie do 5 min</td></tr>
-  <tr><td>Pobranie repozytorium (tylko tryb samodzielny)</td><td>1–3 min</td></tr>
-  <tr><td>Generowanie <code>.env</code> (sekrety tworzone raz, nigdy nie nadpisywane)</td><td>natychmiast</td></tr>
-  <tr><td>Pytanie o dostawcę LLM</td><td>czeka na Ciebie</td></tr>
-  <tr><td><code>docker compose up</code> (pierwszy raz buduje obrazy)</td><td>sekundy; pierwszy raz 10+ min</td></tr>
-  <tr><td>Zdrowie bazy, gotowość aplikacji, usługi AI</td><td>pierwszy start łącznie ~10 min; kolejne — sekundy</td></tr>
+  <tr><th>System</th><th>Polecenie (wklej do terminala)</th></tr>
+  <tr><td><strong>Windows</strong> (PowerShell)</td><td><code>irm https://raw.githubusercontent.com/open-mercato/open-mercato/main/packages/starter/platform/start.ps1 | iex</code></td></tr>
+  <tr><td><strong>macOS / Linux</strong> (bash)</td><td><code>curl -fsSL https://raw.githubusercontent.com/open-mercato/open-mercato/main/packages/starter/platform/start.sh | bash</code></td></tr>
 </table>
-<p>Podczas dłuższych operacji konsola pokazuje animowany wskaźnik z czasem i opisem bieżącej czynności. Postęp budowania widać też na żywo pod adresem <code>http://localhost:4000</code> (strona jest pusta do zakończenia instalacji zależności — to normalne).</p>
-<div class="note"><strong>Pamięć (WSL2):</strong> zarówno Docker Desktop, jak i Rancher Desktop uruchamiają wszystkie kontenery w jednej maszynie wirtualnej WSL2, a Windows domyślnie dobiera jej rozmiar źle dla tego środowiska (Windows 11 ogranicza ją do 8 GB — za mało; Windows 10 pozwala jej zabrać 80% RAM — głodzi resztę systemu). Dlatego na maszynach z mniej niż 20 GB RAM launcher przed pierwszym startem silnika zapisuje limit w pliku <code>C:\Users\&lt;ty&gt;\.wslconfig</code>: <code>memory=</code> (cały RAM minus 6 GB, co najmniej 8 GB — na maszynie 16 GB będzie to 10 GB), <code>swap=8GB</code>, <code>autoMemoryReclaim=gradual</code>. Istniejącej linii <code>memory=</code> nigdy nie nadpisuje; aby dostroić lub cofnąć zmianę, edytuj bądź usuń te linie (potem zamknij środowisko kontenerów i wykonaj <code>wsl --shutdown</code>).</div>
+<p>Bootstrap dla Windows korzysta z wbudowanego mechanizmu pobierania PowerShell (schannel), więc certyfikat korporacyjny wdrożony przez IT jest zaufany automatycznie. Wersja macOS/Linux używa systemowego <code>curl</code> z tego samego powodu.</p>
+
+<h3>A. Zupełnie czysty komputer (bez Node, bez Git, bez repozytorium)</h3>
+<ol>
+  <li>Upewnij się, że silnik kontenerów jest zainstalowany i uruchomiony (Docker Desktop lub Rancher Desktop — patrz sekcja 2; <code>doctor</code> poinformuje, jeśli go brakuje).</li>
+  <li>Otwórz <strong>PowerShell</strong> i wklej polecenie dla Windows z tabeli powyżej. Zainstaluje prywatny Node 24, pobierze starter i sklonuje repozytorium do <code>%USERPROFILE%\open-mercato</code>.</li>
+  <li>Gdy zostaniesz zapytany, wybierz dostawcę LLM i wklej jego klucz API (wpisywanie jest ukryte). To zasila asystenta AI.</li>
+  <li>Poczekaj. <strong>Pierwsze uruchomienie trwa kilka minut</strong>, gdy instalują się zależności, budują pakiety, pobierany jest obraz OpenCode i wypełniana baza. Każdy kolejny start trwa sekundy.</li>
+  <li>Na końcu konsola wypisuje wszystkie adresy URL oraz <strong>login i hasło superadministratora</strong>. Otwórz <code>http://127.0.0.1:3000/backend</code> i zaloguj się.</li>
+</ol>
+
+<h3>B. Masz już repozytorium (git clone lub ZIP)</h3>
+<ol>
+  <li>Jeśli masz już Node 24 + Yarn: uruchom <code>yarn om</code> w katalogu głównym repozytorium.</li>
+  <li>Jeśli nie masz Node: kliknij dwukrotnie <code>packages\starter\platform\start.cmd</code> lub uruchom polecenie z tabeli powyżej — każde najpierw zainstaluje Node.</li>
+  <li>Postępuj zgodnie z pytaniem o LLM i poczekaj na podsumowanie, jak w wariancie A.</li>
+</ol>
+<div class="note"><code>yarn om</code>, <code>npx @open-mercato/starter</code>, <code>start.cmd</code> oraz polecenie <code>irm … | iex</code> uruchamiają <strong>ten sam</strong> starter — różnią się jedynie sposobem, w jaki najpierw zapewniają Node. Wewnątrz repozytorium wszystkie używają startera z tego repozytorium, więc narzędzie zawsze pasuje do kodu, którym steruje.</div>
+
+<h2>4. Co się dzieje, krok po kroku</h2>
+<p>Domyślne polecenie (<code>up</code>) uruchamia idempotentny proces „konwergencji”. Ukończone kroki są pomijane przy każdym ponownym uruchomieniu, więc zawsze można je uruchomić ponownie po naprawieniu problemu.</p>
+<table>
+  <tr><th>Krok</th><th>Co robi</th><th>Oczekiwany czas</th></tr>
+  <tr><td>Narzędzia</td><td>Weryfikuje Node 24 + Git; aktywuje przypięty Yarn przez corepack</td><td>natychmiast</td></tr>
+  <tr><td>Bramka silnika kontenerów</td><td>Potwierdza, że Docker/Rancher działa; jeśli nie, drukuje dokładną poprawkę i zatrzymuje się (nigdy nie instaluje silnika ani WSL2)</td><td>natychmiast</td></tr>
+  <tr><td>Zaufanie TLS (korporacyjne)</td><td>Sonduje realne hosty; jeśli wykryje przechwytywanie, przechwytuje korporacyjny CA i wprowadza go do Node, Yarn, Git i buildów obrazów</td><td>kilka sekund</td></tr>
+  <tr><td><code>.env</code> / sekrety</td><td>Generuje sekrety <code>.env</code> raz i nigdy ich nie nadpisuje; pyta o dostawcę LLM</td><td>natychmiast + Twój wybór</td></tr>
+  <tr><td>Instalacja i build</td><td><code>yarn install</code>, potem build pakietów i generowanie artefaktów</td><td>pierwszy raz kilka min</td></tr>
+  <tr><td>Kontenery infrastruktury</td><td>Pobiera obraz bazowy OpenCode, uruchamia OpenCode + PostgreSQL + Redis + Meilisearch (czeka na gotowość)</td><td>pierwszy raz kilka min</td></tr>
+  <tr><td>Baza danych</td><td>Wykonuje migracje i wypełnia dane początkowe</td><td>1–2 min</td></tr>
+  <tr><td>Środowisko uruchomieniowe</td><td>Startuje <code>yarn dev</code> — aplikację, procesy kolejek, scheduler i serwer MCP na Twoim komputerze</td><td>sekundy</td></tr>
+</table>
+<p>Podczas długich oczekiwań konsola pokazuje spinner z czasem oraz status w prostym języku. Postęp buildu jest też widoczny na żywo pod <code>http://127.0.0.1:4000</code> (pusty, dopóki instalacja zależności się nie skończy — to normalne).</p>
+<div class="note"><strong>Pamięć (WSL2):</strong> zarówno Docker Desktop, jak i Rancher Desktop uruchamiają wszystkie kontenery w jednej maszynie wirtualnej WSL2, a Windows źle dobiera jej rozmiar dla tego stosu. Jeśli pierwszy build ma trudności na komputerze z małą pamięcią, utwórz lub edytuj <code>C:\Users\&lt;ty&gt;\.wslconfig</code> z rozsądnym limitem i zrestartuj silnik:
+<pre><code>[wsl2]
+memory=10GB
+swap=8GB
+autoMemoryReclaim=gradual</code></pre>
+Następnie zamknij silnik i wykonaj <code>wsl --shutdown</code>, aby zastosować. (W odróżnieniu od wcześniejszych launcherów starter nie edytuje <code>.wslconfig</code> za Ciebie — nigdy nie zmienia ustawień na poziomie komputera.)</div>
 
 <h2>5. Po instalacji — adresy i codzienne polecenia</h2>
 <table>
-  <tr><th>Usługa</th><th>Adres</th></tr>
-  <tr><td>Panel administracyjny</td><td><code>http://localhost:3000/backend</code></td></tr>
-  <tr><td>Strona postępu budowania</td><td><code>http://localhost:4000</code></td></tr>
-  <tr><td>Zdrowie serwera MCP</td><td><code>http://localhost:3001/health</code></td></tr>
-  <tr><td>Zdrowie agenta OpenCode</td><td><code>http://localhost:4096/global/health</code></td></tr>
-  <tr><td>Keycloak (dev SSO)</td><td><code>http://localhost:8080</code> (admin/admin)</td></tr>
+  <tr><th>Usługa</th><th>URL</th></tr>
+  <tr><td>Aplikacja (panel)</td><td><code>http://127.0.0.1:3000/backend</code></td></tr>
+  <tr><td>Ekran postępu buildu</td><td><code>http://127.0.0.1:4000</code></td></tr>
+  <tr><td>Stan serwera MCP</td><td><code>http://127.0.0.1:3001/health</code></td></tr>
+  <tr><td>Stan agenta OpenCode</td><td><code>http://127.0.0.1:4096/global/health</code></td></tr>
+  <tr><td>Keycloak (dev SSO, opcjonalny)</td><td><code>http://127.0.0.1:8080</code> — uruchom przez <code>yarn om infra up --profile sso</code></td></tr>
 </table>
+<p>Wszystkie polecenia poniżej działają jako <code>yarn om &lt;polecenie&gt;</code> wewnątrz repozytorium lub <code>npx @open-mercato/starter &lt;polecenie&gt;</code> z dowolnego miejsca.</p>
 <table>
   <tr><th>Czynność</th><th>Polecenie</th></tr>
-  <tr><td>Start / restart środowiska</td><td><code>starters\docker\windows\start-windows.bat</code> (albo <code>start-windows-rancher.bat</code> / <code>start-windows-docker.bat</code>, aby wymusić środowisko)</td></tr>
-  <tr><td>Kontrola maszyny tylko-do-odczytu (przed instalacją lub przy problemach)</td><td><code>starters\docker\windows\check-windows.bat</code></td></tr>
-  <tr><td>Zatrzymanie (dane zachowane)</td><td><code>starters\docker\windows\stop-windows.bat</code></td></tr>
-  <tr><td>Status wszystkich usług</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Status</code></td></tr>
-  <tr><td>Podgląd logów aplikacji</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Logs</code></td></tr>
-  <tr><td>Przebudowa obrazu Dockera (po zmianach w Dockerfile)</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Rebuild</code></td></tr>
-  <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong></td><td><code>powershell starters\docker\windows\start-dev.ps1 -Reset</code></td></tr>
-  <tr><td>Uruchomienie bez uprawnień administratora</td><td><code>powershell starters\docker\windows\start-dev.ps1 -NoAdmin</code></td></tr>
-  <tr><td>Preferuj/zainstaluj Rancher Desktop zamiast Docker Desktop</td><td><code>powershell starters\docker\windows\start-dev.ps1 -Runtime rancher</code></td></tr>
-  <tr><td>Uruchomienie testowe bez żadnych zmian</td><td><code>powershell starters\docker\windows\start-dev.ps1 -DryRun</code></td></tr>
+  <tr><td>Start (lub wznowienie) środowiska</td><td><code>yarn om</code> &nbsp;(skrót dla <code>yarn om up</code>)</td></tr>
+  <tr><td>Start w tle (działa po zamknięciu terminala)</td><td><code>yarn om up --detach</code></td></tr>
+  <tr><td>Wszystko w kontenerach zamiast hybrydowo</td><td><code>yarn om up --mode docker</code></td></tr>
+  <tr><td>Zatrzymanie aplikacji i usług (dane zachowane)</td><td><span class="kbd">Ctrl</span>+<span class="kbd">C</span> na pierwszym planie lub <code>yarn om stop</code></td></tr>
+  <tr><td>Zatrzymanie aplikacji, ale z pozostawieniem kontenerów</td><td><code>yarn om stop --keep-infra</code></td></tr>
+  <tr><td>Stan procesów, kontenerów, zdrowia, adresów</td><td><code>yarn om status</code></td></tr>
+  <tr><td>Podgląd logów na żywo</td><td><code>yarn om logs --follow</code></td></tr>
+  <tr><td>Audyt komputera (tylko do odczytu, + lista dla IT)</td><td><code>yarn om doctor</code></td></tr>
+  <tr><td>Tylko kontenery infrastruktury</td><td><code>yarn om infra up</code> / <code>yarn om infra down</code></td></tr>
+  <tr><td>Przebudowa obrazu OpenCode (np. po <code>yarn generate</code>)</td><td><code>yarn om infra up --rebuild</code></td></tr>
+  <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong> (pyta najpierw)</td><td><code>yarn om reset</code></td></tr>
 </table>
+<p>Przydatne flagi dla <code>up</code>: <code>--non-interactive</code>, <code>--skip-llm-prompt</code>, <code>--skip-db</code>, <code>--no-infra</code> (uruchamia aplikację względem usług wskazanych w <code>.env</code>), <code>--profile &lt;nazwa&gt;</code> (np. <code>sso</code>, <code>storage-s3</code>) oraz <code>-- &lt;argumenty&gt;</code>, aby przekazać dodatkowe argumenty do <code>yarn dev</code>.</p>
 
 <h2>6. Praca w IDE</h2>
-<p>Katalog projektu (np. <code>C:\Users\&lt;ty&gt;\open-mercato</code>) edytuj dowolnym IDE dla Windows — VS Code, JetBrains, Cursor. Zapis pliku powoduje hot reload aplikacji przez bind mount Dockera. <strong>WSL w ogóle nie uczestniczy w Twojej pracy</strong>: <code>/mnt/c/...</code> to jedynie widok dysku z terminala WSL — nie uruchamiaj projektu z terminala WSL i nie trzymaj drugiej kopii wewnątrz dystrybucji WSL.</p>
-<div class="note"><strong>Uwaga dot. IntelliSense:</strong> <code>node_modules</code> znajduje się w wolumenie kontenera, a nie w folderze Windows — dlatego autouzupełnianie TypeScript, przechodzenie do definicji zależności i ESLint wymagają jednej z poniższych konfiguracji.</div>
-<table>
-  <tr><th>Opcja</th><th>Jak</th><th>Kiedy</th></tr>
-  <tr><td><strong>Podłączenie VS Code do kontenera</strong> (zalecane)</td><td>Zainstaluj rozszerzenie &bdquo;Dev Containers&rdquo; &rarr; <em>Dev Containers: Attach to Running Container&hellip;</em> &rarr; wybierz kontener <code>app</code> &rarr; otwórz <code>/app</code></td><td>Pełny IntelliSense bez żadnych narzędzi na hoście — właściwy wybór na komputerach firmowych</td></tr>
-  <tr><td><code>node_modules</code> na hoście tylko dla edytora</td><td>Zainstaluj Node 24, wykonaj <code>corepack enable</code> i jednorazowo <code>yarn install</code> w katalogu projektu</td><td>Wolisz zwykłe IDE na hoście; aplikacja nadal działa w kontenerach (ostrzeżenia o opcjonalnych modułach natywnych są nieszkodliwe)</td></tr>
-  <tr><td>Praca w pełni natywnie w WSL2</td><td>Sklonuj repozytorium wewnątrz dystrybucji Ubuntu, IDE przez Remote-WSL (zob. przewodnik WSL2 w dokumentacji)</td><td>Dla zaawansowanych — maksymalna wydajność systemu plików; wymaga dystrybucji WSL i uprawnień administratora</td></tr>
-</table>
-<p>Wskazówka: &bdquo;Przejdź do definicji&rdquo; dla importów <code>@open-mercato/*</code> prowadzi do <em>źródeł</em> pakietów monorepo — to oczekiwane zachowanie. Po edycji <em>pakietu</em> (a nie aplikacji) zrestartuj też kontener MCP: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart mcp</code>.</p>
+<p>W domyślnym trybie <strong>hybrydowym</strong> aplikacja działa natywnie na Windows, więc <code>node_modules</code> znajduje się w folderze projektu na dysku. <strong>Autouzupełnianie TypeScript, przechodzenie do definicji i ESLint działają od razu</strong> w każdym IDE Windows — VS Code, JetBrains, Cursor — bez dodatkowej konfiguracji. Zapis pliku natychmiast przeładowuje aplikację. WSL nie wchodzi do Twojego przepływu pracy: nie uruchamiaj projektu z terminala WSL i nie trzymaj drugiej kopii wewnątrz dystrybucji WSL.</p>
+<p>Wskazówka: „Przejdź do definicji” na importach <code>@open-mercato/*</code> prowadzi do <em>źródeł</em> pakietów monorepo — to oczekiwane i zwykle pożądane.</p>
+<div class="note"><strong>W trybie <code>--mode docker</code></strong> aplikacja działa w kontenerze, więc <code>node_modules</code> jest w wolumenie kontenera, a nie w Twoim folderze. Aby uzyskać pełny IntelliSense, zainstaluj rozszerzenie VS Code „Dev Containers” i wybierz <em>Attach to Running Container</em> → <code>app</code> → otwórz <code>/app</code>, albo wykonaj jednorazowo <code>corepack enable &amp;&amp; yarn install</code> w folderze na potrzeby edytora. W trybie hybrydowym nie jest to potrzebne.</div>
 
 <h2>7. Rozwiązywanie problemów</h2>
-<div class="note"><strong>Zasada pierwsza:</strong> pełny zapis instalacji znajduje się w <code>%TEMP%\open-mercato-setup\start-dev-*.log</code>, a logi kontenerów są dostępne jednym poleceniem: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app</code> (zamiast <code>app</code> także <code>mcp</code>, <code>opencode</code>, <code>postgres</code>…).</div>
+<div class="note"><strong>Pierwszy krok:</strong> uruchom <code>yarn om doctor</code>. Jest tylko do odczytu i wskazuje większość problemów (silnik, WSL2, proxy/TLS, porty, łączność kontener→host) z dokładną poprawką dla każdego. Logi dev znajdują się w <code>.mercato/logs/</code>; podglądaj je przez <code>yarn om logs --follow</code>. Logi kontenerów: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml logs -f opencode</code> (zamień <code>opencode</code> na <code>postgres</code>, <code>redis</code>, <code>meilisearch</code>).</div>
 
-<h3>Problemy z instalacją</h3>
+<h3>Wymagania wstępne i silnik</h3>
 <table>
   <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
-  <tr><td>„Pakiet aplikacji nie jest obsługiwany…" przy ręcznej instalacji winget</td><td><strong>Nie instaluj</strong> winget — nie jest potrzebny. Launcher pobiera oficjalne instalatory bezpośrednio. Po prostu uruchom ponownie <code>start-windows.bat</code>.</td></tr>
-  <tr><td>Pobieranie nie działa (proxy firmowe / sieć odcięta)</td><td>Ustaw <code>HTTPS_PROXY</code> dla sesji albo umieść oficjalne instalatory (Git for Windows, Docker Desktop lub Rancher Desktop, <code>wsl_update_x64.msi</code>) w folderze <code>installers</code> w katalogu głównym repozytorium (lub wskaż je zmienną <code>OM_INSTALLERS_DIR</code>). Launcher zweryfikuje je i użyje bez dostępu do sieci.</td></tr>
-  <tr><td>„CPU virtualization appears disabled"</td><td>Włącz Intel VT-x / AMD-V (SVM) w BIOS/UEFI. Na komputerach firmowych — zgłoś do IT.</td></tr>
-  <tr><td>„PowerShell is running in ConstrainedLanguage mode"</td><td>Polityka AppLocker/WDAC ogranicza PowerShell. Poproś IT o dopuszczenie tego skryptu lub uruchomienie go ze ścieżki wyłączonej z polityki.</td></tr>
-  <tr><td>Całkowity brak uprawnień administratora</td><td>Poproś IT o instalację <em>albo</em> Docker Desktop (backend WSL2; dodanie konta do grupy <code>docker-users</code>), <em>albo</em> Rancher Desktop (silnik dockerd/moby). Następnie uruchom <code>start-dev.ps1 -NoAdmin</code> — reszta działa bez podniesionych uprawnień (przy braku Gita repozytorium pobierane jest jako ZIP).</td></tr>
-  <tr><td>Przypadkowo anulowany monit UAC</td><td>Po prostu uruchom ponownie <code>start-windows.bat</code>.</td></tr>
+  <tr><td>„Container runtime — not usable” / instalacja zatrzymuje się na bramce silnika</td><td>Docker/Rancher nie jest zainstalowany lub nie działa. Starter go nie instaluje. Tam, gdzie licencja Docker Desktop jest niedozwolona, użyj <strong>Rancher Desktop</strong> (per-użytkownik, darmowy; wybierz silnik <em>dockerd (moby)</em>, Kubernetes wyłączony). Uruchom silnik i ponów — ukończone kroki są pomijane.</td></tr>
+  <tr><td>„WSL2 is not functional”</td><td>WSL2 jest wymagane przez oba silniki i potrzebuje administratora oraz restartu. Przekaż działowi IT listę z <code>doctor</code> (<code>wsl --install --no-distribution</code>, włącz Virtual Machine Platform + WSL oraz wirtualizację CPU w firmware), zrestartuj i ponów.</td></tr>
+  <tr><td>„git not found”</td><td>Zainstaluj Git for Windows z <code>https://git-scm.com/download/win</code> (instalacja w profilu użytkownika działa bez administratora) i ponów.</td></tr>
+  <tr><td>„PowerShell is running in ConstrainedLanguage mode”</td><td>Polityka AppLocker/WDAC ogranicza PowerShell. Poproś IT o dopuszczenie skryptu lub uruchom go z wyłączonej z polityki ścieżki.</td></tr>
+  <tr><td>Instalacja Node zawodzi za proxy</td><td>Ustaw <code>HTTPS_PROXY</code> dla sesji albo wskaż <code>OM_NODE_DIST_MIRROR</code> na wewnętrzne mirror <code>nodejs.org/dist</code>, po czym ponów.</td></tr>
 </table>
 
-<h3>Problemy z silnikiem i kontenerami</h3>
+<h3>Sieć korporacyjna (proxy / przechwytywanie TLS)</h3>
 <table>
   <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
-  <tr><td>„Docker engine did not become ready within 5 minutes"</td><td>Otwórz Docker Desktop z menu Start i dokończ okna pierwszego uruchomienia (logowanie można pominąć). Jeśli pojawia się <em>„WSL 2 installation is incomplete"</em>: uruchom <code>wsl --update</code> w konsoli administratora lub zainstaluj <code>https://aka.ms/wsl2kernel</code>, po czym uruchom ponownie.</td></tr>
-  <tr><td>Zainstalowane jednocześnie Docker Desktop i Rancher Desktop</td><td>Launcher używa tego, który już działa, w przeciwnym razie Docker Desktop, i sam pilnuje właściwego kontekstu docker CLI. Wymuś wybór: <code>-Runtime docker</code> lub <code>-Runtime rancher</code>.</td></tr>
-  <tr><td>Rancher Desktop: <code>docker compose</code> nie działa</td><td>Rancher musi używać silnika <strong>dockerd (moby)</strong> (launcher sam o to prosi przez <code>rdctl</code>). W interfejsie Ranchera: Preferences → Container Engine → dockerd (moby).</td></tr>
-  <tr><td>„WARNING: DOCKER_INSECURE_NO_IPTABLES_RAW is set"</td><td>Niegroźny komunikat sieciowy Docker Desktop — można zignorować. Nie zatrzymuje instalacji.</td></tr>
-  <tr><td>„The '&lt;usługa&gt;' container is crash-looping"</td><td>Launcher wypisuje ostatnie linie logów wadliwego kontenera — tam jest właściwy błąd. Najczęstsza przyczyna: dane w <code>.env</code> nie pasują już do istniejącego wolumenu bazy → uruchom <code>-Reset</code> (usuwa dane) albo przywróć poprzedni <code>.env</code>. Zatrzymaj restartowanie przez <code>stop-windows.bat</code>, napraw przyczynę, uruchom ponownie.</td></tr>
-  <tr><td>„Port 3000/3001/4096… already in use"</td><td>Port zajmuje inny proces (launcher podaje jego nazwę). Zamknij go albo zmień porty w pliku <code>.env</code> w katalogu głównym repo: <code>APP_PORT</code>, <code>MCP_PORT</code>, <code>OPENCODE_PORT</code>, <code>OM_DEV_SPLASH_PORT</code>, <code>KEYCLOAK_PORT</code> — launcher uwzględni je automatycznie.</td></tr>
-  <tr><td>Kontenery ciągle padają / „app container crash-looping" na maszynie 16 GB</td><td>Zwykle brak pamięci w maszynie WSL2. Sprawdź, czy <code>C:\Users\&lt;ty&gt;\.wslconfig</code> zawiera limit <code>[wsl2]</code> zapisany przez launcher (zob. ramka w sekcji 4), zamknij inne ciężkie programy na czas pierwszego budowania, a jeśli limit został ręcznie podniesiony lub usunięty — przywróć go; potem zamknij środowisko, wykonaj <code>wsl --shutdown</code> i uruchom launcher ponownie.</td></tr>
-  <tr><td>Budowanie obrazu nie może nic pobrać (błędy apk / yarn / TLS) w sieci firmowej</td><td>Launcher sam to diagnozuje: wskazuje przyczynę (awaria DNS w maszynie WSL2, proxy z inspekcją TLS, zablokowany host), automatycznie eksportuje certyfikat główny proxy do <code>docker\certs\</code> i ponawia próbę. Jeśli nie zdoła: zobacz ręczne kroki w <code>docker\certs\README.md</code>, poproś IT o odblokowanie <code>dl-cdn.alpinelinux.org</code> albo ustaw <code>ALPINE_MIRROR</code> w <code>.env</code> na wewnętrzne lustro pakietów.</td></tr>
+  <tr><td>Doctor zgłasza „Corporate TLS interception”</td><td>Normalne w sieciach zarządzanych. Starter przechwytuje korporacyjny CA automatycznie i wprowadza go do Node, Yarn, Git i buildów obrazów. Jeśli organizacja ma oficjalny pakiet CA, przekaż go starterowi przez <code>starters/company/config.mjs</code> — to najpewniejsze rozwiązanie.</td></tr>
+  <tr><td>Pobieranie obrazów zawodzi na błędach certyfikatu, choć narzędzia działają</td><td>Silnik kontenerów też potrzebuje korporacyjnego CA. Docker Desktop czyta magazyn certyfikatów Windows (zrestartuj go po wdrożeniu CA; wersja <strong>4.42.0+</strong> jest wymagana dla certyfikatów Zscaler). Rancher Desktop potrzebuje CA w swojej dystrybucji WSL — starter zapisuje dla niego skrypt wdrożeniowy.</td></tr>
+  <tr><td>Zablokowany dostęp do sieci</td><td>Poproś IT o dopuszczenie ruchu deweloperskiego do <code>registry.yarnpkg.com</code>, <code>github.com</code> i <code>registry-1.docker.io</code> lub o wewnętrzne mirror (konfigurowalne w <code>starters/company/</code>).</td></tr>
 </table>
 
-<h3>Problemy z aplikacją i AI</h3>
+<h3>Asystent AI i łączność</h3>
 <table>
   <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
-  <tr><td>Pierwsze uruchomienie „wygląda na zawieszone"</td><td>Prawie nigdy nie jest: pierwszy start instaluje zależności, buduje ~20 pakietów i wypełnia bazę w kontenerze (~10 min, do ~20). Obserwuj <code>http://localhost:4000</code> lub logi aplikacji. Gdy coś naprawdę się zepsuje, launcher zgłosi to wprost.</td></tr>
-  <tr><td>Przeglądarka nie otwiera <code>http://localhost:3000</code></td><td>Sprawdź stan kontenera aplikacji: <code>-Status</code>. Jeśli zapora/klient VPN filtruje localhost, zezwól na lokalne połączenia na portach 3000/4000.</td></tr>
-  <tr><td>Czat AI (Ctrl+K) zwraca błędy autoryzacji / MCP „disconnected"</td><td>Klucz MCP rotuje po resecie bazy, a kontener OpenCode czyta go tylko przy starcie. Wykonaj: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode</code>. Weryfikacja: <code>curl http://localhost:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
-  <tr><td>Czat AI zgłasza błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>. Po zmianie: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode app</code>.</td></tr>
-  <tr><td>Dane logowania z podsumowania nie działają</td><td>Jeśli plik <code>.env</code> został utworzony na nowo przy zachowaniu starego wolumenu bazy, wyświetlone hasło może różnić się od zapisanego w bazie (domyślne: <code>password</code>). Najczystsze rozwiązanie: <code>-Reset</code> i świeży start.</td></tr>
-  <tr><td>Po restarcie samego kontenera <code>app</code> narzędzia AI działają dziwnie</td><td>Przebudowa aplikacji nadpisuje współdzielone wolumeny pod działającym serwerem MCP. Zrestartuj także jego: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart mcp</code>.</td></tr>
+  <tr><td>Czat AI (Ctrl+K) pokazuje błędy autoryzacji / MCP „disconnected”</td><td>Kontener OpenCode czyta klucz MCP tylko przy starcie; klucz rotuje po resecie bazy. Zrestartuj go: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>. Sprawdź: <code>curl http://127.0.0.1:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
+  <tr><td>Doctor: „the compose extra_hosts pin does NOT reach the host” (częste na Rancher Desktop / WSL2)</td><td>Kontener OpenCode łączy się z serwerem MCP na hoście przez <code>host.docker.internal</code>, który w niektórych konfiguracjach WSL2 wskazuje na dystrybucję WSL zamiast na Windows. Doctor drukuje poprawkę: ustaw <code>OM_HOST_GATEWAY=&lt;ip&gt;</code> w <code>.env</code> w katalogu głównym i zrestartuj kontener OpenCode.</td></tr>
+  <tr><td>Zapora Windows pyta przy pierwszym starcie</td><td>Serwer MCP nasłuchuje na hoście; Windows raz pyta, czy zezwolić <code>node.exe</code>. Zezwól w <strong>sieciach prywatnych</strong>, aby kontenery mogły się z nim łączyć.</td></tr>
+  <tr><td>Czat AI zwraca błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>, po czym zrestartuj OpenCode (polecenie powyżej).</td></tr>
 </table>
 
-<h2>8. FAQ — najczęstsze pytania</h2>
-<p class="faq-q">Ile to trwa?</p>
-<p>Pierwsze uruchomienie na czystej maszynie: łącznie ~15–35 minut (instalatory + ewentualny restart + ~10 min pierwszego startu). Każdy kolejny start: poniżej minuty plus rozruch silnika.</p>
+<h3>Aplikacja, dane i porty</h3>
+<table>
+  <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
+  <tr><td>Pierwszy start „wygląda na zawieszony”</td><td>Pierwsze uruchomienie instaluje zależności, buduje pakiety, pobiera obraz OpenCode i wypełnia bazę — kilka minut. Obserwuj <code>http://127.0.0.1:4000</code> lub <code>yarn om logs --follow</code>. Jeśli coś naprawdę pójdzie źle, zgłosi to głośno.</td></tr>
+  <tr><td>„Port 3000/3001/4096… already in use”</td><td>Inny proces zajmuje port (lokalny PostgreSQL na 5432 to częsty przypadek). Zatrzymaj pozostałości: <code>yarn om stop</code>, albo nadpisz port w <code>.env</code> (<code>APP_PORT</code>, <code>MCP_PORT</code>, <code>OPENCODE_PORT</code>, <code>POSTGRES_PORT</code>, <code>OM_DEV_SPLASH_PORT</code>) i ponów.</td></tr>
+  <tr><td>Dane logowania z podsumowania nie działają</td><td>Jeśli odtworzyłeś <code>.env</code>, zachowując stary wolumen bazy, wydrukowane hasło może różnić się od zaseedowanego. Najczystsze rozwiązanie: <code>yarn om reset</code> (usuwa dane) i świeże uruchomienie.</td></tr>
+  <tr><td>Kontenery ciągle padają na komputerze 16 GB</td><td>Zwykle maszyna WSL2 zabraknie pamięci — ustaw limit w <code>.wslconfig</code> (patrz uwaga w sekcji 4), zamknij inne ciężkie aplikacje podczas pierwszego buildu, potem <code>wsl --shutdown</code> i ponów.</td></tr>
+  <tr><td>Nowe agenty/umiejętności niewidoczne po <code>yarn generate</code></td><td>OpenCode wczytuje je w nowych sesjach z podmontowanego katalogu. Zrestartuj go: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>.</td></tr>
+</table>
+
+<h2>8. FAQ</h2>
+<p class="faq-q">Czy muszę najpierw zainstalować Node.js?</p>
+<p>Nie. Bootstrap jednym poleceniem (<code>irm … start.ps1 | iex</code> na Windows) instaluje prywatny, zweryfikowany sumą kontrolną Node 24 bez uprawnień administratora, a potem uruchamia starter. Tylko <code>yarn om</code> / <code>npx @open-mercato/starter</code> zakładają, że Node już istnieje.</p>
 <p class="faq-q">Czy potrzebuję uprawnień administratora?</p>
-<p>Tylko raz — do instalacji Dockera/WSL2. Jeśli IT zainstalowało je wcześniej — nigdy; użyj <code>-NoAdmin</code>.</p>
+<p>Nie do samego startera. Administrator jest potrzebny tylko raz, przez Ciebie lub IT, aby włączyć WSL2 i zainstalować silnik kontenerów — starter nigdy tego nie robi, tylko dokładnie drukuje, co IT musi zatwierdzić (<code>yarn om doctor</code>).</p>
 <p class="faq-q">Nie wolno nam używać Docker Desktop (licencja). Co teraz?</p>
-<p>Użyj Rancher Desktop — jest w pełni wspierany. Kliknij dwukrotnie <code>start-windows-rancher.bat</code>: zainstaluje Ranchera (per-user, bez administratora, gdy WSL2 już jest) albo użyje istniejącej instalacji. Musi działać na silniku dockerd (moby) — launcher sam o to zadba.</p>
-<p class="faq-q">Gdzie znajdę dane logowania?</p>
-<p>W zielonym podsumowaniu na końcu instalacji oraz w pliku <code>.env</code> w katalogu głównym (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). Nie trafiają do żadnych plików logów.</p>
-<p class="faq-q">Gdzie są moje dane i jak je wyczyścić?</p>
-<p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Pełne czyszczenie: <code>powershell starters\docker\windows\start-dev.ps1 -Reset</code> (wymaga wpisania potwierdzenia).</p>
-<p class="faq-q">Jak zaktualizować kod do najnowszej wersji?</p>
-<p>Z Gitem: <code>git pull</code>, potem <code>start-windows.bat</code>. Przy instalacji z ZIP: pobierz świeży ZIP i uruchom launcher w nim (dane są w wolumenach Dockera, nie w folderze).</p>
+<p>Użyj <strong>Rancher Desktop</strong> (per-użytkownik, darmowy). Zainstaluj go z silnikiem <em>dockerd (moby)</em> i wyłączonym Kubernetesem, uruchom i użyj startera normalnie.</p>
+<p class="faq-q">Tryb hybrydowy czy docker — którego użyć?</p>
+<p>Do codziennej pracy użyj domyślnego trybu <strong>hybrydowego</strong>: jest szybszy, a Twoje IDE dostaje pełny IntelliSense. <code>up --mode docker</code> stosuj tylko, gdy polityka zabrania uruchamiania procesów Node bezpośrednio na hoście.</p>
+<p class="faq-q">Gdzie są moje dane logowania?</p>
+<p>W podsumowaniu na końcu instalacji oraz w <code>.env</code> w katalogu głównym (<code>OM_INIT_SUPERADMIN_EMAIL</code> / <code>OM_INIT_SUPERADMIN_PASSWORD</code>). Nie są zapisywane do żadnego pliku logu.</p>
+<p class="faq-q">Gdzie żyją moje dane? Jak je wyczyścić?</p>
+<p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Wyczyść wszystko przez <code>yarn om reset</code> (prosi o potwierdzenie).</p>
+<p class="faq-q">Jak zaktualizować do najnowszego kodu?</p>
+<p><code>git pull</code>, potem <code>yarn om</code>. Starter ponownie zbiega — instaluje nowe zależności, wykonuje nowe migracje i restartuje.</p>
 <p class="faq-q">Czy mogę później zmienić dostawcę AI?</p>
-<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), a następnie: <code>docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart opencode app</code>.</p>
-<p class="faq-q">Jakie porty są używane?</p>
-<p>3000 (aplikacja), 4000 (strona postępu), 3001 (MCP), 4096 (OpenCode), 8080 (Keycloak). Wszystkie można zmienić w <code>.env</code>.</p>
+<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), potem zrestartuj OpenCode: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>.</p>
+<p class="faq-q">Których portów używa?</p>
+<p>3000 (aplikacja), 4000 (ekran buildu), 3001 (MCP), 4096 (OpenCode), 5432 (PostgreSQL), 6379 (Redis), 7700 (Meilisearch), 8080 (Keycloak, opcjonalny). Wszystkie nadpisywalne w <code>.env</code>.</p>
 <p class="faq-q">Czy działa offline?</p>
-<p>Instalatory można podłożyć z wyprzedzeniem (folder <code>installers</code>), ale pierwszy start wymaga internetu (obrazy Dockera, pakiety npm). Po pierwszym udanym starcie codzienna praca odbywa się lokalnie.</p>
-<p class="faq-q">Jak wszystko usunąć?</p>
-<p><code>-Reset</code> (usuwa kontenery i wolumeny z danymi), skasuj folder repozytorium, a w razie potrzeby odinstaluj Docker/Rancher Desktop w Ustawieniach Windows.</p>
+<p>Pierwsze uruchomienie wymaga internetu do obrazów Docker i pakietów npm. Po udanym pierwszym starcie codzienna praca jest lokalna.</p>
 
-<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v1.1 · lipiec 2026 · Źródła: <code>starters/docker/windows/start-windows*.bat</code>, <code>starters/docker/windows/check-windows.bat</code>, <code>starters/docker/windows/start-dev.ps1</code>, specyfikacja <code>.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md</code></div>
+<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v2.0 · lipiec 2026 · Źródła: <code>@open-mercato/starter</code> (<code>packages/starter/</code> — CLI, kroki, doctor, bootstrapy <code>platform/</code>), specyfikacja <code>.ai/specs/2026-07-19-unified-starter-package.md</code></div>
 
 </body>
 </html>
