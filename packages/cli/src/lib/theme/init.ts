@@ -216,7 +216,7 @@ export function findProtectedTokenOverrides(css: string): string[] {
       found.add(token)
     }
   }
-  return [...found].sort()
+  return [...found].sort((a, b) => a.localeCompare(b))
 }
 
 /** Extracts a token's first declared hex value from CSS, if any. */
