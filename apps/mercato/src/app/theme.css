@@ -1,0 +1,11 @@
+/* theme.css — YOUR brand overrides. This file is yours: framework upgrades
+ * never touch it. It MUST stay imported after globals.css (source order is
+ * what makes these overrides win). Generate a starting point with:
+ *   yarn mercato theme init --primary "#0C71C6"
+ * Safe tokens: --primary, --primary-hover, --primary-foreground,
+ * --brand-lime, --brand-violet(-foreground), --radius, --font-geist-sans/mono.
+ * Never override --status-*, --accent-indigo, --z-index-*, --shadow-focus.
+ * Full contract: https://docs.open-mercato.dev/customization/brand-your-app */
+
+/* :root { --primary: #0C71C6; --primary-foreground: #ffffff; } */
+/* .dark { --primary: #4D9FDD; --primary-foreground: #0a0a0a; } */

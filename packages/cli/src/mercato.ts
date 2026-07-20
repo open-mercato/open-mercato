@@ -100,7 +100,7 @@ const TURBOPACK_CORRUPTION_PATTERNS = [
   'TurbopackInternalError',
 ]
 
-const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test'])
+const BUILTIN_CLI_MODULE_IDS = new Set(['queue', 'generate', 'deploy', 'db', 'server', 'test', 'theme'])
 
 function collectNestedErrors(error: unknown, seen = new Set<unknown>()): ErrorWithCause[] {
   if (!error || seen.has(error)) {
@@ -817,7 +817,9 @@ async function buildAllModules(): Promise<Module[]> {
 export async function run(argv = process.argv) {
   const [, , ...parts] = argv
   const [first, second, ...remaining] = parts
-  await ensureEnvLoaded({ createIfMissing: first !== 'deploy', quiet: first === 'deploy' })
+  // `deploy` and `theme` are pure file/tooling commands: never create .env as a side effect.
+  const skipEnvSideEffects = first === 'deploy' || first === 'theme'
+  await ensureEnvLoaded({ createIfMissing: !skipEnvSideEffects, quiet: skipEnvSideEffects })
   
   // Handle init command directly
   if (first === 'init') {
@@ -1539,6 +1541,23 @@ export async function run(argv = process.argv) {
         run: async (args: string[]) => {
           const { runRailwayDeploy } = await import('./lib/deploy/railway/index')
           await runRailwayDeploy(args)
+        },
+      },
+    ],
+  } as Module)
+
+  // Built-in CLI module: theme (pure file generation — no bootstrap required)
+  all.push({
+    id: 'theme',
+    cli: [
+      {
+        command: 'init',
+        run: async (args: string[]) => {
+          const { runThemeInit } = await import('./lib/theme/init')
+          const exitCode = await runThemeInit(args)
+          if (exitCode !== 0) {
+            throw new Error('theme init failed — see the report above.')
+          }
         },
       },
     ],
