@@ -397,6 +397,50 @@ describe('ComboboxInput — eager label resolution', () => {
     await waitFor(() => expect(getInput(container).value).toBe('Label-b'))
   })
 
+  // Regression: onFocus used to flip `loading` true before the debounce
+  // timer armed. When `loadSuggestions` identity churned within the 200ms
+  // window (common when a parent re-renders and recreates an inline
+  // callback), the effect cleanup cancelled the timer without clearing
+  // `loading`, so the popup stayed on "Loading suggestions…" forever with
+  // no request in flight. Cleanup now clears `loading`, and onFocus no
+  // longer sets it.
+  it('does not stick on Loading suggestions when loadSuggestions identity churns before debounce fires', async () => {
+    jest.useFakeTimers()
+    const loadA = jest.fn(async () => [{ value: 'lot-a', label: 'LOT-A' }])
+    const loadB = jest.fn(async () => [{ value: 'lot-b', label: 'LOT-B' }])
+
+    try {
+      const { container, rerender, queryByText } = render(
+        <ComboboxInput value="" onChange={() => {}} loadSuggestions={loadA} />,
+      )
+      const input = getInput(container)
+
+      act(() => {
+        fireEvent.focus(input)
+      })
+
+      // Churn the callback identity inside the 200ms debounce window — the
+      // classic parent-rerender footgun — before any fetch has started.
+      rerender(<ComboboxInput value="" onChange={() => {}} loadSuggestions={loadB} />)
+      rerender(<ComboboxInput value="" onChange={() => {}} loadSuggestions={loadA} />)
+      rerender(<ComboboxInput value="" onChange={() => {}} loadSuggestions={loadB} />)
+
+      await act(async () => {
+        jest.advanceTimersByTime(200)
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      expect(queryByText(/Loading suggestions/i)).toBeNull()
+      expect(queryByText('LOT-B')).toBeTruthy()
+      expect(loadA).not.toHaveBeenCalled()
+      expect(loadB).toHaveBeenCalledTimes(1)
+    } finally {
+      jest.useRealTimers()
+    }
+  })
+
   // Regression for a "stuck on Loading suggestions…" report in the WMS cycle
   // count wizard's Lot field: `disabled` there is tied to an unrelated
   // balance lookup that re-triggers on every lot pick, so it can flip true
