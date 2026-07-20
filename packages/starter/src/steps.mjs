@@ -7,7 +7,7 @@ import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStre
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
 import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
-import { checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2 } from './doctor.mjs'
+import { checkBuildToolchain, checkContainerRuntime, checkGit, checkNodeVersion, checkWsl2 } from './doctor.mjs'
 import { ensureEnvFiles } from './env-setup.mjs'
 import { readEnvValue } from './env-file.mjs'
 import { ensureMcpSharedDir, infraUp } from './infra.mjs'
@@ -311,6 +311,24 @@ export const corporateCertsStep = {
   },
 }
 
+export const buildToolchainStep = {
+  id: 'build-toolchain',
+  expectation: 'instant check; install guidance if missing',
+  title: 'C++ build toolchain (native Node modules)',
+  // Only hybrid builds native addons on the host; --mode docker compiles them
+  // in the container. The check itself is Windows-only (returns null elsewhere).
+  appliesTo: (ctx) => ctx.mode === 'hybrid' && process.platform === 'win32',
+  async check() {
+    const toolchain = checkBuildToolchain()
+    if (!toolchain || toolchain.level === 'pass') {
+      return { ok: true, detail: toolchain?.detail ?? 'not required on this platform' }
+    }
+    // Fail fast with the fix instead of letting `yarn install` faceplant on
+    // node-gyp after several minutes. Propose-only: we never install it.
+    throw new StepBlocked(this.id, toolchain.guide)
+  },
+}
+
 export const envFilesStep = {
   id: 'env-files',
   expectation: 'instant; secrets generated once, never rotated',
@@ -514,6 +532,7 @@ export function buildUpSteps(ctx) {
   const base = [
     prerequisitesStep,
     containerRuntimeStep,
+    buildToolchainStep,
     corporateCertsStep,
     envFilesStep,
     workspaceInstallStep,

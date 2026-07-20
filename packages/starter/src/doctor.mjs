@@ -136,6 +136,38 @@ export function checkWsl2() {
   })
 }
 
+// Hybrid mode compiles native Node addons (better-sqlite3, isolated-vm,
+// cpu-features, …) from C++ during `yarn install`. On Windows that needs the
+// Visual C++ toolchain, which the starter never installs (propose-only) — so a
+// clean machine otherwise fails the install with a cryptic node-gyp error.
+// macOS/Linux ship clang/gcc widely enough that we don't gate on them here.
+export function checkBuildToolchain() {
+  if (process.platform !== 'win32') return null
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+  const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
+  let installPath = ''
+  if (fs.existsSync(vswhere)) {
+    const out = commandOutput(vswhere, [
+      '-latest', '-products', '*',
+      '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+      '-property', 'installationPath',
+    ])
+    installPath = (out ?? '').trim()
+  }
+  if (installPath) {
+    return result('build-tools', 'C++ build toolchain (native Node modules)', 'pass', 'Visual Studio Build Tools with the VC++ workload')
+  }
+  return result('build-tools', 'C++ build toolchain (native Node modules)', 'fail', 'not found — native addons (better-sqlite3, isolated-vm, …) cannot compile on the host', {
+    guide: [
+      'Hybrid mode builds native Node modules on the host, which needs the Visual C++ toolchain.',
+      'Install it (several GB, admin required), then open a NEW terminal and re-run:',
+      '  winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"',
+      'No admin, or cannot install it? Build everything in containers instead:  yarn om up --mode docker',
+    ],
+    it: ['Install "Visual Studio 2022 Build Tools" with the "Desktop development with C++" (VCTools) workload — required to compile native Node modules for the native/hybrid dev workflow.'],
+  })
+}
+
 export function checkResources(repoRoot) {
   const totalGb = os.totalmem() / GIB
   let freeDiskGb = null
@@ -337,7 +369,7 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
   })
 }
 
-export async function runDoctor(repoRoot, { company = null, stackRunning = false, includeContainerProbe = false } = {}) {
+export async function runDoctor(repoRoot, { company = null, stackRunning = false, includeContainerProbe = false, mode = 'hybrid' } = {}) {
   const ports = resolveStackPorts(repoRoot)
   const checks = [
     checkNodeVersion(),
@@ -346,6 +378,9 @@ export async function runDoctor(repoRoot, { company = null, stackRunning = false
     checkWsl2(),
     checkContainerRuntime(),
     checkDockerDesktopVersion(),
+    // The host C++ toolchain only matters when native modules build on the
+    // host — i.e. hybrid mode. In --mode docker they compile in the container.
+    mode === 'docker' ? null : checkBuildToolchain(),
     checkResources(repoRoot),
     await checkLocalhostResolution(),
     checkProxyConsistency(),

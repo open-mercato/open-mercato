@@ -10,7 +10,8 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, clearConvergenceState, listMigrationModules, migrationsFingerprint, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, buildToolchainStep, clearConvergenceState, listMigrationModules, migrationsFingerprint, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { checkBuildToolchain } from '../doctor.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -320,4 +321,13 @@ test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', (
   } finally {
     fs.rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('checkBuildToolchain is a no-op off Windows and the gate only applies to hybrid+win32', () => {
+  if (process.platform !== 'win32') {
+    assert.equal(checkBuildToolchain(), null)
+  }
+  // The converge gate never runs off Windows, and never in docker mode.
+  assert.equal(buildToolchainStep.appliesTo({ mode: 'hybrid' }), process.platform === 'win32')
+  assert.equal(buildToolchainStep.appliesTo({ mode: 'docker' }), false)
 })

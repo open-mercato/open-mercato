@@ -277,11 +277,12 @@ async function commandStatus(flags) {
   printStatus(status)
 }
 
-async function commandDoctor() {
+async function commandDoctor(flags) {
   const company = await loadCompanyConfig(repoRoot)
   const runState = readRunState(repoRoot)
   const stackRunning = Boolean(runState && isPidAlive(runState.pid))
-  const checks = await runDoctor(repoRoot, { company, stackRunning, includeContainerProbe: true })
+  const mode = resolveMode(flags?.mode)
+  const checks = await runDoctor(repoRoot, { company, stackRunning, includeContainerProbe: true, mode })
   const ok = printDoctorReport(checks, { company })
   process.exit(ok ? 0 : 2)
 }
@@ -340,7 +341,7 @@ async function main() {
     case 'logs':
       return tailLogs(repoRoot, { follow: flags.follow })
     case 'doctor':
-      return commandDoctor()
+      return commandDoctor(flags)
     case 'reset':
       return commandReset(flags)
     case 'infra':
