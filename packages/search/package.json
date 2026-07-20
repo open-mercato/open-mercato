@@ -115,14 +115,14 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@ai-sdk/amazon-bedrock": "^5.0.2",
-    "@ai-sdk/cohere": "^4.0.1",
-    "@ai-sdk/google": "^4.0.2",
-    "@ai-sdk/mistral": "^4.0.1",
-    "@ai-sdk/openai": "^4.0.2",
-    "ai": "^7.0.4",
+    "@ai-sdk/amazon-bedrock": "^5.0.24",
+    "@ai-sdk/cohere": "^4.0.11",
+    "@ai-sdk/google": "^4.0.18",
+    "@ai-sdk/mistral": "^4.0.13",
+    "@ai-sdk/openai": "^4.0.16",
+    "ai": "^7.0.31",
     "ai-sdk-ollama": "4.0.0",
-    "meilisearch": "^0.58.0",
+    "meilisearch": "^0.59.0",
     "pg": "8.22.0",
     "zod": "^4.4.3"
   },
