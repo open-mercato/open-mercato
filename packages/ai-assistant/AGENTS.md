@@ -773,6 +773,8 @@ interface CommandPaletteContextValue {
 
 ## Running the Stack
 
+The default dev mode is **hybrid**: `yarn infra:up` starts OpenCode plus postgres/redis/meilisearch in containers (`starters/docker/compose.infra.yml`), then `yarn dev` runs the app **and the MCP server** natively on the host — `yarn dev` also provisions the MCP API key into `.mercato/mcp-shared/mcp-api-key`, so no manual MCP startup or key wiring is needed. The sections below cover running the MCP server standalone and the fully containerized (enterprise) stacks.
+
 ### Choose an MCP Server Mode
 
 | Feature | Dev (`mcp:dev`) — when to use | Production (`mcp:serve`) — when to use |
@@ -830,8 +832,8 @@ yarn mcp:serve
 
 2. Start OpenCode (Docker):
    ```bash
-   docker start opencode-mvp
-   # Or: docker-compose up opencode
+   docker start mercato-opencode
+   # Or: docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode
    ```
 
 3. Verify connectivity:
@@ -957,7 +959,7 @@ The module deliberately **does not** call `searchService.bulkIndex(...)` on boot
 When modifying the Docker setup, follow this structure:
 
 ```yaml
-# docker-compose.yml
+# starters/docker/compose.infra.yml
 services:
   opencode:
     build: ./docker/opencode
@@ -999,13 +1001,13 @@ generate OpenCode agent + skill files into `docker/opencode/{agents,skills}/` (c
 The container loads them from `~/.config/opencode/{agents,skills}/` — in our image the
 OpenCode user is `opencode`, so the real path is `/home/opencode/.config/opencode/...`
 (the `/root/.opencode/...` path shown above for `opencode.json` is stale; the running image
-is non-root). Dev `docker-compose*.yml` bind-mounts those dirs (`:ro`); CI bakes them via
+is non-root). The dev compose files under `starters/docker/` bind-mount those dirs (`:ro`); CI bakes them via
 Dockerfile `COPY`. The `OPENCODE_VERSION` build ARG pins the image (verify the installer's
 pin env var + the agent-file/`task`/skills contracts against the pinned tag — ASSUMPTION
 flagged in the phase-0 findings).
 
 Workflow after editing any `agents/<id>/` file: `yarn generate` → **restart** OpenCode
-(`docker compose up -d opencode`); hot-reload is not guaranteed. The orchestrator adds three
+(`docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode`); hot-reload is not guaranteed. The orchestrator adds three
 read-only MCP tools (`agent_orchestrator.submit_outcome` / `load_skill` / `run_skill_script`,
 all `agent_orchestrator.agents.run`) that file agents call; propose-only rests on the
 generated read-only `tools` allowlist + the per-run session-token ACL — the MCP HTTP server

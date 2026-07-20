@@ -103,6 +103,10 @@ function proposal(overrides: Record<string, unknown>): Record<string, unknown> {
     tenantId: TENANT_A,
     organizationId: ORG_A,
     agentId: 'deals.health_check',
+    // NOT NULL DEFAULT 'runtime' in the DB; the fake EM applies no entity
+    // defaults. The cockpit filters on it so eval replays — which produce
+    // permanently-pending proposals — cannot inflate the operator backlog.
+    source: 'runtime',
     disposition: 'pending',
     createdAt: new Date(Date.now() - 60 * 60 * 1000),
     deletedAt: null,
@@ -115,6 +119,7 @@ function run(overrides: Record<string, unknown>): Record<string, unknown> {
     tenantId: TENANT_A,
     organizationId: ORG_A,
     agentId: 'deals.health_check',
+    source: 'runtime',
     createdAt: new Date(Date.now() - 60 * 60 * 1000),
     deletedAt: null,
     ...overrides,

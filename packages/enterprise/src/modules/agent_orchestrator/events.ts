@@ -25,6 +25,14 @@ const events = [
   { id: 'agent_orchestrator.proposal.corrected', label: 'Agent Proposal Corrected', entity: 'proposal', category: 'lifecycle' },
   { id: 'agent_orchestrator.eval_case.created', label: 'Agent Eval Case Created', entity: 'eval_case', category: 'lifecycle' },
   { id: 'agent_orchestrator.eval_case.approved', label: 'Agent Eval Case Approved', entity: 'eval_case', category: 'lifecycle' },
+  // Eval plane. The per-case pair carries live progress and is emitted by the
+  // replay engine (Phase 3: a queue worker in another process — broadcast events
+  // cross the process boundary via the pg LISTEN/NOTIFY bridge). Excluded from
+  // triggers: a per-case echo is transient, not a domain fact worth automating on.
+  { id: 'agent_orchestrator.eval_suite_run.started', label: 'Agent Eval Suite Run Started', entity: 'eval_suite_run', category: 'lifecycle' },
+  { id: 'agent_orchestrator.eval_suite_run.completed', label: 'Agent Eval Suite Run Completed', entity: 'eval_suite_run', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.eval_case_run.started', label: 'Agent Eval Case Run Started', entity: 'eval_case_run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+  { id: 'agent_orchestrator.eval_case_run.completed', label: 'Agent Eval Case Run Completed', entity: 'eval_case_run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
   // Runtime guardrails overlay. Emitted for `block` AND `warn` results so the
   // cockpit live-updates (clientBroadcast) and business_rules ACTION rules react.
   { id: 'agent_orchestrator.guardrail.tripped', label: 'Agent Guardrail Tripped', entity: 'guardrail', category: 'lifecycle', clientBroadcast: true },

@@ -37,6 +37,14 @@ export const features = [
     dependsOn: ['agent_orchestrator.trace.view'],
   },
   {
+    // Separate from eval.manage: authoring an assertion is cheap, but TRIGGERING a
+    // run performs real inference against a real model and costs real money.
+    id: 'agent_orchestrator.eval.run',
+    title: 'Run agent evaluations',
+    module: 'agent_orchestrator',
+    dependsOn: ['agent_orchestrator.eval.manage'],
+  },
+  {
     id: 'agent_orchestrator.eval.export',
     title: 'Export the agent eval-case set',
     module: 'agent_orchestrator',

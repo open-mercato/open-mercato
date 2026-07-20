@@ -62,7 +62,9 @@ const ingestTraceCommand: CommandHandler<IngestTraceCommandInput, IngestTraceRes
       { persistent: true },
     )
 
-    if (evalResult.evaluated > 0) {
+    // `scored`, not `evaluated`: the latter now counts SKIPPED assertions too, so
+    // gating on it would announce an evaluation of a run where nothing was measured.
+    if (evalResult.scored > 0) {
       await emitAgentOrchestratorEvent(
         'agent_orchestrator.run.evaluated',
         {

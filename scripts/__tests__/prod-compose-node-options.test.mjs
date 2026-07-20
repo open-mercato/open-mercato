@@ -13,9 +13,9 @@ function extractDefaultHeapMb(relPath) {
   return match ? parseInt(match[1], 10) : null
 }
 
-test('docker-compose.fullapp.yml NODE_OPTIONS default heap cap is at least 1024 MB', () => {
-  const mb = extractDefaultHeapMb('docker-compose.fullapp.yml')
-  assert.notStrictEqual(mb, null, 'NODE_OPTIONS default not found in docker-compose.fullapp.yml')
+test('compose.fullapp.yml NODE_OPTIONS default heap cap is at least 1024 MB', () => {
+  const mb = extractDefaultHeapMb('starters/docker/compose.fullapp.yml')
+  assert.notStrictEqual(mb, null, 'NODE_OPTIONS default not found in starters/docker/compose.fullapp.yml')
   assert.ok(
     mb >= MIN_HEAP_MB,
     `Default heap cap is ${mb} MB — below the ${MIN_HEAP_MB} MB minimum needed for normal app operation`

@@ -8,6 +8,12 @@ export const AGENT_ORCHESTRATOR_METRIC_ROLLUP_QUEUE = 'agent-orchestrator-metric
 /** Agentic Tasks: every `/tasks/:id/run` (manual/API/schedule/event) executes via this queue — always async. */
 export const AGENT_ORCHESTRATOR_TASK_RUN_QUEUE = 'agent-task-runs'
 
+/**
+ * Eval suite replays. A dedicated queue (not the task queue) so a large suite
+ * cannot starve production dispatches — the two have separate concurrency lanes.
+ */
+export const AGENT_ORCHESTRATOR_EVAL_SUITE_QUEUE = 'agent-orchestrator-eval-suite'
+
 export type LlmJudgeJobPayload = {
   runId: string
   scope: { tenantId: string; organizationId: string }
@@ -23,6 +29,15 @@ export type MetricRollupJobPayload = {
  */
 export type AgentTaskRunJobPayload = {
   taskRunId: string
+}
+
+/**
+ * Same rationale as AgentTaskRunJobPayload: the suite run id ONLY. The worker
+ * re-resolves tenant/org scope from the AgentEvalSuiteRun row, so a forged
+ * payload cannot cross tenants.
+ */
+export type EvalSuiteRunJobPayload = {
+  suiteRunId: string
 }
 
 const queues = new Map<string, Queue<Record<string, unknown>>>()

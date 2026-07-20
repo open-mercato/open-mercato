@@ -132,7 +132,12 @@ export type ToolCallView = {
 export type EvalResultView = {
   id: string
   assertionKey: string
-  passed: boolean
+  /**
+   * `null` means SKIPPED — the assertion did not apply (no expected value, an
+   * invalid config, or an unknown scorer). It is NOT a failure and must never be
+   * rendered or counted as one.
+   */
+  passed: boolean | null
   score: number | null
   severity: string
   evidence: unknown
@@ -421,7 +426,9 @@ export function mapEvalResult(item: Record<string, unknown>): EvalResultView | n
   return {
     id,
     assertionKey: asString(item.assertion_key) ?? asString(item.assertionKey) ?? '',
-    passed: asBoolean(item.passed) ?? false,
+    // Preserve null: coercing it to `false` here would silently turn every
+    // skipped assertion into a visible failure and a wrong pass counter.
+    passed: item.passed === null || item.passed === undefined ? null : asBoolean(item.passed) ?? null,
     score: asNumber(item.score),
     severity: asString(item.severity) ?? 'warn',
     evidence: item.evidence ?? null,

@@ -1,0 +1,242 @@
+# Hybrid dev infra: OpenCode + backing services in containers, the app and the
+# MCP server natively on the host (`yarn dev` runs both). Always invoke with
+# the project directory anchored at the repo root so .env interpolation and
+# relative paths resolve there:
+#   docker compose --project-directory . -f starters/docker/compose.infra.yml up -d
+# or simply: yarn infra:up
+
+services:
+  opencode:
+    build:
+      context: ./docker/opencode
+      args:
+        # OpenCode is pre-installed in this published base image (see
+        # docker/opencode/BASE_IMAGE.md); the local build only COPYs project
+        # files (agents, skills, entrypoint), so it needs no proxy-hostile
+        # network — the FROM pull goes through the container engine's trust,
+        # which honors the OS certificate store on Docker/Rancher Desktop.
+        # The starter pre-pulls this tag (yarn om) and prints a mirror hint
+        # when the registry is blocked. Override to pin a different base tag.
+        OPENCODE_BASE_IMAGE: ${OPENCODE_BASE_IMAGE:-docker.io/openmercatocom/open-mercato-opencode:1.18.3}
+    image: opencode-mvp
+    container_name: mercato-opencode
+    restart: unless-stopped
+    environment:
+      # Unified AI provider/model selection. New deployments set OM_AI_*;
+      # the legacy OPENCODE_* variables stay forwarded as a BC fallback so
+      # the entrypoint picks them up when OM_AI_* is empty.
+      OM_AI_PROVIDER: ${OM_AI_PROVIDER:-openai}
+      OM_AI_MODEL: ${OM_AI_MODEL:-gpt-5-mini}
+      # Legacy provider selection (anthropic, openai, google) — BC only.
+      OPENCODE_PROVIDER: ${OPENCODE_PROVIDER:-}
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-}
+      # Provider API keys (set the one matching OM_AI_PROVIDER)
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GOOGLE_GENERATIVE_AI_API_KEY: ${GOOGLE_GENERATIVE_AI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-}
+      AZURE_OPENAI_API_KEY: ${AZURE_OPENAI_API_KEY:-}
+      AZURE_OPENAI_BASE_URL: ${AZURE_OPENAI_BASE_URL:-}
+      DEEPINFRA_API_KEY: ${DEEPINFRA_API_KEY:-}
+      DEEPINFRA_BASE_URL: ${DEEPINFRA_BASE_URL:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_BASE_URL: ${GROQ_BASE_URL:-}
+      TOGETHER_API_KEY: ${TOGETHER_API_KEY:-}
+      TOGETHER_BASE_URL: ${TOGETHER_BASE_URL:-}
+      FIREWORKS_API_KEY: ${FIREWORKS_API_KEY:-}
+      FIREWORKS_BASE_URL: ${FIREWORKS_BASE_URL:-}
+      LITELLM_API_KEY: ${LITELLM_API_KEY:-}
+      LITELLM_BASE_URL: ${LITELLM_BASE_URL:-}
+      OLLAMA_API_KEY: ${OLLAMA_API_KEY:-}
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-}
+      LM_STUDIO_API_KEY: ${LM_STUDIO_API_KEY:-}
+      LM_STUDIO_BASE_URL: ${LM_STUDIO_BASE_URL:-}
+      # MCP wiring: the MCP server runs on the HOST (`yarn dev` starts it).
+      # host.docker.internal resolves natively on Docker Desktop (Win/mac) and
+      # via the host-gateway extra_hosts mapping below on native Linux.
+      # MCP_SERVER_API_KEY (env) wins when set; the file fallback reads the
+      # key `yarn dev` provisions into .mercato/mcp-shared on the host.
+      OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
+      MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
+      OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
+      # File plane (#12): kill-switch. When true the entrypoint exposes the built-in
+      # read/write/edit tools so file-agents can produce artifacts (default off).
+      OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
+    ports:
+      - "${OPENCODE_PORT:-4096}:4096"
+    volumes:
+      # Host-provisioned MCP API key (see scripts/dev-mcp.mjs). Relative to the
+      # repo root because every invocation passes --project-directory.
+      - ${OM_MCP_SHARED_DIR:-./.mercato/mcp-shared}:/run/mcp-shared:ro
+      # File-defined agents (delivery model A — dev bind-mount). Generated from
+      # `agents/<id>/` dirs; OpenCode picks them up on new sessions (no guaranteed
+      # hot-reload — restart this service after `yarn generate`).
+      - ./docker/opencode/agents:/home/opencode/.config/opencode/agents:ro
+      # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
+      # loaded on new sessions (restart this service after `yarn generate`).
+      - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # Corporate CA bundle for pulled images: the entrypoint exports
+      # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS from any certs found here (baked-in
+      # certs only exist in locally built images). No-op when empty.
+      - ./docker/opencode/certs:/run/om-certs:ro
+      # File plane (#12): shared writable sandbox. The OM host process writes/reads
+      # the host source (OM_OPENCODE_WORKSPACE_ROOT); the agent sees it at the
+      # container path (OM_OPENCODE_WORKSPACE_ROOT_CONTAINER, /home/opencode/work).
+      - ${OM_OPENCODE_WORKSPACE_ROOT:-./.mercato/opencode-work}:/home/opencode/work:rw
+    extra_hosts:
+      # host-gateway is right on native Linux and Docker Desktop. On Rancher
+      # Desktop (WSL2) it can resolve to the WSL distro instead of the Windows
+      # host — the doctor detects that and tells you to set OM_HOST_GATEWAY in
+      # .env to the IP that reaches the host (or to the literal value the
+      # engine resolves natively).
+      - "host.docker.internal:${OM_HOST_GATEWAY:-host-gateway}"
+    networks:
+      - mercato-network
+
+  postgres:
+    image: pgvector/pgvector:pg17-trixie
+    container_name: mercato-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-open-mercato}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  redis:
+    image: redis:7-alpine
+    container_name: mercato-redis
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf
+      - redis_data:/data
+    command: redis-server /usr/local/etc/redis/redis.conf --maxmemory ${REDIS_MAXMEMORY:-512mb}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: mercato-meilisearch
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: development
+      MEILI_MASTER_KEY: ${MEILISEARCH_MASTER_KEY:-meilisearch-dev-key}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - meilisearch_data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.1
+    container_name: mercato-keycloak
+    restart: unless-stopped
+    # SSO development against a local IdP — opt in with `--profile sso`.
+    profiles:
+      - sso
+    command: start-dev
+    environment:
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080; echo -e 'GET /health/ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3; cat <&3 | grep -q '200'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - mercato-network
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: mercato-localstack
+    restart: unless-stopped
+    profiles:
+      - storage-s3
+    ports:
+      - "${LOCALSTACK_PORT:-4566}:4566"
+    environment:
+      SERVICES: s3
+      AWS_DEFAULT_REGION: us-east-1
+      LOCALSTACK_HOST: localhost
+    volumes:
+      - localstack_data:/var/lib/localstack
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - mercato-network
+
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: mercato-verdaccio
+    restart: unless-stopped
+    # Only needed for standalone-app/package publishing workflows — opt in with
+    # `--profile registry` (it is not part of the default dev loop).
+    profiles:
+      - registry
+    environment:
+      VERDACCIO_PORT: 4873
+      VERDACCIO_PUBLIC_URL: http://localhost:4873
+    ports:
+      - "${VERDACCIO_PORT:-4873}:4873"
+    volumes:
+      - verdaccio_storage:/verdaccio/storage
+      - verdaccio_plugins:/verdaccio/plugins
+      - ./config/verdaccio/config.yaml:/verdaccio/conf/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:4873/-/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - mercato-network
+
+volumes:
+  postgres_data:
+    name: mercato-postgres-data
+  redis_data:
+    name: mercato-redis-data
+  meilisearch_data:
+    name: mercato-meilisearch-data
+  localstack_data:
+    name: mercato-localstack-data
+  verdaccio_storage:
+    name: mercato-verdaccio-storage
+  verdaccio_plugins:
+    name: mercato-verdaccio-plugins
+
+networks:
+  mercato-network:
+    name: mercato-network
+    driver: bridge

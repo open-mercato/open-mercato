@@ -7944,6 +7944,14 @@ __metadata:
   languageName: unknown
   linkType: soft
 
+"@open-mercato/starter@workspace:packages/starter":
+  version: 0.0.0-use.local
+  resolution: "@open-mercato/starter@workspace:packages/starter"
+  bin:
+    om-start: ./bin/om-start.mjs
+  languageName: unknown
+  linkType: soft
+
 "@open-mercato/storage-s3@workspace:packages/storage-s3":
   version: 0.0.0-use.local
   resolution: "@open-mercato/storage-s3@workspace:packages/storage-s3"

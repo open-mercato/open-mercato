@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, X, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
+import { Check, X, MinusCircle, ChevronRight, Target, Timer, Hash, Coins, Wrench, Play, Flag, Cpu, Plus, RotateCcw, Workflow, ShieldAlert, ShieldCheck, Inbox, ClipboardCheck } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Popover, PopoverTrigger, PopoverContent } from '@open-mercato/ui/primitives/popover'
@@ -802,8 +802,13 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
         ) : (
           (() => {
             const run = detail.run
-            const evalTotal = detail.evalResults.length
-            const evalPass = detail.evalResults.filter((result) => result.passed).length
+            // Skipped results (passed === null) are excluded from BOTH sides of the
+            // ratio: counting them in the denominator would report "3 of 5 passed"
+            // for a run where two assertions never applied.
+            const evalApplied = detail.evalResults.filter((result) => result.passed !== null)
+            const evalTotal = evalApplied.length
+            const evalPass = evalApplied.filter((result) => result.passed === true).length
+            const evalSkipped = detail.evalResults.length - evalTotal
             const allPassed = evalTotal > 0 && evalPass === evalTotal
             const tokensTotal =
               run.inputTokens != null || run.outputTokens != null
@@ -1064,7 +1069,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
 
                 {/* Eval assertions — the trust verdict */}
                 <InspectorCard title={t('agent_orchestrator.traces.detail.evalResults')}>
-                      {evalTotal === 0 ? (
+                      {detail.evalResults.length === 0 ? (
                         <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
                           <EmptyArt className="size-28 text-muted-foreground" />
                           <p className="text-sm text-muted-foreground">
@@ -1073,6 +1078,16 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                         </div>
                       ) : (
                         <div className="space-y-3">
+                          {evalTotal === 0 ? (
+                            // Every assertion skipped — neither a pass nor a fail.
+                            <div className="flex items-center gap-3 rounded-lg border border-border bg-muted px-3 py-2.5">
+                              <span className="text-sm text-muted-foreground">
+                                {t('agent_orchestrator.traces.detail.evalAllSkipped', undefined, {
+                                  skipped: evalSkipped,
+                                })}
+                              </span>
+                            </div>
+                          ) : (
                           <div
                             className={`flex items-center gap-3 rounded-lg border px-3 py-2.5 ${allPassed ? 'border-status-success-border bg-status-success-bg' : 'border-status-error-border bg-status-error-bg'}`}
                           >
@@ -1091,16 +1106,35 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                                     total: evalTotal,
                                   })}
                             </span>
+                            {evalSkipped > 0 ? (
+                              <span className="ml-auto text-xs text-muted-foreground">
+                                {t('agent_orchestrator.traces.detail.evalSkippedCount', undefined, {
+                                  skipped: evalSkipped,
+                                })}
+                              </span>
+                            ) : null}
                           </div>
+                          )}
                           <ul className="space-y-1.5">
                             {detail.evalResults.map((result) => (
                               <li key={result.id} className="flex items-center gap-2">
-                                {result.passed ? (
+                                {result.passed === null ? (
+                                  <MinusCircle
+                                    className="size-4 shrink-0 text-muted-foreground"
+                                    aria-label={t('agent_orchestrator.traces.detail.evalSkipped')}
+                                  />
+                                ) : result.passed ? (
                                   <Check className="size-4 shrink-0 text-status-success-text" />
                                 ) : (
                                   <X className="size-4 shrink-0 text-status-error-text" />
                                 )}
-                                <span className="truncate font-mono text-xs text-foreground">
+                                <span
+                                  className={
+                                    result.passed === null
+                                      ? 'truncate font-mono text-xs text-muted-foreground'
+                                      : 'truncate font-mono text-xs text-foreground'
+                                  }
+                                >
                                   {result.assertionKey}
                                 </span>
                               </li>

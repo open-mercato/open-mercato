@@ -1,0 +1,27 @@
+{
+  "name": "@open-mercato/starter",
+  "version": "0.6.5",
+  "description": "One-command, cross-platform bootstrap for Open Mercato dev environments: prerequisite doctor, corporate TLS trust, idempotent setup steps, and a supervised hybrid or fully containerized stack.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "om-start": "./bin/om-start.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "platform",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "test": "echo \"tested from the repo root jest suite\" && exit 0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/open-mercato/open-mercato",
+    "directory": "packages/starter"
+  }
+}

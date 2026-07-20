@@ -9,7 +9,7 @@ This file extends the shared `om-code-review` skill from [open-mercato/skills](h
 
 ## Step 0 — Decide where to run the gate (execute ONCE before any gate command)
 
-Before running any `validation.commands` gate, pick the runner (Docker vs local) using the probe order documented in root `AGENTS.md` § Validation Commands — probe candidates with `docker compose -f <file> ps --status running -q app`, honor `DOCKER_COMPOSE_FILE` first, and in Docker mode map each `yarn X` to `node scripts/docker-exec.mjs X`. Record the chosen runner in the review output (e.g. `Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`). Never silently fall through to the production compose profile on a parse error — log and try the next candidate.
+Before running any `validation.commands` gate, pick the runner (Docker vs local) using the probe order documented in root `AGENTS.md` § Validation Commands — honor `DOCKER_COMPOSE_FILE` first, then probe `starters/docker/compose.*dev*.local.yml` (sorted), legacy root `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`, `starters/docker/compose.fullapp.yml` with `docker compose --project-directory . -f <file> ps --status running -q app`, and in Docker mode map each `yarn X` to `node scripts/docker-exec.mjs X`. Record the chosen runner in the review output (e.g. `Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`). Never silently fall through to the production compose profile on a parse error — log and try the next candidate.
 
 The same Step 0 applies wherever the validation gate runs (`om-check-and-commit`, `om-auto-create-pr`, `om-implement-spec`, `om-smart-test`).
 

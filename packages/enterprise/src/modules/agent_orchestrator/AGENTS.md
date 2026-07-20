@@ -19,7 +19,7 @@ See `.ai/specs/2026-06-22-opencode-file-defined-agents.md` (+ `-phase0-findings.
 4. **MUST gate disposition inline** — after `agentRuntime.run()`, `DispositionService` decides: `confidence ≥ threshold` → audited `auto_approved`; otherwise raise a `workflows` `USER_TASK`, park at `WAIT_FOR_SIGNAL`, and resume on `agent_orchestrator.proposal.ready`. Fail closed: missing/null confidence is treated as below threshold.
 5. **MUST keep the two propose-only gates intact for file agents** — (1) the generated OpenCode agent file's read-only `tools` allowlist + `permission` deny block, and (2) the per-run session-token ACL re-checked on every MCP call. `loadFileAgents` rejects any agent declaring an `isMutation:true` tool. Never weaken either gate.
 6. **MUST keep OUTCOME schemas in the supported JSON-Schema subset** — `object`/`array`/`string`/`number`/`integer`/`boolean`/`nullable`/`const` only. Unsupported keywords (`oneOf`/`anyOf`/`$ref`/`format`/…) fail generation loudly (`lib/sdk/outcomeSchema.ts` compiles to Zod).
-7. **MUST run `yarn generate` after editing any `agents/<id>/` file** — it re-emits the committed manifest (`generated/file-agents.generated.ts`) and the container artifacts under `docker/opencode/{agents,skills}/`. Then **restart OpenCode** (`docker compose up -d opencode`) — hot-reload is not guaranteed.
+7. **MUST run `yarn generate` after editing any `agents/<id>/` file** — it re-emits the committed manifest (`generated/file-agents.generated.ts`) and the container artifacts under `docker/opencode/{agents,skills}/`. Then **restart OpenCode** (`docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode`) — hot-reload is not guaranteed.
 8. **MUST scope every query by `tenantId` + `organizationId`** — runs, proposals, traces, evals, guardrail checks, context bundles, and principals are all tenant-scoped; never expose cross-tenant rows.
 9. **MUST treat trace/eval/guardrail/context rows as append-only** — `AgentSpan`, `AgentToolCall`, `AgentEvalResult`, `AgentGuardrailCheck`, `AgentContextBundle` (and `AgentRun` once terminal) are immutable audit records; they omit `updated_at`/`deleted_at`. Insert new rows, never mutate.
 10. **MUST reuse `agent_orchestrator.agents.run`** for new file-agent MCP tools' `requiredFeatures` — do not add new ACL features for the file-agent path. **Exception — network egress:** the `web_search`/`web_fetch` tools gate on a dedicated default-off `agent_orchestrator.web_search` feature (spec 2026-07-11-agent-web-search-tool) so web access is an explicit, separately-grantable capability. Any *new* egress/side-effecting tool should follow that precedent (dedicated default-off feature), not reuse `agents.run`.
@@ -66,7 +66,7 @@ Read-only web access for agents (spec `.ai/specs/enterprise/2026-07-11-agent-web
 yarn workspace @open-mercato/enterprise test src/modules/agent_orchestrator
 yarn workspace @open-mercato/enterprise typecheck
 yarn workspace @open-mercato/cli test src/lib/generators/extensions/agent-files
-yarn generate   # then, for file agents: docker compose up -d opencode
+yarn generate   # then, for file agents: docker compose --project-directory . -f starters/docker/compose.infra.yml up -d opencode
 ```
 
 ## Data Model Constraints

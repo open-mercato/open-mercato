@@ -118,6 +118,14 @@ const disposeProposalCommand: CommandHandler<DisposeProposalCommandInput, Dispos
       throw new CrudHttpError(404, { error: '[internal] proposal not found' })
     }
 
+    // An eval replay's proposal is a RECORD of what the agent proposed, never work
+    // to execute — an `approved` verdict here would run the payload for real. The
+    // caseload list already hides them, but a list filter is not enforcement: the
+    // id is reachable from the trace inspector, which renders a run's proposals.
+    if (proposal.source === 'eval') {
+      throw new CrudHttpError(422, { error: '[internal] eval-replay proposals cannot be disposed' })
+    }
+
     // Capture the agent's ORIGINAL proposal payload before an `edited` verdict
     // overwrites it, so the correction flywheel records what the agent proposed.
     const originalProposalPayload = proposal.payload

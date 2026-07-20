@@ -20,6 +20,34 @@ json_escape() {
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-/home/opencode/.config/opencode}"
 CONFIG_FILE="${CONFIG_DIR}/opencode.jsonc"
 
+# Corporate TLS trust for PULLED images: locally built images bake certs from
+# docker/opencode/certs into the system store, but the published Docker Hub
+# image cannot. The starter mounts that same dir read-only (OM_EXTRA_CA_DIR,
+# default /run/om-certs); assemble system bundle + extras and export it for
+# curl (SSL_CERT_FILE — must include the system bundle, it REPLACES the
+# default) and the opencode runtime (NODE_EXTRA_CA_CERTS). This runs as a
+# non-root user, so mutating the system store is not an option here. No-op
+# when the mount is absent or empty.
+OM_EXTRA_CA_DIR="${OM_EXTRA_CA_DIR:-/run/om-certs}"
+if [ -d "$OM_EXTRA_CA_DIR" ]; then
+  om_ca_bundle="/tmp/om-ca-bundle.pem"
+  om_ca_found=0
+  for om_cert in "$OM_EXTRA_CA_DIR"/*.crt "$OM_EXTRA_CA_DIR"/*.pem; do
+    [ -f "$om_cert" ] || continue
+    if [ "$om_ca_found" -eq 0 ]; then
+      cat /etc/ssl/certs/ca-certificates.crt > "$om_ca_bundle" 2>/dev/null || : > "$om_ca_bundle"
+      om_ca_found=1
+    fi
+    cat "$om_cert" >> "$om_ca_bundle"
+    echo "" >> "$om_ca_bundle"
+  done
+  if [ "$om_ca_found" -eq 1 ]; then
+    export SSL_CERT_FILE="$om_ca_bundle"
+    export NODE_EXTRA_CA_CERTS="$om_ca_bundle"
+    echo "[OpenCode] Corporate CA bundle assembled from ${OM_EXTRA_CA_DIR} (SSL_CERT_FILE + NODE_EXTRA_CA_CERTS)."
+  fi
+fi
+
 # Default values — OM_AI_* wins, OPENCODE_* is the BC fallback, defaults
 # target OpenAI + gpt-5-mini.
 PROVIDER="${OM_AI_PROVIDER:-${OPENCODE_PROVIDER:-openai}}"

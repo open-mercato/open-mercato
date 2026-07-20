@@ -163,6 +163,7 @@ export class OpenCodeAgentRunner {
     const session = await this.client.createSession()
 
     const runId = await createRun(this.commandBus, commandCtx, {
+      source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       agentId,
@@ -334,6 +335,7 @@ export class OpenCodeAgentRunner {
 
       if (result.kind === 'actionable') {
         await createProposal(this.commandBus, commandCtx, {
+          source: ctx.source,
           tenantId: ctx.tenantId,
           organizationId: ctx.organizationId,
           agentId,

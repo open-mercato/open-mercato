@@ -39,9 +39,12 @@ export async function computeAgentMetrics(
   const { agentId, since } = options
   const createdAt = options.until ? { $gte: since, $lt: options.until } : { $gte: since }
 
+  // Eval replays write real AgentRun rows with real latency and cost. Counting
+  // them here would let a 500-case suite skew the very dashboards used to judge
+  // the agent, so production metrics measure production traffic only.
   const runs = await em.find(
     AgentRun,
-    { ...scope, agentId, createdAt, deletedAt: null },
+    { ...scope, agentId, createdAt, deletedAt: null, source: 'runtime' },
     { orderBy: { createdAt: 'desc' } },
   )
 
@@ -115,7 +118,7 @@ export async function writeRollupsForOrg(em: EntityManager, scope: MetricScope):
 
   const runs = await em.find(
     AgentRun,
-    { ...scope, deletedAt: null },
+    { ...scope, deletedAt: null, source: 'runtime' },
     { fields: ['agentId'], orderBy: { agentId: 'asc' } },
   )
   const agentIds = Array.from(new Set(runs.map((run) => run.agentId)))

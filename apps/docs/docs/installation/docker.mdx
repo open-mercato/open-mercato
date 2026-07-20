@@ -16,7 +16,7 @@ This setup works on any OS. On **Windows**, it is slower than the [native monore
 - **Docker Desktop** — [Windows](https://docs.docker.com/desktop/setup/install/windows-install/) · [macOS](https://docs.docker.com/desktop/setup/install/mac-install/) · [Linux](https://docs.docker.com/desktop/setup/install/linux/)
 - Docker Compose v2+ (bundled with Docker Desktop)
 - **Git** — [Windows](https://git-scm.com/download/win) · macOS: `xcode-select --install` · Linux: `sudo apt install git`
-- At least **4 GB RAM** allocated to Docker for the infra-only compose (`docker-compose.yml`: databases + search, app on the host). Running the **full containerized stack** (`docker-compose.fullapp.dev.yml`: app + MCP + OpenCode + Keycloak + infra) needs **12 GB machine RAM minimum, 16 GB recommended** — on Windows the one-command launcher sizes the WSL2 VM for you (see the [Windows setup](./monorepo#windows-one-command))
+- At least **4 GB RAM** allocated to Docker for the infra-only compose (`starters/docker/compose.infra.yml`: databases + search, app on the host). Running the **full containerized stack** (`starters/docker/compose.fullapp.dev.yml`: app + MCP + OpenCode + Keycloak + infra) needs **12 GB machine RAM minimum, 16 GB recommended** — on Windows the one-command launcher sizes the WSL2 VM for you (see the [Windows setup](./monorepo#windows-one-command))
 
 :::info Windows-specific
 - Enable the **WSL 2 backend** in Docker Desktop (Settings → General → "Use the WSL 2 based engine").
@@ -39,7 +39,7 @@ git checkout develop
 cp apps/mercato/.env.example apps/mercato/.env
 
 # Build and start the full dev stack
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 The first run takes several minutes — Docker builds the image, installs dependencies, builds packages, applies migrations, and seeds demo data. Subsequent starts are much faster because initialisation is cached in a named volume.
@@ -55,7 +55,7 @@ Sign in with the default credentials printed during initialisation (typically `a
 
 ## How it works
 
-The `docker-compose.fullapp.dev.yml` stack runs five services:
+The `starters/docker/compose.fullapp.dev.yml` stack runs five services:
 
 | Service | Image | Purpose |
 |---------|-------|---------|
@@ -77,23 +77,23 @@ The `app` container:
 
 ```bash
 # Start in detached mode (background)
-docker compose -f docker-compose.fullapp.dev.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up -d
 
 # View logs — all services
-docker compose -f docker-compose.fullapp.dev.yml logs -f
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f
 
 # View logs — app only
-docker compose -f docker-compose.fullapp.dev.yml logs -f app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml logs -f app
 
 # Rebuild after pulling new commits
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 
 # Stop all services
-docker compose -f docker-compose.fullapp.dev.yml down
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down
 
 # Full reset — deletes all data and cached builds
-docker compose -f docker-compose.fullapp.dev.yml down -v
-docker compose -f docker-compose.fullapp.dev.yml up --build
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up --build
 ```
 
 ---
@@ -161,19 +161,19 @@ Vector auto-indexing is disabled by default in `apps/mercato/.env.example`. To e
 **File changes not detected:**
 The compose file sets polling by default. If changes are still not picked up:
 ```bash
-docker compose -f docker-compose.fullapp.dev.yml restart app
+docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml restart app
 ```
 
 **Port conflicts:**
 ```bash
 # Change app port
-APP_PORT=3001 docker compose -f docker-compose.fullapp.dev.yml up
+APP_PORT=3001 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 
 # Change splash port
-OM_DEV_SPLASH_PORT=4100 docker compose -f docker-compose.fullapp.dev.yml up
+OM_DEV_SPLASH_PORT=4100 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 
 # Change Postgres port (when localhost:5432 is occupied)
-POSTGRES_PORT=55432 docker compose -f docker-compose.fullapp.dev.yml up
+POSTGRES_PORT=55432 docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml up
 # And update DATABASE_URL in .env to match
 ```
 

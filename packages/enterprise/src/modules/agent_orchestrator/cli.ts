@@ -12,6 +12,7 @@ import {
   type AgentSpanKind,
 } from './data/entities'
 import { recomputeAgentProcess } from './lib/processes/agentProcessProjection'
+import { runEvalGate } from './lib/eval/evalGate'
 
 function parseArgs(args: string[]): Record<string, string> {
   const result: Record<string, string> = {}
@@ -523,6 +524,91 @@ const seedDemo: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo]
+/**
+ * Regression gate over an agent's approved eval cases.
+ *
+ *   yarn mercato agent_orchestrator eval --agent <agentId> --tenant <id> --org <id> \
+ *     [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] \
+ *     [--repeat <n>] [--gate true]
+ *
+ * A thin wrapper over the SAME library the workbench uses — one scorer registry,
+ * one replay engine, no second implementation to drift. With `--gate true` the
+ * process exits non-zero on a failed outcome so CI blocks; without it the result
+ * is printed and the exit code stays 0 (report-only).
+ *
+ * Note that a run without `--eval-set-version` is reported as ADVISORY: with no
+ * pinned dataset the verdict is not reproducible, so it must not read as a gate
+ * result — and `--gate true` on an advisory run is refused rather than silently
+ * passing.
+ */
+const evalGate: ModuleCli = {
+  command: 'eval',
+  async run(rest: string[]) {
+    const args = parseArgs(rest)
+    const agentDefinitionId = args.agent
+    const tenantId = args.tenant
+    const organizationId = args.org
+
+    if (!agentDefinitionId || !tenantId || !organizationId) {
+      console.error('Usage: mercato agent_orchestrator eval --agent <agentId> --tenant <tenantId> --org <organizationId> [--release <id>] [--eval-set-version <v>] [--baseline <suiteRunId>] [--repeat <n>] [--gate true]')
+      process.exitCode = 2
+      return
+    }
+
+    const gate = args.gate === 'true'
+    const repeatCount = args.repeat ? Number.parseInt(args.repeat, 10) : 1
+    if (!Number.isFinite(repeatCount) || repeatCount < 1) {
+      console.error('--repeat must be a positive integer')
+      process.exitCode = 2
+      return
+    }
+
+    const container = await createRequestContainer()
+    let result: Awaited<ReturnType<typeof runEvalGate>>
+    try {
+      result = await runEvalGate(container, {
+        agentDefinitionId,
+        releaseId: args.release ?? null,
+        evalSetVersion: args['eval-set-version'] ?? null,
+        baselineSuiteRunId: args.baseline ?? null,
+        repeatCount,
+        scope: { tenantId, organizationId },
+        triggeredBy: 'ci',
+      })
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error))
+      // A gate that could not run is NOT a pass.
+      process.exitCode = gate ? 1 : 2
+      return
+    }
+
+    console.log(`Suite run:   ${result.suiteRunId}`)
+    console.log(`Agent:       ${agentDefinitionId}`)
+    console.log(`Case runs:   ${result.caseRunCount}${result.errorCount ? ` (${result.errorCount} errored)` : ''}`)
+    console.log(`Pass score:  ${result.passScore === null ? 'n/a (nothing measurable)' : result.passScore.toFixed(3)}`)
+    console.log(`Baseline:    ${result.baselineSuiteRunId ?? 'none — first run for this agent'}`)
+    console.log(`Outcome:     ${result.outcome.toUpperCase()}`)
+
+    if (result.safetyRegressions.length) {
+      console.log('')
+      console.log('Safety regressions vs baseline (these block promotion):')
+      for (const key of result.safetyRegressions) console.log(`  - ${key}`)
+    }
+
+    if (!gate) return
+
+    if (result.outcome === 'advisory') {
+      console.error('')
+      console.error('Refusing to gate on an advisory run: pass --eval-set-version to pin the dataset, or drop --gate.')
+      process.exitCode = 2
+      return
+    }
+    if (result.outcome === 'failed') {
+      process.exitCode = 1
+    }
+  },
+}
+
+const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate]
 
 export default agentOrchestratorCliCommands

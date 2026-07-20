@@ -3,6 +3,9 @@ import { Entity, Index, PrimaryKey, Property, Unique } from '@mikro-orm/decorato
 
 export type AgentRunStatus = 'running' | 'ok' | 'error' | 'cancelled'
 
+/** Distinguishes production traffic from eval replays across runs and proposals. */
+export type AgentRunSource = 'runtime' | 'eval'
+
 /** Span kinds; OTel GenAI semantic conventions are the naming target for span attributes. */
 export type AgentSpanKind = 'llm' | 'tool' | 'system'
 export type AgentSpanStatus = 'ok' | 'error'
@@ -21,6 +24,7 @@ export type AgentToolCallStatus = 'ok' | 'error'
 })
 export class AgentRun {
   [OptionalProps]?:
+    | 'source'
     | 'status'
     | 'output'
     | 'resultKind'
@@ -63,6 +67,14 @@ export class AgentRun {
 
   @Property({ name: 'agent_id', type: 'varchar', length: 100 })
   agentId!: string
+
+  /**
+   * Where this run came from. `eval` marks a replay: a real run with real spans
+   * and real cost, but one that must NOT skew the agent's production metrics.
+   * Defaults to `runtime`, so every pre-existing row keeps its meaning.
+   */
+  @Property({ name: 'source', type: 'varchar', length: 20, default: 'runtime' })
+  source: AgentRunSource = 'runtime'
 
   /**
    * Parent run that delegated to this one as a sub-agent (Phase 4 nested trace).
@@ -451,6 +463,7 @@ export type AgentEvalSeverity = 'gate' | 'warn'
 @Entity({ tableName: 'agent_eval_assertions' })
 @Index({ name: 'agent_eval_assertions_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_eval_assertions_applies_idx', properties: ['organizationId', 'appliesTo', 'enabled'] })
+@Index({ name: 'agent_eval_assertions_scorer_idx', properties: ['organizationId', 'scorerKey'] })
 @Unique({ name: 'agent_eval_assertions_key_uq', properties: ['organizationId', 'appliesTo', 'key'] })
 export class AgentEvalAssertion {
   [OptionalProps]?:
@@ -465,8 +478,22 @@ export class AgentEvalAssertion {
   @Property({ name: 'organization_id', type: 'uuid' })
   organizationId!: string
 
+  /**
+   * Instance slug — unique per (organization, appliesTo). NOT the scorer identity:
+   * `agent_eval_assertions_key_uq` allows one row per key, so overloading it with
+   * the scorer identity capped the catalog at one assertion per scorer per agent
+   * (e.g. two `contains` checks were unrepresentable). See `scorerKey`.
+   */
   @Property({ name: 'key', type: 'varchar', length: 100 })
   key!: string
+
+  /**
+   * Which registry scorer runs — see `lib/eval/registry`. Backfilled from
+   * `COALESCE(config->>'scorer', key)`, which reproduces the pre-column resolution
+   * rule exactly, so existing rows keep their behaviour.
+   */
+  @Property({ name: 'scorer_key', type: 'varchar', length: 100 })
+  scorerKey!: string
 
   @Property({ name: 'title', type: 'varchar', length: 200 })
   title!: string
@@ -512,8 +539,9 @@ export class AgentEvalAssertion {
 @Index({ name: 'agent_eval_results_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_eval_results_run_idx', properties: ['agentRunId'] })
 @Index({ name: 'agent_eval_results_assertion_idx', properties: ['assertionId'] })
+@Index({ name: 'agent_eval_results_case_run_idx', properties: ['evalCaseRunId'] })
 export class AgentEvalResult {
-  [OptionalProps]?: 'score' | 'evidence' | 'evaluatedAt' | 'createdAt'
+  [OptionalProps]?: 'evalCaseRunId' | 'passed' | 'score' | 'evidence' | 'evaluatedAt' | 'createdAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
   id!: string
@@ -535,8 +563,23 @@ export class AgentEvalResult {
   @Property({ name: 'assertion_key', type: 'varchar', length: 100 })
   assertionKey!: string
 
-  @Property({ name: 'passed', type: 'boolean' })
-  passed!: boolean
+  /**
+   * FK id → agent_eval_case_runs. Null for a result produced by the ONLINE plane
+   * (inline at trace ingest, where there is no eval case); set for a result from
+   * the eval plane. Nullable keeps every pre-existing row valid.
+   */
+  @Property({ name: 'eval_case_run_id', type: 'uuid', nullable: true })
+  evalCaseRunId?: string | null
+
+  /**
+   * `null` means SKIPPED and is the single source of truth for it — there is no
+   * separate flag. Skipped results are excluded from score AND pass aggregation
+   * alike: never counted as 0, never counted as failing.
+   *
+   * Invariant: `score === null` ⟺ `passed === null`.
+   */
+  @Property({ name: 'passed', type: 'boolean', nullable: true })
+  passed?: boolean | null
 
   @Property({ name: 'score', type: 'float', nullable: true })
   score?: number | null
@@ -919,12 +962,14 @@ export class AgentDelegationGrant {
 export type AgentProposalDisposition =
   | 'pending' | 'auto_approved' | 'approved' | 'edited' | 'rejected'
 
+export type AgentProposalSource = 'runtime' | 'eval'
+
 @Entity({ tableName: 'agent_proposals' })
 @Index({ name: 'agent_proposals_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
 @Index({ name: 'agent_proposals_run_idx', properties: ['organizationId', 'runId'] })
 @Index({ name: 'agent_proposals_org_disposition_created_idx', properties: ['organizationId', 'disposition', 'createdAt'] })
 export class AgentProposal {
-  [OptionalProps]?: 'disposition' | 'dispositionBy' | 'dispositionReason'
+  [OptionalProps]?: 'source' | 'disposition' | 'dispositionBy' | 'dispositionReason'
     | 'processId' | 'stepId' | 'confidence' | 'guardResults' | 'createdAt' | 'updatedAt' | 'deletedAt'
 
   @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
@@ -961,6 +1006,15 @@ export class AgentProposal {
    */
   @Property({ name: 'guard_results', type: 'jsonb', nullable: true })
   guardResults?: unknown | null
+
+  /**
+   * Where this proposal came from. `eval` marks a proposal produced by an eval
+   * replay: it is a real record of what the agent proposed, but it must never
+   * reach the operator caseload and must never be disposed. Defaults to `runtime`
+   * so every pre-existing row keeps its current meaning.
+   */
+  @Property({ name: 'source', type: 'varchar', length: 20, default: 'runtime' })
+  source: AgentProposalSource = 'runtime'
 
   @Property({ name: 'disposition', type: 'varchar', length: 20, default: 'pending' })
   disposition: AgentProposalDisposition = 'pending'
@@ -1578,4 +1632,175 @@ export class AgentRunArtifact {
 
   @Property({ name: 'deleted_at', type: Date, nullable: true })
   deletedAt?: Date | null
+}
+
+// ── Eval plane: suite runs and case runs ────────────────────────────────────
+
+export type EvalSuiteTrigger = 'manual' | 'ci' | 'scheduled'
+export type EvalSuiteStatus = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled'
+export type EvalSuiteOutcome = 'passed' | 'failed' | 'advisory'
+
+/**
+ * One execution of an evaluation over a set of cases. Append-only (no
+ * `updated_at`/`deleted_at`) and retained >=6 years: gate-run summaries are legal
+ * records, not CI-log ephemera.
+ *
+ * `releaseId` is nullable so ONE entity serves both planes — an ad-hoc workbench
+ * run has no release and pins no dataset snapshot, while a CI gate run has both.
+ * Other modules referenced by FK id only.
+ */
+@Entity({ tableName: 'agent_eval_suite_runs' })
+@Index({ name: 'agent_eval_suite_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_eval_suite_runs_agent_idx', properties: ['organizationId', 'agentDefinitionId', 'createdAt'] })
+@Index({ name: 'agent_eval_suite_runs_release_idx', properties: ['releaseId', 'createdAt'] })
+export class AgentEvalSuiteRun {
+  [OptionalProps]?:
+    | 'releaseId' | 'outcome' | 'evalSetVersion' | 'passScore' | 'scoreVariance'
+    | 'safetyRegressions' | 'baselineSuiteRunId' | 'summary' | 'triggeredBy'
+    | 'startedAt' | 'finishedAt' | 'errorCount' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** The subject under test — the only field both planes always have. */
+  @Property({ name: 'agent_definition_id', type: 'varchar', length: 100 })
+  agentDefinitionId!: string
+
+  /** FK id -> agent_releases (lifecycle spec). Null for ad-hoc workbench runs. */
+  @Property({ name: 'release_id', type: 'uuid', nullable: true })
+  releaseId?: string | null
+
+  @Property({ name: 'trigger', type: 'varchar', length: 20 })
+  trigger!: EvalSuiteTrigger
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'queued' })
+  status: EvalSuiteStatus = 'queued'
+
+  @Property({ name: 'outcome', type: 'varchar', length: 12, nullable: true })
+  outcome?: EvalSuiteOutcome | null
+
+  /** Records the gate policy in force, so a stored result is self-describing. */
+  @Property({ name: 'judge_may_gate', type: 'boolean' })
+  judgeMayGate!: boolean
+
+  @Property({ name: 'repeat_count', type: 'integer', default: 1 })
+  repeatCount: number = 1
+
+  @Property({ name: 'case_count', type: 'integer' })
+  caseCount!: number
+
+  /** Errored != failed: excluded from passScore and reported separately. */
+  @Property({ name: 'error_count', type: 'integer', default: 0 })
+  errorCount: number = 0
+
+  /** Pinned dataset snapshot; null for ad-hoc runs. */
+  @Property({ name: 'eval_set_version', type: 'varchar', length: 100, nullable: true })
+  evalSetVersion?: string | null
+
+  /** Mean over non-errored, non-skipped case runs. Null when nothing was measurable. */
+  @Property({ name: 'pass_score', type: 'float', nullable: true })
+  passScore?: number | null
+
+  /** Null when repeatCount = 1 — variance is only meaningful across trials. */
+  @Property({ name: 'score_variance', type: 'float', nullable: true })
+  scoreVariance?: number | null
+
+  /** Assertion keys that regressed vs the baseline; non-empty => the caller blocks. */
+  @Property({ name: 'safety_regressions', type: 'jsonb', nullable: true })
+  safetyRegressions?: unknown | null
+
+  @Property({ name: 'baseline_suite_run_id', type: 'uuid', nullable: true })
+  baselineSuiteRunId?: string | null
+
+  /** Per-assertion pass/fail plus judge counts. Encrypted: may quote agent output. */
+  @Property({ name: 'summary', type: 'jsonb', nullable: true })
+  summary?: unknown | null
+
+  /** `'ci'` or the invoking userId. */
+  @Property({ name: 'triggered_by', type: 'varchar', length: 100, nullable: true })
+  triggeredBy?: string | null
+
+  @Property({ name: 'started_at', type: Date, nullable: true })
+  startedAt?: Date | null
+
+  @Property({ name: 'finished_at', type: Date, nullable: true })
+  finishedAt?: Date | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+}
+
+export type EvalCaseRunStatus = 'pending' | 'running' | 'passed' | 'failed' | 'error' | 'skipped'
+
+/**
+ * One case, executed once, inside a suite run. Append-only.
+ *
+ * `agentRunId` is the load-bearing link: every case run points at a REAL AgentRun
+ * with real spans, tool calls, tokens and cost, so the existing trace inspector
+ * works on eval runs with no new UI. It is null only when the run never started
+ * (admission refused, agent unresolved), and such a case run produces no
+ * AgentEvalResult rows — which is why AgentEvalResult.agent_run_id stays NOT NULL.
+ */
+@Entity({ tableName: 'agent_eval_case_runs' })
+@Index({ name: 'agent_eval_case_runs_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_eval_case_runs_suite_idx', properties: ['suiteRunId', 'createdAt'] })
+@Index({ name: 'agent_eval_case_runs_case_idx', properties: ['evalCaseId', 'createdAt'] })
+export class AgentEvalCaseRun {
+  [OptionalProps]?:
+    | 'agentRunId' | 'trialIndex' | 'status' | 'score' | 'passed'
+    | 'latencyMs' | 'costMinor' | 'errorMessage' | 'createdAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id -> agent_eval_suite_runs. */
+  @Property({ name: 'suite_run_id', type: 'uuid' })
+  suiteRunId!: string
+
+  /** FK id -> agent_eval_cases. */
+  @Property({ name: 'eval_case_id', type: 'uuid' })
+  evalCaseId!: string
+
+  /** FK id -> agent_runs. Null when the run never started. */
+  @Property({ name: 'agent_run_id', type: 'uuid', nullable: true })
+  agentRunId?: string | null
+
+  /** 0-based trial index when the suite runs each case more than once. */
+  @Property({ name: 'trial_index', type: 'integer', default: 0 })
+  trialIndex: number = 0
+
+  @Property({ name: 'status', type: 'varchar', length: 20, default: 'pending' })
+  status: EvalCaseRunStatus = 'pending'
+
+  @Property({ name: 'score', type: 'float', nullable: true })
+  score?: number | null
+
+  /** Null means SKIPPED — excluded from both score and pass aggregation. */
+  @Property({ name: 'passed', type: 'boolean', nullable: true })
+  passed?: boolean | null
+
+  @Property({ name: 'latency_ms', type: 'integer', nullable: true })
+  latencyMs?: number | null
+
+  @Property({ name: 'cost_minor', type: 'integer', nullable: true })
+  costMinor?: number | null
+
+  /** Encrypted: a failure message can quote model output. */
+  @Property({ name: 'error_message', type: 'text', nullable: true })
+  errorMessage?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
 }

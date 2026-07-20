@@ -2,7 +2,10 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { AgentEvalAssertion, type AgentEvalAssertionType, type AgentEvalSeverity } from '../../data/entities'
 
 type DefaultAssertion = {
+  /** Instance slug — unique per (org, appliesTo). Kept stable across the registry migration. */
   key: string
+  /** Registry scorer that runs. Differs from `key` wherever the slug was never a scorer name. */
+  scorerKey: string
   title: string
   description: string
   type: AgentEvalAssertionType
@@ -21,6 +24,7 @@ type DefaultAssertion = {
 const DEFAULT_ASSERTIONS: DefaultAssertion[] = [
   {
     key: 'output_present',
+    scorerKey: 'output_present',
     title: 'Output present',
     description: 'The run produced a non-empty output.',
     type: 'deterministic',
@@ -29,6 +33,7 @@ const DEFAULT_ASSERTIONS: DefaultAssertion[] = [
   },
   {
     key: 'min_confidence',
+    scorerKey: 'confidence_threshold',
     title: 'Minimum confidence',
     description: 'Run confidence is at or above the configured threshold.',
     type: 'deterministic',
@@ -37,6 +42,7 @@ const DEFAULT_ASSERTIONS: DefaultAssertion[] = [
   },
   {
     key: 'no_pii',
+    scorerKey: 'no_pii',
     title: 'No PII in output',
     description: 'No PII-shaped substring detected in the run output.',
     type: 'deterministic',
@@ -49,6 +55,7 @@ const DEFAULT_ASSERTIONS: DefaultAssertion[] = [
   // `runLlmJudgeForRun` (`rubricFor`). Always `warn` — the judge never blocks.
   {
     key: 'llm_judge_helpfulness',
+    scorerKey: 'llm_judge',
     title: 'LLM judge — helpfulness',
     description: 'A sampled model judge scores how helpful, complete, and on-task the agent output is.',
     type: 'llm_judge',
@@ -80,6 +87,7 @@ export async function seedDefaultEvalAssertions(
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
         key: def.key,
+        scorerKey: def.scorerKey,
         title: def.title,
         description: def.description,
         appliesTo: '*',

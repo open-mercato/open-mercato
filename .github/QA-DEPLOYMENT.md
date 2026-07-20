@@ -48,6 +48,7 @@ The URL is posted as a comment on the PR once the environment is ready.
 
 - Preview environments use a fresh database seeded with demo data, identical to slot-based deployments.
 - Only PRs from the main repository qualify — forks do not trigger preview deployments. Use a slot-based deployment instead (see below).
+- The preview compose file moved to `starters/docker/compose.preview.yml` (previously the repo-root `docker-compose.preview.yaml`) — the Dokploy application configuration must be updated to point at the new path when this change merges.
 
 ---
 
@@ -165,7 +166,7 @@ Any other app-specific secrets your tenant configuration requires can be added h
 ### 2. Build and start
 
 ```bash
-docker compose -f docker-compose.preview.yaml --env-file .env.preview up --build
+docker compose --project-directory . -f starters/docker/compose.preview.yml --env-file .env.preview up --build
 ```
 
 The first run builds the image from scratch — expect **10–30 minutes** before the app is ready. Subsequent runs that skip `--build` reuse the cached image and are faster, but the database always resets.
@@ -181,7 +182,7 @@ http://localhost:5000/backend
 ### 4. Stop and clean up
 
 ```bash
-docker compose -f docker-compose.preview.yaml down
+docker compose --project-directory . -f starters/docker/compose.preview.yml down
 ```
 
 > The container manages its own PostgreSQL instance internally — there are no external volumes to clean up.
