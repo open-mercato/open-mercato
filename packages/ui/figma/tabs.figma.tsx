@@ -10,9 +10,9 @@ figma.connect(Tabs, 'https://www.figma.com/design/qCq9z6q1if0mpoRstV5OEA/Design-
     count: figma.string('Count'),
   },
   example: ({ label, count }) => (
-    <Tabs defaultValue="first">
-      <TabsList variant="underline" aria-label="Sections">
-        <TabsTrigger value="first" variant="underline" count={count}>
+    <Tabs defaultValue="first" variant="underline">
+      <TabsList aria-label="Sections">
+        <TabsTrigger value="first" count={count}>
           {label}
         </TabsTrigger>
       </TabsList>

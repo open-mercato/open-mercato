@@ -228,8 +228,7 @@ export function figmaFor(name, kind) {
   return null
 }
 
-export function resolveRadiusPx(expression) {
-  const basePx = RADIUS_BASE_REM * REM_PX
+export function resolveRadiusPx(expression, basePx = RADIUS_BASE_REM * REM_PX) {
   if (expression === 'var(--radius)') return basePx
   const calcMatch = expression.match(/^calc\(var\(--radius\)\s*([+-])\s*(\d+(?:\.\d+)?)px\)$/)
   if (!calcMatch) return null
@@ -307,6 +306,12 @@ export function buildSnapshot(css) {
     const isThemeScalar = token.value != null && token.light == null
     if (isThemeScalar) {
       if (token.dark != null) token.themeInvariant = false
+      if (token.kind === 'color') {
+        token.hex = {
+          light: colorToHex(token.value),
+          dark: token.dark != null ? colorToHex(token.dark) : colorToHex(token.value),
+        }
+      }
     } else {
       if (token.light == null && token.dark != null) {
         throw new ParseError(`--${name} has a .dark override but no :root value`)
@@ -323,8 +328,16 @@ export function buildSnapshot(css) {
 
     const figma = figmaFor(name, token.kind)
     token.figma = figma
-    if (figma && figma.type === 'COLOR' && token.hex && (token.hex.light == null || token.hex.dark == null)) {
+    if (figma && figma.type === 'COLOR' && (!token.hex || token.hex.light == null || token.hex.dark == null)) {
       token.figma = null
+    }
+  }
+
+  const radiusBasePx = tokens.radius?.resolvedPx ?? RADIUS_BASE_REM * REM_PX
+  for (const token of Object.values(tokens)) {
+    if (token.kind === 'expression') {
+      const resolvedPx = resolveRadiusPx(token.value, radiusBasePx)
+      if (resolvedPx != null) token.resolvedPx = resolvedPx
     }
   }
 
@@ -390,9 +403,10 @@ export function buildFigmaOps(snapshot) {
         Dark: hexToRgba(token.hex.dark),
       }
     } else {
-      const resolved = token.resolvedPx ?? Number(token.value ?? token.light)
-      if (!Number.isFinite(resolved)) continue
-      valuesByMode = { Light: resolved, Dark: resolved }
+      const resolvedLight = token.resolvedPx ?? Number(token.value ?? token.light)
+      if (!Number.isFinite(resolvedLight)) continue
+      const resolvedDark = token.dark != null && Number.isFinite(Number(token.dark)) ? Number(token.dark) : resolvedLight
+      valuesByMode = { Light: resolvedLight, Dark: resolvedDark }
     }
     ops.push({
       collection: FIGMA_COLLECTION,
@@ -486,7 +500,16 @@ export function buildRestPayload(opsPayload, local) {
     )
     const variableId = existing?.id ?? `tmp-${op.name.replace(/[^a-z0-9]+/gi, '-')}`
     if (!existing) {
-      payload.variables.push({ action: 'CREATE', id: variableId, name: op.name, resolvedType: op.resolvedType, variableCollectionId: collectionId })
+      payload.variables.push({
+        action: 'CREATE',
+        id: variableId,
+        name: op.name,
+        resolvedType: op.resolvedType,
+        variableCollectionId: collectionId,
+        codeSyntax: op.codeSyntax,
+      })
+    } else {
+      payload.variables.push({ action: 'UPDATE', id: variableId, codeSyntax: op.codeSyntax })
     }
     payload.variableModeValues.push({ variableId, modeId: lightModeId, value: op.valuesByMode.Light })
     payload.variableModeValues.push({ variableId, modeId: darkModeId, value: op.valuesByMode.Dark })

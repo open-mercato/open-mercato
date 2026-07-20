@@ -238,6 +238,44 @@ test('buildRestPayload upserts by name and deletes variables removed from the sn
   assert.ok(payload.variableModeValues.some((v) => v.variableId === 'v1' && v.modeId === 'm1'))
 })
 
+test('theme-scalar colors get hex and flow into figma ops without crashing', () => {
+  const withThemeColor = FIXTURE.replace(
+    '--z-index-modal-elevated: 55;',
+    '--z-index-modal-elevated: 55;\n  --color-white: #ffffff;',
+  )
+  const snapshot = buildSnapshot(withThemeColor)
+  assert.deepEqual(snapshot.tokens['color-white'].hex, { light: '#ffffff', dark: '#ffffff' })
+  const ops = buildFigmaOps(snapshot).ops
+  const white = ops.find((op) => op.name === 'color-white')
+  assert.deepEqual(white.valuesByMode.Light, { r: 1, g: 1, b: 1, a: 1 })
+})
+
+test('radius expressions resolve against the parsed --radius base, not a constant', () => {
+  const rebased = FIXTURE.replace('--radius: 0.625rem;', '--radius: 0.5rem;')
+  const snapshot = buildSnapshot(rebased)
+  assert.equal(snapshot.tokens.radius.resolvedPx, 8)
+  assert.equal(snapshot.tokens['radius-lg'].resolvedPx, 8)
+  assert.equal(snapshot.tokens['radius-md'].resolvedPx, 6)
+})
+
+test('FLOAT tokens with a .dark override push per-mode values', () => {
+  const darkZ = FIXTURE.replace(
+    '.dark {',
+    '.dark {\n  --z-index-modal-elevated: 60;',
+  )
+  const ops = buildFigmaOps(buildSnapshot(darkZ)).ops
+  const z = ops.find((op) => op.name === 'z/modal-elevated')
+  assert.deepEqual(z.valuesByMode, { Light: 55, Dark: 60 })
+})
+
+test('REST payload carries codeSyntax on creates and updates', () => {
+  const opsPayload = buildFigmaOps(buildSnapshot(FIXTURE))
+  const local = { meta: { variableCollections: {}, variables: {} } }
+  const payload = buildRestPayload(opsPayload, local)
+  const created = payload.variables.find((v) => v.action === 'CREATE' && v.name === 'brand/lime')
+  assert.deepEqual(created.codeSyntax, { WEB: 'var(--brand-lime)' })
+})
+
 test('hexToRgba round-trips 6- and 8-digit hex', () => {
   assert.deepEqual(hexToRgba('#ffffff'), { r: 1, g: 1, b: 1, a: 1 })
   assert.deepEqual(hexToRgba('#00000080'), { r: 0, g: 0, b: 0, a: 0.502 })
