@@ -9,17 +9,17 @@
     "dev:verbose": "node ./scripts/dev.mjs --verbose",
     "dev:reset": "node ./scripts/dev-reset.mjs",
     "build": "cross-env NODE_OPTIONS=--max-old-space-size=8192 next build",
-    "start": "mercato server start",
+    "start": "node ./scripts/mercato-cli.mjs server start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --config jest.config.cjs",
-    "generate": "mercato generate",
-    "db:generate": "mercato db generate",
-    "db:migrate": "mercato db migrate",
-    "db:greenfield": "mercato db greenfield",
-    "initialize": "mercato init",
-    "reinstall": "mercato init --reinstall",
-    "seed:defaults": "mercato seed:defaults"
+    "generate": "node ./scripts/mercato-cli.mjs generate",
+    "db:generate": "node ./scripts/mercato-cli.mjs db generate",
+    "db:migrate": "node ./scripts/mercato-cli.mjs db migrate",
+    "db:greenfield": "node ./scripts/mercato-cli.mjs db greenfield",
+    "initialize": "node ./scripts/mercato-cli.mjs init",
+    "reinstall": "node ./scripts/mercato-cli.mjs init --reinstall",
+    "seed:defaults": "node ./scripts/mercato-cli.mjs seed:defaults"
   },
   "engines": {
     "node": "24.x"
