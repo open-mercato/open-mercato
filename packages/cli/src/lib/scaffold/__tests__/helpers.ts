@@ -5,7 +5,10 @@ import type { PackageResolver, ModuleEntry } from '../../resolver'
 import { runModuleScaffold } from '../index'
 
 export function createTmpRoot(): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-test-'))
+  // realpath: on macOS os.tmpdir() is a /var → /private/var symlink; tools that
+  // realpath their inputs (ESLint base-path checks) would otherwise see every
+  // file as outside the unresolved root.
+  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'scaffold-test-')))
 }
 
 export function createMockResolver(rootDir: string): PackageResolver {

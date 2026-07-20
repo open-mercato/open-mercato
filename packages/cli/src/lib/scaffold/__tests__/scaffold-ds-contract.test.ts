@@ -14,14 +14,15 @@
 import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { FULL_ARGS, createTmpRoot, readTree, runScaffold } from './helpers'
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..', '..')
-const DS_CONFIG = path.join(__dirname, 'fixtures', 'ds-flat-config.mjs')
 
 let tmpDir: string
 let moduleDir: string
 let tree: Map<string, string>
+let dsConfigPath: string
 
 beforeAll(async () => {
   tmpDir = createTmpRoot()
@@ -30,6 +31,25 @@ beforeAll(async () => {
   expect(run.code).toBe(0)
   moduleDir = path.join(tmpDir, 'apps', 'mercato', 'src', 'modules', 'inventory_items')
   tree = readTree(moduleDir)
+  // ESLint's base path with --config is the CONFIG FILE's directory — a config
+  // living in the repo makes every temp-dir file "outside of base path" and
+  // silently unlintable. Write the widened config into the temp root itself,
+  // importing the repo's DS flat config verbatim by absolute file URL.
+  dsConfigPath = path.join(tmpDir, 'ds-flat-config.mjs')
+  const repoConfigUrl = pathToFileURL(path.join(REPO_ROOT, 'eslint.ds.config.mjs')).href
+  fs.writeFileSync(
+    dsConfigPath,
+    [
+      `import baseConfig from ${JSON.stringify(repoConfigUrl)}`,
+      '',
+      'export default baseConfig.map((entry) => ({',
+      '  ...entry,',
+      "  files: ['**/*.ts', '**/*.tsx'],",
+      '  ignores: [],',
+      '}))',
+      '',
+    ].join('\n'),
+  )
 })
 
 afterAll(() => {
@@ -61,7 +81,7 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
       .map((relPath) => path.join(moduleDir, relPath))
     const result = spawnSync(
       eslintBin,
-      ['--no-config-lookup', '--config', DS_CONFIG, '--format', 'json', ...lintTargets],
+      ['--no-config-lookup', '--config', dsConfigPath, '--format', 'json', ...lintTargets],
       { cwd: moduleDir, encoding: 'utf8', timeout: 120_000 },
     )
     expect(result.error).toBeUndefined()
