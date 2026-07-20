@@ -9,7 +9,7 @@ import { noLegacyAlertVariant } from './rules/no-legacy-alert-variant.js'
 const plugin = {
   meta: {
     name: '@open-mercato/eslint-plugin-ds',
-    version: '0.6.5',
+    version: '0.7.0',
   },
   rules: {
     'require-empty-state': requireEmptyState,

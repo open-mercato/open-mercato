@@ -80,7 +80,7 @@ export default [
   // live outside the backend globs (frontend pages, components/, widgets/,
   // and workspaces like checkout, webhooks, sync-akeneo).
   {
-    files: ['packages/*/src/**/*.tsx', 'apps/*/src/**/*.tsx'],
+    files: ['packages/*/src/**/*.tsx', 'apps/*/src/**/*.tsx', 'packages/create-app/template/src/**/*.tsx'],
     ignores: ['**/__tests__/**', '**/*.generated.*', '**/dist/**'],
     linterOptions,
     languageOptions,

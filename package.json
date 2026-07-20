@@ -149,6 +149,7 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.5",
+    "@next/eslint-plugin-next": "^16.2.9",
     "@playwright/test": "^1.61.1",
     "@types/better-sqlite3": "^7.6.11",
     "@types/html-to-text": "^9.0.4",
@@ -162,6 +163,8 @@
     "cross-spawn": "^7.0.6",
     "esbuild": "^0.28.1",
     "eslint": "^9.39.4",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^7.0.1",
     "glob": "^13.0.6",
     "husky": "^9.1.7",
     "jest": "^30.4.2",
