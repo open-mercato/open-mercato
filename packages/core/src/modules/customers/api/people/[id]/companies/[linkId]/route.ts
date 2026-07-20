@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   runCrudMutationGuardAfterSuccess,
   validateCrudMutationGuard,
@@ -147,9 +147,7 @@ export async function PATCH(req: Request, ctx: { params?: { id?: string; linkId?
       selectedOrganizationId,
     )
     if (!resolvedLinkId) {
-      throw new CrudHttpError(404, {
-        error: translate('customers.errors.person_company_link_not_found', 'Person-company link not found'),
-      })
+      throw notFound(translate('customers.errors.person_company_link_not_found', 'Person-company link not found'))
     }
 
     const commandInput = personCompanyLinkUpdateSchema.parse({
@@ -265,9 +263,7 @@ export async function DELETE(req: Request, ctx: { params?: { id?: string; linkId
       selectedOrganizationId,
     )
     if (!resolvedLinkId) {
-      throw new CrudHttpError(404, {
-        error: translate('customers.errors.person_company_link_not_found', 'Person-company link not found'),
-      })
+      throw notFound(translate('customers.errors.person_company_link_not_found', 'Person-company link not found'))
     }
 
     const commandInput = personCompanyLinkDeleteSchema.parse({

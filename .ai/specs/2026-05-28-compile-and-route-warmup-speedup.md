@@ -430,6 +430,9 @@ The 30–50% target is carried by Workstream A (build/generate/typecheck) plus t
 
 ## Changelog
 
+### 2026-07-16
+- Implemented the focused A2/B1 no-op invalidation slice: entity-ID auxiliary outputs now use exact content-gated writes, generator results are aggregated across all one-shot and watcher paths, and the broad structural cache/barrel purge runs only when at least one generated output changed. The explicit `mercato configs cache structural` recovery command is unchanged. A real-checkout repeat-generation check preserved the size and mtime of all 890 app/package generated files. A1, A3, A4, A5, B2, and B3 remain separate follow-ups.
+
 ### 2026-05-28
 - Initial specification. Targets a further 30–50% on compilation (build/generate/typecheck pipeline) and dev route warmup, building on the implemented April 2, 2026 cold-start work without duplicating it. Grounded in static source analysis; measured columns gated on Phase 1.
 - Revised per maintainer review: Workstream B no longer broadens the dev warmup. The default warmup stays the existing three requests (`GET /login`, `POST /api/auth/login`, `GET /backend`); the broaden-warmup lever and the bounded-parallel batch (and `OM_DEV_WARMUP_CONCURRENCY`) are dropped. `OM_DEV_WARMUP_ROUTES` is retained as an opt-in (default unset) override only. Workstream B is now scoped to the no-op-restart Turbopack cache and the lever sweep.

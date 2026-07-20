@@ -843,6 +843,7 @@
   "ui.dataTable.perspectives.error.save": "Perspektive konnte nicht gespeichert werden",
   "ui.dataTable.perspectives.noView": "— No view —",
   "ui.dataTable.perspectives.warning.apiUnavailable": "Perspektiven-API ist noch nicht verfügbar. Führen Sie `yarn generate` aus, um Modulrouten neu zu generieren, und starten Sie dann den Server neu.",
+  "ui.dataTable.resizeColumn": "Spalte anpassen",
   "ui.dataTable.search.empty.clear": "Suche zurücksetzen",
   "ui.dataTable.search.empty.description": "Wir konnten keine {entity} finden, die zu „{query}” passen. Passe deine Suche oder Filter an.",
   "ui.dataTable.search.empty.genericEntity": "Ergebnisse",
