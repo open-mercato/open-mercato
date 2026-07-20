@@ -318,10 +318,22 @@ export const buildToolchainStep = {
   // Only hybrid builds native addons on the host; --mode docker compiles them
   // in the container. The check itself is Windows-only (returns null elsewhere).
   appliesTo: (ctx) => ctx.mode === 'hybrid' && process.platform === 'win32',
-  async check() {
-    const toolchain = checkBuildToolchain()
+  async check(ctx) {
+    const toolchain = (ctx.checkBuildToolchainImpl ?? checkBuildToolchain)()
     if (!toolchain || toolchain.level === 'pass') {
       return { ok: true, detail: toolchain?.detail ?? 'not required on this platform' }
+    }
+    // The toolchain only matters when `yarn install` is about to (re)build
+    // native addons. Prebuilt binaries cover most modules, so a workspace
+    // that already converged runs fine without VC++ — blocking it would
+    // regress a working environment. Warn and move on; the hard gate stays
+    // for runs where an install is actually pending.
+    const installConverged = fs.existsSync(path.join(ctx.repoRoot, 'node_modules'))
+      && readState(ctx.repoRoot, 'install.hash') === hashFiles(ctx.repoRoot, ['yarn.lock', 'package.json'])
+    if (installConverged) {
+      ctx.log('   ⚠️ VC++ build toolchain not found — dependencies are already installed, so this is not blocking now.')
+      ctx.log('   ↳ the next dependency change may need it:  winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"')
+      return { ok: true, detail: 'toolchain missing, but the workspace install already converged (prebuilt binaries)' }
     }
     // Fail fast with the fix instead of letting `yarn install` faceplant on
     // node-gyp after several minutes. Propose-only: we never install it.

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -330,4 +331,29 @@ test('checkBuildToolchain is a no-op off Windows and the gate only applies to hy
   // The converge gate never runs off Windows, and never in docker mode.
   assert.equal(buildToolchainStep.appliesTo({ mode: 'hybrid' }), process.platform === 'win32')
   assert.equal(buildToolchainStep.appliesTo({ mode: 'docker' }), false)
+})
+
+test('buildToolchainStep warns instead of blocking when the workspace install already converged', async () => {
+  const repo = makeFakeRepo()
+  const missingToolchain = () => ({ level: 'fail', guide: ['install VC++'] })
+  const ctx = { repoRoot: repo, log: () => {}, checkBuildToolchainImpl: missingToolchain }
+
+  // No node_modules, no install marker: an install is pending — hard block.
+  await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
+
+  // Converged workspace (node_modules + matching install.hash): warn, no block.
+  fs.mkdirSync(path.join(repo, 'node_modules'), { recursive: true })
+  fs.mkdirSync(path.join(repo, '.mercato', 'starter'), { recursive: true })
+  const currentHash = crypto.createHash('sha256')
+    .update('yarn.lock').update(Buffer.alloc(0))
+    .update('package.json').update(Buffer.alloc(0))
+    .digest('hex')
+  fs.writeFileSync(path.join(repo, '.mercato', 'starter', 'install.hash'), `${currentHash}\n`)
+  const outcome = await buildToolchainStep.check(ctx)
+  assert.equal(outcome.ok, true)
+  assert.match(outcome.detail, /already converged/)
+
+  // A pending lockfile change re-arms the hard block.
+  fs.writeFileSync(path.join(repo, 'yarn.lock'), 'changed\n')
+  await assert.rejects(() => buildToolchainStep.check(ctx), (error) => error instanceof StepBlocked)
 })
