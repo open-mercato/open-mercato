@@ -62,7 +62,7 @@ function hashFiles(repoRoot, files) {
 // work without requiring `db:migrate`. A stable fingerprint + the initialized
 // marker means the database step can skip entirely instead of paying a full
 // `yarn db:migrate` no-op on every start.
-function listMigrationFiles(repoRoot) {
+function walkMigrationModules(repoRoot) {
   const moduleRoots = []
   for (const base of ['packages', path.join('external', 'official-modules', 'packages')]) {
     const baseDir = path.join(repoRoot, base)
@@ -75,7 +75,7 @@ function listMigrationFiles(repoRoot) {
     for (const entry of entries) moduleRoots.push(path.join(baseDir, entry, 'src', 'modules'))
   }
   moduleRoots.push(path.join(repoRoot, 'apps', 'mercato', 'src', 'modules'))
-  const files = []
+  const modulesWithMigrations = new Map()
   for (const modulesDir of moduleRoots) {
     let modules = []
     try {
@@ -99,15 +99,57 @@ function listMigrationFiles(repoRoot) {
         } catch {
           size = 0
         }
+        const files = modulesWithMigrations.get(moduleName) ?? []
         files.push(`${path.relative(repoRoot, path.join(migrationsDir, file))}:${size}`)
+        modulesWithMigrations.set(moduleName, files)
       }
     }
   }
-  return files.sort()
+  return modulesWithMigrations
+}
+
+function listMigrationFiles(repoRoot) {
+  return [...walkMigrationModules(repoRoot).values()].flat().sort()
+}
+
+export function listMigrationModules(repoRoot) {
+  return new Set(walkMigrationModules(repoRoot).keys())
 }
 
 export function migrationsFingerprint(repoRoot) {
   return crypto.createHash('sha256').update(listMigrationFiles(repoRoot).join('\n')).digest('hex')
+}
+
+// Host-side markers can lie: `db:migrate` may have run against a stale module
+// registry (skipping a module's migrations entirely), or the postgres volume
+// may have been recreated since the marker was written. Ask the database which
+// modules actually have migration bookkeeping (MikroORM keeps one
+// mikro_orm_migrations_<module> table per module) so the database step
+// converges on reality instead of on its own notes. Returns null when the
+// probe cannot run (postgres not up yet, compose unavailable) — callers fall
+// back to marker-only behavior.
+export function readAppliedMigrationModules(ctx, { runComposeImpl = runCompose } = {}) {
+  const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
+  const dbName = dbUrl.split('/').pop()?.split('?')[0]?.trim() || 'open-mercato'
+  let result
+  try {
+    result = runComposeImpl(ctx.repoRoot, [
+      'exec', '-T', 'postgres',
+      'psql', '-U', 'postgres', '-d', dbName, '-t', '-A', '-c',
+      "select table_name from information_schema.tables where table_schema='public' and table_name like 'mikro_orm_migrations%'",
+    ], { stdio: 'pipe' })
+  } catch {
+    return null
+  }
+  if (result.status !== 0) return null
+  return new Set(
+    String(result.stdout ?? '')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((tableName) => tableName.replace(/^mikro_orm_migrations_?/, ''))
+      .filter(Boolean),
+  )
 }
 
 // `--clean` support: drop the convergence markers (install/build/migrations)
@@ -325,7 +367,10 @@ export const llmProviderStep = {
   expectation: 'waits for your input on first run; have an API key ready',
   title: 'AI provider (LLM API key)',
   async apply(ctx) {
-    const outcome = await ensureLlmProvider(path.join(ctx.repoRoot, '.env'), {
+    const outcome = await ensureLlmProvider({
+      rootEnv: path.join(ctx.repoRoot, '.env'),
+      appEnv: path.join(ctx.repoRoot, 'apps', 'mercato', '.env'),
+    }, {
       skipPrompt: ctx.flags.skipLlmPrompt,
       nonInteractive: ctx.flags.nonInteractive,
       log: (line) => ctx.log(`   ${line}`),
@@ -425,6 +470,26 @@ export const databaseStep = {
     ctx.migrationsFingerprint = migrationsFingerprint(ctx.repoRoot)
     const initialized = readState(ctx.repoRoot, ctx.dbMarker) !== null
     const migrated = readState(ctx.repoRoot, ctx.dbMigrationsMarker) === ctx.migrationsFingerprint
+
+    const applied = readAppliedMigrationModules(ctx)
+    if (applied) {
+      if (applied.size === 0 && initialized) {
+        // Markers say converged but the database has no migration bookkeeping
+        // at all: the postgres volume was recreated underneath us.
+        ctx.dbReinitialize = true
+        return { ok: false, detail: 'database is empty (volume recreated?) — migrate + initialize' }
+      }
+      // Modules that stayed without bookkeeping after the last successful
+      // apply are disabled modules — expected to be missing, not pending.
+      const knownAbsent = new Set((readState(ctx.repoRoot, `${ctx.dbMigrationsMarker}-absent`) ?? '').split(',').filter(Boolean))
+      const missing = [...listMigrationModules(ctx.repoRoot)].filter(
+        (moduleName) => !applied.has(moduleName) && !knownAbsent.has(moduleName),
+      )
+      if (missing.length > 0) {
+        return { ok: false, detail: `no migration bookkeeping for: ${missing.join(', ')} — applying pending migrations` }
+      }
+    }
+
     if (initialized && migrated) {
       return { ok: true, detail: 'database initialized, no new migration files' }
     }
@@ -433,7 +498,12 @@ export const databaseStep = {
   async apply(ctx) {
     runYarn(ctx, ['db:migrate'])
     writeState(ctx.repoRoot, ctx.dbMigrationsMarker, ctx.migrationsFingerprint)
-    if (readState(ctx.repoRoot, ctx.dbMarker) === null) {
+    const applied = readAppliedMigrationModules(ctx)
+    if (applied && applied.size > 0) {
+      const stillAbsent = [...listMigrationModules(ctx.repoRoot)].filter((moduleName) => !applied.has(moduleName))
+      writeState(ctx.repoRoot, `${ctx.dbMigrationsMarker}-absent`, stillAbsent.join(','))
+    }
+    if (readState(ctx.repoRoot, ctx.dbMarker) === null || ctx.dbReinitialize) {
       runYarn(ctx, ['initialize'])
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
     }

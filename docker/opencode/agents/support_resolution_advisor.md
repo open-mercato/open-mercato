@@ -1,6 +1,5 @@
 ---
 description: "Look up a customer's support history and propose one resolution action."
-model: anthropic/claude-sonnet-4-5
 mode: primary
 tools:
   "*": false

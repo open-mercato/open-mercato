@@ -2,8 +2,6 @@
 id: deals.company_researcher
 label: Company researcher (file-defined)
 description: Research a company on the public web to qualify it as a sales prospect — size, revenue, funding, and deal fit.
-provider: anthropic
-model: claude-sonnet-4-5
 tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]
 skills: [deal_qualification]
 subAgents: [deals.revenue_estimator]

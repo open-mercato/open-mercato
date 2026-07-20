@@ -23,6 +23,14 @@
 # Env: OM_NODE_DIST_MIRROR — base URL mirroring https://nodejs.org/dist.
 
 $ErrorActionPreference = 'Stop'
+
+# UTF-8 console first: cmd.exe decodes batch files with the code page captured
+# at its start, and Yarn Berry's temp .cmd wrappers embed absolute UTF-8 paths.
+# Under an OEM code page a non-ASCII checkout path (e.g. C:\Users\Michał) turns
+# into mojibake and installs/builds die with MODULE_NOT_FOUND. chcp.com is a
+# plain executable, so this stays Constrained-Language-Mode safe.
+try { & "$env:SystemRoot\System32\chcp.com" 65001 | Out-Null } catch { }
+
 $NodeMajor = 24
 $NodeDistBase = if ($env:OM_NODE_DIST_MIRROR) { $env:OM_NODE_DIST_MIRROR.TrimEnd('/') } else { 'https://nodejs.org/dist' }
 

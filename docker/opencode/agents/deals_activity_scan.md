@@ -1,6 +1,5 @@
 ---
 description: "Scan a deal's recent activity and summarize momentum signals."
-model: anthropic/claude-sonnet-4-5
 mode: subagent
 tools:
   "*": false

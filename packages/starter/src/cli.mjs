@@ -28,8 +28,11 @@ import { printDoctorReport, runDoctor } from './doctor.mjs'
 import { infraDown, infraUp, ensureMcpSharedDir } from './infra.mjs'
 import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
+import { ensureWindowsUtf8Console } from './spawn.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
+
+ensureWindowsUtf8Console()
 
 const repoRoot = resolveRepoRoot()
 if (!repoRoot) {

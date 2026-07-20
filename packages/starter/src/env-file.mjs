@@ -34,6 +34,26 @@ export function addEnvValue(filePath, key, value, { replaceEmpty = false } = {})
   return true
 }
 
+// Overwrite-or-append, for keys where a canonical source of truth exists
+// (e.g. the starter mirroring AI provider config into the app env). Use
+// addEnvValue for secrets that must never rotate on re-runs.
+export function setEnvValue(filePath, key, value) {
+  if (!fs.existsSync(filePath)) {
+    writeEnvFileText(filePath, `${key}=${value}\n`)
+    return true
+  }
+  const content = fs.readFileSync(filePath, 'utf8')
+  const pattern = new RegExp(`^${escapeRegExp(key)}=.*$`, 'm')
+  if (pattern.test(content)) {
+    const next = content.replace(pattern, `${key}=${value}`)
+    if (next !== content) writeEnvFileText(filePath, next)
+    return true
+  }
+  const prefix = content.length > 0 && !content.endsWith('\n') ? '\n' : ''
+  fs.appendFileSync(filePath, `${prefix}${key}=${value}\n`)
+  return true
+}
+
 export function replaceEnvLine(content, key, value) {
   const pattern = new RegExp(`^${escapeRegExp(key)}=.*$`, 'm')
   if (!pattern.test(content)) return content

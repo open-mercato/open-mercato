@@ -7,9 +7,10 @@ import { test } from 'node:test'
 import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
-import { addEnvValue, readEnvValue } from '../env-file.mjs'
-import { resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, clearConvergenceState, migrationsFingerprint, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
+import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
+import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
+import { StepBlocked, clearConvergenceState, listMigrationModules, migrationsFingerprint, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -21,6 +22,27 @@ function makeFakeRepo() {
   fs.writeFileSync(path.join(dir, 'starters', 'docker', 'compose.infra.yml'), 'services: {}\n')
   return dir
 }
+
+test('ensureWindowsUtf8Console switches the console code page only on win32 and never throws', () => {
+  const calls = []
+  const fakeSpawnSync = (command, args) => {
+    calls.push({ command, args })
+    return { status: 0 }
+  }
+
+  assert.equal(ensureWindowsUtf8Console({ platform: 'linux', spawnSyncImpl: fakeSpawnSync }), false)
+  assert.equal(calls.length, 0)
+
+  assert.equal(ensureWindowsUtf8Console({ platform: 'win32', spawnSyncImpl: fakeSpawnSync, systemRoot: 'C:\\Windows' }), true)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].args, ['65001'])
+  assert.ok(calls[0].command.endsWith(path.join('System32', 'chcp.com')))
+
+  const throwingSpawnSync = () => {
+    throw new Error('no console attached')
+  }
+  assert.equal(ensureWindowsUtf8Console({ platform: 'win32', spawnSyncImpl: throwingSpawnSync }), false)
+})
 
 test('resolveRepoRoot walks up to the compose marker and returns null outside a repo', () => {
   const repo = makeFakeRepo()
@@ -49,6 +71,54 @@ test('addEnvValue is fill-missing-only and replaceEmpty fills bare placeholders'
   assert.equal(readEnvValue(envPath, 'EMPTY'), 'filled')
   assert.equal(addEnvValue(envPath, 'NEW', 'value'), true)
   assert.equal(readEnvValue(envPath, 'NEW'), 'value')
+})
+
+test('setEnvValue overwrites existing lines and appends missing ones', () => {
+  const dir = makeTempDir('om-starter-setenv-')
+  const envPath = path.join(dir, '.env')
+  fs.writeFileSync(envPath, 'OM_AI_PROVIDER=openai\nOTHER=keep\n')
+  assert.equal(setEnvValue(envPath, 'OM_AI_PROVIDER', 'azure'), true)
+  assert.equal(readEnvValue(envPath, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(envPath, 'OTHER'), 'keep')
+  assert.equal(setEnvValue(envPath, 'OM_AI_MODEL', 'my-deployment'), true)
+  assert.equal(readEnvValue(envPath, 'OM_AI_MODEL'), 'my-deployment')
+})
+
+test('syncProviderConfigToAppEnv mirrors root AI config into the app env without rotating keys', () => {
+  const dir = makeTempDir('om-starter-llm-sync-')
+  const rootEnv = path.join(dir, '.env')
+  const appEnv = path.join(dir, 'app.env')
+  fs.writeFileSync(rootEnv, 'OM_AI_PROVIDER=azure\nOM_AI_MODEL=my-deployment\nAZURE_OPENAI_API_KEY=root-secret\nAZURE_OPENAI_BASE_URL=https://example.azure.com\n')
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=openai\nOM_AI_MODEL=gpt-5-mini\nAZURE_OPENAI_API_KEY=\nAZURE_OPENAI_BASE_URL=\n')
+
+  syncProviderConfigToAppEnv({ rootEnv, appEnv }, () => {})
+
+  assert.equal(readEnvValue(appEnv, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_MODEL'), 'my-deployment')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'root-secret')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_BASE_URL'), 'https://example.azure.com')
+
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=azure\nAZURE_OPENAI_API_KEY=manually-rotated\n')
+  syncProviderConfigToAppEnv({ rootEnv, appEnv }, () => {})
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'manually-rotated')
+
+  syncProviderConfigToAppEnv({ rootEnv, appEnv: path.join(dir, 'missing.env') }, () => {})
+  syncProviderConfigToAppEnv({ rootEnv, appEnv: null }, () => {})
+})
+
+test('ensureLlmProvider syncs the app env when the root env is already configured', async () => {
+  const dir = makeTempDir('om-starter-llm-configured-')
+  const rootEnv = path.join(dir, '.env')
+  const appEnv = path.join(dir, 'app.env')
+  fs.writeFileSync(rootEnv, 'OM_AI_PROVIDER=azure\nOM_AI_MODEL=my-deployment\nAZURE_OPENAI_API_KEY=root-secret\n')
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=openai\nAZURE_OPENAI_API_KEY=\n')
+
+  const outcome = await ensureLlmProvider({ rootEnv, appEnv }, { log: () => {}, warn: () => {} })
+
+  assert.equal(outcome, 'configured')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_MODEL'), 'my-deployment')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'root-secret')
 })
 
 test('hostTrustEnv wires CA bundle, system CA flag, and corepack proxy fix', () => {
@@ -194,6 +264,41 @@ test('clearConvergenceState removes markers but keeps mode and db-initialized st
   assert.deepEqual(cleared.sort(), ['db-migrations-cafe01', 'install.hash'])
   assert.deepEqual(fs.readdirSync(stateDir).sort(), ['db-initialized-cafe01', 'mode'])
   assert.deepEqual(clearConvergenceState(path.join(repo, 'nope')), [])
+})
+
+test('listMigrationModules names every module that ships Migration files', () => {
+  const repo = makeFakeRepo()
+  const orchestratorDir = path.join(repo, 'packages', 'enterprise', 'src', 'modules', 'agent_orchestrator', 'migrations')
+  const customersDir = path.join(repo, 'packages', 'core', 'src', 'modules', 'customers', 'migrations')
+  const emptyDir = path.join(repo, 'packages', 'core', 'src', 'modules', 'no_migrations', 'migrations')
+  fs.mkdirSync(orchestratorDir, { recursive: true })
+  fs.mkdirSync(customersDir, { recursive: true })
+  fs.mkdirSync(emptyDir, { recursive: true })
+  fs.writeFileSync(path.join(orchestratorDir, 'Migration20260101000000_agent_orchestrator.ts'), 'x')
+  fs.writeFileSync(path.join(customersDir, 'Migration20260101000000_customers.ts'), 'x')
+  fs.writeFileSync(path.join(emptyDir, '.snapshot-open-mercato.json'), '{}')
+
+  const modules = listMigrationModules(repo)
+  assert.deepEqual([...modules].sort(), ['agent_orchestrator', 'customers'])
+})
+
+test('readAppliedMigrationModules parses psql bookkeeping tables and returns null when the probe fails', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://postgres:pw@127.0.0.1:5432/open-mercato\n')
+  const ctx = { repoRoot: repo }
+
+  let seenArgs = null
+  const okCompose = (repoRoot, args) => {
+    seenArgs = args
+    return { status: 0, stdout: 'mikro_orm_migrations_customers\nmikro_orm_migrations_agent_orchestrator\n\n' }
+  }
+  const applied = readAppliedMigrationModules(ctx, { runComposeImpl: okCompose })
+  assert.deepEqual([...applied].sort(), ['agent_orchestrator', 'customers'])
+  assert.ok(seenArgs.includes('open-mercato'))
+
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => { throw new Error('compose missing') } }), null)
 })
 
 test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', () => {

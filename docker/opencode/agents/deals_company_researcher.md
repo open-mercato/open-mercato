@@ -1,6 +1,5 @@
 ---
 description: "Research a company on the public web to qualify it as a sales prospect — size, revenue, funding, and deal fit."
-model: anthropic/claude-sonnet-4-5
 mode: primary
 tools:
   "*": false

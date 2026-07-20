@@ -1,6 +1,5 @@
 ---
 description: "Research a prospect on the public web and summarize deal-relevant signals with sources."
-model: anthropic/claude-sonnet-4-5
 mode: primary
 tools:
   "*": false

@@ -2,8 +2,6 @@
 id: deals.web_researcher
 label: Deal web researcher (file-defined)
 description: Research a prospect on the public web and summarize deal-relevant signals with sources.
-provider: anthropic
-model: claude-sonnet-4-5
 tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]
 maxSteps: 12
 ---

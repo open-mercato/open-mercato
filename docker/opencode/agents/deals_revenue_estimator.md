@@ -1,6 +1,5 @@
 ---
 description: "Estimate a company's revenue, headcount, and funding stage from public web signals."
-model: anthropic/claude-sonnet-4-5
 mode: subagent
 tools:
   "*": false
