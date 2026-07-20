@@ -115,6 +115,20 @@ export function spawnStreaming(command, commandArgs, { cwd, env } = {}) {
   })
 }
 
+// Capture-mode sibling of runStreamingSync for probes that need the output
+// (version checks, registry queries). Same Windows shim handling.
+export function runCaptureSync(command, commandArgs, { cwd, env, timeout = 15000 } = {}) {
+  const resolved = resolveSpawnCommand(command, commandArgs)
+  return spawnSync(resolved.command, resolved.args, {
+    cwd: cwd ?? process.cwd(),
+    env: env ?? process.env,
+    encoding: 'utf8',
+    timeout,
+    windowsHide: true,
+    ...resolved.spawnOptions,
+  })
+}
+
 export function runStreamingSync(command, commandArgs, { cwd, env } = {}) {
   const resolved = resolveSpawnCommand(command, commandArgs)
   const result = spawnSync(resolved.command, resolved.args, {

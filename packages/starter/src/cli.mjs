@@ -26,7 +26,7 @@ import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUr
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
 import { infraDown, infraUp, ensureMcpSharedDir } from './infra.mjs'
-import { buildUpSteps, createStepContext, ensureOpencodeImage, runSteps } from './steps.mjs'
+import { buildUpSteps, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
@@ -181,7 +181,8 @@ async function commandUp(flags) {
     console.log('Manage it with the status / logs / stop subcommands.')
     return
   }
-  const child = spawnStreaming('yarn', ['dev', ...flags.passthrough], { cwd: repoRoot, env: ctx.env })
+  const dev = yarnInvocation(ctx, ['dev', ...flags.passthrough])
+  const child = spawnStreaming(dev.command, dev.args, { cwd: repoRoot, env: ctx.env })
   child.on('close', (code) => process.exit(code ?? 0))
   child.on('error', (error) => {
     console.error(`❌ Could not start yarn dev: ${error.message}`)

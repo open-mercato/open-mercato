@@ -5,7 +5,7 @@ import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
 
-import { detectDocker } from './compose.mjs'
+import { detectDocker, runCaptureSync } from './compose.mjs'
 import { probeTlsInterception, summarizeProbeResults } from './certs.mjs'
 import { CAPTURED_CA_BUNDLE, LOOPBACK_HOST, resolveStackPorts } from './constants.mjs'
 import { color, icons, printBanner } from './ui.mjs'
@@ -22,7 +22,10 @@ function result(id, title, level, detail, { guide = [], it = [] } = {}) {
 }
 
 function commandOutput(command, args) {
-  const run = spawnSync(command, args, { encoding: 'utf8', timeout: 15000, windowsHide: true })
+  // runCaptureSync routes .cmd shims (yarn/npm/corepack) through cmd.exe —
+  // Node >= 18.20 refuses to spawn those directly on Windows (EINVAL), which
+  // used to make every yarn probe report "not found" on Windows machines.
+  const run = runCaptureSync(command, args)
   if (run.error || run.status !== 0) return null
   return `${run.stdout ?? ''}${run.stderr ?? ''}`
 }
@@ -36,7 +39,7 @@ export function checkNodeVersion() {
 }
 
 export function checkYarn(repoRoot) {
-  const output = commandOutput('yarn', ['--version']) ?? commandOutput(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['--version'])
+  const output = commandOutput('yarn', ['--version'])
   let pinned = ''
   try {
     const pkg = JSON.parse(fs.readFileSync(path.join(repoRoot, 'package.json'), 'utf8'))

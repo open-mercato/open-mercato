@@ -8,6 +8,7 @@ import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue } from '../env-file.mjs'
+import { resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
@@ -94,6 +95,38 @@ test('resolveStackPorts honors env overrides and falls back to defaults', () => 
   assert.equal(ports.postgres, 5433)
   assert.equal(ports.app, DEFAULT_PORTS.app)
   assert.equal(ports.mcp, DEFAULT_PORTS.mcp)
+})
+
+test('resolveSpawnCommand leaves real executables and unix platforms shell-free', () => {
+  assert.deepEqual(resolveSpawnCommand('docker', ['compose', 'version'], { platform: 'win32' }), {
+    command: 'docker',
+    args: ['compose', 'version'],
+    spawnOptions: {},
+  })
+  assert.deepEqual(resolveSpawnCommand('yarn', ['install'], { platform: 'linux' }), {
+    command: 'yarn',
+    args: ['install'],
+    spawnOptions: {},
+  })
+})
+
+test('resolveSpawnCommand hands cmd.exe one pre-quoted command line for Windows shims', () => {
+  const plain = resolveSpawnCommand('yarn', ['--version'], { platform: 'win32' })
+  assert.equal(plain.command, 'yarn --version')
+  assert.deepEqual(plain.args, [])
+  assert.equal(plain.spawnOptions.shell, true)
+
+  const quoted = resolveSpawnCommand('corepack', ['prepare', 'yarn@4.12.0', '--activate'], { platform: 'win32' })
+  assert.equal(quoted.command, 'corepack prepare yarn@4.12.0 --activate')
+
+  const spaced = resolveSpawnCommand('yarn.cmd', ['run', 'a b'], { platform: 'win32' })
+  assert.equal(spaced.command, 'yarn.cmd run "a b"')
+})
+
+test('resolveSpawnCommand rejects cmd metacharacters instead of degrading into injection', () => {
+  assert.throws(() => resolveSpawnCommand('yarn', ['%TEMP%'], { platform: 'win32' }))
+  assert.throws(() => resolveSpawnCommand('yarn', ['a&whoami'], { platform: 'win32' }))
+  assert.throws(() => resolveSpawnCommand('npm', ['pkg|rm'], { platform: 'win32' }))
 })
 
 function quietCtx(overrides = {}) {

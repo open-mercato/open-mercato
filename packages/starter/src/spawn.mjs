@@ -17,6 +17,10 @@ const WINDOWS_CMD_UNSAFE_CHAR_PATTERN = /[\u0000-\u001f\u007f%!^&|<>"]/
 
 const WINDOWS_SHELL_COMMANDS = new Set(['yarn', 'npm', 'corepack', 'npx'])
 
+function isWindowsShellCommand(command) {
+  return WINDOWS_SHELL_COMMANDS.has(command) || /\.(cmd|bat)$/i.test(command)
+}
+
 function assertProcessSafeValue(value, label) {
   const stringValue = String(value)
   if (PROCESS_VALUE_UNSAFE_CHAR_PATTERN.test(stringValue)) {
@@ -42,12 +46,16 @@ export function resolveSpawnCommand(command, commandArgs = [], options = {}) {
   const safeCommand = assertProcessSafeValue(command, 'Process command')
   const safeArgs = commandArgs.map((arg, index) => assertProcessSafeValue(arg, 'Process argument #' + (index + 1)))
 
-  const needsShell = platform === 'win32' && WINDOWS_SHELL_COMMANDS.has(safeCommand)
+  const needsShell = platform === 'win32' && isWindowsShellCommand(safeCommand)
   if (!needsShell) {
     return { command: safeCommand, args: safeArgs, spawnOptions: {} }
   }
 
-  assertWindowsCmdSafeValue(safeCommand, 'Windows command')
+  // Everything is validated against cmd metacharacters and pre-quoted here, so
+  // hand cmd.exe ONE finished command line. Passing an args array alongside
+  // shell:true would make Node concatenate it unescaped (deprecated as DEP0190
+  // since Node 24 — the warning lands on stderr, which PowerShell paints red).
+  const cmdSafeCommand = quoteForCmd(assertWindowsCmdSafeValue(safeCommand, 'Windows command'))
   const cmdSafeArgs = safeArgs.map((arg, index) => quoteForCmd(assertWindowsCmdSafeValue(arg, 'Windows command argument #' + (index + 1))))
-  return { command: safeCommand, args: cmdSafeArgs, spawnOptions: { shell: true } }
+  return { command: [cmdSafeCommand, ...cmdSafeArgs].join(' '), args: [], spawnOptions: { shell: true } }
 }

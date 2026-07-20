@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 
-import { detectDocker, parseComposePsOutput, runCompose, runStreamingSync } from './compose.mjs'
+import { detectDocker, parseComposePsOutput, runCaptureSync, runCompose, runStreamingSync } from './compose.mjs'
 import { captureInterceptionCas, findVendorCaBundles, harvestWindowsStoreCas, hostTrustEnv, probeTlsInterception, provisionDockerCerts, provisionRancherDesktopCa, summarizeProbeResults, writeCaBundle } from './certs.mjs'
 import { loadCompanyConfig, resolveCompanyCertBundles } from './company.mjs'
 import { CAPTURED_CA_BUNDLE, DEFAULT_OPENCODE_BASE_IMAGE, OPENCODE_SERVICE_IMAGE, STARTER_STATE_DIR, resolveStackPorts } from './constants.mjs'
@@ -57,8 +57,18 @@ function hashFiles(repoRoot, files) {
   return hash.digest('hex')
 }
 
+// On managed Windows machines Node often lives in Program Files where
+// `corepack enable` cannot write the yarn shim without admin; corepack itself
+// still runs the project-pinned yarn. Callers switch via ctx.yarnViaCorepack.
+export function yarnInvocation(ctx, args) {
+  return ctx.yarnViaCorepack
+    ? { command: 'corepack', args: ['yarn', ...args] }
+    : { command: 'yarn', args }
+}
+
 function runYarn(ctx, args) {
-  const status = runStreamingSync('yarn', args, { cwd: ctx.repoRoot, env: ctx.env })
+  const invocation = yarnInvocation(ctx, args)
+  const status = runStreamingSync(invocation.command, invocation.args, { cwd: ctx.repoRoot, env: ctx.env })
   if (status !== 0) {
     throw new Error(`yarn ${args.join(' ')} failed (exit ${status}) — fix the error above and re-run; completed steps are skipped.`)
   }
@@ -73,7 +83,7 @@ export const prerequisitesStep = {
   async check(ctx) {
     const node = checkNodeVersion()
     const git = checkGit()
-    const yarnRun = spawnSync(process.platform === 'win32' ? 'yarn.cmd' : 'yarn', ['--version'], { encoding: 'utf8', shell: process.platform === 'win32' })
+    const yarnRun = runCaptureSync('yarn', ['--version'])
     const yarnOk = !yarnRun.error && yarnRun.status === 0
     if (node.level === 'fail' || git.level === 'fail') {
       const blockers = [node, git].filter((entry) => entry.level === 'fail')
@@ -87,10 +97,22 @@ export const prerequisitesStep = {
     // corepack and activate the exact version pinned in package.json.
     const spec = JSON.parse(fs.readFileSync(path.join(ctx.repoRoot, 'package.json'), 'utf8')).packageManager.split('+')[0]
     const enable = runStreamingSync('corepack', ['enable'], { cwd: ctx.repoRoot, env: ctx.env })
-    if (enable !== 0) ctx.log('⚠️ corepack enable failed (PATH not writable?) — continuing, the shim may still resolve.')
+    if (enable !== 0) ctx.log('⚠️ corepack enable failed (PATH not writable?) — falling back to running yarn through corepack.')
     const prepare = runStreamingSync('corepack', ['prepare', spec, '--activate'], { cwd: ctx.repoRoot, env: ctx.env })
     if (prepare !== 0) {
       throw new Error(`corepack prepare ${spec} failed. Behind a corporate proxy? Set HTTPS_PROXY and re-run — the starter provisions the corporate CA automatically in the next step; if this step itself is blocked, set COREPACK_NPM_REGISTRY to your internal mirror (see starters/company/).`)
+    }
+    const shim = runCaptureSync('yarn', ['--version'], { cwd: ctx.repoRoot, env: ctx.env })
+    if (shim.error || shim.status !== 0) {
+      // Managed devices: Node in Program Files means `corepack enable` cannot
+      // write the yarn shim without admin. Corepack itself still runs the
+      // activated yarn, so route every yarn call through it.
+      const viaCorepack = runCaptureSync('corepack', ['yarn', '--version'], { cwd: ctx.repoRoot, env: ctx.env })
+      if (viaCorepack.error || viaCorepack.status !== 0) {
+        throw new Error('yarn is still not runnable after corepack activation. Ask IT to allow `corepack enable`, or install yarn per-user, then re-run.')
+      }
+      ctx.yarnViaCorepack = true
+      ctx.log(`   yarn ${String(viaCorepack.stdout).trim()} activated (no PATH shim — running yarn through corepack)`)
     }
   },
 }
