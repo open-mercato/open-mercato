@@ -3,6 +3,8 @@ import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/no
 export const notificationTypes: NotificationTypeDefinition[] = [
   {
     type: 'inbox_ops.proposal.created',
+    // Ships without push — operators re-enable it per type from the Notification Delivery settings.
+    channels: ['in_app', 'email'],
     module: 'inbox_ops',
     titleKey: 'inbox_ops.notifications.proposal_created.title',
     bodyKey: 'inbox_ops.notifications.proposal_created.body',

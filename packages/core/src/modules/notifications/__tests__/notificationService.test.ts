@@ -1,3 +1,10 @@
+import {
+  Kysely,
+  PostgresAdapter,
+  PostgresQueryCompiler,
+  PostgresIntrospector,
+  DummyDriver,
+} from 'kysely'
 import { createNotificationService } from '../lib/notificationService'
 import { NOTIFICATION_EVENTS, NOTIFICATION_SSE_EVENTS } from '../lib/events'
 import type { Notification } from '../data/entities'
@@ -27,6 +34,16 @@ const baseCtx = {
   userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
 }
 
+const createCompileKysely = (): Kysely<any> =>
+  new Kysely<any>({
+    dialect: {
+      createAdapter: () => new PostgresAdapter(),
+      createDriver: () => new DummyDriver(),
+      createQueryCompiler: () => new PostgresQueryCompiler(),
+      createIntrospector: (instance: Kysely<any>) => new PostgresIntrospector(instance),
+    },
+  })
+
 const buildEm = () => {
   const em = {
     fork: jest.fn(),
@@ -44,11 +61,15 @@ const buildEm = () => {
   em.transactional.mockImplementation(async (cb: (tx: typeof em) => Promise<unknown>) => cb(em))
   em.persist.mockImplementation(() => ({ flush: em.flush }))
   em.getKysely.mockReturnValue({
-    selectFrom: () => ({
-      select: () => ({
-        where: () => ({ executeTakeFirst: async () => undefined, execute: async () => [] }),
-      }),
-    }),
+    selectFrom: () => {
+      const chain: any = {
+        select: () => chain,
+        where: () => chain,
+        executeTakeFirst: async () => undefined,
+        execute: async () => [],
+      }
+      return chain
+    },
     updateTable: () => ({
       set: () => {
         const chain: any = {
@@ -355,6 +376,16 @@ describe('notification service', () => {
     expect(tenantWhere.length).toBeGreaterThanOrEqual(2)
     expect(statusWhere[0]).toEqual(['select', 'status', '=', 'unread'])
     expect(orgWhere[0]).toEqual(['select', 'organization_id', '=', 'org-1'])
+    // markAllAsRead must scope to the SAME in-app-visible set as the badge (getUnreadCount): a single
+    // raw predicate (`channels IS NULL OR channels @> '["in_app"]'`) applied to BOTH the SELECT that
+    // collects targets and the UPDATE that flips them, so push/email-only rows are never marked read.
+    const rawWhere = whereCalls.filter((call) => call.length === 2)
+    expect(rawWhere.filter((call) => call[0] === 'select')).toHaveLength(1)
+    expect(rawWhere.filter((call) => call[0] === 'update')).toHaveLength(1)
+    const compiledPredicate = (rawWhere[0][1] as { compile: (db: Kysely<any>) => { sql: string } }).compile(
+      createCompileKysely(),
+    )
+    expect(compiledPredicate.sql).toBe('("channels" is null or "channels" @> $1::jsonb)')
     expect(findWithDecryption).toHaveBeenCalledWith(
       em,
       expect.anything(),
