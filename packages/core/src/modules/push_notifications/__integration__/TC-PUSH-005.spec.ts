@@ -28,10 +28,15 @@ const MAX_ATTEMPTS = 3
 
 test.describe('TC-PUSH-005: retryable failure → MAX_ATTEMPTS → expired', () => {
   test('retries a transient provider error to exhaustion without deactivating the device', async ({ request }) => {
-    // `test.slow()` only triples the config's 20s budget (→ 60s), which the 60s poll below alone
+    // `test.slow()` only triples the config's 20s budget (→ 60s), which the poll below alone
     // would consume — leaving nothing for setup, so the test always died before the poll could
     // reach its own deadline. Budget the whole test explicitly instead.
-    test.setTimeout(120_000)
+    //
+    // The dominant cost is the drain, not the backoff: under `OM_TEST_APP_ROOT` (CI) every
+    // `drainIntegrationQueue` spawns a fresh app-root child process that takes ~15-20s to boot.
+    // Reaching the terminal state needs MAX_ATTEMPTS sequential drains, so the poll must budget
+    // MAX_ATTEMPTS × worst-case drain — not the ~1-3s backoff delays.
+    test.setTimeout(240_000)
     const adminToken = await getAuthToken(request, 'admin')
     const { tenantId, userId } = getTokenScope(adminToken)
     const { pushToken } = makeFakePushTokenFor(PROVIDER, 'fail')
@@ -67,7 +72,7 @@ test.describe('TC-PUSH-005: retryable failure → MAX_ATTEMPTS → expired', () 
             await drainIntegrationQueue('push-deliveries')
             return (await readLatestDelivery(tenantId, userDeviceId as string))?.status ?? null
           },
-          { timeout: 60_000, intervals: [1_000] },
+          { timeout: 180_000, intervals: [1_000] },
         )
         .toBe('expired')
 
