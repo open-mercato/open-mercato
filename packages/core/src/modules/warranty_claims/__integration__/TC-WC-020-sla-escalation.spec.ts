@@ -51,12 +51,16 @@ type SlaStateRow = {
   escalation_level: number | string | null
   assignee_user_id: string | null
   sla_paused_at: Date | string | null
+  sla_at_risk_notified_at: Date | string | null
+  sla_breached_notified_at: Date | string | null
 }
 
 type SlaState = {
   escalationLevel: number
   assigneeUserId: string | null
   slaPausedAt: string | null
+  slaAtRiskNotifiedAt: string | null
+  slaBreachedNotifiedAt: string | null
 }
 
 let dbClient: Client | null = null
@@ -123,7 +127,8 @@ async function readSlaState(claimId: string): Promise<SlaState> {
   const client = await getDbClient()
   const result = await client.query<SlaStateRow>(
     `
-      select escalation_level, assignee_user_id, sla_paused_at
+      select escalation_level, assignee_user_id, sla_paused_at,
+             sla_at_risk_notified_at, sla_breached_notified_at
       from warranty_claims
       where id = $1
     `,
@@ -135,7 +140,33 @@ async function readSlaState(claimId: string): Promise<SlaState> {
     escalationLevel: Number(row.escalation_level ?? 0),
     assigneeUserId: row.assignee_user_id ?? null,
     slaPausedAt: row.sla_paused_at ? new Date(row.sla_paused_at).toISOString() : null,
+    slaAtRiskNotifiedAt: row.sla_at_risk_notified_at ? new Date(row.sla_at_risk_notified_at).toISOString() : null,
+    slaBreachedNotifiedAt: row.sla_breached_notified_at ? new Date(row.sla_breached_notified_at).toISOString() : null,
   }
+}
+
+// The sweep emits a signal and then stamps the matching guard column, so a set
+// stamp is durable proof the signal fired. That indirection is necessary because
+// the queue file this spec reads is NOT a reliable record of what was emitted: the
+// ephemeral harness defaults `AUTO_SPAWN_WORKERS` to true
+// (packages/cli/src/lib/testing/integration.ts), so an events worker drains
+// `events/queue.json` concurrently, and the local strategy DELETES completed jobs
+// from that file (packages/queue/src/strategies/local.ts). Claims are swept in
+// `slaDueAt ASC` order, so the most overdue claim's event is emitted first and is
+// the most likely to be drained before the assertion reads the file — which is how
+// this spec failed while the later at-risk event still happened to be pending.
+async function expectSlaSignalEmitted(
+  jobs: readonly QueueEventJob[],
+  event: string,
+  claimId: string,
+  stamp: string | null,
+  label: string,
+): Promise<void> {
+  const stillQueued = hasQueuedClaimEvent(jobs, event, claimId)
+  expect(
+    stillQueued || stamp !== null,
+    `${label} (event ${event} was neither still queued nor recorded by its guard stamp)`,
+  ).toBe(true)
 }
 
 async function readQueuedEventJobs(): Promise<QueueEventJob[]> {
@@ -260,18 +291,32 @@ test.describe('TC-WC-020: warranty claim SLA escalation sweep', () => {
         tenantId: scope.tenantId,
         organizationId: scope.organizationId,
       })
-      expect(
-        hasQueuedClaimEvent(firstSweepEvents, 'warranty_claims.claim.sla_at_risk', atRiskClaim.id!),
+      const firstSweepAtRiskState = await readSlaState(atRiskClaim.id!)
+      const firstSweepBreachedState = await readSlaState(breachedClaim.id!)
+      const firstSweepPausedState = await readSlaState(pausedClaim.id!)
+
+      await expectSlaSignalEmitted(
+        firstSweepEvents,
+        'warranty_claims.claim.sla_at_risk',
+        atRiskClaim.id!,
+        firstSweepAtRiskState.slaAtRiskNotifiedAt,
         'SLA sweep should emit an at-risk event for the threshold-crossing claim',
-      ).toBe(true)
-      expect(
-        hasQueuedClaimEvent(firstSweepEvents, 'warranty_claims.claim.sla_breached', breachedClaim.id!),
+      )
+      await expectSlaSignalEmitted(
+        firstSweepEvents,
+        'warranty_claims.claim.sla_breached',
+        breachedClaim.id!,
+        firstSweepBreachedState.slaBreachedNotifiedAt,
         'SLA sweep should emit a breached event for the overdue claim',
-      ).toBe(true)
+      )
       expect(
         firstSweepEvents.some((job) => job.payload?.payload?.claimId === pausedClaim.id),
         'paused claims should not emit SLA sweep events',
       ).toBe(false)
+      // Absence of an event in a concurrently-drained queue proves nothing on its own,
+      // so pin the paused claim's guard stamps too: they must stay null.
+      expect(firstSweepPausedState.slaAtRiskNotifiedAt, 'paused claims should not be stamped at-risk').toBeNull()
+      expect(firstSweepPausedState.slaBreachedNotifiedAt, 'paused claims should not be stamped breached').toBeNull()
 
       const breachedState = await readSlaState(breachedClaim.id!)
       expect(breachedState.escalationLevel).toBe(1)
