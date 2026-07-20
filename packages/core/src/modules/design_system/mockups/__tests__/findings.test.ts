@@ -67,6 +67,37 @@ describe('design_system mockup findings schema', () => {
     expect(parsed.success).toBe(true)
   })
 
+  it('accepts every evidence level and rejects unknown ones (evidence stays optional)', () => {
+    for (const evidence of ['product', 'standard', 'platform', 'research', 'heuristic', 'assumption']) {
+      const parsed = mockupDocument.safeParse({
+        version: 1,
+        slug: 'f-evidence',
+        title: 'F evidence',
+        root: {
+          type: 'block',
+          id: 'b1',
+          entry: 'table',
+          status: 'implemented',
+          findings: [{ id: 'f1', heuristicId: 'nielsen-01', severity: 'low', summary: 's', atHash: 'h', evidence }],
+        },
+      })
+      expect(parsed.success).toBe(true)
+    }
+    const bad = mockupDocument.safeParse({
+      version: 1,
+      slug: 'f-evidence',
+      title: 'F evidence',
+      root: {
+        type: 'block',
+        id: 'b1',
+        entry: 'table',
+        status: 'implemented',
+        findings: [{ id: 'f1', heuristicId: 'nielsen-01', severity: 'low', summary: 's', atHash: 'h', evidence: 'dribbble' }],
+      },
+    })
+    expect(bad.success).toBe(false)
+  })
+
   it('rejects invalid severities and duplicate finding ids', () => {
     const bad = mockupDocument.safeParse({
       version: 1,
@@ -108,13 +139,24 @@ describe('design_system mockup findings schema', () => {
       documentFindings: [
         { id: 'f-fresh', heuristicId: 'nielsen-01', severity: 'high', summary: 's', atHash: hash },
         { id: 'f-stale', heuristicId: 'nielsen-02', severity: 'low', summary: 's', atHash: 'older-hash' },
+        {
+          id: 'f-assumed',
+          heuristicId: 'nielsen-06',
+          severity: 'medium',
+          summary: 's',
+          atHash: hash,
+          evidence: 'assumption',
+        },
       ],
     })
     const summary = computeFindingsSummary(withFindings, hash)
     expect(summary).toEqual({
-      total: 2,
-      bySeverity: { low: 1, medium: 0, high: 1, critical: 0 },
+      total: 3,
+      bySeverity: { low: 1, medium: 1, high: 1, critical: 0 },
       stale: 1,
+      // Assumption-tagged findings are counted separately, like stale —
+      // assumptions demand verification.
+      assumptions: 1,
     })
     // The canonical content string strips findings — so writing findings does
     // not change the hash they are compared against.
@@ -129,6 +171,80 @@ describe('design_system mechanical heuristic checks (om-ux-heuristics)', () => {
     expect(emptyState).toHaveLength(1)
     expect(emptyState[0].blockId).toBe('b-table')
     expect(emptyState[0].severity).toBe('high')
+  })
+
+  it('every mechanical check emits evidence: heuristic (the engine encodes heuristics, not research)', () => {
+    for (const result of runMechanicalChecks(tableDocument())) {
+      expect(result.evidence).toBe('heuristic')
+    }
+    const applied = applyMechanicalFindings(tableDocument(), 'h1')
+    for (const ref of collectFindings(applied)) {
+      expect(ref.finding.evidence).toBe('heuristic')
+    }
+  })
+
+  it('flags a placeholder used as the only label (om-placeholder-only-label)', () => {
+    const doc = mockupDocument.parse({
+      version: 1,
+      slug: 'placeholder-label',
+      title: 'Placeholder label',
+      root: {
+        type: 'stack',
+        id: 'root',
+        children: [
+          { type: 'block', id: 'b-header', entry: 'section-header', props: { title: 'X' }, status: 'implemented' },
+          {
+            type: 'block',
+            id: 'b-search',
+            entry: 'filter-bar',
+            props: { search: { placeholder: 'Search people…' } },
+            status: 'proposed',
+          },
+        ],
+      },
+    })
+    const results = runMechanicalChecks(doc).filter(
+      (result) => result.heuristicId === 'om-placeholder-only-label',
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].blockId).toBe('b-search')
+    expect(results[0].severity).toBe('high')
+    // A label beside the placeholder clears the finding.
+    const labeled = mockupDocument.parse(
+      JSON.parse(
+        JSON.stringify(doc).replace(
+          '{"placeholder":"Search people…"}',
+          '{"label":"Search","placeholder":"Search people…"}',
+        ),
+      ),
+    )
+    expect(
+      runMechanicalChecks(labeled).filter((result) => result.heuristicId === 'om-placeholder-only-label'),
+    ).toHaveLength(0)
+  })
+
+  it('flags a bare OK/Next/Send action label on an action block (om-vague-action-label)', () => {
+    const doc = mockupDocument.parse({
+      version: 1,
+      slug: 'vague-label',
+      title: 'Vague label',
+      root: {
+        type: 'stack',
+        id: 'root',
+        children: [
+          { type: 'block', id: 'b-ok', entry: 'button', props: { label: 'OK' }, status: 'proposed' },
+          { type: 'block', id: 'b-named', entry: 'button', props: { label: 'Save changes' }, status: 'proposed' },
+          // Same vague value on a NON-action entry is not flagged.
+          { type: 'block', id: 'b-kpi', entry: 'kpi-card', props: { title: 'Next' }, status: 'proposed' },
+        ],
+      },
+    })
+    const results = runMechanicalChecks(doc).filter(
+      (result) => result.heuristicId === 'om-vague-action-label',
+    )
+    expect(results).toHaveLength(1)
+    expect(results[0].blockId).toBe('b-ok')
+    expect(results[0].severity).toBe('medium')
   })
 
   it('accepts empty-state evidence in the note or an empty-prop key', () => {
@@ -206,13 +322,16 @@ describe('design_system mechanical heuristic checks (om-ux-heuristics)', () => {
     )
     expect(mechanical).toBeTruthy()
     expect(mechanical!.finding.atHash).toBe(contentHash)
+    expect(mechanical!.finding.evidence).toBe('heuristic')
     // Re-running the mechanical pass over the golden is a no-op (idempotence
     // against the committed fixture).
     const rerun = applyMechanicalFindings(golden!.document!, contentHash)
     expect(JSON.stringify(rerun)).toBe(JSON.stringify(golden!.document!))
-    // And the fixture deliberately carries one stale judgment finding.
+    // And the fixture deliberately carries one stale judgment finding, tagged
+    // as an assumption awaiting verification.
     expect(golden!.findings.stale).toBe(1)
     expect(golden!.findings.total).toBe(3)
+    expect(golden!.findings.assumptions).toBe(1)
   })
 })
 
@@ -243,15 +362,16 @@ describe('design_system annotation PUT accepts findings', () => {
           id: 'b1',
           status: 'proposed',
           findings: [
-            { id: 'f-new', heuristicId: 'nielsen-01', severity: 'high', summary: 'new', atHash: 'h1' },
+            { id: 'f-new', heuristicId: 'nielsen-01', severity: 'high', summary: 'new', atHash: 'h1', evidence: 'research' },
           ],
         },
       ],
       [{ id: 'f-doc', heuristicId: 'om-no-dead-ends', severity: 'medium', summary: 'doc-level', atHash: 'h1' }],
     )
     expect(unknownIds).toEqual([])
+    // The evidence tag round-trips through the annotation write path.
     expect(raw.root.children[0].findings).toEqual([
-      { id: 'f-new', heuristicId: 'nielsen-01', severity: 'high', summary: 'new', atHash: 'h1' },
+      { id: 'f-new', heuristicId: 'nielsen-01', severity: 'high', summary: 'new', atHash: 'h1', evidence: 'research' },
     ])
     expect(raw.documentFindings).toEqual([
       { id: 'f-doc', heuristicId: 'om-no-dead-ends', severity: 'medium', summary: 'doc-level', atHash: 'h1' },

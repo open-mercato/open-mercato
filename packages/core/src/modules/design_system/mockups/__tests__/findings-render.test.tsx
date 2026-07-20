@@ -112,5 +112,20 @@ describe('design_system mockup findings rendering', () => {
     expect(fresh!.className).not.toContain('opacity-50')
     // Screen-level findings render in their own ledger section.
     expect(container.querySelector('[data-testid="mockup-ledger-document-findings"]')).not.toBeNull()
+    // The evidence tag renders as a small uppercase chip on semantic tokens —
+    // muted, 6px radius, never a pill, never a new color.
+    const evidenceTag = fresh!.querySelector('[data-mockup-finding-evidence="heuristic"]')
+    expect(evidenceTag).not.toBeNull()
+    expect(evidenceTag!.textContent).toBe('heuristic')
+    expect(evidenceTag!.className).toContain('uppercase')
+    expect(evidenceTag!.className).toContain('rounded-sm')
+    expect(evidenceTag!.className).toContain('text-muted-foreground')
+    expect(evidenceTag!.className).not.toMatch(/rounded-full|amber/)
+    // The stale judgment finding is tagged as an assumption.
+    expect(stale!.querySelector('[data-mockup-finding-evidence="assumption"]')).not.toBeNull()
+    // The ledger header surfaces the assumption count beside the stale count.
+    const assumptions = container.querySelector('[data-testid="mockup-ledger-assumptions-count"]')
+    expect(assumptions).not.toBeNull()
+    expect(assumptions!.textContent).toContain('1')
   })
 })

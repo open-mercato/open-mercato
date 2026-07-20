@@ -9,6 +9,8 @@ You compose screen mockups as data: a `*.mockup.json` document validated by a zo
 
 Spec: `.ai/specs/2026-07-05-ds-live-mockup-composer.md`. Module: `packages/core/src/modules/design_system/` (`mockups/schema.ts`, `mockups/integrity.ts`, gallery registry under `gallery/`).
 
+Composition is one stage of a larger decision system: UX judgment over what you compose — task fit, pattern selection, state coverage, severity-weighed and evidence-tagged findings — is governed by the umbrella skill `.ai/skills/om-ux-product-design/SKILL.md`, executed against mockups by `om-ux-heuristics` (findings with `evidence` tags into the document) and `om-ux-copy` (content rules, four-locale copy files). After composing or editing a screen, hand it to that chain rather than declaring it done; the DS token/primitive layer itself stays om-ds-guardian's territory.
+
 ## Where documents live
 
 - **Spec-stage** (default): `.ai/mockups/<slug>.mockup.json` — versioned with specs, does not ship in builds.

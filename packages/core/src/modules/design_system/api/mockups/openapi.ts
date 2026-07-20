@@ -19,6 +19,11 @@ export const mockupFindingsSummarySchema = z.object({
     critical: z.number().int().nonnegative(),
   }),
   stale: z.number().int().nonnegative().describe('Findings whose atHash no longer matches the content hash'),
+  assumptions: z
+    .number()
+    .int()
+    .nonnegative()
+    .describe("Findings tagged evidence: 'assumption' — assumptions demand verification"),
 })
 
 export const mockupListItemSchema = z.object({

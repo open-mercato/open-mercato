@@ -19,11 +19,27 @@ export const FINDING_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const
 export type FindingSeverity = (typeof FINDING_SEVERITIES)[number]
 
 /**
+ * Evidence levels for findings — the om-ux-product-design hierarchy, strongest
+ * first. Higher levels win conflicts; `assumption` marks a claim that demands
+ * verification and is counted separately in the findings summary (like stale).
+ */
+export const FINDING_EVIDENCE_LEVELS = [
+  'product', // product-specific research/data (observation, tickets, analytics)
+  'standard', // accessibility standards and requirements (WCAG, platform semantics)
+  'platform', // platform conventions (web/desktop/touch, HIG, Material)
+  'research', // verified pattern libraries (GOV.UK, Baymard, NN/g)
+  'heuristic', // heuristics and cognitive psychology
+  'assumption', // unverified assumption — never presented as research
+] as const
+export type FindingEvidence = (typeof FINDING_EVIDENCE_LEVELS)[number]
+
+/**
  * Phase 2 — a UX-heuristic finding attached to a block (or to the document for
  * screen-level findings). `atHash` is the document CONTENT hash (findings
  * stripped — see `stableContentString`) at critique time; a finding whose
  * `atHash` no longer matches the current content hash is stale and renders
- * dimmed in the ledger.
+ * dimmed in the ledger. `evidence` (optional, additive) tags the finding with
+ * its strongest supporting evidence level.
  */
 export const finding = z.object({
   id: z.string().min(1), // 'f1' — unique within the document
@@ -32,6 +48,7 @@ export const finding = z.object({
   summary: z.string().max(300),
   suggestion: z.string().max(500).optional(),
   atHash: z.string().min(1),
+  evidence: z.enum(FINDING_EVIDENCE_LEVELS).optional(), // om-ux-product-design evidence tag
 })
 export type MockupFinding = z.infer<typeof finding>
 
@@ -249,18 +266,23 @@ export type MockupFindingsSummary = {
   total: number
   bySeverity: Record<FindingSeverity, number>
   stale: number
+  /** Findings tagged `evidence: 'assumption'` — assumptions demand verification. */
+  assumptions: number
 }
 
 export const EMPTY_FINDINGS_SUMMARY: MockupFindingsSummary = {
   total: 0,
   bySeverity: { low: 0, medium: 0, high: 0, critical: 0 },
   stale: 0,
+  assumptions: 0,
 }
 
 /**
  * Findings totals for ledger header and GET payloads. `contentHash` is the
  * CURRENT content hash of the document (see `stableContentString`) — findings
- * whose `atHash` differs are counted stale.
+ * whose `atHash` differs are counted stale. Assumption-tagged findings are
+ * counted separately (like stale): an assumption is a claim awaiting
+ * verification, and the ledger must surface how many remain.
  */
 export function computeFindingsSummary(
   document: MockupDocument,
@@ -270,11 +292,13 @@ export function computeFindingsSummary(
     total: 0,
     bySeverity: { low: 0, medium: 0, high: 0, critical: 0 },
     stale: 0,
+    assumptions: 0,
   }
   for (const { finding: docFinding } of collectFindings(document)) {
     summary.total += 1
     summary.bySeverity[docFinding.severity] += 1
     if (docFinding.atHash !== contentHash) summary.stale += 1
+    if (docFinding.evidence === 'assumption') summary.assumptions += 1
   }
   return summary
 }

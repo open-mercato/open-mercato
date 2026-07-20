@@ -13,7 +13,8 @@
       "severity": "low",
       "summary": "Bulk actions on the people grid have no visible undo path on this screen.",
       "suggestion": "Pair destructive bulk actions with an undo toast per the platform contract.",
-      "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4"
+      "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4",
+      "evidence": "heuristic"
     }
   ],
   "root": {
@@ -90,7 +91,8 @@
             "heuristicId": "nielsen-04",
             "severity": "medium",
             "summary": "The saved-views switcher used a custom control in an earlier draft; verify it matches the platform view-switcher pattern.",
-            "atHash": "0000000000000000000000000000000000000000000000000000000000000000"
+            "atHash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "evidence": "assumption"
           }
         ]
       },
@@ -117,7 +119,8 @@
             "severity": "high",
             "summary": "List block \"people-table\" declares no empty state — every list needs an empty state with a next action.",
             "suggestion": "Add an empty-state prop to the block, or state the empty-state behavior (and its call to action) in the block note.",
-            "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4"
+            "atHash": "ec51a9e3b63cd7824573335b7a748d613c3de09555fee6cce968f62e49df61b4",
+            "evidence": "heuristic"
           }
         ]
       },

@@ -51,7 +51,7 @@
     },
     "design": {
       "description": "Design-tooling skills (DS mockup composer + UX skills layer). Opt-in.",
-      "skills": ["om-ds-mockup", "om-ux-heuristics", "om-ux-copy"]
+      "skills": ["om-ds-mockup", "om-ux-product-design", "om-ux-heuristics", "om-ux-copy"]
     },
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",

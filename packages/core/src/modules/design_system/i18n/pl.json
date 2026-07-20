@@ -53,6 +53,7 @@
   "design_system.mockups.diff.removedDetail": "Obecny tylko we wcześniejszej wersji",
   "design_system.mockups.empty.description": "Dodaj dokument *.mockup.json w .ai/mockups lub w folderze mockups modułu, aby pojawił się tutaj.",
   "design_system.mockups.empty.title": "Brak makiet",
+  "design_system.mockups.findings.assumptionsCount": "założenia do weryfikacji",
   "design_system.mockups.findings.count": "Ustalenia",
   "design_system.mockups.findings.screenLevel": "Ustalenia dla całego ekranu",
   "design_system.mockups.findings.stale": "Nieaktualne",

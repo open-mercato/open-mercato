@@ -13,6 +13,7 @@ import {
   type MockupLeafNode,
 } from '../schema'
 import {
+  EVIDENCE_TAG_CLASS,
   LEDGER_STATUS_ORDER,
   ledgerStatusOf,
   SEVERITY_DOT_CLASS,
@@ -79,6 +80,11 @@ function FindingEntry({
         <span className="text-xs font-medium">
           {t(SEVERITY_LABELS[finding.severity].key, SEVERITY_LABELS[finding.severity].fallback)}
         </span>
+        {finding.evidence ? (
+          <span data-mockup-finding-evidence={finding.evidence} className={cn('shrink-0', EVIDENCE_TAG_CLASS)}>
+            {finding.evidence}
+          </span>
+        ) : null}
         <span className="truncate font-mono text-xs text-muted-foreground">{finding.heuristicId}</span>
         {stale ? (
           <span className="ml-auto shrink-0 rounded-sm border border-border bg-muted/30 px-1.5 text-xs text-muted-foreground">
@@ -144,6 +150,14 @@ export function MockupLedger({
                 <span className="tabular-nums">{findingsSummary.stale}</span>
                 {')'}
               </>
+            ) : null}
+            {findingsSummary.assumptions > 0 ? (
+              <span data-testid="mockup-ledger-assumptions-count">
+                {' ('}
+                {t('design_system.mockups.findings.assumptionsCount', 'assumptions to verify')}:{' '}
+                <span className="tabular-nums">{findingsSummary.assumptions}</span>
+                {')'}
+              </span>
             ) : null}
           </p>
         ) : null}

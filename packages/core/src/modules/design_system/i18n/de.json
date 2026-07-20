@@ -53,6 +53,7 @@
   "design_system.mockups.diff.removedDetail": "Nur in der früheren Version vorhanden",
   "design_system.mockups.empty.description": "Lege ein *.mockup.json-Dokument unter .ai/mockups oder im mockups-Ordner eines Moduls an, damit es hier erscheint.",
   "design_system.mockups.empty.title": "Noch keine Mockups",
+  "design_system.mockups.findings.assumptionsCount": "zu überprüfende Annahmen",
   "design_system.mockups.findings.count": "Befunde",
   "design_system.mockups.findings.screenLevel": "Befunde auf Seitenebene",
   "design_system.mockups.findings.stale": "Veraltet",

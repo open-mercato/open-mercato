@@ -87,6 +87,16 @@ export const SEVERITY_LABELS: Record<FindingSeverity, { key: string; fallback: s
 
 export const SEVERITY_ORDER: FindingSeverity[] = ['critical', 'high', 'medium', 'low']
 
+/**
+ * Evidence tag chip beside the severity dot (om-ux-product-design hierarchy).
+ * Evidence levels are technical uppercase tokens (like heuristic ids and
+ * user-story tags — untranslated), muted and identical for every level: the
+ * severity dot carries the tone, the evidence tag carries information only.
+ * 6px radius (`rounded-sm`), semantic tokens, never a pill, never a new color.
+ */
+export const EVIDENCE_TAG_CLASS =
+  'rounded-sm border border-border bg-muted/30 px-1.5 text-xs uppercase tracking-wide text-muted-foreground'
+
 // ---------------------------------------------------------------------------
 // Diff (Phase 2) — the same rail vocabulary: added → success, removed → error,
 // changed → info, moved-only → neutral. Never frames around content.
