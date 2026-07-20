@@ -197,6 +197,10 @@ describe('scaffold hostile inputs', () => {
   it.each([
     ['reserved field name', 'id:text', 'reserved'],
     ['reserved platform column', 'updatedAt:date', 'reserved'],
+    ['reserved list-API query param (export hijack)', 'format:select(csv|json)', 'reserved'],
+    ['reserved pagination param', 'pageSize:number', 'reserved'],
+    ['reserved search param', 'search:text', 'reserved'],
+    ['reserved prototype member', 'constructor:text', 'reserved'],
     ['non-camelCase name', 'Name:text', 'Invalid field name'],
     ['kebab name', 'foo-bar:text', 'Invalid field name'],
     ['unknown type', 'foo:magic', 'Unknown field type "magic"'],
