@@ -110,3 +110,33 @@ describe('NotificationPreferenceMatrix (render)', () => {
     expect(switches[1]).toBeDisabled()
   })
 })
+
+describe('NotificationPreferenceMatrix (category filter)', () => {
+  const categorized: NotificationTypeItem[] = [
+    { id: 'sales.order.created', labelKey: 'sales.order.created.title', category: 'sales', categoryLabel: 'Sales' },
+    { id: 'auth.account.locked', labelKey: 'auth.account.locked.title', category: 'auth', categoryLabel: 'Security' },
+  ]
+
+  it('offers no filter when every type shares one category', () => {
+    render(
+      <NotificationPreferenceMatrix
+        types={[categorized[0]!, { ...categorized[0]!, id: 'sales.quote.created' }]}
+        prefs={{}}
+        onToggle={jest.fn()}
+      />,
+    )
+    // A single-option filter can only ever be a no-op or hide everything else.
+    expect(screen.queryByRole('button', { name: /filters/i })).not.toBeInTheDocument()
+  })
+
+  it('offers the filter once more than one category is present', () => {
+    render(<NotificationPreferenceMatrix types={categorized} prefs={{}} onToggle={jest.fn()} />)
+    expect(screen.getByRole('button', { name: /filters/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('switch')).toHaveLength(categorized.length * PREFERENCE_CHANNELS.length)
+  })
+
+  it('leaves the filter out for an uncategorized catalogue', () => {
+    render(<NotificationPreferenceMatrix types={types} prefs={{}} onToggle={jest.fn()} />)
+    expect(screen.queryByRole('button', { name: /filters/i })).not.toBeInTheDocument()
+  })
+})
