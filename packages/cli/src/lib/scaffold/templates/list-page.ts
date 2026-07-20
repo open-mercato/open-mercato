@@ -112,7 +112,7 @@ export default function {{entityPascal}}ListPage() {
   ], [t])
 
 {{filtersMemo}}  const exporter = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('{{moduleId}}', { ...listParams, all: 'true' }, format),
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('{{moduleId}}', { ...listParams, exportScope: 'view' }, format),
     filename: (format: DataTableExportFormat) => '{{moduleId}}.' + format,
   }), [listParams])
 

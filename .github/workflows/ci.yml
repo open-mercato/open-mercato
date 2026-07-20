@@ -518,6 +518,7 @@ jobs:
         # `files` globs to packages/**; apps/mercato is not part of the DS lint
         # surface, so an apps-target probe would lint nothing.
         run: |
+          trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
           yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
           yarn generate
           npx eslint --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0

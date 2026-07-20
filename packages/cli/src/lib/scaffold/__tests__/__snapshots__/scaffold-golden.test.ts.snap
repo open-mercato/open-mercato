@@ -500,7 +500,7 @@ export default function StockItemListPage() {
   ], [t])
 
   const exporter = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('inventory_items', { ...listParams, all: 'true' }, format),
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('inventory_items', { ...listParams, exportScope: 'view' }, format),
     filename: (format: DataTableExportFormat) => 'inventory_items.' + format,
   }), [listParams])
 
@@ -1308,7 +1308,7 @@ export default function NoteListPage() {
   ], [t])
 
   const exporter = React.useMemo(() => ({
-    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('notes', { ...listParams, all: 'true' }, format),
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('notes', { ...listParams, exportScope: 'view' }, format),
     filename: (format: DataTableExportFormat) => 'notes.' + format,
   }), [listParams])
 

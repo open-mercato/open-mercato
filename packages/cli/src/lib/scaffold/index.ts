@@ -464,7 +464,8 @@ export async function runModuleScaffold(args: string[], deps: ScaffoldDeps = {})
   if (options.dryRun) {
     logger.log(`Plan for module "${options.moduleId}" → ${relModuleDir} (dry run, nothing written):`)
     for (const file of plan.files) {
-      logger.log(`  + ${file.relPath}`)
+      const conflict = fs.existsSync(path.join(target.moduleDir, file.relPath))
+      logger.log(conflict ? `  ! ${file.relPath} (conflict — a real run would abort)` : `  + ${file.relPath}`)
     }
     for (const relPath of plan.skipped) {
       logger.log(`  = ${relPath} (exists, left untouched)`)
@@ -490,10 +491,21 @@ export async function runModuleScaffold(args: string[], deps: ScaffoldDeps = {})
     return 1
   }
 
-  for (const file of plan.files) {
-    const absPath = path.join(target.moduleDir, file.relPath)
-    fs.mkdirSync(path.dirname(absPath), { recursive: true })
-    fs.writeFileSync(absPath, file.contents)
+  const written: string[] = []
+  try {
+    for (const file of plan.files) {
+      const absPath = path.join(target.moduleDir, file.relPath)
+      fs.mkdirSync(path.dirname(absPath), { recursive: true })
+      fs.writeFileSync(absPath, file.contents, { flag: 'wx' })
+      written.push(file.relPath)
+    }
+  } catch (error) {
+    logger.error(`❌ Scaffold failed mid-write: ${error instanceof Error ? error.message : String(error)}`)
+    if (written.length > 0) {
+      logger.error(`Files already written (remove them before retrying):`)
+      for (const relPath of written) logger.error(`  ${relPath}`)
+    }
+    return 1
   }
 
   logger.log(`\n✅ Module "${options.moduleId}" UI slice scaffolded → ${relModuleDir}\n`)

@@ -41,6 +41,24 @@ export const RESERVED_FIELD_NAMES = [
   'deletedAt',
   'organizationId',
   'tenantId',
+  // List-API query params share one flat bag with field filters — a field
+  // named like one of these would clobber pagination/search/export params
+  // (e.g. `format:select(csv|json)` turns every filtered list call into a
+  // CSV export). Reserved alongside the platform columns.
+  'page',
+  'pageSize',
+  'search',
+  'ids',
+  'format',
+  'full',
+  'all',
+  'exportScope',
+  // Object prototype members survive the identifier regex but interact with
+  // plain-object property lookups in generated code.
+  'constructor',
+  'toString',
+  'valueOf',
+  'hasOwnProperty',
 ] as const
 
 export const FIELD_DSL_GRAMMAR = [
