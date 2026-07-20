@@ -66,9 +66,18 @@ if ("$languageMode" -ne 'FullLanguage') {
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
 function Get-NodeMajor {
+  # Scoped EAP: under 'Stop', PS 5.1 turns node's stderr (e.g. a NODE_OPTIONS
+  # warning inherited from the environment) into a terminating error once
+  # 2>$null wraps it — which would misreport a working Node as missing.
   try {
-    $version = (& node -v) 2>$null
-    if ($version -match '^v(\d+)\.') { return [int]$Matches[1] }
+    $previousPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+      $version = (& node -v) 2>$null
+    } finally {
+      $ErrorActionPreference = $previousPreference
+    }
+    if ("$version" -match 'v(\d+)\.') { return [int]$Matches[1] }
   } catch { }
   return 0
 }
