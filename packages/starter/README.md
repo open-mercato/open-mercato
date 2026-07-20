@@ -29,7 +29,9 @@ No Node yet? The package ships pre-Node bootstraps that install a **portable, ch
 | `reset` | Destructive cleanup (containers, volumes, starter state) — asks first. |
 | `infra up\|down` | Just the infra containers. |
 
-Useful flags: `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra`, `--rebuild`, `--profile <name>`, `-- <args for yarn dev>`.
+Useful flags: `--non-interactive`, `--skip-llm-prompt`, `--skip-db`, `--no-infra`, `--rebuild`, `--clean`, `--profile <name>`, `-- <args for yarn dev>`.
+
+`up --clean` forces a full re-converge: it clears the completed-step markers (install, build, migrations) and rebuilds the OpenCode service image, without touching any data — the one-time database seed stays done, and `reset` remains the destructive variant. Conversely, a plain `up` now also skips the database step entirely when the database is initialized and no `Migration*.ts` file changed since the last run (new migrations are detected by fingerprint and applied automatically).
 
 ## Design rules
 

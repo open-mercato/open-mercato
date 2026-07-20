@@ -57,6 +57,80 @@ function hashFiles(repoRoot, files) {
   return hash.digest('hex')
 }
 
+// Fingerprint of every module's Migration*.ts files (name + size, sorted).
+// Snapshot dot-files are excluded on purpose: they change alongside schema
+// work without requiring `db:migrate`. A stable fingerprint + the initialized
+// marker means the database step can skip entirely instead of paying a full
+// `yarn db:migrate` no-op on every start.
+function listMigrationFiles(repoRoot) {
+  const moduleRoots = []
+  for (const base of ['packages', path.join('external', 'official-modules', 'packages')]) {
+    const baseDir = path.join(repoRoot, base)
+    let entries = []
+    try {
+      entries = fs.readdirSync(baseDir)
+    } catch {
+      continue
+    }
+    for (const entry of entries) moduleRoots.push(path.join(baseDir, entry, 'src', 'modules'))
+  }
+  moduleRoots.push(path.join(repoRoot, 'apps', 'mercato', 'src', 'modules'))
+  const files = []
+  for (const modulesDir of moduleRoots) {
+    let modules = []
+    try {
+      modules = fs.readdirSync(modulesDir)
+    } catch {
+      continue
+    }
+    for (const moduleName of modules) {
+      const migrationsDir = path.join(modulesDir, moduleName, 'migrations')
+      let migrationFiles = []
+      try {
+        migrationFiles = fs.readdirSync(migrationsDir)
+      } catch {
+        continue
+      }
+      for (const file of migrationFiles) {
+        if (!file.startsWith('Migration')) continue
+        let size = 0
+        try {
+          size = fs.statSync(path.join(migrationsDir, file)).size
+        } catch {
+          size = 0
+        }
+        files.push(`${path.relative(repoRoot, path.join(migrationsDir, file))}:${size}`)
+      }
+    }
+  }
+  return files.sort()
+}
+
+export function migrationsFingerprint(repoRoot) {
+  return crypto.createHash('sha256').update(listMigrationFiles(repoRoot).join('\n')).digest('hex')
+}
+
+// `--clean` support: drop the convergence markers (install/build/migrations)
+// so the next `up` re-runs those steps. Keeps the remembered mode AND the
+// db-initialized markers — --clean does not touch data, and `yarn initialize`
+// hard-aborts when it finds existing users; wiping THAT state is `reset`'s job.
+export function clearConvergenceState(repoRoot) {
+  const stateDir = path.join(repoRoot, STARTER_STATE_DIR)
+  let entries = []
+  try {
+    entries = fs.readdirSync(stateDir)
+  } catch {
+    return []
+  }
+  const cleared = []
+  for (const entry of entries) {
+    if (entry === 'mode' || entry.startsWith('db-initialized-')) continue
+    fs.rmSync(path.join(stateDir, entry), { force: true })
+    cleared.push(entry)
+  }
+  return cleared
+}
+
 // On managed Windows machines Node often lives in Program Files where
 // `corepack enable` cannot write the yarn shim without admin; corepack itself
 // still runs the project-pinned yarn. Callers switch via ctx.yarnViaCorepack.
@@ -345,13 +419,20 @@ export const databaseStep = {
   appliesTo: (ctx) => !ctx.flags.skipDb,
   async check(ctx) {
     const dbUrl = readEnvValue(path.join(ctx.repoRoot, 'apps', 'mercato', '.env'), 'DATABASE_URL') ?? ''
-    const marker = `db-initialized-${crypto.createHash('sha256').update(dbUrl).digest('hex').slice(0, 12)}`
-    ctx.dbMarker = marker
-    const initialized = readState(ctx.repoRoot, marker) !== null
-    return { ok: false, detail: initialized ? 'applying pending migrations' : 'first run — migrate + initialize' }
+    const dbKey = crypto.createHash('sha256').update(dbUrl).digest('hex').slice(0, 12)
+    ctx.dbMarker = `db-initialized-${dbKey}`
+    ctx.dbMigrationsMarker = `db-migrations-${dbKey}`
+    ctx.migrationsFingerprint = migrationsFingerprint(ctx.repoRoot)
+    const initialized = readState(ctx.repoRoot, ctx.dbMarker) !== null
+    const migrated = readState(ctx.repoRoot, ctx.dbMigrationsMarker) === ctx.migrationsFingerprint
+    if (initialized && migrated) {
+      return { ok: true, detail: 'database initialized, no new migration files' }
+    }
+    return { ok: false, detail: initialized ? 'new migration files — applying pending migrations' : 'first run — migrate + initialize' }
   },
   async apply(ctx) {
     runYarn(ctx, ['db:migrate'])
+    writeState(ctx.repoRoot, ctx.dbMigrationsMarker, ctx.migrationsFingerprint)
     if (readState(ctx.repoRoot, ctx.dbMarker) === null) {
       runYarn(ctx, ['initialize'])
       writeState(ctx.repoRoot, ctx.dbMarker, new Date().toISOString())
@@ -393,6 +474,7 @@ export async function createStepContext(repoRoot, { mode = 'hybrid', flags = {},
       skipDb: false,
       noInfra: false,
       rebuild: false,
+      clean: false,
       profiles: [],
       ...flags,
     },

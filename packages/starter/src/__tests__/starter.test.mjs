@@ -9,7 +9,7 @@ import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue } from '../env-file.mjs'
 import { resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, clearConvergenceState, migrationsFingerprint, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -159,6 +159,41 @@ test('runSteps reports step failures without throwing', async () => {
   ], quietCtx())
   assert.equal(outcome.ok, false)
   assert.equal(outcome.failedStep, 'boom')
+})
+
+test('migrationsFingerprint tracks Migration*.ts files and ignores snapshot dot-files', () => {
+  const repo = makeFakeRepo()
+  const migrationsDir = path.join(repo, 'packages', 'core', 'src', 'modules', 'demo', 'migrations')
+  fs.mkdirSync(migrationsDir, { recursive: true })
+  fs.writeFileSync(path.join(migrationsDir, 'Migration20260101000000.ts'), 'export class M {}\n')
+  const initial = migrationsFingerprint(repo)
+
+  fs.writeFileSync(path.join(migrationsDir, '.snapshot-open-mercato.json'), '{"changed":true}\n')
+  assert.equal(migrationsFingerprint(repo), initial)
+
+  fs.writeFileSync(path.join(migrationsDir, 'Migration20260102000000.ts'), 'export class M2 {}\n')
+  assert.notEqual(migrationsFingerprint(repo), initial)
+
+  const appMigrations = path.join(repo, 'apps', 'mercato', 'src', 'modules', 'local', 'migrations')
+  fs.mkdirSync(appMigrations, { recursive: true })
+  const withApp = migrationsFingerprint(repo)
+  fs.writeFileSync(path.join(appMigrations, 'Migration20260103000000.ts'), 'export class M3 {}\n')
+  assert.notEqual(migrationsFingerprint(repo), withApp)
+})
+
+test('clearConvergenceState removes markers but keeps mode and db-initialized state', () => {
+  const repo = makeFakeRepo()
+  const stateDir = path.join(repo, '.mercato', 'starter')
+  fs.mkdirSync(stateDir, { recursive: true })
+  fs.writeFileSync(path.join(stateDir, 'mode'), 'hybrid\n')
+  fs.writeFileSync(path.join(stateDir, 'install.hash'), 'abc\n')
+  fs.writeFileSync(path.join(stateDir, 'db-initialized-cafe01'), 'when\n')
+  fs.writeFileSync(path.join(stateDir, 'db-migrations-cafe01'), 'hash\n')
+
+  const cleared = clearConvergenceState(repo)
+  assert.deepEqual(cleared.sort(), ['db-migrations-cafe01', 'install.hash'])
+  assert.deepEqual(fs.readdirSync(stateDir).sort(), ['db-initialized-cafe01', 'mode'])
+  assert.deepEqual(clearConvergenceState(path.join(repo, 'nope')), [])
 })
 
 test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', () => {

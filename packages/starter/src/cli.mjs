@@ -26,7 +26,7 @@ import { FULLAPP_DEV_COMPOSE_FILE, STARTER_STATE_DIR, resolveStackPorts, stackUr
 import { loadCompanyConfig } from './company.mjs'
 import { printDoctorReport, runDoctor } from './doctor.mjs'
 import { infraDown, infraUp, ensureMcpSharedDir } from './infra.mjs'
-import { buildUpSteps, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
+import { buildUpSteps, clearConvergenceState, createStepContext, ensureOpencodeImage, runSteps, yarnInvocation } from './steps.mjs'
 import { collectStatus, printStatus, readRunState, isPidAlive, startDetached, stopDetached, tailLogs } from './supervise.mjs'
 import { color, guideBox, printBanner, statusLine } from './ui.mjs'
 import { waitForHealthyServices, waitForHttp } from './waits.mjs'
@@ -51,6 +51,7 @@ function parseArgs(argv) {
     skipDb: false,
     noInfra: false,
     rebuild: false,
+    clean: false,
     volumes: false,
     yes: false,
     keepInfra: false,
@@ -90,6 +91,9 @@ function parseArgs(argv) {
         break
       case '--rebuild':
         flags.rebuild = true
+        break
+      case '--clean':
+        flags.clean = true
         break
       case '--volumes':
         flags.volumes = true
@@ -149,6 +153,14 @@ async function confirm(question, { nonInteractive }) {
 
 async function commandUp(flags) {
   const mode = resolveMode(flags.mode)
+  if (flags.clean) {
+    // Full re-converge: drop the completed-step markers (keeps the mode, all
+    // data, and the one-time initialize state — `reset` is the destructive
+    // variant) and rebuild the OpenCode service image.
+    flags.rebuild = true
+    const cleared = clearConvergenceState(repoRoot)
+    console.log(color.dim(`  --clean: cleared ${cleared.length} convergence marker(s) — install, build, and migrations will re-run (data untouched).`))
+  }
   const ctx = await createStepContext(repoRoot, { mode, flags })
   printBanner(`dev environment starter — mode: ${mode}${ctx.company.name ? ` — company profile: ${ctx.company.name}` : ''}`)
   console.log(color.dim(`  Repo: ${repoRoot}`))
