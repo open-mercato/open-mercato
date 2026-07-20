@@ -706,6 +706,7 @@
   "ui.dataTable.actionsColumn": "Acciones",
   "ui.dataTable.bulkAction.error": "Bulk action failed.",
   "ui.dataTable.bulkAction.selectAll": "Select all",
+  "ui.dataTable.resizeColumn": "Redimensionar columna",
   "ui.dataTable.bulkAction.selectRow": "Select row",
   "ui.dataTable.bulkAction.selectedCount": "{count} selected",
   "ui.dataTable.bulkAction.started": "Acción masiva iniciada. Siga el progreso en la barra superior.",

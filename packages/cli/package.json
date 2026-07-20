@@ -68,7 +68,8 @@
     "testcontainers": "^12.0.3",
     "ts-morph": "^28.0.0",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3"
+    "typescript": "7.0.2",
+    "typescript-js": "npm:typescript@6.0.3"
   },
   "peerDependencies": {
     "@open-mercato/shared": "workspace:*"
