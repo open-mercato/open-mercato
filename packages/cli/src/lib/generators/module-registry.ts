@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { VariableDeclarationKind, type WriterFunction } from 'ts-morph'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import type { PackageResolver } from '../resolver'
 import {
   DEV_SUPERVISOR_MANIFEST_FILE,

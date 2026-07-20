@@ -10,6 +10,7 @@ import readline from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { isTenantDataEncryptionEnabled } from '@open-mercato/shared/lib/encryption/toggles'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 import { createKmsService, type KmsService, type TenantDek } from '@open-mercato/shared/lib/encryption/kms'
 import {
   decryptWithAesGcm,
@@ -193,7 +194,7 @@ const addField: ModuleCli = {
       let options: string[] | undefined
       if (kind === 'select') {
         const raw = (args.options as string) || await ask('Options (comma-separated)', 'low,medium,high')
-        options = raw.split(',').map((s) => s.trim()).filter(Boolean)
+        options = parseCommaSeparatedList(raw)
       }
       let defaultValue: any = undefined
       const defRaw = (args.default as string) ?? (args.defaultValue as string)

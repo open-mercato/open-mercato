@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import { VariableDeclarationKind } from 'ts-morph'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { MODULE_CODE_EXTENSIONS } from './scanner'
@@ -237,7 +237,11 @@ function parseEntityFieldsFromFile(filePath: string, exportedClassNames: string[
   return result
 }
 
-function recordGeneratedWrite(filePath: string, content: string, result: GeneratorResult): void {
+function writeTrackedFile(
+  filePath: string,
+  content: string,
+  result: GeneratorResult,
+): void {
   if (writeIfChanged(filePath, content)) {
     result.filesWritten.push(filePath)
   } else {
@@ -268,17 +272,16 @@ function writePerEntityFieldFiles(
         ],
       })
     }
-    const outFile = path.join(entDir, 'index.ts')
-    recordGeneratedWrite(outFile, getSourceText(sourceFile), result)
+    writeTrackedFile(path.join(entDir, 'index.ts'), getSourceText(sourceFile), result)
   }
 
   const existingEntries = fs.existsSync(outRoot) ? fs.readdirSync(outRoot, { withFileTypes: true }) : []
   for (const entry of existingEntries) {
     if (!entry.isDirectory()) continue
     if (desiredEntities.has(entry.name)) continue
-    const removedDir = path.join(outRoot, entry.name)
-    rimrafDir(removedDir)
-    result.filesWritten.push(removedDir)
+    const staleDirectory = path.join(outRoot, entry.name)
+    rimrafDir(staleDirectory)
+    result.filesWritten.push(staleDirectory)
   }
 }
 
@@ -318,7 +321,7 @@ function writeEntityFieldsRegistry(
     statements: [returnStatement(elementAccess(identifier('entityFieldsRegistry'), identifier('slug')))],
   })
   const outPath = path.join(generatedRoot, 'entity-fields-registry.ts')
-  recordGeneratedWrite(outPath, getSourceText(sourceFile), result)
+  writeTrackedFile(outPath, getSourceText(sourceFile), result)
 }
 
 export async function generateEntityIds(options: EntityIdsOptions): Promise<GeneratorResult> {
@@ -475,7 +478,7 @@ export async function generateEntityIds(options: EntityIdsOptions): Promise<Gene
       type: 'typeof E',
     })
     const src = getSourceText(groupSourceFile)
-    recordGeneratedWrite(out, src, result)
+    writeTrackedFile(out, src, result)
 
     const fieldsRoot = path.join(pkgOutputDir, 'entities')
     const fieldsByModule = fieldsByGroup[g] || {}

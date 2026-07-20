@@ -929,8 +929,28 @@ export async function executeCallApi(
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
-  // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
+  // 4. Create the one-time API key on an EntityManager that is fully detached
+  //    from the surrounding request/transaction context.
+  //
+  //    CALL_API runs inside `workflowExecutor.executeWorkflow()`, which wraps
+  //    the whole execution in `em.transactional(...)`. The request EM is forked
+  //    with `useContext: true`, so while that transaction is open, EVERY
+  //    operation on the container's `em` — including this API key's
+  //    persist/flush — is transparently redirected to the uncommitted
+  //    transaction fork (MikroORM `getContext()` → `TransactionContext`). The
+  //    key would therefore stay invisible until the transaction commits, but
+  //    the commit cannot happen until this activity returns. The outbound
+  //    self-authenticated `fetch` below opens a SEPARATE DB connection that
+  //    cannot see the uncommitted row, so the internal API responds `401` and
+  //    the activity fails (issue #4202).
+  //
+  //    Forking with `useContext: false` (matching the query_index/webhooks
+  //    isolated-EM convention) gives the key its own pooled connection with
+  //    autocommit, so it is committed and visible to the internal request
+  //    immediately.
+  const apiKeyEm = container
+    .resolve<PostgreSqlEntityManager>('em')
+    .fork({ clear: true, freshEventManager: true, useContext: false }) as PostgreSqlEntityManager
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //
