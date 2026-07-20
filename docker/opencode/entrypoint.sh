@@ -174,7 +174,20 @@ case "$PROVIDER" in
     fi
     PROVIDER_CONFIG="\"openrouter\": { \"models\": { \"$MODEL_ID\": {} }$OPENROUTER_OPTIONS }"
     ;;
-  azure | deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
+  azure)
+    # Azure's /openai/v1 surface is OpenAI-compatible, but reasoning-family
+    # deployments (gpt-5*, o*) reject `max_tokens` (wanting
+    # `max_completion_tokens`) and `temperature`. Only the dedicated
+    # @ai-sdk/openai provider performs that parameter mapping — it detects
+    # reasoning models from the model id prefix, so deployments should be
+    # named after their model family (e.g. "gpt-5-something").
+    AZURE_OPTIONS="\"apiKey\": \"$(json_escape "$PROVIDER_KEY")\""
+    if [ -n "$PROVIDER_BASE_URL" ]; then
+      AZURE_OPTIONS="$AZURE_OPTIONS, \"baseURL\": \"$(json_escape "$PROVIDER_BASE_URL")\""
+    fi
+    PROVIDER_CONFIG="\"azure\": { \"npm\": \"@ai-sdk/openai\", \"options\": { $AZURE_OPTIONS }, \"models\": { \"$MODEL_ID\": {} } }"
+    ;;
+  deepinfra | groq | together | fireworks | litellm | ollama | lm-studio)
     # Treat as an OpenAI-compatible endpoint (@ai-sdk/openai-compatible). The
     # key/baseURL are passed explicitly so OpenCode does not need a built-in
     # provider definition for the id.
