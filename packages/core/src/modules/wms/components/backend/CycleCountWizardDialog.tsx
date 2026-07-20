@@ -48,6 +48,7 @@ import {
   loadBinLocationOptions,
   loadCatalogVariantOptions,
   loadLocationOptions,
+  loadLotOptionsByIds,
   loadLotOptionsForBalanceLocation,
   loadWarehouseOptions,
   loadZoneOptions,
@@ -204,6 +205,7 @@ export function CycleCountWizardDialog({
   )
   const [expectedSkusTouched, setExpectedSkusTouched] = React.useState(false)
   const [zoneSuggestions, setZoneSuggestions] = React.useState<Array<{ value: string; label: string }>>([])
+  const [lotSuggestions, setLotSuggestions] = React.useState<Array<{ value: string; label: string }>>([])
   const [assigneeCanListUsers, setAssigneeCanListUsers] = React.useState(true)
   const [scopeEstimateError, setScopeEstimateError] = React.useState<string | null>(null)
   const [balanceError, setBalanceError] = React.useState<string | null>(null)
@@ -236,6 +238,24 @@ export function CycleCountWizardDialog({
       })
     },
     [],
+  )
+
+  // When a location holds multiple lots, the balance lookup already knows the
+  // candidate lot IDs. Seed them as static Combobox suggestions so the Lot
+  // field shows options immediately — without waiting on the debounced
+  // loadSuggestions path that has historically raced into a stuck
+  // "Loading suggestions…" state under balance-lookup disable churn.
+  const seedLotSuggestionsFromCandidates = React.useCallback(
+    async (candidateLotIds: string[]) => {
+      if (candidateLotIds.length === 0) {
+        setLotSuggestions([])
+        return
+      }
+      const options = await loadLotOptionsByIds(candidateLotIds)
+      registerOptionLabels(options)
+      setLotSuggestions(options.map((option) => ({ value: option.value, label: option.label })))
+    },
+    [registerOptionLabels],
   )
 
   const resolveOptionLabel = React.useCallback(
@@ -309,6 +329,7 @@ export function CycleCountWizardDialog({
     setScopeStats(null)
     setExpectedSkusTouched(false)
     setZoneSuggestions([])
+    setLotSuggestions([])
     setAssigneeCanListUsers(true)
     setScopeEstimateError(null)
     setBalanceError(null)
@@ -631,6 +652,7 @@ export function CycleCountWizardDialog({
                 'Multiple lots found at this location — select a lot to continue.',
               ),
             )
+            void seedLotSuggestionsFromCandidates(error.candidateLotIds)
             return
           }
           setBalanceError(
@@ -656,6 +678,7 @@ export function CycleCountWizardDialog({
     form.lotId,
     form.warehouseId,
     open,
+    seedLotSuggestionsFromCandidates,
     step,
     t,
   ])
@@ -810,6 +833,7 @@ export function CycleCountWizardDialog({
         )
         setFieldErrors({ lotId: message })
         flash(message, 'error')
+        void seedLotSuggestionsFromCandidates(error.candidateLotIds)
         return
       }
       console.error('[CycleCountWizardDialog] fetchBalanceOnHand failed', error)
@@ -820,7 +844,7 @@ export function CycleCountWizardDialog({
     } finally {
       setLoadingBalance(false)
     }
-  }, [applyValidationErrors, countSchema, form, t])
+  }, [applyValidationErrors, countSchema, form, seedLotSuggestionsFromCandidates, t])
 
   const handlePost = React.useCallback(async () => {
     const parsed = commitSchema.safeParse({ reason: form.reason })
@@ -1549,6 +1573,7 @@ export function CycleCountWizardDialog({
                             catalogVariantId: next.trim(),
                             lotId: '',
                           })
+                          setLotSuggestions([])
                         }}
                         loadSuggestions={async (query) => {
                           const options = await loadCatalogVariantOptions(query)
@@ -1577,7 +1602,10 @@ export function CycleCountWizardDialog({
                       >
                         <ComboboxInput
                           value={form.locationId}
-                          onChange={(next) => patchForm({ locationId: next.trim() })}
+                          onChange={(next) => {
+                            patchForm({ locationId: next.trim(), lotId: '' })
+                            setLotSuggestions([])
+                          }}
                           loadSuggestions={loadRangeFilteredLocationOptions}
                           resolveLabel={resolveOptionLabel}
                           placeholder={t(
@@ -1596,6 +1624,7 @@ export function CycleCountWizardDialog({
                         <ComboboxInput
                           value={form.lotId}
                           onChange={(next) => patchForm({ lotId: next.trim() })}
+                          suggestions={lotSuggestions}
                           loadSuggestions={loadLotSuggestionsForBalanceLocation}
                           resolveLabel={resolveOptionLabel}
                           placeholder={t(

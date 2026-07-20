@@ -74,6 +74,7 @@ describe('fetchBalanceOnHand', () => {
     ).rejects.toMatchObject({
       name: 'BalanceLookupError',
       code: 'LOT_REQUIRED',
+      candidateLotIds: ['lot-a', 'lot-b'],
     })
   })
 

@@ -258,11 +258,18 @@ export type BalanceLookupErrorCode = 'LOOKUP_FAILED' | 'LOT_REQUIRED' | 'LOT_NOT
 
 export class BalanceLookupError extends Error {
   code: BalanceLookupErrorCode
+  /** Lot IDs present at the ambiguous location (set when `code === 'LOT_REQUIRED'`). */
+  candidateLotIds: string[]
 
-  constructor(message = 'Failed to load inventory balance.', code: BalanceLookupErrorCode = 'LOOKUP_FAILED') {
+  constructor(
+    message = 'Failed to load inventory balance.',
+    code: BalanceLookupErrorCode = 'LOOKUP_FAILED',
+    candidateLotIds: string[] = [],
+  ) {
     super(message)
     this.name = 'BalanceLookupError'
     this.code = code
+    this.candidateLotIds = candidateLotIds
   }
 }
 
@@ -598,9 +605,17 @@ function selectBalanceLookupRow(
   const withoutLot = items.filter((row) => !normalizeBalanceLotId(row.lot_id))
   if (withoutLot.length === 1) return withoutLot[0]
 
+  const candidateLotIds = [
+    ...new Set(
+      items
+        .map((row) => normalizeBalanceLotId(row.lot_id))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
   throw new BalanceLookupError(
     'Multiple balance buckets match this location; specify a lot.',
     'LOT_REQUIRED',
+    candidateLotIds,
   )
 }
 
@@ -671,6 +686,15 @@ export async function loadLotOptions(
   query?: string,
 ): Promise<CrudFieldOption[]> {
   return loadInventoryLotListOptions(catalogVariantId, query, mapInventoryLotListRowToOption)
+}
+
+/** Resolve display options for known lot IDs (e.g. candidates from a LOT_REQUIRED balance lookup). */
+export async function loadLotOptionsByIds(lotIds: string[]): Promise<CrudFieldOption[]> {
+  return loadCrudOptionsByIds<InventoryLotListRow>(
+    '/api/wms/lots',
+    lotIds,
+    mapInventoryLotListRowToOption,
+  )
 }
 
 // Scopes lot suggestions to the lots actually present in the given warehouse
