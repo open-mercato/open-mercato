@@ -7,7 +7,6 @@ import {
   cancelThenDeleteClaimIfPossible,
   createClaimFixture,
   listClaimLines,
-  readClaim,
   readClaimLine,
   readWarrantyClaimSettings,
   receiveClaimLine,
@@ -130,11 +129,17 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
       claim = await transitionAndExpect(request, adminToken, claim, 'awaiting_return')
       claim = await transitionAndExpect(request, adminToken, claim, 'received')
 
+      const lineBeforeReceive = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(
+        lineBeforeReceive.updatedAt,
+        'lifecycle transitions bump the claim version only, so the line must carry its own',
+      ).not.toBe(claim.updatedAt)
+
       const receiveResponse = await receiveClaimLine(request, adminToken, {
         lineId: line.id!,
         conditionGrade: 'D',
         inspectionNotes: `Quarantine inspection ${stamp}`,
-        updatedAt: claim.updatedAt,
+        updatedAt: lineBeforeReceive.updatedAt,
       })
       const receiveBody = await readJsonSafe<{ ok?: boolean; lineId?: string | null }>(receiveResponse)
       expect(receiveResponse.status(), `quarantine grade should be received: ${JSON.stringify(receiveBody)}`).toBe(200)
@@ -149,13 +154,24 @@ test.describe('TC-WC-023: warranty claim quarantine receiving', () => {
         'receiving a configured quarantine grade should emit line_quarantined',
       ).toBe(true)
 
-      const claimAfterReceive = await readClaim(request, adminToken, claim.id!)
+      const staleReleaseResponse = await requestJson(
+        request,
+        'POST',
+        '/api/warranty_claims/receiving',
+        adminToken,
+        { lineId: line.id, action: 'release', updatedAt: lineBeforeReceive.updatedAt },
+      )
+      expect(
+        staleReleaseResponse.status(),
+        'releasing with the pre-receive line version should conflict',
+      ).toBe(409)
+
       const releaseResponse = await requestJson(
         request,
         'POST',
         '/api/warranty_claims/receiving',
         adminToken,
-        { lineId: line.id, action: 'release', updatedAt: claimAfterReceive.updatedAt },
+        { lineId: line.id, action: 'release', updatedAt: heldLine.updatedAt },
       )
       const releaseBody = await readJsonSafe<{ ok?: boolean; lineId?: string | null }>(releaseResponse)
       expect(releaseResponse.status(), `quarantine release should return 200: ${JSON.stringify(releaseBody)}`).toBe(200)

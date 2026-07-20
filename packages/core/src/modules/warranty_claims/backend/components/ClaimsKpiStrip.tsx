@@ -111,10 +111,15 @@ export function ClaimsKpiStrip({
   if (!stats) return null
 
   const openClaims = Object.values(stats.openByStatus).reduce((sum, count) => sum + count, 0)
-  const recovered = stats.recoveredLast30dByCurrency[0] ?? null
+  const recoveredCurrencies = stats.recoveredLast30dByCurrency
+  const recovered = recoveredCurrencies[0] ?? null
   const recoveredLabel = recovered
     ? `${formatNumber(recovered.total, { maximumFractionDigits: 2 })}${recovered.currencyCode ? ` ${recovered.currencyCode}` : ''}`
     : null
+  const recoveredDescription = recoveredCurrencies.length > 1
+    ? t('warranty_claims.kpi.recovered.moreCurrencies', 'Last 30 days — largest of {count} currencies')
+      .replace('{count}', formatNumber(recoveredCurrencies.length))
+    : t('warranty_claims.kpi.last30d', 'Last 30 days')
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
@@ -151,7 +156,7 @@ export function ClaimsKpiStrip({
         <KpiCard
           label={t('warranty_claims.kpi.recovered', 'Recovered')}
           value={recoveredLabel}
-          description={t('warranty_claims.kpi.last30d', 'Last 30 days')}
+          description={recoveredDescription}
         />
       ) : null}
     </div>

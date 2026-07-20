@@ -24,9 +24,40 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
-### Credit memo creation now persists validated order links
+### `DataTable` no longer fires the row click from interactive cell content
 
-`sales.credit_memos.create` now persists its validated `orderId` as the credit memo's order relation. Earlier releases silently dropped that link after validation, so reads returned a null `order_id`; `TC-SALES-031` now asserts the persisted link. No caller changes are required.
+Clicking a `button`, `a`, `input`, `select`, `textarea`, `[role="combobox"]`, `[role="listbox"]`, or `[contenteditable="true"]` inside a row no longer also triggers `onRowClick` / the row's `defaultRowAction`. Previously, activating an inline control (a link, an inline editor, a row checkbox) both ran the control's own handler and navigated the row.
+
+This is a default-behavior change on a shared component; no caller changes are required, and for most tables the old behavior was a bug. If a table legitimately depends on the previous behavior, restore or narrow it with the new `rowClickInteractiveSelector` prop:
+
+```tsx
+// Restore the pre-0.6.6 behavior for this table
+<DataTable rowClickInteractiveSelector={false} … />
+
+// Or swallow the row click for a narrower set of elements
+<DataTable rowClickInteractiveSelector="button, a" … />
+```
+
+The default selector is exported as `DEFAULT_ROW_CLICK_INTERACTIVE_SELECTOR` from `@open-mercato/ui/backend/DataTable`. Covered by `DataTable.rowClickGuard.test.tsx`.
+
+### `ComboboxInput` shows a "no matches" row for a non-empty query
+
+When the user has typed and the filtered suggestion list is empty, the popover now stays open and renders `ui.inputs.comboboxInput.noMatches` instead of closing silently. The loading affordance is unchanged: while a fetch is in flight the popover still shows `ui.inputs.comboboxInput.loading`, including when a stale suggestion list is present. The new key ships in all four bundled locales.
+
+### `customers/components/detail/assignableStaff` moved to `customers/lib/assignableStaff`
+
+The implementation moved so non-component callers (API routes, commands) can import it without reaching into a `components/` path. The old path re-exports every public symbol and is marked `@deprecated`; it keeps working through 0.6.x and will be removed in 0.7.0. Update imports:
+
+```diff
+- import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/components/detail/assignableStaff'
++ import { fetchAssignableStaffMembers } from '@open-mercato/core/modules/customers/lib/assignableStaff'
+```
+
+### Credit memo creation now persists validated order and invoice links
+
+`sales.credit_memos.create` now persists its validated `orderId` and `invoiceId` as the credit memo's `order` and `invoice` relations. `SalesCreditMemo` exposes both only as relations (`@ManyToOne` on `order_id` / `invoice_id`) and has never had scalar `orderId` / `invoiceId` properties, so earlier releases validated each reference and then silently dropped it — reads returned a null `order_id` and `invoice_id`. The delete snapshot and its undo path read and restore both links through the relation as well.
+
+`TC-SALES-031` asserts the persisted order link, and `credit-memo-document-links.test.ts` covers both relations on create and on delete-snapshot. No caller changes are required.
 
 ### Skills install into the canonical `.agents/skills/` directory (#4155)
 

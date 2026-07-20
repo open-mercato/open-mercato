@@ -250,10 +250,17 @@ export async function GET(req: Request) {
         .groupBy('currency_code'),
       context,
     ).execute()
-    const recoveredLast30dByCurrency = recoveredRows.map((row) => ({
-      currencyCode: row.currencyCode ?? null,
-      total: Number(parseNumeric(row.total).toFixed(2)),
-    }))
+    // `group by` returns rows in an unspecified order, so consumers that render a
+    // single bucket would otherwise show an arbitrary currency. Sort largest-first
+    // with the code as a tiebreak so the response is deterministic.
+    const recoveredLast30dByCurrency = recoveredRows
+      .map((row) => ({
+        currencyCode: row.currencyCode ?? null,
+        total: Number(parseNumeric(row.total).toFixed(2)),
+      }))
+      .sort((left, right) =>
+        right.total - left.total
+        || (left.currencyCode ?? '').localeCompare(right.currencyCode ?? ''))
 
     return NextResponse.json({
       ok: true,

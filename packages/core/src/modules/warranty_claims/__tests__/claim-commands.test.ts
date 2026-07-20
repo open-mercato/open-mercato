@@ -2,7 +2,7 @@ import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../data/entities'
-import type { ClaimUpdateInput, WarrantyClaimStatus } from '../data/validators'
+import type { ClaimLineUpdateInput, ClaimUpdateInput, WarrantyClaimStatus } from '../data/validators'
 import type { WarrantyClaimEffectiveSettings } from '../lib/settings'
 import type { ClaimRiskAssessment } from '../lib/risk'
 import { createWarrantyAdjudicationEvaluator } from '../services/adjudicationEvaluator'
@@ -92,7 +92,12 @@ import {
   assignClaimCommand,
   commentClaimCommand,
 } from '../commands/claims'
-import { createClaimLineCommand, updateClaimLineCommand } from '../commands/claim-lines'
+import {
+  createClaimLineCommand,
+  receiveClaimLineCommand,
+  releaseClaimLineQuarantineCommand,
+  updateClaimLineCommand,
+} from '../commands/claim-lines'
 
 type ScopeRecord = {
   tenantId?: unknown
@@ -801,6 +806,102 @@ describe('warranty claim commands', () => {
     await expect(updateClaimLineCommand.execute({ id: LINE_ID, qtyClaimed: 4 }, ctx))
       .rejects
       .toMatchObject({ status: 400 })
+  })
+
+  test('line create and update persist vendorName', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('draft')
+    mockClaims.push(claim)
+
+    const created = await createClaimLineCommand.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      claimId: CLAIM_ID,
+      qtyClaimed: 1,
+      vendorName: 'Pump Vendor GmbH',
+    }, ctx)
+
+    const line = mockLines.find((candidate) => candidate.id === created.lineId)
+    expect(line?.vendorName).toBe('Pump Vendor GmbH')
+
+    await updateClaimLineCommand.execute({ id: created.lineId, vendorName: 'Hydraulics Co' }, ctx)
+    expect(line?.vendorName).toBe('Hydraulics Co')
+
+    await updateClaimLineCommand.execute({ id: created.lineId, vendorName: null }, ctx)
+    expect(line?.vendorName).toBeNull()
+  })
+
+  test('line update cannot restock a D-graded line via a client-supplied grade', async () => {
+    const { ctx } = makeContext()
+    const claim = makeClaim('inspecting')
+    const line = makeLine(claim, { lineStatus: 'received', disposition: 'scrap' })
+    line.conditionGrade = 'D'
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    const clientSuppliedGradePayload: Record<string, unknown> = {
+      id: LINE_ID,
+      disposition: 'restock',
+      conditionGrade: null,
+    }
+    await expect(updateClaimLineCommand.execute(clientSuppliedGradePayload as unknown as ClaimLineUpdateInput, ctx))
+      .rejects
+      .toMatchObject({ status: 400, body: { error: '[internal] invalid warranty claim line command input' } })
+
+    await expect(updateClaimLineCommand.execute({ id: LINE_ID, disposition: 'restock' }, ctx))
+      .rejects
+      .toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.dispositionGradeConflict' } })
+
+    expect(line.disposition).toBe('scrap')
+    expect(line.conditionGrade).toBe('D')
+  })
+
+  test('receiving and quarantine release version the line, not the parent claim', async () => {
+    const { ctx } = makeContext()
+    const claimUpdatedAt = new Date('2026-07-05T12:00:00.000Z')
+    const lineUpdatedAt = new Date('2026-07-02T09:30:00.000Z')
+    const claim = makeClaim('received', { updatedAt: claimUpdatedAt })
+    const line = makeLine(claim, { updatedAt: lineUpdatedAt })
+    mockClaims.push(claim)
+    mockLines.push(line)
+
+    await receiveClaimLineCommand.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      id: LINE_ID,
+      conditionGrade: 'B',
+      updatedAt: lineUpdatedAt.toISOString(),
+    }, ctx)
+
+    expect(enforceWithGuardsMock).toHaveBeenCalledWith(
+      ctx.container,
+      expect.objectContaining({
+        resourceKind: 'warranty_claims.claim_line',
+        resourceId: LINE_ID,
+        current: lineUpdatedAt,
+        expected: lineUpdatedAt.toISOString(),
+      }),
+    )
+
+    const receivedAt = line.updatedAt
+    enforceWithGuardsMock.mockClear()
+
+    await releaseClaimLineQuarantineCommand.execute({
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      id: LINE_ID,
+      updatedAt: receivedAt?.toISOString() ?? null,
+    }, ctx)
+
+    expect(line.quarantineStatus).toBe('released')
+    expect(enforceWithGuardsMock).toHaveBeenCalledWith(
+      ctx.container,
+      expect.objectContaining({
+        resourceKind: 'warranty_claims.claim_line',
+        resourceId: LINE_ID,
+        current: receivedAt,
+      }),
+    )
   })
 
   test('line create clamps month-end warranty dates and increments line numbers', async () => {

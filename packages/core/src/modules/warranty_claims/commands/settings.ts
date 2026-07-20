@@ -1,3 +1,4 @@
+import { UniqueConstraintViolationException } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { registerCommand, type CommandHandler } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -32,6 +33,14 @@ function parseCommandInput(rawInput: unknown): WarrantyClaimSettingsSaveInput {
     throw new CrudHttpError(400, { error: 'warranty_claims.errors.invalidInput' })
   }
   return parsed.data
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  if (error instanceof UniqueConstraintViolationException) return true
+  if (!error || typeof error !== 'object') return false
+  if ((error as { code?: string }).code === '23505') return true
+  const message = (error as { message?: string }).message
+  return typeof message === 'string' && message.includes('duplicate key')
 }
 
 function hasOwn(input: object, key: string): boolean {
@@ -157,7 +166,26 @@ const saveWarrantyClaimSettingsCommand: CommandHandler<
     assertAutoApproveConfig(settings)
     if (exists) settings.updatedAt = new Date()
 
-    await em.flush()
+    try {
+      await em.flush()
+    } catch (error) {
+      // Two admins saving settings for the first time race on
+      // `warranty_claim_settings_scope_unique`. The loser lost a insert, not data —
+      // reload the row the winner created and re-apply this save on top of it rather
+      // than surfacing a unique-violation 500.
+      if (exists || !isUniqueViolation(error)) throw error
+      const retryEm = (ctx.container.resolve('em') as EntityManager).fork()
+      const winner = await loadWarrantyClaimSettings(retryEm, {
+        tenantId: input.tenantId,
+        organizationId: input.organizationId,
+      })
+      if (!winner) throw error
+      applySettingsUpdate(winner, input)
+      assertAutoApproveConfig(winner)
+      winner.updatedAt = new Date()
+      await retryEm.flush()
+      return buildResult(winner)
+    }
 
     return buildResult(settings)
   },

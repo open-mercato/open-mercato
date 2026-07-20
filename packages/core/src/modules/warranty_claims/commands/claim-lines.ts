@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { z } from 'zod'
 import { registerCommand, type CommandHandler, type CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
@@ -319,6 +320,7 @@ function buildLineCreateData(
     conditionOnReceipt: input.conditionOnReceipt ?? null,
     inspectionNotes: input.inspectionNotes ?? null,
     disposition: input.disposition ?? null,
+    vendorName: input.vendorName ?? null,
     lineStatus: 'pending',
     creditAmount: nullableAmountString(input.creditAmount),
     restockingFee: nullableAmountString(input.restockingFee),
@@ -353,6 +355,7 @@ function applyLineUpdate(line: WarrantyClaimLine, input: ClaimLineUpdateInput): 
   if (hasOwn(input, 'conditionOnReceipt')) line.conditionOnReceipt = input.conditionOnReceipt ?? null
   if (hasOwn(input, 'inspectionNotes')) line.inspectionNotes = input.inspectionNotes ?? null
   if (hasOwn(input, 'disposition')) line.disposition = input.disposition ?? null
+  if (hasOwn(input, 'vendorName')) line.vendorName = input.vendorName ?? null
   if (hasOwn(input, 'lineStatus') && input.lineStatus) {
     assertLineStatusMove(line.lineStatus, input.lineStatus)
     line.lineStatus = input.lineStatus
@@ -606,25 +609,33 @@ const createClaimLineCommand: CommandHandler<ClaimLineCreateInput, { lineId: str
         lineOrderRefs: [{ orderLineId: input.orderLineId, orderId: claim.orderId ?? null }],
       })
     }
-    const existingLines = await findWithDecryption(
-      em,
-      WarrantyClaimLine,
-      {
-        claim: claim.id,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: null,
-      },
-      {},
-      scope,
-    )
-    await assertClaimedQtyWithinSold(ctx, scope, existingLines, {
-      orderLineId: input.orderLineId ?? null,
-      qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
-    })
-    const nextLineNo = input.lineNo ?? existingLines.reduce((max, line) => Math.max(max, line.lineNo), 0) + 1
     let line!: WarrantyClaimLine
+    let nextLineNo = input.lineNo ?? 1
     await withAtomicFlush(em, [
+      async () => {
+        // Lock the parent claim before reading siblings: the sold-quantity guard is a
+        // read-then-write, so two concurrent line creates on the same claim would each
+        // see the pre-insert sibling set, both pass, and jointly exceed the sold
+        // quantity. The lock serializes them inside this transaction.
+        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const existingLines = await findWithDecryption(
+          em,
+          WarrantyClaimLine,
+          {
+            claim: claim.id,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            deletedAt: null,
+          },
+          {},
+          scope,
+        )
+        await assertClaimedQtyWithinSold(ctx, scope, existingLines, {
+          orderLineId: input.orderLineId ?? null,
+          qtyClaimed: amountString(input.qtyClaimed, '1') ?? '1',
+        })
+        nextLineNo = input.lineNo ?? existingLines.reduce((max, entry) => Math.max(max, entry.lineNo), 0) + 1
+      },
       () => {
         line = em.create(WarrantyClaimLine, buildLineCreateData(claim, input, nextLineNo))
         assertLineQuantities(line)
@@ -691,19 +702,37 @@ const updateClaimLineCommand: CommandHandler<ClaimLineUpdateInput, { lineId: str
     }
     if (hasOwn(input, 'disposition')) {
       assertDispositionAllowedForType(claim.claimType, input.disposition ?? null)
-      const grade = hasOwn(input, 'conditionGrade') ? toConditionGrade(input.conditionGrade ?? null) : toConditionGrade(line.conditionGrade)
-      assertDispositionAllowedForGrade(grade, input.disposition ?? null)
+      assertDispositionAllowedForGrade(toConditionGrade(line.conditionGrade), input.disposition ?? null)
     }
-    if (hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')) {
-      await assertClaimedQtyWithinSold(ctx, scope, claim.id, {
-        id: line.id,
-        orderLineId: hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null),
-        qtyClaimed: hasOwn(input, 'qtyClaimed')
-          ? (amountString(input.qtyClaimed, '1') ?? '1')
-          : line.qtyClaimed,
-      })
-    }
+    const guardsClaimedQty = hasOwn(input, 'qtyClaimed') || hasOwn(input, 'orderLineId')
     await withAtomicFlush(em, [
+      async () => {
+        if (!guardsClaimedQty) return
+        // Same read-then-write race as the create path — lock the parent claim so the
+        // sibling totals this guard reads cannot change before the update lands.
+        // Siblings are read on THIS EntityManager (not by claim id, which would fork a
+        // fresh one and read outside the transaction, defeating the lock).
+        await requireScopedClaim(em, claim.id, scope, { lockMode: LockMode.PESSIMISTIC_WRITE })
+        const siblingLines = await findWithDecryption(
+          em,
+          WarrantyClaimLine,
+          {
+            claim: claim.id,
+            tenantId: scope.tenantId,
+            organizationId: scope.organizationId,
+            deletedAt: null,
+          },
+          {},
+          scope,
+        )
+        await assertClaimedQtyWithinSold(ctx, scope, siblingLines, {
+          id: line.id,
+          orderLineId: hasOwn(input, 'orderLineId') ? (input.orderLineId ?? null) : (line.orderLineId ?? null),
+          qtyClaimed: hasOwn(input, 'qtyClaimed')
+            ? (amountString(input.qtyClaimed, '1') ?? '1')
+            : line.qtyClaimed,
+        })
+      },
       () => {
         applyLineUpdate(line, input)
         assertLineQuantities(line)
@@ -829,7 +858,7 @@ const receiveClaimLineCommand: CommandHandler<ClaimLineReceiveInput, { lineId: s
     const line = await requireScopedLine(em, input.id, scope)
     const claim = await requireScopedClaim(em, claimIdOf(line), scope)
     assertReceivingStatus(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     const grade: ConditionGrade = input.conditionGrade
     const effectiveSettings = await resolveEffectiveWarrantyClaimSettings(em, scope)
@@ -923,7 +952,7 @@ const releaseClaimLineQuarantineCommand: CommandHandler<ClaimLineReleaseQuaranti
     const line = await requireScopedLine(em, input.id, scope)
     const claim = await requireScopedClaim(em, claimIdOf(line), scope)
     assertReceivingStatus(claim)
-    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     await withAtomicFlush(em, [
       () => {
@@ -986,7 +1015,7 @@ const setClaimLineAssessmentCommand: CommandHandler<LineSetAssessmentInput, { li
     const em = (ctx.container.resolve('em') as EntityManager).fork()
     const line = await requireScopedLine(em, input.id, scope)
     const claim = claimOf(line) ?? await requireScopedClaim(em, claimIdOf(line), scope)
-    await enforceWarrantyClaimOptimisticLock(ctx, claim, WARRANTY_CLAIM_RESOURCE_KIND, input.updatedAt ?? undefined)
+    await enforceWarrantyClaimOptimisticLock(ctx, line, WARRANTY_CLAIM_LINE_RESOURCE_KIND, input.updatedAt ?? undefined)
 
     await withAtomicFlush(em, [
       () => {

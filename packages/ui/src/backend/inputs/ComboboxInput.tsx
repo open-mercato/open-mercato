@@ -445,8 +445,10 @@ export function ComboboxInput({
 
       {showSuggestions && !disabled && (loading || filteredSuggestions.length > 0 || (touched && input.trim().length > 0)) && (
         <div className="absolute z-popover w-full mt-1 rounded-md border border-input bg-popover p-2 shadow-md max-h-48 sm:max-h-60 overflow-auto">
-          {touched && !filteredSuggestions.length ? (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loading ? loadingLabel : noMatchesLabel}</div>
+          {loading && touched ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{loadingLabel}</div>
+          ) : touched && !filteredSuggestions.length ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">{noMatchesLabel}</div>
           ) : (
             <div className="flex flex-col gap-1">
               {filteredSuggestions.map((option, index) => (

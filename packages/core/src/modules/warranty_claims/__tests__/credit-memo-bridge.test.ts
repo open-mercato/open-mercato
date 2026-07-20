@@ -12,6 +12,9 @@ const CLAIM_LINE_ID = '77777777-7777-4777-8777-777777777777'
 const ORDER_LINE_ID = '88888888-8888-4888-8888-888888888888'
 const CREDIT_MEMO_ID = '99999999-9999-4999-8999-999999999999'
 const FOREIGN_CREDIT_MEMO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+const SALES_RETURN_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const FOREIGN_TENANT_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+const FOREIGN_ORG_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
 const CREDIT_MEMO_UPDATED_AT = '2026-07-17T09:30:00.000Z'
 const CLAIM_UPDATED_AT = '2026-07-17T08:00:00.000Z'
 
@@ -19,7 +22,9 @@ let mockClaims: Array<Record<string, unknown>> = []
 let mockLines: Array<Record<string, unknown>> = []
 let mockEvents: Array<Record<string, unknown>> = []
 let mockSourceOrderRow: Record<string, unknown> | null = null
-let mockCreditMemoRow: Record<string, unknown> | null | undefined = null
+let mockSalesReturnRow: Record<string, unknown> | null = null
+let mockCreditMemoRow: Record<string, unknown> | null = null
+let mockCreditMemoLookupError: Error | null = null
 let mockSourceLineRows = new Map<string, Record<string, unknown>>()
 let mockSalesAvailable = true
 let mockTransactionError: Error | null = null
@@ -130,6 +135,21 @@ function findIdWhere(wheres: Array<[string, string, unknown]>): string | null {
   return typeof idWhere?.[2] === 'string' ? idWhere[2] : null
 }
 
+function rowSatisfiesWheres(row: Record<string, unknown>, wheres: Array<[string, string, unknown]>): boolean {
+  return wheres.every(([column, op, value]) => {
+    if (op === 'is' && value === null) return row[column] === null || row[column] === undefined
+    return row[column] === value
+  })
+}
+
+function scopedRow(
+  row: Record<string, unknown> | null | undefined,
+  wheres: Array<[string, string, unknown]>,
+): Record<string, unknown> | undefined {
+  if (!row) return undefined
+  return rowSatisfiesWheres(row, wheres) ? row : undefined
+}
+
 function makeKysely() {
   return {
     selectFrom: (table: string) => {
@@ -144,11 +164,12 @@ function makeKysely() {
         execute: async () => [],
         executeTakeFirst: async () => {
           const id = findIdWhere(wheres)
-          if (table === 'sales_order_lines') return id ? mockSourceLineRows.get(id) : undefined
-          if (table === 'sales_orders') return id === ORDER_ID ? mockSourceOrderRow ?? undefined : undefined
-          if (table === 'sales_credit_memos' && id === CREDIT_MEMO_ID) {
-            if (mockCreditMemoRow === undefined) throw new Error('credit memo lookup degraded')
-            return mockCreditMemoRow ?? undefined
+          if (table === 'sales_order_lines') return scopedRow(id ? mockSourceLineRows.get(id) : undefined, wheres)
+          if (table === 'sales_orders') return scopedRow(mockSourceOrderRow, wheres)
+          if (table === 'sales_returns') return scopedRow(mockSalesReturnRow, wheres)
+          if (table === 'sales_credit_memos') {
+            if (mockCreditMemoLookupError) throw mockCreditMemoLookupError
+            return scopedRow(mockCreditMemoRow, wheres)
           }
           return undefined
         },
@@ -253,6 +274,38 @@ function sourceLine(overrides: Record<string, unknown> = {}): Record<string, unk
     total_net_amount: '100.0000',
     total_gross_amount: '123.0000',
     tax_rate: '23.0000',
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
+    ...overrides,
+  }
+}
+
+function salesOrderRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: ORDER_ID,
+    currency_code: 'USD',
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
+    ...overrides,
+  }
+}
+
+function salesReturnRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: SALES_RETURN_ID,
+    updated_at: CREDIT_MEMO_UPDATED_AT,
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
+    ...overrides,
+  }
+}
+
+function creditMemoRow(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: CREDIT_MEMO_ID,
+    updated_at: CREDIT_MEMO_UPDATED_AT,
+    tenant_id: TENANT_ID,
+    organization_id: ORG_ID,
     ...overrides,
   }
 }
@@ -293,8 +346,10 @@ beforeEach(() => {
   mockClaims = []
   mockLines = []
   mockEvents = []
-  mockSourceOrderRow = { id: ORDER_ID, currency_code: 'USD' }
-  mockCreditMemoRow = { id: CREDIT_MEMO_ID, updated_at: CREDIT_MEMO_UPDATED_AT }
+  mockSourceOrderRow = salesOrderRow()
+  mockSalesReturnRow = salesReturnRow()
+  mockCreditMemoRow = creditMemoRow()
+  mockCreditMemoLookupError = null
   mockSourceLineRows = new Map()
   mockSalesAvailable = true
   mockTransactionError = null
@@ -655,7 +710,7 @@ describe('warranty_claims.claim.create_credit_memo undo and surfaces', () => {
     ['missing', null, CREDIT_MEMO_UPDATED_AT],
   ])('aborts undo when the stored token is %s while the row exists', async (_label, storedToken, currentToken) => {
     const claim = seedClaim({ creditMemoId: CREDIT_MEMO_ID })
-    mockCreditMemoRow = { id: CREDIT_MEMO_ID, updated_at: currentToken }
+    mockCreditMemoRow = creditMemoRow({ updated_at: currentToken })
 
     await expect(createCreditMemoCommand.undo?.({ logEntry: creditMemoUndoLog(claim, storedToken), ctx: makeCtx() } as never))
       .rejects.toMatchObject({ status: 409, body: { error: 'warranty_claims.errors.creditMemoChangedUndoAborted' } })
@@ -677,12 +732,24 @@ describe('warranty_claims.claim.create_credit_memo undo and surfaces', () => {
     )
   })
 
-  it('treats a degraded credit-memo re-read as a conflict', async () => {
-    mockCreditMemoRow = undefined
+  it('treats an absent sales credit-memo table as a conflict', async () => {
+    mockCreditMemoLookupError = Object.assign(new Error('relation "sales_credit_memos" does not exist'), { code: '42P01' })
     const claim = seedClaim({ creditMemoId: CREDIT_MEMO_ID })
 
     await expect(createCreditMemoCommand.undo?.({ logEntry: creditMemoUndoLog(claim), ctx: makeCtx() } as never))
       .rejects.toMatchObject({ status: 409, body: { error: 'warranty_claims.errors.creditMemoChangedUndoAborted' } })
+    expect(claim.creditMemoId).toBe(CREDIT_MEMO_ID)
+  })
+
+  it('propagates a degraded credit-memo re-read instead of restoring on an unverified row', async () => {
+    const lookupFailure = Object.assign(new Error('credit memo lookup degraded'), { code: '08006' })
+    mockCreditMemoLookupError = lookupFailure
+    const claim = seedClaim({ creditMemoId: CREDIT_MEMO_ID })
+
+    await expect(createCreditMemoCommand.undo?.({ logEntry: creditMemoUndoLog(claim), ctx: makeCtx() } as never))
+      .rejects.toBe(lookupFailure)
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(claim.creditMemoId).toBe(CREDIT_MEMO_ID)
   })
 
   it('declares both route features and the complete OpenAPI response set', async () => {
@@ -789,15 +856,80 @@ describe('warranty_claims.claim.create_credit_memo undo and surfaces', () => {
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
   })
 
-  it('rejects a manual creditMemoId link that does not resolve in the tenant scope', async () => {
-    const { validateClaimReferences } = await import('../commands/claims')
+})
 
-    await expect(
-      validateClaimReferences(
-        makeCtx(),
-        { tenantId: TENANT_ID, organizationId: ORG_ID },
-        { creditMemoId: FOREIGN_CREDIT_MEMO_ID },
-      ),
-    ).rejects.toMatchObject({ status: 400 })
+type ClaimReferenceInput = {
+  orderId?: string
+  salesReturnId?: string
+  replacementOrderId?: string
+  creditMemoId?: string
+  lineOrderRefs?: Array<{ orderLineId: string; orderId: string | null }>
+}
+
+type ReferenceScopeCase = [string, ClaimReferenceInput, (overrides: Record<string, unknown>) => void]
+
+const referenceScopeCases: ReferenceScopeCase[] = [
+  ['orderId', { orderId: ORDER_ID }, (overrides) => { mockSourceOrderRow = salesOrderRow(overrides) }],
+  ['replacementOrderId', { replacementOrderId: ORDER_ID }, (overrides) => { mockSourceOrderRow = salesOrderRow(overrides) }],
+  ['salesReturnId', { salesReturnId: SALES_RETURN_ID }, (overrides) => { mockSalesReturnRow = salesReturnRow(overrides) }],
+  ['creditMemoId', { creditMemoId: CREDIT_MEMO_ID }, (overrides) => { mockCreditMemoRow = creditMemoRow(overrides) }],
+  [
+    'lineOrderRefs',
+    { lineOrderRefs: [{ orderLineId: ORDER_LINE_ID, orderId: ORDER_ID }] },
+    (overrides) => { seedSourceLine(ORDER_LINE_ID, overrides) },
+  ],
+]
+
+const claimScope = { tenantId: TENANT_ID, organizationId: ORG_ID }
+
+async function validateReferences(input: ClaimReferenceInput): Promise<void> {
+  const { validateClaimReferences } = await import('../commands/claims')
+  return validateClaimReferences(makeCtx(), claimScope, input)
+}
+
+describe('warranty_claims claim reference tenant scoping', () => {
+  it.each(referenceScopeCases)('accepts an in-scope %s reference', async (_label, input, seedOwner) => {
+    seedOwner({})
+
+    await expect(validateReferences(input)).resolves.toBeUndefined()
+  })
+
+  it.each(referenceScopeCases)('rejects a %s row owned by another tenant', async (_label, input, seedOwner) => {
+    seedOwner({ tenant_id: FOREIGN_TENANT_ID })
+
+    await expect(validateReferences(input))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+  })
+
+  it.each(referenceScopeCases)('rejects a %s row owned by another organization', async (_label, input, seedOwner) => {
+    seedOwner({ organization_id: FOREIGN_ORG_ID })
+
+    await expect(validateReferences(input))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+  })
+
+  it.each(referenceScopeCases)('rejects a soft-deleted %s row', async (_label, input, seedOwner) => {
+    seedOwner({ deleted_at: new Date(CREDIT_MEMO_UPDATED_AT) })
+
+    await expect(validateReferences(input))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+  })
+
+  it('rejects a manual creditMemoId link that does not resolve in the tenant scope', async () => {
+    await expect(validateReferences({ creditMemoId: FOREIGN_CREDIT_MEMO_ID }))
+      .rejects.toMatchObject({ status: 400, body: { error: 'warranty_claims.errors.invalidReference' } })
+  })
+
+  it('accepts a reference when the optional sales table is absent', async () => {
+    mockCreditMemoLookupError = Object.assign(new Error('relation "sales_credit_memos" does not exist'), { code: '42P01' })
+
+    await expect(validateReferences({ creditMemoId: CREDIT_MEMO_ID })).resolves.toBeUndefined()
+  })
+
+  it('propagates a lookup failure instead of accepting the reference unverified', async () => {
+    const lookupFailure = Object.assign(new Error('connection terminated'), { code: '08006' })
+    mockCreditMemoLookupError = lookupFailure
+
+    await expect(validateReferences({ creditMemoId: CREDIT_MEMO_ID })).rejects.toBe(lookupFailure)
   })
 })

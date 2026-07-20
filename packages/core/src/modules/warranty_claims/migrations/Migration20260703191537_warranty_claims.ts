@@ -25,4 +25,14 @@ export class Migration20260703191537_warranty_claims extends Migration {
     this.addSql(`alter table "warranty_claim_lines" add constraint "warranty_claim_lines_claim_id_foreign" foreign key ("claim_id") references "warranty_claims" ("id");`);
   }
 
+  override down(): void | Promise<void> {
+    this.addSql(`alter table "warranty_claim_events" drop constraint if exists "warranty_claim_events_claim_id_foreign";`);
+    this.addSql(`alter table "warranty_claim_lines" drop constraint if exists "warranty_claim_lines_claim_id_foreign";`);
+
+    this.addSql(`drop table if exists "warranty_claim_sequences" cascade;`);
+    this.addSql(`drop table if exists "warranty_claim_lines" cascade;`);
+    this.addSql(`drop table if exists "warranty_claim_events" cascade;`);
+    this.addSql(`drop table if exists "warranty_claims" cascade;`);
+  }
+
 }

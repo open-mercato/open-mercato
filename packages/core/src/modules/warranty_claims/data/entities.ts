@@ -273,6 +273,7 @@ export class WarrantyClaimSettings {
 @Index({ name: 'warranty_claim_lines_claim_idx', properties: ['claim', 'organizationId', 'tenantId'] })
 @Index({ name: 'warranty_claim_lines_order_line_idx', properties: ['orderLineId', 'organizationId', 'tenantId'] })
 @Index({ name: 'warranty_claim_lines_product_idx', properties: ['productId', 'organizationId', 'tenantId'] })
+@Index({ name: 'warranty_claim_lines_serial_idx', properties: ['tenantId', 'organizationId', 'serialNumber'] })
 export class WarrantyClaimLine {
   [OptionalProps]?: 'createdAt' | 'updatedAt' | 'quarantineStatus'
 

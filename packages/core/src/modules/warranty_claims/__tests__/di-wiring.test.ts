@@ -4,7 +4,7 @@ import type { AppContainer } from '@open-mercato/shared/lib/di/container'
 import { register } from '../di'
 
 describe('warranty claims DI wiring', () => {
-  test('registers v1.3 default seam services', () => {
+  test('registers the default seam services', () => {
     const container = createContainer<Record<string, unknown>>({ injectionMode: InjectionMode.CLASSIC }) as unknown as AppContainer
     container.register({
       em: asValue({} as EntityManager),

@@ -16,6 +16,8 @@ import { RowActions } from '@open-mercato/ui/backend/RowActions'
 import { LoadingMessage, ErrorMessage, RecordNotFoundState } from '@open-mercato/ui/backend/detail'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
 import { Button } from '@open-mercato/ui/primitives/button'
+import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { FormHeader } from '@open-mercato/ui/backend/forms'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
@@ -24,7 +26,12 @@ import { Textarea } from '@open-mercato/ui/primitives/textarea'
 import { SegmentedControl, SegmentedControlItem } from '@open-mercato/ui/primitives/segmented-control'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@open-mercato/ui/primitives/select'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { AiChat } from '@open-mercato/ui/ai/AiChat'
+// Lazy-load the chat surface so the claim detail route chunk does not carry the AI
+// SDK runtime for every operator — it only renders once a triage chat session is open.
+const LazyAiChat = React.lazy(async () => {
+  const mod = await import('@open-mercato/ui/ai/AiChat')
+  return { default: mod.AiChat }
+})
 import { AiIcon } from '@open-mercato/ui/ai/AiIcon'
 import { useAiChatSessions } from '@open-mercato/ui/ai/AiChatSessions'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
@@ -630,7 +637,7 @@ function RiskSignalChips({ signals, t }: { signals: ClaimRiskSignal[]; t: Transl
   )
 }
 
-function InlineQtyApprovedCell({
+export function InlineQtyApprovedCell({
   line,
   disabled,
   label,
@@ -643,16 +650,17 @@ function InlineQtyApprovedCell({
 }) {
   const currentValue = quantityInputValue(line.qtyApproved)
   const [draft, setDraft] = React.useState(currentValue)
+  const blurSaveSuppressedRef = React.useRef(false)
 
   React.useEffect(() => {
     setDraft(currentValue)
   }, [currentValue])
 
-  const save = React.useCallback(() => {
-    const nextValue = draft.trim().length ? draft.trim() : null
+  const commit = React.useCallback((value: string) => {
+    const nextValue = value.trim().length ? value.trim() : null
     if (parseQuantity(nextValue) === parseQuantity(line.qtyApproved)) return
     void onSave(line, 'qtyApproved', nextValue)
-  }, [draft, line, onSave])
+  }, [line, onSave])
 
   return (
     <Input
@@ -663,16 +671,26 @@ function InlineQtyApprovedCell({
       aria-label={label}
       className="w-24"
       onChange={(event) => setDraft(event.target.value)}
-      onBlur={save}
+      onFocus={() => { blurSaveSuppressedRef.current = false }}
+      onBlur={() => {
+        if (blurSaveSuppressedRef.current) {
+          blurSaveSuppressedRef.current = false
+          return
+        }
+        commit(draft)
+      }}
       onKeyDown={(event) => {
         if (event.key === 'Escape') {
           event.preventDefault()
+          blurSaveSuppressedRef.current = true
           setDraft(currentValue)
           event.currentTarget.blur()
+          return
         }
         if (event.key === 'Enter') {
           event.preventDefault()
-          save()
+          blurSaveSuppressedRef.current = true
+          commit(draft)
           event.currentTarget.blur()
         }
       }}
@@ -1021,6 +1039,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
 
   const noValue = t('warranty_claims.common.noValue')
   const linesEditable = LINE_EDITABLE_CLAIM_STATUSES.has(currentStatus)
+  const linesInlineEditable = linesEditable && featureAccess.claimManage
   const allowedDispositions = React.useMemo(
     () => resolveClaimTypeUiConfig(claim?.claimType).allowedDispositions,
     [claim?.claimType],
@@ -1563,7 +1582,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           value={row.original.lineStatus}
           label={t('warranty_claims.form.lineStatus')}
           options={buildLineStatusOptions(row.original.lineStatus, t)}
-          disabled={!linesEditable}
+          disabled={!linesInlineEditable}
           onSave={saveLineInlineField}
         />
       ),
@@ -1600,7 +1619,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       cell: ({ row }) => (
         <InlineQtyApprovedCell
           line={row.original}
-          disabled={!linesEditable}
+          disabled={!linesInlineEditable}
           label={t('warranty_claims.form.qtyApproved')}
           onSave={saveLineInlineField}
         />
@@ -1622,7 +1641,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
           label={t('warranty_claims.form.disposition')}
           emptyLabel={noValue}
           options={buildDispositionOptions(allowedDispositions, row.original.disposition, t)}
-          disabled={!linesEditable}
+          disabled={!linesInlineEditable}
           onSave={saveLineInlineField}
         />
       ),
@@ -1632,7 +1651,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       header: t('warranty_claims.form.creditAmount'),
       cell: ({ row }) => formatAmount(row.original.creditAmount, claim?.currencyCode ?? null, noValue),
     },
-  ], [allowedDispositions, claim?.currencyCode, claim?.id, featureAccess.claimManage, linesEditable, loadData, noValue, saveLineInlineField, t])
+  ], [allowedDispositions, claim?.currencyCode, claim?.id, featureAccess.claimManage, linesInlineEditable, loadData, noValue, saveLineInlineField, t])
 
   const transitionFields = React.useMemo<CrudField[]>(() => [
     {
@@ -1724,18 +1743,27 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
       <PageBody>
         <div className="space-y-6">
           <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-2">
+            <FormHeader
+              mode="detail"
+              title={claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
+              entityTypeLabel={t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}
+              statusBadge={
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-2xl font-bold tracking-tight">
-                    {claim.claimNumber ?? t('warranty_claims.detail.unnumbered', 'Unnumbered claim')}
-                  </h1>
+                  {claimChannel ? <StatusBadge variant="neutral">{t(`warranty_claims.channel.${claimChannel}`)}</StatusBadge> : null}
+                  <ClaimStatusBadge status={claim.status} />
+                  <ClaimPriorityBadge priority={claim.priority} />
+                  {claim.awaitingStaffReply ? (
+                    <StatusBadge variant="warning">{t('warranty_claims.detail.badge.customerReplied')}</StatusBadge>
+                  ) : null}
+                </div>
+              }
+              actionsContent={
+                <div className="flex flex-wrap items-center gap-2">
                   {claim.claimNumber ? (
-                    <Button
+                    <IconButton
                       type="button"
                       variant="ghost"
-                      size="icon"
-                      className="h-8 w-8"
+                      size="sm"
                       aria-label={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
                       title={t('warranty_claims.detail.copyClaimNumber', 'Copy claim number')}
                       onClick={() => {
@@ -1744,13 +1772,12 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       }}
                     >
                       <Hash className="size-4" aria-hidden />
-                    </Button>
+                    </IconButton>
                   ) : null}
-                  <Button
+                  <IconButton
                     type="button"
                     variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
+                    size="sm"
                     aria-label={t('warranty_claims.detail.copyLink')}
                     title={t('warranty_claims.detail.copyLink')}
                     onClick={() => {
@@ -1759,16 +1786,21 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                     }}
                   >
                     <Copy className="size-4" aria-hidden />
+                  </IconButton>
+                  <Button asChild variant="outline">
+                    <Link href={`/backend/warranty_claims/${claim.id}/edit`}>
+                      {t('warranty_claims.detail.actions.edit')}
+                    </Link>
                   </Button>
-                  <StatusBadge variant="neutral">{t(`warranty_claims.claimType.${claim.claimType ?? 'warranty'}`)}</StatusBadge>
-                  {claimChannel ? <StatusBadge variant="neutral">{t(`warranty_claims.channel.${claimChannel}`)}</StatusBadge> : null}
-                  <ClaimStatusBadge status={claim.status} />
-                  <ClaimPriorityBadge priority={claim.priority} />
-                  {claim.awaitingStaffReply ? (
-                    <StatusBadge variant="warning">{t('warranty_claims.detail.badge.customerReplied')}</StatusBadge>
+                  {claim.claimType !== 'vendor_recovery' && eligibleVendorLines.length > 0 ? (
+                    <Button type="button" variant="outline" onClick={() => setVendorDialogOpen(true)}>
+                      {t('warranty_claims.detail.actions.vendorRecovery')}
+                    </Button>
                   ) : null}
                 </div>
-                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+              }
+            />
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
                   <span>
                     {t('warranty_claims.detail.customer')}:{' '}
                     {claim.customerName ? (
@@ -1800,25 +1832,29 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                   <span className="inline-flex items-center gap-2">
                     <UserRound className="size-4" aria-hidden />
                     <span>{t('warranty_claims.detail.assignee')}: {assigneeDisplayName}</span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="h-auto px-2 py-1 text-xs"
-                      onClick={openAssignDialog}
-                    >
-                      {t('warranty_claims.detail.reassign')}
-                    </Button>
-                    {currentUserId && claim.assigneeUserId !== currentUserId ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        className="h-auto px-2 py-1 text-xs"
-                        onClick={() => { void assignToMe() }}
-                      >
-                        {t('warranty_claims.detail.assignToMe')}
-                      </Button>
+                    {featureAccess.claimManage ? (
+                      <>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-auto px-2 py-1 text-xs"
+                          onClick={openAssignDialog}
+                        >
+                          {t('warranty_claims.detail.reassign')}
+                        </Button>
+                        {currentUserId && claim.assigneeUserId !== currentUserId ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto px-2 py-1 text-xs"
+                            onClick={() => { void assignToMe() }}
+                          >
+                            {t('warranty_claims.detail.assignToMe')}
+                          </Button>
+                        ) : null}
+                      </>
                     ) : null}
                   </span>
                   <span className="inline-flex flex-wrap items-center gap-2">
@@ -1833,20 +1869,6 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                     <RiskSignalChips signals={riskSignals} t={t} />
                   </span>
                   <EntitlementLookupBadge claim={claim} lines={lines} />
-                </div>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <Button asChild variant="outline">
-                  <Link href={`/backend/warranty_claims/${claim.id}/edit`}>
-                    {t('warranty_claims.detail.actions.edit')}
-                  </Link>
-                </Button>
-                {claim.claimType !== 'vendor_recovery' && eligibleVendorLines.length > 0 ? (
-                  <Button type="button" variant="outline" onClick={() => setVendorDialogOpen(true)}>
-                    {t('warranty_claims.detail.actions.vendorRecovery')}
-                  </Button>
-                ) : null}
-              </div>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-md border border-border p-3">
@@ -1904,26 +1926,28 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
             )
           })()}
 
-          <div className="flex flex-wrap items-center gap-2">
-            {nextStatuses.length ? (
-              nextStatuses.map((status) => (
-                <Button
-                  key={status}
-                  type="button"
-                  variant={status === 'rejected' || status === 'cancelled' ? 'destructive' : 'outline'}
-                  onClick={() => { void confirmAndTransition(status) }}
-                >
-                  {status === 'submitted' && currentStatus === 'draft'
-                    ? t('warranty_claims.detail.actions.submit')
-                    : t('warranty_claims.detail.actions.transitionTo', undefined, {
-                      status: t(`warranty_claims.status.${status}`),
-                    })}
-                </Button>
-              ))
-            ) : (
-              <span className="text-sm text-muted-foreground">{t('warranty_claims.detail.actions.noTransitions')}</span>
-            )}
-          </div>
+          {featureAccess.claimManage ? (
+            <div className="flex flex-wrap items-center gap-2">
+              {nextStatuses.length ? (
+                nextStatuses.map((status) => (
+                  <Button
+                    key={status}
+                    type="button"
+                    variant={status === 'rejected' || status === 'cancelled' ? 'destructive' : 'outline'}
+                    onClick={() => { void confirmAndTransition(status) }}
+                  >
+                    {status === 'submitted' && currentStatus === 'draft'
+                      ? t('warranty_claims.detail.actions.submit')
+                      : t('warranty_claims.detail.actions.transitionTo', undefined, {
+                        status: t(`warranty_claims.status.${status}`),
+                      })}
+                  </Button>
+                ))
+              ) : (
+                <span className="text-sm text-muted-foreground">{t('warranty_claims.detail.actions.noTransitions')}</span>
+              )}
+            </div>
+          ) : null}
 
           <VendorRecoverySuggestionsPanel
             claim={claim}
@@ -1965,11 +1989,11 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                 <DataTable<ClaimLine>
                   embedded
                   title={t('warranty_claims.detail.tabs.lines')}
-                  actions={(
+                  actions={featureAccess.claimManage ? (
                     <Button type="button" onClick={() => setLineDialog({ mode: 'create' })}>
                       {t('warranty_claims.detail.lines.add')}
                     </Button>
-                  )}
+                  ) : undefined}
                   columns={lineColumns}
                   data={lines}
                   stickyActionsColumn
@@ -1980,7 +2004,7 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                       variant="subtle"
                     />
                   )}
-                  rowActions={(line) => (
+                  rowActions={featureAccess.claimManage ? (line) => (
                     <RowActions
                       items={[
                         {
@@ -1990,58 +2014,60 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                         },
                       ]}
                     />
-                  )}
+                  ) : undefined}
                 />
               </div>
             ) : null}
 
             {activeTab === 'timeline' ? (
               <div className="space-y-4">
-                <div className="rounded-lg border border-border bg-card p-4">
-                  <div className="space-y-3">
-                    <Textarea
-                      value={commentBody}
-                      onChange={(event) => setCommentBody(event.target.value)}
-                      onKeyDown={(event) => {
-                        if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                          event.preventDefault()
-                          void submitComment()
-                        }
-                      }}
-                      placeholder={t('warranty_claims.detail.timeline.commentPlaceholder')}
-                      rows={4}
-                    />
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <Select value={commentVisibility} onValueChange={(next) => setCommentVisibility(next === 'customer' ? 'customer' : 'internal')}>
-                          <SelectTrigger className="w-48" aria-label={t('warranty_claims.detail.visibility.label')}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="internal">{t('warranty_claims.detail.visibility.internal')}</SelectItem>
-                            <SelectItem value="customer">{t('warranty_claims.detail.visibility.customer')}</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        {!draftReplyHidden ? (
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => { void draftReplyWithAi() }}
-                            disabled={draftReplyLoading}
-                          >
-                            <AiIcon className="size-4" aria-hidden="true" />
-                            {draftReplyLoading
-                              ? t('warranty_claims.ai.draftingReply')
-                              : t('warranty_claims.ai.draftReply')}
-                          </Button>
-                        ) : null}
+                {featureAccess.claimManage ? (
+                  <div className="rounded-lg border border-border bg-card p-4">
+                    <div className="space-y-3">
+                      <Textarea
+                        value={commentBody}
+                        onChange={(event) => setCommentBody(event.target.value)}
+                        onKeyDown={(event) => {
+                          if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                            event.preventDefault()
+                            void submitComment()
+                          }
+                        }}
+                        placeholder={t('warranty_claims.detail.timeline.commentPlaceholder')}
+                        rows={4}
+                      />
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Select value={commentVisibility} onValueChange={(next) => setCommentVisibility(next === 'customer' ? 'customer' : 'internal')}>
+                            <SelectTrigger className="w-48" aria-label={t('warranty_claims.detail.visibility.label')}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="internal">{t('warranty_claims.detail.visibility.internal')}</SelectItem>
+                              <SelectItem value="customer">{t('warranty_claims.detail.visibility.customer')}</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          {!draftReplyHidden && featureAccess.claimManage ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => { void draftReplyWithAi() }}
+                              disabled={draftReplyLoading}
+                            >
+                              <AiIcon className="size-4" aria-hidden="true" />
+                              {draftReplyLoading
+                                ? t('warranty_claims.ai.draftingReply')
+                                : t('warranty_claims.ai.draftReply')}
+                            </Button>
+                          ) : null}
+                        </div>
+                        <Button type="button" onClick={() => { void submitComment() }} disabled={!commentBody.trim()}>
+                          {t('warranty_claims.detail.timeline.addComment')}
+                        </Button>
                       </div>
-                      <Button type="button" onClick={() => { void submitComment() }} disabled={!commentBody.trim()}>
-                        {t('warranty_claims.detail.timeline.addComment')}
-                      </Button>
                     </div>
                   </div>
-                </div>
+                ) : null}
                 <div className="space-y-3">
                   {events.length ? (
                     <SegmentedControl
@@ -2185,15 +2211,17 @@ export default function WarrantyClaimDetailPage({ params }: { params?: { id?: st
                 </div>
                 <div className="h-96 overflow-hidden rounded-lg border border-border bg-card">
                   {chatSession ? (
-                    <AiChat
-                      key={chatSession.id}
-                      agent={AGENT_ID}
-                      conversationId={chatSession.conversationId}
-                      pageContext={{ entityType: 'warranty_claims.claim', recordId: claim.id }}
-                      className="h-full"
-                      placeholder={t('warranty_claims.ai.chatPlaceholder')}
-                      welcomeTitle={t('warranty_claims.ai.chatWelcomeTitle')}
-                    />
+                    <React.Suspense fallback={<LoadingMessage label={t('warranty_claims.detail.loading')} />}>
+                      <LazyAiChat
+                        key={chatSession.id}
+                        agent={AGENT_ID}
+                        conversationId={chatSession.conversationId}
+                        pageContext={{ entityType: 'warranty_claims.claim', recordId: claim.id }}
+                        className="h-full"
+                        placeholder={t('warranty_claims.ai.chatPlaceholder')}
+                        welcomeTitle={t('warranty_claims.ai.chatWelcomeTitle')}
+                      />
+                    </React.Suspense>
                   ) : null}
                 </div>
               </div>

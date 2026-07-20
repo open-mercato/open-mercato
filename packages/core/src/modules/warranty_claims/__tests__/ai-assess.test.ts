@@ -18,6 +18,8 @@ const USER_ID = '33333333-3333-4333-8333-333333333333'
 const CLAIM_ID = '44444444-4444-4444-8444-444444444444'
 const LINE_ID = '55555555-5555-4555-8555-555555555555'
 const ATTACHMENT_ID = '66666666-6666-4666-8666-666666666666'
+const CLAIM_UPDATED_AT = '2026-07-01T00:00:00.000Z'
+const LINE_UPDATED_AT = '2026-07-02T09:30:00.000Z'
 
 let mockClaim: WarrantyClaim | null = null
 let mockLine: WarrantyClaimLine | null = null
@@ -29,7 +31,6 @@ const createModelFactoryMock = jest.fn()
 const generateObjectMock = jest.fn()
 const findOneWithDecryptionMock = jest.fn()
 const findWithDecryptionMock = jest.fn()
-const enforceWithGuardsMock = jest.fn<Promise<void>, [unknown, Record<string, unknown>]>()
 const emitCrudSideEffectsMock = jest.fn<Promise<void>, [Record<string, unknown>]>()
 const emitCrudUndoSideEffectsMock = jest.fn<Promise<void>, [Record<string, unknown>]>()
 const invalidateCrudCacheMock = jest.fn<Promise<void>, unknown[]>()
@@ -63,11 +64,6 @@ jest.mock('@open-mercato/ai-assistant/modules/ai_assistant/lib/model-factory', (
 jest.mock('@open-mercato/shared/lib/encryption/find', () => ({
   findOneWithDecryption: (...args: unknown[]) => findOneWithDecryptionMock(...args),
   findWithDecryption: (...args: unknown[]) => findWithDecryptionMock(...args),
-}))
-
-jest.mock('@open-mercato/shared/lib/crud/optimistic-lock-command', () => ({
-  enforceCommandOptimisticLockWithGuards: (container: unknown, input: Record<string, unknown>) =>
-    enforceWithGuardsMock(container, input),
 }))
 
 jest.mock('@open-mercato/shared/lib/commands/flush', () => ({
@@ -163,8 +159,8 @@ function makeClaim(): WarrantyClaim {
     resolvedAt: null,
     closedAt: null,
     assigneeUserId: null,
-    createdAt: new Date('2026-07-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-07-01T00:00:00.000Z'),
+    createdAt: new Date(CLAIM_UPDATED_AT),
+    updatedAt: new Date(CLAIM_UPDATED_AT),
     deletedAt: null,
   } as WarrantyClaim
 }
@@ -205,8 +201,8 @@ function makeLine(claim: WarrantyClaim): WarrantyClaimLine {
     coreCreditAmount: '4.00',
     vendorClaimLineId: null,
     vendorName: null,
-    createdAt: new Date('2026-07-01T00:00:00.000Z'),
-    updatedAt: new Date('2026-07-01T00:00:00.000Z'),
+    createdAt: new Date(CLAIM_UPDATED_AT),
+    updatedAt: new Date(LINE_UPDATED_AT),
     deletedAt: null,
   } as WarrantyClaimLine
 }
@@ -319,6 +315,17 @@ function mockFindOne(entity: unknown): unknown {
 }
 
 describe('warranty claim AI assessment packet', () => {
+  const previousOptimisticLockEnv = process.env.OM_OPTIMISTIC_LOCK
+
+  beforeAll(() => {
+    process.env.OM_OPTIMISTIC_LOCK = 'all'
+  })
+
+  afterAll(() => {
+    if (previousOptimisticLockEnv === undefined) delete process.env.OM_OPTIMISTIC_LOCK
+    else process.env.OM_OPTIMISTIC_LOCK = previousOptimisticLockEnv
+  })
+
   beforeEach(() => {
     mockClaim = makeClaim()
     mockLine = makeLine(mockClaim)
@@ -329,7 +336,6 @@ describe('warranty claim AI assessment packet', () => {
     generateObjectMock.mockReset()
     findOneWithDecryptionMock.mockReset()
     findWithDecryptionMock.mockReset()
-    enforceWithGuardsMock.mockReset()
     emitCrudSideEffectsMock.mockReset()
     emitCrudUndoSideEffectsMock.mockReset()
     invalidateCrudCacheMock.mockReset()
@@ -497,7 +503,7 @@ describe('warranty claim AI assessment packet', () => {
       tenantId: TENANT_ID,
       organizationId: ORG_ID,
       assessmentPayload,
-      updatedAt: '2026-07-01T00:00:00.000Z',
+      updatedAt: LINE_UPDATED_AT,
     }, ctx)).resolves.toEqual({ lineId: LINE_ID, claimId: CLAIM_ID })
 
     expect(line.assessmentPayload).toEqual(assessmentPayload)
@@ -521,13 +527,33 @@ describe('warranty claim AI assessment packet', () => {
         },
       }),
     ])
-    expect(enforceWithGuardsMock).toHaveBeenCalledWith(
-      container,
-      expect.objectContaining({
-        resourceKind: 'warranty_claims.claim',
-        resourceId: CLAIM_ID,
-        expected: '2026-07-01T00:00:00.000Z',
+  })
+
+  test('set_assessment versions the line, not the parent claim', async () => {
+    const em = makeEm()
+    const container = makeContainer(em)
+    const ctx = makeCommandContext(container)
+    const claim = mockClaim
+    const line = mockLine
+    if (!claim || !line) throw new Error('test fixtures were not initialized')
+    expect(claim.updatedAt?.toISOString()).not.toBe(line.updatedAt?.toISOString())
+
+    await expect(setClaimLineAssessmentCommand.execute({
+      id: LINE_ID,
+      tenantId: TENANT_ID,
+      organizationId: ORG_ID,
+      assessmentPayload: { damage: { severity: 'minor' } },
+      updatedAt: CLAIM_UPDATED_AT,
+    }, ctx)).rejects.toMatchObject({
+      status: 409,
+      body: expect.objectContaining({
+        code: 'optimistic_lock_conflict',
+        currentUpdatedAt: LINE_UPDATED_AT,
+        expectedUpdatedAt: CLAIM_UPDATED_AT,
       }),
-    )
+    })
+
+    expect(line.assessmentPayload).toEqual({ existing: true })
+    expect(mockPersistedEvents).toEqual([])
   })
 })

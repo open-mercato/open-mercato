@@ -92,7 +92,7 @@ function reason(messageKey: string, params?: Record<string, string | number>): W
 
 function parseAmount(value: string | number | null | undefined, fallback: number): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string') {
+  if (typeof value === 'string' && value.trim().length) {
     const parsed = Number(value)
     if (Number.isFinite(parsed)) return parsed
   }
@@ -100,7 +100,16 @@ function parseAmount(value: string | number | null | undefined, fallback: number
 }
 
 function resolveEligibility(line: WarrantyClaimLine, now: Date): WarrantyEligibilitySuggestion {
-  if (!line.purchaseDate || line.warrantyMonths === null || line.warrantyMonths === undefined) {
+  // An unparseable purchase date is missing data, not an expired warranty — a
+  // truthy Invalid Date would otherwise fall through and be denied as
+  // out_of_warranty. Mirrors computeWarrantyEntitlementPreview.
+  if (
+    !line.purchaseDate
+    || Number.isNaN(line.purchaseDate.getTime())
+    || line.warrantyMonths === null
+    || line.warrantyMonths === undefined
+    || !Number.isFinite(line.warrantyMonths)
+  ) {
     return {
       status: 'unknown',
       purchaseDate: toDateOnlyIso(line.purchaseDate),
@@ -202,10 +211,9 @@ function suggestPriority(claim: WarrantyClaim, now: Date, risk: ClaimRiskAssessm
   const overdue = claim.slaDueAt ? claim.slaDueAt.getTime() < now.getTime() : false
   const highRisk = risk.signals.some((signal) => signal.level === 'high')
   if (overdue) {
-    const suggestedPriority = atLeastPriority('urgent', highRisk ? 'high' : 'low')
     return {
       currentPriority: claim.priority,
-      suggestedPriority,
+      suggestedPriority: 'urgent',
       ageHours,
       slaDueAt,
       overdue,
@@ -295,7 +303,12 @@ function resolveReviewEligibility(
       reason: reason('warranty_claims.triage.reason.riskSignalsReviewRequired', { count: risk.signals.length }),
     }
   }
-  if (lines.every((line) => line.eligibility.status === 'in_warranty' && line.suggestedPath === 'replace')) {
+  // `every` is vacuously true for an empty list, which would fast-track a claim
+  // that has no lines at all — the one case that most needs a human.
+  if (
+    lines.length > 0
+    && lines.every((line) => line.eligibility.status === 'in_warranty' && line.suggestedPath === 'replace')
+  ) {
     return {
       status: 'fast_track_candidate',
       reason: reason('warranty_claims.triage.reason.fastTrackCandidate'),

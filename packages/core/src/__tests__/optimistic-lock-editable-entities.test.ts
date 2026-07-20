@@ -55,7 +55,14 @@ const moduleEntities: Record<string, string[]> = {
   business_rules: ['BusinessRule', 'RuleSet'],
   feature_toggles: ['FeatureToggle'],
   workflows: ['WorkflowDefinition'],
-  warranty_claims: ['WarrantyClaim', 'WarrantyClaimLine'],
+  warranty_claims: [
+    'WarrantyClaim',
+    'WarrantyClaimLine',
+    'WarrantyClaimSettings',
+    'WarrantyClaimRegistration',
+    'WarrantyVendorPolicy',
+    'WarrantyTroubleshootingGuide',
+  ],
   directory: ['Organization', 'Tenant'],
   messages: ['Message'],
 }

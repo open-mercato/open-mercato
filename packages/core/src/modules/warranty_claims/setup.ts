@@ -27,7 +27,12 @@ type SchedulerServiceLike = {
   }) => Promise<void>
 }
 
-const assignableStaffFeatures = ['auth.users.list', 'customers.roles.view']
+// Cross-module READ grants the desk genuinely needs: the intake order picker and
+// the product picker call the sales and catalog list APIs directly. Assignee names
+// are resolved through this module's own `warranty_claims.claim.view`-gated
+// `/api/warranty_claims/assignees` endpoint, so no `auth.*` grant is required here —
+// granting one would hand every role that can see a claim the tenant's full user
+// directory, including emails and role assignments.
 const connectedIntakeFeatures = ['sales.orders.view', 'catalog.products.view']
 
 const adminFeatures = [
@@ -44,7 +49,6 @@ const adminFeatures = [
   'warranty_claims.vendor_policy.manage',
   'warranty_claims.troubleshooting.manage',
   'warranty_claims.receiving.manage',
-  ...assignableStaffFeatures,
   ...connectedIntakeFeatures,
 ]
 
@@ -60,7 +64,6 @@ const ownerFeatures = [
   'warranty_claims.vendor_policy.manage',
   'warranty_claims.troubleshooting.manage',
   'warranty_claims.receiving.manage',
-  ...assignableStaffFeatures,
   ...connectedIntakeFeatures,
 ]
 
@@ -84,7 +87,6 @@ export const setup: ModuleSetupConfig = {
       'warranty_claims.registration.view',
       'warranty_claims.registration.manage',
       'warranty_claims.receiving.manage',
-      ...assignableStaffFeatures,
       ...connectedIntakeFeatures,
     ],
   },

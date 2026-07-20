@@ -18,7 +18,7 @@ type SearchContext = SearchBuildContext & {
 
 function assertTenantContext(ctx: SearchBuildContext): asserts ctx is SearchContext {
   if (typeof ctx.tenantId !== 'string' || ctx.tenantId.length === 0) {
-    throw new Error('[search.warranty_claims] Missing tenantId in search build context')
+    throw new Error('[internal] [search.warranty_claims] Missing tenantId in search build context')
   }
 }
 
@@ -45,7 +45,7 @@ function resolvePresenter(record: Record<string, unknown>): SearchResultPresente
   const customerName = readString(record, 'customer_name', 'customerName')
   const claimType = readString(record, 'claim_type', 'claimType')
   const status = readString(record, 'status', 'status')
-  const subtitle = [customerName, claimType].filter((value): value is string => Boolean(value)).join(' · ')
+  const subtitle = [customerName, claimType].filter((value): value is string => Boolean(value)).join(' — ')
   return {
     title: claimNumber,
     subtitle: subtitle || undefined,

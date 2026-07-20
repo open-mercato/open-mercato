@@ -49,11 +49,17 @@ test.describe('TC-WC-016: warranty claim receiving grading', () => {
       claim = await transitionAndExpect(request, adminToken, claim, 'awaiting_return')
       claim = await transitionAndExpect(request, adminToken, claim, 'received')
 
+      const lineBeforeReceive = await readClaimLine(request, adminToken, claim.id!, line.id!)
+      expect(
+        lineBeforeReceive.updatedAt,
+        'lifecycle transitions bump the claim version only, so the line must carry its own',
+      ).not.toBe(claim.updatedAt)
+
       const receiveResponse = await receiveClaimLine(request, adminToken, {
         lineId: line.id!,
         conditionGrade: 'C',
         inspectionNotes: `Grade C inspection ${stamp}`,
-        updatedAt: claim.updatedAt,
+        updatedAt: lineBeforeReceive.updatedAt,
       })
       const receiveBody = await readJsonSafe<{ ok?: boolean; lineId?: string | null }>(receiveResponse)
       expect(receiveResponse.status(), `receiving grade should return 200: ${JSON.stringify(receiveBody)}`).toBe(200)

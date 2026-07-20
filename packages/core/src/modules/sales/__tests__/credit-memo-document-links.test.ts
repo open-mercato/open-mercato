@@ -1,11 +1,12 @@
 /** @jest-environment node */
 
 import { commandRegistry } from '@open-mercato/shared/lib/commands/registry'
-import { SalesCreditMemo, SalesOrder } from '../data/entities'
+import { SalesCreditMemo, SalesInvoice, SalesOrder } from '../data/entities'
 
 const ORGANIZATION_ID = '11111111-1111-4111-8111-111111111111'
 const TENANT_ID = '22222222-2222-4222-8222-222222222222'
 const ORDER_ID = '33333333-3333-4333-8333-333333333333'
+const INVOICE_ID = '44444444-4444-4444-8444-444444444444'
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({
@@ -38,12 +39,14 @@ jest.mock('@open-mercato/shared/lib/commands/helpers', () => ({
   emitCrudUndoSideEffects: jest.fn(async () => undefined),
 }))
 
-describe('sales.credit_memos.create order link', () => {
-  beforeAll(async () => {
-    commandRegistry.clear?.()
-    await import('../commands/documents')
-  })
+// Registered once for the whole file: the module import is cached, so a
+// per-describe clear+reimport would leave the registry empty for later blocks.
+beforeAll(async () => {
+  commandRegistry.clear?.()
+  await import('../commands/documents')
+})
 
+describe('sales.credit_memos.create order link', () => {
   it('persists the validated order id through the SalesCreditMemo relation property', async () => {
     const orderReference = { id: ORDER_ID }
     let createdCreditMemo: Record<string, unknown> | null = null
@@ -103,7 +106,7 @@ describe('sales.credit_memos.create order link', () => {
       tenantId: TENANT_ID,
       creditMemoNumber: 'CM-1',
       order: { id: ORDER_ID },
-      invoiceId: null,
+      invoice: null,
       statusEntryId: null,
       status: null,
       reason: null,
@@ -150,5 +153,117 @@ describe('sales.credit_memos.create order link', () => {
       before?: { creditMemo?: { orderId?: string | null } }
     }
     expect(prepared.before?.creditMemo?.orderId).toBe(ORDER_ID)
+  })
+})
+
+describe('sales.credit_memos.create invoice link', () => {
+  it('persists the validated invoice id through the SalesCreditMemo relation property', async () => {
+    const invoiceReference = { id: INVOICE_ID }
+    let createdCreditMemo: Record<string, unknown> | null = null
+    const em = {
+      fork() {
+        return this
+      },
+      findOne: jest.fn(async (entity: unknown) => (entity === SalesInvoice ? { id: INVOICE_ID } : null)),
+      getReference: jest.fn((entity: unknown, id: string) => {
+        if (entity === SalesInvoice) {
+          expect(id).toBe(INVOICE_ID)
+          return invoiceReference
+        }
+        return { entity, id }
+      }),
+      create: jest.fn((entity: unknown, data: Record<string, unknown>) => {
+        if (entity === SalesCreditMemo) createdCreditMemo = data
+        return data
+      }),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const ctx = {
+      container: {
+        resolve: (key: string) => {
+          if (key === 'em') return em
+          if (key === 'dataEngine') return { markOrmEntityChange: jest.fn() }
+          if (key === 'salesDocumentNumberGenerator') {
+            return { generate: jest.fn(async () => ({ number: 'CM-2' })) }
+          }
+          throw new Error(`Unregistered test dependency: ${key}`)
+        },
+      },
+      auth: { tenantId: TENANT_ID, orgId: ORGANIZATION_ID, sub: 'user-1', isSuperAdmin: true },
+      selectedOrganizationId: ORGANIZATION_ID,
+      organizationScope: null,
+      organizationIds: [ORGANIZATION_ID],
+    }
+
+    const handler = commandRegistry.get('sales.credit_memos.create')
+    expect(handler).toBeTruthy()
+    await handler!.execute({
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      invoiceId: INVOICE_ID,
+      creditMemoNumber: 'CM-2',
+      currencyCode: 'USD',
+    }, ctx as never)
+
+    expect(em.getReference).toHaveBeenCalledWith(SalesInvoice, INVOICE_ID)
+    expect(createdCreditMemo).toMatchObject({ invoice: invoiceReference })
+    expect(createdCreditMemo).not.toHaveProperty('invoiceId')
+  })
+
+  it('reads the invoice link into delete snapshots through the relation property', async () => {
+    const creditMemoRow = {
+      id: 'cm-2',
+      organizationId: ORGANIZATION_ID,
+      tenantId: TENANT_ID,
+      creditMemoNumber: 'CM-2',
+      order: null,
+      invoice: { id: INVOICE_ID },
+      statusEntryId: null,
+      status: null,
+      reason: null,
+      issueDate: null,
+      currencyCode: 'USD',
+      subtotalNetAmount: '0',
+      subtotalGrossAmount: '0',
+      taxTotalAmount: '0',
+      grandTotalNetAmount: '0',
+      grandTotalGrossAmount: '0',
+      metadata: null,
+      customFieldSetId: null,
+      deletedAt: null,
+      updatedAt: new Date(),
+    }
+    const em = {
+      fork() {
+        return this
+      },
+      findOne: jest.fn(async (entity: unknown) => (entity === SalesCreditMemo ? creditMemoRow : null)),
+      find: jest.fn(async () => []),
+      getReference: jest.fn((entity: unknown, id: string) => ({ entity, id })),
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => data),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+    }
+    const ctx = {
+      container: {
+        resolve: (key: string) => {
+          if (key === 'em') return em
+          if (key === 'dataEngine') return { markOrmEntityChange: jest.fn() }
+          throw new Error(`Unregistered test dependency: ${key}`)
+        },
+      },
+      auth: { tenantId: TENANT_ID, orgId: ORGANIZATION_ID, sub: 'user-1', isSuperAdmin: true },
+      selectedOrganizationId: ORGANIZATION_ID,
+      organizationScope: null,
+      organizationIds: [ORGANIZATION_ID],
+    }
+
+    const handler = commandRegistry.get('sales.credit_memos.delete')
+    expect(handler).toBeTruthy()
+    const prepared = await handler!.prepare!({ id: 'cm-2' }, ctx as never) as {
+      before?: { creditMemo?: { invoiceId?: string | null } }
+    }
+    expect(prepared.before?.creditMemo?.invoiceId).toBe(INVOICE_ID)
   })
 })

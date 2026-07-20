@@ -86,9 +86,9 @@ export function ClaimSlaIndicator({
   const absolute = formatDateTime(state.dueAt ? state.dueAt.toISOString() : null)
   const prefix =
     state.tier === 'overdue'
-      ? `${t('warranty_claims.sla.overdue')} · `
+      ? `${t('warranty_claims.sla.overdue')} — `
       : state.tier === 'at_risk'
-        ? `${t('warranty_claims.sla.atRisk')} · `
+        ? `${t('warranty_claims.sla.atRisk')} — `
         : ''
   return (
     <span className={className ?? SLA_TIER_TEXT_CLASSES[state.tier]} title={absolute ?? undefined}>

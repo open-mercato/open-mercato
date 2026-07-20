@@ -156,16 +156,25 @@ const claimLineFields = {
   qtyApproved: nullableDecimal(),
   qtyReceived: nullableDecimal(),
   conditionOnReceipt: clearableString(1000),
-  conditionGrade: claimConditionGradeSchema.nullable().optional(),
-  quarantineStatus: claimQuarantineStatusSchema.optional(),
   inspectionNotes: clearableString(4000),
-  assessmentPayload: jsonObjectSchema.nullable().optional(),
   disposition: claimDispositionSchema.nullable().optional(),
   creditAmount: nullableDecimal(),
   restockingFee: nullableDecimal(),
   coreChargeAmount: nullableDecimal(),
   coreCreditAmount: nullableDecimal(),
   vendorName: clearableString(300),
+}
+
+/**
+ * Receiving/assessment state owned by the dedicated `warranty_claims.claim_line.receive`,
+ * `.release_quarantine`, and `.set_assessment` commands. Kept out of
+ * `claimLineUpdateSchema` so a plain line update cannot stomp state those commands own
+ * (quarantine policy, timeline events, quarantine notifications).
+ */
+const claimLineReceivingStateFields = {
+  conditionGrade: claimConditionGradeSchema.nullable().optional(),
+  quarantineStatus: claimQuarantineStatusSchema.optional(),
+  assessmentPayload: jsonObjectSchema.nullable().optional(),
 }
 
 const settingsCurrencyCodeSchema = z.preprocess(
@@ -199,7 +208,10 @@ export const warrantyClaimSettingsUpdateSchema = z
 
 export const warrantyClaimSettingsSaveSchema = scopedSchema.merge(warrantyClaimSettingsUpdateSchema).strict()
 
-export const claimInitialLineCreateSchema = z.object(claimLineFields).strict().superRefine((line, ctx) => {
+export const claimInitialLineCreateSchema = z.object({
+  ...claimLineFields,
+  ...claimLineReceivingStateFields,
+}).strict().superRefine((line, ctx) => {
   const qtyClaimed = line.qtyClaimed ?? 1
   if (typeof line.qtyApproved === 'number' && line.qtyApproved > qtyClaimed) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'qtyApproved must not exceed qtyClaimed', path: ['qtyApproved'] })
@@ -277,6 +289,7 @@ export const claimLineCreateSchema = scopedSchema
   .extend({
     claimId: uuid(),
     ...claimLineFields,
+    ...claimLineReceivingStateFields,
   })
   .strict()
 

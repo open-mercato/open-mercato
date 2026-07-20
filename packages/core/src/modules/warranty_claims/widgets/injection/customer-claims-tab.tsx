@@ -91,7 +91,7 @@ function ClaimRow({ claim }: { claim: ClaimListItem }) {
           </Link>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
             <span>{claim.claimType ? t(`warranty_claims.claimType.${claim.claimType}`, titleize(claim.claimType)) : t('warranty_claims.widgets.customerClaims.unknownType', 'Unknown type')}</span>
-            <span aria-hidden>·</span>
+            <span aria-hidden>—</span>
             <span title={absoluteUpdatedAt ?? undefined}>
               {relativeUpdatedAt ?? absoluteUpdatedAt ?? t('warranty_claims.widgets.customerClaims.notUpdated', 'Not updated')}
             </span>

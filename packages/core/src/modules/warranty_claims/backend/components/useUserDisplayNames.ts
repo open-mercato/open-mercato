@@ -35,7 +35,7 @@ export function useUserDisplayNames(userIds: readonly (string | null | undefined
 
     const controller = new AbortController()
     readApiResultOrThrow<{ items?: Array<Record<string, unknown>> }>(
-      `/api/auth/users?ids=${unresolvedIds.map(encodeURIComponent).join(',')}&pageSize=100`,
+      `/api/warranty_claims/assignees?ids=${unresolvedIds.map(encodeURIComponent).join(',')}`,
       { signal: controller.signal },
       {
         errorMessage: '[internal] Failed to load user display names',

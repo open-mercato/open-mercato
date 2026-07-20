@@ -1973,7 +1973,7 @@ async function loadCreditMemoSnapshot(
       tenantId: creditMemo.tenantId,
       creditMemoNumber: creditMemo.creditMemoNumber,
       orderId: creditMemo.order?.id ?? null,
-      invoiceId: creditMemo.invoiceId ?? null,
+      invoiceId: creditMemo.invoice?.id ?? null,
       statusEntryId: creditMemo.statusEntryId ?? null,
       status: creditMemo.status ?? null,
       reason: creditMemo.reason ?? null,
@@ -9041,7 +9041,7 @@ const createCreditMemoCommand: CommandHandler<
       tenantId: parsed.tenantId,
       creditMemoNumber: ensuredCreditMemoNumber,
       order: parsed.orderId ? em.getReference(SalesOrder, parsed.orderId) : null,
-      invoiceId: parsed.invoiceId ?? null,
+      invoice: parsed.invoiceId ? em.getReference(SalesInvoice, parsed.invoiceId) : null,
       statusEntryId: parsed.statusEntryId ?? null,
       status,
       reason: parsed.reason ?? null,
@@ -9294,7 +9294,9 @@ const updateCreditMemoCommand: CommandHandler<
     creditMemo.order = before.creditMemo.orderId
       ? em.getReference(SalesOrder, before.creditMemo.orderId)
       : null;
-    creditMemo.invoiceId = before.creditMemo.invoiceId;
+    creditMemo.invoice = before.creditMemo.invoiceId
+      ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+      : null;
     creditMemo.statusEntryId = before.creditMemo.statusEntryId;
     creditMemo.status = before.creditMemo.status;
     creditMemo.reason = before.creditMemo.reason;
@@ -9400,7 +9402,9 @@ const deleteCreditMemoCommand: CommandHandler<
       order: before.creditMemo.orderId
         ? em.getReference(SalesOrder, before.creditMemo.orderId)
         : null,
-      invoiceId: before.creditMemo.invoiceId,
+      invoice: before.creditMemo.invoiceId
+        ? em.getReference(SalesInvoice, before.creditMemo.invoiceId)
+        : null,
       statusEntryId: before.creditMemo.statusEntryId,
       status: before.creditMemo.status,
       reason: before.creditMemo.reason,

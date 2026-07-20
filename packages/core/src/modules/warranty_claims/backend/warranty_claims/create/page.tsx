@@ -2,9 +2,12 @@
 
 import * as React from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Plus, Trash2 } from 'lucide-react'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Plus } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { CrudForm, type CrudField, type CrudFieldOption, type CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import { DataTable } from '@open-mercato/ui/backend/DataTable'
+import { RowActions, type RowActionItem } from '@open-mercato/ui/backend/RowActions'
 import { createCrud } from '@open-mercato/ui/backend/utils/crud'
 import { createCrudFormError } from '@open-mercato/ui/backend/utils/serverErrors'
 import { apiCall, readApiResultOrThrow } from '@open-mercato/ui/backend/utils/apiCall'
@@ -12,7 +15,7 @@ import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Checkbox } from '@open-mercato/ui/primitives/checkbox'
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@open-mercato/ui/primitives/dialog'
-import { IconButton } from '@open-mercato/ui/primitives/icon-button'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
@@ -113,10 +116,21 @@ type SalesOrderLine = {
   quantity: number | string | null
 }
 
+// Rows carry their position in the form's `lines` array so table actions can edit
+// or drop the right entry after search and pagination have reordered what is shown.
+type ClaimLineRow = ClaimCreateLineValues & {
+  id: string
+  index: number
+  lineNo: number
+}
+
+type LineDialogState =
+  | { mode: 'create' }
+  | { mode: 'edit'; index: number }
+
 type LineEditorTranslations = {
   addLine: string
   removeLine: string
-  lineLabel: (number: number) => string
   productName: string
   sku: string
   serialNumber: string
@@ -125,6 +139,15 @@ type LineEditorTranslations = {
   qtyClaimed: string
   faultCodePlaceholder: string
 }
+
+// The sales list API caps a page at 100, so a large order needs several round trips.
+// The hard cap keeps a pathological order from locking the dialog up forever; when it
+// bites, the dialog says so instead of silently offering a partial list.
+const ORDER_LINE_PAGE_SIZE = 100
+const ORDER_LINE_MAX_FETCH = 2000
+// Mirrors `lines: z.array(...).max(200)` in data/validators.ts.
+const MAX_CLAIM_LINES = 200
+const LINE_PAGE_SIZE = 20
 
 const CLAIM_TYPES = ['warranty', 'return', 'core_return', 'vendor_recovery'] as const
 const CLAIM_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const
@@ -317,6 +340,46 @@ function readDefaultWarrantyMonths(value: unknown): number | null {
   const settings = isRecord(value.result) ? value.result : value
   const months = parseWarrantyMonths(settings.defaultWarrantyMonths ?? settings.default_warranty_months)
   return months
+}
+
+function matchesLineSearch(line: ClaimCreateLineValues, term: string): boolean {
+  if (!term) return true
+  const haystack = [line.productName, line.sku, line.serialNumber]
+    .map((value) => nullableText(value) ?? '')
+    .join(' ')
+    .toLowerCase()
+  return haystack.includes(term)
+}
+
+type OrderLinesFetch =
+  | { status: 'ok'; lines: SalesOrderLine[]; truncated: boolean }
+  | { status: 'forbidden' }
+  | { status: 'error' }
+
+// Pages through the whole order so a 250-line order is fully offered. A page that
+// comes back short means the order is exhausted; anything else stops at the hard cap
+// and reports back that the list is partial.
+async function loadAllOrderProductLines(orderId: string): Promise<OrderLinesFetch> {
+  const encodedOrderId = encodeURIComponent(orderId)
+  const collected: SalesOrderLine[] = []
+  for (let page = 1; ; page += 1) {
+    const call = await apiCall<{ items?: unknown[] }>(
+      `/api/sales/order-lines?orderId=${encodedOrderId}&page=${page}&pageSize=${ORDER_LINE_PAGE_SIZE}`,
+    )
+    if (call.status === 403) return { status: 'forbidden' }
+    if (!call.ok) {
+      return page === 1 ? { status: 'error' } : { status: 'ok', lines: collected, truncated: true }
+    }
+    const items = Array.isArray(call.result?.items) ? call.result.items : []
+    for (const item of items) {
+      const line = normalizeSalesOrderLine(item)
+      if (line) collected.push(line)
+    }
+    if (items.length < ORDER_LINE_PAGE_SIZE) return { status: 'ok', lines: collected, truncated: false }
+    if (page * ORDER_LINE_PAGE_SIZE >= ORDER_LINE_MAX_FETCH) {
+      return { status: 'ok', lines: collected, truncated: true }
+    }
+  }
 }
 
 function createDefaultLine(): ClaimCreateLineValues {
@@ -515,7 +578,7 @@ function GuidedTroubleshootingSection({
   )
 }
 
-function LineItemsEditor({
+export function LineItemsEditor({
   value,
   setLines,
   orderId,
@@ -535,18 +598,20 @@ function LineItemsEditor({
   t: TranslateFn
 }) {
   const lines = readLineValues(value)
+  const noValue = t('warranty_claims.common.noValue')
   const [orderDialogOpen, setOrderDialogOpen] = React.useState(false)
   const [orderLines, setOrderLines] = React.useState<SalesOrderLine[]>([])
   const [selectedOrderLineIds, setSelectedOrderLineIds] = React.useState<Set<string>>(new Set())
   const [orderPurchaseDate, setOrderPurchaseDate] = React.useState<string | null>(null)
   const [orderLinesLoading, setOrderLinesLoading] = React.useState(false)
+  const [orderLinesTruncated, setOrderLinesTruncated] = React.useState(false)
+  const [orderLineSearch, setOrderLineSearch] = React.useState('')
   const [hideOrderImport, setHideOrderImport] = React.useState(false)
-  const lastLineRef = React.useRef<HTMLDivElement | null>(null)
-
-  const updateLine = React.useCallback((index: number, patch: Partial<ClaimCreateLineValues>) => {
-    const next = lines.map((line, lineIndex) => (lineIndex === index ? { ...line, ...patch } : line))
-    setLines(next)
-  }, [lines, setLines])
+  const [lineSearch, setLineSearch] = React.useState('')
+  const [linePage, setLinePage] = React.useState(1)
+  const [lineDialog, setLineDialog] = React.useState<LineDialogState | null>(null)
+  const [lineDraft, setLineDraft] = React.useState<ClaimCreateLineValues>(createDefaultLine)
+  const editorRef = React.useRef<HTMLDivElement | null>(null)
 
   React.useEffect(() => {
     if (defaultWarrantyMonths === null) return
@@ -559,23 +624,136 @@ function LineItemsEditor({
     if (changed) setLines(next)
   }, [defaultWarrantyMonths, lines, setLines])
 
-  const addLine = React.useCallback(() => {
-    setLines([...lines, createDefaultLine()])
-  }, [lines, setLines])
+  // Search and paging run over the whole array but only a page's worth of rows ever
+  // reaches the table, so an order with hundreds of lines never renders at once.
+  const searchTerm = lineSearch.trim().toLowerCase()
+  const rows = lines.map((line, index): ClaimLineRow => ({
+    ...line,
+    id: `claim-line-${index}`,
+    index,
+    lineNo: index + 1,
+  }))
+  const filteredRows = searchTerm ? rows.filter((row) => matchesLineSearch(row, searchTerm)) : rows
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / LINE_PAGE_SIZE))
+  const currentPage = Math.min(Math.max(1, linePage), totalPages)
+  const pageRows = filteredRows.slice((currentPage - 1) * LINE_PAGE_SIZE, currentPage * LINE_PAGE_SIZE)
+
+  const exceedsLineCap = React.useCallback((currentCount: number, addingCount: number): boolean => {
+    if (currentCount + addingCount <= MAX_CLAIM_LINES) return false
+    flash(
+      t('warranty_claims.form.lines.error.maxLines', 'A claim can hold at most {max} lines. Remove some lines or select fewer.', {
+        max: String(MAX_CLAIM_LINES),
+      }),
+      'error',
+    )
+    return true
+  }, [t])
+
+  // Freshly added lines must be visible even when a filter is active, so drop the
+  // search term and jump to the page that now holds them.
+  const revealLastPage = React.useCallback((total: number) => {
+    setLineSearch('')
+    setLinePage(Math.max(1, Math.ceil(total / LINE_PAGE_SIZE)))
+    requestAnimationFrame(() => {
+      editorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    })
+  }, [])
+
+  const handleSearchChange = React.useCallback((next: string) => {
+    setLineSearch(next)
+    setLinePage(1)
+  }, [])
+
+  const updateDraft = React.useCallback((patch: Partial<ClaimCreateLineValues>) => {
+    setLineDraft((current) => ({ ...current, ...patch }))
+  }, [])
+
+  const updateDraftPurchaseDate = React.useCallback((purchaseDate: string) => {
+    setLineDraft((current) => {
+      const next: ClaimCreateLineValues = { ...current, purchaseDate }
+      if (purchaseDate && defaultWarrantyMonths !== null && isWarrantyMonthsEmpty(current.warrantyMonths)) {
+        next.warrantyMonths = defaultWarrantyMonths
+      }
+      return next
+    })
+  }, [defaultWarrantyMonths])
+
+  const openCreateDialog = React.useCallback(() => {
+    if (exceedsLineCap(lines.length, 1)) return
+    setLineDraft(createDefaultLine())
+    setLineDialog({ mode: 'create' })
+  }, [exceedsLineCap, lines.length])
+
+  const openEditDialog = React.useCallback((row: ClaimLineRow) => {
+    setLineDraft(lines[row.index] ?? createDefaultLine())
+    setLineDialog({ mode: 'edit', index: row.index })
+  }, [lines])
+
+  const submitLineDialog = React.useCallback(() => {
+    if (!lineDialog) return
+    if (lineDialog.mode === 'edit') {
+      setLines(lines.map((line, index) => (index === lineDialog.index ? lineDraft : line)))
+      setLineDialog(null)
+      return
+    }
+    const nextLines = [...lines, lineDraft]
+    setLines(nextLines)
+    setLineDialog(null)
+    revealLastPage(nextLines.length)
+  }, [lineDialog, lineDraft, lines, revealLastPage, setLines])
 
   const removeLine = React.useCallback((index: number) => {
     if (lines.length <= 1) return
     setLines(lines.filter((_, lineIndex) => lineIndex !== index))
-  }, [lines, setLines])
+    setLinePage((current) => Math.min(current, Math.max(1, Math.ceil((filteredRows.length - 1) / LINE_PAGE_SIZE))))
+  }, [filteredRows.length, lines, setLines])
 
-  const updateLinePurchaseDate = React.useCallback((index: number, purchaseDate: string) => {
-    const current = lines[index]
-    const patch: Partial<ClaimCreateLineValues> = { purchaseDate }
-    if (current && purchaseDate && defaultWarrantyMonths !== null && isWarrantyMonthsEmpty(current.warrantyMonths)) {
-      patch.warrantyMonths = defaultWarrantyMonths
-    }
-    updateLine(index, patch)
-  }, [defaultWarrantyMonths, lines, updateLine])
+  const faultCodeLabels = React.useMemo(() => {
+    const labels = new Map<string, string>()
+    for (const option of faultCodeOptions) labels.set(option.value, option.label)
+    return labels
+  }, [faultCodeOptions])
+
+  const columns = React.useMemo<ColumnDef<ClaimLineRow>[]>(() => [
+    {
+      accessorKey: 'lineNo',
+      header: t('warranty_claims.form.lineNo'),
+      meta: { maxWidth: '80px' },
+      cell: ({ row }) => <span className="font-mono text-xs">{row.original.lineNo}</span>,
+    },
+    {
+      accessorKey: 'productName',
+      header: translations.productName,
+      meta: { maxWidth: '240px' },
+      cell: ({ row }) => (
+        <span className="font-medium">
+          {nullableText(row.original.productName) ?? nullableText(row.original.sku) ?? noValue}
+        </span>
+      ),
+    },
+    {
+      accessorKey: 'serialNumber',
+      header: translations.serialNumber,
+      meta: { maxWidth: '180px' },
+      cell: ({ row }) => nullableText(row.original.serialNumber) ?? noValue,
+    },
+    {
+      accessorKey: 'qtyClaimed',
+      header: t('warranty_claims.lines.header.qtyClaimed'),
+      meta: { maxWidth: '120px' },
+      cell: ({ row }) => formatQuantity(parseQuantity(stringifyFieldValue(row.original.qtyClaimed)), noValue),
+    },
+    {
+      accessorKey: 'faultCode',
+      header: translations.faultCode,
+      meta: { maxWidth: '200px' },
+      cell: ({ row }) => {
+        const faultCode = nullableText(row.original.faultCode)
+        if (!faultCode) return noValue
+        return faultCodeLabels.get(faultCode) ?? faultCode
+      },
+    },
+  ], [faultCodeLabels, noValue, t, translations.faultCode, translations.productName, translations.serialNumber])
 
   const openOrderImportDialog = React.useCallback(async () => {
     if (!orderId) return
@@ -584,31 +762,31 @@ function LineItemsEditor({
     setOrderLines([])
     setSelectedOrderLineIds(new Set())
     setOrderPurchaseDate(null)
+    setOrderLinesTruncated(false)
+    setOrderLineSearch('')
     const encodedOrderId = encodeURIComponent(orderId)
     try {
-      const [linesCall, orderCall] = await Promise.all([
-        apiCall<{ items?: unknown[] }>(`/api/sales/order-lines?orderId=${encodedOrderId}&pageSize=100`),
+      const [linesFetch, orderCall] = await Promise.all([
+        loadAllOrderProductLines(orderId),
         apiCall<{ items?: unknown[] }>(`/api/sales/orders?id=${encodedOrderId}&pageSize=1`),
       ])
-      if (linesCall.status === 403 || orderCall.status === 403) {
+      if (linesFetch.status === 'forbidden' || orderCall.status === 403) {
         setHideOrderImport(true)
         setOrderDialogOpen(false)
         return
       }
-      if (!linesCall.ok || !orderCall.ok) {
+      if (linesFetch.status === 'error' || !orderCall.ok) {
         flash(t('warranty_claims.form.addFromOrder.error'), 'error')
         setOrderDialogOpen(false)
         return
       }
-      const nextLines = Array.isArray(linesCall.result?.items)
-        ? linesCall.result.items.map(normalizeSalesOrderLine).filter((line): line is SalesOrderLine => line !== null)
-        : []
       const order = Array.isArray(orderCall.result?.items) ? orderCall.result.items[0] : null
       const placedAt = isRecord(order)
         ? toStringOrNull(order.placed_at) ?? toStringOrNull(order.placedAt)
         : null
-      setOrderLines(nextLines)
-      setSelectedOrderLineIds(new Set(nextLines.map((line) => line.id)))
+      setOrderLines(linesFetch.lines)
+      setOrderLinesTruncated(linesFetch.truncated)
+      setSelectedOrderLineIds(new Set(linesFetch.lines.map((line) => line.id)))
       setOrderPurchaseDate(placedAt ? placedAt.slice(0, 10) : null)
     } finally {
       setOrderLinesLoading(false)
@@ -621,6 +799,8 @@ function LineItemsEditor({
       setOrderDialogOpen(false)
       return
     }
+    const retainedLines = lines.filter(lineHasContentBeyondQuantity)
+    if (exceedsLineCap(retainedLines.length, selectedRows.length)) return
     const nextRows = selectedRows.map((line): ClaimCreateLineValues => ({
       ...createDefaultLine(),
       productId: line.productId,
@@ -632,13 +812,31 @@ function LineItemsEditor({
       purchaseDate: orderPurchaseDate ?? '',
       warrantyMonths: orderPurchaseDate && defaultWarrantyMonths !== null ? defaultWarrantyMonths : '',
     }))
-    setLines([...lines.filter(lineHasContentBeyondQuantity), ...nextRows])
+    const nextLines = [...retainedLines, ...nextRows]
+    setLines(nextLines)
     setOrderDialogOpen(false)
     flash(t('warranty_claims.form.addFromOrder.added', '{count} line(s) added from order', { count: String(nextRows.length) }), 'success')
-    requestAnimationFrame(() => {
-      lastLineRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    revealLastPage(nextLines.length)
+  }, [defaultWarrantyMonths, exceedsLineCap, lines, orderLines, orderPurchaseDate, revealLastPage, selectedOrderLineIds, setLines, t])
+
+  const visibleOrderLines = React.useMemo(() => {
+    const term = orderLineSearch.trim().toLowerCase()
+    if (!term) return orderLines
+    return orderLines.filter((line) => `${line.name ?? ''} ${line.sku ?? ''}`.toLowerCase().includes(term))
+  }, [orderLineSearch, orderLines])
+
+  // Select-all applies to what the filter is currently showing, so a filtered
+  // selection never silently pulls in rows the user cannot see.
+  const toggleAllVisibleOrderLines = React.useCallback((selected: boolean) => {
+    setSelectedOrderLineIds((current) => {
+      const next = new Set(current)
+      for (const line of visibleOrderLines) {
+        if (selected) next.add(line.id)
+        else next.delete(line.id)
+      }
+      return next
     })
-  }, [defaultWarrantyMonths, lines, orderLines, orderPurchaseDate, selectedOrderLineIds, setLines, t])
+  }, [visibleOrderLines])
 
   const toggleOrderLine = React.useCallback((lineId: string, selected: boolean) => {
     setSelectedOrderLineIds((current) => {
@@ -649,163 +847,218 @@ function LineItemsEditor({
     })
   }, [])
 
-  return (
-    <div className="space-y-4">
-      {orderId && !hideOrderImport ? (
-        <Button type="button" variant="outline" onClick={() => { void openOrderImportDialog() }}>
-          <Plus className="size-4" aria-hidden="true" />
-          {t('warranty_claims.form.addFromOrder')}
-        </Button>
-      ) : null}
-      {lines.map((line, index) => {
-        const rowNumber = index + 1
-        const rowId = `warranty-claim-line-${rowNumber}`
-        const warrantyStatus = computeEntitlementPreview(
-          dateFromInputValue(line.purchaseDate),
-          parseWarrantyMonths(line.warrantyMonths),
-        )
-        return (
-          <div
-            key={rowId}
-            ref={index === lines.length - 1 ? lastLineRef : undefined}
-            className="space-y-4 border-t border-border pt-4 first:border-t-0 first:pt-0"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-medium">{translations.lineLabel(rowNumber)}</h3>
-              <IconButton
-                type="button"
-                variant="ghost"
-                size="sm"
-                aria-label={translations.removeLine}
-                disabled={lines.length <= 1}
-                onClick={() => removeLine(index)}
-              >
-                <Trash2 className="size-4" aria-hidden="true" />
-              </IconButton>
-            </div>
+  const draftWarrantyStatus = computeEntitlementPreview(
+    dateFromInputValue(lineDraft.purchaseDate),
+    parseWarrantyMonths(lineDraft.warrantyMonths),
+  )
+  const draftDialogId = 'warranty-claim-line-draft'
 
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="md:col-span-2">
-                <ClaimLineProductPicker
-                  value={{
-                    productId: line.productId,
-                    productName: line.productName,
-                    sku: line.sku,
-                    variantId: line.variantId,
-                  }}
-                  onPick={(pick: ClaimProductPick) => updateLine(index, {
-                    productId: pick.productId,
-                    variantId: pick.variantId,
-                    sku: pick.sku,
-                    productName: pick.productName,
-                  })}
-                  onClear={() => updateLine(index, { productId: null, variantId: null })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-productName`}>{translations.productName}</Label>
+  return (
+    <div className="space-y-4" ref={editorRef}>
+      <DataTable<ClaimLineRow>
+        embedded
+        columns={columns}
+        data={pageRows}
+        stickyActionsColumn
+        searchValue={lineSearch}
+        onSearchChange={handleSearchChange}
+        searchPlaceholder={t('warranty_claims.form.lines.search', 'Search product, SKU or serial number')}
+        pagination={{
+          page: currentPage,
+          pageSize: LINE_PAGE_SIZE,
+          total: filteredRows.length,
+          totalPages,
+          onPageChange: setLinePage,
+        }}
+        actions={(
+          <div className="flex flex-wrap items-center gap-2">
+            {orderId && !hideOrderImport ? (
+              <Button type="button" variant="outline" onClick={() => { void openOrderImportDialog() }}>
+                <Plus className="size-4" aria-hidden="true" />
+                {t('warranty_claims.form.addFromOrder')}
+              </Button>
+            ) : null}
+            <Button type="button" onClick={openCreateDialog}>
+              <Plus className="size-4" aria-hidden="true" />
+              {translations.addLine}
+            </Button>
+          </div>
+        )}
+        emptyState={(
+          <EmptyState
+            title={searchTerm
+              ? t('warranty_claims.form.lines.empty.noMatches', 'No claim lines match your search')
+              : t('warranty_claims.form.lines.empty.title', 'No claim lines yet')}
+            description={searchTerm
+              ? undefined
+              : t('warranty_claims.form.lines.empty.description', 'Add a claim line or import them from the linked order.')}
+            variant="subtle"
+          />
+        )}
+        rowActions={(row) => {
+          const items: RowActionItem[] = [
+            {
+              id: 'edit',
+              label: t('warranty_claims.form.lines.edit', 'Edit line'),
+              onSelect: () => openEditDialog(row),
+            },
+          ]
+          if (lines.length > 1) {
+            items.push({
+              id: 'delete',
+              label: translations.removeLine,
+              destructive: true,
+              onSelect: () => removeLine(row.index),
+            })
+          }
+          return <RowActions items={items} />
+        }}
+      />
+      {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
+      <Dialog open={lineDialog !== null} onOpenChange={(open) => { if (!open) setLineDialog(null) }}>
+        <DialogContent
+          className="sm:max-w-3xl"
+          onKeyDown={(event) => {
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              submitLineDialog()
+            }
+            if (event.key === 'Escape') {
+              setLineDialog(null)
+            }
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {lineDialog?.mode === 'edit'
+                ? t('warranty_claims.form.lines.edit', 'Edit line')
+                : translations.addLine}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="md:col-span-2">
+              <ClaimLineProductPicker
+                value={{
+                  productId: lineDraft.productId,
+                  productName: lineDraft.productName,
+                  sku: lineDraft.sku,
+                  variantId: lineDraft.variantId,
+                }}
+                onPick={(pick: ClaimProductPick) => updateDraft({
+                  productId: pick.productId,
+                  variantId: pick.variantId,
+                  sku: pick.sku,
+                  productName: pick.productName,
+                })}
+                onClear={() => updateDraft({ productId: null, variantId: null })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-productName`}>{translations.productName}</Label>
+              <Input
+                id={`${draftDialogId}-productName`}
+                value={stringifyFieldValue(lineDraft.productName)}
+                onChange={(event) => updateDraft({ productName: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-sku`}>{translations.sku}</Label>
+              <Input
+                id={`${draftDialogId}-sku`}
+                value={stringifyFieldValue(lineDraft.sku)}
+                onChange={(event) => updateDraft({ sku: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-serialNumber`}>{translations.serialNumber}</Label>
+              <Input
+                id={`${draftDialogId}-serialNumber`}
+                value={stringifyFieldValue(lineDraft.serialNumber)}
+                onChange={(event) => updateDraft({ serialNumber: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-qtyClaimed`}>{translations.qtyClaimed}</Label>
+              <Input
+                id={`${draftDialogId}-qtyClaimed`}
+                type="number"
+                min={1}
+                step="1"
+                value={stringifyFieldValue(lineDraft.qtyClaimed)}
+                onChange={(event) => updateDraft({ qtyClaimed: event.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-purchaseDate`}>{t('warranty_claims.form.purchaseDate')}</Label>
+              <Input
+                id={`${draftDialogId}-purchaseDate`}
+                type="date"
+                value={dateInputValue(lineDraft.purchaseDate)}
+                onChange={(event) => updateDraftPurchaseDate(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`${draftDialogId}-warrantyMonths`}>{t('warranty_claims.form.warrantyMonths')}</Label>
+              <div className="flex flex-wrap items-center gap-2">
                 <Input
-                  id={`${rowId}-productName`}
-                  value={stringifyFieldValue(line.productName)}
-                  onChange={(event) => updateLine(index, { productName: event.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-sku`}>{translations.sku}</Label>
-                <Input
-                  id={`${rowId}-sku`}
-                  value={stringifyFieldValue(line.sku)}
-                  onChange={(event) => updateLine(index, { sku: event.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-serialNumber`}>{translations.serialNumber}</Label>
-                <Input
-                  id={`${rowId}-serialNumber`}
-                  value={stringifyFieldValue(line.serialNumber)}
-                  onChange={(event) => updateLine(index, { serialNumber: event.target.value })}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-qtyClaimed`}>{translations.qtyClaimed}</Label>
-                <Input
-                  id={`${rowId}-qtyClaimed`}
+                  id={`${draftDialogId}-warrantyMonths`}
                   type="number"
-                  min={1}
+                  min={0}
                   step="1"
-                  value={stringifyFieldValue(line.qtyClaimed)}
-                  onChange={(event) => updateLine(index, { qtyClaimed: event.target.value })}
+                  value={stringifyFieldValue(lineDraft.warrantyMonths)}
+                  onChange={(event) => updateDraft({ warrantyMonths: event.target.value })}
+                  className="min-w-28 flex-1"
+                />
+                <EntitlementChip status={draftWarrantyStatus} t={t} />
+                <EntitlementLookupBadge
+                  claim={{ orderId }}
+                  lines={[{
+                    productId: nullableText(lineDraft.productId),
+                    sku: nullableText(lineDraft.sku),
+                    serialNumber: nullableText(lineDraft.serialNumber),
+                    purchaseDate: normalizeDateOnly(lineDraft.purchaseDate),
+                  }]}
                 />
               </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-purchaseDate`}>{t('warranty_claims.form.purchaseDate')}</Label>
-                <Input
-                  id={`${rowId}-purchaseDate`}
-                  type="date"
-                  value={dateInputValue(line.purchaseDate)}
-                  onChange={(event) => updateLinePurchaseDate(index, event.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor={`${rowId}-warrantyMonths`}>{t('warranty_claims.form.warrantyMonths')}</Label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Input
-                    id={`${rowId}-warrantyMonths`}
-                    type="number"
-                    min={0}
-                    step="1"
-                    value={stringifyFieldValue(line.warrantyMonths)}
-                    onChange={(event) => updateLine(index, { warrantyMonths: event.target.value })}
-                    className="min-w-28 flex-1"
-                  />
-                  <EntitlementChip status={warrantyStatus} t={t} />
-                  <EntitlementLookupBadge
-                    claim={{ orderId }}
-                    lines={[{
-                      productId: nullableText(line.productId),
-                      sku: nullableText(line.sku),
-                      serialNumber: nullableText(line.serialNumber),
-                      purchaseDate: normalizeDateOnly(line.purchaseDate),
-                    }]}
-                  />
-                </div>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor={`${rowId}-faultCode`}>{translations.faultCode}</Label>
-                <Select
-                  value={nullableText(line.faultCode) ?? ''}
-                  onValueChange={(next) => updateLine(index, { faultCode: next })}
-                >
-                  <SelectTrigger id={`${rowId}-faultCode`}>
-                    <SelectValue placeholder={translations.faultCodePlaceholder} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {faultCodeOptions.map((option) => (
-                      <SelectItem key={option.value} value={option.value}>
-                        {option.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2 md:col-span-2">
-                <Label htmlFor={`${rowId}-faultDescription`}>{translations.faultDescription}</Label>
-                <Textarea
-                  id={`${rowId}-faultDescription`}
-                  rows={4}
-                  value={stringifyFieldValue(line.faultDescription)}
-                  onChange={(event) => updateLine(index, { faultDescription: event.target.value })}
-                />
-              </div>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor={`${draftDialogId}-faultCode`}>{translations.faultCode}</Label>
+              <Select
+                value={nullableText(lineDraft.faultCode) ?? ''}
+                onValueChange={(next) => updateDraft({ faultCode: next })}
+              >
+                <SelectTrigger id={`${draftDialogId}-faultCode`}>
+                  <SelectValue placeholder={translations.faultCodePlaceholder} />
+                </SelectTrigger>
+                <SelectContent>
+                  {faultCodeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor={`${draftDialogId}-faultDescription`}>{translations.faultDescription}</Label>
+              <Textarea
+                id={`${draftDialogId}-faultDescription`}
+                rows={4}
+                value={stringifyFieldValue(lineDraft.faultDescription)}
+                onChange={(event) => updateDraft({ faultDescription: event.target.value })}
+              />
             </div>
           </div>
-        )
-      })}
-      {error ? <p className="text-sm text-status-error-text">{error}</p> : null}
-      <Button type="button" variant="outline" onClick={addLine}>
-        <Plus className="size-4" aria-hidden="true" />
-        {translations.addLine}
-      </Button>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setLineDialog(null)}>
+              {t('common.cancel', 'Cancel')}
+            </Button>
+            <Button type="button" onClick={submitLineDialog}>
+              {t('common.save', 'Save')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       <Dialog open={orderDialogOpen} onOpenChange={setOrderDialogOpen}>
         <DialogContent
           className="sm:max-w-2xl"
@@ -829,7 +1082,54 @@ function LineItemsEditor({
             {!orderLinesLoading && orderLines.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('warranty_claims.form.addFromOrder.empty')}</p>
             ) : null}
-            {orderLines.map((line) => {
+            {!orderLinesLoading && orderLines.length ? (
+              <div className="space-y-2">
+                <Input
+                  type="search"
+                  value={orderLineSearch}
+                  onChange={(event) => setOrderLineSearch(event.target.value)}
+                  placeholder={t('warranty_claims.form.addFromOrder.search', 'Filter by product or SKU')}
+                  aria-label={t('warranty_claims.form.addFromOrder.search', 'Filter by product or SKU')}
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                  <span>
+                    {t('warranty_claims.form.addFromOrder.count', '{shown} of {total} lines', {
+                      shown: String(visibleOrderLines.length),
+                      total: String(orderLines.length),
+                    })}
+                    {orderLinesTruncated
+                      ? ` — ${t('warranty_claims.form.addFromOrder.truncated', 'first {limit} only', { limit: String(ORDER_LINE_MAX_FETCH) })}`
+                      : ''}
+                    {/* Selection survives filter changes, so it must be visible: otherwise
+                        rows picked under an earlier filter silently push the claim over
+                        the line cap and the insert appears to do nothing. */}
+                    {selectedOrderLineIds.size
+                      ? ` — ${t('warranty_claims.form.addFromOrder.selected', '{count} selected', { count: String(selectedOrderLineIds.size) })}`
+                      : ''}
+                  </span>
+                  <span className="flex gap-3">
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      onClick={() => toggleAllVisibleOrderLines(true)}
+                    >
+                      {t('warranty_claims.form.addFromOrder.selectAll', 'Select all')}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      onClick={() => toggleAllVisibleOrderLines(false)}
+                    >
+                      {t('warranty_claims.form.addFromOrder.clear', 'Clear')}
+                    </Button>
+                  </span>
+                </div>
+              </div>
+            ) : null}
+            <div className="max-h-[50vh] space-y-3 overflow-y-auto pr-1">
+            {visibleOrderLines.map((line) => {
               const checked = selectedOrderLineIds.has(line.id)
               const label = line.name ?? line.sku ?? t('warranty_claims.form.lines.unnamed', 'Unnamed line')
               return (
@@ -849,6 +1149,7 @@ function LineItemsEditor({
                 </div>
               )
             })}
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={() => setOrderDialogOpen(false)}>
@@ -958,7 +1259,6 @@ export default function CreateWarrantyClaimPage() {
   const lineTranslations = React.useMemo<LineEditorTranslations>(() => ({
     addLine: t('warranty_claims.form.lines.add', 'Add line'),
     removeLine: t('warranty_claims.form.lines.remove', 'Remove line'),
-    lineLabel: (number: number) => t('warranty_claims.form.lines.lineLabel', 'Line {number}', { number }),
     productName: t('warranty_claims.form.productName'),
     sku: t('warranty_claims.form.sku'),
     serialNumber: t('warranty_claims.form.serialNumber'),
@@ -968,42 +1268,27 @@ export default function CreateWarrantyClaimPage() {
     faultCodePlaceholder: t('warranty_claims.form.faultCode.placeholder', 'Select fault code'),
   }), [t])
 
+  // Short selects share a row (three thirds), the two record lookups share the
+  // next (two halves); only the free-text fields span the full width. Ordered so
+  // each row fills the 6-column grid instead of stacking one control per screen row.
   const fields = React.useMemo<CrudField[]>(() => [
     {
       id: 'claimType',
       label: t('warranty_claims.form.claimType'),
       type: 'select',
       required: true,
+      layout: 'third',
       options: CLAIM_TYPES.map((claimType) => ({
         value: claimType,
         label: t(`warranty_claims.claimType.${claimType}`),
       })),
     },
     {
-      id: 'customerId',
-      label: t('warranty_claims.form.customerId'),
-      type: 'combobox',
-      loadOptions: loadCustomerOptions,
-      allowCustomValues: false,
-      placeholder: t('warranty_claims.form.customerId.placeholder'),
-      seedOptions: [],
-    },
-    {
-      id: 'orderId',
-      label: t('warranty_claims.form.orderId'),
-      type: 'combobox',
-      loadOptions: loadOrderOptions,
-      allowCustomValues: false,
-      placeholder: t('warranty_claims.form.orderId.placeholder'),
-      description: orderAccessDenied ? t('warranty_claims.form.orderId.noAccess') : undefined,
-      seedOptions: [],
-      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
-    },
-    {
       id: 'priority',
       label: t('warranty_claims.form.priority'),
       type: 'select',
       required: true,
+      layout: 'third',
       options: CLAIM_PRIORITIES.map((priority) => ({
         value: priority,
         label: t(`warranty_claims.priority.${priority}`),
@@ -1013,7 +1298,30 @@ export default function CreateWarrantyClaimPage() {
       id: 'reasonCode',
       label: t('warranty_claims.form.reasonCode'),
       type: 'select',
+      layout: 'third',
       loadOptions: () => loadDictionaryOptions(DICTIONARY_KEYS.claimReasons, 'reason'),
+    },
+    {
+      id: 'customerId',
+      label: t('warranty_claims.form.customerId'),
+      type: 'combobox',
+      layout: 'half',
+      loadOptions: loadCustomerOptions,
+      allowCustomValues: false,
+      placeholder: t('warranty_claims.form.customerId.placeholder'),
+      seedOptions: [],
+    },
+    {
+      id: 'orderId',
+      label: t('warranty_claims.form.orderId'),
+      type: 'combobox',
+      layout: 'half',
+      loadOptions: loadOrderOptions,
+      allowCustomValues: false,
+      placeholder: t('warranty_claims.form.orderId.placeholder'),
+      description: orderAccessDenied ? t('warranty_claims.form.orderId.noAccess') : undefined,
+      seedOptions: [],
+      resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
     },
     {
       id: 'notes',
@@ -1035,7 +1343,9 @@ export default function CreateWarrantyClaimPage() {
     {
       id: 'header',
       title: t('warranty_claims.form.header'),
-      fields: ['claimType', 'customerId', 'orderId', 'priority', 'reasonCode', 'notes', 'resolutionSummary'],
+      // Render order lives here, not in the field definitions. Keep the three
+      // thirds adjacent and the two halves adjacent so each grid row fills.
+      fields: ['claimType', 'priority', 'reasonCode', 'customerId', 'orderId', 'notes', 'resolutionSummary'],
       component: ({ values }) => (
         <>
           <CustomerSelectionObserver value={values.customerId} onChange={setSelectedCustomerId} />

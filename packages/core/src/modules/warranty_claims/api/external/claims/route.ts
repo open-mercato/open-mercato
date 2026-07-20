@@ -10,6 +10,13 @@ import { readJsonSafe } from '@open-mercato/shared/lib/http/readJsonSafe'
 import { runRouteMutationGuards, type RouteMutationGuardResult } from '@open-mercato/shared/lib/crud/route-mutation-guard'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { readEndpointRateLimitConfig } from '@open-mercato/shared/lib/ratelimit/config'
+import {
+  checkRateLimit,
+  RATE_LIMIT_ERROR_FALLBACK,
+  RATE_LIMIT_ERROR_KEY,
+} from '@open-mercato/shared/lib/ratelimit/helpers'
+import type { RateLimiterService } from '@open-mercato/shared/lib/ratelimit/service'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { WarrantyClaim, WarrantyClaimEvent, WarrantyClaimLine } from '../../../data/entities'
 import {
@@ -300,9 +307,39 @@ async function buildCreateInput(
   return buildExternalClaimCreateInput(effectiveInput, resolvedReferences, settings, scope)
 }
 
+// Headless intake is authenticated but otherwise unbounded: each accepted request
+// burns a claim number and fans out events, notifications, and search indexing, and
+// the caller-chosen `externalRef` defeats the idempotency dedupe. Throttle per API key.
+const externalIntakeRateLimitConfig = readEndpointRateLimitConfig('WARRANTY_EXTERNAL_INTAKE', {
+  points: 60,
+  duration: 60,
+  keyPrefix: 'warranty_claims:external_intake',
+})
+
+async function enforceExternalIntakeRateLimit(
+  context: ActionRouteContext,
+): Promise<NextResponse | null> {
+  let rateLimiterService: RateLimiterService | null = null
+  try {
+    rateLimiterService = context.ctx.container.resolve('rateLimiterService') as RateLimiterService
+  } catch {
+    return null
+  }
+  if (!rateLimiterService) return null
+  const principal = context.ctx.auth?.sub ?? 'anonymous'
+  return checkRateLimit(
+    rateLimiterService,
+    externalIntakeRateLimitConfig,
+    `${context.tenantId}:${principal}`,
+    context.translate(RATE_LIMIT_ERROR_KEY, RATE_LIMIT_ERROR_FALLBACK),
+  )
+}
+
 export async function POST(req: Request) {
   try {
     const context = await resolveActionContext(req)
+    const throttled = await enforceExternalIntakeRateLimit(context)
+    if (throttled) return throttled
     const payload = toRecord(await readJsonSafe(req, {}))
     const input = externalClaimIntakeSchema.parse(payload)
 

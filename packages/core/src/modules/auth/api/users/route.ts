@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { logCrudAccess, makeCrudRoute } from '@open-mercato/shared/lib/crud/factory'
+import { parseIdsParam } from '@open-mercato/shared/lib/crud/ids'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
@@ -47,15 +48,13 @@ const querySchema = z.object({
   roleIds: z.array(z.string().uuid()).optional(),
 }).passthrough()
 
-const uuidSchema = z.string().uuid()
+export const MAX_REQUESTED_IDS = 100
 
-export function parseRequestedIds(raw: string | undefined): string[] {
-  if (typeof raw !== 'string' || !raw.trim().length) return []
-  return raw
-    .split(',')
-    .map((token) => token.trim())
-    .filter((token) => uuidSchema.safeParse(token).success)
-    .slice(0, 100)
+// A present-but-unparseable `ids` param must still narrow to nothing. Returning
+// no filter would turn an explicit narrowing request into an unfiltered page.
+export function buildRequestedIdsFilter(ids: unknown): { id: { $in: string[] } } | null {
+  if (typeof ids !== 'string' || !ids.trim().length) return null
+  return { id: { $in: parseIdsParam(ids, MAX_REQUESTED_IDS) } }
 }
 
 const rawBodySchema = z.object({}).passthrough()
@@ -370,10 +369,8 @@ export async function GET(req: Request) {
   } else if (id) {
     filters.push({ id })
   }
-  const requestedIds = parseRequestedIds(ids)
-  if (requestedIds.length) {
-    filters.push({ id: { $in: requestedIds as any } })
-  }
+  const requestedIdsFilter = buildRequestedIdsFilter(ids)
+  if (requestedIdsFilter) filters.push(requestedIdsFilter as any)
   const where = filters.length > 1 ? { $and: filters } : filters[0]
   const [rows, count] = await em.findAndCount(User, where, { limit: pageSize, offset: (page - 1) * pageSize })
   const userIds = rows.map((u: any) => u.id)
@@ -646,7 +643,7 @@ export const openApi: OpenApiRouteDoc = {
     GET: {
       summary: 'List users',
       description:
-        'Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller\'s active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record).',
+        `Returns users for the effective selected tenant and organization scope. Search matches email, organization name, and role name. Super administrators may scope the response via the topbar context, organization filters, or role filters. Pass scopeToActiveOrganization=1 to restrict results to the caller's active organization (used by recipient/assignee pickers so suggestions stay within the org that owns the resulting record). Pass ids= as a comma-separated list of UUIDs to narrow the response to specific users; at most ${MAX_REQUESTED_IDS} ids are honored and any beyond that are dropped silently, so batch larger lookups across multiple requests.`,
       query: querySchema,
       responses: [
         { status: 200, description: 'User collection', schema: userListResponseSchema },

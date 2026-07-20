@@ -84,10 +84,10 @@ type ClaimSummary = {
 
 function assertScope(ctx: WarrantyClaimsToolContext): Scope {
   if (!ctx.tenantId) {
-    throw new Error('Tenant context is required for warranty_claims.* tools')
+    throw new Error('[internal] Tenant context is required for warranty_claims.* tools')
   }
   if (!ctx.organizationId) {
-    throw new Error('Organization context is required for warranty_claims.* tools')
+    throw new Error('[internal] Organization context is required for warranty_claims.* tools')
   }
   return { tenantId: ctx.tenantId, organizationId: ctx.organizationId }
 }
@@ -98,7 +98,7 @@ function resolveEm(ctx: WarrantyClaimsToolContext): EntityManager {
 
 function buildAttachmentAuthContext(ctx: WarrantyClaimsToolContext, scope: Scope): AiChatRequestContext {
   if (!ctx.userId) {
-    throw new Error('User context is required for warranty_claims attachment-aware tools.')
+    throw new Error('[internal] User context is required for warranty_claims attachment-aware tools.')
   }
   return {
     tenantId: scope.tenantId,
@@ -556,7 +556,7 @@ function toTransitionCommandInput(input: TransitionClaimToolInput): TransitionCl
 
 function buildCommandContext(ctx: WarrantyClaimsToolContext, scope: Scope): CommandRuntimeContext {
   if (!ctx.userId) {
-    throw new Error('User context is required to transition warranty claims.')
+    throw new Error('[internal] User context is required to transition warranty claims.')
   }
   return {
     container: ctx.container,

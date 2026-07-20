@@ -916,6 +916,18 @@
           "keyName": "warranty_claim_lines_product_idx",
           "primary": false,
           "unique": false
+        },
+        {
+          "columnNames": [
+            "tenant_id",
+            "organization_id",
+            "serial_number"
+          ],
+          "composite": true,
+          "constraint": false,
+          "keyName": "warranty_claim_lines_serial_idx",
+          "primary": false,
+          "unique": false
         }
       ],
       "checks": [],

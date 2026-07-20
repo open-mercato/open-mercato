@@ -828,7 +828,7 @@ async function querySalesReferenceRow(
     return (row as Record<string, unknown> | undefined) ?? null
   } catch (err) {
     if (isMissingReferenceTableError(err)) return undefined
-    return undefined
+    throw err
   }
 }
 
@@ -853,7 +853,7 @@ function claimedQuantityUnits(value: string | number | null | undefined): bigint
 }
 
 function roundHalfUpDivision(numerator: bigint, denominator: bigint): bigint {
-  if (denominator <= 0n) throw new Error('Positive denominator required')
+  if (denominator <= 0n) throw new Error('[internal] Positive denominator required')
   if (numerator < 0n) return -roundHalfUpDivision(-numerator, denominator)
   return (numerator + denominator / 2n) / denominator
 }

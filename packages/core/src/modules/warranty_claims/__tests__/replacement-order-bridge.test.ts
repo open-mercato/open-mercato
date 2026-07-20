@@ -25,7 +25,8 @@ let mockClaims: Array<Record<string, unknown>> = []
 let mockLines: Array<Record<string, unknown>> = []
 let mockEvents: Array<Record<string, unknown>> = []
 let mockSourceOrderRow: Record<string, unknown> | null = null
-let mockReplacementOrderRow: Record<string, unknown> | null | undefined = null
+let mockReplacementOrderRow: Record<string, unknown> | null = null
+let mockReplacementOrderLookupError: Error | null = null
 let mockSourceLineRows = new Map<string, Record<string, unknown>>()
 let mockSalesAvailable = true
 let mockTransactionError: Error | null = null
@@ -148,7 +149,7 @@ function makeKysely() {
           if (table !== 'sales_orders') return undefined
           if (id === ORDER_ID) return mockSourceOrderRow ?? undefined
           if (id === CREATED_ORDER_ID) {
-            if (mockReplacementOrderRow === undefined) throw new Error('replacement order lookup degraded')
+            if (mockReplacementOrderLookupError) throw mockReplacementOrderLookupError
             return mockReplacementOrderRow ?? undefined
           }
           return undefined
@@ -295,6 +296,7 @@ beforeEach(() => {
     channel_id: CHANNEL_ID,
   }
   mockReplacementOrderRow = { id: CREATED_ORDER_ID, updated_at: REPLACEMENT_UPDATED_AT }
+  mockReplacementOrderLookupError = null
   mockSourceLineRows = new Map()
   mockSalesAvailable = true
   mockTransactionError = null
@@ -596,12 +598,23 @@ describe('warranty_claims.claim.create_replacement_order', () => {
     expect(claim.advanceReplacement).toBe(true)
   })
 
-  it('undo treats a degraded replacement-order re-read as a 409 and does not restore the claim', async () => {
-    mockReplacementOrderRow = undefined
+  it('undo treats an absent sales order table as a 409 and does not restore the claim', async () => {
+    mockReplacementOrderLookupError = Object.assign(new Error('relation "sales_orders" does not exist'), { code: '42P01' })
     const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
 
     await expect(createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never))
       .rejects.toMatchObject({ status: 409, body: { error: 'warranty_claims.errors.replacementOrderChangedUndoAborted' } })
+    expect(commandBusExecuteMock).not.toHaveBeenCalled()
+    expect(claim.replacementOrderId).toBe(CREATED_ORDER_ID)
+  })
+
+  it('undo propagates a degraded replacement-order re-read and does not restore the claim', async () => {
+    const lookupFailure = Object.assign(new Error('connection terminated'), { code: '08006' })
+    mockReplacementOrderLookupError = lookupFailure
+    const claim = seedClaim({ replacementOrderId: CREATED_ORDER_ID, advanceReplacement: true })
+
+    await expect(createReplacementOrderCommand.undo?.({ logEntry: replacementUndoLog(claim), ctx: makeCtx() } as never))
+      .rejects.toBe(lookupFailure)
     expect(commandBusExecuteMock).not.toHaveBeenCalled()
     expect(claim.replacementOrderId).toBe(CREATED_ORDER_ID)
   })

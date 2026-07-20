@@ -36,6 +36,7 @@ import {
   fetchAssignableStaffMembersPage,
   type AssignableStaffMember,
 } from '@open-mercato/core/modules/customers/lib/assignableStaff'
+import { localizeDictionaryLabel, type DictionaryLabelKind } from '../../../lib/dictionaryLabels'
 import { parseEscalationTiers, type EscalationTier } from '../../../lib/escalation'
 import type { BusinessWeekday } from '../../../lib/businessHours'
 import {
@@ -249,6 +250,15 @@ const DEFAULT_GENERAL_SETTINGS: GeneralSettingsResult = {
   adjudicationUseRules: false,
   quarantineGrades: null,
   returnLabelProvider: null,
+}
+
+// Seeded entries store an English label, so the list must resolve the same
+// localized option text the claim forms show. The stored label stays untouched
+// and is what the edit dialog loads.
+const DICTIONARY_LABEL_KINDS: Record<WarrantyDictionaryKind, DictionaryLabelKind> = {
+  'warranty-claim-fault-code': 'fault',
+  'warranty-claim-reason': 'reason',
+  'warranty-claim-rejection-reason': 'rejection',
 }
 
 const SECTIONS: SectionDefinition[] = [
@@ -1181,15 +1191,12 @@ export default function WarrantyClaimSettingsPage() {
   const resolveStaffUserLabel = React.useCallback(async (userId: string): Promise<string> => {
     const unknownUserLabel = t('warranty_claims.detail.unknownUser')
     const response = await apiCall<{ items?: Array<Record<string, unknown>> }>(
-      `/api/auth/users?ids=${encodeURIComponent(userId)}`,
+      `/api/warranty_claims/assignees?ids=${encodeURIComponent(userId)}`,
     )
     if (!response.ok || !response.result) return unknownUserLabel
     const user = (response.result.items ?? [])[0]
     if (!user) return unknownUserLabel
-    const displayName = toStringOrNull(user.display_name)
-      ?? toStringOrNull(user.displayName)
-      ?? toStringOrNull(user.name)
-    return displayName ?? toStringOrNull(user.email) ?? unknownUserLabel
+    return toStringOrNull(user.name) ?? unknownUserLabel
   }, [t])
 
   const addEscalationTierRow = React.useCallback(() => {
@@ -1461,6 +1468,14 @@ export default function WarrantyClaimSettingsPage() {
   const startCreate = React.useCallback((kind: WarrantyDictionaryKind) => {
     setDialog({ mode: 'create', kind })
   }, [])
+
+  // The table receives entries whose label is localized for display, so edit and
+  // delete must map back to the stored row before touching it.
+  const resolveRawEntry = React.useCallback((
+    kind: WarrantyDictionaryKind,
+    entry: DictionaryTableEntry,
+  ): DictionaryTableEntry => (entriesByKind[kind] ?? []).find((row) => row.id === entry.id) ?? entry,
+  [entriesByKind])
 
   const startEdit = React.useCallback((kind: WarrantyDictionaryKind, entry: DictionaryTableEntry) => {
     setDialog({ mode: 'edit', kind, entry })
@@ -1814,12 +1829,15 @@ export default function WarrantyClaimSettingsPage() {
               </div>
               <div className="px-2 py-4 sm:px-4">
                 <DictionaryTable
-                  entries={entriesByKind[section.kind] ?? []}
+                  entries={(entriesByKind[section.kind] ?? []).map((entry) => ({
+                    ...entry,
+                    label: localizeDictionaryLabel(t, DICTIONARY_LABEL_KINDS[section.kind], entry.value, entry.label),
+                  }))}
                   loading={loadingKind[section.kind] ?? false}
                   canManage
                   onCreate={() => startCreate(section.kind)}
-                  onEdit={(entry) => startEdit(section.kind, entry)}
-                  onDelete={(entry) => { void deleteEntry(section.kind, entry) }}
+                  onEdit={(entry) => startEdit(section.kind, resolveRawEntry(section.kind, entry))}
+                  onDelete={(entry) => { void deleteEntry(section.kind, resolveRawEntry(section.kind, entry)) }}
                   onRefresh={() => { void loadEntries(section) }}
                   translations={{ ...tableTranslations, title: t(section.titleKey) }}
                 />
@@ -1830,7 +1848,17 @@ export default function WarrantyClaimSettingsPage() {
       </PageBody>
 
       <Dialog open={dialog !== null} onOpenChange={(open) => { if (!open) closeDialog() }}>
-        <DialogContent className="max-w-lg">
+        <DialogContent
+          className="max-w-lg"
+          onKeyDown={(event) => {
+            // DictionaryForm ships no keyboard handler of its own, so the dialog owns
+            // the shared Cmd/Ctrl+Enter submit contract here.
+            if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+              event.preventDefault()
+              void submitForm(currentValues)
+            }
+          }}
+        >
           <DialogHeader>
             <DialogTitle>
               {dialog?.mode === 'edit' ? formTranslations.editTitle : formTranslations.createTitle}

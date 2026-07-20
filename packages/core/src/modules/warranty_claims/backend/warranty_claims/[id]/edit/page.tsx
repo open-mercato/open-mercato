@@ -276,6 +276,7 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           id: 'customerId',
           label: t('warranty_claims.form.customerId'),
           type: 'combobox',
+          layout: 'half',
           loadOptions: loadCustomerOptions,
           allowCustomValues: false,
           placeholder: t('warranty_claims.form.customerId.placeholder'),
@@ -283,11 +284,12 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
             ? [{ value: claim.customerId, label: claim.customerName }]
             : [],
         },
-        { id: 'customerName', label: t('warranty_claims.form.customerName'), type: 'text' },
+        { id: 'customerName', label: t('warranty_claims.form.customerName'), type: 'text', layout: 'third' },
         {
           id: 'orderId',
           label: t('warranty_claims.form.orderId'),
           type: 'combobox',
+          layout: 'half',
           loadOptions: (query?: string) => loadOrderOptions(query, {
             fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
           }),
@@ -302,12 +304,14 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           id: 'reasonCode',
           label: t('warranty_claims.form.reasonCode'),
           type: 'select',
+          layout: 'third',
           loadOptions: () => loadDictionaryOptions(DICTIONARY_KEYS.claimReasons, 'reason'),
         },
         {
           id: 'priority',
           label: t('warranty_claims.form.priority'),
           type: 'select',
+          layout: 'third',
           options: CLAIM_PRIORITIES.map((priority) => ({
             value: priority,
             label: t(`warranty_claims.priority.${priority}`),
@@ -318,11 +322,12 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
     }
     if (editableMode === 'fulfillment') {
       return [
-        { id: 'advanceReplacement', label: t('warranty_claims.form.advanceReplacement'), type: 'checkbox' },
+        { id: 'advanceReplacement', label: t('warranty_claims.form.advanceReplacement'), type: 'checkbox', layout: 'third' },
         {
           id: 'replacementOrderId',
           label: t('warranty_claims.form.replacementOrderId'),
           type: 'combobox',
+          layout: 'half',
           loadOptions: (query?: string) => loadOrderOptions(query, {
             fallbackLabel: t('warranty_claims.form.orderUnavailable', 'Order unavailable'),
           }),
@@ -330,11 +335,12 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
           resolveLabel: (value: string) => resolveOrderLabel(value, t('warranty_claims.form.orderUnavailable', 'Order unavailable')),
           seedOptions: [],
         },
-        { id: 'advanceShippedAt', label: t('warranty_claims.form.advanceShippedAt'), type: 'datetime-local' },
+        { id: 'advanceShippedAt', label: t('warranty_claims.form.advanceShippedAt'), type: 'datetime-local', layout: 'third' },
         {
           id: 'salesReturnId',
           label: t('warranty_claims.form.salesReturnId'),
           type: 'combobox',
+          layout: 'half',
           loadOptions: loadSalesReturnOptionsForClaim,
           allowCustomValues: false,
           resolveLabel: (value: string) => resolveSalesReturnLabel(value, t('warranty_claims.form.returnUnavailable', 'Return unavailable')),
@@ -344,8 +350,8 @@ export default function EditWarrantyClaimPage({ params }: { params?: { id?: stri
             : t('warranty_claims.form.salesReturnId.noOrder', 'Link the claim to an order first to select a return.'),
         },
         createCreditMemoFieldConfig(t, claimOrderId),
-        { id: 'vendorName', label: t('warranty_claims.form.vendorName'), type: 'text' },
-        { id: 'vendorRef', label: t('warranty_claims.form.vendorRef'), type: 'text' },
+        { id: 'vendorName', label: t('warranty_claims.form.vendorName'), type: 'text', layout: 'half' },
+        { id: 'vendorRef', label: t('warranty_claims.form.vendorRef'), type: 'text', layout: 'half' },
         { id: 'resolutionSummary', label: t('warranty_claims.form.resolutionSummary'), type: 'textarea', rows: 5, layout: 'full' },
       ]
     }

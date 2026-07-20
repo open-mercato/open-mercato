@@ -27,7 +27,7 @@ function makeSettings(defaultWarrantyMonths: number | null): WarrantyClaimSettin
   return settings
 }
 
-describe('warranty claims v1.2 foundation', () => {
+describe('warranty claims settings resolution and intake validation', () => {
   test('external claim intake accepts a valid order-number payload', () => {
     const parsed = externalClaimIntakeSchema.safeParse({
       externalRef: 'EXT-1001',

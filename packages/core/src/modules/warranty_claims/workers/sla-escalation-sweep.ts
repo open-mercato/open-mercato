@@ -111,17 +111,57 @@ async function emitSlaSignal(
   }, { persistent: true })
 }
 
-async function stampSlaSignal(
+type SlaSignalGuard = 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'
+
+// Claims the right to emit an SLA signal by stamping the guard column only while it
+// is still null. The stamp is the serialization point: two sweeps racing the same
+// claim (or a retry after a crash) see exactly one `affected === 1`, so the signal is
+// emitted once. Emitting first and stamping afterwards would double-notify.
+async function claimSlaSignal(
   em: EntityManager,
   claim: WarrantyClaim,
   scope: SweepScope,
+  guard: SlaSignalGuard,
   stamps: Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>>,
+): Promise<boolean> {
+  const affected = await em.nativeUpdate(
+    WarrantyClaim,
+    { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId, [guard]: null },
+    stamps,
+  )
+  return affected === 1
+}
+
+// Releases a claimed guard so the next sweep retries, used when the emit that the
+// claim was taken for fails. Without it a failed emit would be silently swallowed.
+async function releaseSlaSignal(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  guard: SlaSignalGuard,
 ): Promise<void> {
   await em.nativeUpdate(
     WarrantyClaim,
     { id: claim.id, tenantId: scope.tenantId, organizationId: scope.organizationId },
-    stamps,
+    { [guard]: null },
   )
+}
+
+async function emitClaimedSlaSignal(
+  em: EntityManager,
+  claim: WarrantyClaim,
+  scope: SweepScope,
+  guard: SlaSignalGuard,
+  stamps: Partial<Pick<WarrantyClaim, 'slaAtRiskNotifiedAt' | 'slaBreachedNotifiedAt'>>,
+  emit: () => Promise<void>,
+): Promise<void> {
+  if (!(await claimSlaSignal(em, claim, scope, guard, stamps))) return
+  try {
+    await emit()
+  } catch (error) {
+    await releaseSlaSignal(em, claim, scope, guard)
+    throw error
+  }
 }
 
 function buildCommandContext(container: ResolverContainer, scope: SweepScope): CommandRuntimeContext {
@@ -192,9 +232,6 @@ async function runEscalationTier(
     { input, ctx: buildCommandContext(container, scope) },
   )
   if (!result.escalated) return
-  if (tier.action === 'reassign' && tier.toUserId) {
-    claim.assigneeUserId = tier.toUserId
-  }
   if (tier.action === 'notify') {
     await createEscalationNotification(container, claim, scope, tierIndex, progressPct)
   }
@@ -215,7 +252,7 @@ export default async function handle(
   if (!scope) return
 
   const container = resolveContainer(ctx)
-  const em = ctx.resolve<EntityManager>('em')
+  const em = ctx.resolve<EntityManager>('em').fork()
   const settings = await resolveEffectiveWarrantyClaimSettings(em, scope)
   const tiers = parseEscalationTiers(settings.escalationTiers)
   const now = new Date()
@@ -253,15 +290,24 @@ export default async function handle(
         progressPct < 100 &&
         !claim.slaAtRiskNotifiedAt
       ) {
-        await emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis)
-        await stampSlaSignal(em, claim, scope, { slaAtRiskNotifiedAt: now })
+        await emitClaimedSlaSignal(
+          em,
+          claim,
+          scope,
+          'slaAtRiskNotifiedAt',
+          { slaAtRiskNotifiedAt: now },
+          () => emitSlaSignal('warranty_claims.claim.sla_at_risk', claim, scope, progressPct, elapsedBusinessMillis),
+        )
       }
       if (progressPct >= 100 && !claim.slaBreachedNotifiedAt) {
-        await emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis)
-        await stampSlaSignal(em, claim, scope, {
-          slaBreachedNotifiedAt: now,
-          slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now,
-        })
+        await emitClaimedSlaSignal(
+          em,
+          claim,
+          scope,
+          'slaBreachedNotifiedAt',
+          { slaBreachedNotifiedAt: now, slaAtRiskNotifiedAt: claim.slaAtRiskNotifiedAt ?? now },
+          () => emitSlaSignal('warranty_claims.claim.sla_breached', claim, scope, progressPct, elapsedBusinessMillis),
+        )
       }
 
       const fire = tiersToFire(progressPct, claim.escalationLevel ?? 0, tiers)
