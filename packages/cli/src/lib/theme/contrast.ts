@@ -81,6 +81,8 @@ export function contrastRatio(a: Rgb, b: Rgb): number {
 
 /** Formats a contrast ratio for CLI output, e.g. `4.5:1` or `12.1:1`. */
 export function formatContrastRatio(ratio: number): string {
-  const rounded = Math.round(ratio * 10) / 10
-  return `${Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1)}:1`
+  // Floor, not round: a measured 4.478 must never print as the passing "4.5"
+  // next to a fail verdict — the displayed ratio always errs toward the verdict.
+  const floored = Math.floor(ratio * 10) / 10
+  return `${Number.isInteger(floored) ? floored.toFixed(0) : floored.toFixed(1)}:1`
 }

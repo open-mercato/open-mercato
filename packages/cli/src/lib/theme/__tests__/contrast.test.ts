@@ -93,11 +93,13 @@ describe('contrastRatio', () => {
 })
 
 describe('formatContrastRatio', () => {
-  it('formats with at most one decimal', () => {
+  it('formats with at most one decimal, flooring so the display never contradicts the verdict', () => {
     expect(formatContrastRatio(21.000001)).toBe('21:1')
     expect(formatContrastRatio(4.54)).toBe('4.5:1')
     expect(formatContrastRatio(1.94)).toBe('1.9:1')
-    expect(formatContrastRatio(12.096)).toBe('12.1:1')
+    expect(formatContrastRatio(12.096)).toBe('12:1')
     expect(formatContrastRatio(3)).toBe('3:1')
+    expect(formatContrastRatio(4.478)).toBe('4.4:1')
+    expect(formatContrastRatio(4.499)).toBe('4.4:1')
   })
 })

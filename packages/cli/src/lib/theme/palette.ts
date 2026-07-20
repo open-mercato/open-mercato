@@ -321,9 +321,14 @@ export function renderThemeCss(options: ThemeCssOptions): string {
   ]
   if (radius) rootLines.push(`  --radius: ${radius};`)
   if (fontFamily) {
-    const family = /[\s"']/.test(fontFamily) && !fontFamily.startsWith('"')
-      ? `"${fontFamily}"`
-      : fontFamily
+    // A comma means the user passed a full stack — use it verbatim; a single
+    // family with spaces gets quoted; pre-quoted values pass through unwrapped.
+    const stripped = fontFamily.trim().replace(/^["']|["']$/g, '')
+    const family = stripped.includes(',')
+      ? stripped
+      : /\s/.test(stripped)
+        ? `"${stripped}"`
+        : stripped
     rootLines.push(
       '  /* Token override only — remember to actually load the font',
       '   * (next/font in layout.tsx, or @font-face here). */',

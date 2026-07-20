@@ -192,7 +192,9 @@ function printFailure(palette: DerivedPalette, failed: ContrastCheck): void {
     const best = whiteRatio >= blackRatio
       ? { hex: '#ffffff', ratio: whiteRatio }
       : { hex: '#0a0a0a', ratio: blackRatio }
-    suggestion = `use --primary-foreground "${best.hex}" (${formatContrastRatio(best.ratio)}), or pick a darker primary.`
+    if (best.ratio >= failed.threshold) {
+      suggestion = `use --primary-foreground "${best.hex}" (${formatContrastRatio(best.ratio)}), or pick a darker primary.`
+    }
   }
   console.error(
     `✖ Contrast check failed: ${failed.pair} is ${formatContrastRatio(failed.ratio)} — ` +
@@ -207,7 +209,7 @@ export function findProtectedTokenOverrides(css: string): string[] {
   const declaration = /(--[a-z0-9-]+)\s*:/gi
   let match: RegExpExecArray | null
   while ((match = declaration.exec(css)) !== null) {
-    const token = match[1]
+    const token = match[1].toLowerCase()
     if (PROTECTED_TOKEN_PATTERNS.some((pattern) =>
       pattern.endsWith('-') ? token.startsWith(pattern) : token === pattern || token.startsWith(`${pattern}-`),
     )) {
@@ -349,12 +351,7 @@ export async function runThemeInit(args: string[]): Promise<number> {
 
   if (fs.existsSync(outPath)) {
     const existing = fs.readFileSync(outPath, 'utf8')
-    const existingHasContent = existing
-      .split('\n')
-      .some((line) => {
-        const trimmed = line.trim()
-        return trimmed.length > 0 && !trimmed.startsWith('/*') && !trimmed.startsWith('*') && !trimmed.startsWith('*/')
-      })
+    const existingHasContent = existing.replace(/\/\*[\s\S]*?\*\//g, '').trim().length > 0
     if (!flags.force && existingHasContent) {
       console.error(`✖ ${outPath} already exists. Re-run with --force to overwrite it.`)
       return 1
