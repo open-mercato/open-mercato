@@ -396,4 +396,85 @@ describe('ComboboxInput — eager label resolution', () => {
     rerender(<ComboboxInput value="b" onChange={() => {}} resolveLabel={resolveLabel} />)
     await waitFor(() => expect(getInput(container).value).toBe('Label-b'))
   })
+
+  // Regression for a "stuck on Loading suggestions…" report in the WMS cycle
+  // count wizard's Lot field: `disabled` there is tied to an unrelated
+  // balance lookup that re-triggers on every lot pick, so it can flip true
+  // while the debounced suggestion fetch for the *same* field is still in
+  // flight. Before the fix, `disabled` was a dependency of the debounce
+  // effect, so this toggle tore down (and, once re-enabled, restarted from
+  // scratch) any in-flight fetch — under real network latency that
+  // discard-and-restart can keep out-racing the toggle indefinitely, leaving
+  // the popup stuck on the loading state forever. Letting the in-flight
+  // fetch run to completion regardless of `disabled` fixes it.
+  it('does not cancel/restart an in-flight suggestion fetch when disabled toggles mid-flight', async () => {
+    jest.useFakeTimers()
+    let resolveSuggestions: (items: Array<{ value: string; label: string }>) => void = () => {}
+    const loadSuggestions = jest.fn(
+      () =>
+        new Promise<Array<{ value: string; label: string }>>((resolve) => {
+          resolveSuggestions = resolve
+        }),
+    )
+
+    try {
+      const { container, rerender, queryByText } = render(
+        <ComboboxInput
+          value=""
+          onChange={() => {}}
+          loadSuggestions={loadSuggestions}
+          disabled={false}
+        />,
+      )
+      const input = getInput(container)
+
+      act(() => {
+        fireEvent.focus(input)
+        fireEvent.change(input, { target: { value: 'lot' } })
+      })
+
+      // Let the 200ms debounce fire so the fetch actually starts.
+      await act(async () => {
+        jest.advanceTimersByTime(200)
+      })
+      expect(loadSuggestions).toHaveBeenCalledTimes(1)
+
+      // Simulate a sibling field's async lookup disabling this field while
+      // the fetch above is still pending — e.g. `loadingBalance` flipping
+      // true right after the user picks/scans a value.
+      rerender(
+        <ComboboxInput
+          value=""
+          onChange={() => {}}
+          loadSuggestions={loadSuggestions}
+          disabled
+        />,
+      )
+      rerender(
+        <ComboboxInput
+          value=""
+          onChange={() => {}}
+          loadSuggestions={loadSuggestions}
+          disabled={false}
+        />,
+      )
+
+      // The original fetch resolves — it must not have been torn down by the
+      // disabled churn above.
+      await act(async () => {
+        resolveSuggestions([{ value: 'lot-1', label: 'LOT-1' }])
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+        await Promise.resolve()
+      })
+
+      // No second fetch was started by the disable/re-enable cycle.
+      expect(loadSuggestions).toHaveBeenCalledTimes(1)
+      expect(queryByText(/Loading suggestions/i)).toBeNull()
+      expect(queryByText('LOT-1')).toBeTruthy()
+    } finally {
+      jest.useRealTimers()
+    }
+  })
 })

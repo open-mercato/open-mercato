@@ -174,8 +174,25 @@ export function ComboboxInput({
     })
   }, [availableOptions, input])
 
+  // `disabled` is intentionally NOT a dependency (nor a guard) here beyond the
+  // very first check below. `touched` can only become true via a focus/typing
+  // event on the underlying <input>, which the browser refuses to fire while
+  // the element is disabled — so by the time this effect can ever run,
+  // `disabled` was already false. If a caller flips `disabled` back to true
+  // *while* a fetch is in flight (e.g. a sibling field's own async lookup
+  // temporarily disables this one, as in the WMS cycle-count Lot field, whose
+  // `disabled` is tied to an unrelated balance lookup that itself re-triggers
+  // on every lot pick), including `disabled` in the deps used to tear down
+  // and reschedule the debounce timer/fetch on every such toggle. Under real
+  // network latency that discard-and-restart can keep out-racing the toggle
+  // indefinitely, so suggestions never get a chance to resolve and the popup
+  // is stuck showing "Loading suggestions…" whenever the field re-enables.
+  // Letting an in-flight fetch run to completion regardless of `disabled`
+  // fixes that: the popup itself still stays hidden while disabled (see the
+  // render guard below), but `loading` always reaches a real, timely
+  // `finally()` instead of being repeatedly orphaned mid-flight.
   React.useEffect(() => {
-    if (!loadSuggestions || !touched || disabled) return
+    if (!loadSuggestions || !touched) return
     const query = input.trim()
     let cancelled = false
     const handle = window.setTimeout(() => {
@@ -197,7 +214,7 @@ export function ComboboxInput({
       cancelled = true
       window.clearTimeout(handle)
     }
-  }, [disabled, input, loadSuggestions, touched])
+  }, [input, loadSuggestions, touched])
 
   // Eagerly resolve a pre-selected value to its label without requiring the user
   // to focus the field. Runs once per value when it is not already covered.
