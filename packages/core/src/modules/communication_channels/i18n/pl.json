@@ -159,5 +159,6 @@
   "communication_channels.status.disconnected": "Rozłączony",
   "communication_channels.status.error": "Błąd",
   "communication_channels.status.inactive": "Nieaktywny",
-  "communication_channels.status.requiresReauth": "Wymaga ponownego połączenia"
+  "communication_channels.status.requiresReauth": "Wymaga ponownego połączenia",
+  "notifications.categories.communication_channels": "Komunikacja"
 }

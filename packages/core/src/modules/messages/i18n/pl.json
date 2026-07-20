@@ -257,5 +257,6 @@
   "messages.visibilityInternal": "Wewnętrzna",
   "messages.visibilityInternalHint": "Wiadomości wewnętrzne są wysyłane do wybranych użytkowników systemu.",
   "messages.visibilityPublic": "Publiczna",
-  "messages.visibilityPublicHint": "Wiadomości publiczne są wysyłane wyłącznie na zewnętrzny e-mail."
+  "messages.visibilityPublicHint": "Wiadomości publiczne są wysyłane wyłącznie na zewnętrzny e-mail.",
+  "notifications.categories.messages": "Wiadomo\u015bci"
 }

@@ -380,5 +380,6 @@
   "common.remove": "Eliminar",
   "common.retry": "Reintentar",
   "common.unknown": "Desconocido",
-  "common.yes": "Sí"
+  "common.yes": "Sí",
+  "notifications.categories.business_rules": "Reglas de negocio"
 }

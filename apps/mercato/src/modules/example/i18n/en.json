@@ -477,5 +477,7 @@
   "example.widgets.todo.state.allCaughtUp": "All caught up!",
   "example.widgets.todo.state.empty": "No todos found.",
   "example.workPlan.nav.group": "Work plan",
-  "integrations.marketplace.filters.category": "Category"
+  "integrations.marketplace.filters.category": "Category",
+  "notifications.categories.demo": "Demo",
+  "notifications.categories.example": "Examples"
 }

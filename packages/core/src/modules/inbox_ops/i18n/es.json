@@ -189,5 +189,6 @@
   "inbox_ops.translate.show_original": "Mostrar original",
   "inbox_ops.translate.translate": "Traducir",
   "inbox_ops.untitled_proposal": "Propuesta sin t\u00edtulo",
-  "inbox_ops.view_in_messages": "Ver en mensajes"
+  "inbox_ops.view_in_messages": "Ver en mensajes",
+  "notifications.categories.inbox_ops": "Bandeja de entrada"
 }

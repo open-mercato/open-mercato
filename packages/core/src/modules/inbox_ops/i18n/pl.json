@@ -189,5 +189,6 @@
   "inbox_ops.translate.show_original": "Poka\u017c orygina\u0142",
   "inbox_ops.translate.translate": "Przet\u0142umacz",
   "inbox_ops.untitled_proposal": "Propozycja bez tytu\u0142u",
-  "inbox_ops.view_in_messages": "Zobacz w wiadomo\u015bciach"
+  "inbox_ops.view_in_messages": "Zobacz w wiadomo\u015bciach",
+  "notifications.categories.inbox_ops": "Skrzynka"
 }

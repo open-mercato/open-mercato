@@ -1,6 +1,7 @@
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { type Kysely, sql } from 'kysely'
 import type { NotificationTypeDefinition } from '@open-mercato/shared/modules/notifications/types'
+import { deriveCategory } from './derive-category'
 
 const registry = new Map<string, NotificationTypeDefinition>()
 
@@ -86,7 +87,9 @@ export async function syncNotificationTypes(
 
   const labelKeyFor = (def: NotificationTypeDefinition) => def.labelKey ?? def.titleKey
   const descKeyFor = (def: NotificationTypeDefinition) => def.descriptionKey ?? null
-  const categoryFor = (def: NotificationTypeDefinition) => def.category ?? null
+  // Resolved once here so every mirrored row carries a grouping key and read paths
+  // (GET /api/notifications/types) never need a fallback branch of their own.
+  const categoryFor = (def: NotificationTypeDefinition) => def.category ?? deriveCategory(def.type)
   const silentFor = (def: NotificationTypeDefinition) => def.silent === true
   const nonOptOutFor = (def: NotificationTypeDefinition) => def.nonOptOut === true
 

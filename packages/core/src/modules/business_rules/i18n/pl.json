@@ -380,5 +380,6 @@
   "common.remove": "Usuń",
   "common.retry": "Ponów",
   "common.unknown": "Nieznany",
-  "common.yes": "Tak"
+  "common.yes": "Tak",
+  "notifications.categories.business_rules": "Regu\u0142y biznesowe"
 }
