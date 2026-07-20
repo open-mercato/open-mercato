@@ -82,11 +82,26 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
     const result = spawnSync(
       eslintBin,
       ['--no-config-lookup', '--config', dsConfigPath, '--format', 'json', ...lintTargets],
-      { cwd: moduleDir, encoding: 'utf8', timeout: 120_000 },
+      {
+        cwd: moduleDir,
+        encoding: 'utf8',
+        timeout: 120_000,
+        // Minimal, controlled env: the jest/turbo process env (NODE_OPTIONS,
+        // NODE_PATH, ts tooling variables) must not leak into the child and
+        // change how eslint resolves its parser toolchain.
+        env: { PATH: process.env.PATH ?? '', HOME: process.env.HOME ?? '' },
+      },
     )
     expect(result.error).toBeUndefined()
     if (result.status !== 0 && result.status !== 1) {
-      throw new Error(`[internal] eslint exited with ${result.status}: ${result.stderr}`)
+      const toolchain = spawnSync(
+        process.execPath,
+        ['-p', `(() => { const p = require.resolve('typescript', { paths: [${JSON.stringify(path.join(REPO_ROOT, 'node_modules', '@typescript-eslint', 'typescript-estree'))}] }); const ts = require(p); return p + ' v' + ts.version + ' Extension=' + typeof ts.Extension })()`],
+        { encoding: 'utf8', timeout: 30_000 },
+      )
+      throw new Error(
+        `[internal] eslint exited with ${result.status}\nstderr: ${result.stderr}\nstdout: ${result.stdout}\ntoolchain: ${toolchain.stdout || toolchain.stderr}`,
+      )
     }
     const reports = JSON.parse(result.stdout || '[]') as Array<{
       filePath: string
