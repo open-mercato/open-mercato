@@ -26,7 +26,7 @@ export interface NodeFormValues {
 
   // UserTask fields
   assignedTo?: string
-  assignedToRoles?: string // Comma-separated in form
+  assignedToRoles?: string[]
   formKey?: string
   formFields?: FormField[]
   assignmentRule?: string
@@ -133,7 +133,7 @@ export function nodeToFormValues(node: Node): NodeFormValues {
   // UserTask fields
   if (node.type === 'userTask') {
     values.assignedTo = nodeData?.assignedTo || ''
-    values.assignedToRoles = nodeData?.assignedToRoles?.join(', ') || ''
+    values.assignedToRoles = Array.isArray(nodeData?.assignedToRoles) ? nodeData.assignedToRoles : []
     values.formKey = nodeData?.formKey || ''
 
     // Advanced userTaskConfig fields
@@ -243,9 +243,7 @@ export function formValuesToNodeUpdates(
   // UserTask specific fields
   if (node.type === 'userTask') {
     updates.assignedTo = values.assignedTo || undefined
-    updates.assignedToRoles = values.assignedToRoles
-      ? values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      : []
+    updates.assignedToRoles = values.assignedToRoles ?? []
     updates.formKey = values.formKey || undefined
 
     // Build userTaskConfig with all fields
@@ -256,9 +254,7 @@ export function formValuesToNodeUpdates(
         },
       }),
       ...(values.assignedTo && { assignedTo: values.assignedTo }),
-      ...(values.assignedToRoles && {
-        assignedToRoles: values.assignedToRoles.split(',').map((r) => r.trim()).filter(Boolean)
-      }),
+      ...(values.assignedToRoles?.length && { assignedToRoles: values.assignedToRoles }),
       // Preserve advanced fields
       ...(values.assignmentRule && { assignmentRule: values.assignmentRule }),
       ...(values.slaDuration && { slaDuration: values.slaDuration }),

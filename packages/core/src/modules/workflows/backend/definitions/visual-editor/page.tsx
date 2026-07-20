@@ -548,7 +548,7 @@ export default function VisualEditorPage() {
           status: 'pending',
           stepNumber: 1,
           badge: 'User Task',
-          assignedToRoles: ['Reviewer'],
+          assignedToRoles: [],
         },
       },
       {

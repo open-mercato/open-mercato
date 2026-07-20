@@ -151,6 +151,7 @@ export const userTaskConfigSchema = z.object({
     z.string(),
     z.array(z.string()),
   ]).optional(),
+  assignedToRoles: z.array(z.string().max(100)).optional(), // Role names, matched against the caller's roles
   assignmentRule: z.string().optional(), // Business rule ID
   slaDuration: z.string().optional(), // ISO 8601 duration
   escalationRules: z.array(z.object({

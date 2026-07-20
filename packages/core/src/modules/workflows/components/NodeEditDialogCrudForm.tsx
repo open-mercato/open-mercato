@@ -9,6 +9,7 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Trash2 } from 'lucide-react'
 import { CrudForm, type CrudFormGroup, type CrudField, type CrudCustomFieldRenderProps } from '@open-mercato/ui/backend/CrudForm'
 import { JsonBuilder } from '@open-mercato/ui/backend/JsonBuilder'
+import { fetchRoleNameOptions } from '@open-mercato/ui/backend/inputs/RoleSelect'
 import { FormFieldArrayEditor } from './fields/FormFieldArrayEditor'
 import { ActivityArrayEditor } from './fields/ActivityArrayEditor'
 import { MappingArrayEditor } from './fields/MappingArrayEditor'
@@ -310,9 +311,10 @@ export function NodeEditDialogCrudForm({ node, isOpen, onClose, onSave, onDelete
     {
       id: 'assignedToRoles',
       label: 'Assigned To Roles',
-      type: 'text',
-      placeholder: 'admin, manager',
-      description: 'Comma-separated list of roles that can claim this task',
+      type: 'tags',
+      placeholder: 'Select or type a role name',
+      description: 'Roles that can claim this task',
+      loadOptions: (query?: string) => fetchRoleNameOptions(query),
     },
     {
       id: 'formKey',

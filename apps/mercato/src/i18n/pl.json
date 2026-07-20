@@ -973,6 +973,7 @@
   "ui.inputs.phoneNumberField.checking": "Sprawdzanie duplikatów…",
   "ui.inputs.phoneNumberField.duplicateLink": "Otwórz rekord",
   "ui.inputs.phoneNumberField.invalid": "Wprowadź prawidłowy numer telefonu z kodem kraju (np. +48 22 123 4567)",
+  "ui.inputs.roleSelect.placeholder": "Wybierz lub wpisz nazwę roli",
   "ui.inputs.searchInput.clear": "Wyczyść wyszukiwanie",
   "ui.inputs.searchInput.placeholder": "Szukaj…",
   "ui.inputs.tagsInput.placeholder": "Dodaj tag i naciśnij Enter",

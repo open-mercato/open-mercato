@@ -973,6 +973,7 @@
   "ui.inputs.phoneNumberField.checking": "Suche nach Duplikaten…",
   "ui.inputs.phoneNumberField.duplicateLink": "Eintrag öffnen",
   "ui.inputs.phoneNumberField.invalid": "Geben Sie eine gültige Telefonnummer mit Ländervorwahl ein (z. B. +49 30 1234567)",
+  "ui.inputs.roleSelect.placeholder": "Rolle auswählen oder eingeben",
   "ui.inputs.searchInput.clear": "Suche löschen",
   "ui.inputs.searchInput.placeholder": "Suchen…",
   "ui.inputs.tagsInput.placeholder": "Tag hinzufügen und Enter drücken",
