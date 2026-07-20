@@ -257,5 +257,6 @@
   "messages.visibilityInternal": "Internal",
   "messages.visibilityInternalHint": "Internal messages are sent to selected system users.",
   "messages.visibilityPublic": "Public",
-  "messages.visibilityPublicHint": "Public messages are sent to external email only."
+  "messages.visibilityPublicHint": "Public messages are sent to external email only.",
+  "notifications.categories.messages": "Messages"
 }

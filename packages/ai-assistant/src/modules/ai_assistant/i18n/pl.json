@@ -481,5 +481,6 @@
   "ai_assistant.usage.sessionsList": "Sesje",
   "ai_assistant.usage.steps": "Kroki",
   "ai_assistant.usage.title": "Statystyki użycia tokenów",
-  "ai_assistant.usage.to": "Do"
+  "ai_assistant.usage.to": "Do",
+  "notifications.categories.ai_assistant": "Asystent AI"
 }

@@ -80,6 +80,15 @@ export type NotificationTypeDefinition = {
    * client — typically a mobile app — can list/group notification types under a heading.
    * Plain string, not an enum; mirrored to the `notification_types` table and returned by
    * `GET /api/notifications/types`.
+   *
+   * Defaults to the prefix before the first dot in `type` (`sales.order.created` →
+   * `sales`), resolved once during `syncNotificationTypes`. Declare it only to override
+   * that default. Localize the heading by adding `notifications.categories.<key>` to YOUR
+   * OWN module's `i18n/*.json` — the `notifications` module deliberately ships no category
+   * labels and knows nothing about which categories exist. `GET /api/notifications/types`
+   * resolves the key into `categoryLabel`, falling back to the raw key when absent.
+   *
+   * Clients group on `category` (stable across locales) and display `categoryLabel`.
    */
   category?: string
   /**

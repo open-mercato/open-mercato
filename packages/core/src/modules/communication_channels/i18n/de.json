@@ -159,5 +159,6 @@
   "communication_channels.status.disconnected": "Getrennt",
   "communication_channels.status.error": "Fehler",
   "communication_channels.status.inactive": "Inaktiv",
-  "communication_channels.status.requiresReauth": "Erneutes Verbinden erforderlich"
+  "communication_channels.status.requiresReauth": "Erneutes Verbinden erforderlich",
+  "notifications.categories.communication_channels": "Kommunikation"
 }

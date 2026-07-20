@@ -12,6 +12,9 @@ type NotificationTypeItem = {
   labelKey: string
   descriptionKey?: string | null
   category?: string | null
+  categoryLabel?: string | null
+  label?: string | null
+  description?: string | null
   silent: boolean
   nonOptOut: boolean
 }
@@ -29,8 +32,13 @@ function uniqueTypeId(): string {
   return `qa.notif.pref.${Date.now()}.${typeCounter}`
 }
 
-async function getTypes(request: APIRequestContext, token: string): Promise<TypesResponse> {
-  const res = await apiRequest(request, 'GET', TYPES_PATH, { token })
+async function getTypes(
+  request: APIRequestContext,
+  token: string,
+  options: { locale?: string } = {},
+): Promise<TypesResponse> {
+  const path = options.locale ? `${TYPES_PATH}?locale=${options.locale}` : TYPES_PATH
+  const res = await apiRequest(request, 'GET', path, { token })
   expect(res.status()).toBe(200)
   const json = await readJsonSafe<TypesResponse>(res)
   return json ?? { items: [] }
@@ -70,14 +78,34 @@ test.describe('TC-NOTIF-011: Notification type catalogue + channel preferences',
       expect(typeof item.labelKey).toBe('string')
       expect(item.labelKey.length).toBeGreaterThan(0)
       // Phase 5 metadata: every item exposes the silent flag and the opt-out
-      // lock as booleans, and category as a string or null (never undefined).
+      // lock as booleans.
       expect(typeof item.silent).toBe('boolean')
       expect(typeof item.nonOptOut).toBe('boolean')
-      expect(item.category === null || typeof item.category === 'string').toBe(true)
+      // `category` is resolved during sync (explicit declaration, else the type-id
+      // prefix), so a visible type always carries a grouping key.
+      expect(typeof item.category).toBe('string')
+      expect(item.category!.length).toBeGreaterThan(0)
+      // Display strings are resolved server-side; `categoryLabel` is non-null exactly
+      // when `category` is, and falls back to the raw key when untranslated.
+      expect(typeof item.categoryLabel).toBe('string')
+      expect(item.categoryLabel!.length).toBeGreaterThan(0)
+      expect(item.label === null || typeof item.label === 'string').toBe(true)
+      expect(item.description === null || typeof item.description === 'string').toBe(true)
     }
 
     // At least one type defaults silent=false; the catalogue is opt-in per type.
     expect(items.some((item) => item.silent === false)).toBe(true)
+  })
+
+  test('grouping stays stable across locales while the headings localize', async ({ request }) => {
+    const token = await getAuthToken(request, 'employee')
+    const english = await getTypes(request, token, { locale: 'en' })
+    const polish = await getTypes(request, token, { locale: 'pl' })
+
+    // Clients group on `category` and display `categoryLabel`; if `category` shifted with
+    // the locale, every persisted per-group UI state (collapsed sections) would break.
+    expect(polish.items.map((item) => item.category)).toEqual(english.items.map((item) => item.category))
+    expect(polish.items.some((item, index) => item.categoryLabel !== english.items[index]!.categoryLabel)).toBe(true)
   })
 
   test('preferences default to enabled, round-trip on opt-out, and upsert idempotently', async ({ request }) => {

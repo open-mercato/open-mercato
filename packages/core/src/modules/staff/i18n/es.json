@@ -5,6 +5,7 @@
   "audit_logs.resource_kind.staff.team_member_address": "Dirección",
   "audit_logs.resource_kind.staff.team_member_comment": "Comentario",
   "audit_logs.resource_kind.staff.team_member_job_history": "Historial laboral",
+  "notifications.categories.staff": "Personal",
   "staff.attendees.actions.add": "Añadir asistente",
   "staff.attendees.actions.delete": "Eliminar",
   "staff.attendees.actions.deleteConfirm": "¿Eliminar asistente \"{{name}}\"?",

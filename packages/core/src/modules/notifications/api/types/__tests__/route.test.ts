@@ -54,8 +54,22 @@ jest.mock('@open-mercato/shared/lib/auth/server', () => ({
   getAuthFromRequest: jest.fn(async () => authState.auth),
 }))
 
+const dictionaries: Record<string, Record<string, string>> = {
+  en: { 'notifications.categories.a': 'Alpha', 'a.builtin.label': 'Built-in', 'a.builtin.desc': 'Built-in help' },
+  pl: { 'notifications.categories.a': 'Alfa', 'a.builtin.label': 'Wbudowane', 'a.builtin.desc': 'Pomoc wbudowana' },
+}
+
+// Ambient detection (cookie/Accept-Language via next/headers, plus OM_FORCE_LOCALE); the route
+// only reaches it when the request carries no supported locale of its own.
+const ambientLocale = { value: 'en' }
+
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
-  resolveTranslations: async () => ({ t: (key: string, fallback?: string) => fallback ?? key }),
+  resolveTranslations: async () => ({
+    t: (key: string, fallback?: string) => fallback ?? key,
+    translate: (key: string, fallback?: string) => dictionaries.en![key] ?? fallback ?? key,
+  }),
+  loadDictionary: async (locale: string) => dictionaries[locale] ?? {},
+  detectLocale: async () => ambientLocale.value,
 }))
 
 jest.mock('@open-mercato/shared/lib/logger', () => ({
@@ -107,8 +121,14 @@ function overrideRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function getRequest(): Request {
-  return new Request('https://example.test/api/notifications/types')
+function getRequest(options: { locale?: string; xLocale?: string; acceptLanguage?: string; cookie?: string } = {}): Request {
+  const url = new URL('https://example.test/api/notifications/types')
+  if (options.locale !== undefined) url.searchParams.set('locale', options.locale)
+  const headers = new Headers()
+  if (options.xLocale) headers.set('x-locale', options.xLocale)
+  if (options.acceptLanguage) headers.set('accept-language', options.acceptLanguage)
+  if (options.cookie) headers.set('cookie', options.cookie)
+  return new Request(url, { headers })
 }
 
 function patchRequest(body: unknown, expectedVersion?: string): Request {
@@ -124,6 +144,7 @@ function patchRequest(body: unknown, expectedVersion?: string): Request {
 beforeEach(() => {
   jest.clearAllMocks()
   authState.auth = { sub: USER, tenantId: TENANT, orgId: null }
+  ambientLocale.value = 'en'
   process.env.OM_OPTIMISTIC_LOCK = 'all'
   em.create.mockImplementation((_entity: unknown, data: Record<string, unknown>) => ({ ...data }))
   runGuardedNotificationWriteMock.mockImplementation(
@@ -194,6 +215,91 @@ describe('GET /api/notifications/types', () => {
   })
 })
 
+describe('GET /api/notifications/types — localized display strings', () => {
+  function mockRows(rows: Array<Record<string, unknown>>) {
+    em.find.mockImplementation(async (entity: unknown) => (entity === NotificationType ? rows : []))
+  }
+
+  async function itemsFor(request: Request): Promise<Array<Record<string, unknown>>> {
+    const response = await GET(request)
+    expect(response.status).toBe(200)
+    return ((await response.json()) as { items: Array<Record<string, unknown>> }).items
+  }
+
+  it('resolves label and description from the dictionary', async () => {
+    mockRows([typeRow({ category: 'a', descriptionKey: 'a.builtin.desc' })])
+    const [item] = await itemsFor(getRequest())
+    expect(item!.label).toBe('Built-in')
+    expect(item!.description).toBe('Built-in help')
+  })
+
+  it('leaves label and description null when the type declares no keys', async () => {
+    mockRows([typeRow({ labelKey: '', descriptionKey: null })])
+    const [item] = await itemsFor(getRequest())
+    expect(item!.label).toBeNull()
+    expect(item!.description).toBeNull()
+  })
+
+  it('resolves categoryLabel from notifications.categories.<key>', async () => {
+    mockRows([typeRow({ category: 'a' })])
+    const [item] = await itemsFor(getRequest())
+    expect(item!.category).toBe('a')
+    expect(item!.categoryLabel).toBe('Alpha')
+  })
+
+  it('falls back to the raw category key when no module ships a translation', async () => {
+    mockRows([typeRow({ category: 'unowned_category' })])
+    const [item] = await itemsFor(getRequest())
+    expect(item!.categoryLabel).toBe('unowned_category')
+    expect(item!.categoryLabel).toBe(item!.category)
+  })
+
+  it('categoryLabel is null exactly when category is null', async () => {
+    mockRows([typeRow({ category: null })])
+    const [item] = await itemsFor(getRequest())
+    expect(item!.category).toBeNull()
+    expect(item!.categoryLabel).toBeNull()
+  })
+
+  it.each([
+    ['query param', getRequest({ locale: 'pl' })],
+    ['x-locale header', getRequest({ xLocale: 'pl' })],
+    ['locale cookie', getRequest({ cookie: 'locale=pl' })],
+    ['Accept-Language', getRequest({ acceptLanguage: 'pl-PL,pl;q=0.9,en;q=0.8' })],
+  ])('honours the request locale via %s', async (_label, request) => {
+    mockRows([typeRow({ category: 'a' })])
+    const [item] = await itemsFor(request)
+    expect(item!.categoryLabel).toBe('Alfa')
+    expect(item!.label).toBe('Wbudowane')
+  })
+
+  it('the query param wins over x-locale, which wins over the cookie', async () => {
+    mockRows([typeRow({ category: 'a' })])
+    const [byQuery] = await itemsFor(getRequest({ locale: 'pl', xLocale: 'en', cookie: 'locale=en' }))
+    expect(byQuery!.categoryLabel).toBe('Alfa')
+    const [byHeader] = await itemsFor(getRequest({ xLocale: 'pl', cookie: 'locale=en' }))
+    expect(byHeader!.categoryLabel).toBe('Alfa')
+  })
+
+  it('an unsupported locale degrades to ambient detection instead of an empty dictionary', async () => {
+    // `resolveLocaleFromRequest` only length-checks the query/header/cookie branches, so an
+    // unsupported value reaches us unvalidated — it must not load a blank dictionary.
+    mockRows([typeRow({ category: 'a' })])
+    const [item] = await itemsFor(getRequest({ locale: 'zz' }))
+    expect(item!.categoryLabel).toBe('Alpha')
+    expect(item!.label).toBe('Built-in')
+  })
+
+  it('groups stay identical across locales while the headings change', async () => {
+    mockRows([typeRow({ category: 'a' }), typeRow({ id: 'a.unrestricted', category: 'unowned_category' })])
+    const english = await itemsFor(getRequest())
+    const polish = await itemsFor(getRequest({ locale: 'pl' }))
+    expect(polish.map((item) => item.category)).toEqual(english.map((item) => item.category))
+    expect(english.map((item) => item.categoryLabel)).toEqual(['Alpha', 'unowned_category'])
+    expect(polish.map((item) => item.categoryLabel)).toEqual(['Alfa', 'unowned_category'])
+  })
+})
+
 describe('PATCH /api/notifications/types', () => {
   it('401s without an authenticated tenant', async () => {
     authState.auth = null
@@ -249,6 +355,18 @@ describe('PATCH /api/notifications/types', () => {
     expect(body.ok).toBe(true)
     expect(body.item.channels).toEqual(['in_app', 'email', 'push'])
     expect(body.item.storedChannels).toEqual(['in_app', 'email', 'push'])
+  })
+
+  it('the echoed item carries the same localized fields as the list route', async () => {
+    em.findOne.mockImplementation(async (entity: unknown) =>
+      entity === NotificationType ? typeRow({ category: 'a' }) : null,
+    )
+    const response = await PATCH(patchRequest({ id: 'a.builtin', channels: ['in_app'] }))
+    expect(response.status).toBe(200)
+    const body = (await response.json()) as { item: Record<string, unknown> }
+    expect(body.item.category).toBe('a')
+    expect(body.item.categoryLabel).toBe('Alpha')
+    expect(body.item.label).toBe('Built-in')
   })
 
   it('updates the existing override row and leaves the untouched field intact', async () => {

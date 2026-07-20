@@ -145,8 +145,19 @@ export const notificationTypeItemSchema = z.object({
   id: z.string(),
   labelKey: z.string(),
   descriptionKey: z.string().nullable().optional(),
-  // Free-form grouping label so a client can list/group types under a heading.
+  // Free-form grouping label so a client can list/group types under a heading. Defaults to
+  // the prefix before the first dot in the type id (`sales.order.created` → `sales`), so in
+  // practice it is always populated; kept nullable to avoid narrowing the response contract.
+  // This is the STABLE grouping key — clients group on it and display `categoryLabel`.
   category: z.string().nullable().optional(),
+  // Localized heading for `category`, resolved server-side from
+  // `notifications.categories.<key>` with a humanized fallback. Display-only: grouping on it
+  // re-partitions the list whenever the locale changes.
+  categoryLabel: z.string().nullable(),
+  // Server-resolved display strings so clients without the app dictionary (the mobile app)
+  // need no i18n bundle. `null` iff the corresponding `*Key` is null.
+  label: z.string().nullable(),
+  description: z.string().nullable(),
   // When true the type is delivered as a silent / content-available push.
   silent: z.boolean(),
   // Effective "cannot be opted out of" flag (operator override ?? code-declared); a preferences

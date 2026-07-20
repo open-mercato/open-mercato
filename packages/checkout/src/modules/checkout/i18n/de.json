@@ -457,5 +457,6 @@
   "checkout.widgets.gatewayTransactionLink.labels.link": "Link",
   "checkout.widgets.gatewayTransactionLink.labels.transactionId": "Transaction ID",
   "checkout.widgets.gatewayTransactionLink.title": "Checkout transaction",
-  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link"
+  "checkout.widgets.paymentGatewayToolbarLink.action": "Create Payment Link",
+  "notifications.categories.checkout": "Kasse"
 }

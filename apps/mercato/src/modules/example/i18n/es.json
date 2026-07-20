@@ -477,5 +477,7 @@
   "example.widgets.todo.state.allCaughtUp": "¡Todo al día!",
   "example.widgets.todo.state.empty": "No se encontraron tareas.",
   "example.workPlan.nav.group": "Plan de trabajo",
-  "integrations.marketplace.filters.category": "Category"
+  "integrations.marketplace.filters.category": "Category",
+  "notifications.categories.demo": "Demo",
+  "notifications.categories.example": "Ejemplos"
 }

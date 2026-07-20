@@ -5,6 +5,7 @@ import {
   registerNotificationTypes,
   syncNotificationTypes,
 } from '../notification-type-registry'
+import { deriveCategory } from '../derive-category'
 
 function def(type: string, extra: Partial<NotificationTypeDefinition> = {}): NotificationTypeDefinition {
   return {
@@ -66,9 +67,15 @@ function createFakeEm(existing: ExistingRow[]) {
     deletedIds: [] as unknown[],
   }
 
-  // Mirror the DB defaults (category null, silent/non_opt_out false) so rows that omit the
-  // Phase-5 columns don't read back as `undefined` and register spurious drift.
-  const selectRows = existing.map((row) => ({ category: null, silent: false, non_opt_out: false, ...row }))
+  // Mirror what an already-synced row looks like (silent/non_opt_out false, category resolved
+  // from the type id like `categoryFor` does) so rows that omit these columns don't read back
+  // as `undefined` and register spurious drift.
+  const selectRows = existing.map((row) => ({
+    category: deriveCategory(row.id),
+    silent: false,
+    non_opt_out: false,
+    ...row,
+  }))
   const selectChain: any = {
     select: () => selectChain,
     where: () => selectChain,
@@ -190,6 +197,23 @@ describe('syncNotificationTypes (DB read-through mirror)', () => {
       silent: true,
       non_opt_out: true,
     })
+  })
+
+  it('derives the category from the type id prefix when the definition declares none', async () => {
+    registerNotificationTypes([def('sales.order.created')], { replace: true })
+    const { em, recorded } = createFakeEm([])
+    await syncNotificationTypes(em as never, { force: true })
+    expect(recorded.inserted[0]).toMatchObject({ id: 'sales.order.created', category: 'sales' })
+  })
+
+  it('backfills the derived category onto a row stored before the default existed', async () => {
+    registerNotificationTypes([def('sales.order.created')], { replace: true })
+    const { em, recorded } = createFakeEm([
+      { id: 'sales.order.created', label_key: 'sales.order.created.title', description_key: null, category: null },
+    ])
+    const res = await syncNotificationTypes(em as never, { force: true })
+    expect(res.updated).toBe(1)
+    expect(recorded.updated[0]?.set.category).toBe('sales')
   })
 
   it('does not mirror a hiddenFromSettings type to the catalogue', async () => {

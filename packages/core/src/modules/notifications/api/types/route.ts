@@ -2,7 +2,10 @@ import { NextResponse } from 'next/server'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
-import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { detectLocale, loadDictionary, resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
+import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
+import { resolveSupportedLocale } from '@open-mercato/shared/lib/i18n/locale'
+import { resolveLocaleFromRequest } from '../../../translations/lib/locale'
 import { enforceCommandOptimisticLock } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import { z } from 'zod'
@@ -18,6 +21,24 @@ import {
 
 const logger = createLogger('notifications').child({ component: 'types-api' })
 
+const CATEGORY_LABEL_KEY_PREFIX = 'notifications.categories.'
+
+type Translate = (key: string, fallback: string) => string
+
+/**
+ * Locale for the display strings, following the repo-wide request-locale convention
+ * (`resolveLocaleFromRequest`: `?locale=` → `x-locale` → cookie → `Accept-Language`).
+ * Only the `Accept-Language` branch of that helper validates its input, so the result is
+ * re-checked against the supported set here — an unsupported `?locale=zz` would otherwise
+ * load an empty dictionary instead of degrading. Falls back to ambient detection, which
+ * also honours `OM_FORCE_LOCALE`.
+ */
+async function resolveCatalogueTranslate(req: Request): Promise<Translate> {
+  const requested = resolveSupportedLocale(resolveLocaleFromRequest(req))
+  const locale = requested ?? (await detectLocale())
+  return createFallbackTranslator(await loadDictionary(locale))
+}
+
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['notifications.view'] },
   PATCH: { requireAuth: true, requireFeatures: ['notifications.manage'] },
@@ -29,12 +50,30 @@ export const metadata = {
  * delivery would reject. `channels: null` = no restriction (every registered channel).
  * `updatedAt` is the override row's version token for optimistic locking (`null` when the
  * tenant stores no override yet).
+ *
+ * `label` / `description` / `categoryLabel` are resolved server-side so clients without the
+ * Open Mercato dictionary (the mobile app) can render the screen directly. Group on
+ * `category` — the raw key, stable across locales — and display `categoryLabel`; grouping on
+ * the localized string re-partitions the list whenever the language changes.
+ *
+ * A category whose owning module ships no `notifications.categories.<key>` entry falls back
+ * to the raw key, so `categoryLabel === category` is the client's signal that no server-side
+ * translation exists and it may apply its own presentation.
  */
-const typeItem = (row: NotificationType, override?: NotificationTypeOverride | null) => ({
+const typeItem = (
+  row: NotificationType,
+  override: NotificationTypeOverride | null | undefined,
+  translate: Translate,
+) => ({
   id: row.id,
   labelKey: row.labelKey,
   descriptionKey: row.descriptionKey ?? null,
   category: row.category ?? null,
+  categoryLabel: row.category
+    ? translate(`${CATEGORY_LABEL_KEY_PREFIX}${row.category}`, row.category)
+    : null,
+  label: row.labelKey ? translate(row.labelKey, row.id) : null,
+  description: row.descriptionKey ? translate(row.descriptionKey, '') : null,
   silent: row.silent === true,
   nonOptOut: (override?.nonOptOut ?? row.nonOptOut) === true,
   channels: override?.channels ?? getNotificationType(row.id)?.channels ?? null,
@@ -65,7 +104,10 @@ export async function GET(req: Request) {
       notificationTypeId: { $in: rows.map((row) => row.id) },
     })
     const overrideByType = new Map(overrides.map((override) => [override.notificationTypeId, override]))
-    return NextResponse.json({ items: rows.map((row) => typeItem(row, overrideByType.get(row.id))) })
+    const translate = await resolveCatalogueTranslate(req)
+    return NextResponse.json({
+      items: rows.map((row) => typeItem(row, overrideByType.get(row.id), translate)),
+    })
   } finally {
     const disposable = container as unknown as { dispose?: () => Promise<void> }
     if (typeof disposable.dispose === 'function') await disposable.dispose()
@@ -73,7 +115,9 @@ export async function GET(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { t } = await resolveTranslations()
+  // Admin write: the echoed item stays on the request-context locale (no `?locale=`
+  // override), so the confirmation matches the operator's own session.
+  const { t, translate } = await resolveTranslations()
   const auth = await getAuthFromRequest(req)
   if (!auth?.sub || !auth.tenantId) {
     return NextResponse.json({ error: t('api.errors.unauthorized', 'Unauthorized') }, { status: 401 })
@@ -162,7 +206,7 @@ export async function PATCH(req: Request) {
           em.persist(override)
         }
         await em.flush()
-        return typeItem(row, override)
+        return typeItem(row, override, translate)
       },
     )
     if (!guarded.ok) return guarded.response
@@ -187,7 +231,7 @@ export async function PATCH(req: Request) {
 export const openApi = {
   GET: {
     summary: 'List notification types',
-    description: 'Returns the notification type catalogue (system-wide + tenant) so clients can render a preferences screen. `channels` is the effective channel eligibility for the caller\'s tenant (stored override, else the code-declared set; `null` = every channel); a channel outside it never delivers in that tenant and cannot be enabled by users. `updatedAt` is the override row\'s optimistic-lock version (`null` when the tenant stores no override).',
+    description: 'Returns the notification type catalogue (system-wide + tenant) so clients can render a preferences screen. `channels` is the effective channel eligibility for the caller\'s tenant (stored override, else the code-declared set; `null` = every channel); a channel outside it never delivers in that tenant and cannot be enabled by users. `updatedAt` is the override row\'s optimistic-lock version (`null` when the tenant stores no override). `label`, `description` and `categoryLabel` are resolved server-side using the request locale (`?locale=`, `x-locale`, the `locale` cookie, or `Accept-Language`) so clients without the app dictionary can render them directly; `categoryLabel` falls back to the raw category key when the owning module ships no `notifications.categories.<key>` translation, so `categoryLabel === category` signals "no server-side label". `category` defaults to the prefix before the first dot in the type id and is the stable grouping key — group on `category`, display `categoryLabel`.',
     tags: ['Notifications'],
     responses: {
       200: {

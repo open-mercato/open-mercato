@@ -159,5 +159,6 @@
   "communication_channels.status.disconnected": "Desconectado",
   "communication_channels.status.error": "Error",
   "communication_channels.status.inactive": "Inactivo",
-  "communication_channels.status.requiresReauth": "Necesita volver a conectarse"
+  "communication_channels.status.requiresReauth": "Necesita volver a conectarse",
+  "notifications.categories.communication_channels": "Comunicaci\u00f3n"
 }

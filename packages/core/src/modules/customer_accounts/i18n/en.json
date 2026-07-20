@@ -344,5 +344,6 @@
   "customer_accounts.widgets.noAccount": "No account linked",
   "customer_accounts.widgets.noUsers": "No users linked",
   "customer_accounts.widgets.portalUsers": "Portal users",
-  "customer_accounts.widgets.viewAccount": "View account"
+  "customer_accounts.widgets.viewAccount": "View account",
+  "notifications.categories.customer_accounts": "Customer accounts"
 }

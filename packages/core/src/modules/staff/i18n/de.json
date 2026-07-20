@@ -5,6 +5,7 @@
   "audit_logs.resource_kind.staff.team_member_address": "Adresse",
   "audit_logs.resource_kind.staff.team_member_comment": "Kommentar",
   "audit_logs.resource_kind.staff.team_member_job_history": "Beschäftigungsverlauf",
+  "notifications.categories.staff": "Personal",
   "staff.attendees.actions.add": "Teilnehmer hinzufügen",
   "staff.attendees.actions.delete": "Löschen",
   "staff.attendees.actions.deleteConfirm": "Teilnehmer \"{{name}}\" löschen?",

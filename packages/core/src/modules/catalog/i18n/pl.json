@@ -701,5 +701,6 @@
   "customers~catalog.errors.id_required": "Identyfikator rekordu jest wymagany.",
   "customers~catalog.errors.organization_required": "Kontekst organizacji jest wymagany.",
   "customers~catalog.errors.tenant_required": "Kontekst tenanta jest wymagany.",
-  "customers~catalog.nav.group": "Katalog"
+  "customers~catalog.nav.group": "Katalog",
+  "notifications.categories.catalog": "Katalog"
 }

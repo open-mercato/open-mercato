@@ -43,6 +43,7 @@
   "demo.userTask.description": "Dieser Workflow ist pausiert und wartet auf Benutzereingabe. Bitte schließen Sie die Aufgabe unten ab, um fortzufahren.",
   "demo.userTask.dueLabel": "Fällig",
   "demo.userTask.title": "Benutzeraktion erforderlich",
+  "notifications.categories.workflows": "Workflows",
   "orderApproval.approveButton": "Genehmigen",
   "orderApproval.approvedStatus": "Genehmigt",
   "orderApproval.commentsLabel": "Kommentare",

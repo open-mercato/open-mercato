@@ -701,5 +701,6 @@
   "customers~catalog.errors.id_required": "Datensatzkennung ist erforderlich.",
   "customers~catalog.errors.organization_required": "Organisationskontext ist erforderlich.",
   "customers~catalog.errors.tenant_required": "Mandantenkontext ist erforderlich.",
-  "customers~catalog.nav.group": "Katalog"
+  "customers~catalog.nav.group": "Katalog",
+  "notifications.categories.catalog": "Katalog"
 }
