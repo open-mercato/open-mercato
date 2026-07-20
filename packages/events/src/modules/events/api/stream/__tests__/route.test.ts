@@ -131,12 +131,12 @@ describe('SSE event stream — abort listener hygiene', () => {
 
     expect(mockGlobalEventTap).toBeDefined()
     await mockGlobalEventTap?.(
-      'progress.job.updated',
+      'stream_privacy_test.browser',
       { tenantId: 't1', marker: 'must-not-arrive' },
       { tenantId: 't1', organizationId: 'o2' },
     )
     await mockGlobalEventTap?.(
-      'progress.job.updated',
+      'stream_privacy_test.browser',
       { tenantId: 't1', marker: 'expected' },
       { tenantId: 't1', organizationId: 'o1' },
     )
@@ -286,6 +286,64 @@ describe('SSE event stream — abort listener hygiene', () => {
 
     const delivered = await reader.read()
     expect(new TextDecoder().decode(delivered.value)).toContain('trusted-envelope')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('delivers a rolling-deploy envelope that omits the instance id and shares this pid', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+    expect(listener).toBeDefined()
+
+    // Containers commonly run as pid 1, so an older replica publishing without
+    // an instance id must not be mistaken for this process.
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { marker: 'legacy-replica' },
+      options: { tenantId: 't1', organizationId: 'o1' },
+      originPid: process.pid,
+    })
+
+    const pendingRead = reader.read().then((chunk) => new TextDecoder().decode(chunk.value))
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'dropped'>((resolve) => setTimeout(() => resolve('dropped'), 50)),
+    ])
+    expect(result).toContain('legacy-replica')
+
+    try { await reader.cancel() } catch {}
+  })
+
+  it('suppresses an envelope published by this instance even when the pid differs', async () => {
+    const { req } = makeTrackedRequest()
+    const res = await GET(req)
+    const reader = (res.body as ReadableStream<Uint8Array>).getReader()
+    await reader.read()
+
+    const listener = registerCrossProcessEventListenerMock.mock.calls[0]?.[0] as
+      | ((envelope: Record<string, unknown>) => Promise<void>)
+      | undefined
+
+    await listener?.({
+      event: 'stream_privacy_test.browser',
+      payload: { marker: 'self-echo' },
+      options: { tenantId: 't1', organizationId: 'o1' },
+      originPid: process.pid + 1,
+      originInstanceId: 'web-instance',
+    })
+
+    const pendingRead = reader.read().then(() => 'delivered')
+    const result = await Promise.race([
+      pendingRead,
+      new Promise<'not-delivered'>((resolve) => setTimeout(() => resolve('not-delivered'), 10)),
+    ])
+    expect(result).toBe('not-delivered')
 
     try { await reader.cancel() } catch {}
   })

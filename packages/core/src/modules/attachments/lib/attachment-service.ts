@@ -305,10 +305,20 @@ export class DefaultAttachmentService implements AttachmentService {
   }
 
   async readScoped(input: ReadScopedAttachmentInput): Promise<ReadScopedAttachmentResult> {
+    // Scope the lookup at the database boundary so a foreign-tenant row is
+    // never materialized, then keep checkAttachmentAccess below as defense in
+    // depth. This service only ever stores fully scoped rows, so global rows
+    // and super-admin status deliberately do not widen the requested scope —
+    // a super admin reads another tenant's attachment by switching scope, not
+    // by bypassing the filter.
     const attachment = await findOneWithDecryption(
       this.em,
       Attachment,
-      { id: input.attachmentId },
+      {
+        id: input.attachmentId,
+        tenantId: input.auth.tenantId ?? null,
+        organizationId: input.auth.orgId ?? null,
+      },
       undefined,
       { tenantId: input.auth.tenantId, organizationId: input.auth.orgId },
     )

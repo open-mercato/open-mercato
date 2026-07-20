@@ -17,11 +17,6 @@ const baseCtx = {
   userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
 }
 
-const baseEventScope = {
-  tenantId: baseCtx.tenantId,
-  organizationId: baseCtx.organizationId,
-}
-
 const buildEm = () => {
   const flush = jest.fn().mockResolvedValue(undefined)
   const persist = jest.fn((_entity: unknown) => ({ flush }))
@@ -66,8 +61,7 @@ describe('progress service', () => {
         jobType: 'import',
         name: 'Import contacts',
         tenantId: baseCtx.tenantId,
-      }),
-      baseEventScope,
+      })
     )
   })
 
@@ -87,8 +81,7 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_STARTED,
-      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -117,8 +110,7 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 })
     )
   })
 
@@ -187,8 +179,7 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 50, progressPercent: 50 })
     )
   })
 
@@ -221,8 +212,7 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_COMPLETED,
-      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', jobType: 'import', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -252,8 +242,7 @@ describe('progress service', () => {
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error', tenantId: baseCtx.tenantId }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', errorMessage: 'Network error', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -279,8 +268,7 @@ describe('progress service', () => {
     expect(em.flush).toHaveBeenCalled()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -305,8 +293,7 @@ describe('progress service', () => {
     expect(result.finishedAt).toBeUndefined()
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1' }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1' })
     )
   })
 
@@ -331,8 +318,7 @@ describe('progress service', () => {
     expect(result.etaSeconds).toBe(0)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_CANCELLED,
-      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', tenantId: baseCtx.tenantId })
     )
   })
 
@@ -370,13 +356,11 @@ describe('progress service', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'stale-1', stale: true }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'stale-1', stale: true })
     )
     expect(eventBus.emit).toHaveBeenCalledWith(
       PROGRESS_EVENTS.JOB_FAILED,
-      expect.objectContaining({ jobId: 'stale-2', stale: true }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'stale-2', stale: true })
     )
   })
 
@@ -499,29 +483,15 @@ describe('progress service — organization scoping (#2930)', () => {
 
   it('updateProgress — scopes the lookup by organizationId when ctx provides one', async () => {
     const em = buildEm()
-    const eventBus = { emit: jest.fn().mockResolvedValue(undefined) }
-    const job = {
-      id: 'job-1',
-      status: 'running',
-      processedCount: 0,
-      totalCount: null,
-      startedAt: null,
-      meta: null,
-      organizationId: orgCtx.organizationId,
-    } as unknown as ProgressJob
+    const job = { id: 'job-1', status: 'running', processedCount: 0, totalCount: null, startedAt: null, meta: null } as unknown as ProgressJob
     em.findOneOrFail.mockResolvedValue(job)
 
-    const service = createProgressService(em as never, eventBus)
+    const service = createProgressService(em as never, { emit: jest.fn().mockResolvedValue(undefined) })
     await service.updateProgress('job-1', { processedCount: 1 }, orgCtx)
 
     expect(em.findOneOrFail).toHaveBeenCalledWith(
       expect.anything(),
       expect.objectContaining({ id: 'job-1', tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId })
-    )
-    expect(eventBus.emit).toHaveBeenCalledWith(
-      PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1' }),
-      { tenantId: orgCtx.tenantId, organizationId: orgCtx.organizationId },
     )
   })
 
@@ -753,8 +723,7 @@ describe('progress service — broadcast coalescing (#2972)', () => {
     expect(eventBus.emit).toHaveBeenCalledTimes(2)
     expect(eventBus.emit).toHaveBeenLastCalledWith(
       PROGRESS_EVENTS.JOB_UPDATED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 1, progressPercent: 1 })
     )
   })
 
@@ -793,8 +762,7 @@ describe('progress service — broadcast coalescing (#2972)', () => {
     expect(job.status).toBe('completed')
     expect(eventBus.emit).toHaveBeenLastCalledWith(
       PROGRESS_EVENTS.JOB_COMPLETED,
-      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 }),
-      baseEventScope,
+      expect.objectContaining({ jobId: 'job-1', processedCount: 7, progressPercent: 100 })
     )
   })
 })

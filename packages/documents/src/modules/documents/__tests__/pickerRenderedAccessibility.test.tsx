@@ -189,6 +189,31 @@ describe('rendered Documents pickers', () => {
     expect(onPick).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['Cmd+Enter', { metaKey: true }],
+    ['Ctrl+Enter', { ctrlKey: true }],
+  ])('selects the active EntityPicker result exactly once for %s', async (_label, modifier) => {
+    apiCallMock.mockResolvedValue({
+      ok: true,
+      result: { items: [{ id: ADA_ID, displayName: 'Ada Lovelace', primaryEmail: 'ada@example.com' }] },
+    })
+    const onPick = jest.fn()
+    render(<EntityPicker open onOpenChange={jest.fn()} onPick={onPick} typeFilter={['customer-person']} />)
+    const input = screen.getByRole('combobox', { name: 'Search' })
+
+    fireEvent.change(input, { target: { value: 'Ada' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises()
+    })
+    expect(screen.getByRole('option', { name: /Ada Lovelace/ })).toBeTruthy()
+
+    fireEvent.keyDown(input, { key: 'Enter', ...modifier })
+
+    expect(onPick).toHaveBeenCalledTimes(1)
+    expect(onPick).toHaveBeenCalledWith(expect.objectContaining({ id: ADA_ID }))
+  })
+
   it('keeps the combobox active index unset when an empty result receives arrow keys', async () => {
     apiCallMock.mockResolvedValue({ ok: true, result: { items: [] } })
     render(<EntityPicker open onOpenChange={jest.fn()} onPick={jest.fn()} typeFilter={['customer-person']} />)

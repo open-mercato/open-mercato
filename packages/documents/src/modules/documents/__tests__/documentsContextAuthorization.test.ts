@@ -125,6 +125,24 @@ describe('documents route authorization freshness', () => {
     }
   })
 
+  it('rejects a stale selected organization instead of falling back to another org', async () => {
+    // The resolver could not honor the explicitly selected org and fell back to
+    // an allowed one. Reads and writes must fail loud rather than silently
+    // targeting the fallback organization.
+    mockResolveOrganizationScopeForRequest.mockResolvedValue({
+      selectedId: ORGANIZATION_ID,
+      filterIds: [ORGANIZATION_ID],
+      allowedIds: [ORGANIZATION_ID],
+      tenantId: TENANT_ID,
+      selectionRejected: true,
+    })
+
+    await expect(resolve()).rejects.toMatchObject({
+      status: 422,
+      body: { code: 'organization_selection_invalid' },
+    })
+  })
+
   it('rejects a selected organization removed from the live ACL allowlist', async () => {
     rbacService.loadAcl.mockResolvedValue({
       isSuperAdmin: false,

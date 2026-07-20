@@ -32,6 +32,8 @@ import {
   DOCUMENTS_COLLAB_MAX_PENDING_BYTES,
   DOCUMENTS_COLLAB_MAX_PENDING_MESSAGES,
   DOCUMENTS_COLLAB_MAX_READ_ONLY_SYNC_FRAME_BYTES,
+  DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_ROOMS,
+  DOCUMENTS_COLLAB_REDIS_SUBSCRIBE_TIMEOUT_MS,
   enforceDocumentsCollabSourceStoreOwnership,
   handleCollabHealthRequest,
   handleCollabServerRequest,
@@ -57,6 +59,7 @@ import {
   IncomingMessage,
   MessageType,
   Server,
+  type onLoadDocumentPayload,
   type onStoreDocumentPayload,
 } from '@hocuspocus/server'
 import * as Y from 'yjs'
@@ -100,6 +103,7 @@ function createRedisFanoutTestExtension(
     bufferedFanouts: new WeakMap(),
     bufferedFanoutBytes: new WeakMap(),
     nextFanoutRevision: 0,
+    pendingFanoutBytes: 0,
     fanoutDestroyed: false,
     locks: new Map(),
     configuration: {
@@ -445,6 +449,125 @@ describe('documents collaboration Redis configuration', () => {
     expect(latest.getMap('fanout').get('version')).toBe(2)
     latest.destroy()
     document.destroy()
+  })
+
+  it('bounds the pending fanout backlog while Redis stays unavailable across many rooms', async () => {
+    jest.useFakeTimers()
+    const publish = jest.fn<Promise<unknown>, [string, Buffer]>()
+      .mockRejectedValue(new Error('Redis publish unavailable'))
+    const { extension } = createRedisFanoutTestExtension(publish)
+    const pendingFanouts = (extension as unknown as {
+      pendingFanouts: Map<string, { document: Y.Doc }>
+    }).pendingFanouts
+    const roomCount = DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_ROOMS + 16
+    const rooms: Y.Doc[] = []
+
+    try {
+      for (let index = 0; index < roomCount; index += 1) {
+        const document = new Y.Doc()
+        rooms.push(document)
+        document.getMap('fanout').set('room', index)
+        extension.markPersisted(document, Y.encodeStateAsUpdate(document), 1)
+        await extension.afterStoreDocument({
+          ...createRedisStorePayload(document),
+          documentName: `room-${index}`,
+        } as onStoreDocumentPayload)
+      }
+
+      expect(pendingFanouts.size).toBe(DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_ROOMS)
+      expect(pendingFanouts.has('room-0')).toBe(false)
+      expect(pendingFanouts.has(`room-${roomCount - 1}`)).toBe(true)
+      // The evicted rooms must release their Y.Doc, not just their frame.
+      expect([...pendingFanouts.values()].some((pending) => pending.document === rooms[0]))
+        .toBe(false)
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining('bound the outage backlog'),
+        expect.objectContaining({ room: 'room-0' }),
+      )
+    } finally {
+      jest.useRealTimers()
+      for (const document of rooms) document.destroy()
+    }
+  })
+
+  it('drops a malformed Redis frame instead of rejecting into the process', async () => {
+    const fanoutPublisher = { publish: jest.fn(async () => 1), disconnect: jest.fn() }
+    const pub = Object.assign(new EventEmitter(), {
+      duplicate: jest.fn(() => fanoutPublisher),
+      disconnect: jest.fn(),
+      publish: jest.fn(async () => 1),
+      quit: jest.fn(async () => undefined),
+    })
+    const sub = Object.assign(new EventEmitter(), {
+      disconnect: jest.fn(),
+      publish: jest.fn(async () => 1),
+      quit: jest.fn(async () => undefined),
+    })
+    let clientIndex = 0
+    const extension = new DocumentsCollabRedisExtension({
+      host: '127.0.0.1',
+      port: 6379,
+      prefix: 'open-mercato:documents:collab:test',
+      options: { maxRetriesPerRequest: null },
+      createClient: () => clientIndex++ === 0 ? pub : sub,
+    } as DocumentsCollabRedisConfiguration & { createClient: () => unknown })
+
+    // A truncated payload: the varint string header promises bytes that the
+    // frame never carries, so decoding throws inside the async listener.
+    const truncated = Buffer.concat([
+      Buffer.from([4]),
+      Buffer.from('peer'),
+      Buffer.from([0xff]),
+    ])
+
+    expect(() => sub.emit('messageBuffer', Buffer.from('channel'), truncated)).not.toThrow()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(mockLoggerWarn).toHaveBeenCalledWith(
+      expect.stringContaining('malformed Redis collaboration frame'),
+      expect.objectContaining({ error: expect.any(String) }),
+    )
+
+    await extension.onDestroy()
+  })
+
+  it('fails a room load when the Redis subscription never completes', async () => {
+    jest.useFakeTimers()
+    const document = new Y.Doc()
+    const subscribe = jest.fn()
+    const unsubscribe = jest.fn(async () => undefined)
+    const extension = Object.create(
+      DocumentsCollabRedisExtension.prototype,
+    ) as DocumentsCollabRedisExtension
+    Object.assign(extension, {
+      knownDocuments: new Map(),
+      sub: { subscribe, unsubscribe },
+      configuration: {
+        prefix: 'open-mercato:documents:collab:test',
+        identifier: 'subscribe-test',
+      },
+    })
+
+    try {
+      const loading = extension.onLoadDocument({
+        documentName: DOCUMENT_ID,
+        document,
+        instance: { loadingDocuments: new Map(), documents: new Map() },
+      } as unknown as onLoadDocumentPayload)
+      const rejection = expect(loading).rejects.toThrow('subscription timed out')
+
+      await jest.advanceTimersByTimeAsync(DOCUMENTS_COLLAB_REDIS_SUBSCRIBE_TIMEOUT_MS)
+      await rejection
+
+      expect(subscribe).toHaveBeenCalledTimes(1)
+      expect((extension as unknown as {
+        knownDocuments: Map<string, Y.Doc>
+      }).knownDocuments.has(DOCUMENT_ID)).toBe(false)
+    } finally {
+      jest.useRealTimers()
+      document.destroy()
+    }
   })
 
   it('keeps the Redis subscription while a replacement room is loading', async () => {
@@ -2157,16 +2280,49 @@ describe('documents collaboration v2 server contract', () => {
       event: 'documents.document.updated',
       payload: { id: DOCUMENT_ID },
       originPid: process.pid,
-    })).toBe(true)
+      originInstanceId: 'sidecar-a',
+    }, 'sidecar-a')).toBe(true)
     expect(isOwnDocumentsCrossProcessEvent({
       event: 'documents.document.updated',
       payload: { id: DOCUMENT_ID },
       originPid: process.pid + 1,
-    })).toBe(false)
+      originInstanceId: 'sidecar-b',
+    }, 'sidecar-a')).toBe(false)
     expect(isOwnDocumentsCrossProcessEvent({
       event: 'documents.document.updated',
       payload: { id: DOCUMENT_ID },
-    })).toBe(false)
+    }, 'sidecar-a')).toBe(false)
+  })
+
+  it('decides self-origin by instance id, not pid, when both sidecars supply one', () => {
+    // Containers commonly share a pid (typically 1), so the instance id must
+    // win in both directions once the publisher supplies one.
+    expect(isOwnDocumentsCrossProcessEvent({
+      event: 'documents.document.updated',
+      payload: { id: DOCUMENT_ID },
+      originPid: process.pid + 1,
+      originInstanceId: 'sidecar-a',
+    }, 'sidecar-a')).toBe(true)
+    expect(isOwnDocumentsCrossProcessEvent({
+      event: 'documents.document.updated',
+      payload: { id: DOCUMENT_ID },
+      originPid: process.pid,
+      originInstanceId: 'sidecar-b',
+    }, 'sidecar-a')).toBe(false)
+  })
+
+  it('keeps a rolling-deploy envelope that omits the instance id and shares this pid', () => {
+    // The publisher always stamps originInstanceId, so an envelope without one
+    // is provably foreign. Containers commonly run as pid 1, so falling back to
+    // the pid would drop an older replica's reauth and invalidation events for
+    // the whole upgrade window.
+    for (const event of ['documents.document.deleted', 'documents.share.revoked']) {
+      expect(isOwnDocumentsCrossProcessEvent({
+        event,
+        payload: { id: DOCUMENT_ID },
+        originPid: process.pid,
+      }, 'sidecar-a')).toBe(false)
+    }
   })
 
   it('uses the signed v2 readOnly claim instead of relationship tier', async () => {

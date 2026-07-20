@@ -4,7 +4,7 @@ import { escapeLikePattern } from '@open-mercato/shared/lib/db/escapeLikePattern
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { Document, DocumentFolder } from '../data/entities'
 import type { DocumentEntityType } from '../data/validators'
-import { DOCUMENTS_MAX_FOLDER_DEPTH } from './constants'
+import { DOCUMENTS_MAX_FOLDER_DEPTH, DOCUMENTS_MAX_LISTED_FOLDERS } from './constants'
 import type { DocumentTier } from './permissions'
 
 export type VisibleDocumentPageRow = {
@@ -352,6 +352,32 @@ function assertFolderHierarchyContract(
   }
 }
 
+/**
+ * Truncating a name-ordered listing can cut a parent while keeping its
+ * children. Retaining only what a root still reaches leaves a coherent tree the
+ * organization can prune back under the cap, instead of failing the whole
+ * listing on an ancestor the bound removed.
+ */
+function retainFoldersReachableFromRoots(folders: readonly DocumentFolder[]): DocumentFolder[] {
+  const childrenByParentId = new Map<string, DocumentFolder[]>()
+  for (const folder of folders) {
+    if (!folder.parentFolderId) continue
+    const siblings = childrenByParentId.get(folder.parentFolderId)
+    if (siblings) siblings.push(folder)
+    else childrenByParentId.set(folder.parentFolderId, [folder])
+  }
+
+  const reachableIds = new Set<string>()
+  const pending = folders.filter((folder) => !folder.parentFolderId)
+  for (let index = 0; index < pending.length; index += 1) {
+    const folder = pending[index]
+    reachableIds.add(folder.id)
+    const children = childrenByParentId.get(folder.id)
+    if (children) pending.push(...children)
+  }
+  return folders.filter((folder) => reachableIds.has(folder.id))
+}
+
 export async function getVisibleFolders(input: GetVisibleFoldersInput): Promise<VisibleFolderRow[]> {
   const scope = {
     tenantId: input.tenantId,
@@ -363,11 +389,17 @@ export async function getVisibleFolders(input: GetVisibleFoldersInput): Promise<
       input.em,
       DocumentFolder,
       scope,
-      { orderBy: { name: 'ASC' } },
+      { orderBy: { name: 'ASC' }, limit: DOCUMENTS_MAX_LISTED_FOLDERS + 1 },
       { tenantId: input.tenantId, organizationId: input.organizationId },
     )
-    assertFolderHierarchyContract(new Map(folders.map((folder) => [folder.id, folder])))
-    return folders.map((folder) => ({
+    // Creation is capped well below this bound, so only an organization that
+    // predates the cap can overflow. Degrade that one to a listable subtree
+    // rather than letting the hierarchy contract reject the whole listing.
+    const listed = folders.length > DOCUMENTS_MAX_LISTED_FOLDERS
+      ? retainFoldersReachableFromRoots(folders.slice(0, DOCUMENTS_MAX_LISTED_FOLDERS))
+      : folders
+    assertFolderHierarchyContract(new Map(listed.map((folder) => [folder.id, folder])))
+    return listed.map((folder) => ({
       folder,
       canEdit: input.canEditAction,
       visibility: 'owned',

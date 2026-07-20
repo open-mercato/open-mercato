@@ -25,19 +25,6 @@ type JobUpdateThrottleEntry = {
   lastBroadcastPercent: number
 }
 
-type TrustedEventScope = {
-  tenantId: string
-  organizationId: string | null
-}
-
-type ProgressEventBus = {
-  emit: (
-    event: string,
-    payload: Record<string, unknown>,
-    options?: TrustedEventScope,
-  ) => Promise<void>
-}
-
 function buildJobPayload(job: ProgressJob): Record<string, unknown> {
   return {
     jobId: job.id,
@@ -56,7 +43,7 @@ function buildJobPayload(job: ProgressJob): Record<string, unknown> {
   }
 }
 
-export function createProgressService(em: EntityManager, eventBus: ProgressEventBus): ProgressService {
+export function createProgressService(em: EntityManager, eventBus: { emit: (event: string, payload: Record<string, unknown>) => Promise<void> }): ProgressService {
   const broadcastMinIntervalMs = resolveBroadcastMinIntervalMs()
   // Per-job coalescing state, scoped to this service instance (request/worker scope).
   // The cached managed entity doubles as the in-memory buffer: intermediate updates mutate
@@ -92,9 +79,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
       await em.flush()
       await eventBus.emit(PROGRESS_EVENTS.JOB_UPDATED, {
         ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      }, {
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
       })
@@ -138,9 +122,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
         ...buildJobPayload(job),
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
-      }, {
-        tenantId: ctx.tenantId,
-        organizationId: ctx.organizationId ?? null,
       })
 
       return job
@@ -164,9 +145,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_STARTED, {
         ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      }, {
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
       })
@@ -254,9 +232,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
         resultSummary: job.resultSummary,
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
-      }, {
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
       })
 
       forgetJobThrottle(jobId)
@@ -284,9 +259,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
       await eventBus.emit(PROGRESS_EVENTS.JOB_FAILED, {
         ...buildJobPayload(job),
         errorMessage: job.errorMessage,
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      }, {
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
       })
@@ -318,9 +290,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
         ...buildJobPayload(job),
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
-      }, {
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
       })
 
       forgetJobThrottle(jobId)
@@ -348,9 +317,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
 
       await eventBus.emit(PROGRESS_EVENTS.JOB_CANCELLED, {
         ...buildJobPayload(job),
-        tenantId: ctx.tenantId,
-        organizationId: job.organizationId ?? null,
-      }, {
         tenantId: ctx.tenantId,
         organizationId: job.organizationId ?? null,
       })
@@ -428,9 +394,6 @@ export function createProgressService(em: EntityManager, eventBus: ProgressEvent
           errorMessage: job.errorMessage,
           tenantId: job.tenantId,
           stale: true,
-          organizationId: job.organizationId ?? null,
-        }, {
-          tenantId: job.tenantId,
           organizationId: job.organizationId ?? null,
         })
       }

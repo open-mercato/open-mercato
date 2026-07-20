@@ -25,8 +25,13 @@ export function useDocumentTitle(input: {
   const t = useT()
   const committed = React.useRef(input.title)
   const version = React.useRef(input.updatedAt)
-  const [value, setValue] = React.useState(input.title)
+  const draft = React.useRef(input.title)
+  const [value, setValueState] = React.useState(input.title)
   const [saving, setSaving] = React.useState(false)
+  const setValue = React.useCallback((next: string) => {
+    draft.current = next
+    setValueState(next)
+  }, [])
   const mutationContextId = `documents-title:${input.documentId}`
   const { runMutation, retryLastMutation } = useGuardedMutation<{
     formId: string
@@ -34,11 +39,11 @@ export function useDocumentTitle(input: {
     resourceId: string
     retryLastMutation: () => Promise<boolean>
   }>({ contextId: mutationContextId, blockedMessage: t('ui.forms.flash.saveBlocked') })
-  React.useEffect(() => { committed.current = input.title; setValue(input.title) }, [input.title])
+  React.useEffect(() => { committed.current = input.title; setValue(input.title) }, [input.title, setValue])
   React.useEffect(() => { version.current = input.updatedAt }, [input.updatedAt])
 
   const commit = React.useCallback(async () => {
-    const title = value.trim()
+    const title = draft.current.trim()
     if (input.readOnly || saving || !title || title === committed.current) { setValue(committed.current); return }
     setSaving(true)
     try {
@@ -62,11 +67,11 @@ export function useDocumentTitle(input: {
       if (!surfaceRecordConflict(error, t)) flash(error instanceof Error ? error.message : t('documents.editor.error.rename'), 'error')
       setValue(committed.current)
     } finally { setSaving(false) }
-  }, [input.documentId, input.onTitleChange, input.readOnly, mutationContextId, retryLastMutation, runMutation, saving, t, value])
+  }, [input.documentId, input.onTitleChange, input.readOnly, mutationContextId, retryLastMutation, runMutation, saving, setValue, t])
 
   const onKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') { event.preventDefault(); event.currentTarget.blur() }
     if (event.key === 'Escape') { event.preventDefault(); setValue(committed.current); event.currentTarget.blur() }
-  }, [])
+  }, [setValue])
   return { value, setValue, saving, commit, onKeyDown }
 }

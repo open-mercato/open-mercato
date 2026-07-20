@@ -34,15 +34,6 @@ function getDb(em: EntityManager): Kysely<any> {
 
 const UNIQUE_NOTIFICATION_ACTIVE_STATUSES: NotificationStatus[] = ['unread', 'read', 'actioned']
 
-type TrustedEventScope = {
-  tenantId: string
-  organizationId: string | null
-}
-
-type NotificationEventBus = {
-  emit: (event: string, payload: unknown, options?: TrustedEventScope) => Promise<void>
-}
-
 function normalizeOrgScope(organizationId: string | null | undefined): string | null {
   return organizationId ?? null
 }
@@ -132,7 +123,7 @@ async function findScopedNotificationOrThrow(
 }
 
 async function emitNotificationSseEvents(
-  eventBus: NotificationEventBus,
+  eventBus: { emit: (event: string, payload: unknown) => Promise<void> },
   notifications: Notification[],
   ctx: NotificationServiceContext,
   recipientUserIds: string[],
@@ -142,9 +133,6 @@ async function emitNotificationSseEvents(
     organizationId: normalizeOrgScope(ctx.organizationId),
     recipientUserIds,
     count: notifications.length,
-  }, {
-    tenantId: ctx.tenantId,
-    organizationId: normalizeOrgScope(ctx.organizationId),
   })
 
   for (const notification of notifications) {
@@ -153,9 +141,6 @@ async function emitNotificationSseEvents(
       organizationId: notification.organizationId ?? null,
       recipientUserId: notification.recipientUserId,
       notification: toNotificationDto(notification),
-    }, {
-      tenantId: notification.tenantId,
-      organizationId: notification.organizationId ?? null,
     })
   }
 }
@@ -232,7 +217,7 @@ export interface NotificationService {
 
 export interface NotificationServiceDeps {
   em: EntityManager
-  eventBus: NotificationEventBus
+  eventBus: { emit: (event: string, payload: unknown) => Promise<void> }
   commandBus?: {
     execute: (
       commandId: string,
@@ -262,9 +247,6 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
         organizationId: notification.organizationId ?? null,
         recipientUserId: notification.recipientUserId,
         notification: toNotificationDto(notification),
-      }, {
-        tenantId: notification.tenantId,
-        organizationId: notification.organizationId ?? null,
       })
 
       return notification
@@ -424,9 +406,6 @@ export function createNotificationService(deps: NotificationServiceDeps): Notifi
           organizationId: notification.organizationId ?? null,
           recipientUserId: notification.recipientUserId,
           notification: toNotificationDto(notification),
-        }, {
-          tenantId: notification.tenantId,
-          organizationId: notification.organizationId ?? null,
         })
       }
 
@@ -693,7 +672,7 @@ export function resolveNotificationService(container: {
   resolve: (name: string) => unknown
 }): NotificationService {
   const em = container.resolve('em') as EntityManager
-  const eventBus = container.resolve('eventBus') as NotificationEventBus
+  const eventBus = container.resolve('eventBus') as { emit: (event: string, payload: unknown) => Promise<void> }
 
   // commandBus may not be registered in all contexts, so resolve it safely
   let commandBus: NotificationServiceDeps['commandBus']

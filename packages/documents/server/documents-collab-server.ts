@@ -221,6 +221,12 @@ const DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MIN_MS = 250
 const DOCUMENTS_COLLAB_REDIS_FANOUT_RETRY_MAX_MS = 5_000
 const DOCUMENTS_COLLAB_REDIS_FANOUT_SHUTDOWN_TIMEOUT_MS = 1_500
 const DOCUMENTS_COLLAB_REDIS_LOCK_RELEASE_TIMEOUT_MS = 1_250
+// The collaboration clients run with maxRetriesPerRequest: null, which disables
+// ioredis' offline-queue flush. Every awaited Redis command therefore needs its
+// own deadline or a prolonged outage parks the caller forever.
+export const DOCUMENTS_COLLAB_REDIS_SUBSCRIBE_TIMEOUT_MS = 5_000
+export const DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_ROOMS = 256
+export const DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_BYTES = DOCUMENTS_COLLAB_MAX_PAYLOAD_BYTES * 8
 const DOCUMENTS_COLLAB_REDIS_FANOUT_MAGIC = Buffer.from('OMDF1', 'ascii')
 const DOCUMENTS_COLLAB_REDIS_FANOUT_GENERATION_BYTES = 8
 
@@ -353,6 +359,8 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
 
   private nextFanoutRevision = 0
 
+  private pendingFanoutBytes = 0
+
   private fanoutDestroyed = false
 
   /**
@@ -407,7 +415,22 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
     for (const listener of this.sub.listeners('messageBuffer')) {
       this.sub.off('messageBuffer', listener)
     }
-    this.sub.on('messageBuffer', this.handleDocumentsRedisMessage)
+    this.sub.on('messageBuffer', this.receiveDocumentsRedisMessage)
+  }
+
+  /**
+   * EventEmitter never observes the promise an async listener returns, so a
+   * truncated frame, a receiver failure, or a failed reply publish would become
+   * an unhandled rejection and terminate the sidecar. Keep the registered
+   * listener synchronous and terminate every rejection here instead: one
+   * malformed frame must cost at most that frame.
+   */
+  private readonly receiveDocumentsRedisMessage = (channel: Buffer, data: Buffer): void => {
+    void this.handleDocumentsRedisMessage(channel, data).catch((error: unknown) => {
+      logger.warn('rejected malformed Redis collaboration frame', {
+        error: error instanceof Error ? error.message : String(error),
+      })
+    })
   }
 
   markPersisted(
@@ -482,9 +505,21 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
     await super.afterUnloadDocument(data)
   }
 
+  /**
+   * The subscriber client keeps ioredis' offline queue enabled, so a room load
+   * started during a Redis outage would otherwise wait for recovery with no
+   * deadline while its socket stays open. Fail the load instead: onLoadDocument
+   * releases the early subscription and Hocuspocus rejects the connection, so
+   * the client can retry rather than hanging against a green health check.
+   */
   private async subscribeDocument(documentName: string): Promise<void> {
     await new Promise<void>((resolve, reject) => {
+      const deadline = setTimeout(() => {
+        reject(new Error('[internal] documents collab: Redis room subscription timed out'))
+      }, DOCUMENTS_COLLAB_REDIS_SUBSCRIBE_TIMEOUT_MS)
+      deadline.unref?.()
       this.sub.subscribe(this.redisKey(documentName), (error: Error | null | undefined) => {
+        clearTimeout(deadline)
         if (error) reject(error)
         else resolve()
       })
@@ -597,11 +632,47 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
     if (document) this.invalidatedFanoutDocuments.add(document)
     const pending = this.pendingFanouts.get(documentName)
     if (document && pending && pending.document !== document) return
+    this.forgetPendingFanout(documentName)
+  }
+
+  private removePendingFanoutEntry(documentName: string): void {
+    const pending = this.pendingFanouts.get(documentName)
+    if (!pending) return
+    this.pendingFanoutBytes -= pending.message.byteLength
     this.pendingFanouts.delete(documentName)
+  }
+
+  private forgetPendingFanout(documentName: string): void {
+    this.removePendingFanoutEntry(documentName)
     this.fanoutRetryAttempts.delete(documentName)
     const retryTimer = this.fanoutRetryTimers.get(documentName)
     if (retryTimer) clearTimeout(retryTimer)
     this.fanoutRetryTimers.delete(documentName)
+  }
+
+  /**
+   * A pending fanout carries the room's complete post-store state and pins its
+   * Y.Doc, so an unreachable Redis would otherwise let one entry per edited
+   * document accumulate for the whole outage — long after those rooms unload.
+   * Bound the backlog by dropping the least recently refreshed rooms: their
+   * state is already durable, every later fanout for a room supersedes the one
+   * dropped here, and a peer that never sees the frame reloads authoritative
+   * content on its next load anyway.
+   */
+  private evictOverflowingFanouts(retainedDocumentName: string): void {
+    for (const documentName of this.pendingFanouts.keys()) {
+      if (
+        this.pendingFanouts.size <= DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_ROOMS
+        && this.pendingFanoutBytes <= DOCUMENTS_COLLAB_REDIS_FANOUT_MAX_PENDING_BYTES
+      ) return
+      if (documentName === retainedDocumentName) continue
+      this.forgetPendingFanout(documentName)
+      logger.warn('dropped a stale pending Redis collaboration fanout to bound the outage backlog', {
+        room: documentName,
+        pendingRooms: this.pendingFanouts.size,
+        pendingBytes: this.pendingFanoutBytes,
+      })
+    }
   }
 
   private queuePersistedFanout(
@@ -615,12 +686,19 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
       .createSyncMessage()
       .writeUpdate(persistedState)
       .toUint8Array()
+    // Re-insert rather than overwrite so the map stays ordered by how recently
+    // each room was refreshed; eviction below relies on that ordering. The
+    // room's retry attempts and backoff timer deliberately survive: a coalesced
+    // update must not reset an outage's exponential backoff.
+    this.removePendingFanoutEntry(documentName)
     this.pendingFanouts.set(documentName, {
       document,
       collaborationGeneration,
       revision: ++this.nextFanoutRevision,
       message,
     })
+    this.pendingFanoutBytes += message.byteLength
+    this.evictOverflowingFanouts(documentName)
     this.startPersistedFanout(documentName)
   }
 
@@ -680,7 +758,7 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
 
     this.fanoutRetryAttempts.delete(documentName)
     if (this.pendingFanouts.get(documentName)?.revision === pending.revision) {
-      this.pendingFanouts.delete(documentName)
+      this.removePendingFanoutEntry(documentName)
     }
   }
 
@@ -892,7 +970,12 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
       this.redisTransactionOrigin,
     )
     await receiver.apply(document, undefined, (reply) => {
-      void this.publishRedisMessage(documentName, reply)
+      void this.publishRedisMessage(documentName, reply).catch((error: unknown) => {
+        logger.warn('failed to publish Redis collaboration reply', {
+          room: documentName,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      })
     })
   }
 
@@ -945,6 +1028,7 @@ export class DocumentsCollabRedisExtension extends HocuspocusRedis {
       await this.flushPendingFanoutsBeforeDestroy()
     } finally {
       this.pendingFanouts.clear()
+      this.pendingFanoutBytes = 0
       this.fanoutRetryAttempts.clear()
       this.fanoutPublisher.disconnect(false)
       // The stock extension calls Redlock.quit(), which can wait forever when
@@ -2121,10 +2205,12 @@ export async function authorizeCollabContext(
           context.userId,
           container,
         )
-    const documentRow = await em.findOne(
+    const documentRow = await findOneWithDecryption(
+      em,
       Document,
       { id: context.documentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
       { fields: ['id', 'archivedAt', 'deletedAt'], filters: false },
+      scope,
     )
     if (!documentRow || documentRow.deletedAt) return false
     return isCollabAuthorizationCurrent(context, {
@@ -2979,19 +3065,17 @@ export function isTrustedDocumentsCollabRoomScope(
 }
 
 /**
- * The Events bridge stamps every envelope with the publisher's random
- * per-process instance id. Prefer it over originPid — PIDs can collide across
- * containers — and keep the PID comparison only as a fallback for envelopes
- * published by older processes during a rolling deploy.
+ * The Events bridge stamps every envelope this sidecar publishes with its
+ * random per-process instance id, so an envelope without one is provably
+ * foreign. Falling back to originPid would discard it whenever another
+ * container happens to share our pid — commonly pid 1 — silently dropping
+ * reauth and invalidation across a rolling deploy.
  */
 export function isOwnDocumentsCrossProcessEvent(
   envelope: DocumentsCrossProcessEventEnvelope,
-  ownInstanceId?: string,
+  ownInstanceId: string,
 ): boolean {
-  if (typeof envelope.originInstanceId === 'string' && ownInstanceId) {
-    return envelope.originInstanceId === ownInstanceId
-  }
-  return envelope.originPid === process.pid
+  return envelope.originInstanceId === ownInstanceId
 }
 
 function isMainModule(): boolean {

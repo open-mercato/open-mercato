@@ -204,10 +204,12 @@ function ensureGlobalTapSubscription(): void {
   })
 
   registerCrossProcessEventListener(async (envelope) => {
-    const isOwnEnvelope = typeof envelope.originInstanceId === 'string'
-      ? envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID
-      : envelope.originPid === process.pid
-    if (isOwnEnvelope) return
+    // Every envelope this process publishes carries originInstanceId, so an
+    // envelope without one can only come from an older process during a
+    // rolling deploy and is always foreign. Falling back to originPid would
+    // discard it whenever both containers run under the same pid — commonly
+    // pid 1 — silently dropping browser events across the upgrade window.
+    if (envelope.originInstanceId === CROSS_PROCESS_EVENT_INSTANCE_ID) return
     await broadcastEventToConnections(
       envelope.event,
       (envelope.payload ?? {}) as Record<string, unknown>,

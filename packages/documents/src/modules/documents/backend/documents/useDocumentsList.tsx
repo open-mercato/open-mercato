@@ -252,7 +252,10 @@ export function useDocumentsList() {
     }
   }, [favoritesOnly, mutationContextId, refresh, retryLastMutation, runMutation, t])
 
+  const pendingDuplicateIds = React.useRef<Set<string>>(new Set())
   const duplicateDocument = React.useCallback(async (row: DocumentRow) => {
+    if (pendingDuplicateIds.current.has(row.id)) return
+    pendingDuplicateIds.current.add(row.id)
     try {
       const created = await runMutation({
         operation: () => apiCallOrThrow<{ id: string }>(
@@ -267,6 +270,8 @@ export function useDocumentsList() {
       if (createdId) router.push(`/backend/documents/${encodeURIComponent(createdId)}`)
     } catch (error) {
       flash(error instanceof Error ? error.message : t('documents.duplicate.error'), 'error')
+    } finally {
+      pendingDuplicateIds.current.delete(row.id)
     }
   }, [mutationContextId, retryLastMutation, router, runMutation, t])
 

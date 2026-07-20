@@ -88,6 +88,7 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter, excludeId
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg" onKeyDown={(event) => {
+        if (event.defaultPrevented) return
         if (event.key === 'Escape') { event.preventDefault(); onOpenChange(false); return }
         if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') { event.preventDefault(); pickActiveItem(); return }
       }}>

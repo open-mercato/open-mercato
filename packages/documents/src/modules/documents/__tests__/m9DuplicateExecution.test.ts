@@ -21,8 +21,9 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: (_key: string, fallback: string) => fallback }),
 }))
 
-const mockAssertCapability = jest.fn(async () => undefined)
-const mockResolveFeatures = jest.fn(async () => ['documents.view', 'documents.create', 'documents.edit'])
+const grantedFeatures = ['documents.view', 'documents.create', 'documents.edit']
+const mockAssertCapability = jest.fn(async () => grantedFeatures)
+const mockResolveFeatures = jest.fn(async () => grantedFeatures)
 
 jest.mock('../commands/shared', () => {
   const actual = jest.requireActual('../commands/shared')
@@ -87,12 +88,18 @@ import {
   DocumentAttachment,
   DocumentContent,
   DocumentEntityLink,
+  DocumentFolder,
 } from '../data/entities'
 import { duplicateDocumentCommand, type DuplicateDocumentCommandInput } from '../commands/duplicate'
-import { mutateDocumentContentState } from '../lib/contentService'
+import { bufferDocumentMutationSideEffects } from '../commands/side-effects'
+import {
+  advanceDocumentCollaborationGeneration,
+  mutateDocumentContentState,
+} from '../lib/contentService'
 
 jest.mock('../lib/contentService', () => ({
   mutateDocumentContentState: jest.fn(),
+  advanceDocumentCollaborationGeneration: jest.fn(),
 }))
 
 const tenantId = '11111111-1111-4111-8111-111111111111'
@@ -103,6 +110,9 @@ const newDocumentId = '55555555-5555-4555-8555-555555555555'
 const newContentId = '66666666-6666-4666-8666-666666666666'
 const sourceAttachmentId = '77777777-7777-4777-8777-777777777777'
 const copiedAttachmentId = '88888888-8888-4888-8888-888888888888'
+const sourceFolderId = '99999999-9999-4999-8999-999999999999'
+const otherUserId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+const retiredAt = new Date('2026-07-17T12:00:00.000Z')
 
 type PersistedRows = { documents: Document[]; links: DocumentEntityLink[]; attachments: DocumentAttachment[] }
 
@@ -205,10 +215,58 @@ function sourceAttachmentRow(): DocumentAttachment {
   })
 }
 
+function sourceFolderRow(ownerUserId: string): DocumentFolder {
+  return Object.assign(new DocumentFolder(), {
+    id: sourceFolderId,
+    name: 'Playbooks',
+    ownerUserId,
+    tenantId,
+    organizationId,
+  })
+}
+
+function foldedSourceDocumentRow(): Document {
+  return Object.assign(sourceDocumentRow(), { folderId: sourceFolderId })
+}
+
+function retiredCopyRow(ownerUserId: string): Document {
+  return Object.assign(new Document(), {
+    id: newDocumentId,
+    title: 'Quarterly SOP (copy)',
+    folderId: null,
+    ownerUserId,
+    createdByUserId: ownerUserId,
+    isActive: false,
+    tenantId,
+    organizationId,
+    updatedAt: retiredAt,
+    deletedAt: retiredAt,
+  })
+}
+
+function retiredCopyContentRow(): DocumentContent {
+  return Object.assign(new DocumentContent(), {
+    id: newContentId,
+    documentId: newDocumentId,
+    tenantId,
+    organizationId,
+    contentHtml: '<p>stale</p>',
+    contentText: 'stale',
+    updatedAt: retiredAt,
+    deletedAt: retiredAt,
+  })
+}
+
+function queueDuplicateTargetReads(document: Document | null, content: DocumentContent | null) {
+  findOneResults.push({ match: (entity) => entity === Document, row: document })
+  findOneResults.push({ match: (entity) => entity === DocumentContent, row: content })
+}
+
 function queueHappyPathReads(copyContent: DocumentContent) {
   findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
   findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
   findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [sourceAttachmentRow()] })
+  queueDuplicateTargetReads(null, null)
   findOneResults.push({ match: (entity) => entity === DocumentContent, row: copyContent })
   findResults.push({ match: (entity) => entity === DocumentEntityLink, rows: [] })
   findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [
@@ -288,7 +346,7 @@ describe('M9 duplicate command execution', () => {
     findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
     findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
     findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [sourceAttachmentRow()] })
-    findOneResults.push({ match: (entity) => entity === DocumentContent, row: null })
+    queueDuplicateTargetReads(null, null)
     findResults.push({ match: (entity) => entity === DocumentEntityLink, rows: [] })
     findOneResults.push({ match: (entity) => entity === DocumentContent, row: null })
     findOneResults.push({ match: (entity) => entity === Document, row: null })
@@ -301,6 +359,34 @@ describe('M9 duplicate command execution', () => {
       { tenantId, organizationId },
       newDocumentId,
     )
+  })
+
+  it('keeps the revealed copy when a post-commit step fails instead of compensating it away', async () => {
+    const { ctx, persisted } = makeHarness()
+    const copyContent = Object.assign(new DocumentContent(), {
+      id: newContentId,
+      documentId: newDocumentId,
+      tenantId,
+      organizationId,
+      contentHtml: '<p>terms</p>',
+      contentText: 'terms',
+      updatedAt: new Date('2026-07-17T10:00:01.000Z'),
+    })
+    queueHappyPathReads(copyContent)
+    mockReadScoped.mockResolvedValue({
+      buffer: Buffer.from('image-bytes'),
+      contentType: 'image/png',
+      contentDisposition: 'inline; filename="diagram.png"',
+    })
+    mockCreateScoped.mockResolvedValue({ id: copiedAttachmentId })
+    ;(bufferDocumentMutationSideEffects as jest.Mock).mockRejectedValueOnce(new Error('event bus unavailable'))
+
+    await expect(duplicateDocumentCommand.execute(commandInput(), ctx)).rejects.toMatchObject({ status: 500 })
+
+    // The reveal transaction already committed, so the copy is durable and
+    // visible. Compensation must not reach it.
+    expect(mockReleaseAll).not.toHaveBeenCalled()
+    expect(persisted.documents.find((row) => row.id === newDocumentId)?.deletedAt).toBeNull()
   })
 
   it('refuses undo with 409 when the copy was touched after duplication', async () => {
@@ -345,5 +431,127 @@ describe('M9 duplicate command execution', () => {
     await expect(
       duplicateDocumentCommand.undo?.({ logEntry, ctx } as never),
     ).rejects.toMatchObject({ status: 409 })
+  })
+
+  function queueFolderedDuplicate(folderOwnerUserId: string, copyContent: DocumentContent) {
+    findOneResults.push({ match: (entity) => entity === Document, row: foldedSourceDocumentRow() })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    queueDuplicateTargetReads(null, null)
+    findOneResults.push({ match: (entity) => entity === DocumentFolder, row: sourceFolderRow(folderOwnerUserId) })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: copyContent })
+    findResults.push({ match: (entity) => entity === DocumentEntityLink, rows: [] })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: copyContent })
+  }
+
+  function copyContentRow(): DocumentContent {
+    return Object.assign(new DocumentContent(), {
+      id: newContentId,
+      documentId: newDocumentId,
+      tenantId,
+      organizationId,
+      contentHtml: '<p>terms</p>',
+      contentText: 'terms',
+      updatedAt: new Date('2026-07-17T10:00:01.000Z'),
+    })
+  }
+
+  it('drops the copy to the actor root when the source folder belongs to another user', async () => {
+    const { ctx, persisted } = makeHarness()
+    queueFolderedDuplicate(otherUserId, copyContentRow())
+
+    await duplicateDocumentCommand.execute(commandInput(), ctx)
+
+    expect(persisted.documents.find((row) => row.id === newDocumentId)?.folderId).toBeNull()
+  })
+
+  it('keeps the source folder when the actor owns it', async () => {
+    const { ctx, persisted } = makeHarness()
+    queueFolderedDuplicate(actorUserId, copyContentRow())
+
+    await duplicateDocumentCommand.execute(commandInput(), ctx)
+
+    expect(persisted.documents.find((row) => row.id === newDocumentId)?.folderId).toBe(sourceFolderId)
+  })
+
+  it('keeps the copy hidden and compensates when source access is revoked before the reveal', async () => {
+    const { ctx, persisted } = makeHarness()
+    findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    queueDuplicateTargetReads(null, null)
+    findResults.push({ match: (entity) => entity === DocumentEntityLink, rows: [] })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: null })
+    findOneResults.push({ match: (entity) => entity === Document, row: null })
+    mockAssertCapability
+      .mockImplementationOnce(async () => grantedFeatures)
+      .mockImplementationOnce(async () => {
+        throw new CrudHttpError(403, { error: 'Forbidden' })
+      })
+
+    await expect(duplicateDocumentCommand.execute(commandInput(), ctx)).rejects.toMatchObject({ status: 403 })
+
+    expect(mockAssertCapability).toHaveBeenCalledTimes(2)
+    expect(mockReleaseAll).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { tenantId, organizationId },
+      newDocumentId,
+    )
+    expect(persisted.documents.find((row) => row.id === newDocumentId)?.deletedAt).toBeInstanceOf(Date)
+  })
+
+  it('resurrects the retired copy on redo instead of inserting a colliding row', async () => {
+    const { ctx, persisted } = makeHarness()
+    const retiredDocument = retiredCopyRow(actorUserId)
+    const retiredContent = retiredCopyContentRow()
+    findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    queueDuplicateTargetReads(retiredDocument, retiredContent)
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: retiredContent })
+    findResults.push({ match: (entity) => entity === DocumentEntityLink, rows: [] })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: retiredContent })
+
+    const result = await duplicateDocumentCommand.execute(commandInput(), ctx)
+
+    expect(persisted.documents).toHaveLength(0)
+    expect(result.id).toBe(newDocumentId)
+    expect(retiredDocument.deletedAt).toBeNull()
+    expect(retiredDocument.isActive).toBe(true)
+    expect(retiredDocument.updatedAt.getTime()).toBeGreaterThan(retiredAt.getTime())
+    expect(mutateDocumentContentState).toHaveBeenCalledWith(
+      expect.anything(),
+      newDocumentId,
+      { tenantId, organizationId },
+      expect.anything(),
+      expect.objectContaining({ id: newContentId, existingContent: retiredContent }),
+    )
+    expect(advanceDocumentCollaborationGeneration).toHaveBeenCalledTimes(1)
+  })
+
+  it('refuses a duplicate target identity that is not the actor own retired copy', async () => {
+    const { ctx } = makeHarness()
+    findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    queueDuplicateTargetReads(retiredCopyRow(otherUserId), null)
+
+    await expect(duplicateDocumentCommand.execute(commandInput(), ctx)).rejects.toMatchObject({ status: 409 })
+  })
+
+  it('refuses to overwrite a live document that already owns the target identity', async () => {
+    const { ctx } = makeHarness()
+    findOneResults.push({ match: (entity) => entity === Document, row: sourceDocumentRow() })
+    findOneResults.push({ match: (entity) => entity === DocumentContent, row: sourceContentRow() })
+    findResults.push({ match: (entity) => entity === DocumentAttachment, rows: [] })
+    queueDuplicateTargetReads(
+      Object.assign(retiredCopyRow(actorUserId), { deletedAt: null, isActive: true }),
+      null,
+    )
+
+    await expect(duplicateDocumentCommand.execute(commandInput(), ctx)).rejects.toMatchObject({ status: 409 })
   })
 })

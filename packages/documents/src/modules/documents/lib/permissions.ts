@@ -158,14 +158,12 @@ export async function resolvePermission(
   return maxShareTier(shares)
 }
 
-export async function resolveUserAccess(
+export async function loadScopedDocument(
   em: EntityManager,
   documentId: string,
   scope: { tenantId: string; organizationId: string },
-  userId: string,
-  container?: DocumentsServiceContainer | null,
-): Promise<DocumentTier | null> {
-  const document = await findOneWithDecryption(
+): Promise<Document | null> {
+  return findOneWithDecryption(
     em,
     Document,
     {
@@ -177,7 +175,20 @@ export async function resolveUserAccess(
     undefined,
     scope,
   )
-  if (!document) return null
+}
+
+/**
+ * Resolve one user's tier against an already scoped document. Callers that
+ * evaluate many users for the same document load it once and reuse it here
+ * instead of re-reading the identical row per user.
+ */
+export async function resolveLoadedDocumentUserAccess(
+  em: EntityManager,
+  document: Document,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+  container?: DocumentsServiceContainer | null,
+): Promise<DocumentTier | null> {
   if (document.ownerUserId === userId) return 'owner'
   if (await resolveDocumentsRbacService(container)?.userHasAllFeatures(
     userId,
@@ -198,7 +209,7 @@ export async function resolveUserAccess(
     em,
     DocumentShare,
     {
-      documentId,
+      documentId: document.id,
       tenantId: scope.tenantId,
       organizationId: scope.organizationId,
       deletedAt: null,
@@ -209,6 +220,18 @@ export async function resolveUserAccess(
   )
 
   return maxShareTier(shares)
+}
+
+export async function resolveUserAccess(
+  em: EntityManager,
+  documentId: string,
+  scope: { tenantId: string; organizationId: string },
+  userId: string,
+  container?: DocumentsServiceContainer | null,
+): Promise<DocumentTier | null> {
+  const document = await loadScopedDocument(em, documentId, scope)
+  if (!document) return null
+  return resolveLoadedDocumentUserAccess(em, document, scope, userId, container)
 }
 
 export async function resolveSubjectAccess(

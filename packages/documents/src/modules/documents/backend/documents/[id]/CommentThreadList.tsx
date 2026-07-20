@@ -5,7 +5,7 @@ import { CheckCircle2, CornerDownRight, RotateCcw } from 'lucide-react'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
-import type { CommentMention, DocumentComment } from './commentTypes'
+import type { DocumentComment } from './commentTypes'
 
 type LabelFor = (userId: string) => string
 type CommentThreadListProps = {
@@ -21,10 +21,6 @@ type CommentThreadListProps = {
 
 const MENTION_TOKEN_PATTERN = /@\[([0-9a-f-]{36})\]/gi
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-
 function formatDateTime(value: string): string {
   const timestamp = Date.parse(value)
   return Number.isFinite(timestamp)
@@ -32,17 +28,29 @@ function formatDateTime(value: string): string {
     : ''
 }
 
-function formatBody(body: string, mentions: CommentMention[], labelFor: LabelFor): React.ReactNode[] {
-  let readable = body.replace(MENTION_TOKEN_PATTERN, (_token, userId: string) => `@${labelFor(userId)}`)
-  for (const mention of mentions) {
-    const label = labelFor(mention.userId)
-    readable = readable.replace(new RegExp(`@${escapeRegExp(label)}`, 'g'), `\u0000${label}\u0000`)
+/**
+ * Chips are built from the mention tokens themselves. Rendering display
+ * labels back into the text and re-matching them corrupted every label that
+ * shares a prefix with another mention, and expanded the `$&`/`$1` sequences
+ * a user-controlled label may carry into the replacement string.
+ */
+function formatBody(body: string, labelFor: LabelFor): React.ReactNode[] {
+  const parts: React.ReactNode[] = []
+  let cursor = 0
+  for (const match of body.matchAll(MENTION_TOKEN_PATTERN)) {
+    const userId = match[1]
+    const start = match.index ?? 0
+    if (userId === undefined) continue
+    if (start > cursor) parts.push(body.slice(cursor, start))
+    parts.push(
+      <span key={`mention:${start}`} className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-primary">
+        @{labelFor(userId)}
+      </span>,
+    )
+    cursor = start + match[0].length
   }
-  return readable.split('\u0000').map((part, index) => index % 2 === 1 ? (
-    <span key={`${part}:${index}`} className="inline-flex rounded-full bg-muted px-2 py-1 text-xs font-medium text-primary">
-      @{part}
-    </span>
-  ) : part)
+  if (cursor < body.length) parts.push(body.slice(cursor))
+  return parts
 }
 
 function CommentItem({
@@ -66,7 +74,7 @@ function CommentItem({
         </div>
         {resolved ? <StatusBadge variant="success" dot>{t('documents.comments.resolved')}</StatusBadge> : null}
       </div>
-      <p className="whitespace-pre-wrap text-sm text-foreground">{formatBody(comment.body, comment.mentions, labelFor)}</p>
+      <p className="whitespace-pre-wrap text-sm text-foreground">{formatBody(comment.body, labelFor)}</p>
       {comment.anchor === 'changed' ? (
         <p className="text-xs text-muted-foreground">{t('documents.comments.anchor.changed')}</p>
       ) : null}

@@ -25,6 +25,14 @@ env:
   # Keep build-time and runtime onboarding config aligned so the browser
   # integration suite can exercise the self-service verification flow.
   SELF_SERVICE_ONBOARDING_ENABLED: 'true'
+  # NEXT_PUBLIC_* values are inlined by Next.js at build time, so this MUST be
+  # workflow-wide: `prepare` builds the app once (`yarn build:app`) and every
+  # `ephemeral-integration` shard reuses that artifact. Declaring it only on
+  # the shard job would leave the built bundle with collaboration disabled and
+  # TC-DOCUMENTS-017 unable to reach the sidecar. The Docker image builds are
+  # unaffected — `docker/build-push-action` forwards no job env, and the
+  # production Dockerfile still rejects loopback endpoints.
+  NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
 
 on:
   push:
@@ -595,8 +603,9 @@ jobs:
       # TC-DOCUMENTS-017 owns a disposable loopback collaboration sidecar on
       # the same ephemeral database. The separate documents-multi-instance job
       # proves the Redis-backed two-sidecar path.
+      # NEXT_PUBLIC_DOCUMENTS_COLLAB_URL is declared at workflow level so the
+      # reused `prepare` app build agrees with this runtime environment.
       OM_DOCUMENTS_COLLAB_INTEGRATION: '1'
-      NEXT_PUBLIC_DOCUMENTS_COLLAB_URL: 'ws://127.0.0.1:4101'
       DOCUMENTS_COLLAB_JWT_SECRET_V2: 'ci-documents-collaboration-v2-secret-32-bytes'
       JWT_SECRET: 'ci-ephemeral-test-jwt-secret'
       OM_SECURITY_MFA_SETUP_SECRET: 'ci-ephemeral-test-mfa-setup-secret'

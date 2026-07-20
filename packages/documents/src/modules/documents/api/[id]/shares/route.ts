@@ -8,7 +8,7 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { findOneWithDecryption, findWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { DocumentShare } from '../../../data/entities'
 import { documentShareCreateSchema, documentShareUpdateSchema } from '../../../data/validators'
-import { DOCUMENTS_ENTITY_IDS } from '../../../lib/constants'
+import { DOCUMENTS_ENTITY_IDS, DOCUMENTS_MAX_LISTED_SHARES } from '../../../lib/constants'
 import { sanitizeDocumentsDisplayLabel } from '../../../lib/displayLabels'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import { resolveAuthPrincipalService } from '../../../lib/platformServices'
@@ -58,6 +58,7 @@ const shareListResponseSchema = z.object({
     principalLabel: z.string().nullable(),
     principalSecondary: z.string().nullable(),
   })),
+  truncated: z.boolean(),
 })
 
 const shareMutationResponseSchema = z.object({
@@ -141,7 +142,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const documentId = await resolveId(context)
     const ctx = await resolveDocumentsContext(request, ['documents.share'])
     await assertCanShare(ctx, documentId)
-    const shares = await findWithDecryption(
+    const loadedShares = await findWithDecryption(
       ctx.em,
       DocumentShare,
       {
@@ -150,9 +151,11 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         organizationId: ctx.organizationId,
         deletedAt: null,
       },
-      { orderBy: { createdAt: 'ASC' } },
+      { orderBy: { createdAt: 'ASC', id: 'ASC' }, limit: DOCUMENTS_MAX_LISTED_SHARES + 1 },
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
     )
+    const truncated = loadedShares.length > DOCUMENTS_MAX_LISTED_SHARES
+    const shares = loadedShares.slice(0, DOCUMENTS_MAX_LISTED_SHARES)
     const labels = await resolvePrincipalLabels(
       ctx.container,
       { tenantId: ctx.tenantId, organizationId: ctx.organizationId },
@@ -166,7 +169,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         principalSecondary: resolved?.secondary ?? null,
       }
     })
-    return NextResponse.json({ items })
+    return NextResponse.json({ items, truncated })
   } catch (error) {
     return handleDocumentsRouteError(error, 'documents.shares.list')
   }

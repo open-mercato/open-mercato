@@ -28,6 +28,7 @@ import {
 } from '../../_commands'
 import {
   handleDocumentsRouteError,
+  hasDocumentsFeature,
   readBody,
   resolveActorUserId,
   resolveDocumentsContext,
@@ -112,6 +113,15 @@ export async function POST(request: Request, context: RouteContext): Promise<Res
   try {
     const { id: sourceDocumentId } = await context.params
     const ctx = await resolveDocumentsContext(request, ['documents.create', 'documents.edit'])
+    // `resolveDocumentsContext` only proves ONE of the listed features. This
+    // route declares both, so re-assert the conjunction the same way the
+    // sibling `instantiate` route does.
+    if (
+      !hasDocumentsFeature(ctx.auth, 'documents.create')
+      || !hasDocumentsFeature(ctx.auth, 'documents.edit')
+    ) {
+      throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+    }
     // Reject machine principals before the link-verification fanout; the
     // command re-asserts this fail-closed (spec decision 10).
     if (ctx.auth.isApiKey === true || ctx.auth.sub.startsWith('api_key:')) {

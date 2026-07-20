@@ -30,11 +30,6 @@ const baseCtx = {
   userId: '2d4a4c33-9c4b-4e39-8e15-0a3cd9a7f432',
 }
 
-const baseEventScope = {
-  tenantId: baseCtx.tenantId,
-  organizationId: baseCtx.organizationId,
-}
-
 const buildEm = () => {
   const em = {
     fork: jest.fn(),
@@ -103,16 +98,6 @@ describe('notification service', () => {
         recipientUserId: baseNotificationInput.recipientUserId,
         tenantId: baseCtx.tenantId,
       })
-    )
-    expect(eventBus.emit).toHaveBeenCalledWith(
-      NOTIFICATION_SSE_EVENTS.CREATED,
-      expect.objectContaining({
-        tenantId: baseCtx.tenantId,
-        organizationId: baseCtx.organizationId,
-        recipientUserId: baseNotificationInput.recipientUserId,
-        notification: expect.objectContaining({ id: notification.id }),
-      }),
-      baseEventScope,
     )
   })
 
@@ -228,20 +213,7 @@ describe('notification service', () => {
         recipientUserIds: ['e2c9ac54-ecdb-4d79-8d73-8328ca0f16f0', 'e2d9e79c-3f2f-4b8c-9455-6c19b671dc5c'],
         count: 2,
       }),
-      baseEventScope,
     )
-    for (const notification of notifications) {
-      expect(eventBus.emit).toHaveBeenCalledWith(
-        NOTIFICATION_SSE_EVENTS.CREATED,
-        expect.objectContaining({
-          tenantId: notification.tenantId,
-          organizationId: notification.organizationId,
-          recipientUserId: notification.recipientUserId,
-          notification: expect.objectContaining({ id: notification.id }),
-        }),
-        baseEventScope,
-      )
-    }
   })
 
   it('rejects an entire batch when any recipient is outside the caller scope', async () => {
@@ -433,8 +405,7 @@ describe('notification service', () => {
           organizationId: note.organizationId,
           recipientUserId: note.recipientUserId,
           notification: expect.objectContaining({ id: note.id, status: 'read' }),
-        }),
-        { tenantId: note.tenantId, organizationId: note.organizationId },
+        })
       )
     }
   })

@@ -156,6 +156,40 @@ The heal is delivered as a version-gated **Upgrade Action** (`attachments.reconc
 
 *Action for downstream:* if you ran a multi-org setup on an affected build, enable Upgrade Actions and run `attachments.reconcile-organization` once per tenant to heal misfiled attachments; a self-hoster with single-org or clean data can leave Upgrade Actions off. No contract surface changed (the reconciliation helper and upgrade-action entry are additive). See [`.ai/specs`](.ai/specs/) and issue #3765.
 
+### Role ACL organization semantics widened — review `role_acls` rows before upgrading
+
+`RbacService` changed how a role's organization grant is interpreted. Both changes widen access, so review your `role_acls` data before deploying.
+
+**1. An empty `organizations_json` array now means "every organization in the tenant".**
+
+Previously an empty array contributed nothing to a user's accessible-organization projection, so `resolveOrganizationScope` fell back to the user's **account organization and its descendants**. It now resolves to `null` (unrestricted), which grants visibility and write access across **all organizations in the tenant**. This aligns the projection with feature evaluation, which already treated an empty array as "applies in every organization" — but the projection is what bounds data access, so the effective grant is genuinely larger.
+
+Find affected rows before upgrading:
+
+```sql
+SELECT role_id, tenant_id FROM role_acls WHERE organizations_json = '[]'::jsonb AND deleted_at IS NULL;
+```
+
+For each row, either set an explicit allowlist (`'["<org-uuid>", …]'::jsonb`) to keep the previous narrower access, or leave it empty to accept tenant-wide access. Use the explicit `["__all__"]` sentinel when tenant-wide access is what you actually want — it has always meant that and is unambiguous.
+
+**2. A role's organization grants now match the selected organization's ancestor chain.**
+
+`roleAclAllowsOrganization` used to require the selected organization to appear literally in `organizations_json`. It now also matches when any **ancestor** of the selected organization is listed, so a role scoped to a parent organization applies in that parent's descendants. This mirrors what `resolveOrganizationScope` already did when expanding parent grants to descendants, so most deployments see no change — but a role deliberately pinned to a parent org *without* wanting it to reach children now reaches them. Ancestor expansion requires the Directory hierarchy service; when Directory is disabled, matching stays exact and fails closed.
+
+**3. An organization-restricted role-level super-admin grant is no longer global.**
+
+A `RoleAcl` with `is_super_admin = true` *and* a non-empty, non-`__all__` `organizations_json` no longer short-circuits to global super-admin. It is now evaluated through the scoped ACL projection and stays bounded by its organization list. This is a **narrowing** — an operator relying on such a row for tenant-wide administration will lose that reach. Clear the row's `organizations_json` (or set `["__all__"]`) to restore global super-admin.
+
+Find affected rows:
+
+```sql
+SELECT role_id, tenant_id, organizations_json FROM role_acls
+WHERE is_super_admin = true AND jsonb_array_length(COALESCE(organizations_json, '[]'::jsonb)) > 0
+  AND NOT organizations_json ? '__all__' AND deleted_at IS NULL;
+```
+
+*Action for downstream:* run both queries against each tenant, decide per row, and adjust before deploying. No API, DI, or type surface changed — `RbacService` gained an optional third constructor argument (the Directory hierarchy seam) and keeps working without it.
+
 ### Removed — `MODULE_FACTS_ALLOWLIST` export (module fact-sheet auto-discovery) (#3752, #3798, #3754)
 
 The module fact-sheet generator no longer gates on a hard-coded 9-module allowlist. It now **auto-discovers** every source-available package module: the `create-app` build (and `mercato agentic:init`) bundle a fact-sheet for every package-provided module (`discoverPackageModuleSources`), shipped to scaffolded apps as `.ai/guides/module-facts.json` + per-module sheets. The monorepo no longer emits a committed `apps/mercato/src/module-facts.generated.json` — that artifact had no runtime or test consumer and has been removed along with its generator (`generateModuleFacts`) and the unused registry-driven `discoverEnabledModuleSources` path.

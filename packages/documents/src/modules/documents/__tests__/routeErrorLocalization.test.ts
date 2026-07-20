@@ -7,7 +7,8 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: async () => ({ translate: translateMock }),
 }))
 
-import { handleDocumentsRouteError } from '../api/_shared'
+import { ROUTE_ERROR_TRANSLATIONS, handleDocumentsRouteError } from '../api/_shared'
+import en from '../i18n/en.json'
 
 describe('Documents route error localization', () => {
   beforeEach(() => {
@@ -54,6 +55,31 @@ describe('Documents route error localization', () => {
     const body = await response.json() as { error: string; details: unknown[] }
     expect(body.error).toBe('translated:api.errors.invalidPayload:Invalid payload.')
     expect(body.details).toHaveLength(1)
+  })
+
+  it.each([
+    ['documents.versions.notFound', 404],
+    ['documents.content.notFound', 404],
+    ['documents.folders.error.invalidPlacement', 400],
+  ])('never returns the raw %s key to the client', async (key, status) => {
+    const response = await handleDocumentsRouteError(
+      new CrudHttpError(status, { error: key }),
+      'documents.test',
+    )
+
+    expect(response.status).toBe(status)
+    const body = await response.json() as { error: string }
+    expect(body.error).not.toBe(key)
+    expect(body.error).toMatch(new RegExp(`^translated:${key.replace(/\./g, '\\.')}:.+`))
+  })
+
+  it('backs every documents route error key with an English catalog entry', () => {
+    const catalog = en as Record<string, string>
+    const unlocalized = Object.values(ROUTE_ERROR_TRANSLATIONS)
+      .map(({ key }) => key)
+      .filter((key) => key.startsWith('documents.') && catalog[key] === undefined)
+
+    expect(unlocalized).toEqual([])
   })
 
   it('replaces unknown UUID-bearing route errors before they can become flash text', async () => {

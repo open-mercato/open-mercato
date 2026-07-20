@@ -128,10 +128,93 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       keyId: 'key-tenant-scoped',
     })
     expect(auth).not.toHaveProperty('userId')
-    expect(emFindOne).not.toHaveBeenCalledWith(
+    // The creator does not become the key's identity, but it is still verified
+    // to exist in the key's tenant — its concrete organization is ignored.
+    expect(emFindOne).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ id: 'creator-1' }),
+      { id: 'creator-1', deletedAt: null },
     )
+  })
+
+  it('rejects a tenant-scoped regular key once its creator is soft-deleted', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-deleted-creator',
+      name: 'deleted creator',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('deleted-creator-secret')),
+    ).resolves.toBeNull()
+  })
+
+  it('rejects a tenant-scoped regular key whose creator moved to another tenant', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-foreign-creator',
+      name: 'foreign creator',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: 'creator-1',
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      if (where.id === 'creator-1') {
+        return { id: 'creator-1', tenantId: 'tenant-2', organizationId: null }
+      }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('foreign-creator-secret')),
+    ).resolves.toBeNull()
+  })
+
+  it('accepts a tenant-scoped regular key that records no creator', async () => {
+    const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
+    findApiKeyBySecret.mockResolvedValue({
+      id: 'key-no-creator',
+      name: 'no creator',
+      tenantId: 'tenant-1',
+      organizationId: null,
+      rolesJson: [],
+      sessionToken: null,
+      sessionUserId: null,
+      sessionSecretEncrypted: null,
+      opencodeSessionId: null,
+      createdBy: null,
+      expiresAt: null,
+      lastUsedAt: null,
+    })
+    emFindOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => {
+      if (where.id === 'tenant-1' && where.isActive === true) return { id: 'tenant-1' }
+      return null
+    })
+
+    await expect(
+      getAuthFromRequest(buildRequest('no-creator-secret')),
+    ).resolves.toMatchObject({ keyId: 'key-no-creator', tenantId: 'tenant-1' })
   })
 
   it('retains the creator identity for an organization-scoped regular key', async () => {

@@ -77,7 +77,7 @@ export const routeErrorSchema = z.object({ error: z.string() })
 
 const actorUuidSchema = z.string().uuid()
 
-const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }> = {
+export const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }> = {
   Unauthorized: { key: 'api.errors.unauthorized', fallback: 'Unauthorized' },
   Forbidden: { key: 'api.errors.forbidden', fallback: 'Forbidden' },
   'Organization context is required': {
@@ -91,6 +91,18 @@ const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }
     fallback: 'Record changed by another user',
   },
   'Document not found': { key: 'documents.documents.notFound', fallback: 'Document not found.' },
+  'documents.content.notFound': {
+    key: 'documents.content.notFound',
+    fallback: 'Document content not found.',
+  },
+  'documents.versions.notFound': {
+    key: 'documents.versions.notFound',
+    fallback: 'Version not found.',
+  },
+  'documents.folders.error.invalidPlacement': {
+    key: 'documents.folders.error.invalidPlacement',
+    fallback: 'This folder cannot be placed there.',
+  },
   'Folder not found': { key: 'documents.folders.notFound', fallback: 'Folder not found.' },
   'Share not found': { key: 'documents.share.notFound', fallback: 'Share not found.' },
   'Comment not found': { key: 'documents.comments.notFound', fallback: 'Comment not found.' },
@@ -148,6 +160,10 @@ const ROUTE_ERROR_TRANSLATIONS: Record<string, { key: string; fallback: string }
   'documents.export.runtimeUnavailable': {
     key: 'documents.export.runtimeUnavailable',
     fallback: 'PDF export is temporarily unavailable.',
+  },
+  'documents.errors.organizationSelectionInvalid': {
+    key: 'documents.errors.organizationSelectionInvalid',
+    fallback: 'Your selected organization is no longer available. Please re-select an organization and try again.',
   },
 }
 
@@ -300,6 +316,18 @@ export async function resolveDocumentsContext(
     throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
   }
   const scope = await organizationScopeService.resolveForRequest({ auth: scopeAuth, request })
+  // The caller explicitly selected an organization that no longer resolves to a
+  // real, accessible org (stale selected-org cookie after a delete or an access
+  // loss). The scope resolver falls back to another allowed org, so continuing
+  // would silently read and write against an organization the caller never
+  // chose. Fail loud on every documents operation instead — the same contract
+  // `makeCrudRoute` enforces via `rejectInvalidOrgSelection` (#3936).
+  if (scope?.selectionRejected) {
+    throw new CrudHttpError(422, {
+      error: 'documents.errors.organizationSelectionInvalid',
+      code: 'organization_selection_invalid',
+    })
+  }
   const tenantId = scope?.tenantId ?? auth.tenantId
   const organizationId = resolveSelectedOrganization(scopeAuth, scope)
   if (!tenantId) {

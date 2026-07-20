@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
@@ -99,6 +100,32 @@ function makeDocument(): Document {
     updatedAt: new Date(updatedAt),
     deletedAt: null,
   })
+}
+
+/**
+ * Models the parent row's pessimistic write lock: a second decision cannot
+ * read past the aggregate lookup until the holding transaction commits or
+ * rolls back. Without it two concurrent creates would both observe 99.
+ */
+function createAggregateRowLock() {
+  const waiters: Array<() => void> = []
+  let held = false
+  return {
+    async acquire(): Promise<void> {
+      if (!held) {
+        held = true
+        return
+      }
+      await new Promise<void>((resolve) => {
+        waiters.push(resolve)
+      })
+    },
+    release(): void {
+      const next = waiters.shift()
+      if (next) next()
+      else held = false
+    },
+  }
 }
 
 function makeLink(deletedAt: Date | null = null): DocumentEntityLink {
@@ -257,28 +284,80 @@ describe('document link command transaction snapshots', () => {
     expect(harness.em.persist).not.toHaveBeenCalled()
   })
 
-  it('allows only the first serialized create when two decisions start with 99 active links', async () => {
+  it('allows only one of two concurrent creates that both start with 99 active links', async () => {
     const harness = buildHarness()
+    const lock = createAggregateRowLock()
+    const secondLinkId = '77777777-7777-4777-8777-777777777777'
     let activeCount = DOCUMENTS_MAX_ENTITY_LINKS_PER_DOCUMENT - 1
-    ;(harness.em.count as jest.Mock).mockImplementation(async () => activeCount)
+    ;(harness.em.count as jest.Mock).mockImplementation(async () => {
+      harness.order.push('count')
+      return activeCount
+    })
     ;(harness.em.persist as jest.Mock).mockImplementation(() => {
       activeCount += 1
     })
+    ;(harness.em.commit as jest.Mock).mockImplementation(async () => {
+      harness.order.push('commit')
+      lock.release()
+    })
+    ;(harness.em.rollback as jest.Mock).mockImplementation(async () => {
+      harness.order.push('rollback')
+      lock.release()
+    })
+    mockFindOneWithDecryption.mockImplementation(async (
+      _em: EntityManager,
+      entity: unknown,
+    ) => {
+      if (entity !== Document) return null
+      await lock.acquire()
+      harness.order.push('lock-document')
+      return makeDocument()
+    })
+
+    const settled = await Promise.allSettled([
+      createLinkCommand.execute(linkInput(), harness.ctx),
+      createLinkCommand.execute({ ...linkInput(), linkId: secondLinkId }, harness.ctx),
+    ])
+
+    expect(settled.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1)
+    const rejections = settled.filter(
+      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
+    )
+    expect(rejections).toHaveLength(1)
+    expect(rejections[0].reason).toMatchObject({
+      status: 413,
+      body: { error: 'documents.links.limitExceeded' },
+    })
+
+    expect(harness.em.persist).toHaveBeenCalledTimes(1)
+    expect(activeCount).toBe(DOCUMENTS_MAX_ENTITY_LINKS_PER_DOCUMENT)
+    // The losing decision must count only after the winner committed, and the
+    // aggregate row must be locked before either of them counts.
+    expect(harness.order.filter((step) => step === 'count')).toHaveLength(2)
+    expect(harness.order.indexOf('commit')).toBeLessThan(harness.order.lastIndexOf('count'))
+    expect(harness.order.indexOf('lock-document')).toBeLessThan(harness.order.indexOf('count'))
+  })
+
+  it('locks the parent document for write before evaluating the link cap', async () => {
+    const harness = buildHarness()
+    ;(harness.em.count as jest.Mock).mockResolvedValue(0)
     mockFindOneWithDecryption.mockImplementation(async (
       _em: EntityManager,
       entity: unknown,
     ) => entity === Document ? makeDocument() : null)
 
-    await expect(createLinkCommand.execute(linkInput(), harness.ctx)).resolves.toMatchObject({
-      created: true,
-    })
-    await expect(createLinkCommand.execute(linkInput(), harness.ctx)).rejects.toMatchObject({
-      status: 413,
-      body: { error: 'documents.links.limitExceeded' },
-    })
+    await createLinkCommand.execute(linkInput(), harness.ctx)
 
-    expect(harness.em.count).toHaveBeenCalledTimes(2)
-    expect(harness.em.persist).toHaveBeenCalledTimes(1)
+    const parentLookup = mockFindOneWithDecryption.mock.calls.find(
+      (call: unknown[]) => call[1] === Document,
+    )
+    expect(parentLookup?.[2]).toMatchObject({
+      id: documentId,
+      tenantId,
+      organizationId,
+      deletedAt: null,
+    })
+    expect(parentLookup?.[3]).toMatchObject({ lockMode: LockMode.PESSIMISTIC_WRITE })
   })
 
   it('rejects redo-style resurrection of a deleted link when the slot was refilled', async () => {

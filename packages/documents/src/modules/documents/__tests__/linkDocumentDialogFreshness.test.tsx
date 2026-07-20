@@ -66,6 +66,21 @@ function documentResult(title: string) {
   }
 }
 
+function viewerOnlyResult(count: number, totalPages: number) {
+  return {
+    ok: true,
+    result: {
+      items: Array.from({ length: count }, (_, index) => ({
+        id: `44444444-4444-4444-8444-${String(index).padStart(12, '0')}`,
+        title: `Viewer document ${index}`,
+        ownerLabel: 'Ada Lovelace',
+        capabilities: { canEdit: false },
+      })),
+      totalPages,
+    },
+  }
+}
+
 async function flushPromises(iterations = 4): Promise<void> {
   for (let index = 0; index < iterations; index += 1) await Promise.resolve()
 }
@@ -157,6 +172,50 @@ describe('LinkDocumentDialog search freshness', () => {
 
     fireEvent.keyDown(screen.getByTestId('dialog-content'), { key: 'Escape' })
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('keeps paginating when the first page holds no editable matches', async () => {
+    apiCallMock
+      .mockResolvedValueOnce(viewerOnlyResult(20, 2))
+      .mockResolvedValueOnce({
+        ok: true,
+        result: {
+          items: [{
+            id: '55555555-5555-4555-8555-555555555555',
+            title: 'Editable document',
+            ownerLabel: 'Ada Lovelace',
+            capabilities: { canEdit: true },
+          }],
+          totalPages: 2,
+        },
+      })
+
+    render(<LinkDocumentDialog open target={TARGET} onOpenChange={jest.fn()} onLinked={jest.fn()} />)
+    fireEvent.change(screen.getByLabelText('documents.relatedDocuments.linkDialog.searchLabel'), { target: { value: 'report' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises(12)
+    })
+
+    expect(apiCallMock).toHaveBeenCalledTimes(2)
+    expect(apiCallMock.mock.calls[0]?.[0]).toContain('page=1')
+    expect(apiCallMock.mock.calls[1]?.[0]).toContain('page=2')
+    expect(screen.getByText('Editable document')).toBeTruthy()
+    expect(screen.queryByText('documents.relatedDocuments.linkDialog.empty')).toBeNull()
+  })
+
+  it('reports no editable matches once the paginated results are exhausted', async () => {
+    apiCallMock.mockResolvedValue(viewerOnlyResult(1, 1))
+
+    render(<LinkDocumentDialog open target={TARGET} onOpenChange={jest.fn()} onLinked={jest.fn()} />)
+    fireEvent.change(screen.getByLabelText('documents.relatedDocuments.linkDialog.searchLabel'), { target: { value: 'report' } })
+    await act(async () => {
+      jest.advanceTimersByTime(250)
+      await flushPromises(12)
+    })
+
+    expect(apiCallMock).toHaveBeenCalledTimes(1)
+    expect(screen.getByText('documents.relatedDocuments.linkDialog.empty')).toBeTruthy()
   })
 
   it('renders a distinct search error and retries without showing the empty state', async () => {

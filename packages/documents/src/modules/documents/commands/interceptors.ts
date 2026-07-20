@@ -362,7 +362,17 @@ function buildArchivedUndoGuard(commandId: typeof ARCHIVED_UNDO_GUARDED_COMMAND_
     ): Promise<void> {
       const logEntry = undoContext.logEntry as UndoLogEntryShape
       const documentId = resolveUndoDocumentId(logEntry)
-      if (!documentId || !logEntry.tenantId || !logEntry.organizationId) return
+      if (!documentId || !logEntry.tenantId || !logEntry.organizationId) {
+        // Every guarded command records the document and its scope. Without
+        // them the archived state cannot be read, so refuse the undo instead of
+        // waving through a mutation this guard was unable to check.
+        logger.error('Archived-undo guard could not resolve the guarded document scope', {
+          commandId,
+          resourceKind: logEntry.resourceKind ?? null,
+          resourceId: logEntry.resourceId ?? null,
+        })
+        throw new CrudHttpError(403, { error: 'api.errors.forbidden' })
+      }
       const em = context.container.resolve('em') as EntityManager
       const scope = { tenantId: logEntry.tenantId, organizationId: logEntry.organizationId }
       const document = await findOneWithDecryption(

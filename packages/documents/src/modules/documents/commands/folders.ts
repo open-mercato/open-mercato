@@ -12,7 +12,7 @@ import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { DocumentFolder } from '../data/entities'
 import { documentFolderCreateSchema, documentFolderUpdateSchema } from '../data/validators'
-import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
+import { DOCUMENTS_ENTITY_IDS, DOCUMENTS_MAX_FOLDERS_PER_ORGANIZATION } from '../lib/constants'
 import { acquireFolderHierarchyMutationLock } from '../lib/folderHierarchySerialization'
 import { getFolderPlacementIssue, hasActiveFolderContents } from '../lib/visibility'
 import {
@@ -183,6 +183,19 @@ async function assertWritableParent(
   await assertFolderOwnerOrManager(parent.ownerUserId, actorUserId, features)
 }
 
+/**
+ * Call only while holding the folder hierarchy mutation lock, so the count and
+ * the insert that follows it cannot interleave with a competing create.
+ */
+async function assertOrganizationFolderCapacity(
+  em: EntityManager,
+  scope: DocumentsCommandScope,
+): Promise<void> {
+  const activeCount = await em.count(DocumentFolder, { ...scope, deletedAt: null })
+  if (activeCount < DOCUMENTS_MAX_FOLDERS_PER_ORGANIZATION) return
+  throw new CrudHttpError(422, { error: 'documents.errors.folderLimitReached' })
+}
+
 async function assertValidPlacement(
   em: EntityManager,
   scope: DocumentsCommandScope,
@@ -244,6 +257,10 @@ const createFolderCommand: CommandHandler<FolderCreateCommandInput, FolderComman
       if (existing && !existing.deletedAt) {
         throw new CrudHttpError(409, { error: 'Record changed by another user' })
       }
+      // Reviving a soft-deleted row adds an active folder just like a fresh
+      // insert, so both paths answer to the same organization-wide cap. Undo
+      // stays exempt: it only restores state the organization already held.
+      await assertOrganizationFolderCapacity(em, scope)
       await assertWritableParent(em, input.parentFolderId ?? null, scope, actorUserId, features)
       await assertValidPlacement(em, scope, null, input.parentFolderId ?? null)
       folder = existing ?? em.create(DocumentFolder, {

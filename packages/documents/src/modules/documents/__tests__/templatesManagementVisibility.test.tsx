@@ -49,6 +49,8 @@ jest.mock('@open-mercato/shared/lib/i18n/context', () => ({ useT: () => translat
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useTemplatesPage } from '../backend/documents/templates/useTemplatesPage'
 import { TemplatesTable } from '../backend/documents/templates/TemplatesTable'
+import { metadata as templatesPageMetadata } from '../backend/documents/templates/page.meta'
+import features from '../acl'
 
 const UPDATED_AT = '2026-07-10T01:00:00.000Z'
 
@@ -84,6 +86,19 @@ function templatePage(input: {
     },
   }
 }
+
+describe('templates management page guard', () => {
+  it('gates the management page and its nav entry on the template feature', () => {
+    // The list API stays on documents.view for the new-from-template dialog,
+    // but this page only offers manage-gated actions.
+    expect(templatesPageMetadata.requireFeatures).toEqual(['documents.templates.manage'])
+    expect(templatesPageMetadata.requireFeatures).not.toContain('documents.view')
+  })
+
+  it('declares that feature in the module ACL', () => {
+    expect(features.map((feature) => feature.id)).toContain('documents.templates.manage')
+  })
+})
 
 describe('templates management visibility', () => {
   beforeEach(() => {

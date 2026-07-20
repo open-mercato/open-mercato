@@ -61,10 +61,18 @@ export function useEditorInsertions(input: {
     const editor = input.editorRef.current
     if (!editor || input.disabled) return
     const href = linkHref.trim()
-    if (href) editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
-    else editor.chain().focus().unsetLink().run()
+    if (href) {
+      // TipTap rejects a disallowed URI scheme by returning false instead of
+      // throwing. Closing regardless would drop the user's link without a word.
+      if (!editor.chain().focus().extendMarkRange('link').setLink({ href }).run()) {
+        flash(t('documents.editor.link.rejected'), 'error')
+        return
+      }
+    } else {
+      editor.chain().focus().unsetLink().run()
+    }
     setLinkOpen(false)
-  }, [input.disabled, input.editorRef, linkHref])
+  }, [input.disabled, input.editorRef, linkHref, t])
 
   const removeLink = React.useCallback(() => {
     input.editorRef.current?.chain().focus().unsetLink().run()

@@ -98,6 +98,36 @@ describe('M9 archived-undo guard interceptor', () => {
     ).resolves.toBeUndefined()
   })
 
+  it.each([
+    ['no resolvable document', {
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      commandPayload: {},
+    }],
+    ['no tenant scope', {
+      parentResourceKind: 'documents:document',
+      parentResourceId: documentId,
+      organizationId: scope.organizationId,
+      commandPayload: {},
+    }],
+    ['no organization scope', {
+      parentResourceKind: 'documents:document',
+      parentResourceId: documentId,
+      tenantId: scope.tenantId,
+      commandPayload: {},
+    }],
+    // A log entry the guard cannot resolve cannot be checked against the
+    // archived state, so it must fail closed rather than wave the undo through.
+  ])('refuses an undo whose log entry has %s', async (_label, logEntry) => {
+    const guard = guardFor('documents.share.create')
+    await expect(
+      guard.beforeUndo?.(
+        { input: {}, undoToken: 'undo-token', logEntry } as never,
+        guardContext(null),
+      ),
+    ).rejects.toMatchObject({ status: 403 })
+  })
+
   it('leaves delete-like undos unguarded', () => {
     for (const commandId of ['documents.document.duplicate', 'documents.document.instantiate']) {
       const guard = interceptors.find(

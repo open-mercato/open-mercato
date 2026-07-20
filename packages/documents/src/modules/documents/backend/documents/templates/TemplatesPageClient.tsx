@@ -13,9 +13,14 @@ import { useTemplatesPage } from './useTemplatesPage'
 
 function TemplateEditorDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
+  // `next/dynamic` never forwards the caller's `onOpenChange` to a loading
+  // shell, so own the dismissal here. Without it a chunk that fails for good
+  // (a deploy invalidated it) traps the user in a modal Escape cannot close.
+  const [open, setOpen] = React.useState(true)
+  if (!open) return null
   return (
-    <Dialog open>
-      <DialogContent size="xl" dismissible={false}>
+    <Dialog open onOpenChange={(next) => { if (!next) setOpen(false) }}>
+      <DialogContent size="xl" dismissible={Boolean(error)}>
         <DialogHeader>
           <DialogTitle>{t('documents.templates.actions.manage')}</DialogTitle>
           <DialogDescription>{t('documents.templates.preview.loading')}</DialogDescription>

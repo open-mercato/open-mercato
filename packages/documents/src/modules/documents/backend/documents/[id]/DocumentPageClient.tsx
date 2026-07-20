@@ -170,8 +170,12 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
     }
   }, [documentId, mutationContextId, retryLastMutation, runMutation, setDocumentState, state.status, t])
 
+  const duplicating = React.useRef(false)
+  const [isDuplicating, setIsDuplicating] = React.useState(false)
   const handleDuplicate = React.useCallback(async () => {
-    if (state.status !== 'ready') return
+    if (state.status !== 'ready' || duplicating.current) return
+    duplicating.current = true
+    setIsDuplicating(true)
     try {
       const created = await runMutation({
         operation: () => apiCallOrThrow<{ id: string }>(
@@ -191,6 +195,9 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
       if (createdId) router.push(`/backend/documents/${encodeURIComponent(createdId)}`)
     } catch (error) {
       flash(error instanceof Error ? error.message : t('documents.duplicate.error'), 'error')
+    } finally {
+      duplicating.current = false
+      setIsDuplicating(false)
     }
   }, [documentId, mutationContextId, retryLastMutation, router, runMutation, state.status, t])
 
@@ -308,7 +315,7 @@ export function DocumentPageClient({ documentId }: { documentId: string }) {
           </Button>
           <ExportMenu documentId={document.id} editor={editor} />
           {capabilities.canDuplicate ? (
-            <Button type="button" variant="outline" onClick={() => void handleDuplicate()}>
+            <Button type="button" variant="outline" disabled={isDuplicating} onClick={() => void handleDuplicate()}>
               <Copy />{t('documents.actions.duplicate')}
             </Button>
           ) : null}

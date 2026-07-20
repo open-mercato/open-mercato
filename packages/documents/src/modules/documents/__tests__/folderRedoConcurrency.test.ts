@@ -91,6 +91,7 @@ function fakeEntityManager(): EntityManager {
     rollback: jest.fn(async () => { inTransaction = false }),
     isInTransaction: jest.fn(() => inTransaction),
     execute,
+    count: jest.fn(async () => 0),
     create: jest.fn((_entity: unknown, data: Record<string, unknown>) => Object.assign(
       new DocumentFolder(),
       data,

@@ -12,12 +12,39 @@ import { Input } from '@open-mercato/ui/primitives/input'
 import { Label } from '@open-mercato/ui/primitives/label'
 import { useDialogKeyHandler } from '@open-mercato/ui/hooks/useDialogKeyHandler'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { readNumber, readRecord } from '../../../backend/documents/documentUi'
 import { normalizeDocuments, type DocumentRow } from '../../../backend/documents/documentsListTypes'
 import type { RelatedDocumentContext } from './context'
 import { OPTIONAL_HEADERS } from './useRelatedDocuments'
 
+const SEARCH_PAGE_SIZE = 20
+const MAX_SEARCH_PAGES = 5
+
 function buildSearchContext(open: boolean, target: RelatedDocumentContext, query: string): string {
   return JSON.stringify([open, target.entityType, target.entityId, query.trim()])
+}
+
+async function loadEditableDocuments(
+  search: string,
+  signal: AbortSignal,
+  unknownOwner: string,
+): Promise<{ ok: boolean; rows: DocumentRow[] }> {
+  const editable: DocumentRow[] = []
+  for (let page = 1; page <= MAX_SEARCH_PAGES; page += 1) {
+    const params = new URLSearchParams({ search, page: String(page), pageSize: String(SEARCH_PAGE_SIZE) })
+    const call = await apiCall<unknown>(
+      `/api/documents?${params.toString()}`,
+      { headers: OPTIONAL_HEADERS, signal },
+      { fallback: { items: [] } },
+    )
+    if (!call.ok) return { ok: false, rows: [] }
+    const pageRows = normalizeDocuments(call.result, [], unknownOwner)
+    editable.push(...pageRows.filter((row) => row.capabilities.canEdit))
+    if (editable.length > 0 || pageRows.length === 0) break
+    const totalPages = readNumber(readRecord(call.result) ?? {}, 'totalPages', 'total_pages') ?? page
+    if (page >= totalPages) break
+  }
+  return { ok: true, rows: editable }
 }
 
 export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
@@ -83,28 +110,21 @@ export function LinkDocumentDialog({ open, target, onOpenChange, onLinked }: {
       activeRequest.current?.abort()
       activeRequest.current = controller
       resultSearchContext.current = null
-      const params = new URLSearchParams({ search, page: '1', pageSize: '20' })
       setRows([])
       setLoading(true)
       setErrorSearchContext(null)
-      void apiCall<unknown>(
-        `/api/documents?${params.toString()}`,
-        { headers: OPTIONAL_HEADERS, signal: controller.signal },
-        { fallback: { items: [] } },
-      )
-        .then((call) => {
+      void loadEditableDocuments(search, controller.signal, t('documents.list.unknownOwner'))
+        .then((result) => {
           if (request.current !== requestId || activeSearchContext.current !== requestContext) return
           resultSearchContext.current = requestContext
-          if (!call.ok) {
+          if (!result.ok) {
             setRows([])
             setActiveRowId(null)
             setErrorSearchContext(requestContext)
             return
           }
-          const nextRows = normalizeDocuments(call.result, [], t('documents.list.unknownOwner'))
-            .filter((row) => row.capabilities.canEdit)
-          setRows(nextRows)
-          setActiveRowId(nextRows[0]?.id ?? null)
+          setRows(result.rows)
+          setActiveRowId(result.rows[0]?.id ?? null)
         })
         .catch(() => {
           if (!controller.signal.aborted && request.current === requestId && activeSearchContext.current === requestContext) {

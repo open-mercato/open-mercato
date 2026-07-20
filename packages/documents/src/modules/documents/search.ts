@@ -48,22 +48,25 @@ async function resolveContentText(ctx: SearchBuildContext): Promise<string | nul
   const direct = pickString(ctx.record.content_text, ctx.record.contentText)
   if (direct) return direct
   if (!isContainerLike(ctx.container) || typeof ctx.record.id !== 'string') return null
+  // Both ownership predicates are mandatory. A build context missing either
+  // scope value must refuse the read rather than widen it to a documentId-only
+  // lookup that would cross tenant/organization boundaries.
+  const tenantId = pickString(ctx.tenantId)
+  const organizationId = pickString(ctx.organizationId)
+  if (!tenantId || !organizationId) return null
   const em = ctx.container.resolve('em')
   if (!isEntityManager(em)) return null
-  const scope = {
-    ...(ctx.tenantId ? { tenantId: ctx.tenantId } : {}),
-    ...(ctx.organizationId ? { organizationId: ctx.organizationId } : {}),
-  }
   const content = await findOneWithDecryption(
     em,
     DocumentContent,
     {
       documentId: ctx.record.id,
       deletedAt: null,
-      ...scope,
+      tenantId,
+      organizationId,
     },
     { fields: ['contentText'] as const },
-    { tenantId: ctx.tenantId ?? null, organizationId: ctx.organizationId ?? null },
+    { tenantId, organizationId },
   )
   return pickString(content?.contentText)
 }

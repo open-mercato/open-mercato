@@ -1,3 +1,4 @@
+import { LockMode } from '@mikro-orm/core'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
@@ -10,6 +11,7 @@ import {
   assertOptimisticLock,
   buildOptimisticLockConflictBody,
 } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
+import { hasAllFeatures } from '@open-mercato/shared/lib/auth/featureMatch'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AuthContext } from '@open-mercato/shared/lib/auth/server'
@@ -18,6 +20,7 @@ import {
   DocumentAttachment,
   DocumentContent,
   DocumentEntityLink,
+  DocumentFolder,
 } from '../data/entities'
 import {
   documentEntityLinkSourceSchema,
@@ -26,7 +29,10 @@ import {
 } from '../data/validators'
 import { DOCUMENTS_ENTITY_IDS } from '../lib/constants'
 import { materializeDocumentHtml } from '../lib/collabMaterializer'
-import { mutateDocumentContentState } from '../lib/contentService'
+import {
+  advanceDocumentCollaborationGeneration,
+  mutateDocumentContentState,
+} from '../lib/contentService'
 import { createDocumentEntityLinkData } from '../lib/entityLinks'
 import {
   rewriteDuplicateAttachmentUrls,
@@ -208,6 +214,88 @@ async function loadSourceAggregate(
   return { source, content, attachments }
 }
 
+type DuplicateTargetAggregate = {
+  document: Document | null
+  content: DocumentContent | null
+}
+
+async function loadDuplicateTargetAggregate(
+  em: EntityManager,
+  input: DuplicateDocumentCommandInput,
+  scope: { tenantId: string; organizationId: string },
+): Promise<DuplicateTargetAggregate> {
+  const document = await findOneWithDecryption(
+    em,
+    Document,
+    { id: input.newDocumentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { filters: false, lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  const content = await findOneWithDecryption(
+    em,
+    DocumentContent,
+    { documentId: input.newDocumentId, tenantId: scope.tenantId, organizationId: scope.organizationId },
+    { filters: false, lockMode: LockMode.PESSIMISTIC_WRITE },
+    scope,
+  )
+  return { document, content }
+}
+
+/**
+ * Redo replays this command with the identities the first run allocated, so the
+ * rows undo (or compensation) soft-deleted still occupy those primary keys.
+ * Resurrect exactly those rows instead of inserting colliding ones, and refuse
+ * anything that is not this actor's own retired copy.
+ */
+function assertResumableDuplicateTarget(
+  target: DuplicateTargetAggregate,
+  input: DuplicateDocumentCommandInput,
+): void {
+  const documentResumable = !target.document || (
+    target.document.deletedAt != null
+    && target.document.ownerUserId === input.actorUserId
+    && target.document.createdByUserId === input.actorUserId
+  )
+  const contentResumable = !target.content || (
+    target.content.deletedAt != null
+    && target.content.id === input.newContentId
+  )
+  if (!documentResumable || !contentResumable) {
+    throw new CrudHttpError(409, { error: 'Record changed by another user' })
+  }
+}
+
+/**
+ * The copy inherits the source folder only when the actor may place documents
+ * there. Create and update enforce the same owner-or-`documents.manage` rule;
+ * duplicating a document shared out of somebody else's folder therefore lands
+ * the copy in the actor's root rather than writing into a foreign folder.
+ */
+async function resolveDuplicateFolderId(
+  em: EntityManager,
+  scope: { tenantId: string; organizationId: string },
+  sourceFolderId: string | null,
+  actorUserId: string,
+  features: readonly string[],
+): Promise<string | null> {
+  if (!sourceFolderId) return null
+  const folder = await findOneWithDecryption(
+    em,
+    DocumentFolder,
+    {
+      id: sourceFolderId,
+      tenantId: scope.tenantId,
+      organizationId: scope.organizationId,
+      deletedAt: null,
+    },
+    { lockMode: LockMode.PESSIMISTIC_READ },
+    scope,
+  )
+  if (!folder) return null
+  if (folder.ownerUserId === actorUserId) return folder.id
+  return hasAllFeatures(['documents.manage'], Array.from(features)) ? folder.id : null
+}
+
 async function compensateHiddenCopy(
   ctx: CommandRuntimeContext,
   sourceEm: EntityManager,
@@ -281,34 +369,65 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
     let sourceTitleForLog = ''
     await withAtomicFlush(em, [async () => {
       await lockDocumentAggregateRoot(em, input.sourceDocumentId, scope)
-      await assertDocumentCommandCapability(ctx, em, input.sourceDocumentId, scope, 'canView')
+      const sourceFeatures = await assertDocumentCommandCapability(
+        ctx,
+        em,
+        input.sourceDocumentId,
+        scope,
+        'canView',
+      )
       const aggregate = await loadSourceAggregate(em, input, scope)
       sourceTitleForLog = aggregate.source.title
       sourceAttachments = aggregate.attachments
       if (aggregate.attachments.length > DOCUMENTS_DUPLICATE_MAX_ATTACHMENTS) {
         throw new CrudHttpError(422, { error: 'documents.errors.duplicateSourceTooLarge' })
       }
+      const target = await loadDuplicateTargetAggregate(em, input, scope)
+      assertResumableDuplicateTarget(target, input)
+      const folderId = await resolveDuplicateFolderId(
+        em,
+        scope,
+        aggregate.source.folderId ?? null,
+        input.actorUserId,
+        sourceFeatures,
+      )
 
       const hiddenAt = new Date()
-      copyDocument = em.create(Document, {
-        id: input.newDocumentId,
-        title: buildDuplicateTitle(input, aggregate.source.title),
-        folderId: aggregate.source.folderId ?? null,
-        ownerUserId: input.actorUserId,
-        createdByUserId: input.actorUserId,
-        tenantId: scope.tenantId,
-        organizationId: scope.organizationId,
-        deletedAt: hiddenAt,
-      })
-      em.persist(copyDocument)
+      const title = buildDuplicateTitle(input, aggregate.source.title)
+      if (target.document) {
+        const hiddenVersion = nextDocumentVersion(target.document.updatedAt, hiddenAt)
+        copyDocument = target.document
+        copyDocument.title = title
+        copyDocument.folderId = folderId
+        copyDocument.ownerUserId = input.actorUserId
+        copyDocument.createdByUserId = input.actorUserId
+        copyDocument.isActive = true
+        copyDocument.deletedAt = hiddenVersion
+        copyDocument.updatedAt = hiddenVersion
+      } else {
+        copyDocument = em.create(Document, {
+          id: input.newDocumentId,
+          title,
+          folderId,
+          ownerUserId: input.actorUserId,
+          createdByUserId: input.actorUserId,
+          tenantId: scope.tenantId,
+          organizationId: scope.organizationId,
+          deletedAt: hiddenAt,
+        })
+        em.persist(copyDocument)
+      }
 
       const sourceHtml = aggregate.content?.contentHtml ?? ''
       const materialized = sourceHtml.trim().length > 0 ? materializeDocumentHtml(sourceHtml) : null
-      await mutateDocumentContentState(em, input.newDocumentId, scope, {
+      const copyContent = await mutateDocumentContentState(em, input.newDocumentId, scope, {
         yjsState: materialized?.yjsState ?? null,
         contentHtml: materialized?.html ?? sourceHtml,
         contentText: materialized?.text ?? (aggregate.content?.contentText ?? ''),
-      }, { id: input.newContentId, existingContent: null })
+      }, { id: input.newContentId, existingContent: target.content })
+      // Resurrecting a retired copy replaces its content wholesale, so any room
+      // still holding the pre-undo Yjs state has to be forced to reload.
+      if (target.content) advanceDocumentCollaborationGeneration(copyContent)
 
       for (const verifiedLink of input.verifiedLinks) {
         const linkData = createDocumentEntityLinkData({
@@ -334,6 +453,11 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
     const attachmentService = resolveAttachmentServicePort(ctx.container)
     const attachmentIdMap = new Map<string, string>()
     const failureCleanups: AttachmentProviderCleanupPort[] = []
+    let revealedUpdatedAt = ''
+    // Compensation may only reach state the caller has never seen. It runs
+    // strictly between the hidden insert and the reveal commit; once that
+    // transaction commits, the copy is durable and visible, and a later failure
+    // must be reported rather than soft-deleting the user's document.
     try {
       for (const sourceAttachment of sourceAttachments) {
         const bytes = await attachmentService.readScoped({
@@ -368,9 +492,21 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
         attachmentIdMap.set(sourceAttachment.attachmentId, created.id)
       }
 
-      let revealedUpdatedAt = ''
-      let finalSnapshot: DuplicateSnapshot | null = null
       await withAtomicFlush(em, [async () => {
+        // Attachment bytes are copied outside the aggregate lock, so the reveal
+        // must re-derive authorization rather than trust the pre-copy snapshot.
+        // A share revoked while the copy was building therefore leaves the copy
+        // hidden and the catch below compensates it away.
+        await lockDocumentAggregateRoot(em, input.sourceDocumentId, scope)
+        const revealFeatures = await assertDocumentCommandCapability(
+          ctx,
+          em,
+          input.sourceDocumentId,
+          scope,
+          'canView',
+        )
+        assertCommandFeature(revealFeatures, 'documents.create')
+        assertCommandFeature(revealFeatures, 'documents.edit')
         const content = await findOneWithDecryption(
           em,
           DocumentContent,
@@ -399,7 +535,30 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
         content.updatedAt = nextDocumentVersion(content.updatedAt)
         revealedUpdatedAt = revealVersion.toISOString()
       }], { transaction: true, label: 'documents.document.duplicate.reveal' })
+    } catch (error) {
+      logger.error('Document duplicate failed before the copy became visible', {
+        sourceDocumentId: input.sourceDocumentId,
+        newDocumentId: input.newDocumentId,
+        err: error,
+      })
+      try {
+        await compensateHiddenCopy(ctx, em, scope, input, failureCleanups)
+        const { runAttachmentProviderCleanups } = await import('./attachments')
+        await runAttachmentProviderCleanups(failureCleanups)
+      } catch (compensationError) {
+        // The partial copy stays hidden (deleted_at was never cleared); leave
+        // the residue for operations exactly like a failed upload cleanup.
+        logger.error('Document duplicate compensation failed; hidden partial copy retained', {
+          newDocumentId: input.newDocumentId,
+          err: compensationError,
+        })
+      }
+      throw error instanceof CrudHttpError
+        ? error
+        : new CrudHttpError(500, { error: 'documents.errors.duplicateFailed' })
+    }
 
+    try {
       const copiedLinkRows = await findWithDecryption(
         em,
         DocumentEntityLink,
@@ -431,7 +590,7 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
         { filters: false },
         scope,
       )
-      finalSnapshot = {
+      const finalSnapshot: DuplicateSnapshot = {
         documentUpdatedAt: revealedUpdatedAt,
         documentDeletedAt: null,
         contentUpdatedAt: revealedContent?.updatedAt.toISOString() ?? null,
@@ -465,23 +624,13 @@ const duplicateDocumentCommand: CommandHandler<DuplicateDocumentCommandInput, Du
         }],
       }
     } catch (error) {
-      logger.error('Document duplicate failed after aggregate creation', {
+      // The copy is committed and visible; report the failure and leave it in
+      // place rather than deleting a document the caller successfully created.
+      logger.error('Document duplicate failed after the copy became visible; copy retained', {
         sourceDocumentId: input.sourceDocumentId,
         newDocumentId: input.newDocumentId,
         err: error,
       })
-      try {
-        await compensateHiddenCopy(ctx, em, scope, input, failureCleanups)
-        const { runAttachmentProviderCleanups } = await import('./attachments')
-        await runAttachmentProviderCleanups(failureCleanups)
-      } catch (compensationError) {
-        // The partial copy stays hidden (deleted_at was never cleared); leave
-        // the residue for operations exactly like a failed upload cleanup.
-        logger.error('Document duplicate compensation failed; hidden partial copy retained', {
-          newDocumentId: input.newDocumentId,
-          err: compensationError,
-        })
-      }
       throw error instanceof CrudHttpError
         ? error
         : new CrudHttpError(500, { error: 'documents.errors.duplicateFailed' })

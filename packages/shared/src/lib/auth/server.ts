@@ -226,6 +226,16 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       return null
     }
 
+    // A tenant-scoped regular key does not adopt its creator's identity, but
+    // the creator must still be a live user of the key's tenant so that
+    // deleting the issuing admin — or moving them to another tenant — disables
+    // the key. Only the organization-equality check is dropped here; requiring
+    // it is what broke tenant-scoped keys whose creator sits in a concrete
+    // organization.
+    const auditedCreatorUserId = !isSessionBoundKey && !record.organizationId
+      ? record.createdBy ?? null
+      : null
+
     if (actualUserId) {
       const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
       if (!user) {
@@ -241,6 +251,17 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
         return null
       }
     } else {
+      if (auditedCreatorUserId) {
+        const creator = await em.findOne(User, { id: auditedCreatorUserId, deletedAt: null })
+        if (!creator) {
+          cache.setMiss(secret)
+          return null
+        }
+        if ((creator.tenantId ?? null) !== (record.tenantId ?? null)) {
+          cache.setMiss(secret)
+          return null
+        }
+      }
       if (record.tenantId) {
         const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
         if (!tenant) {

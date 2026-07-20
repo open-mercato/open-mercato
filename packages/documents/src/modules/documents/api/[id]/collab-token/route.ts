@@ -12,11 +12,12 @@ import {
 } from '../../../lib/collabToken'
 import { resolveUserLabels } from '../../../lib/userLabels'
 import { resolveCollaborationUserColor } from '../../../lib/collaborationAwareness'
+import { resolvePermission } from '../../../lib/permissions'
 import {
   loadDocumentArchivedState,
+  deriveCapabilitiesForContext,
   handleDocumentsRouteError,
   resolveActorUserId,
-  resolveDocumentCapabilityProjection,
   resolveDocumentsContext,
   routeErrorSchema,
 } from '../../_shared'
@@ -73,15 +74,18 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     if (ctx.auth.isApiKey === true || ctx.auth.sub.startsWith('api_key:')) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
-    const baseProjection = await resolveDocumentCapabilityProjection(ctx, id)
-    if (!baseProjection.relationshipTier || !baseProjection.capabilities.canView) {
+    // One relationship lookup feeds both projections. The pre-archive check
+    // still runs first so an unauthorized caller cannot tell an existing
+    // document apart from a missing one via the 404 the archived read raises.
+    const relationshipTier = await resolvePermission(ctx.em, id, ctx.auth)
+    if (!relationshipTier || !deriveCapabilitiesForContext(ctx, relationshipTier).canView) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
     const archivedState = await loadDocumentArchivedState(ctx, id)
-    const projection = await resolveDocumentCapabilityProjection(ctx, id, {
+    const capabilities = deriveCapabilitiesForContext(ctx, relationshipTier, {
       archived: archivedState.archivedAt !== null,
     })
-    if (!projection.relationshipTier || !projection.capabilities.canView) {
+    if (!capabilities.canView) {
       throw new CrudHttpError(403, { error: 'Forbidden' })
     }
     const userId = resolveActorUserId(ctx.auth)
@@ -96,7 +100,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
     const userName = userLabels.get(userId)?.label
       ?? translations.translate('documents.users.unknown', 'Unknown user')
     const userColor = resolveCollaborationUserColor(userId)
-    const readOnly = !projection.capabilities.canEdit
+    const readOnly = !capabilities.canEdit
     if (!isCollabTokenV2Ready()) {
       // A misconfigured capability secret must degrade to the same graceful
       // non-collaborative response as an unset NEXT_PUBLIC_DOCUMENTS_COLLAB_URL
@@ -108,12 +112,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
           token: '',
           url: null,
           documentId: id,
-          tier: projection.relationshipTier,
+          tier: relationshipTier,
           expiresInSec: COLLAB_TOKEN_TTL_SECONDS,
           expiresAt: new Date(Date.now() + COLLAB_TOKEN_TTL_SECONDS * 1000).toISOString(),
           userName,
           userColor,
-          canEdit: projection.capabilities.canEdit,
+          canEdit: capabilities.canEdit,
           readOnly,
           user: {
             id: userId,
@@ -129,7 +133,7 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       documentId: id,
-      tier: projection.relationshipTier,
+      tier: relationshipTier,
       tokenVersion: 2,
       readOnly,
     })
@@ -143,12 +147,12 @@ export async function GET(request: Request, context: RouteContext): Promise<Resp
         token,
         url: process.env.NEXT_PUBLIC_DOCUMENTS_COLLAB_URL ?? null,
         documentId: id,
-        tier: projection.relationshipTier,
+        tier: relationshipTier,
         expiresInSec: COLLAB_TOKEN_TTL_SECONDS,
         expiresAt: new Date(verifiedToken.exp * 1000).toISOString(),
         userName,
         userColor,
-        canEdit: projection.capabilities.canEdit,
+        canEdit: capabilities.canEdit,
         readOnly,
         user: {
           id: userId,

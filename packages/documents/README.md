@@ -2,7 +2,7 @@
 
 Collaborative internal documents for Open Mercato: a tenant/organization-scoped backoffice module where staff co-author rich-text documents in real time (TipTap + Yjs), organized in folders, shared per-document (owner / editor / commenter / viewer), annotated with inline comments + @mentions, versioned, and exported to `.docx`/PDF.
 
-Specs: [collaborative editor foundation](../../.ai/specs/2026-07-08-documents-collaborative-editor.md) and [ecosystem integration](../../.ai/specs/2026-07-09-documents-ecosystem-integration-and-review.md).
+Spec: [Documents collaborative editor](../../.ai/specs/2026-07-08-documents-collaborative-editor.md).
 
 ## Realtime collaboration sidecar (M2)
 

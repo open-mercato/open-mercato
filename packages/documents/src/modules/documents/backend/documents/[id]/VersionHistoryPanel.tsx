@@ -26,9 +26,14 @@ import { normalizeVersion, type DocumentVersion } from './versionHistoryModel'
 
 function VersionPreviewDialogLoading({ error, retry }: { error?: Error | null; retry?: () => void }) {
   const t = useT()
+  // `next/dynamic` never forwards the caller's `onOpenChange` to a loading
+  // shell, so own the dismissal here. Without it a chunk that fails for good
+  // (a deploy invalidated it) traps the user in a modal Escape cannot close.
+  const [open, setOpen] = React.useState(true)
+  if (!open) return null
   return (
-    <Dialog open>
-      <DialogContent size="lg" dismissible={false}>
+    <Dialog open onOpenChange={(next) => { if (!next) setOpen(false) }}>
+      <DialogContent size="lg" dismissible={Boolean(error)}>
         <DialogHeader>
           <DialogTitle>{t('documents.versions.actions.preview')}</DialogTitle>
           <DialogDescription>{t('documents.versions.preview.loading')}</DialogDescription>

@@ -142,7 +142,7 @@ describe('document shares capability gate', () => {
     const response = await GET(request(), context())
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ items: [] })
+    await expect(response.json()).resolves.toEqual({ items: [], truncated: false })
   })
 
   it('allows a manager only when documents.share is also granted', async () => {
@@ -151,7 +151,7 @@ describe('document shares capability gate', () => {
     const response = await GET(request(), context())
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ items: [] })
+    await expect(response.json()).resolves.toEqual({ items: [], truncated: false })
   })
 
   it('dispatches share creation through the scoped stable-id command', async () => {

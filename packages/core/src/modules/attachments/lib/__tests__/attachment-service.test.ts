@@ -53,12 +53,23 @@ function attachment(overrides: Record<string, unknown> = {}) {
   } as Attachment
 }
 
+function matchesScopedWhere(record: Attachment, where: unknown): boolean {
+  if (!where || typeof where !== 'object') return true
+  const candidate = record as unknown as Record<string, unknown>
+  return Object.entries(where as Record<string, unknown>).every(([key, value]) => candidate[key] === value)
+}
+
 function createHarness(options: {
   usage?: number
   partition?: AttachmentPartition
   attachment?: Attachment | null
   storeError?: Error
   readError?: Error
+  /**
+   * Simulates a regression that drops the scope columns from the Attachment
+   * lookup, so the authorization layer can be exercised on its own.
+   */
+  unscopedAttachmentLookup?: boolean
 } = {}) {
   const selectedPartition = options.partition ?? partition()
   const selectedAttachment = options.attachment === undefined ? attachment() : options.attachment
@@ -86,10 +97,11 @@ function createHarness(options: {
   }
   let inTransaction = false
   const em: any = {
-    findOne: jest.fn(async (entity: unknown) => {
+    findOne: jest.fn(async (entity: unknown, where: unknown) => {
       if (entity === AttachmentPartition) return selectedPartition
-      if (entity === Attachment) return selectedAttachment
-      return null
+      if (entity !== Attachment || !selectedAttachment) return null
+      if (options.unscopedAttachmentLookup) return selectedAttachment
+      return matchesScopedWhere(selectedAttachment, where) ? selectedAttachment : null
     }),
     getKysely: () => db,
     create: jest.fn((_entity: unknown, data: unknown) => data),
@@ -158,8 +170,8 @@ describe('DefaultAttachmentService', () => {
     expect(driver.delete).toHaveBeenCalledWith('privateAttachments', 'tenant-1/org-1/stored.txt')
   })
 
-  it('rejects a cross-scope read before resolving the provider', async () => {
-    const { service, factory } = createHarness({
+  it('scopes the attachment lookup to the caller tenant and organization', async () => {
+    const { service, em, factory } = createHarness({
       attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
     })
 
@@ -167,7 +179,70 @@ describe('DefaultAttachmentService', () => {
       attachmentId: 'attachment-1',
       auth: scopedAuth,
       expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    const attachmentLookup = em.findOne.mock.calls.find(([entity]: unknown[]) => entity === Attachment)
+    expect(attachmentLookup?.[1]).toEqual({
+      id: 'attachment-1',
+      tenantId: 'tenant-1',
+      organizationId: 'org-1',
+    })
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('still rejects a foreign-scope row when the scoped lookup filter regresses', async () => {
+    const { service, factory } = createHarness({
+      attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+      unscopedAttachmentLookup: true,
+    })
+
+    await expectStatus(service.readScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
     }), 403)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('does not let an isSuperAdmin flag read an attachment outside the requested scope', async () => {
+    const { service, factory } = createHarness({
+      attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+    })
+
+    await expectStatus(service.readScoped({
+      attachmentId: 'attachment-1',
+      auth: { ...scopedAuth, isSuperAdmin: true },
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('does not let a superadmin role name read an attachment outside the requested scope', async () => {
+    const { service, factory } = createHarness({
+      attachment: attachment({ tenantId: 'tenant-2', organizationId: 'org-2' }),
+    })
+
+    await expectStatus(service.readScoped({
+      attachmentId: 'attachment-1',
+      auth: { ...scopedAuth, roles: ['superadmin'] },
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
+
+    expect(factory.resolveForPartition).not.toHaveBeenCalled()
+  })
+
+  it('does not serve a global attachment row to a tenant-scoped caller', async () => {
+    const { service, factory } = createHarness({
+      attachment: attachment({ tenantId: null, organizationId: null }),
+    })
+
+    await expectStatus(service.readScoped({
+      attachmentId: 'attachment-1',
+      auth: scopedAuth,
+      expectedOwner: { entityId: 'documents:document', recordId: 'document-1' },
+    }), 404)
 
     expect(factory.resolveForPartition).not.toHaveBeenCalled()
   })
