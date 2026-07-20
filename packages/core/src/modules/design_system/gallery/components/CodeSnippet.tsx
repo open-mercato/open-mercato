@@ -12,7 +12,22 @@ export function CodeSnippet({ code }: { code: string }) {
 
   const onCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(code)
+      if (navigator.clipboard) {
+        await navigator.clipboard.writeText(code)
+      } else {
+        // Non-secure contexts (plain-HTTP self-hosted installs) have no
+        // navigator.clipboard — fall back to the legacy selection API.
+        const holder = document.createElement('textarea')
+        holder.value = code
+        holder.setAttribute('readonly', '')
+        holder.style.position = 'fixed'
+        holder.style.opacity = '0'
+        document.body.appendChild(holder)
+        holder.select()
+        const copied = document.execCommand('copy')
+        holder.remove()
+        if (!copied) throw new Error('[internal] execCommand copy failed')
+      }
       flash(t('design_system.gallery.copied', 'Snippet copied to clipboard'), 'success')
     } catch {
       flash(t('design_system.gallery.copyFailed', 'Could not copy the snippet'), 'error')

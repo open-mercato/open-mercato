@@ -8,6 +8,8 @@ import type { SectionNavGroup } from '@open-mercato/ui/backend/section-page'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { GalleryEntry, GalleryFamily } from '../types'
 import { GALLERY_BASE_PATH, galleryFamilies } from '../registry'
 import { EntryCard } from './EntryCard'
@@ -29,11 +31,18 @@ export function GalleryShell() {
   const t = useT()
   const searchParams = useSearchParams()
   const [loaded, setLoaded] = React.useState<LoadedEntries>({})
+  const [failed, setFailed] = React.useState<Record<string, boolean>>({})
   const [search, setSearch] = React.useState('')
   const pendingRef = React.useRef(new Set<string>())
 
   const familyParam = searchParams?.get('family') ?? null
   const entryParam = searchParams?.get('entry') ?? null
+
+  // Clicking a family in the section nav exits search mode — otherwise the
+  // query keeps precedence and family navigation appears dead.
+  React.useEffect(() => {
+    setSearch('')
+  }, [familyParam])
   const activeFamily: GalleryFamily | undefined =
     galleryFamilies.find((family) => family.id === familyParam) ?? galleryFamilies[0]
   const activeFamilyId = activeFamily?.id ?? null
@@ -41,6 +50,7 @@ export function GalleryShell() {
   const loadFamily = React.useCallback((family: GalleryFamily) => {
     if (pendingRef.current.has(family.id)) return
     pendingRef.current.add(family.id)
+    setFailed((prev) => (prev[family.id] ? { ...prev, [family.id]: false } : prev))
     family
       .load()
       .then((mod) => {
@@ -48,6 +58,7 @@ export function GalleryShell() {
       })
       .catch(() => {
         pendingRef.current.delete(family.id)
+        setFailed((prev) => ({ ...prev, [family.id]: true }))
       })
   }, [])
 
@@ -101,6 +112,8 @@ export function GalleryShell() {
         entries: (loaded[family.id] ?? []).filter((entry) => matchesQuery(entry, search)),
       }))
       .filter((group) => group.entries.length > 0)
+    const stillLoading = galleryFamilies.some((family) => !loaded[family.id] && !failed[family.id])
+    if (groups.length === 0 && stillLoading) return renderFamilySkeleton()
     if (groups.length === 0) {
       return (
         <EmptyState
@@ -127,6 +140,18 @@ export function GalleryShell() {
   const renderActiveFamily = () => {
     if (!activeFamily) return null
     const entries = loaded[activeFamily.id]
+    if (!entries && failed[activeFamily.id]) {
+      return (
+        <ErrorMessage
+          label={t('design_system.gallery.loadFailed', 'Could not load this family')}
+          action={
+            <Button type="button" variant="outline" size="sm" onClick={() => loadFamily(activeFamily)}>
+              {t('design_system.gallery.retry', 'Retry')}
+            </Button>
+          }
+        />
+      )
+    }
     if (!entries) return renderFamilySkeleton()
     return (
       <div className="space-y-4">
