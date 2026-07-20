@@ -205,6 +205,14 @@ export class AgentMetricRollup {
 
 ### `AgentEvalSuiteRun` (`agent_eval_suite_runs`) — append-only (CI gate history; ≥6yr)
 
+> ⚠️ **Superseded by `2026-07-19-agent-eval-workbench-and-gate.md` §4.1.** This sketch was never
+> implemented. The superseding spec relaxes `release_id`, `eval_set_version` and `pass_score` to nullable
+> (ad-hoc workbench runs have no release and pin no dataset snapshot) and adds `agent_definition_id`,
+> `trigger`, `status`, `judge_may_gate`, `repeat_count`, `error_count`, `score_variance` and
+> `baseline_suite_run_id`. See the delta table there before implementing this table. The columns below
+> that survive unchanged are `outcome`, `case_count`, `safety_regressions`, `summary`, `triggered_by`
+> and both indexes.
+
 ```typescript
 export type EvalSuiteOutcome = 'passed' | 'failed' | 'advisory'
 
@@ -260,10 +268,10 @@ Routes mounted under the underscore module id `/api/agent_orchestrator/...`.
 - `GET /api/agent_orchestrator/agents/:id/metrics` — per-agent rollup KPIs (override rate, eval-pass rate, latency p50/p95, token/cost, guardrail trip rate) over a window. (Extends the trace spec's declared route to serve rollup rows.) Feature `agent_orchestrator.metrics.view`.
 - `GET /api/agent_orchestrator/metrics?scope=<agent|capability|tenant>[&scopeRef=...]&window=<hour|day|week>` — windowed rollup slice; fleet KPIs use `scope=tenant`.
 - `GET /api/agent_orchestrator/eval-cases/export` — the versioned eval-case export consumed by the CI gate (owned/emitted per the trace spec; listed here as the harness input). Feature `agent_orchestrator.eval.export`.
-- `GET /api/agent_orchestrator/eval-suite-runs[?releaseId=...]` — CI gate history (`agent_eval_suite_runs`). Feature `agent_orchestrator.eval.manage`.
+- ~~`GET /api/agent_orchestrator/eval-suite-runs[?releaseId=...]`~~ — **superseded by `GET /api/agent_orchestrator/eval-runs` in `2026-07-19-agent-eval-workbench-and-gate.md` §5.** One resource, one path; that spec also owns the entity and its migration. Feature `agent_orchestrator.eval.manage` unchanged.
 
 **CLI (regression-gate CI step):**
-- `yarn mercato agent-orchestrator eval --release <id> --gate` — runs the **Jest-based harness** over the eval-case export, replays cases against the candidate release, writes an `AgentEvalSuiteRun`, prints a summary, and exits non-zero on gate failure (safety-assertion regression or `passScore < requiredPassScore`). No `eval-runner`, no Vitest.
+- `yarn mercato agent-orchestrator eval …` — runs the **Jest-based harness** over the eval-case export, replays cases, writes an `AgentEvalSuiteRun`, prints a summary, and exits non-zero on gate failure (safety-assertion regression or `passScore < requiredPassScore`). No `eval-runner`, no Vitest. **The `--release <id> --gate` signature sketched here is superseded** by `2026-07-19-agent-eval-workbench-and-gate.md` §5, where every flag is optional and `--agent` is the primary selector — a release is one caller of the harness, not the only one.
 
 **Events** (`createModuleEvents`, `module.entity.action`, past tense, `as const` in `events.ts`):
 - `agent_orchestrator.run.evaluated` — emitted by `EvalRuntimeService` after deterministic scoring of a run.
@@ -275,7 +283,7 @@ Routes mounted under the underscore module id `/api/agent_orchestrator/...`.
 ## Phases
 
 1. **Shared scorer framework + online deterministic eval.** `lib/trace/eval/scorers/` registry of pure functions (schema / threshold / PII deterministic built-ins); `EvalRuntimeService` runs `gate`-severity scorers inline at ingest, writes `AgentEvalResult`, sets `AgentRun.evalPassed`; emits `agent_orchestrator.run.evaluated`. Parity-test scaffold.
-2. **Eval-case export + Jest CI runner + LIFECYCLE gate semantics.** Offline runner/CLI replays the export against a candidate release, applies the same scorers, writes `AgentEvalSuiteRun`, pins `evalSetVersion`; `EvalGateRunner` blocks `promote → active` on safety-assertion regression. Parity test (online ≡ offline on fixtures) gates this phase.
+2. **Eval-case export + Jest CI runner + LIFECYCLE gate semantics.** Offline runner/CLI replays the export, applies the same scorers, writes `AgentEvalSuiteRun`, pins `evalSetVersion`; `EvalGateRunner` blocks `promote → active` on safety-assertion regression. Parity test (online ≡ offline on fixtures) gates this phase. **Not delivered by this spec** — the replay engine, `AgentEvalSuiteRun` and the CLI are built in `2026-07-19-agent-eval-workbench-and-gate.md` Phases 2–5; only the shared scorers and the sampled judge shipped here (PR #3532).
 3. **`llm_judge` sampled tier.** Async scorer variant via `packages/queue` + `createModelFactory(container).resolveModel(...)`; `severity: 'warn'`, sampled online + capped offline; never on the critical path.
 4. **Metrics rollup tables + worker + reads.** `AgentMetricRollup` entity + Zod + migration; `MetricsService`; `packages/scheduler` per-tenant job → `packages/queue` watermark worker; `GET /agents/:id/metrics` + `/metrics` reads; register with the `dashboards` analytics registry; emit `agent_orchestrator.metrics.rolled_up`; produce fairness rollups into the compliance spec's `AgentFairnessMetric`.
 5. **Optional OTel exporter + anti-rubber-stamp signals.** `OM_AGENT_OTEL_EXPORT` opt-in OTLP exporter (default-OFF, fail-open); surface anti-rubber-stamp signals (approve-unchanged rate, sampled re-review, persistent warns) computed from this module's tables for the cockpit (AI Act Art. 14).
@@ -319,7 +327,7 @@ Routes mounted under the underscore module id `/api/agent_orchestrator/...`.
 
 ## Migration & Backward Compatibility
 
-- Net-new entities `agent_metric_rollups`, `agent_eval_suite_runs` (`agent_` prefix) — additive; no existing module schema changes. Ship MikroORM migration + `.snapshot-open-mercato.json`.
+- Net-new entity `agent_metric_rollups` (`agent_` prefix) — additive; no existing module schema changes. Ship MikroORM migration + `.snapshot-open-mercato.json`. **`agent_eval_suite_runs` migration ownership transferred** to `2026-07-19-agent-eval-workbench-and-gate.md` §4.1, which ships it in its Phase 2 with the relaxed nullability that spec requires.
 - The **eval-case export format** and the **metric rollup schema** are this module's own contract surfaces. The export envelope (owned by the trace spec) is versioned from day one; the rollup `metricKey` / `measures` shape follows `BACKWARD_COMPATIBILITY.md` STABLE/ADDITIVE-ONLY (new `metricKey`s and new `measures` fields are additive).
 - New events (`agent_orchestrator.run.evaluated`, `agent_orchestrator.metrics.rolled_up`), ACL features (`agent_orchestrator.metrics.*`, `agent_orchestrator.eval.*`), and routes are additive.
 - New CLI command `agent-orchestrator eval` is additive; it does **not** introduce, depend on, or reference `eval-runner` / Inspect AI / `x_om` / Vitest / `telemetry-and-otel`.
@@ -329,7 +337,7 @@ Routes mounted under the underscore module id `/api/agent_orchestrator/...`.
 
 - **Tenancy:** `agent_metric_rollups` / `agent_eval_suite_runs` carry `tenant_id` + `organization_id`; all reads filter by `organizationId`; per-tenant scheduler scope. ✓
 - **ORM:** MikroORM v7 `/legacy`, explicit `@Property`, UUID PK `gen_random_uuid()`, JSON→`jsonb` (Zod in `data/validators.ts`), enums→`varchar` + TS union, no cross-module ORM relations (FK ids only). ✓
-- **Append-only / locking:** `agent_eval_suite_runs` append-only (≥6yr); `agent_metric_rollups` upsert-by-key (derived data, not user-editable — no optimistic lock needed). Trace eval tiers append-only per the trace spec. ✓
+- **Append-only / locking:** `agent_eval_suite_runs` append-only (≥6yr) — *constraint inherited by its new owner, `2026-07-19-agent-eval-workbench-and-gate.md`*; `agent_metric_rollups` upsert-by-key (derived data, not user-editable — no optimistic lock needed). Trace eval tiers append-only per the trace spec. ✓
 - **Writes/reads:** rollup/suite-run reads via `makeCrudRoute` + indexer + `openApi`; the rollup write path is a queue worker (derived data, not a user mutation); the CLI gate writes via the harness. ✓
 - **Events/ACL:** `module.entity.action` past tense in `events.ts`; `agent_orchestrator.metrics.*` / `agent_orchestrator.eval.*` in `acl.ts` + `setup.ts`. ✓
 - **i18n/DS:** any cockpit-facing strings via `i18n/` + `useT`/`resolveTranslations`; status via DS tokens. ✓
@@ -337,6 +345,8 @@ Routes mounted under the underscore module id `/api/agent_orchestrator/...`.
 - **No absent tooling referenced:** harness is Jest-only; metrics are net-new from the trace tables; OTel is an opt-in default-OFF exporter, not a dependency. ✓
 
 ## Changelog
+
+- **2026-07-19:** Partially superseded by `2026-07-19-agent-eval-workbench-and-gate.md`, which takes over the **unimplemented** half of this spec: `AgentEvalSuiteRun` (with relaxed nullability for ad-hoc runs — see its §4.1 delta table), the `/eval-suite-runs` route (→ `/eval-runs`), the `eval --release` CLI signature (→ optional flags with `--agent` primary), the offline replay runner, and the `agent_eval_suite_runs` migration. What shipped in PR #3532 — shared pure-function scorers, `EvalRuntimeService`, the sampled `llm_judge` worker, `AgentEvalCase`/`AgentEvalAssertion`/`AgentEvalResult`, the correction flywheel and the metrics half — remains owned here. Note that the shipped `Scorer` signature omits the `expected` parameter this spec mandates; that deviation is fixed in the superseding spec's Phase 1.
 
 - **2026-06-20:** Created. Consolidates GAP-04 (eval harness) + GAP-05 (metrics/observability) into one build spec behind the trace spec's "own eval harness" and the metrics the cockpit/lifecycle/compliance specs consume. Specifies the shared pure-function scorer pattern (online `EvalRuntimeService` ≡ offline Jest CI gate), the sampled `llm_judge` tier via `packages/queue` + `AiModelFactory`, the LIFECYCLE promotion gate semantics, and the hybrid metrics substrate (scheduler+queue rollup tables + `dashboards` `WidgetDataService` ad-hoc + optional default-OFF OTel exporter). Adds two net-new entities (`AgentMetricRollup`, `AgentEvalSuiteRun`); references trace/lifecycle/compliance-owned entities without redefining them. Rejects `vitest-evals` (second-runner tax) and standalone Postgres materialized views (poor OM-fit). Links GAP-14 (override-rate consumer + autonomy gate) and GAP-19 (≥6yr retention of eval/metric tiers).
 ```

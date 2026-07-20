@@ -352,6 +352,19 @@ export type EvalAssertionSeverity = z.infer<typeof evalAssertionSeverity>
 
 export const evalAssertionCreateSchema = z.object({
   key: z.string().min(1).max(100),
+  /**
+   * Registry scorer to run. OPTIONAL for backward compatibility: an existing
+   * client that only sends `key` keeps working, because the route falls back to
+   * `key` — the pre-column resolution rule. New clients should send it explicitly,
+   * since it is what allows several assertions to share one scorer.
+   *
+   * Config is NOT validated here: `evalAssertionUpdateSchema` derives from this
+   * object via `.partial()`, and Zod v4 rejects composition over refined schemas
+   * (`.ai/lessons.md` — use `safeExtend`). Per-scorer config validation therefore
+   * runs in the route through `parseScorerConfig`, which also yields a far better
+   * 422 body than a refinement could.
+   */
+  scorerKey: z.string().min(1).max(100).optional(),
   title: z.string().min(1).max(200),
   description: z.string().max(4000).optional(),
   appliesTo: z.string().min(1).max(100).default('*'),
@@ -374,6 +387,7 @@ export const evalAssertionListQuerySchema = z
     pageSize: z.coerce.number().min(1).max(100).default(50),
     id: z.string().uuid().optional(),
     appliesTo: z.string().optional(),
+    scorerKey: z.string().optional(),
     type: evalAssertionType.optional(),
     severity: evalAssertionSeverity.optional(),
     enabled: z.coerce.boolean().optional(),
@@ -1158,3 +1172,69 @@ export const agentIconWriteSchema = z.object({
   updatedAt: z.string().datetime().nullable().optional(),
 })
 export type AgentIconWrite = z.infer<typeof agentIconWriteSchema>
+
+// ── Eval runs (replay engine) ───────────────────────────────────────────────
+
+/**
+ * Per-case override of a suite-level assertion, stored in
+ * `AgentEvalCase.assertions`. References are by `assertionId`, NOT by key: the
+ * unique index is per (org, appliesTo, key), so a `'*'` row and an agent-specific
+ * row routinely share a slug and a key-based reference would be ambiguous.
+ */
+export const evalCaseAssertionRefSchema = z.object({
+  assertionId: z.string().uuid(),
+  /** Shallow-merged over the stored config, then re-validated against the scorer. */
+  configOverride: z.record(z.string(), z.unknown()).nullable().optional(),
+  disabled: z.boolean().optional(),
+})
+export type EvalCaseAssertionRefInput = z.infer<typeof evalCaseAssertionRefSchema>
+
+export const evalRunCreateSchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  evalCaseIds: z.array(z.string().uuid()).min(1).max(500),
+  /** Repeat each case to MEASURE judge/model variance rather than assume it away. */
+  repeatCount: z.coerce.number().int().min(1).max(20).default(1),
+  /**
+   * A human reads a manual run, so a rubric may decide pass/fail there. CI passes
+   * false: the gate stays deterministic and promotion reproducible.
+   */
+  judgeMayGate: z.boolean().default(true),
+})
+export type EvalRunCreateInput = z.infer<typeof evalRunCreateSchema>
+
+export const evalSuiteRunStatus = z.enum(['queued', 'running', 'completed', 'failed', 'cancelled'])
+
+export const evalRunListQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  agentDefinitionId: z.string().optional(),
+  status: evalSuiteRunStatus.optional(),
+})
+export type EvalRunListQuery = z.infer<typeof evalRunListQuerySchema>
+
+/** Case runs are paged by keyset on (suite_run_id, created_at) — see _suite_idx. */
+export const evalCaseRunListQuerySchema = z.object({
+  pageSize: z.coerce.number().min(1).max(100).default(50),
+  after: z.string().optional(),
+})
+export type EvalCaseRunListQuery = z.infer<typeof evalCaseRunListQuerySchema>
+
+/**
+ * Eval-case authoring. `input`/`expected` are free-form per agent (the agent's own
+ * `result.schema` constrains what a real run produces), so they stay `unknown`
+ * here; both columns are ENCRYPTED at rest via the module's `defaultEncryptionMaps`.
+ */
+export const evalCaseCreateSchema = z.object({
+  agentDefinitionId: z.string().min(1).max(100),
+  input: z.unknown(),
+  expected: z.unknown().optional(),
+  processType: z.string().max(100).nullable().optional(),
+  /** Per-case overrides of the suite-level assertion set. */
+  assertions: z.array(evalCaseAssertionRefSchema).nullable().optional(),
+})
+export type EvalCaseCreateInput = z.infer<typeof evalCaseCreateSchema>
+
+export const evalCaseUpdateSchema = z
+  .object({ id: z.string().uuid() })
+  .merge(evalCaseCreateSchema.partial())
+export type EvalCaseUpdateInput = z.infer<typeof evalCaseUpdateSchema>

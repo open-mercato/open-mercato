@@ -6,7 +6,7 @@ import type { AgentRuntimeService } from './lib/runtime/agentRuntime'
 import type { AgentRunSessionStore } from './lib/runtime/agentRunSessionStore'
 import { getAgentSkill, getAgentSkillScript } from './lib/runtime/fileAgentSkills'
 import { runSandboxedScript } from './lib/runtime/sandboxedScript'
-import { getCurrentRunId } from './lib/runtime/runContext'
+import { getCurrentRunId, getCurrentRunSource } from './lib/runtime/runContext'
 import { webSearchTool, webFetchTool } from './lib/webSearch/webSearchTools'
 
 /** Tool id of the OUTCOME-submission tool an OpenCode file-agent finishes with. */
@@ -72,11 +72,15 @@ const delegateAgentTool: AiToolDefinition = {
       // records `parent_run_id` for traceability (Phase 4). Undefined outside a
       // run context (the nested run is then a top-level run).
       const parentRunId = getCurrentRunId()
+      const delegatedSource = getCurrentRunSource()
       const result = await agentRuntime.run(agentId, input, {
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         userId: ctx.userId,
         ...(parentRunId ? { parentRunId } : {}),
+        // Inherit the parent's origin so an eval replay's sub-agent runs are not
+        // counted as production traffic in the agent's metric rollups.
+        ...(delegatedSource ? { source: delegatedSource } : {}),
       })
       const data = result.kind === 'informative' ? result.data : result.proposal
       return { ok: true as const, agentId, data }

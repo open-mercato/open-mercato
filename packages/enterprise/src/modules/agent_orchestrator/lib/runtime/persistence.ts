@@ -45,6 +45,14 @@ export type AgentRunCtx = {
    * Runners invoke it inside try/catch: a throwing hook is logged, never fatal.
    */
   onRunPersisted?: (runId: string) => void
+  /**
+   * Marks the whole run tree as production traffic or an eval replay. Threaded
+   * into BOTH the AgentRun and any AgentProposal the run produces, so a replay's
+   * records are born tagged rather than patched afterwards — there is no window in
+   * which an eval proposal looks like operator work, and nested sub-agent
+   * delegations inherit the tag automatically because they inherit this ctx.
+   */
+  source?: 'runtime' | 'eval'
 }
 
 export type AgentRunAs = {
@@ -129,6 +137,8 @@ export async function createRun(
     /** Workflow process instance + step this run belongs to (INVOKE_AGENT); links the run to the process in traces. */
     processId?: string | null
     stepId?: string | null
+    /** `eval` marks a replay so it never skews the agent's production metrics. */
+    source?: 'runtime' | 'eval'
   },
 ): Promise<string> {
   // Audited-command scope (Phase 3, layer B-b): the agent's own AgentRun write
@@ -230,6 +240,8 @@ export async function createProposal(
     stepId: string | null
     /** Output-phase guardrail verdict checks attached at creation (Phase 1). */
     guardResults?: GuardResults | null
+    /** `eval` keeps a replay proposal out of the operator caseload permanently. */
+    source?: 'runtime' | 'eval'
   },
 ): Promise<void> {
   await withAuditedCommand(() =>

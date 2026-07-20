@@ -257,8 +257,66 @@ const approveEvalCaseCommand: CommandHandler<ApproveEvalCaseCommandInput, Approv
   },
 }
 
+// ── evalCases.archive ───────────────────────────────────────────────────────
+
+const archiveEvalCaseCommandSchema = z.object({
+  tenantId: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  evalCaseId: z.string().uuid(),
+})
+export type ArchiveEvalCaseCommandInput = z.infer<typeof archiveEvalCaseCommandSchema>
+export type ArchiveEvalCaseCommandResult = { evalCaseId: string; status: string; updatedAt: string }
+
+/**
+ * Retires a case from the replayable set. NOT a delete: an eval case is an
+ * append-only >=6yr record, and a suite run that already referenced it must stay
+ * interpretable. `approve` is the inverse.
+ */
+const archiveEvalCaseCommand: CommandHandler<ArchiveEvalCaseCommandInput, ArchiveEvalCaseCommandResult> = {
+  id: 'agent_orchestrator.evalCases.archive',
+  async execute(rawInput, ctx) {
+    const input = archiveEvalCaseCommandSchema.parse(rawInput)
+    const em = (ctx.container.resolve('em') as EntityManager).fork()
+
+    const evalCase = await em.findOne(AgentEvalCase, {
+      id: input.evalCaseId,
+      tenantId: input.tenantId,
+      organizationId: input.organizationId,
+      deletedAt: null,
+    })
+    if (!evalCase) {
+      enforceRecordGoneIsConflict({
+        resourceKind: EVAL_CASE_RESOURCE,
+        resourceId: input.evalCaseId,
+        request: ctx.request ?? null,
+      })
+      throw new CrudHttpError(404, { error: '[internal] eval case not found' })
+    }
+
+    if (evalCase.status === 'archived') {
+      return { evalCaseId: evalCase.id, status: evalCase.status, updatedAt: evalCase.updatedAt.toISOString() }
+    }
+
+    enforceCommandOptimisticLock({
+      resourceKind: EVAL_CASE_RESOURCE,
+      resourceId: evalCase.id,
+      current: evalCase.updatedAt,
+      request: ctx.request ?? null,
+    })
+
+    await withAtomicFlush(
+      em,
+      [() => { evalCase.status = 'archived' }],
+      { transaction: true, label: 'agent_orchestrator.evalCases.archive' },
+    )
+
+    return { evalCaseId: evalCase.id, status: evalCase.status, updatedAt: evalCase.updatedAt.toISOString() }
+  },
+}
+
 registerCommand(createCorrectionCommand)
 registerCommand(createEvalCaseFromRunCommand)
 registerCommand(approveEvalCaseCommand)
+registerCommand(archiveEvalCaseCommand)
 
-export { createCorrectionCommand, createEvalCaseFromRunCommand, approveEvalCaseCommand }
+export { createCorrectionCommand, createEvalCaseFromRunCommand, approveEvalCaseCommand, archiveEvalCaseCommand }

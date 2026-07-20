@@ -10,6 +10,7 @@ import {
   type EvalAssertionCreateInput,
   type EvalAssertionUpdateInput,
 } from '../../data/validators'
+import { parseScorerConfig } from '../../lib/eval/registry'
 import {
   createAgentOrchestratorCrudOpenApi,
   createPagedListResponseSchema,
@@ -29,13 +30,26 @@ const routeMetadata = {
 export const metadata = routeMetadata
 
 /**
- * The gate tier must be reproducible, so only `deterministic` assertions may be
- * `severity: 'gate'`. An `llm_judge` assertion is always `warn` (the judge can
- * never block production) — coerce it here rather than rejecting, so an engineer
- * enabling the seeded example does not have to remember the rule.
+ * Resolves which registry scorer this assertion runs and validates its config
+ * against that scorer's schema. `scorerKey` is optional on the wire so existing
+ * clients that only send `key` keep working — falling back to `key` reproduces the
+ * pre-column resolution rule.
+ *
+ * A malformed config is a 422 HERE, at the write boundary. At EVALUATION time the
+ * same failure yields a skipped result instead, so a bad config stays visible
+ * without ever flipping `AgentRun.evalPassed`.
  */
-function resolveSeverity(type: EvalAssertionCreateInput['type'], severity: EvalAssertionCreateInput['severity']) {
-  return type === 'llm_judge' ? 'warn' : severity
+function resolveScorerForWrite(scorerKey: string | undefined, key: string, config: unknown): string {
+  const resolved = scorerKey ?? key
+  const parsed = parseScorerConfig(resolved, config, 'write')
+  if (!parsed.ok) {
+    throw new CrudHttpError(422, {
+      error: '[internal] invalid assertion configuration',
+      scorerKey: resolved,
+      issues: parsed.issues,
+    })
+  }
+  return resolved
 }
 
 const crud = makeCrudRoute<
@@ -58,6 +72,7 @@ const crud = makeCrudRoute<
     fields: [
       'id',
       'key',
+      'scorer_key',
       'title',
       'description',
       'applies_to',
@@ -73,6 +88,7 @@ const crud = makeCrudRoute<
     ],
     sortFieldMap: {
       key: 'key',
+      scorerKey: 'scorer_key',
       title: 'title',
       appliesTo: 'applies_to',
       type: 'type',
@@ -85,6 +101,7 @@ const crud = makeCrudRoute<
       const filters: Record<string, unknown> = {}
       if (query.id) filters.id = { $eq: query.id }
       if (query.appliesTo) filters.applies_to = { $eq: query.appliesTo }
+      if (query.scorerKey) filters.scorer_key = { $eq: query.scorerKey }
       if (query.type) filters.type = { $eq: query.type }
       if (query.severity) filters.severity = { $eq: query.severity }
       if (typeof query.enabled === 'boolean') filters.enabled = { $eq: query.enabled }
@@ -103,11 +120,12 @@ const crud = makeCrudRoute<
         tenantId,
         organizationId,
         key: input.key,
+        scorerKey: resolveScorerForWrite(input.scorerKey, input.key, input.config),
         title: input.title,
         description: input.description ?? null,
         appliesTo: input.appliesTo,
         type: input.type,
-        severity: resolveSeverity(input.type, input.severity),
+        severity: input.severity,
         config: input.config ?? null,
         enabled: input.enabled ?? true,
       }
@@ -124,10 +142,32 @@ const crud = makeCrudRoute<
       if (input.description !== undefined) row.description = input.description ?? null
       if (input.appliesTo !== undefined) row.appliesTo = input.appliesTo
       if (input.type !== undefined) row.type = input.type
-      if (input.severity !== undefined || input.type !== undefined) {
-        row.severity = resolveSeverity(input.type ?? row.type, input.severity ?? row.severity)
+      // Severity is no longer coerced. A judge assertion MAY now be declared
+      // `gate`; whether that verdict actually gates is decided per plane by
+      // `GatePolicy` at evaluation time — the manual workbench honours it, CI and
+      // online ingest never do. Coercing here would have made the manual policy
+      // unreachable.
+      if (input.severity !== undefined) row.severity = input.severity
+      // Re-validate ONLY when the scorer contract actually changes. Comparing
+      // against the stored values (rather than merely checking for presence)
+      // matters: clients round-trip the whole row for unrelated edits such as the
+      // enable toggle, and a legacy row whose stored config predates validation
+      // must not start 422-ing on an untouched field.
+      const scorerChanged = input.scorerKey !== undefined && input.scorerKey !== row.scorerKey
+      const configChanged =
+        input.config !== undefined && JSON.stringify(input.config ?? null) !== JSON.stringify(row.config ?? null)
+      if (scorerChanged || configChanged) {
+        const nextConfig = input.config !== undefined ? input.config : row.config
+        row.scorerKey = resolveScorerForWrite(input.scorerKey ?? row.scorerKey, input.key ?? row.key, nextConfig)
       }
-      if (input.config !== undefined) row.config = input.config ?? null
+      if (configChanged) {
+        row.config = input.config ?? null
+        // `version` pins the eval set: bump it whenever the contract actually
+        // changes, so a gate run can reference a known assertion revision. It was
+        // previously frozen at 1 because nothing ever wrote it. Bumping on every
+        // round-trip (including the enable toggle) would make it meaningless.
+        row.version = (row.version ?? 1) + 1
+      }
       if (input.enabled !== undefined) row.enabled = input.enabled
     },
     response: (entity) => {
@@ -149,6 +189,7 @@ export const DELETE = crud.DELETE
 const evalAssertionListItemSchema = z.object({
   id: z.string().uuid(),
   key: z.string(),
+  scorer_key: z.string(),
   title: z.string(),
   description: z.string().nullable().optional(),
   applies_to: z.string(),

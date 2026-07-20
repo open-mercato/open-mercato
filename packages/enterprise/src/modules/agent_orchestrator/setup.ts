@@ -94,6 +94,7 @@ export const setup: ModuleSetupConfig = {
       'agent_orchestrator.workflows.author',
       'agent_orchestrator.trace.view',
       'agent_orchestrator.eval.manage',
+      'agent_orchestrator.eval.run',
       'agent_orchestrator.eval.export',
       'agent_orchestrator.guardrail.read',
       'agent_orchestrator.guardrail.manage',

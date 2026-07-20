@@ -4,7 +4,14 @@
 
 > **Category:** Build · **Gap:** GAP-04 · **Priority:** P1
 > **Related:** trace spec (`2026-06-19-agent-trace-eval-capture.md`), lifecycle spec (`2026-06-19-agent-deployment-and-regression-gating.md`), conventions (`2026-06-19-agent-orchestrator-conventions.md`)
-> **Status:** Draft · **Created:** 2026-06-19
+> **Status:** Superseded · **Created:** 2026-06-19
+> **Completed by:** `../2026-07-19-agent-eval-workbench-and-gate.md`. Its Approach-A recommendation (shared
+> pure-function scorers, one registry across both planes, judge via `AiModelFactory`, owned versioned
+> export, no second test runner, no vendor platform) is carried forward unchanged. Two corrections apply:
+> the 4-arg scorer contract in § 5 (`scorer(input, expected, actual, config)`) was already superseded by the
+> 3-arg `ScorerRunView` form in `../2026-06-20-agent-eval-harness-and-metrics.md`; and deliverable #6's
+> gate semantics now live with the lifecycle spec, which calls the exported `runEvalGate()` rather than
+> owning an `EvalHarness` of its own.
 
 ## 1. Gap Statement
 

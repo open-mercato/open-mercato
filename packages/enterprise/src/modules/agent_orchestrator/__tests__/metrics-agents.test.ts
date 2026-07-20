@@ -163,6 +163,8 @@ describe('GET /api/agent_orchestrator/metrics/agents', () => {
         tenantId: TENANT_A,
         organizationId: ORG_A,
         agentId: 'agent-drift',
+        // NOT NULL DEFAULT 'runtime' in the DB; the fake EM applies no defaults.
+        source: 'runtime',
         status: 'ok',
         evalPassed: null,
         latencyMs: 100,

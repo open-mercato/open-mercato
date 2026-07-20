@@ -70,7 +70,7 @@ describe('evaluateRun', () => {
   it('returns null verdict when no assertions apply', async () => {
     const { em, storeFor } = createFakeEm({ runs: [run()], assertions: [] })
     const result = await evaluateRun(em, SCOPE, 'run-1')
-    expect(result).toEqual({ evaluated: 0, evalPassed: null, evalScore: null })
+    expect(result).toEqual({ evaluated: 0, scored: 0, skipped: 0, evalPassed: null, evalScore: null })
     expect(storeFor(AgentEvalResult)).toHaveLength(0)
   })
 

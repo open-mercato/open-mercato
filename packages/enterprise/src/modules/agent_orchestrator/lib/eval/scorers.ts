@@ -1,90 +1,89 @@
 /**
- * Shared deterministic scorers (gap-04 single-source-of-truth). Each is a PURE
- * function — inputs in, verdict out, no EntityManager / request scope — so the
- * exact same logic runs online (inline at ingest in EvalRuntimeService) and,
- * later, offline as the CI regression gate. Only deterministic scorers may back
- * a `gate`-severity assertion; non-determinism would make the gate flaky.
+ * @deprecated Legacy scorer surface. Superseded by `lib/eval/registry` (spec
+ * 2026-07-19-agent-eval-workbench-and-gate §3.1), which adds `expected`, a typed
+ * per-scorer `configSchema`, generated form metadata, and skipped verdicts.
+ *
+ * This module is retained for ≥1 minor because it is publicly reachable through
+ * `@open-mercato/enterprise`'s wildcard subpath exports as
+ * `.../modules/agent_orchestrator/lib/eval/scorers`. The legacy types keep their
+ * ORIGINAL shape here on purpose — widening `ScorerVerdict.passed` in place would
+ * break structural consumers.
+ *
+ * Migration: import `runScorer` / `getScorerDefinition` from `lib/eval/registry`
+ * and project runs with `projectRunView`.
  */
 
+import { getScorerDefinition } from './registry'
+import type { Json, ScorerRunView } from './types'
+
+/** @deprecated Use `ScorerRunView` from `lib/eval/types`. */
 export type ScorerRunFacts = {
   confidence?: number | null
   status?: string | null
 }
 
+/** @deprecated Use the 3-parameter `ScorerDefinition['score']` signature. */
 export type ScorerInput = {
   output: unknown
   run: ScorerRunFacts
   config: Record<string, unknown>
 }
 
+/**
+ * @deprecated Use `ScorerVerdict` from `lib/eval/types`, whose `passed` is
+ * `boolean | null` (null = skipped). This legacy alias keeps `passed: boolean`.
+ */
 export type ScorerVerdict = {
   passed: boolean
   score?: number
   evidence?: unknown
 }
 
+/** @deprecated Use `ScorerDefinition` from `lib/eval/types`. */
 export type Scorer = (input: ScorerInput) => ScorerVerdict
 
-function toText(value: unknown): string {
-  if (typeof value === 'string') return value
-  try {
-    return JSON.stringify(value) ?? ''
-  } catch {
-    return ''
+const LEGACY_KEYS = ['output_present', 'required_keys', 'min_confidence', 'no_pii'] as const
+
+function toRunView(input: ScorerInput): ScorerRunView {
+  return {
+    input: null,
+    output: (input.output ?? null) as Json | null,
+    resultKind: null,
+    confidence: input.run.confidence ?? null,
+    status: input.run.status ?? 'unknown',
+    latencyMs: null,
+    costMinor: null,
+    inputTokens: null,
+    outputTokens: null,
+    toolCalls: [],
+    stepCount: 0,
+    disposition: null,
   }
 }
 
-// Non-global patterns (presence detection only) — keeps scorers stateless/pure.
-const PII_PATTERNS: Array<{ name: string; re: RegExp }> = [
-  { name: 'email', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/ },
-  { name: 'ssn', re: /\b\d{3}-\d{2}-\d{4}\b/ },
-  { name: 'phone', re: /\b(?:\+?\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b/ },
-]
-
-export const scorers: Record<string, Scorer> = {
-  /** Passes when the run produced a non-empty output. */
-  output_present: ({ output }) => {
-    const empty =
-      output === null ||
-      output === undefined ||
-      (typeof output === 'object' && Object.keys(output as object).length === 0)
-    return { passed: !empty, score: empty ? 0 : 1 }
-  },
-
-  /** Passes when every `config.requiredKeys` is present on the output object. */
-  required_keys: ({ output, config }) => {
-    const required = Array.isArray(config.requiredKeys) ? (config.requiredKeys as string[]) : []
-    if (!output || typeof output !== 'object') {
-      return { passed: false, score: 0, evidence: { reason: 'output is not an object' } }
-    }
-    const present = output as Record<string, unknown>
-    const missing = required.filter((key) => !(key in present))
+function legacyAdapter(scorerKey: string): Scorer {
+  return (input) => {
+    const definition = getScorerDefinition(scorerKey)
+    if (!definition) return { passed: false, score: 0, evidence: { reason: `unknown scorer "${scorerKey}"` } }
+    const parsed = definition.configSchema.safeParse(input.config ?? {})
+    const config = (parsed.success ? parsed.data : {}) as never
+    const verdict = definition.score(toRunView(input), null, config)
     return {
-      passed: missing.length === 0,
-      score: required.length ? (required.length - missing.length) / required.length : 1,
-      evidence: missing.length ? { missing } : undefined,
+      // None of the four legacy scorers can skip, so this coercion is unreachable
+      // in practice; it exists so the legacy return type stays honest.
+      passed: verdict.passed ?? false,
+      score: verdict.score ?? undefined,
+      evidence: verdict.evidence,
     }
-  },
-
-  /** Passes when run confidence ≥ `config.threshold` (default 0.5). */
-  min_confidence: ({ run, config }) => {
-    const threshold = typeof config.threshold === 'number' ? config.threshold : 0.5
-    const confidence = typeof run.confidence === 'number' ? run.confidence : null
-    if (confidence === null) {
-      return { passed: false, score: 0, evidence: { reason: 'run has no confidence' } }
-    }
-    return { passed: confidence >= threshold, score: confidence, evidence: { confidence, threshold } }
-  },
-
-  /** Passes when no PII-shaped substring is detected in the output. */
-  no_pii: ({ output }) => {
-    const text = toText(output)
-    const detected = PII_PATTERNS.filter(({ re }) => re.test(text)).map(({ name }) => name)
-    return { passed: detected.length === 0, score: detected.length === 0 ? 1 : 0, evidence: detected.length ? { detected } : undefined }
-  },
+  }
 }
 
-/** Resolve the scorer for an assertion — `config.scorer` overrides, else the assertion key. */
+/** @deprecated Use `listScorerDefinitions()` / `runScorer()` from `lib/eval/registry`. */
+export const scorers: Record<string, Scorer> = Object.fromEntries(
+  LEGACY_KEYS.map((key) => [key, legacyAdapter(key)]),
+)
+
+/** @deprecated Use `getScorerDefinition(scorerKey)` from `lib/eval/registry`. */
 export function getScorer(key: string): Scorer | undefined {
-  return scorers[key]
+  return getScorerDefinition(key) ? legacyAdapter(key) : undefined
 }

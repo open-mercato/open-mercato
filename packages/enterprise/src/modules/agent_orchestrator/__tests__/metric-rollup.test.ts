@@ -93,6 +93,10 @@ function seed(storeFor: (entity: unknown) => Array<Record<string, unknown>>) {
       __entity: AgentRun,
       ...SCOPE,
       agentId: AGENT,
+      // The column is NOT NULL DEFAULT 'runtime' in the DB; the fake EM applies no
+      // entity defaults, so fixtures must state it. Production metrics filter it:
+      // eval replays write real runs and must not skew the agent's dashboards.
+      source: 'runtime',
       createdAt: recent,
       deletedAt: null,
       ...run,

@@ -53,7 +53,8 @@ export async function GET(req: Request, ctx: RouteContext) {
       { orderBy: { createdAt: 'asc' } },
       decryptionScope,
     ),
-    em.find(AgentEvalResult, { agentRunId: run.id, ...scope }, { orderBy: { evaluatedAt: 'asc' } }),
+    // `evidence` is encrypted (output excerpts + judge reasoning).
+    findWithDecryption(em, AgentEvalResult, { agentRunId: run.id, ...scope }, { orderBy: { evaluatedAt: 'asc' } }, scope),
     em.find(AgentContextBundle, { agentRunId: run.id, ...scope }, { orderBy: { createdAt: 'desc' }, limit: 1 }),
     em.find(AgentGuardrailCheck, { agentRunId: run.id, ...scope }, { orderBy: { createdAt: 'asc' } }),
     findWithDecryption(

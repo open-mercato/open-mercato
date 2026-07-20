@@ -5,6 +5,16 @@ import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { AgentCorrection, AgentMetricRollup, AgentProposal, AgentRun } from '../../../data/entities'
+
+/**
+ * Eval replays write real proposals that are born `pending` and can NEVER be
+ * disposed (the dispose command refuses them). Counting them here pinned
+ * `oldestPendingAt` to an eval proposal forever and inflated `pendingCount` by the
+ * suite size — an "oldest unactioned proposal" SLA no operator could ever clear,
+ * because the caseload correctly hides them. `metricRollupService` already
+ * excludes eval runs; these call sites were missed.
+ */
+const PRODUCTION_ONLY = { source: 'runtime' } as const
 import { agentMetricRollupMetricsSchema } from '../../../data/validators'
 import { ROLLUP_WINDOW_MS, ROLLUP_BUCKET_MS, type MetricScope } from '../../../lib/metrics/metricRollupService'
 import { agentOrchestratorTag } from '../../openapi'
@@ -131,7 +141,7 @@ export async function GET(req: Request) {
   const dispositionEntries = await Promise.all(
     DISPOSITIONS.map(
       async (disposition) =>
-        [disposition, await em.count(AgentProposal, { ...scope, disposition, deletedAt: null })] as const,
+        [disposition, await em.count(AgentProposal, { ...scope, source: 'runtime', disposition, deletedAt: null })] as const,
     ),
   )
   const dispositionCounts = Object.fromEntries(dispositionEntries) as Record<
@@ -143,20 +153,23 @@ export async function GET(req: Request) {
     dispositionCounts.pending > 0
       ? await em.findOne(
           AgentProposal,
-          { ...scope, disposition: 'pending', deletedAt: null },
+          { ...scope, source: 'runtime', disposition: 'pending', deletedAt: null },
           { orderBy: { createdAt: 'asc' }, fields: ['createdAt'] },
         )
       : null
 
   const windowedProposalScope = { ...scope, deletedAt: null, createdAt: { $gte: since } }
   const [autoApprovedInWindow, disposedInWindow] = await Promise.all([
-    em.count(AgentProposal, { ...windowedProposalScope, disposition: 'auto_approved' }),
-    em.count(AgentProposal, { ...windowedProposalScope, disposition: { $in: [...DISPOSED_DISPOSITIONS] } }),
+    em.count(AgentProposal, { ...windowedProposalScope, source: 'runtime', disposition: 'auto_approved' }),
+    em.count(AgentProposal, { ...windowedProposalScope, source: 'runtime', disposition: { $in: [...DISPOSED_DISPOSITIONS] } }),
   ])
   const autoApproveRate = disposedInWindow > 0 ? autoApprovedInWindow / disposedInWindow : null
 
   const rollupSums = await sumFreshRollups(em, scope, windowSpanMs)
-  const windowedRunScope = { ...scope, deletedAt: null, createdAt: { $gte: since } }
+  // Same rationale as PRODUCTION_ONLY above: eval replays write real AgentRun rows
+  // with real latency and cost. Without this the live path counted them while the
+  // rollup path (which already filters) did not — the two modes disagreed.
+  const windowedRunScope = { ...scope, ...PRODUCTION_ONLY, deletedAt: null, createdAt: { $gte: since } }
   const runsTotal = rollupSums?.runsTotal ?? (await em.count(AgentRun, windowedRunScope))
 
   // Traces KPI block (data-honesty pass). Error/eval-pass rates prefer fresh

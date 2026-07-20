@@ -41,6 +41,7 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       'payload',
       'confidence',
       'guard_results',
+      'source',
       'disposition',
       'disposition_by',
       'disposition_reason',
@@ -63,7 +64,12 @@ const crud = makeCrudRoute<never, never, z.infer<typeof proposalListQuerySchema>
       // in its base scope, so we do NOT add an explicit `deleted_at` filter here.
       // The hybrid engine compiles `{ $eq: null }` to `deleted_at = NULL` (never
       // true in SQL), which silently returns zero rows — see engine applyColumnFilter.
-      const filters: Record<string, unknown> = {}
+      // Proposals produced by an eval replay are records of what the agent
+      // proposed, not work for an operator: they are never disposed and must never
+      // reach the caseload. Filtering on `runtime` rather than `$ne: 'eval'` keeps
+      // the queue closed by default — a future source has to opt in explicitly
+      // instead of silently appearing in someone's work queue.
+      const filters: Record<string, unknown> = { source: { $eq: 'runtime' } }
       if (query.id) filters.id = { $eq: query.id }
       if (query.agentId) filters.agent_id = { $eq: query.agentId }
       if (query.processId) filters.process_id = { $eq: query.processId }

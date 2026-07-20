@@ -93,6 +93,7 @@ export class NativeAgentRunner {
     const commandCtx = buildCommandContext(this.container, ctx)
 
     const runId = await createRun(this.commandBus, commandCtx, {
+      source: ctx.source,
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       agentId,
@@ -315,6 +316,8 @@ export class NativeAgentRunner {
       // Bind this run's id as the current in-process run so a `delegate_agent`
       // tool call (from a sub-agent-capable agent) can stamp `parent_run_id` on
       // its nested run for traceability (Phase 4).
+      // `ctx.source` rides the async context so a nested `delegate_agent` call
+      // inherits the eval tag instead of being recorded as production traffic.
       const modelExecution = withRunContext(runId, () =>
         runWithProviderBudget({ providerId, deadlineAtMs }, async () => {
           const objectResult = await runAiAgentObject({
@@ -338,6 +341,7 @@ export class NativeAgentRunner {
           fallbackUsage = objectResult.usage ?? null
           return objectResult.object
         }),
+        ctx.source,
       )
       const raced = await Promise.race([
         modelExecution,
@@ -464,6 +468,7 @@ export class NativeAgentRunner {
 
     if (result.kind === 'actionable') {
       await createProposal(this.commandBus, commandCtx, {
+        source: ctx.source,
         tenantId: ctx.tenantId,
         organizationId: ctx.organizationId,
         agentId,

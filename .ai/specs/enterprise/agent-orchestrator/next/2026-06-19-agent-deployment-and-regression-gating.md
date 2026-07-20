@@ -35,11 +35,11 @@ There is **no external eval harness** (no `eval-runner`, no Inspect AI, no `x_om
 
 ## Architecture
 
-- **Placement:** `packages/enterprise/src/modules/agent_orchestrator/`, lifecycle code under `lib/lifecycle/` (`ReleaseService`, `BudgetService`, `EvalHarness`, `EvalGateRunner`). Entities in `data/entities.ts`; Zod in `data/validators.ts`.
+- **Placement:** `packages/enterprise/src/modules/agent_orchestrator/`, lifecycle code under `lib/lifecycle/` (`ReleaseService`, `BudgetService`, `EvalGateRunner`). **No `EvalHarness` here** — the harness lives in `lib/eval/`, owned by `2026-07-19-agent-eval-workbench-and-gate.md`; `EvalGateRunner` only calls its exported `runEvalGate()`. Entities in `data/entities.ts`; Zod in `data/validators.ts`.
 - **Rollout control:** `ReleaseService` reads/writes `feature_toggles` flags (one flag per agent rollout, e.g. `agent_orchestrator.release.<agentDefinitionId>`) whose value is the per-tenant rollout **percentage**. `feature_toggles` does not bucket — it only stores the percentage with per-(toggle, tenantId) overrides (cross-ref GAP-14, dispatch spec). The deterministic split is computed in code: the dispatch `TaskRouter` reads the toggle value and hashes a stable key (tenant + dispatch key) to decide whether each dispatch routes to the candidate. Lifecycle does not duplicate routing logic; it supplies the percentage and the bucketing contract.
 - **Autonomy ramp:** the gradual-autonomy controller is a `packages/scheduler` worker (cross-ref GAP-14) that reads override-rate metrics from the trace spec's tables and advances `AgentRelease.autonomy` **at most one step per evaluation window** (`gated → review → auto`), gated by an override-rate threshold **plus** a `minSamples` floor **plus** hysteresis (so it does not flap around the threshold). It never *narrows* autonomy automatically beyond raising it. The final jump to `'auto'` is **never machine-made**: the worker may surface a release as eligible, but promotion to full autonomy is **human-confirmed** via the audited promote command.
 - **Budget enforcement:** `BudgetService` resolves the applicable `AgentBudget` for a dispatch and projects it into the `ai_assistant` agent loop as a `loop.budget` constraint. The loop reports consumption; on exceed the service applies `onExceed` policy and emits the event.
-- **Eval harness:** `EvalHarness` (this module's own harness, detailed in `2026-06-20-agent-eval-harness-and-metrics.md`) executes eval cases against a candidate release and scores safety assertions + quality. `EvalGateRunner` compares candidate scores against `evalGate` (required pass score + eval-set version) and the production baseline. Invoked from CI and from the promote endpoint.
+- **Eval harness:** the harness itself is **owned by `2026-07-19-agent-eval-workbench-and-gate.md`**, which exports `runEvalGate({ agentDefinitionId, evalSetVersion, baselineSuiteRunId?, repeatCount?, scope }) => { suiteRunId, passScore, safetyRegressions, outcome }` and owns `agent_eval_suite_runs`. `EvalGateRunner` (this spec, `lib/lifecycle/`) is a thin caller: it invokes `runEvalGate`, compares `passScore` against `evalGate.requiredPassScore`, and blocks on a non-empty `safetyRegressions`. **Dependency arrow: lifecycle → eval, one-way** — this spec must not own eval entities. Until that spec's Phase 5 lands, degrade the gate to advisory (`outcome: 'advisory'`), as originally planned. Invoked from CI and from the promote endpoint.
 - **Tenancy:** every row carries `tenant_id` and `organization_id`; all reads filter by `organizationId`. No cross-module ORM relations — `agentDefinitionId`, `processType`, etc. are FK ids only.
 
 ## Data Models
@@ -87,11 +87,22 @@ export class AgentRelease {
   @Property({ name: 'autonomy', type: 'varchar', length: 20, default: 'gated' })
   autonomy: ReleaseAutonomy = 'gated'
 
+  // Subject-under-test pinning — added by 2026-07-19-agent-eval-workbench-and-gate.md §3.6.
+  // Without these, `agentDefinitionId` + a free-form `version` + a `model` id string pin NOTHING
+  // reproducible: two gate runs of the same release id can execute different prompts, and the gate
+  // certifies code that no longer runs (see gap-analysis/2026-07-07-security-analysis-gap-review.md).
+  @Property({ name: 'prompt_hash', type: 'varchar', length: 64 })
+  promptHash!: string // sha256 over resolved instructions + tool ids + skill ids
+
+  @Property({ name: 'definition_snapshot', type: 'jsonb' })
+  definitionSnapshot!: any // resolved instructions, tool/skill ids, default model, resultKind, output JSON Schema
+
   @Property({ name: 'eval_gate', type: 'jsonb' })
   evalGate!: any // { requiredPassScore: number; evalSetVersion: string }; Zod in data/validators.ts
+  // NOTE: safety-regression blocking is UNCONDITIONAL — deliberately not a configurable flag.
 
   @Property({ name: 'eval_result', type: 'jsonb', nullable: true })
-  evalResult?: any | null // last harness run summary; Zod in data/validators.ts
+  evalResult?: any | null // denormalized copy of the latest gate AgentEvalSuiteRun; Zod in data/validators.ts
 
   @Property({ name: 'promoted_by', type: 'varchar', length: 100, nullable: true })
   promotedBy?: string | null // userId
@@ -172,7 +183,7 @@ CRUD reads via `makeCrudRoute` + indexer (`entityType: 'agent_orchestrator:agent
 
 - `GET /api/agent_orchestrator/lifecycle/releases` — list releases (CRUD, returns `updatedAt`).
 - `GET /api/agent_orchestrator/lifecycle/releases/:id` — release detail.
-- `POST /api/agent_orchestrator/lifecycle/releases/:id/promote` — **custom write.** Promotes to the next stage; promotion to `active` runs the eval harness via `EvalGateRunner` and blocks (409/422) on gate failure or safety-assertion regression. Wired through the Command pattern with mutation-guard (`validateCrudMutationGuard` / `runCrudMutationGuardAfterSuccess`) and optimistic locking (`enforceCommandOptimisticLock`, surface 409 via `surfaceRecordConflict`).
+- `POST /api/agent_orchestrator/lifecycle/releases/:id/promote` — **custom write.** Promotes to the next stage; promotion to `active` runs the eval harness via `EvalGateRunner` (→ `runEvalGate`) and blocks (409/422) on gate failure or safety-assertion regression. **Additionally recomputes `promptHash` from the live agent definition and returns 409 on mismatch** — a gate verdict is only valid for the subject it was measured against. Wired through the Command pattern with mutation-guard (`validateCrudMutationGuard` / `runCrudMutationGuardAfterSuccess`) and optimistic locking (`enforceCommandOptimisticLock`, surface 409 via `surfaceRecordConflict`).
 - `GET /api/agent_orchestrator/lifecycle/budgets?scope=<tenant|process_type|agent>[&scopeRef=...]` — list budgets for a scope (CRUD).
 - Budgets are created/edited via `makeCrudRoute` write paths; `agent_orchestrator.budget.exceeded` is emitted at runtime by `BudgetService`, not by an API call, and fans out to notifications.
 
@@ -183,7 +194,7 @@ CI does **not** call `eval-runner`. The regression-gate CI step invokes **this m
 1. `AgentRelease` entity + Zod + CRUD + shadow mode (propose-only candidate run) + wiring to the trace spec's model-comparison view.
 2. Canary rollout via `feature_toggles` gating the dispatch `TaskRouter`; gradual-autonomy ramp worker from override-rate metrics.
 3. `AgentBudget` entity + CRUD + budget enforcement via `ai_assistant` `loop.budget`, `budget.exceeded` event + notifications, and model routing via `AiModelFactory`.
-4. Eval harness + `EvalGateRunner`; regression-gated `promote` endpoint and the CI gate step over the trace spec's eval-case export.
+4. `prompt_hash` + `definition_snapshot` on `AgentRelease`; `EvalGateRunner` as a thin caller of `runEvalGate()` (harness owned by `2026-07-19-agent-eval-workbench-and-gate.md`, **not built here**); regression-gated `promote` endpoint, incl. the 409 on prompt-hash mismatch, and the CI gate step. Blocked on that spec's Phase 5; degrade to advisory until then.
 
 ## Acceptance
 
@@ -250,5 +261,6 @@ on read, the `promote` custom write, and CRUD list. Cleanup both in teardown.
 
 ## Changelog
 
+- **2026-07-19:** Reconciled with `2026-07-19-agent-eval-workbench-and-gate.md`, which owns the eval harness and `agent_eval_suite_runs`. This spec **retains** `AgentRelease`, `AgentBudget`, the `/lifecycle/releases` routes, `release.*`/`budget.*` ACLs, shadow/canary and the autonomy ramp; the dependency arrow stays **lifecycle → eval, one-way** (an earlier draft of that spec absorbed `AgentRelease`, which would have inverted it into a cycle and left Phases 1–3 here blocked on the last phase there). Three upstream additions accepted from it: `prompt_hash` varchar(64) and `definition_snapshot` jsonb on `AgentRelease` — without them `version` is a free-form label and a gate run is not reproducible (`gap-analysis/2026-07-07-security-analysis-gap-review.md`) — and a **409 on prompt-hash mismatch** at `promote`, additional to the existing gate blocks. `EvalGateRunner` reduced to a thin caller of the exported `runEvalGate()`. Recorded that safety-regression blocking is **unconditional** and deliberately not a configurable flag.
 - **2026-06-20:** Corrected the canary-rollout framing — `feature_toggles` has **no native percentage rollout** (it stores boolean/string/number/json with only per-(toggle, tenantId) overrides and does not bucket); the deterministic split is now stated as **computed in `ReleaseService`/`TaskRouter`** by reading the toggle value as the percentage and hashing a stable key to bucket each dispatch (cross-ref GAP-14, dispatch spec; added a Risks row). Clarified the gradual-autonomy controller as a `packages/scheduler` worker that advances `gated → review → auto` **one step per window** under override-rate threshold + `minSamples` + hysteresis, with the final jump to `'auto'` **human-confirmed via the audited promote command, never machine-made** (Overview, Solution, Architecture, Capabilities, Acceptance, Risks). Cross-referenced the consolidating eval-harness spec `2026-06-20-agent-eval-harness-and-metrics.md` everywhere the regression gate runs **this module's own eval harness**. Added a `## Integration Coverage` section (per GAP-17) covering the promote-gate E2E, shadow no-side-effect/no-resume isolation, autonomy widening + human-confirm, deterministic per-tenant canary split, budget breach `onExceed`, promote RBAC + optimistic lock, and the mandatory two-org tenant-isolation harness, anchored to the `.ai/qa` Playwright helpers with self-contained fixtures + teardown.
 - **2026-06-19:** Rewritten from `SPEC-LIFECYCLE-01` to real Open Mercato conventions and the verified architecture. Corrected: package framing → core module `agent_orchestrator`; pseudocode entities → full MikroORM v7 `AgentRelease` + `AgentBudget` (renamed from `Budget`); single-column tenancy → dual `tenant_id`/`organization_id`; URLs → `/api/agent_orchestrator/lifecycle/...`. Removed all references to `eval-runner` / Inspect AI / `x_om` / telemetry-OTel; regression gating now runs **this module's own eval harness** (built in the trace spec) over the trace spec's eval-case export as a CI step. Budgets enforced via `ai_assistant` `loop.budget`; rollout via `feature_toggles` gating the dispatch `TaskRouter`.
