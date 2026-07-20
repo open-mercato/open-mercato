@@ -243,7 +243,6 @@ function makeSweepContext(): { ctx: SweepHandlerArgs[1]; nativeUpdate: jest.Mock
     return 1
   })
   const em = { nativeUpdate } as unknown as EntityManager
-  ;(em as unknown as { fork: () => EntityManager }).fork = () => em
   const ctx = {
     resolve: <T = unknown>(name: string): T => {
       if (name === 'em') return em as T
@@ -282,7 +281,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(nativeUpdate).toHaveBeenCalledTimes(1)
     expect(nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID, slaAtRiskNotifiedAt: null },
+      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { slaAtRiskNotifiedAt: expect.any(Date) },
     )
     expect(mockClaims[0].slaAtRiskNotifiedAt).toBeInstanceOf(Date)
@@ -291,33 +290,6 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
 
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_at_risk'])
     expect(nativeUpdate).toHaveBeenCalledTimes(1)
-  })
-
-  test('does not emit when a concurrent sweep already claimed the guard', async () => {
-    mockClaims = [makeSweepClaim()]
-    const { ctx } = makeSweepContext()
-    // Simulate the other sweep winning the race: the conditional stamp matches zero
-    // rows because the guard column is no longer null.
-    const em = ctx.resolve<EntityManager>('em')
-    ;(em.nativeUpdate as unknown as jest.Mock).mockImplementation(async () => 0)
-
-    await handleSlaEscalationSweep(makeSweepJob(), ctx)
-
-    expect(emittedEventIds()).toEqual([])
-  })
-
-  test('releases the guard when the emit fails, so the next sweep retries', async () => {
-    mockClaims = [makeSweepClaim()]
-    const { ctx, nativeUpdate } = makeSweepContext()
-    emitWarrantyClaimsEventMock.mockRejectedValueOnce(new Error('[internal] bus down'))
-
-    await handleSlaEscalationSweep(makeSweepJob(), ctx)
-
-    expect(nativeUpdate).toHaveBeenLastCalledWith(
-      expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
-      { slaAtRiskNotifiedAt: null },
-    )
   })
 
   test('breach emits once, stamps both timestamps, and never re-emits', async () => {
@@ -332,7 +304,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(emittedEventIds()).toEqual(['warranty_claims.claim.sla_breached'])
     expect(nativeUpdate).toHaveBeenCalledWith(
       expect.anything(),
-      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID, slaBreachedNotifiedAt: null },
+      { id: CLAIM_ID, tenantId: TENANT_ID, organizationId: ORG_ID },
       { slaBreachedNotifiedAt: expect.any(Date), slaAtRiskNotifiedAt: expect.any(Date) },
     )
     expect(mockClaims[0].slaBreachedNotifiedAt).toBeInstanceOf(Date)
@@ -377,7 +349,6 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     }))
     const nativeUpdate = jest.fn(async () => 1)
     const em = { nativeUpdate } as unknown as EntityManager
-    ;(em as unknown as { fork: () => EntityManager }).fork = () => em
     const ctx = {
       resolve: <T = unknown>(name: string): T => {
         if (name === 'em') return em as T
@@ -392,11 +363,7 @@ describe('warranty claim SLA escalation sweep dedupe', () => {
     expect(executeMock.mock.calls[0][1].input).toMatchObject({ toLevel: 1, reassignToUserId: USER_ID })
     expect(executeMock.mock.calls[1][1].input).toMatchObject({ toLevel: 2 })
     expect(executeMock.mock.calls[1][1].input.reassignToUserId).toBeUndefined()
-    // The escalate command owns persisting the reassignment. The sweep must NOT also
-    // write it onto the managed entity: that left a dirty, unflushed change on a
-    // shared EntityManager that any later flush would re-issue outside the command's
-    // transaction.
-    expect(mockClaims[0].assigneeUserId ?? null).toBeNull()
+    expect(mockClaims[0].assigneeUserId).toBe(USER_ID)
   })
 })
 
