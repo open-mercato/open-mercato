@@ -29,6 +29,26 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
     ],
   },
   {
+    // A replay failure message can quote model output verbatim.
+    entityId: 'agent_orchestrator:agent_eval_case_run',
+    fields: [{ field: 'error_message' }],
+  },
+  {
+    // Where the excerpts ACTUALLY live: scorer evidence carries extracted output
+    // values, tool-call arguments, field-level diffs, and the judge's free-text
+    // reasoning ABOUT the decrypted output. This is the column that needed the
+    // protection the suite-summary entry below was mistakenly credited with.
+    entityId: 'agent_orchestrator:agent_eval_result',
+    fields: [{ field: 'evidence' }],
+  },
+  {
+    // Aggregate counters today, but it is the natural home for per-assertion
+    // excerpts and sits alongside encrypted siblings — kept encrypted so adding
+    // one later cannot silently expose it.
+    entityId: 'agent_orchestrator:agent_eval_suite_run',
+    fields: [{ field: 'summary' }],
+  },
+  {
     // Tool-call request/response summaries are redacted but still echo
     // tool arguments and results that can contain customer data.
     entityId: 'agent_orchestrator:agent_tool_call',

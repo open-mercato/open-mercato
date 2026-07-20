@@ -16,14 +16,32 @@ import { AsyncLocalStorage } from 'node:async_hooks'
  * runner / not in this async context), so it does NOT populate `parent_run_id` —
  * that path's nested-run recording is a documented follow-up.
  */
-const runIdStorage = new AsyncLocalStorage<string>()
+type RunContext = { runId: string; source?: 'runtime' | 'eval' }
 
-/** Run `fn` with `runId` bound as the current in-process agent run id. */
-export function withRunContext<T>(runId: string, fn: () => Promise<T>): Promise<T> {
-  return runIdStorage.run(runId, fn)
+const runIdStorage = new AsyncLocalStorage<RunContext>()
+
+/**
+ * Run `fn` with the current in-process agent run bound.
+ *
+ * `source` rides along for the same reason `runId` does: a nested
+ * `delegate_agent` call builds a fresh `AgentRunCtx` and would otherwise lose the
+ * eval tag, so an eval replay's sub-agent runs would be stamped `runtime` and
+ * counted in the agent's PRODUCTION metric rollups.
+ */
+export function withRunContext<T>(
+  runId: string,
+  fn: () => Promise<T>,
+  source?: 'runtime' | 'eval',
+): Promise<T> {
+  return runIdStorage.run({ runId, source }, fn)
 }
 
 /** The current in-process agent run id, or undefined outside a run context. */
 export function getCurrentRunId(): string | undefined {
-  return runIdStorage.getStore()
+  return runIdStorage.getStore()?.runId
+}
+
+/** The current run's origin, so nested delegations can inherit the eval tag. */
+export function getCurrentRunSource(): 'runtime' | 'eval' | undefined {
+  return runIdStorage.getStore()?.source
 }

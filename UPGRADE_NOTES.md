@@ -24,6 +24,61 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
+### Agent-orchestrator eval assertions: `scorer_key` split from `key`, and validated configs
+
+`AgentEvalAssertion.key` used to serve two roles at once — *which scorer runs* and *which assertion this is*. Because `agent_eval_assertions_key_uq` is unique on `(organization_id, applies_to, key)`, that overload allowed only one assertion per scorer per agent, so two `contains` checks on one agent were unrepresentable. A new `scorer_key` column now carries the scorer identity; `key` keeps its slug role and its unique index is unchanged.
+
+The migration backfills `scorer_key = COALESCE(config->>'scorer', key)`, which is exactly the resolution rule the runtime already applied, so **existing rows keep their current behaviour and no action is required for stored data**.
+
+Contributor action:
+
+- **Creating assertions via `POST /api/agent_orchestrator/eval-assertions`**: send `scorerKey` explicitly. It is optional and still falls back to `key`, so existing clients keep working — but sending it is what lets several assertions share one scorer.
+- **`config` is now validated** against the selected scorer's schema and returns **422** on a malformed body. Previously `config` was `z.unknown()` and anything was accepted, which is why the admin form could not offer any config fields. At *evaluation* time an invalid config now produces a **skipped** result (visible in the trace UI) rather than being silently ignored — it never fails a gate.
+- **`config.scorer`** (the previously undocumented indirection) is **deprecated**. It is still read as a fallback for ≥1 minor; migrate to the `scorerKey` field.
+- **Scorer key `min_confidence` is deprecated** in favour of `confidence_threshold`. The alias resolves transparently; both read `run.confidence`, so verdicts are unchanged. `required_keys` is **not** deprecated and keeps working as-is.
+- **`lib/eval/scorers` exports are deprecated** (`Scorer`, `ScorerInput`, `ScorerRunFacts`, `ScorerVerdict`, `scorers`, `getScorer`). They are reachable through `@open-mercato/enterprise`'s wildcard subpath exports, so they remain for ≥1 minor with their original shapes and call signature. Migrate to `runScorer` / `getScorerDefinition` from `lib/eval/registry` and project runs with `projectRunView`.
+
+### Agent-orchestrator eval: severity coercion removed, `run.evaluated` gating, and a required post-deploy ACL sync
+
+**Judge assertions may now be declared `gate`.** `POST`/`PUT /api/agent_orchestrator/eval-assertions` previously coerced `type: 'llm_judge'` to `severity: 'warn'` silently. It now stores what you send. Whether a judge verdict actually gates is decided per plane: the manual evaluation workbench honours it, while CI and online trace-ingest never do — so a stochastic verdict can still never move `AgentRun.evalPassed` or a promotion decision. A client that relied on the coercion to normalise its input must send `warn` explicitly.
+
+**`EvaluateRunResult` gained required `scored` and `skipped`, and `evaluated` changed meaning.** `evaluated` now counts SKIPPED assertions too; previously an unknown-scorer assertion was silently dropped and never counted. Anything gating on "was this run evaluated" must switch to `scored` — the built-in `agent_orchestrator.run.evaluated` event already did, but a custom consumer constructing or reading this type needs updating.
+
+**`AgentEvalAssertion.version` now auto-increments** whenever `config` actually changes (it was previously frozen at `1`). Unrelated edits, including the enable toggle, do not bump it.
+
+**`GET /api/agent_orchestrator/eval-cases` now excludes soft-deleted rows.** The module retires cases via `status: 'archived'` and never sets `deleted_at`, so this should affect no rows in practice.
+
+Contributor action — **required after upgrading**:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+The new `agent_orchestrator.eval.run` feature is granted through `defaultRoleFeatures`, which is applied only at initial tenant bootstrap. Without this command, existing tenants' roles never receive it: an engineer sees the Evaluations pages (they need only `eval.manage`) but "Run evaluation" is hidden or returns 403 with nothing explaining why. Admin/superadmin are unaffected — they hold the `agent_orchestrator.*` wildcard.
+
+### `AgentRun.source` and `AgentProposal.source` distinguish eval replays from production traffic
+
+Agent evaluations replay recorded inputs through the real agent runtime, so they write real `AgentRun` and `AgentProposal` rows. Both entities gain `source` (`'runtime' | 'eval'`, NOT NULL, default `'runtime'`), threaded from the new optional `AgentRunCtx.source` so records are tagged at creation rather than patched afterwards. In-process `delegate_agent` sub-runs inherit the tag through the async run context; OpenCode-native `task` delegation does not yet, which is the same documented gap that already affects `parent_run_id`.
+
+Contributor action:
+
+- **Reading proposals**: `GET /api/agent_orchestrator/proposals` now returns only `source = 'runtime'`. If you consume that endpoint expecting every proposal, pass through the eval ones explicitly — but note they are **not disposable**: `POST /proposals/:id/dispose` returns 422 for `source: 'eval'`, because approving one would execute a replay's payload for real.
+- **Subscribers on `agent_orchestrator.proposal.created`**: the payload now carries `source`. Automations that should not react to evaluations must filter on it — the event fires for replays too.
+- **Custom metrics over `agent_runs`**: filter on `source = 'runtime'` unless you deliberately want replays counted. The built-in `metricRollupService` already does; a large eval suite would otherwise skew latency, cost and error rates for the agent.
+- Every pre-existing row is backfilled to `'runtime'` by the column default, so no data migration is required.
+
+### `AgentEvalResult.evidence` is now encrypted at rest
+
+Scorer evidence carries extracted output values, tool-call arguments, field-level diffs, and the LLM judge's free-text reasoning *about* decrypted agent output. It is now declared in the module's `defaultEncryptionMaps`.
+
+Contributor action: any code reading `agent_eval_results.evidence` must go through `findWithDecryption` / `findOneWithDecryption` with the tenant scope — a raw `em.find` returns ciphertext. The built-in routes were updated; a custom reader was not.
+
+### `AgentEvalResult.passed` is now nullable
+
+`null` means **skipped** — the assertion did not apply (no expected value, invalid config, unknown scorer). Skipped results are excluded from both score and pass aggregation: never counted as `0`, never counted as failing.
+
+Contributor action: any code reading `AgentEvalResult.passed` (or the `EvalResultView.passed` UI type) must handle the third state. Treating `null` as `false` will render skipped assertions as failures and under-report pass ratios.
+
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 
 The generalized agent-pipeline skills (`om-code-review`, `om-auto-create-pr`, `om-auto-review-pr`, `om-merge-buddy`, `om-spec-writing`, the `-loop` variants, `om-prepare-issue`, and 15 more — see the `external` block in [`.ai/skills/tiers.json`](.ai/skills/tiers.json)) were removed from `.ai/skills/` and are now installed from the shared [open-mercato/skills](https://github.com/open-mercato/skills) collection. `yarn install-skills` runs `npx -y skills add open-mercato/skills --skill '*'` after the local tier symlinks, placing the skills under `.agents/skills/` (gitignored), then `npx -y skills update --project` so re-running the installer refreshes the external skills to their latest published versions (the lockfile is gitignored, so `add` seeds and `update` keeps them current).

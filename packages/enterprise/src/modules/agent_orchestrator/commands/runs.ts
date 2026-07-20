@@ -31,6 +31,8 @@ const createAgentRunSchema = z.object({
    * shadow duplicate. Additive; ignored when an explicit `externalRunId` is set.
    */
   stampExternalRunIdFromId: z.boolean().optional(),
+  /** `eval` marks a replay so it never skews the agent's production metrics. */
+  source: z.enum(['runtime', 'eval']).optional(),
   /** Declared model id; stamped so the cockpit can show/filter runs by model. Null when the agent uses the tenant default. */
   model: z.string().min(1).max(100).nullable().optional(),
   /** Workflow process instance id this run belongs to (INVOKE_AGENT step); links the run to the process in traces. */
@@ -88,6 +90,7 @@ export const createAgentRunCommand: CommandHandler<CreateAgentRunInput, { runId:
     const selfStampedId =
       input.stampExternalRunIdFromId && !input.externalRunId ? randomUUID() : null
     const run = em.create(AgentRun, {
+      source: input.source ?? 'runtime',
       ...(selfStampedId ? { id: selfStampedId } : {}),
       tenantId: input.tenantId,
       organizationId: input.organizationId,
