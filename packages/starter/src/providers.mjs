@@ -1,6 +1,7 @@
+import fs from 'node:fs'
 import readline from 'node:readline'
 
-import { addEnvValue, readEnvValue } from './env-file.mjs'
+import { addEnvValue, readEnvValue, setEnvValue } from './env-file.mjs'
 import { secretFingerprint } from './secrets.mjs'
 
 // Every OM-supported chat provider (from apps/mercato/.env.example). This is
@@ -43,15 +44,56 @@ function applyProviderConfig(rootEnv, entry, { key = '', baseUrl = '', model = '
   }
 }
 
+// The root .env is the starter's source of truth for AI provider config: it
+// feeds the compose interpolation for the opencode container. The host app
+// only loads apps/mercato/.env, so the chosen provider must be mirrored there
+// too or the app keeps the .env.example defaults (provider 'openai' with an
+// empty key) and the selection silently "does not persist". Provider/model are
+// overwritten to converge on the root value; API keys and base URLs only fill
+// empty placeholders so a manually rotated app key is never clobbered.
+export function syncProviderConfigToAppEnv(files, log = console.log) {
+  if (!files.appEnv || !fs.existsSync(files.appEnv)) return
+  const provider = readEnvValue(files.rootEnv, 'OM_AI_PROVIDER')?.trim()
+  if (!provider) return
+  const entry = LLM_PROVIDERS.find((candidate) => candidate.provider === provider)
+  const overwriteKeys = ['OM_AI_PROVIDER', 'OM_AI_MODEL']
+  const fillKeys = entry ? [entry.keyEnv, ...(entry.baseUrlEnv ? [entry.baseUrlEnv] : [])] : []
+
+  for (const key of overwriteKeys) {
+    const value = readEnvValue(files.rootEnv, key)?.trim()
+    if (!value) continue
+    if (readEnvValue(files.appEnv, key)?.trim() === value) continue
+    setEnvValue(files.appEnv, key, value)
+    log(`  synced ${key} into apps/mercato/.env`)
+  }
+  for (const key of fillKeys) {
+    const value = readEnvValue(files.rootEnv, key)?.trim()
+    if (!value) continue
+    if (addEnvValue(files.appEnv, key, value, { replaceEmpty: true })) {
+      log(`  synced ${key} into apps/mercato/.env`)
+    }
+  }
+}
+
+function normalizeEnvTargets(rootEnvOrFiles) {
+  if (typeof rootEnvOrFiles === 'string') return { rootEnv: rootEnvOrFiles, appEnv: null }
+  return { rootEnv: rootEnvOrFiles.rootEnv, appEnv: rootEnvOrFiles.appEnv ?? null }
+}
+
 // Returns 'configured' | 'skipped' | 'failed'. Mirrors the semantics of the
 // Windows launcher's Invoke-LlmProviderPrompt: OM_AI_PROVIDER or an existing
 // key in .env means "already configured"; a key in the ambient environment is
 // persisted without prompting; otherwise prompt interactively unless
-// skip/non-interactive flags are set.
-export async function ensureLlmProvider(rootEnv, { skipPrompt = false, nonInteractive = false, log = console.log, warn = console.warn } = {}) {
+// skip/non-interactive flags are set. Accepts the root .env path, or
+// { rootEnv, appEnv } to also keep the app env in sync (see
+// syncProviderConfigToAppEnv).
+export async function ensureLlmProvider(rootEnvOrFiles, { skipPrompt = false, nonInteractive = false, log = console.log, warn = console.warn } = {}) {
+  const files = normalizeEnvTargets(rootEnvOrFiles)
+  const rootEnv = files.rootEnv
   const configuredProvider = readEnvValue(rootEnv, 'OM_AI_PROVIDER')
   if (configuredProvider && configuredProvider.trim()) {
     log(`AI already configured: provider '${configuredProvider.trim()}' (from .env)`)
+    syncProviderConfigToAppEnv(files, log)
     return 'configured'
   }
 
@@ -59,6 +101,8 @@ export async function ensureLlmProvider(rootEnv, { skipPrompt = false, nonIntera
     const fromFile = readEnvValue(rootEnv, entry.keyEnv)
     if (fromFile && fromFile.trim()) {
       log(`AI already configured: ${entry.label}`)
+      applyProviderConfig(rootEnv, entry, { key: '' }, log)
+      syncProviderConfigToAppEnv(files, log)
       return 'configured'
     }
     const fromEnv = process.env[entry.keyEnv]
@@ -66,6 +110,7 @@ export async function ensureLlmProvider(rootEnv, { skipPrompt = false, nonIntera
       const baseFromEnv = entry.baseUrlEnv ? process.env[entry.baseUrlEnv] ?? '' : ''
       applyProviderConfig(rootEnv, entry, { key: fromEnv, baseUrl: baseFromEnv }, log)
       log(`AI configured from environment: ${entry.label}`)
+      syncProviderConfigToAppEnv(files, log)
       return 'configured'
     }
   }
@@ -135,6 +180,7 @@ export async function ensureLlmProvider(rootEnv, { skipPrompt = false, nonIntera
 
       applyProviderConfig(rootEnv, selected, { key, baseUrl, model }, log)
       log(`AI provider configured: ${selected.label}`)
+      syncProviderConfigToAppEnv(files, log)
       return 'configured'
     }
   } finally {

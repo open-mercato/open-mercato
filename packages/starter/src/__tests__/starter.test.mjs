@@ -7,7 +7,8 @@ import { test } from 'node:test'
 import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
-import { addEnvValue, readEnvValue } from '../env-file.mjs'
+import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
+import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, clearConvergenceState, migrationsFingerprint, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
@@ -70,6 +71,54 @@ test('addEnvValue is fill-missing-only and replaceEmpty fills bare placeholders'
   assert.equal(readEnvValue(envPath, 'EMPTY'), 'filled')
   assert.equal(addEnvValue(envPath, 'NEW', 'value'), true)
   assert.equal(readEnvValue(envPath, 'NEW'), 'value')
+})
+
+test('setEnvValue overwrites existing lines and appends missing ones', () => {
+  const dir = makeTempDir('om-starter-setenv-')
+  const envPath = path.join(dir, '.env')
+  fs.writeFileSync(envPath, 'OM_AI_PROVIDER=openai\nOTHER=keep\n')
+  assert.equal(setEnvValue(envPath, 'OM_AI_PROVIDER', 'azure'), true)
+  assert.equal(readEnvValue(envPath, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(envPath, 'OTHER'), 'keep')
+  assert.equal(setEnvValue(envPath, 'OM_AI_MODEL', 'my-deployment'), true)
+  assert.equal(readEnvValue(envPath, 'OM_AI_MODEL'), 'my-deployment')
+})
+
+test('syncProviderConfigToAppEnv mirrors root AI config into the app env without rotating keys', () => {
+  const dir = makeTempDir('om-starter-llm-sync-')
+  const rootEnv = path.join(dir, '.env')
+  const appEnv = path.join(dir, 'app.env')
+  fs.writeFileSync(rootEnv, 'OM_AI_PROVIDER=azure\nOM_AI_MODEL=my-deployment\nAZURE_OPENAI_API_KEY=root-secret\nAZURE_OPENAI_BASE_URL=https://example.azure.com\n')
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=openai\nOM_AI_MODEL=gpt-5-mini\nAZURE_OPENAI_API_KEY=\nAZURE_OPENAI_BASE_URL=\n')
+
+  syncProviderConfigToAppEnv({ rootEnv, appEnv }, () => {})
+
+  assert.equal(readEnvValue(appEnv, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_MODEL'), 'my-deployment')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'root-secret')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_BASE_URL'), 'https://example.azure.com')
+
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=azure\nAZURE_OPENAI_API_KEY=manually-rotated\n')
+  syncProviderConfigToAppEnv({ rootEnv, appEnv }, () => {})
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'manually-rotated')
+
+  syncProviderConfigToAppEnv({ rootEnv, appEnv: path.join(dir, 'missing.env') }, () => {})
+  syncProviderConfigToAppEnv({ rootEnv, appEnv: null }, () => {})
+})
+
+test('ensureLlmProvider syncs the app env when the root env is already configured', async () => {
+  const dir = makeTempDir('om-starter-llm-configured-')
+  const rootEnv = path.join(dir, '.env')
+  const appEnv = path.join(dir, 'app.env')
+  fs.writeFileSync(rootEnv, 'OM_AI_PROVIDER=azure\nOM_AI_MODEL=my-deployment\nAZURE_OPENAI_API_KEY=root-secret\n')
+  fs.writeFileSync(appEnv, 'OM_AI_PROVIDER=openai\nAZURE_OPENAI_API_KEY=\n')
+
+  const outcome = await ensureLlmProvider({ rootEnv, appEnv }, { log: () => {}, warn: () => {} })
+
+  assert.equal(outcome, 'configured')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_PROVIDER'), 'azure')
+  assert.equal(readEnvValue(appEnv, 'OM_AI_MODEL'), 'my-deployment')
+  assert.equal(readEnvValue(appEnv, 'AZURE_OPENAI_API_KEY'), 'root-secret')
 })
 
 test('hostTrustEnv wires CA bundle, system CA flag, and corepack proxy fix', () => {

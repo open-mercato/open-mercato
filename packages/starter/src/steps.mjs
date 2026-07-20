@@ -325,7 +325,10 @@ export const llmProviderStep = {
   expectation: 'waits for your input on first run; have an API key ready',
   title: 'AI provider (LLM API key)',
   async apply(ctx) {
-    const outcome = await ensureLlmProvider(path.join(ctx.repoRoot, '.env'), {
+    const outcome = await ensureLlmProvider({
+      rootEnv: path.join(ctx.repoRoot, '.env'),
+      appEnv: path.join(ctx.repoRoot, 'apps', 'mercato', '.env'),
+    }, {
       skipPrompt: ctx.flags.skipLlmPrompt,
       nonInteractive: ctx.flags.nonInteractive,
       log: (line) => ctx.log(`   ${line}`),
