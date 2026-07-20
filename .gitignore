@@ -155,3 +155,4 @@ apps/mercato/src/module-facts.generated.json
 
 # skills CLI lockfile (external skills are re-resolved on each install)
 skills-lock.json
+.claude/settings.local.json

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Client } from 'pg';
+import { resolveAppRoot } from './appRoot';
 
 /**
  * Database fixtures for the org-scope fail-open hardening tests.
@@ -13,11 +14,6 @@ import { Client } from 'pg';
  * Raw SQL keeps the test self-contained and avoids depending on built package
  * `dist/` output for an in-process MikroORM bootstrap.
  */
-
-function resolveAppRoot(): string {
-  const fromEnv = process.env.OM_TEST_APP_ROOT?.trim();
-  return fromEnv ? path.resolve(fromEnv) : path.resolve(process.cwd(), 'apps/mercato');
-}
 
 function readEnvValue(key: string): string | undefined {
   if (process.env[key]) return process.env[key];
