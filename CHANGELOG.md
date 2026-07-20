@@ -1,4 +1,10 @@
 
+# Unreleased
+
+## ✨ Features
+- ✨ Devices & Push Notifications: `devices`, `notifications`, `push_notifications`, and `communication_channels` modules plus the `channel-fcm` / `channel-apns` / `channel-expo` provider packages deliver end-to-end mobile push. See the [Devices & Push Notifications getting-started guide](apps/docs/docs/tutorials/devices-and-push-getting-started.mdx).
+- ✨ Operator-editable notification channel eligibility: each type's delivery channels can be switched on/off per tenant from the Notification Delivery settings page or `PATCH /api/notifications/types` (a channel switched off never delivers in that tenant and users cannot enable it); built-in types ship without push, so connecting a push provider doesn't blast the whole catalogue to devices. The per-type required (non-opt-out) flag is editable from the same admin table, and concurrent admin edits are protected by the standard optimistic-lock 409.
+
 # 0.6.6 (2026-07-17)
 
 ## Highlights

@@ -87,6 +87,10 @@ IMPORTANT: Before any research or coding, match the task to the root `AGENTS.md`
 | AI agent loop controls + overrides (`loop.stopWhen/prepareStep/budget`, per-tenant settings, replacing/disabling agents/tools, module-level `entry.overrides`) | `packages/ai-assistant/AGENTS.md` → Loop controls + How to Override + `.ai/specs/implemented/2026-04-28-ai-agents-agentic-loop-controls.md` + `.ai/specs/implemented/2026-04-30-ai-overrides-and-module-disable.md` + `.ai/specs/implemented/2026-05-04-modules-ts-unified-overrides.md` |
 | **Specific Modules** | |
 | Module-specific work (customers as reference for new CRUD modules, plus sales, catalog, auth, customer_accounts, currencies, workflows, integrations, data_sync, progress) | `packages/core/src/modules/<module>/AGENTS.md` |
+| Registering user devices, `push_token` lifecycle and encryption at rest, device-scoped identity for MFA/audit consumers | `packages/core/src/modules/devices/AGENTS.md` |
+| Mobile push delivery — delivery log, fan-out, send/reclaim workers, silent push, `pushOptions`, admin custom send | `packages/core/src/modules/push_notifications/AGENTS.md` (cross-refs `devices`, `notifications`, `communication_channels`, `queue`) |
+| Notification type catalogue, per-`(user, type, channel)` preferences, the `shouldDeliver` gate, adding a new delivery channel | `packages/core/src/modules/notifications/AGENTS.md` |
+| Building an FCM / APNs / Expo push provider, or adding a new push `ChannelAdapter` | `packages/channel-{fcm,apns,expo}/AGENTS.md` (push adapters ride the `communication_channels` hub; they are `channelType: 'push'`, `channelScope: 'tenant'`) |
 | Webhooks (outbound/inbound, Standard Webhooks signing, delivery queues, admin UI) | `packages/webhooks/AGENTS.md` (cross-refs `queue`, `events`, `integrations`, `ui`) |
 | Building a new integration provider (adapter, health check, credentials, bundle wiring) | `.ai/skills/om-integration-builder/SKILL.md` + `packages/core/src/modules/integrations/AGENTS.md` + `packages/core/src/modules/data_sync/AGENTS.md` |
 | **Packages** | |

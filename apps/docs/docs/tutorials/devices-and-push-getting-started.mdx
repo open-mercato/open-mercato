@@ -1,0 +1,259 @@
+---
+title: Devices & Push Notifications — Getting Started
+description: Register devices, connect a push provider, and send your first push notification end-to-end.
+---
+
+# Devices & Push Notifications — Getting Started
+
+A friendly guide for someone who has never touched these modules. It explains *what they are*,
+*how the pieces fit together*, and *how to send your first push notification to a phone*.
+
+---
+
+## 1. The 30-second mental model
+
+You want a message to pop up on a user's phone. Four small modules cooperate to make that happen:
+
+| Module | One-line job | Think of it as… |
+|--------|--------------|-----------------|
+| **`devices`** | Remembers each user's phones/tablets and their push tokens | The **address book** of devices |
+| **`notifications`** | Defines notification *types*, stores in-app messages, and tracks per-user opt-out preferences | The **content + rules** |
+| **`push_notifications`** | Takes a notification and actually delivers it to devices (queue, retries, delivery log) | The **mail carrier** |
+| **`communication_channels`** (+ `channel-fcm` / `channel-apns` / `channel-expo`) | Talks to Apple / Google / Expo using your credentials | The **post office** for each platform |
+
+Flow in one sentence:
+
+> Your app **registers a device** → later your backend **creates a notification** →
+> the push module **looks up the user's devices** → and **hands each one to FCM/APNs/Expo**.
+
+```
+[Mobile app]                 [Your backend]
+     |                             |
+  register device           create notification
+     |                             |
+     v                             v
+  devices module  <----------  push_notifications  ---->  communication_channels
+  (token stored)              (find devices, queue)        (FCM / APNs / Expo)
+                                                                   |
+                                                                   v
+                                                            📱 push lands
+```
+
+---
+
+## 2. The `devices` module — the address book
+
+### What it stores
+One row per user device (a `UserDevice`). Important fields:
+
+- `userId`, `platform` (`ios` | `android` | `web`)
+- `deviceId` — a stable id the app generates (e.g. iOS `identifierForVendor`, Android ID, or a UUID for web)
+- `pushToken` — the token from Apple/Google/Expo. **Encrypted at rest, never returned by any API.**
+- `pushProvider` — `fcm` | `apns` | `expo`
+- app/OS version metadata, `lastSeenAt`
+
+### Registering a device (what the mobile app calls)
+```http
+POST /api/devices
+Authorization: Bearer <user-token>
+
+{
+  "deviceId": "A1B2-C3D4",
+  "platform": "ios",
+  "pushToken": "<token from APNs/FCM/Expo>",
+  "pushProvider": "apns",
+  "clientAppVersion": "1.2.3",
+  "osVersion": "17.5"
+}
+```
+- It's **idempotent**: calling it again with the same `(user, deviceId)` just updates the row.
+- If the device was previously deleted, registering "revives" it.
+- Call it again (`PUT /api/devices/:id`) whenever the push token rotates.
+
+### Other endpoints
+- `GET /api/devices` — list **your own** devices
+- `DELETE /api/devices/:id` — deactivate (soft-delete) your own device
+- `/api/devices/admin/devices...` — admin endpoints to manage devices **across users**
+
+### Permissions (ACL)
+- `devices.view` — see your own devices
+- `devices.manage` — register/update/delete your own
+- `devices.admin` — manage everyone's devices in the tenant
+
+---
+
+## 3. The `notifications` module — content + rules
+
+### Notification *types*
+Every notification has a **type** (a frozen id like `sales.order.created`). A module declares its
+types in a `notifications.ts` file. A type carries:
+
+- `titleKey` / `bodyKey` — i18n keys for the text
+- `category` — grouping for UI (e.g. `orders`, `security`)
+- `silent` — if `true`, it's a **background wake-up** (delivery *style* only: no visible message). It still respects the user's preferences — a silent type that must always fire must **also** be `nonOptOut`.
+- `nonOptOut` — if `true`, the user **cannot turn it off** (e.g. security alerts); this is the *only* flag that bypasses the preference gate
+
+### User preferences (opt-out)
+Users can disable a type per channel (in-app, push, …):
+- `GET /api/notifications/preferences` / `PUT /api/notifications/preferences`
+- Only `nonOptOut` types ignore preferences — they always go through. `silent` types **do** respect opt-out (silent controls delivery style, not enforcement), so a silent type that must always fire must also be `nonOptOut`.
+
+### Per-type channel eligibility (built-in types ship without push)
+Every type declares which channels it may deliver on. **Every built-in type ships
+`channels: ['in_app', 'email']`** — push is completely off for them out of the box, so connecting
+a push provider does not blast the entire catalogue to phones. A channel outside the type's set
+never delivers and users cannot enable it in their preferences (the cell shows as locked).
+
+Two ways to change the set:
+- **Your own types**: declare it in code — `channels: ['in_app', 'email', 'push']` (or omit the
+  field ⇒ every channel) on the `NotificationTypeDefinition`.
+- **Any type, without a code change**: operators edit the override from the type-catalogue table on
+  **Settings → Notification Delivery**, or `PATCH /api/notifications/types` with
+  `{ "id": "messages.new", "channels": ["in_app", "email", "push"] }` (pass `channels: null` to go
+  back to the code-declared set). The override is **scoped to the operator's tenant** — other
+  tenants keep their own settings — and replaces the code default in both directions: enable push
+  for a type that ships without it, or switch any channel off entirely.
+
+Channels inside the set behave as usual: users opt in/out per type, and `nonOptOut` types always
+deliver. The eligibility check runs before both — a channel outside the set is off even for
+`nonOptOut` types.
+
+### Creating a notification (this is what triggers a push)
+```http
+POST /api/notifications
+
+{
+  "recipientUserId": "<uuid>",
+  "type": "sales.order.created",
+  "titleKey": "notifications.sales.order_created.title",
+  "bodyKey": "notifications.sales.order_created.body",
+  "bodyVariables": { "orderNumber": "12345" },
+  "linkHref": "/backend/sales/orders/<uuid>",
+  "data": { "orderId": "<uuid>" },          // custom fields delivered inside the push
+  "pushOptions": { "sound": "default", "badge": 1 }
+}
+```
+Bulk variants exist too: `/api/notifications/batch`, `/role`, `/feature`.
+
+From code (the common, event-driven way), resolve the service via DI:
+```ts
+const notificationService = ctx.resolve('notificationService')
+await notificationService.create(input, { tenantId, organizationId })
+```
+
+---
+
+## 4. The `push_notifications` module — the mail carrier
+
+You usually **don't call this directly**. When a notification is created, a *delivery strategy*
+runs automatically and:
+
+1. Checks the user's preferences (unless the type is `nonOptOut`; `silent` types are still preference-gated).
+2. Loads the recipient's devices that have a push token.
+3. Writes a `PushNotificationDelivery` row (status `pending`) per device.
+4. Enqueues a background job.
+5. A worker resolves the right adapter (FCM/APNs/Expo), sends, and on failure **retries with backoff**.
+   If a token is permanently invalid, the device is auto-deactivated.
+
+Observability for admins:
+- `GET /api/push_notifications/deliveries` — the delivery log (status, attempts, errors).
+- Tokens are never shown — only the last 8 characters for debugging.
+
+### Silent / background push
+There is **no** dedicated silent-push primitive. A silent push is just a normal notification whose
+**type** is declared `silent: true` — create it through the ordinary `notificationService.create()`
+path and the push delivery strategy sends a data-only, content-available wake-up (no banner):
+```ts
+// type declaration (module notifications.ts): { type: 'system.security.new_login', silent: true, nonOptOut: true, ... }
+const notificationService = ctx.resolve('notificationService')
+await notificationService.create({
+  recipientUserId: userId,
+  type: 'system.security.new_login',   // registered with silent: true
+  title: 'New login',                   // required; not shown for a silent push
+  data: { ipAddress: '203.0.113.42' },  // delivered inside the push payload
+}, { tenantId, organizationId })
+```
+Because silent types respect preferences, mark the type `nonOptOut: true` if it must always fire.
+For an admin one-off *visible* push, use `pushNotificationService.sendCustomPush(...)` (or the
+**Send Push** admin page).
+
+---
+
+## 5. One-time setup: connect a push provider
+
+Push tokens are useless without credentials. Credentials live **per tenant** in the admin UI
+(no env vars): **Settings → Module Configs → Communication Channels → Connect**.
+
+| Provider | Platforms | What you paste | Where to get it |
+|----------|-----------|----------------|-----------------|
+| **Firebase (FCM)** | Android + iOS | Service-account JSON | Firebase Console → Project settings → Service accounts → Generate key |
+| **Apple (APNs)** | iOS | `.p8` key + Key ID + Team ID + Bundle ID + production flag | Apple Developer → Keys → APNs key |
+| **Expo** | Android + iOS | (optional) access token | expo.dev → Account → Tokens |
+
+A device is routed to a provider by the `pushProvider` it registers with, never by its `platform`.
+So **FCM serves iOS as well as Android** — the adapter emits the `apns` payload block (priority
+headers, `aps.sound`/`aps.badge`, and `content-available: 1` for silent pushes) alongside the
+`android` block on every send.
+
+Choosing between FCM and APNs for iOS:
+
+- **FCM for both platforms** — one credential, one channel, one code path. Firebase relays to iOS
+  through APNs on your behalf, so you must upload an **APNs auth key** to your Firebase project
+  (Project settings → Cloud Messaging → APNs Authentication Key). Without it, iOS sends fail.
+- **APNs directly** — no Firebase dependency and one less hop, at the cost of connecting a second
+  provider. Prefer this if you ship iOS only.
+
+Connecting both is fine: each device is delivered through whichever provider it registered with.
+
+### Existing tenants: sync the new ACL grants
+
+These modules ship new ACL features (`devices.*`, `push_notifications.view_deliveries`, and the
+`channel_fcm` / `channel_apns` / `channel_expo` grants). New tenants pick them up automatically
+during setup, but **existing** tenants only receive newly declared grants after you run the
+idempotent sync command once:
+
+```bash
+yarn mercato auth sync-role-acls
+```
+
+Without it, an admin on an existing tenant may not see the push delivery log or the provider
+connect UI because their role is missing the freshly added grants. Use `--tenant <tenantId>` to
+target a single tenant.
+
+---
+
+## 6. End-to-end checklist for your first push
+
+1. **Connect a provider** (FCM/APNs/Expo) in Communication Channels.
+2. **Register a device** from the mobile app: `POST /api/devices` with `pushToken` + `pushProvider`.
+3. **Make sure the type is push-eligible** — built-in types ship without push, so enable it for the
+   type first (Settings → Notification Delivery, or `PATCH /api/notifications/types`); the recipient
+   must also not have opted out of push for that type.
+4. **Create a notification**: `POST /api/notifications` with `recipientUserId` + `type`.
+5. **Watch it land** and verify in the delivery log: `GET /api/push_notifications/deliveries`.
+
+---
+
+## 7. Good-to-know rules
+
+- **Tokens are secret**: encrypted at rest, never returned by any API, redacted in logs.
+- **Everything is tenant-scoped** — a tenant only ever sees its own devices and deliveries.
+- **Modules are decoupled** — they talk via events and DI, not direct ORM relationships.
+- **Resilient delivery** — retries with backoff; dead tokens auto-remove the device.
+- **Status**: the device registry, notification types and preferences, push delivery, and the
+  FCM/APNs/Expo adapters all ship today. Not yet built: a delivery-log purge worker, web push,
+  and actionable push buttons.
+
+## 8. Environment variables
+
+All four are optional — push works with none of them set.
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OM_PUSH_STUCK_RECLAIM_MINUTES` | `5` | How long a delivery may sit in `sending` before the reclaim worker re-opens it. Values below `1` are rejected and fall back to the default: a `0` would re-open a send that is still in flight and deliver the push twice. |
+| `OM_PUSH_RECEIPT_MIN_AGE_MINUTES` | `15` | How long to wait before polling Expo for a delivery receipt. Expo needs time to resolve one. |
+| `OM_ENABLE_PUSH_STUB_ADAPTER` | unset | **Test only.** Registers a stub push provider so a delivery can reach `sent` with no real credentials. Never set in production. |
+| `OM_PUSH_FAKE_PROVIDERS` | unset | **Test only.** Swaps the FCM/APNs/Expo SDK *clients* for in-process fakes while the real adapters still build and validate the message, recording each native payload to a JSONL sink. Never set in production. |
+
+The two test flags are inert unless set, and are never installed at import time. Both must reach the
+worker process as well as the app, because the push worker runs in its own process.
