@@ -10,7 +10,7 @@ import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '.
 import { addEnvValue, readEnvValue, setEnvValue } from '../env-file.mjs'
 import { ensureLlmProvider, syncProviderConfigToAppEnv } from '../providers.mjs'
 import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
-import { StepBlocked, clearConvergenceState, migrationsFingerprint, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
+import { StepBlocked, clearConvergenceState, listMigrationModules, migrationsFingerprint, readAppliedMigrationModules, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix))
@@ -264,6 +264,41 @@ test('clearConvergenceState removes markers but keeps mode and db-initialized st
   assert.deepEqual(cleared.sort(), ['db-migrations-cafe01', 'install.hash'])
   assert.deepEqual(fs.readdirSync(stateDir).sort(), ['db-initialized-cafe01', 'mode'])
   assert.deepEqual(clearConvergenceState(path.join(repo, 'nope')), [])
+})
+
+test('listMigrationModules names every module that ships Migration files', () => {
+  const repo = makeFakeRepo()
+  const orchestratorDir = path.join(repo, 'packages', 'enterprise', 'src', 'modules', 'agent_orchestrator', 'migrations')
+  const customersDir = path.join(repo, 'packages', 'core', 'src', 'modules', 'customers', 'migrations')
+  const emptyDir = path.join(repo, 'packages', 'core', 'src', 'modules', 'no_migrations', 'migrations')
+  fs.mkdirSync(orchestratorDir, { recursive: true })
+  fs.mkdirSync(customersDir, { recursive: true })
+  fs.mkdirSync(emptyDir, { recursive: true })
+  fs.writeFileSync(path.join(orchestratorDir, 'Migration20260101000000_agent_orchestrator.ts'), 'x')
+  fs.writeFileSync(path.join(customersDir, 'Migration20260101000000_customers.ts'), 'x')
+  fs.writeFileSync(path.join(emptyDir, '.snapshot-open-mercato.json'), '{}')
+
+  const modules = listMigrationModules(repo)
+  assert.deepEqual([...modules].sort(), ['agent_orchestrator', 'customers'])
+})
+
+test('readAppliedMigrationModules parses psql bookkeeping tables and returns null when the probe fails', () => {
+  const repo = makeFakeRepo()
+  fs.mkdirSync(path.join(repo, 'apps', 'mercato'), { recursive: true })
+  fs.writeFileSync(path.join(repo, 'apps', 'mercato', '.env'), 'DATABASE_URL=postgres://postgres:pw@127.0.0.1:5432/open-mercato\n')
+  const ctx = { repoRoot: repo }
+
+  let seenArgs = null
+  const okCompose = (repoRoot, args) => {
+    seenArgs = args
+    return { status: 0, stdout: 'mikro_orm_migrations_customers\nmikro_orm_migrations_agent_orchestrator\n\n' }
+  }
+  const applied = readAppliedMigrationModules(ctx, { runComposeImpl: okCompose })
+  assert.deepEqual([...applied].sort(), ['agent_orchestrator', 'customers'])
+  assert.ok(seenArgs.includes('open-mercato'))
+
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => ({ status: 1, stdout: '' }) }), null)
+  assert.equal(readAppliedMigrationModules(ctx, { runComposeImpl: () => { throw new Error('compose missing') } }), null)
 })
 
 test('resolveOpencodeBaseImage: env wins, then .env, then the pinned default', () => {
