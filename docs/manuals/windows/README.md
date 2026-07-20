@@ -1,13 +1,9 @@
 # Windows one-command setup — user manuals
 
-> **Out of date — launcher replaced.** The `.bat` launchers these manuals describe were
-> replaced by the cross-platform starter: `packages\starter\platform\start.cmd`
-> (double-click) / `npx @open-mercato/starter`, with `doctor` as the read-only preflight.
-> The manuals below still contain valid WSL2/proxy/hardware troubleshooting, but their
-> run instructions need a rewrite pass before being handed to end users.
-
-Printable manuals (run guide + troubleshooting + FAQ), originally written for the retired
-Windows launchers:
+Printable end-user manuals (run guide + troubleshooting + FAQ) for standing up Open Mercato
+on Windows with the cross-platform starter (`@open-mercato/starter`): the one-line
+`irm … start.ps1 | iex` bootstrap, `packages\starter\platform\start.cmd`, and `yarn om`, with
+`doctor` as the read-only preflight.
 
 | Language | Source | PDF |
 |----------|--------|-----|
@@ -24,5 +20,5 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
 
 Keep the manuals in sync with the starter (`packages/starter/` — CLI, steps, doctor, and
 the `platform/` bootstraps) and the spec
-`.ai/specs/2026-07-19-unified-starter-package.md`.
+[`.ai/specs/2026-07-19-unified-starter-package.md`](../../../.ai/specs/2026-07-19-unified-starter-package.md).
 After editing the HTML sources, regenerate both PDFs.
