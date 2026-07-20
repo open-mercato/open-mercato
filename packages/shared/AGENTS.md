@@ -43,6 +43,7 @@ yarn workspace @open-mercato/shared build
 | `custom-fields/` | When handling custom field payloads | `@open-mercato/shared/lib/custom-fields` |
 | `data/` | When you need `DataEngine` or `QueryEngine` types | `@open-mercato/shared/lib/data/engine` |
 | `db/` | When resolving the ORM/connection-pool config (`resolvePoolConfig`, pool/timeout env knobs) | `@open-mercato/shared/lib/db/mikro` |
+| `delivery/` | When scheduling delivery/retry attempts — exponential backoff with jitter for delivery pipelines (currently the push delivery worker) | `@open-mercato/shared/lib/delivery/retry` (`calculateBackoffDelayMs`) |
 | `di/` | When setting up dependency injection (Awilix) | `@open-mercato/shared/lib/di` |
 | `encryption/` | When querying encrypted entities (MUST use instead of raw `em.find`) | `@open-mercato/shared/lib/encryption/find` |
 | `i18n/` | When translating strings — `useT()` client-side, `resolveTranslations()` server-side | `@open-mercato/shared/lib/i18n/context` or `/server` |
