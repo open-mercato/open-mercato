@@ -8,6 +8,12 @@
       "reason": "English fallback for titleKey='design_system.nav.title'; the translated value comes from the module i18n files."
     },
     {
+      "file": "mockups/components/MockupList.tsx",
+      "kind": "jsx-attr",
+      "match": "Design system",
+      "reason": "English fallback for titleKey='design_system.nav.title'; the translated value comes from the module i18n files."
+    },
+    {
       "file": "gallery/entries/banners.tsx",
       "reason": "Gallery demo content: live previews and their copyable code snippets are developer-facing technical content, deliberately untranslated (spec 2026-07-05-ds-live-component-gallery.md)."
     },

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { z } from 'zod'
 import { Archive, Copy, Download, Lock, Plus, Trash2, UserRound } from 'lucide-react'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Button } from '@open-mercato/ui/primitives/button'
@@ -148,6 +149,15 @@ import { Button } from '@open-mercato/ui/primitives/button'
   ],
 }
 
+// Composer contract for SectionHeader blocks in `*.mockup.json` — strict so
+// unknown keys fail the mockup registry-integrity test instead of being dropped.
+const sectionHeaderComposeSchema = z
+  .object({
+    title: z.string(),
+    count: z.number().int().nonnegative().optional(),
+  })
+  .strict()
+
 const sectionHeaderEntry: GalleryEntry = {
   id: 'section-header',
   title: 'SectionHeader',
@@ -198,6 +208,16 @@ import { Button } from '@open-mercato/ui/primitives/button'
 </CollapsibleSection>`,
     },
   ],
+  // Mockup-composer prop injection — mock scalar props only, never tenant data.
+  compose: (props) => {
+    const parsed = sectionHeaderComposeSchema.parse(props)
+    return (
+      <div className="w-full">
+        <SectionHeader title={parsed.title} count={parsed.count} />
+      </div>
+    )
+  },
+  composePropsSchema: sectionHeaderComposeSchema,
 }
 
 const sectionPageEntry: GalleryEntry = {

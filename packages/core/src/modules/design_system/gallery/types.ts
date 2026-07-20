@@ -1,4 +1,5 @@
 import type React from 'react'
+import type { z } from 'zod'
 
 export type GalleryVariant = {
   id: string                    // 'destructive-soft'
@@ -15,6 +16,17 @@ export type GalleryEntry = {
   docsAnchor?: string           // '#button' into .ai/ui-components.md (monorepo) — hidden when docs are absent
   figmaNodeId?: string          // node in file qCq9z6q1if0mpoRstV5OEA
   variants: GalleryVariant[]
+  /**
+   * Mockup-composer prop injection (spec 2026-07-05-ds-live-mockup-composer.md).
+   * Optional and additive: entries without `compose` stay usable in mockups via
+   * their variants' canonical `render()`, but such blocks may not supply
+   * `props` (the mockup integrity test fails — silent prop-dropping would lie
+   * to reviewers). `compose` is ordinary registry code: mock data only, never
+   * tenant APIs.
+   */
+  compose?: (props: Record<string, unknown>) => React.ReactNode
+  /** Validates block props at integrity-check time; drives the Phase 2 studio prop form. */
+  composePropsSchema?: z.ZodTypeAny
 }
 
 export type GalleryFamily = {

@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { z } from 'zod'
 import {
   BarChart,
   DeltaBadge,
@@ -82,6 +83,25 @@ const topProductColumns: TopNTableColumn<TopProductRow>[] = [
     formatter: (value) => formatCurrency(value as number),
   },
 ]
+
+// Composer contract for KpiCard blocks in `*.mockup.json` — strict so unknown
+// keys fail the mockup registry-integrity test instead of being dropped.
+const kpiComposeSchema = z
+  .object({
+    title: z.string(),
+    value: z.number().nullable(),
+    prefix: z.string().optional(),
+    suffix: z.string().optional(),
+    comparisonLabel: z.string().optional(),
+    trend: z
+      .object({
+        value: z.number(),
+        direction: z.enum(['up', 'down', 'unchanged']),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict()
 
 const kpiCardEntry: GalleryEntry = {
   id: 'kpi-card',
@@ -189,6 +209,9 @@ const kpiCardEntry: GalleryEntry = {
 <DeltaBadge direction="up" value={38} unit=" pts" />`,
     },
   ],
+  // Mockup-composer prop injection — mock scalar props only, never tenant data.
+  compose: (props) => <KpiCard {...kpiComposeSchema.parse(props)} />,
+  composePropsSchema: kpiComposeSchema,
 }
 
 const sparklineEntry: GalleryEntry = {

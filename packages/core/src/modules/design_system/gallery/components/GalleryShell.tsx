@@ -5,6 +5,7 @@ import { useSearchParams } from 'next/navigation'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { SectionPage } from '@open-mercato/ui/backend/section-page'
 import type { SectionNavGroup } from '@open-mercato/ui/backend/section-page'
+import { buildDesignSystemSections, familyLabelFallback } from './sectionNav'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { Skeleton } from '@open-mercato/ui/primitives/skeleton'
 import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
@@ -13,11 +14,6 @@ import { ErrorMessage } from '@open-mercato/ui/backend/detail'
 import type { GalleryEntry, GalleryFamily } from '../types'
 import { GALLERY_BASE_PATH, galleryFamilies } from '../registry'
 import { EntryCard } from './EntryCard'
-
-/** 'buttons' → 'Buttons' — untranslated fallback when a family labelKey has no message. */
-function familyLabelFallback(id: string): string {
-  return id.charAt(0).toUpperCase() + id.slice(1).replace(/[-_]/g, ' ')
-}
 
 function matchesQuery(entry: GalleryEntry, query: string): boolean {
   const needle = query.trim().toLowerCase()
@@ -81,22 +77,7 @@ export function GalleryShell() {
     node?.scrollIntoView({ block: 'start' })
   }, [entryParam, searching, activeEntries])
 
-  const sections: SectionNavGroup[] = React.useMemo(
-    () => [
-      {
-        id: 'families',
-        label: 'Families',
-        labelKey: 'design_system.gallery.familiesGroup',
-        items: galleryFamilies.map((family) => ({
-          id: family.id,
-          label: familyLabelFallback(family.id),
-          labelKey: family.labelKey,
-          href: `${GALLERY_BASE_PATH}?family=${family.id}`,
-        })),
-      },
-    ],
-    [],
-  )
+  const sections: SectionNavGroup[] = React.useMemo(() => buildDesignSystemSections(), [])
 
   const renderFamilySkeleton = () => (
     <div className="space-y-4" data-testid="gallery-family-skeleton">

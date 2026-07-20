@@ -49,6 +49,10 @@
         "om-help"
       ]
     },
+    "design": {
+      "description": "Design-tooling skills (DS mockup composer). Opt-in.",
+      "skills": ["om-ds-mockup"]
+    },
     "automation": {
       "description": "PR/issue automation skills. Opt-in; agent-driven workflows.",
       "skills": [
