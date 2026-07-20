@@ -94,7 +94,6 @@ export function ComboboxInput({
   const [selectedIndex, setSelectedIndex] = React.useState(-1)
   const inputRef = React.useRef<HTMLInputElement>(null)
   const loadingRef = React.useRef(false)
-  const suggestionRequestIdRef = React.useRef(0)
   const blurCloseTimerRef = React.useRef<number | null>(null)
   const blurClosePendingRef = React.useRef(false)
   const suppressOpenOnFocusRef = React.useRef(Boolean(autoFocus && !disabled))
@@ -175,50 +174,30 @@ export function ComboboxInput({
     })
   }, [availableOptions, input])
 
-  // `disabled` is intentionally NOT a dependency. `touched` can only become
-  // true via a focus/typing event on the underlying <input>, which the
-  // browser refuses to fire while the element is disabled — so by the time
-  // this effect can ever run, `disabled` was already false. Including
-  // `disabled` in the deps used to tear down and reschedule the debounce
-  // timer/fetch on every sibling-field disable toggle (e.g. WMS cycle-count
-  // Lot field tied to an unrelated balance lookup).
-  //
-  // Loading is generation-scoped: cleanup clears the spinner when the
-  // debounce timer is cancelled before firing, and an in-flight request's
-  // `finally` only clears loading when it is still the latest generation.
-  // Without that, a torn-down effect (unstable `loadSuggestions` identity,
-  // input sync after blur from a sibling disable toggle, etc.) left
-  // `loading === true` forever — the popup stuck on "Loading suggestions…"
-  // with no request running.
   React.useEffect(() => {
-    if (!loadSuggestions || !touched) return
+    if (!loadSuggestions || !touched || disabled) return
     const query = input.trim()
-    const requestId = ++suggestionRequestIdRef.current
+    let cancelled = false
     const handle = window.setTimeout(() => {
       setLoading(true)
       Promise.resolve()
         .then(() => loadSuggestions(query))
         .then((items) => {
-          if (requestId !== suggestionRequestIdRef.current) return
-          const normalized = normalizeOptions(items)
-          setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
+          if (!cancelled) {
+            const normalized = normalizeOptions(items)
+            setAsyncOptions((prev) => areOptionsEqual(prev, normalized) ? prev : normalized)
+          }
         })
         .catch(() => {})
         .finally(() => {
-          if (requestId === suggestionRequestIdRef.current) {
-            setLoading(false)
-          }
+          if (!cancelled) setLoading(false)
         })
     }, 200)
     return () => {
+      cancelled = true
       window.clearTimeout(handle)
-      // Drop optimistic onFocus loading and any in-flight spinner for this
-      // generation. Runs before a replacement effect body (if any), so a
-      // newer generation can re-arm cleanly; orphaned `finally` callbacks
-      // from this generation are ignored via the requestId check above.
-      setLoading(false)
     }
-  }, [input, loadSuggestions, touched])
+  }, [disabled, input, loadSuggestions, touched])
 
   // Eagerly resolve a pre-selected value to its label without requiring the user
   // to focus the field. Runs once per value when it is not already covered.
@@ -423,9 +402,6 @@ export function ComboboxInput({
             return
           }
           resetBlurCloseState()
-          // Optimistic loading affordance while the debounced fetch arms.
-          // Safe because the suggestion-fetch effect cleanup clears this flag
-          // whenever its timer is cancelled before the request starts.
           if (loadSuggestions && availableOptions.length === 0) {
             setLoading(true)
           }
