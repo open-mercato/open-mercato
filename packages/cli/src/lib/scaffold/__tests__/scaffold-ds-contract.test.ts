@@ -72,7 +72,10 @@ function codeFiles(): Array<[string, string]> {
 
 describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
   it('generated pages produce zero errors and zero warnings', () => {
-    const eslintBin = path.join(REPO_ROOT, 'node_modules', '.bin', 'eslint')
+    // TS7-native root: eslint's parser needs the JS compiler API, which only
+    // the typescript-js alias provides — run through the repo's require hook.
+    const eslintJs = path.join(REPO_ROOT, 'node_modules', 'eslint', 'bin', 'eslint.js')
+    const requireHook = path.join(REPO_ROOT, 'scripts', 'typescript-js-require-hook.cjs')
     // Explicit absolute file list, not '.': directory-pattern expansion against
     // a temp cwd resolved differently across platforms in CI (the Linux runner
     // matched zero files), while explicitly-passed paths are always linted.
@@ -80,8 +83,8 @@ describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
       .filter((relPath) => relPath.endsWith('.ts') || relPath.endsWith('.tsx'))
       .map((relPath) => path.join(moduleDir, relPath))
     const result = spawnSync(
-      eslintBin,
-      ['--no-config-lookup', '--config', dsConfigPath, '--format', 'json', ...lintTargets],
+      process.execPath,
+      ['--require', requireHook, eslintJs, '--no-config-lookup', '--config', dsConfigPath, '--format', 'json', ...lintTargets],
       {
         cwd: moduleDir,
         encoding: 'utf8',

@@ -521,7 +521,7 @@ jobs:
           trap 'rm -rf packages/core/src/modules/scaffold_ci' EXIT
           yarn mercato module scaffold scaffold_ci --entity ci_probe --fields "name:text:required,status:select(open|closed),notes:textarea" --with-ui --target packages/core
           yarn generate
-          npx eslint --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
+          node --require ./scripts/typescript-js-require-hook.cjs node_modules/eslint/bin/eslint.js --config eslint.ds.config.mjs packages/core/src/modules/scaffold_ci --max-warnings 0
           yarn typecheck
           rm -rf packages/core/src/modules/scaffold_ci
           if [ -n "$(git status --porcelain)" ]; then
