@@ -53,12 +53,21 @@ function codeFiles(): Array<[string, string]> {
 describe('DS lint gate (repo eslint.ds config, programmatic run)', () => {
   it('generated pages produce zero errors and zero warnings', () => {
     const eslintBin = path.join(REPO_ROOT, 'node_modules', '.bin', 'eslint')
+    // Explicit absolute file list, not '.': directory-pattern expansion against
+    // a temp cwd resolved differently across platforms in CI (the Linux runner
+    // matched zero files), while explicitly-passed paths are always linted.
+    const lintTargets = [...tree.keys()]
+      .filter((relPath) => relPath.endsWith('.ts') || relPath.endsWith('.tsx'))
+      .map((relPath) => path.join(moduleDir, relPath))
     const result = spawnSync(
       eslintBin,
-      ['--no-config-lookup', '--config', DS_CONFIG, '--format', 'json', '.'],
+      ['--no-config-lookup', '--config', DS_CONFIG, '--format', 'json', ...lintTargets],
       { cwd: moduleDir, encoding: 'utf8', timeout: 120_000 },
     )
     expect(result.error).toBeUndefined()
+    if (result.status !== 0 && result.status !== 1) {
+      throw new Error(`[internal] eslint exited with ${result.status}: ${result.stderr}`)
+    }
     const reports = JSON.parse(result.stdout || '[]') as Array<{
       filePath: string
       errorCount: number
