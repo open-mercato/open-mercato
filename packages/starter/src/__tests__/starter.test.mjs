@@ -8,7 +8,7 @@ import { parseComposePsOutput, resolveRepoRoot } from '../compose.mjs'
 import { hostTrustEnv, summarizeProbeResults, writeCaBundle } from '../certs.mjs'
 import { DEFAULT_OPENCODE_BASE_IMAGE, DEFAULT_PORTS, resolveStackPorts } from '../constants.mjs'
 import { addEnvValue, readEnvValue } from '../env-file.mjs'
-import { resolveSpawnCommand } from '../spawn.mjs'
+import { ensureWindowsUtf8Console, resolveSpawnCommand } from '../spawn.mjs'
 import { StepBlocked, clearConvergenceState, migrationsFingerprint, resolveOpencodeBaseImage, runSteps } from '../steps.mjs'
 
 function makeTempDir(prefix) {
@@ -21,6 +21,27 @@ function makeFakeRepo() {
   fs.writeFileSync(path.join(dir, 'starters', 'docker', 'compose.infra.yml'), 'services: {}\n')
   return dir
 }
+
+test('ensureWindowsUtf8Console switches the console code page only on win32 and never throws', () => {
+  const calls = []
+  const fakeSpawnSync = (command, args) => {
+    calls.push({ command, args })
+    return { status: 0 }
+  }
+
+  assert.equal(ensureWindowsUtf8Console({ platform: 'linux', spawnSyncImpl: fakeSpawnSync }), false)
+  assert.equal(calls.length, 0)
+
+  assert.equal(ensureWindowsUtf8Console({ platform: 'win32', spawnSyncImpl: fakeSpawnSync, systemRoot: 'C:\\Windows' }), true)
+  assert.equal(calls.length, 1)
+  assert.deepEqual(calls[0].args, ['65001'])
+  assert.ok(calls[0].command.endsWith(path.join('System32', 'chcp.com')))
+
+  const throwingSpawnSync = () => {
+    throw new Error('no console attached')
+  }
+  assert.equal(ensureWindowsUtf8Console({ platform: 'win32', spawnSyncImpl: throwingSpawnSync }), false)
+})
 
 test('resolveRepoRoot walks up to the compose marker and returns null outside a repo', () => {
   const repo = makeFakeRepo()
