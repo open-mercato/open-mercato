@@ -97,6 +97,22 @@ export interface DefineAgentInput {
   facts?: AgentFact[]
 }
 
+/**
+ * File-plane opt-in (#12) for an OpenCode file agent. When enabled (and the
+ * global `OM_OPENCODE_FILES_ENABLED` kill-switch is on), the runner leases a
+ * per-run sandbox, the frontmatter grants sandbox-scoped `write`/`edit`/`read`,
+ * and outputs written to `out/` are captured as `AgentRunArtifact`s. OpenCode-only.
+ */
+export type FileAgentFilesConfig = {
+  enabled: true
+  /** Accept staged attachment inputs (default true when enabled). */
+  inputs?: boolean
+  /** Capture artifacts from the sandbox `out/` dir (default true when enabled). */
+  outputs?: boolean
+  /** Allow `bash` in the sandbox (default false — large blast radius). */
+  bash?: boolean
+}
+
 /** One declared Caseload fact: label + dot-path into a run/proposal source. */
 export type AgentFact = {
   label: string
@@ -127,6 +143,8 @@ export interface AgentRegistryEntry {
   sampleInput?: unknown
   /** Optional Caseload fact declarations (see DefineAgentInput). */
   facts?: AgentFact[]
+  /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
+  files?: FileAgentFilesConfig
 }
 
 const registry = new Map<string, AgentRegistryEntry>()

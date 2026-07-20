@@ -22,6 +22,11 @@ import {
   shapeResult,
 } from './persistence'
 import type { AgentRunSessionStore } from './agentRunSessionStore'
+import type { AgentWorkspaceLease, AgentWorkspaceManager } from './agentWorkspaceManager'
+import { collectArtifacts } from './artifactCollector'
+import { extractFileInput } from './fileInput'
+import { stageAttachments, type StagedInput } from './attachmentStager'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { withAuditedCommand } from '../identity/agentWriteScope'
 import type { IngestTraceCommandInput } from '../../commands/trace'
 import type { IngestTraceResult } from '../trace/traceIngestionService'
@@ -146,6 +151,11 @@ export class OpenCodeAgentRunner {
     const openCodeAgentName = agentId.replace(/[^a-z0-9_-]/gi, '_')
     const commandCtx = buildCommandContext(this.container, ctx)
 
+    // File plane (#12): strip the reserved `__files` envelope BEFORE persisting the
+    // run input, so the stored/prompted input stays clean business data and the
+    // attachment refs are staged separately.
+    const { input: businessInput, files: fileEnvelope } = extractFileInput(input)
+
     // Open the OpenCode session BEFORE creating the run so its id can be stamped
     // as `externalRunId`. Trace ingestion correlates on `(runtime, externalRunId)`,
     // so stamping the session id at creation lets a later trace POST upsert THIS
@@ -156,7 +166,7 @@ export class OpenCodeAgentRunner {
       tenantId: ctx.tenantId,
       organizationId: ctx.organizationId,
       agentId,
-      input,
+      input: businessInput,
       parentRunId: ctx.parentRunId ?? null,
       runtime: 'opencode',
       externalRunId: session.id,
@@ -237,8 +247,50 @@ export class OpenCodeAgentRunner {
       })
     }
 
+    // File plane (#12): gate on the agent opt-in AND the global kill-switch, same
+    // as the frontmatter render — otherwise the agent has no write permission and
+    // there is nothing to capture. Acquiring a workspace leases the shared OpenCode
+    // container (serialized by OM_OPENCODE_POOL_SIZE); a failure degrades to a
+    // normal (no-file) run rather than failing it.
+    const filesEnabled =
+      !!entry.files?.enabled &&
+      (entry.files.outputs ?? true) &&
+      parseBooleanWithDefault(process.env.OM_OPENCODE_FILES_ENABLED, false)
+    let workspace: AgentWorkspaceLease | null = null
+
     try {
-      const message = this.buildMessage(sessionToken, input)
+      if (filesEnabled) {
+        try {
+          const workspaceManager = this.container.resolve<AgentWorkspaceManager>('agentWorkspaceManager')
+          workspace = await workspaceManager.acquire(sessionToken)
+        } catch (err) {
+          console.warn(`[internal] failed to acquire agent workspace for "${agentId}"; continuing without file plane:`, err)
+        }
+      }
+
+      // Phase 2: stage attachment inputs into the sandbox `in/` dir. A staging
+      // failure (e.g. a wrong-tenant / missing attachment) FAILS the run — the
+      // agent must not run un-grounded on a file it could not read.
+      let stagedInputs: StagedInput[] = []
+      if (workspace && fileEnvelope && (entry.files?.inputs ?? true)) {
+        try {
+          const stagerEm = this.container.resolve<EntityManager>('em').fork()
+          stagedInputs = await stageAttachments({
+            container: this.container,
+            em: stagerEm,
+            files: fileEnvelope,
+            inDir: workspace.inDir,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+          })
+        } catch (err) {
+          const detail = err instanceof Error ? err.message : String(err)
+          await failRun(this.commandBus, commandCtx, { runId, errorMessage: `attachment staging failed: ${detail}` })
+          throw new OpenCodeRunFailedError(agentId, `attachment staging failed: ${detail}`)
+        }
+      }
+
+      const message = this.buildMessage(sessionToken, businessInput, workspace, stagedInputs)
 
       const startedAtMs = Date.now()
       const capturedOutcome = await this.driveSession({
@@ -302,10 +354,42 @@ export class OpenCodeAgentRunner {
         latencyMs,
       })
 
+      // File plane (#12): scan the sandbox `out/` and capture agent-authored files
+      // as encrypted AgentRunArtifacts — BEFORE the `finally` wipes the sandbox.
+      // Filesystem-authoritative + fail-closed; best-effort so a capture failure
+      // never fails an otherwise-successful run (the JSON outcome still stands).
+      if (workspace) {
+        try {
+          const summary = await collectArtifacts({
+            commandBus: this.commandBus,
+            commandCtx,
+            outDir: workspace.outDir,
+            runId,
+            tenantId: ctx.tenantId,
+            organizationId: ctx.organizationId,
+          })
+          if (summary.failed.length > 0) {
+            console.warn(
+              `[internal] agent "${agentId}" artifact capture could not store ${summary.failed.length} file(s) (storage-s3 unavailable?)`,
+            )
+          }
+        } catch (err) {
+          console.warn(`[internal] artifact capture threw for "${agentId}":`, err)
+        }
+      }
+
       return result
     } finally {
-      // Remove the shared correlation row, then best-effort revoke the per-run
+      // Wipe + release the sandbox lease first (frees the pooled container slot),
+      // then remove the shared correlation row and best-effort revoke the per-run
       // token so it cannot be reused after the run.
+      if (workspace) {
+        try {
+          await workspace.release()
+        } catch (err) {
+          console.warn(`[internal] failed to release agent workspace for "${agentId}":`, err)
+        }
+      }
       try {
         await store.dispose(sessionToken)
       } catch (err) {
@@ -383,10 +467,33 @@ export class OpenCodeAgentRunner {
     }
   }
 
-  private buildMessage(sessionToken: string, input: unknown): string {
+  private buildMessage(
+    sessionToken: string,
+    input: unknown,
+    workspace: AgentWorkspaceLease | null,
+    stagedInputs: StagedInput[] = [],
+  ): string {
     const authInstruction = `[Session Authorization: ${sessionToken}. Include "_sessionToken": "${sessionToken}" in EVERY tool call.]`
     const inputText = typeof input === 'string' ? input : JSON.stringify(input)
-    return `${authInstruction}\n\n${inputText}`
+    // File plane (#12): tell the agent the ABSOLUTE container-side sandbox paths
+    // (per-session cwd is unverified — Phase-0 F3). Files written into `out/` are
+    // captured as downloadable artifacts; staged attachment inputs live in `in/`.
+    let sandboxInstruction = ''
+    if (workspace) {
+      const stagedList =
+        stagedInputs.length > 0
+          ? ` Staged input files: ${stagedInputs
+              .map((staged) => {
+                const filePath = `"${workspace.containerInDir}/${staged.fileName}"`
+                return staged.hasSidecar
+                  ? `${filePath} (extracted text: "${workspace.containerInDir}/${staged.fileName}.txt")`
+                  : filePath
+              })
+              .join(', ')}.`
+          : ` Staged input files, if any, are in "${workspace.containerInDir}/".`
+      sandboxInstruction = `\n\n[File sandbox: write any file OUTPUTS you produce into "${workspace.containerOutDir}/" (they will be captured as downloadable artifacts).${stagedList} Write ONLY inside these directories.]`
+    }
+    return `${authInstruction}\n\n${inputText}${sandboxInstruction}`
   }
 
   /**

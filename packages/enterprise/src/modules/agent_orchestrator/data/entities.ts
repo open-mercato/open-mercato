@@ -1510,3 +1510,72 @@ export class AgentSetting {
   @Property({ name: 'updated_at', type: Date, onCreate: () => new Date(), onUpdate: () => new Date() })
   updatedAt: Date = new Date()
 }
+
+// ── File plane: agent-produced artifacts (attachments-in / artifacts-out) ─────
+
+/** Where a captured artifact came from. `tool_output` is reserved for a future tool-file channel. */
+export type AgentRunArtifactSource = 'agent_output' | 'tool_output'
+
+/**
+ * One file an OpenCode file-agent produced in a run (scanned from the per-run
+ * sandbox `out/` dir, hashed, and uploaded encrypted to `storage-s3`). Append-only
+ * (immutable after capture, so no `updated_at`); keeps `deleted_at` for DSAR/erasure.
+ * The file BYTES live in `storage-s3` (referenced by `storageKey`, encrypted at rest);
+ * this row is inert metadata until an `attachments.attach_artifact` proposal is
+ * approved and the effector materializes a durable `Attachment` (`promotedAttachmentId`).
+ * Referenced by FK ids only (`runId`, `promotedAttachmentId`) — never an ORM relation.
+ */
+@Entity({ tableName: 'agent_run_artifacts' })
+@Index({ name: 'agent_run_artifacts_tenant_org_idx', properties: ['tenantId', 'organizationId'] })
+@Index({ name: 'agent_run_artifacts_run_idx', properties: ['organizationId', 'runId'] })
+@Unique({ name: 'agent_run_artifacts_run_sha_uq', properties: ['runId', 'sha256', 'fileName'] })
+export class AgentRunArtifact {
+  [OptionalProps]?: 'source' | 'caption' | 'promotedAttachmentId' | 'createdAt' | 'deletedAt'
+
+  @PrimaryKey({ type: 'uuid', defaultRaw: 'gen_random_uuid()' })
+  id!: string
+
+  @Property({ name: 'tenant_id', type: 'uuid' })
+  tenantId!: string
+
+  @Property({ name: 'organization_id', type: 'uuid' })
+  organizationId!: string
+
+  /** FK id → agent_runs; NOT an ORM relation. */
+  @Property({ name: 'run_id', type: 'uuid' })
+  runId!: string
+
+  /** Sanitized basename produced by the agent (no path segments). Non-sensitive metadata. */
+  @Property({ name: 'file_name', type: 'varchar', length: 255 })
+  fileName!: string
+
+  @Property({ name: 'mime_type', type: 'varchar', length: 150 })
+  mimeType!: string
+
+  @Property({ name: 'file_size', type: 'integer' })
+  fileSize!: number
+
+  @Property({ name: 'sha256', type: 'varchar', length: 64 })
+  sha256!: string
+
+  /** storage-s3 object key; bytes encrypted at rest. */
+  @Property({ name: 'storage_key', type: 'varchar', length: 500 })
+  storageKey!: string
+
+  /** Agent-supplied description; encrypted (encryption.ts → `agent_orchestrator:agent_run_artifact`). */
+  @Property({ name: 'caption', type: 'text', nullable: true })
+  caption?: string | null
+
+  @Property({ name: 'source', type: 'varchar', length: 20, default: 'agent_output' })
+  source: AgentRunArtifactSource = 'agent_output'
+
+  /** Set when an `attachments.attach_artifact` proposal is approved and the effector runs. */
+  @Property({ name: 'promoted_attachment_id', type: 'uuid', nullable: true })
+  promotedAttachmentId?: string | null
+
+  @Property({ name: 'created_at', type: Date, onCreate: () => new Date() })
+  createdAt: Date = new Date()
+
+  @Property({ name: 'deleted_at', type: Date, nullable: true })
+  deletedAt?: Date | null
+}

@@ -28,6 +28,9 @@ services:
       # MCP configuration
       OPENCODE_MCP_URL: ${OPENCODE_MCP_URL:-http://host.docker.internal:3001/mcp}
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
+      # File plane (#12): kill-switch. When true the entrypoint exposes the built-in
+      # read/write/edit tools so file-agents can produce artifacts (default off).
+      OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     volumes:
@@ -38,6 +41,10 @@ services:
       # Native OpenCode skills (Phase 3). Generated from `agents/<id>/skills/`;
       # loaded on new sessions (restart this service after `yarn generate`).
       - ./docker/opencode/skills:/home/opencode/.config/opencode/skills:ro
+      # File plane (#12): shared writable sandbox. The OM host process writes/reads
+      # the host source (OM_OPENCODE_WORKSPACE_ROOT); the agent sees it at the
+      # container path (OM_OPENCODE_WORKSPACE_ROOT_CONTAINER, /home/opencode/work).
+      - ${OM_OPENCODE_WORKSPACE_ROOT:-./.mercato/opencode-work}:/home/opencode/work:rw
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:

@@ -56,6 +56,13 @@ const events = [
   // label }. excludeFromTriggers: it is a transient per-step echo, not a domain
   // fact — like process.updated it must never drive workflow triggers.
   { id: 'agent_orchestrator.run.progress', label: 'Agent Run Progress', entity: 'run', category: 'lifecycle', clientBroadcast: true, excludeFromTriggers: true },
+  // File plane overlay (spec 2026-06-26). `artifact.captured` fires after a
+  // file-enabled OpenCode run's outputs are hashed + stored (clientBroadcast so
+  // the run-detail Artifacts panel live-updates). `artifact.promoted` fires when
+  // an approved `attachments.attach_artifact` proposal materializes a durable
+  // Attachment from a captured artifact.
+  { id: 'agent_orchestrator.artifact.captured', label: 'Agent Artifact Captured', entity: 'artifact', category: 'lifecycle', clientBroadcast: true },
+  { id: 'agent_orchestrator.artifact.promoted', label: 'Agent Artifact Promoted', entity: 'artifact', category: 'lifecycle', clientBroadcast: true },
 ] as const
 
 export const eventsConfig = createModuleEvents({

@@ -168,6 +168,16 @@ if [ -n "$MCP_API_KEY" ]; then
   MCP_HEADERS="{\"x-api-key\": \"$(json_escape "$MCP_API_KEY")\"}"
 fi
 
+# File plane (#12): when OM_OPENCODE_FILES_ENABLED is on, expose the built-in
+# read/write/edit tools so a file-agent's frontmatter can allow them (each agent's
+# frontmatter still scopes writes to the shared sandbox root via permission globs,
+# and non-file agents keep "*": false so these stay disabled for them). Default
+# off => identical historical deny, so existing agents are unaffected (BC).
+case "$(printf '%s' "${OM_OPENCODE_FILES_ENABLED:-false}" | tr '[:upper:]' '[:lower:]')" in
+  1|true|yes|on|enabled) FILE_TOOL="true" ;;
+  *) FILE_TOOL="false" ;;
+esac
+
 # Generate config file
 cat > "$CONFIG_FILE" << EOF
 {
@@ -178,10 +188,10 @@ cat > "$CONFIG_FILE" << EOF
   "model": "$CONFIG_MODEL",
   "instructions": ["AGENTS.md"],
   "tools": {
-    "write": false,
+    "write": $FILE_TOOL,
     "bash": false,
-    "edit": false,
-    "read": false,
+    "edit": $FILE_TOOL,
+    "read": $FILE_TOOL,
     "glob": false,
     "grep": false,
     "todoread": false,
