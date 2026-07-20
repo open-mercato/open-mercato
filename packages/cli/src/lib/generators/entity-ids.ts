@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import { VariableDeclarationKind } from 'ts-morph'
 import type { PackageResolver, ModuleEntry } from '../resolver'
 import { MODULE_CODE_EXTENSIONS } from './scanner'
