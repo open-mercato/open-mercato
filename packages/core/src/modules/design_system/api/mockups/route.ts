@@ -13,6 +13,7 @@ export async function GET() {
     source: mockup.source,
     counts: mockup.counts,
     userStories: mockup.userStories,
+    findingsCount: mockup.findings.total,
     modifiedAt: mockup.modifiedAt,
   }))
   return NextResponse.json({ items })

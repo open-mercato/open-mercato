@@ -1,6 +1,7 @@
 import type { GalleryEntry } from '../../gallery/types'
 import { checkMockupIntegrity, loadGalleryEntryMap } from '../integrity'
-import { findRepoRoot, loadMockups, type LoadedMockup } from '../loader'
+import { findRepoRoot, loadMockupFile, loadMockups, type LoadedMockup } from '../loader'
+import { discoverSnapshotFiles, type MockupSnapshotRef } from '../snapshots'
 import { mockupDocument } from '../schema'
 
 /**
@@ -12,10 +13,13 @@ import { mockupDocument } from '../schema'
 
 let entries: Map<string, GalleryEntry>
 let mockups: LoadedMockup[]
+let snapshots: MockupSnapshotRef[]
 
 beforeAll(async () => {
   entries = await loadGalleryEntryMap()
-  mockups = loadMockups(findRepoRoot(__dirname))
+  const repoRoot = findRepoRoot(__dirname)
+  mockups = loadMockups(repoRoot)
+  snapshots = discoverSnapshotFiles(repoRoot)
 })
 
 describe('design_system mockup registry integrity', () => {
@@ -42,6 +46,30 @@ describe('design_system mockup registry integrity', () => {
       if (!mockup.document) continue
       for (const issue of checkMockupIntegrity(mockup.document, entries)) {
         failures.push({ file: mockup.filePath, blockId: issue.blockId, message: issue.message })
+      }
+    }
+    expect(failures).toEqual([])
+  })
+
+  it('every committed snapshot is schema-valid, registry-true, and matches its filename slug', () => {
+    // Snapshots (Phase 2) are ordinary documents under the same CI gate.
+    const failures: Array<{ file: string; message: string }> = []
+    for (const ref of snapshots) {
+      const snapshot = loadMockupFile(ref.filePath, 'ai')
+      if (snapshot.issues) {
+        for (const issue of snapshot.issues) {
+          failures.push({ file: ref.filePath, message: `${issue.path}: ${issue.message}` })
+        }
+        continue
+      }
+      if (snapshot.document!.slug !== ref.slug) {
+        failures.push({
+          file: ref.filePath,
+          message: `document slug "${snapshot.document!.slug}" does not match filename slug "${ref.slug}"`,
+        })
+      }
+      for (const issue of checkMockupIntegrity(snapshot.document!, entries)) {
+        failures.push({ file: ref.filePath, message: issue.message })
       }
     }
     expect(failures).toEqual([])

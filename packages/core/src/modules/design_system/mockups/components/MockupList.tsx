@@ -24,6 +24,7 @@ type MockupListItem = {
   source: 'ai' | 'module'
   counts: MockupCounts
   userStories: string[]
+  findingsCount: number
   modifiedAt: string
 }
 
@@ -114,6 +115,16 @@ export function MockupList() {
                   {story}
                 </span>
               ))}
+            </span>
+          ),
+      },
+      {
+        id: 'findings',
+        header: t('design_system.mockups.columns.findings', 'Findings'),
+        cell: ({ row }) =>
+          row.original.findingsCount === 0 ? null : (
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {row.original.findingsCount}
             </span>
           ),
       },

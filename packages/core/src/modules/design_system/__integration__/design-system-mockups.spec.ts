@@ -46,4 +46,32 @@ test.describe('design_system mockups', () => {
   test.fixme('invalid document renders the error surface with zod issues, not a blank page (spec path 5)', async () => {
     // broken fixture slug renders the ErrorMessage + issue list.
   })
+
+  // Phase 2 paths (6-9) — same convention: documented fixme stubs pending the
+  // ephemeral-env fixtures, per `.ai/qa/AGENTS.md`.
+
+  test.fixme('studio round-trip: edit, save, and 409 on a concurrent out-of-band edit (spec path 6)', async () => {
+    // enter Edit mode (dev + manage) → swap a block variant, edit a prop via
+    // the generated form, reorder, Save → file on disk reflects the change;
+    // out-of-band JSON edit + second Save → 409 conflict alert with Reload.
+  })
+
+  test.fixme('share link: public page logged-out, watermark on, expired token → 404 (spec path 7)', async () => {
+    // POST share mint → open the URL in a logged-out context → stage renders,
+    // watermark ribbon present, overlay toggles, no authenticated chrome in
+    // DOM; expired/tampered token → uniform not-found page.
+  })
+
+  test.fixme('diff view: @v1 vs @v2 side by side with rail tones and ledger delta (spec path 8)', async () => {
+    // `${MOCKUPS_PATH}/${GOLDEN_SLUG}?compare=v1..v2` → two stages; added →
+    // status-success rail, removed → status-error rail + ghost ledger entry,
+    // changed → status-info, moved-only → status-neutral; counts match
+    // GET .../diff?from=v1&to=v2.
+  })
+
+  test.fixme('findings layer: severity rails + ledger entries, stale dimmed in the ledger only (spec path 9)', async () => {
+    // golden mockup shows severity segments in the margin gutter and finding
+    // ledger entries with no markup on block content; the stale finding is
+    // dimmed + labeled in the ledger while its block renders untouched.
+  })
 })

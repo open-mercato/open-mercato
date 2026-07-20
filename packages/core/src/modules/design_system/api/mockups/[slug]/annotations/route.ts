@@ -99,7 +99,12 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
     afterSuccessCallbacks = guardResult.afterSuccessCallbacks
   }
 
-  const result = writeAnnotations(mockup, parsedBody.data.blocks)
+  const result = writeAnnotations(
+    mockup,
+    parsedBody.data.blocks,
+    undefined,
+    parsedBody.data.documentFindings,
+  )
   if (!result.ok) {
     return NextResponse.json(
       { error: result.error, ...(result.issues ? { issues: result.issues } : {}) },
@@ -134,7 +139,7 @@ export const openApi = {
   PUT: {
     summary: 'Rewrite mockup block annotations (development only)',
     description:
-      'Rewrites only the annotation fields (status, userStory, note) of the named blocks. Available exclusively when the app runs in development and the resolved document lives inside the repo working tree; 404 otherwise.',
+      'Rewrites only the annotation fields (status, userStory, note, and — Phase 2 — findings, plus optional screen-level documentFindings) of the named blocks. Available exclusively when the app runs in development and the resolved document lives inside the repo working tree; 404 otherwise.',
     tags: [designSystemTag],
     requestBody: {
       content: { 'application/json': { schema: mockupAnnotationsRequestSchema } },

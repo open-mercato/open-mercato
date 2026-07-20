@@ -1,4 +1,5 @@
-import type { MockupLeafNode, MockupStatus } from '../schema'
+import type { FindingSeverity, MockupLeafNode, MockupStatus } from '../schema'
+import type { MockupDiffTone } from '../diff'
 
 /**
  * The annotation visual language (spec 2026-07-05-ds-live-mockup-composer.md):
@@ -54,3 +55,62 @@ export const LEDGER_STATUS_ORDER: MockupLedgerStatus[] = [
   'om-default',
   'placeholder',
 ]
+
+// ---------------------------------------------------------------------------
+// Findings (Phase 2) — same margin-rail-and-ledger language as statuses, so
+// there is one annotation system, not two. Severity tones per the spec:
+// critical/high → status-error, medium → status-info, low → status-neutral.
+// ---------------------------------------------------------------------------
+
+/** Short severity segment in the margin gutter beside the status rail. */
+export const SEVERITY_SEGMENT_CLASS: Record<FindingSeverity, string> = {
+  critical: 'bg-status-error-icon',
+  high: 'bg-status-error-icon',
+  medium: 'bg-status-info-icon',
+  low: 'bg-status-neutral-icon',
+}
+
+/** Ledger dot per severity. */
+export const SEVERITY_DOT_CLASS: Record<FindingSeverity, string> = {
+  critical: 'bg-status-error-icon',
+  high: 'bg-status-error-icon',
+  medium: 'bg-status-info-icon',
+  low: 'bg-status-neutral-icon',
+}
+
+export const SEVERITY_LABELS: Record<FindingSeverity, { key: string; fallback: string }> = {
+  critical: { key: 'design_system.mockups.severity.critical', fallback: 'Critical' },
+  high: { key: 'design_system.mockups.severity.high', fallback: 'High' },
+  medium: { key: 'design_system.mockups.severity.medium', fallback: 'Medium' },
+  low: { key: 'design_system.mockups.severity.low', fallback: 'Low' },
+}
+
+export const SEVERITY_ORDER: FindingSeverity[] = ['critical', 'high', 'medium', 'low']
+
+// ---------------------------------------------------------------------------
+// Diff (Phase 2) — the same rail vocabulary: added → success, removed → error,
+// changed → info, moved-only → neutral. Never frames around content.
+// ---------------------------------------------------------------------------
+
+export const DIFF_RAIL_CLASS: Record<MockupDiffTone, string> = {
+  added: 'border-l-4 border-status-success-border',
+  removed: 'border-l-4 border-status-error-border',
+  changed: 'border-l-4 border-status-info-border',
+  moved: 'border-l-4 border-status-neutral-border',
+}
+
+export const DIFF_DOT_CLASS: Record<MockupDiffTone, string> = {
+  added: 'bg-status-success-icon',
+  removed: 'bg-status-error-icon',
+  changed: 'bg-status-info-icon',
+  moved: 'bg-status-neutral-icon',
+}
+
+export const DIFF_LABELS: Record<MockupDiffTone, { key: string; fallback: string }> = {
+  added: { key: 'design_system.mockups.diff.added', fallback: 'Added' },
+  removed: { key: 'design_system.mockups.diff.removed', fallback: 'Removed' },
+  changed: { key: 'design_system.mockups.diff.changed', fallback: 'Changed' },
+  moved: { key: 'design_system.mockups.diff.moved', fallback: 'Moved' },
+}
+
+export const DIFF_TONE_ORDER: MockupDiffTone[] = ['added', 'removed', 'changed', 'moved']

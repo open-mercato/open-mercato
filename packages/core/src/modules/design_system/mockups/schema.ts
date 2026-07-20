@@ -15,6 +15,26 @@ import { z } from 'zod'
 export const MOCKUP_STATUSES = ['implemented', 'proposed', 'om-default'] as const
 export type MockupStatus = (typeof MOCKUP_STATUSES)[number]
 
+export const FINDING_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const
+export type FindingSeverity = (typeof FINDING_SEVERITIES)[number]
+
+/**
+ * Phase 2 — a UX-heuristic finding attached to a block (or to the document for
+ * screen-level findings). `atHash` is the document CONTENT hash (findings
+ * stripped — see `stableContentString`) at critique time; a finding whose
+ * `atHash` no longer matches the current content hash is stale and renders
+ * dimmed in the ledger.
+ */
+export const finding = z.object({
+  id: z.string().min(1), // 'f1' — unique within the document
+  heuristicId: z.string().min(1), // 'nielsen-01' | 'om-empty-state-next-action' | ...
+  severity: z.enum(FINDING_SEVERITIES), // shared scale with the walkthrough spec
+  summary: z.string().max(300),
+  suggestion: z.string().max(500).optional(),
+  atHash: z.string().min(1),
+})
+export type MockupFinding = z.infer<typeof finding>
+
 export const MOCKUP_WIDTHS = ['desktop', 'tablet', 'mobile'] as const
 export type MockupWidth = (typeof MOCKUP_WIDTHS)[number]
 
@@ -27,6 +47,7 @@ export const blockAnnotation = z.object({
   status: z.enum(MOCKUP_STATUSES),
   userStory: z.string().regex(USER_STORY_PATTERN).optional(),
   note: z.string().max(500).optional(),
+  findings: z.array(finding).optional(), // Phase 2 (om-ux-heuristics)
 })
 export type MockupBlockAnnotation = z.infer<typeof blockAnnotation>
 
@@ -113,6 +134,7 @@ export const mockupDocument = z
     routeHint: z.string().optional(), // '/backend/customers/people' — informational only
     width: z.enum(MOCKUP_WIDTHS).default('desktop'),
     spec: z.string().optional(), // relative path to the owning spec document
+    documentFindings: z.array(finding).optional(), // Phase 2 — screen-level findings (flow order, dead ends)
     root: layoutNode,
   })
   .superRefine((doc, ctx) => {
@@ -126,6 +148,17 @@ export const mockupDocument = z
         })
       }
       seen.add(node.id)
+    }
+    const findingIds = new Set<string>()
+    for (const { finding: docFinding } of collectFindings(doc as unknown as MockupDocument)) {
+      if (findingIds.has(docFinding.id)) {
+        ctx.addIssue({
+          code: 'custom',
+          message: `Duplicate finding id "${docFinding.id}" — finding ids must be unique within a mockup`,
+          path: ['root'],
+        })
+      }
+      findingIds.add(docFinding.id)
     }
   })
 export type MockupDocument = z.infer<typeof mockupDocument>
@@ -186,4 +219,87 @@ export function collectUserStories(document: MockupDocument): string[] {
     if (leaf.userStory && !stories.includes(leaf.userStory)) stories.push(leaf.userStory)
   }
   return stories
+}
+
+// ---------------------------------------------------------------------------
+// Findings (Phase 2)
+// ---------------------------------------------------------------------------
+
+export type MockupFindingRef = {
+  finding: MockupFinding
+  /** Owning block id, or null for screen-level `documentFindings`. */
+  blockId: string | null
+}
+
+/** Every finding in the document — screen-level first, then per-block in tree order. */
+export function collectFindings(document: MockupDocument): MockupFindingRef[] {
+  const refs: MockupFindingRef[] = []
+  for (const docFinding of document.documentFindings ?? []) {
+    refs.push({ finding: docFinding, blockId: null })
+  }
+  for (const leaf of collectLeaves(document.root)) {
+    for (const leafFinding of leaf.findings ?? []) {
+      refs.push({ finding: leafFinding, blockId: leaf.id })
+    }
+  }
+  return refs
+}
+
+export type MockupFindingsSummary = {
+  total: number
+  bySeverity: Record<FindingSeverity, number>
+  stale: number
+}
+
+export const EMPTY_FINDINGS_SUMMARY: MockupFindingsSummary = {
+  total: 0,
+  bySeverity: { low: 0, medium: 0, high: 0, critical: 0 },
+  stale: 0,
+}
+
+/**
+ * Findings totals for ledger header and GET payloads. `contentHash` is the
+ * CURRENT content hash of the document (see `stableContentString`) — findings
+ * whose `atHash` differs are counted stale.
+ */
+export function computeFindingsSummary(
+  document: MockupDocument,
+  contentHash: string,
+): MockupFindingsSummary {
+  const summary: MockupFindingsSummary = {
+    total: 0,
+    bySeverity: { low: 0, medium: 0, high: 0, critical: 0 },
+    stale: 0,
+  }
+  for (const { finding: docFinding } of collectFindings(document)) {
+    summary.total += 1
+    summary.bySeverity[docFinding.severity] += 1
+    if (docFinding.atHash !== contentHash) summary.stale += 1
+  }
+  return summary
+}
+
+/**
+ * Canonical serialization of the document CONTENT — findings stripped, keys
+ * sorted. `atHash` hashes this string, not the file bytes: writing a finding
+ * changes the file but not the content it critiques, so a finding must not
+ * invalidate itself (or its siblings) on write. The server hashes this string
+ * (sha256, `computeContentHash` in the loader); clients only ever compare the
+ * resulting hash strings.
+ */
+export function stableContentString(document: MockupDocument): string {
+  const strip = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(strip)
+    if (value && typeof value === 'object') {
+      const source = value as Record<string, unknown>
+      const result: Record<string, unknown> = {}
+      for (const key of Object.keys(source).sort()) {
+        if (key === 'findings' || key === 'documentFindings') continue
+        result[key] = strip(source[key])
+      }
+      return result
+    }
+    return value
+  }
+  return JSON.stringify(strip(document))
 }
