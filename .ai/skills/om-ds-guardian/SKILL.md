@@ -26,7 +26,7 @@ grep -rn 'text-red-\|bg-red-\|text-green-\|bg-green-\|text-emerald-\|bg-emerald-
 
 Then read the Design System Rules section in `AGENTS.md` for the current rules.
 
-Current reality (2026-07): the color/typography migration is in **maintenance mode** (hardcoded colors 959→380, arbitrary text 154→66 since April; Notice/ErrorNotice migration is COMPLETE and guard-tested). The active fronts are: **legacy Alert `variant` API (~119 usages)**, **empty-state coverage (~24%)**, **loading-state coverage (~62%)**, **inline SVG (regressing)**, and **raw fetch**. Prioritize those.
+Current reality (2026-07): the color/typography migration is in **maintenance mode** (hardcoded colors 959→380, arbitrary text 154→66 since April; Notice/ErrorNotice migration is COMPLETE and guard-tested). The legacy Alert `variant` migration is **COMPLETE** (119→0, 2026-07-20) and held at zero by the `om-ds/no-legacy-alert-variant` lint rule — treat any new usage as a regression. The active fronts are: **empty-state coverage (~24%)**, **loading-state coverage (~62%)**, **inline SVG (regressing)**, and **raw fetch**. Prioritize those. Escalation to `error` severity is per rule × module — the per-module zeros in the health report are the ledger (see `.ai/specs/2026-07-05-ds-lint-ci-escalation-and-alert-migration.md`).
 
 ## Capabilities
 
@@ -220,7 +220,7 @@ Skip when: forwardRef-bound `<select>` with consumer tests asserting native `get
 
 **Mode D: Legacy Alert `variant` → `status` API**
 
-~119 call sites still use the deprecated `variant` prop. Migrate opportunistically (Boy Scout Rule) or per module using the mapping table in `references/token-mapping.md` ("Legacy Alert `variant` → `status`"):
+The bulk campaign is COMPLETE (119→0, 2026-07-20) and the count is locked at zero by the `om-ds/no-legacy-alert-variant` rule (`yarn lint:ds`, plus the advisory `ds-lint` CI delta report). If a straggler appears (rebase, revert, generated example), migrate it immediately using the mapping table in `references/token-mapping.md` ("Legacy Alert `variant` → `status`"):
 
 ```diff
 - <Alert variant="destructive">
@@ -407,7 +407,7 @@ For the full migration workflow, ALWAYS:
 | **ui-designer** | Handles visual design craft. DS Guardian enforces the system ui-designer's principles are built on. |
 | **backend-ui-design** | Handles backend page implementation. DS Guardian validates the output. |
 | **code-review** | General code quality. DS Guardian adds DS-specific checks on top. |
-| **eslint-plugin-ds** (`@open-mercato/eslint-plugin-ds`) | Automated enforcement of the structural rules (empty state, page wrapper, raw tables, loading state, status badge, hardcoded colors) at `yarn lint` time. When a violation class keeps recurring, prefer strengthening the rule over re-running greps. |
+| **eslint-plugin-ds** (`@open-mercato/eslint-plugin-ds`) | Automated enforcement of the structural rules (empty state, page wrapper, raw tables, loading state, status badge, hardcoded colors, legacy Alert variant) via `yarn lint:ds` and the advisory `ds-lint` CI job. When a violation class keeps recurring, prefer strengthening the rule over re-running greps. |
 
 Key references:
 - `.ai/ds-rules.md` — token foundations and decision trees
