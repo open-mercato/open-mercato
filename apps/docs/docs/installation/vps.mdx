@@ -36,7 +36,7 @@ cd open-mercato
 cp apps/mercato/.env.example apps/mercato/.env
 # Edit apps/mercato/.env with your production values (see below)
 
-docker compose -f docker-compose.fullapp.yml up --build -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build -d
 ```
 
 The application will be available at **http://your-server-ip:3000/backend**.
@@ -91,7 +91,7 @@ openssl rand -hex 24   # for MEILISEARCH_MASTER_KEY
 ```
 
 :::warning
-The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `docker-compose.fullapp.yml`. Use these exact names in your connection strings — not `localhost`.
+The container hostnames (`postgres`, `redis`, `meilisearch`) match the service names in `starters/docker/compose.fullapp.yml`. Use these exact names in your connection strings — not `localhost`.
 :::
 
 ---
@@ -100,24 +100,24 @@ The container hostnames (`postgres`, `redis`, `meilisearch`) match the service n
 
 ```bash
 # Start in detached mode
-docker compose -f docker-compose.fullapp.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up -d
 
 # View logs — all services
-docker compose -f docker-compose.fullapp.yml logs -f
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs -f
 
 # View logs — app only
-docker compose -f docker-compose.fullapp.yml logs -f app
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs -f app
 
 # Rebuild after pulling new commits
-docker compose -f docker-compose.fullapp.yml up --build -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build -d
 
 # Stop all services
-docker compose -f docker-compose.fullapp.yml down
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml down
 
 # Apply new migrations (after upgrade)
 yarn docker:db:migrate
 # or directly:
-docker compose -f docker-compose.fullapp.yml exec app yarn db:migrate
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec app yarn db:migrate
 ```
 
 ---
@@ -196,14 +196,14 @@ Use [Certbot](https://certbot.eff.org/) for free Let's Encrypt certificates.
 **Container fails to start:**
 
 ```bash
-docker compose -f docker-compose.fullapp.yml logs app
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml logs app
 ```
 
 **Database connection errors:**
 
 ```bash
 # Check PostgreSQL is running
-docker compose -f docker-compose.fullapp.yml ps postgres
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml ps postgres
 
 # Check the DATABASE_URL matches the container config
 grep DATABASE_URL apps/mercato/.env
@@ -221,7 +221,7 @@ docker system prune -a      # clean unused resources (does not touch named volum
 Check the effective V8 heap limit inside the running container:
 
 ```bash
-docker compose -f docker-compose.fullapp.yml exec app node \
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml exec app node \
   -e "const s=require('v8').getHeapStatistics(); \
       console.log(Math.round(s.heap_size_limit/1024/1024)+' MB heap limit')"
 ```
@@ -235,12 +235,12 @@ If the value is below 1 GB, raise `NODE_OPTIONS` in `apps/mercato/.env` then res
 | 16 GB+ | `--max-old-space-size=8192` |
 
 ```bash
-docker compose -f docker-compose.fullapp.yml up -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up -d
 ```
 
 **Full reset (deletes all data):**
 
 ```bash
-docker compose -f docker-compose.fullapp.yml down -v
-docker compose -f docker-compose.fullapp.yml up --build -d
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml down -v
+docker compose --project-directory . -f starters/docker/compose.fullapp.yml up --build -d
 ```

@@ -24,60 +24,27 @@ most of the patterns listed below in a user's codebase.
 
 ## 0.6.5 → 0.6.6 (unreleased)
 
-### Agent-orchestrator eval assertions: `scorer_key` split from `key`, and validated configs
+### Dev-environment starters moved to `starters/`; hybrid mode is the new default
 
-`AgentEvalAssertion.key` used to serve two roles at once — *which scorer runs* and *which assertion this is*. Because `agent_eval_assertions_key_uq` is unique on `(organization_id, applies_to, key)`, that overload allowed only one assertion per scorer per agent, so two `contains` checks on one agent were unrepresentable. A new `scorer_key` column now carries the scorer identity; `key` keeps its slug role and its unique index is unchanged.
+The dev-environment startup surface was consolidated into a top-level [`starters/`](starters/README.md) directory, and the default dev mode changed to **hybrid**: the app and the MCP server run natively on your machine (`yarn dev` now starts both), while OpenCode + postgres/redis/meilisearch run in containers. The fully containerized stack remains as the enterprise path. See `.ai/specs/2026-07-17-hybrid-dev-runtime-and-starters.md`.
 
-The migration backfills `scorer_key = COALESCE(config->>'scorer', key)`, which is exactly the resolution rule the runtime already applied, so **existing rows keep their current behaviour and no action is required for stored data**.
+Breaking changes (no old-path shims):
 
-Contributor action:
+- **Compose files moved and were renamed** — `docker-compose.yml` → `starters/docker/compose.infra.yml`, `docker-compose.fullapp.dev.yml` → `starters/docker/compose.fullapp.dev.yml`, `docker-compose.fullapp.yml`, `docker-compose.fullapp.traefik*.yml`, and `docker-compose.preview.yaml` → `starters/docker/compose.{fullapp,fullapp.traefik,fullapp.traefik.dev,preview}.yml`. Bare `docker compose up` at the repo root no longer works. Always invoke via the wrapper scripts (`yarn infra:up`, `yarn docker:dev:up`, …) or the canonical form `docker compose --project-directory . -f starters/docker/compose.<x>.yml …` — the `--project-directory` flag is required to keep `.env` interpolation and relative paths anchored at the repo root.
+- **Windows launcher moved** — `scripts\windows\start-windows.bat` (and siblings) → `starters\docker\windows\`. `.bat` copies from old clones self-download `start-dev.ps1` from a raw URL that 404s once the old path leaves `main`; re-clone or use the new path.
+- **`scripts/setup-windows-dev.ps1`** → `starters/hybrid/windows-toolchain.ps1`.
+- **verdaccio is now opt-in** — add `--profile registry` (it is no longer part of the default infra stack).
+- **Containers created from the old layout**: the canonical `--project-directory .` invocation keeps the same compose project name, so existing `mercato-*` containers are adopted in place (verified — services whose config changed, like opencode, are recreated on the next `up`). Only if `up` complains about container names already in use (e.g. you used `-p` or a renamed checkout) run `docker compose down` from the old checkout or `docker rm` the `mercato-*` containers first. Named volumes (`mercato-postgres-data*`, …) are unchanged and reattach — no data loss.
+- **`DOCKER_COMPOSE_FILE`** values pointing at old paths fail loudly with a hint; point them at `starters/docker/…`. Legacy root `docker-compose.*dev*.local.yml` personal overrides are still auto-discovered, and the new convention is `starters/docker/compose.*dev*.local.yml`.
 
-- **Creating assertions via `POST /api/agent_orchestrator/eval-assertions`**: send `scorerKey` explicitly. It is optional and still falls back to `key`, so existing clients keep working — but sending it is what lets several assertions share one scorer.
-- **`config` is now validated** against the selected scorer's schema and returns **422** on a malformed body. Previously `config` was `z.unknown()` and anything was accepted, which is why the admin form could not offer any config fields. At *evaluation* time an invalid config now produces a **skipped** result (visible in the trace UI) rather than being silently ignored — it never fails a gate.
-- **`config.scorer`** (the previously undocumented indirection) is **deprecated**. It is still read as a fallback for ≥1 minor; migrate to the `scorerKey` field.
-- **Scorer key `min_confidence` is deprecated** in favour of `confidence_threshold`. The alias resolves transparently; both read `run.confidence`, so verdicts are unchanged. `required_keys` is **not** deprecated and keeps working as-is.
-- **`lib/eval/scorers` exports are deprecated** (`Scorer`, `ScorerInput`, `ScorerRunFacts`, `ScorerVerdict`, `scorers`, `getScorer`). They are reachable through `@open-mercato/enterprise`'s wildcard subpath exports, so they remain for ≥1 minor with their original shapes and call signature. Migrate to `runScorer` / `getScorerDefinition` from `lib/eval/registry` and project runs with `projectRunView`.
+Behavior changes in `yarn dev` (monorepo):
 
-### Agent-orchestrator eval: severity coercion removed, `run.evaluated` gating, and a required post-deploy ACL sync
+- It now **starts the MCP server** (port `MCP_PORT`, default 3001) and provisions its API key into `.mercato/mcp-shared/mcp-api-key` for the OpenCode container. Opt out with `yarn dev --no-mcp` or `OM_DEV_WITH_MCP=0`; `yarn dev:app` never starts it.
+- It now **auto-applies pending migrations** at startup (best-effort — a failure warns and dev continues). Opt out with `OM_DEV_AUTO_MIGRATE=0`.
 
-**Judge assertions may now be declared `gate`.** `POST`/`PUT /api/agent_orchestrator/eval-assertions` previously coerced `type: 'llm_judge'` to `severity: 'warn'` silently. It now stores what you send. Whether a judge verdict actually gates is decided per plane: the manual evaluation workbench honours it, while CI and online trace-ingest never do — so a stochastic verdict can still never move `AgentRun.evalPassed` or a promotion decision. A client that relied on the coercion to normalise its input must send `warn` explicitly.
+New entry points: `starters/hybrid/install.sh` (Linux/macOS) and `starters\hybrid\install.bat` (Windows) provision prerequisites (git, Node 24, corepack yarn) and install/start the hybrid stack end-to-end; `yarn infra:up` / `yarn infra:down` manage the infra containers.
 
-**`EvaluateRunResult` gained required `scored` and `skipped`, and `evaluated` changed meaning.** `evaluated` now counts SKIPPED assertions too; previously an unknown-scorer assertion was silently dropped and never counted. Anything gating on "was this run evaluated" must switch to `scored` — the built-in `agent_orchestrator.run.evaluated` event already did, but a custom consumer constructing or reading this type needs updating.
-
-**`AgentEvalAssertion.version` now auto-increments** whenever `config` actually changes (it was previously frozen at `1`). Unrelated edits, including the enable toggle, do not bump it.
-
-**`GET /api/agent_orchestrator/eval-cases` now excludes soft-deleted rows.** The module retires cases via `status: 'archived'` and never sets `deleted_at`, so this should affect no rows in practice.
-
-Contributor action — **required after upgrading**:
-
-```bash
-yarn mercato auth sync-role-acls
-```
-
-The new `agent_orchestrator.eval.run` feature is granted through `defaultRoleFeatures`, which is applied only at initial tenant bootstrap. Without this command, existing tenants' roles never receive it: an engineer sees the Evaluations pages (they need only `eval.manage`) but "Run evaluation" is hidden or returns 403 with nothing explaining why. Admin/superadmin are unaffected — they hold the `agent_orchestrator.*` wildcard.
-
-### `AgentRun.source` and `AgentProposal.source` distinguish eval replays from production traffic
-
-Agent evaluations replay recorded inputs through the real agent runtime, so they write real `AgentRun` and `AgentProposal` rows. Both entities gain `source` (`'runtime' | 'eval'`, NOT NULL, default `'runtime'`), threaded from the new optional `AgentRunCtx.source` so records are tagged at creation rather than patched afterwards. In-process `delegate_agent` sub-runs inherit the tag through the async run context; OpenCode-native `task` delegation does not yet, which is the same documented gap that already affects `parent_run_id`.
-
-Contributor action:
-
-- **Reading proposals**: `GET /api/agent_orchestrator/proposals` now returns only `source = 'runtime'`. If you consume that endpoint expecting every proposal, pass through the eval ones explicitly — but note they are **not disposable**: `POST /proposals/:id/dispose` returns 422 for `source: 'eval'`, because approving one would execute a replay's payload for real.
-- **Subscribers on `agent_orchestrator.proposal.created`**: the payload now carries `source`. Automations that should not react to evaluations must filter on it — the event fires for replays too.
-- **Custom metrics over `agent_runs`**: filter on `source = 'runtime'` unless you deliberately want replays counted. The built-in `metricRollupService` already does; a large eval suite would otherwise skew latency, cost and error rates for the agent.
-- Every pre-existing row is backfilled to `'runtime'` by the column default, so no data migration is required.
-
-### `AgentEvalResult.evidence` is now encrypted at rest
-
-Scorer evidence carries extracted output values, tool-call arguments, field-level diffs, and the LLM judge's free-text reasoning *about* decrypted agent output. It is now declared in the module's `defaultEncryptionMaps`.
-
-Contributor action: any code reading `agent_eval_results.evidence` must go through `findWithDecryption` / `findOneWithDecryption` with the tenant scope — a raw `em.find` returns ciphertext. The built-in routes were updated; a custom reader was not.
-
-### `AgentEvalResult.passed` is now nullable
-
-`null` means **skipped** — the assertion did not apply (no expected value, invalid config, unknown scorer). Skipped results are excluded from both score and pass aggregation: never counted as `0`, never counted as failing.
-
-Contributor action: any code reading `AgentEvalResult.passed` (or the `EvalResultView.passed` UI type) must handle the third state. Treating `null` as `false` will render skipped assertions as failures and under-report pass ratios.
+External coordination: the Dokploy QA deployment config must switch `docker-compose.preview.yaml` → `starters/docker/compose.preview.yml` when this lands (see `.github/QA-DEPLOYMENT.md`).
 
 ### Shared `om-*` pipeline skills now come from open-mercato/skills
 

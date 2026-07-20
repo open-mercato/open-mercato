@@ -1,5 +1,12 @@
 # One-Command Windows Agentic Dev Environment
 
+> **Superseded (2026-07-19)**: the Windows launcher scripts this spec describes
+> (`start-windows*.bat`, `start-dev.ps1`, `preflight-windows.ps1` — and their
+> pre-move `scripts/windows/` paths) were removed. Their behavior lives on in
+> the `@open-mercato/starter` package (`packages/starter/` — steps, doctor,
+> corporate TLS trust, platform bootstraps). See
+> `.ai/specs/2026-07-19-unified-starter-package.md`.
+
 ## TLDR
 
 A clean Windows machine (no Docker, no Node, no Git) reaches a fully working agentic dev environment — the Next.js app, a **new containerized MCP server**, the OpenCode agent container, and Postgres/Redis/Meilisearch, all wired together with the database initialized and seeded from scratch — by double-clicking `start-windows.bat`. The launcher installs prerequisites via winget (Git, WSL2, Docker Desktop), survives the reboot cycle via `RunOnce` auto-resume, clones the repo when run standalone, generates `.env` secrets, requires an LLM provider key (interactive prompt; `-SkipLlmPrompt` opts out), runs `docker compose -f docker-compose.fullapp.dev.yml up`, waits for health, and prints URLs + credentials. Every step is idempotent and probe-driven; a second double-click converges in under a minute.

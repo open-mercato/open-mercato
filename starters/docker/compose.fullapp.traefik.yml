@@ -11,19 +11,19 @@
 #
 # This overlay defaults `TRAEFIK_CA_SERVER` to the LE **production** directory
 # so the prod invocation issues real certificates. Dev workflows layer the
-# dev-only `docker-compose.fullapp.traefik.dev.yml` overlay on top to flip the
+# dev-only `starters/docker/compose.fullapp.traefik.dev.yml` overlay on top to flip the
 # default to LE staging (untrusted certs, much higher rate limits) for safe
 # iteration.
 #
 # Usage:
 #   # Production:
-#   docker compose -f docker-compose.fullapp.yml \
-#     -f docker-compose.fullapp.traefik.yml up -d
+#   docker compose --project-directory . -f starters/docker/compose.fullapp.yml \
+#     -f starters/docker/compose.fullapp.traefik.yml up -d
 #
 #   # Dev (staging ACME via the dev overlay; drop the third file to use prod):
-#   docker compose -f docker-compose.fullapp.dev.yml \
-#     -f docker-compose.fullapp.traefik.yml \
-#     -f docker-compose.fullapp.traefik.dev.yml up --build
+#   docker compose --project-directory . -f starters/docker/compose.fullapp.dev.yml \
+#     -f starters/docker/compose.fullapp.traefik.yml \
+#     -f starters/docker/compose.fullapp.traefik.dev.yml up --build
 
 services:
   traefik:
@@ -50,7 +50,8 @@ services:
       TRAEFIK_CA_SERVER: ${TRAEFIK_CA_SERVER:-https://acme-v02.api.letsencrypt.org/directory}
       TRAEFIK_DOCKER_NETWORK: mercato-network-${DEPLOY_ENV:-local}
     depends_on:
-      - app
+      app:
+        condition: service_healthy
     networks:
       - mercato-network-fullapp
 
@@ -79,10 +80,13 @@ services:
       # Inject the shared secret onto the request so ForwardAuth can forward
       # it to the app. The header is also delivered to the upstream app, but
       # the app ignores X-Domain-Check-Secret outside the domain-check route.
-      - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET}"
+      # `:?` makes compose fail fast when the secret is unset — a bare
+      # interpolation would silently inject an empty header and neuter the
+      # custom-domain gate.
+      - "traefik.http.middlewares.inject-domain-check-secret.headers.customrequestheaders.X-Domain-Check-Secret=${DOMAIN_CHECK_SECRET:?DOMAIN_CHECK_SECRET must be set when the traefik overlay is used}"
       # Verification endpoint — Traefik forwards X-Forwarded-Host (the
       # original Host) which the app's domain-check route accepts.
-      - "traefik.http.middlewares.domain-check.forwardauth.address=http://app:3000/api/customer_accounts/domain-check"
+      - "traefik.http.middlewares.domain-check.forwardauth.address=http://app:${CONTAINER_PORT:-3000}/api/customer_accounts/domain-check"
       - "traefik.http.middlewares.domain-check.forwardauth.authrequestheaders=X-Domain-Check-Secret,X-Forwarded-Host,X-Forwarded-Proto,X-Forwarded-Uri"
       - "traefik.http.middlewares.domain-check.forwardauth.authresponseheaders=X-Open-Mercato-Origin"
       - "traefik.http.middlewares.domain-check.forwardauth.trustforwardheader=false"

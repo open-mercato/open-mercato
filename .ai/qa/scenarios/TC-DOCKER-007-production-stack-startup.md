@@ -10,7 +10,7 @@ Docker Command Parity
 Medium
 
 ## Description
-Verify that `yarn docker:up` starts the production-like stack (`docker-compose.fullapp.yml`) in detached mode and `yarn docker:down` tears it down. Confirm that monorepo-only exec commands are unavailable in this profile.
+Verify that `yarn docker:up` starts the production-like stack (`starters/docker/compose.fullapp.yml`) in detached mode and `yarn docker:down` tears it down. Confirm that monorepo-only exec commands are unavailable in this profile.
 
 ## Prerequisites
 - Docker Desktop is running
@@ -37,4 +37,4 @@ Verify that `yarn docker:up` starts the production-like stack (`docker-compose.f
 
 ## Edge Cases / Error Scenarios
 - Running both dev and production stacks simultaneously may cause port conflicts on 3000 — only one should be active at a time
-- `DOCKER_COMPOSE_FILE=docker-compose.fullapp.yml yarn docker:generate` should target the production profile explicitly and fail with the same wrapper-level unsupported-tooling message
+- `DOCKER_COMPOSE_FILE=starters/docker/compose.fullapp.yml yarn docker:generate` should target the production profile explicitly and fail with the same wrapper-level unsupported-tooling message

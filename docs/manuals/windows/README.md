@@ -1,9 +1,13 @@
 # Windows one-command setup — user manuals
 
-Printable manuals (run guide + troubleshooting + FAQ) for the Windows launchers —
-`scripts/windows/start-windows.bat` (auto-detect), `start-windows-rancher.bat` /
-`start-windows-docker.bat` (pinned runtime), and the read-only preflight
-`check-windows.bat`:
+> **Out of date — launcher replaced.** The `.bat` launchers these manuals describe were
+> replaced by the cross-platform starter: `packages\starter\platform\start.cmd`
+> (double-click) / `npx @open-mercato/starter`, with `doctor` as the read-only preflight.
+> The manuals below still contain valid WSL2/proxy/hardware troubleshooting, but their
+> run instructions need a rewrite pass before being handed to end users.
+
+Printable manuals (run guide + troubleshooting + FAQ), originally written for the retired
+Windows launchers:
 
 | Language | Source | PDF |
 |----------|--------|-----|
@@ -18,7 +22,7 @@ chrome --headless --disable-gpu --no-pdf-header-footer \
   --print-to-pdf=open-mercato-windows-setup-manual-en.pdf windows-setup-manual-en.html
 ```
 
-Keep the manuals in sync with `scripts/windows/start-dev.ps1` (all launcher
-`.bat` entry points, `preflight-windows.ps1`) and the spec
-`.ai/specs/2026-07-07-windows-one-command-agentic-dev-environment.md`.
+Keep the manuals in sync with the starter (`packages/starter/` — CLI, steps, doctor, and
+the `platform/` bootstraps) and the spec
+`.ai/specs/2026-07-19-unified-starter-package.md`.
 After editing the HTML sources, regenerate both PDFs.

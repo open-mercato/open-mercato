@@ -47,7 +47,7 @@ yarn build:app
 
 The full CI-mirroring gate (used by review/automation skills) is the ordered `validation.commands` list in `.ai/agentic.config.json`.
 
-**Where to run them (decide once per gate sequence):** if `DOCKER_COMPOSE_FILE` is set, use Docker mode with that file. Otherwise probe, in order, `docker-compose.*dev*.local.yml` (sorted), `docker-compose.fullapp.dev.yml`, `docker-compose.fullapp.yml` with `docker compose -f <file> ps --status running -q app`; the first file with a running `app` container wins → Docker mode; none → local mode (`yarn …` on host). In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`. Record the chosen runner in your output (e.g. `Runner: docker (docker-compose.fullapp.dev.yml)` or `Runner: local`).
+**Where to run them (decide once per gate sequence):** if `DOCKER_COMPOSE_FILE` is set, use Docker mode with that file. Otherwise probe, in order, `starters/docker/compose.*dev*.local.yml` (sorted), legacy root `docker-compose.*dev*.local.yml` (sorted), `starters/docker/compose.fullapp.dev.yml`, `starters/docker/compose.fullapp.yml` with `docker compose --project-directory . -f <file> ps --status running -q app`; the first file with a running `app` container wins → Docker mode; none → local mode (`yarn …` on host). In Docker mode replace each `yarn X` with `node scripts/docker-exec.mjs X`. Record the chosen runner in your output (e.g. `Runner: docker (starters/docker/compose.fullapp.dev.yml)` or `Runner: local`). Always pass `--project-directory .` (repo root) with any `-f starters/docker/...` compose command — it anchors `.env` interpolation and relative paths at the repo root.
 
 ## Task Router — Where to Find Detailed Guidance
 

@@ -118,6 +118,7 @@ newrelic_agent.log
 .devcontainer/docker-compose.local.yml
 # Personal compose overrides (auto-discovered by docker-exec.mjs)
 docker-compose.*.local.yml
+starters/docker/compose.*.local.yml
 
 # OpenCode local config (generated at runtime, may contain secrets)
 docker/opencode/opencode.jsonc
@@ -162,3 +163,7 @@ docker/certs/*
 !docker/certs/README.md
 docker/opencode/certs/*
 !docker/opencode/certs/README.md
+
+# Starter company overlay: per-machine override + private CA bundles stay local
+starters/company/config.local.mjs
+starters/company/certs/
