@@ -144,7 +144,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache Turbo build outputs
         uses: actions/cache@v6
@@ -310,7 +310,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.audit-cache.outputs.cache-hit != 'true' && steps.nm-cache.outputs.cache-hit != 'true'
@@ -356,7 +356,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
@@ -416,7 +416,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Cache pip packages
         uses: actions/cache@v6
@@ -625,7 +625,7 @@ jobs:
             node_modules
             packages/*/node_modules
             apps/*/node_modules
-          key: node-modules-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
+          key: node-modules-v2-${{ runner.os }}-${{ hashFiles('yarn.lock') }}
 
       - name: Install dependencies
         if: steps.nm-cache.outputs.cache-hit != 'true'
