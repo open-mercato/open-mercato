@@ -21,6 +21,22 @@ export const notificationActionSchema = z.object({
   confirmMessage: z.string().optional(),
 })
 
+/**
+ * Flat per-provider push customization. Known keys are mapped onto each provider's native message
+ * by the push adapters; unknown keys are accepted (passthrough) for providers that understand them.
+ * See `communication_channels/lib/push-envelope.ts` (`PushOptions`).
+ */
+export const pushOptionsSchema = z
+  .object({
+    sound: z.string().optional(),
+    badge: z.number().int().nonnegative().optional(),
+    image: z.string().optional(),
+    priority: z.enum(['high', 'normal']).optional(),
+    channelId: z.string().optional(),
+    body: z.string().optional(),
+  })
+  .catchall(z.unknown())
+
 const baseNotificationFieldsSchema = z.object({
   type: z.string().min(1).max(100),
   titleKey: z.string().min(1).max(200).optional(),
@@ -39,6 +55,16 @@ const baseNotificationFieldsSchema = z.object({
   linkHref: safeRelativeHrefSchema.optional(),
   groupKey: z.string().optional(),
   expiresAt: z.string().datetime().optional(),
+  // Arbitrary app-readable key/values delivered with the push (and visible to in-app clients).
+  data: z.record(z.string(), z.string()).optional(),
+  // Per-provider push customization (sound, badge, image, priority, channelId, body override).
+  pushOptions: pushOptionsSchema.optional(),
+  // Explicit per-send channel target. When present, delivery is restricted to these channels
+  // (intersected with the type's eligibility, the registered strategies, and the recipient's
+  // preferences). Absent → all registered channels (pre-Phase-7 behavior). Must be non-empty when
+  // provided: an empty array would resolve to zero deliverable channels and silently black-hole the
+  // notification (invisible + undelivered) — omit the field instead to target every channel.
+  channels: z.array(z.string().min(1).max(32)).min(1).optional(),
 })
 
 const titleRequiredRefinement = {
@@ -113,3 +139,79 @@ export type CreateFeatureNotificationInput = z.infer<typeof createFeatureNotific
 export type ListNotificationsInput = z.infer<typeof listNotificationsSchema>
 export type ExecuteActionInput = z.infer<typeof executeActionSchema>
 export type NotificationDeliveryConfigInput = z.infer<typeof notificationDeliveryConfigSchema>
+
+// Notification type catalogue (DB-mirrored read model)
+export const notificationTypeItemSchema = z.object({
+  id: z.string(),
+  labelKey: z.string(),
+  descriptionKey: z.string().nullable().optional(),
+  // Free-form grouping label so a client can list/group types under a heading.
+  category: z.string().nullable().optional(),
+  // When true the type is delivered as a silent / content-available push.
+  silent: z.boolean(),
+  // Effective "cannot be opted out of" flag (operator override ?? code-declared); a preferences
+  // UI should lock the type on when true.
+  nonOptOut: z.boolean(),
+  // Effective channel eligibility for the caller's tenant (stored override ?? code-declared
+  // `type.channels`). `null` = no restriction (every registered channel). A channel outside
+  // the set never delivers for this type in the tenant and users cannot opt into it —
+  // preference UIs lock the cell off.
+  channels: z.array(z.string()).nullable(),
+  // The raw tenant-stored override (`notification_type_overrides.channels`; `null` = inherit
+  // code). Admin editors base PATCH payloads on the EFFECTIVE set, but this shows whether an
+  // override exists at all.
+  storedChannels: z.array(z.string()).nullable(),
+  // The raw tenant-stored `nonOptOut` override (`null` = inherit the code-declared flag).
+  storedNonOptOut: z.boolean().nullable(),
+  // Optimistic-lock version of the tenant's override row (ISO timestamp; `null` when the
+  // tenant stores no override yet). PATCH callers echo it back via the standard
+  // `x-om-ext-optimistic-lock-expected-updated-at` header.
+  updatedAt: z.string().nullable(),
+})
+
+// PATCH /api/notifications/types — operator override of a type's channel eligibility and/or
+// nonOptOut governance. Omitted fields stay untouched; `null` clears the stored override so
+// the code declaration applies again.
+export const updateNotificationTypeSchema = z
+  .object({
+    id: z.string().min(1),
+    channels: z.array(z.string().min(1)).nullable().optional(),
+    nonOptOut: z.boolean().nullable().optional(),
+  })
+  .refine((value) => value.channels !== undefined || value.nonOptOut !== undefined, {
+    message: 'At least one of channels or nonOptOut must be provided',
+  })
+
+// Per-user channel preferences
+export const notificationPreferenceItemSchema = z.object({
+  notificationTypeId: z.string(),
+  channel: z.string(),
+  enabled: z.boolean(),
+})
+
+export const updatePreferencesSchema = z.object({
+  preferences: z
+    .array(
+      z.object({
+        notificationTypeId: z.string().trim().min(1).max(128),
+        channel: z.string().trim().min(1).max(32),
+        enabled: z.boolean(),
+      }),
+    )
+    .max(500),
+})
+
+// Admin-on-behalf preference management (target a specific user)
+export const adminPreferencesQuerySchema = z.object({
+  userId: z.string().uuid(),
+})
+
+export const adminUpdatePreferencesSchema = updatePreferencesSchema.extend({
+  userId: z.string().uuid(),
+})
+
+export type NotificationTypeItem = z.infer<typeof notificationTypeItemSchema>
+export type UpdateNotificationTypeInput = z.infer<typeof updateNotificationTypeSchema>
+export type NotificationPreferenceItem = z.infer<typeof notificationPreferenceItemSchema>
+export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>
+export type AdminUpdatePreferencesInput = z.infer<typeof adminUpdatePreferencesSchema>
