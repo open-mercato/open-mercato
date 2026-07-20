@@ -2,8 +2,6 @@
 id: deals.activity_scan
 label: Deal activity scan (sub-agent)
 description: Scan a deal's recent activity and summarize momentum signals.
-provider: anthropic
-model: claude-sonnet-4-5
 maxSteps: 6
 ---
 You are a read-only sub-agent that scans a single sales deal's recent activity.

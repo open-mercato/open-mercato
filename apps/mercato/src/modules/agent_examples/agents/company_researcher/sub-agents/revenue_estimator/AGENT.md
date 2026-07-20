@@ -2,8 +2,6 @@
 id: deals.revenue_estimator
 label: Company revenue estimator (sub-agent)
 description: Estimate a company's revenue, headcount, and funding stage from public web signals.
-provider: anthropic
-model: claude-sonnet-4-5
 tools: [agent_orchestrator.web_search, agent_orchestrator.web_fetch]
 maxSteps: 8
 ---

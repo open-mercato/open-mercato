@@ -1,6 +1,5 @@
 ---
 description: "Assess a sales deal's health and propose the next stage."
-model: anthropic/claude-sonnet-4-5
 mode: primary
 tools:
   "*": false

@@ -2,8 +2,6 @@
 id: support.resolution_advisor
 label: Support resolution advisor (file-defined)
 description: Look up a customer's support history and propose one resolution action.
-provider: anthropic
-model: claude-sonnet-4-5
 skills: [resolution_playbook]
 maxSteps: 12
 ---
