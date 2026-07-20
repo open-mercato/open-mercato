@@ -273,6 +273,7 @@
   "wms.backend.inventory.console.scopeBar.label": "Zakres",
   "wms.backend.inventory.console.scopeBar.warehouse": "Magazyn",
   "wms.backend.inventory.cycleCount.dialog.title": "Inwentaryzacja",
+  "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Znaleziono wiele partii w tej lokalizacji — wybierz partię, aby kontynuować.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Włącz auto-korektę, aby zaksięgować rozbieżność.",
   "wms.backend.inventory.cycleCount.errors.balance": "Nie udało się odczytać stanu systemowego.",
   "wms.backend.inventory.cycleCount.errors.scope": "Uzupełnij konfigurację i wybierz lokalizację do liczenia.",

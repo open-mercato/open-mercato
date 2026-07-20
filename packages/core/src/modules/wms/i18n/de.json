@@ -273,6 +273,7 @@
   "wms.backend.inventory.console.scopeBar.label": "Umfang",
   "wms.backend.inventory.console.scopeBar.warehouse": "Lager",
   "wms.backend.inventory.cycleCount.dialog.title": "Inventur",
+  "wms.backend.inventory.cycleCount.errors.ambiguousLot": "An diesem Standort wurden mehrere Chargen gefunden — wählen Sie eine Charge aus, um fortzufahren.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Aktivieren Sie die Auto-Korrektur, um eine Abweichung zu buchen.",
   "wms.backend.inventory.cycleCount.errors.balance": "Das System konnte nicht geladen werden.",
   "wms.backend.inventory.cycleCount.errors.scope": "Schließen Sie die Einrichtung ab und wählen Sie einen Zählstandort aus.",

@@ -254,10 +254,15 @@ export type AssigneeOptionsResult = {
   canListUsers: boolean
 }
 
+export type BalanceLookupErrorCode = 'LOOKUP_FAILED' | 'LOT_REQUIRED' | 'LOT_NOT_FOUND'
+
 export class BalanceLookupError extends Error {
-  constructor(message = 'Failed to load inventory balance.') {
+  code: BalanceLookupErrorCode
+
+  constructor(message = 'Failed to load inventory balance.', code: BalanceLookupErrorCode = 'LOOKUP_FAILED') {
     super(message)
     this.name = 'BalanceLookupError'
+    this.code = code
   }
 }
 
@@ -587,7 +592,7 @@ function selectBalanceLookupRow(
       (row) => normalizeBalanceLotId(row.lot_id) === normalizedLotId,
     )
     if (exactMatch) return exactMatch
-    throw new BalanceLookupError('No balance bucket matches the selected lot.')
+    throw new BalanceLookupError('No balance bucket matches the selected lot.', 'LOT_NOT_FOUND')
   }
 
   const withoutLot = items.filter((row) => !normalizeBalanceLotId(row.lot_id))
@@ -595,6 +600,7 @@ function selectBalanceLookupRow(
 
   throw new BalanceLookupError(
     'Multiple balance buckets match this location; specify a lot.',
+    'LOT_REQUIRED',
   )
 }
 

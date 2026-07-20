@@ -273,6 +273,7 @@
   "wms.backend.inventory.console.scopeBar.label": "Ámbito",
   "wms.backend.inventory.console.scopeBar.warehouse": "Almacén",
   "wms.backend.inventory.cycleCount.dialog.title": "Conteo cíclico",
+  "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Se encontraron varios lotes en esta ubicación — seleccione un lote para continuar.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Active el autoajuste para confirmar una discrepancia.",
   "wms.backend.inventory.cycleCount.errors.balance": "No se pudo cargar el existente del sistema.",
   "wms.backend.inventory.cycleCount.errors.scope": "Complete la configuración y seleccione una ubicación de conteo.",

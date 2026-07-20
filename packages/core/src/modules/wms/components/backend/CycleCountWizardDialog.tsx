@@ -624,6 +624,15 @@ export function CycleCountWizardDialog({
         if (cancelled) return
         setSystemOnHand(0)
         if (error instanceof BalanceLookupError) {
+          if (error.code === 'LOT_REQUIRED') {
+            setBalanceError(
+              t(
+                'wms.backend.inventory.cycleCount.errors.ambiguousLot',
+                'Multiple lots found at this location — select a lot to continue.',
+              ),
+            )
+            return
+          }
           setBalanceError(
             t('wms.backend.inventory.cycleCount.errors.balance', 'Failed to load system on-hand.'),
           )
@@ -794,6 +803,15 @@ export function CycleCountWizardDialog({
       setSystemOnHand(onHand)
       setStep(3)
     } catch (error) {
+      if (error instanceof BalanceLookupError && error.code === 'LOT_REQUIRED') {
+        const message = t(
+          'wms.backend.inventory.cycleCount.errors.ambiguousLot',
+          'Multiple lots found at this location — select a lot to continue.',
+        )
+        setFieldErrors({ lotId: message })
+        flash(message, 'error')
+        return
+      }
       console.error('[CycleCountWizardDialog] fetchBalanceOnHand failed', error)
       flash(
         t('wms.backend.inventory.cycleCount.errors.balance', 'Failed to load system on-hand.'),

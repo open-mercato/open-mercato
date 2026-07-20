@@ -273,6 +273,7 @@
   "wms.backend.inventory.console.scopeBar.label": "Scope",
   "wms.backend.inventory.console.scopeBar.warehouse": "Warehouse",
   "wms.backend.inventory.cycleCount.dialog.title": "Cycle count",
+  "wms.backend.inventory.cycleCount.errors.ambiguousLot": "Multiple lots found at this location — select a lot to continue.",
   "wms.backend.inventory.cycleCount.errors.autoAdjustRequired": "Enable auto-adjust to commit a variance.",
   "wms.backend.inventory.cycleCount.errors.balance": "Failed to load system on-hand.",
   "wms.backend.inventory.cycleCount.errors.scope": "Complete setup and select a count location.",
