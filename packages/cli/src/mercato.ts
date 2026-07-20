@@ -706,40 +706,40 @@ async function runModuleCommand(
   return true
 }
 
-async function runPostGenerateStructuralCachePurge(quiet: boolean): Promise<void> {
+async function runPostGenerateStructuralInvalidation(quiet: boolean): Promise<void> {
   try {
-    const [{ bootstrapFromAppRoot }, { createResolver }] = await Promise.all([
-      import('@open-mercato/shared/lib/bootstrap/dynamicLoader'),
-      import('./lib/resolver'),
-    ])
+    const { createResolver } = await import('./lib/resolver')
     const resolver = createResolver()
     const appDir = resolver.getAppDir()
-    const data = await bootstrapFromAppRoot(appDir)
-    registerCliModules(data.modules)
-    const configsModule = data.modules.find((mod) => mod.id === 'configs')
-    const hasCacheCommand = configsModule?.cli?.some((command) => command.command === 'cache') ?? false
+    const hasConfigsModule = resolver.loadEnabledModules().some((module) => module.id === 'configs')
 
-    if (!hasCacheCommand) {
+    if (!hasConfigsModule) {
       if (!quiet) {
-        console.log('[generate] Skipping structural cache purge: "configs cache" is not available in this app.')
+        console.log('[generate] Skipping structural invalidation: the "configs" module is not enabled in this app.')
       }
       return
     }
 
+    const { runPostGenerateStructuralInvalidation: invalidate } = await import('./lib/post-generate-invalidation')
     if (!quiet) {
-      console.log('[generate] Purging structural cache for all tenants...')
+      console.log('[generate] Invalidating generated structure...')
     }
-    await runModuleCommand(data.modules, 'configs', 'cache', ['structural', '--all-tenants', '--quiet'], {
-      optional: true,
-      silentOptional: quiet,
-    })
+    const result = await invalidate(appDir)
     if (!quiet) {
-      console.log('[generate] Structural cache purge completed.')
+      if (result.cacheError) {
+        console.log(`[generate] Structural cache purge skipped: ${formatCliFailureMessage('configs', 'cache', result.cacheError)}`)
+      }
+      if (result.generatedFilesError) {
+        console.log(`[generate] Generated artifact refresh skipped: ${formatCliFailureMessage('generate', 'refresh', result.generatedFilesError)}`)
+      }
+      console.log(
+        `[generate] Structural invalidation completed (${result.cacheEntriesDeleted} cache entr${result.cacheEntriesDeleted === 1 ? 'y' : 'ies'}, ${result.generatedFilesTouched.length} generated artifact${result.generatedFilesTouched.length === 1 ? '' : 's'} refreshed).`,
+      )
     }
   } catch (error) {
     if (!quiet) {
       const message = formatCliFailureMessage('configs', 'cache', error)
-      console.log(`[generate] Skipping structural cache purge: ${message}`)
+      console.log(`[generate] Skipping structural invalidation: ${message}`)
     }
   }
 }
@@ -780,11 +780,11 @@ async function runGeneratorSuiteWithStructuralInvalidation(quiet: boolean): Prom
   const generatedFilesChanged = await runGeneratorSuite(quiet)
   if (!generatedFilesChanged) {
     if (!quiet) {
-      console.log('[generate] Generated outputs unchanged; skipping structural cache purge.')
+      console.log('[generate] Generated outputs unchanged; skipping structural invalidation.')
     }
     return
   }
-  await runPostGenerateStructuralCachePurge(quiet)
+  await runPostGenerateStructuralInvalidation(quiet)
 }
 
 /**
