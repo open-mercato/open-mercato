@@ -1,0 +1,1605 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): acl.ts 1`] = `
+"export const features = [
+  { id: 'inventory_items.view', title: 'View inventory items', module: 'inventory_items' },
+  {
+    id: 'inventory_items.create',
+    title: 'Create inventory items',
+    module: 'inventory_items',
+    dependsOn: ['inventory_items.view'],
+  },
+  {
+    id: 'inventory_items.edit',
+    title: 'Edit inventory items',
+    module: 'inventory_items',
+    dependsOn: ['inventory_items.view'],
+  },
+  {
+    id: 'inventory_items.delete',
+    title: 'Delete inventory items',
+    module: 'inventory_items',
+    dependsOn: ['inventory_items.view'],
+  },
+]
+
+export default features
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/[id]/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['inventory_items.view'],
+  pageTitle: 'Stock item details',
+  pageTitleKey: 'inventory_items.detail.title',
+  pageGroup: 'Inventory items',
+  pageGroupKey: 'inventory_items.nav.group',
+  navHidden: true,
+  breadcrumb: [
+    { label: 'Inventory items', labelKey: 'inventory_items.nav.title', href: '/backend/inventory_items' },
+    { label: 'Details', labelKey: 'inventory_items.detail.title' },
+  ],
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/[id]/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { FormHeader } from '@open-mercato/ui/backend/forms/FormHeader'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { stockItemUpdateSchema, type StockItemUpdateInput } from '../../../data/validators'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { stockItemStatusMap, type StockItemStatus } from '../../../components/statusMap'
+import {
+  STOCK_ITEM_ENTITY_ID,
+  createStockItemFormFields,
+  createStockItemFormGroups,
+} from '../../../components/formConfig'
+
+type StockItemRecord = {
+  id: string
+  updatedAt?: string | null
+  name: string
+  summary?: string | null
+  quantity: number
+  status?: StockItemStatus | null
+  severity: 'low' | 'high'
+  archived?: boolean | null
+  dueDate: string
+}
+
+type StockItemListResponse = {
+  items: StockItemRecord[]
+}
+
+export default function StockItemDetailPage({ params }: { params?: { id?: string } }) {
+  const t = useT()
+  const router = useRouter()
+  const id = typeof params?.id === 'string' ? params.id : null
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'inventory_items.detail' })
+  const [record, setRecord] = React.useState<StockItemRecord | null>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!id) {
+        setLoadError(t('inventory_items.detail.notFound', 'Stock item not found'))
+        setIsLoading(false)
+        return
+      }
+      setIsLoading(true)
+      setLoadError(null)
+      try {
+        const query = new URLSearchParams({ ids: id, pageSize: '1' })
+        const call = await apiCall<StockItemListResponse>('/api/inventory_items?' + query.toString())
+        if (cancelled) return
+        if (!call.ok) {
+          setLoadError(t('inventory_items.detail.loadError', 'Failed to load stock item'))
+          return
+        }
+        const item = call.result?.items?.[0] ?? null
+        if (!item) {
+          setLoadError(t('inventory_items.detail.notFound', 'Stock item not found'))
+          return
+        }
+        setRecord(item)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [id, reloadToken, t])
+
+  const fields = React.useMemo(() => createStockItemFormFields(t), [t])
+  const groups = React.useMemo(() => createStockItemFormGroups(t), [t])
+
+  // updatedAt MUST stay in initialValues: CrudForm auto-derives the
+  // x-om-ext-optimistic-lock-expected-updated-at header from it on submit AND delete.
+  const initialValues = React.useMemo<Partial<StockItemUpdateInput> | undefined>(() => {
+    if (!record) return undefined
+    return {
+      id: record.id,
+      updatedAt: record.updatedAt ?? undefined,
+      name: record.name,
+      summary: record.summary ?? undefined,
+      quantity: record.quantity,
+      status: record.status ?? undefined,
+      severity: record.severity,
+      archived: record.archived ?? undefined,
+      dueDate: record.dueDate ? new Date(record.dueDate) : undefined,
+    }
+  }, [record])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!record) return
+    const confirmed = await confirm({
+      title: t('inventory_items.delete.confirmTitle', 'Delete stock item?'),
+      description: t('inventory_items.delete.confirmDescription', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(record.updatedAt ?? undefined),
+            () => deleteCrud('inventory_items', record.id),
+          ),
+        context: { resourceKind: 'inventory_items.stock_item', resourceId: record.id },
+        mutationPayload: { id: record.id },
+      })
+      flash(t('inventory_items.delete.success', 'Stock item deleted'), 'success')
+      router.push('/backend/inventory_items')
+    } catch {
+      flash(t('inventory_items.delete.error', 'Failed to delete stock item'), 'error')
+    }
+  }, [confirm, record, router, runMutation, t])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('inventory_items.detail.loading', 'Loading stock item')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (loadError || !record) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={loadError ?? t('inventory_items.detail.notFound', 'Stock item not found')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <FormHeader
+          mode="detail"
+          backHref="/backend/inventory_items"
+          title={record.name}
+          statusBadge={record.status ? (
+            <StatusBadge variant={stockItemStatusMap[record.status] ?? 'neutral'} dot>
+              {t('inventory_items.fields.status.options.' + record.status, record.status)}
+            </StatusBadge>
+          ) : undefined}
+          onDelete={() => { void handleDelete() }}
+          deleteLabel={t('inventory_items.detail.actions.delete', 'Delete')}
+        />
+        <Tabs defaultValue="overview" variant="underline" className="mt-4">
+          <TabsList aria-label={t('inventory_items.detail.tabs.label', 'Stock item sections')}>
+            <TabsTrigger value="overview">{t('inventory_items.detail.tabs.overview', 'Overview')}</TabsTrigger>
+            {/* Extension point: add related-entity tabs here (activity, attachments, ...). */}
+          </TabsList>
+          <TabsContent value="overview">
+            <CrudForm<StockItemUpdateInput>
+              schema={stockItemUpdateSchema}
+              fields={fields}
+              groups={groups}
+              initialValues={initialValues}
+              entityIds={[STOCK_ITEM_ENTITY_ID]}
+              submitLabel={t('inventory_items.form.submit', 'Save')}
+              onSubmit={async (values) => {
+                await updateCrud('inventory_items', values)
+                flash(t('inventory_items.detail.updateSuccess', 'Stock item updated'), 'success')
+                setReloadToken((token) => token + 1)
+              }}
+            />
+          </TabsContent>
+        </Tabs>
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/create/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['inventory_items.create'],
+  pageTitle: 'Create stock item',
+  pageTitleKey: 'inventory_items.create.title',
+  pageGroup: 'Inventory items',
+  pageGroupKey: 'inventory_items.nav.group',
+  pageOrder: 101,
+  icon: 'plus',
+  breadcrumb: [
+    { label: 'Inventory items', labelKey: 'inventory_items.nav.title', href: '/backend/inventory_items' },
+    { label: 'Create', labelKey: 'inventory_items.create.title' },
+  ],
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/create/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  STOCK_ITEM_ENTITY_ID,
+  createStockItemFormFields,
+  createStockItemFormGroups,
+  createStockItemFormSchema,
+  type StockItemFormValues,
+} from '../../../components/formConfig'
+
+export default function StockItemCreatePage() {
+  const t = useT()
+  const router = useRouter()
+  const schema = React.useMemo(() => createStockItemFormSchema(), [])
+  const fields = React.useMemo(() => createStockItemFormFields(t), [t])
+  const groups = React.useMemo(() => createStockItemFormGroups(t), [t])
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm<StockItemFormValues>
+          title={t('inventory_items.create.title', 'Create stock item')}
+          backHref="/backend/inventory_items"
+          cancelHref="/backend/inventory_items"
+          schema={schema}
+          fields={fields}
+          groups={groups}
+          entityIds={[STOCK_ITEM_ENTITY_ID]}
+          submitLabel={t('inventory_items.form.submit', 'Save')}
+          onSubmit={async (values) => {
+            const call = await createCrud<{ id?: string }>('inventory_items', values)
+            const createdId = typeof call.result?.id === 'string' ? call.result.id : null
+            flash(t('inventory_items.create.success', 'Stock item created'), 'success')
+            router.push(createdId ? '/backend/inventory_items/' + createdId : '/backend/inventory_items')
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['inventory_items.view'],
+  pageTitle: 'Inventory items',
+  pageTitleKey: 'inventory_items.nav.title',
+  pageGroup: 'Inventory items',
+  pageGroupKey: 'inventory_items.nav.group',
+  pageOrder: 100,
+  icon: 'list',
+  breadcrumb: [{ label: 'Inventory items', labelKey: 'inventory_items.nav.title' }],
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): backend/inventory_items/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import type { FilterDef, FilterValues } from '@open-mercato/ui/backend/FilterOverlay'
+import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
+import { stockItemStatusMap, type StockItemStatus } from '../../components/statusMap'
+
+type StockItemRow = {
+  id: string
+  updatedAt?: string | null
+  name: string
+  summary?: string | null
+  quantity: number
+  status?: StockItemStatus | null
+  severity: 'low' | 'high'
+  archived?: boolean | null
+  dueDate: string
+}
+
+type StockItemListResponse = {
+  items: StockItemRow[]
+  total: number
+  totalPages: number
+}
+
+// DS guardrail: keep pageSize at or below 100.
+const PAGE_SIZE = 25
+
+export default function StockItemListPage() {
+  const t = useT()
+  const router = useRouter()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'inventory_items.list' })
+  const [rows, setRows] = React.useState<StockItemRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [filterValues, setFilterValues] = React.useState<FilterValues>({})
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  const listParams = React.useMemo(() => {
+    const params: Record<string, string | number> = { page, pageSize: PAGE_SIZE }
+    if (search) params.search = search
+    if (typeof filterValues.status === 'string' && filterValues.status) params.status = filterValues.status
+    if (typeof filterValues.severity === 'string' && filterValues.severity) params.severity = filterValues.severity
+    return params
+  }, [filterValues, page, search])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const query = new URLSearchParams()
+        for (const [key, value] of Object.entries(listParams)) query.set(key, String(value))
+        const fallback: StockItemListResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<StockItemListResponse>('/api/inventory_items?' + query.toString(), undefined, { fallback })
+        if (cancelled) return
+        if (!call.ok) {
+          flash(t('inventory_items.list.loadError', 'Failed to load inventory items'), 'error')
+          return
+        }
+        const result = call.result ?? fallback
+        setRows(result.items)
+        setTotal(result.total)
+        setTotalPages(result.totalPages)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [listParams, reloadToken, t])
+
+  const handleDelete = React.useCallback(async (row: StockItemRow) => {
+    const confirmed = await confirm({
+      title: t('inventory_items.delete.confirmTitle', 'Delete stock item?'),
+      description: t('inventory_items.delete.confirmDescription', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      // Optimistic locking is ON by default: derive the expected-updated-at
+      // header from the row the user acted on.
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt ?? undefined),
+            () => deleteCrud('inventory_items', row.id),
+          ),
+        context: { resourceKind: 'inventory_items.stock_item', resourceId: row.id },
+        mutationPayload: { id: row.id },
+      })
+      flash(t('inventory_items.delete.success', 'Stock item deleted'), 'success')
+      setReloadToken((token) => token + 1)
+    } catch {
+      flash(t('inventory_items.delete.error', 'Failed to delete stock item'), 'error')
+    }
+  }, [confirm, runMutation, t])
+
+  const columns = React.useMemo<ColumnDef<StockItemRow>[]>(() => [
+    { accessorKey: 'name', header: t('inventory_items.fields.name', 'Name') },
+    {
+      accessorKey: 'quantity',
+      header: t('inventory_items.fields.quantity', 'Quantity'),
+      cell: ({ row }) => <div className="text-right tabular-nums">{row.original.quantity ?? null}</div>,
+    },
+    {
+      accessorKey: 'status',
+      header: t('inventory_items.fields.status', 'Status'),
+      cell: ({ row }) => {
+        const status = row.original.status
+        if (!status) return null
+        return (
+          <StatusBadge variant={stockItemStatusMap[status] ?? 'neutral'} dot>
+            {t('inventory_items.fields.status.options.' + status, status)}
+          </StatusBadge>
+        )
+      },
+    },
+    {
+      accessorKey: 'severity',
+      header: t('inventory_items.fields.severity', 'Severity'),
+      cell: ({ row }) => (row.original.severity ? t('inventory_items.fields.severity.options.' + row.original.severity, row.original.severity) : null),
+    },
+    {
+      accessorKey: 'archived',
+      header: t('inventory_items.fields.archived', 'Archived'),
+      cell: ({ row }) => (row.original.archived ? t('inventory_items.list.boolean.yes', 'Yes') : t('inventory_items.list.boolean.no', 'No')),
+    },
+    {
+      accessorKey: 'dueDate',
+      header: t('inventory_items.fields.dueDate', 'Due date'),
+      cell: ({ row }) => (row.original.dueDate ? new Date(row.original.dueDate as string).toLocaleDateString() : null),
+    },
+  ], [t])
+
+  const filters = React.useMemo<FilterDef[]>(() => [
+    {
+      id: 'status',
+      label: t('inventory_items.fields.status', 'Status'),
+      type: 'select',
+      options: [
+        { value: 'open', label: t('inventory_items.fields.status.options.open', 'Open') },
+        { value: 'in_progress', label: t('inventory_items.fields.status.options.in_progress', 'In progress') },
+        { value: 'closed', label: t('inventory_items.fields.status.options.closed', 'Closed') },
+      ],
+    },
+    {
+      id: 'severity',
+      label: t('inventory_items.fields.severity', 'Severity'),
+      type: 'select',
+      options: [
+        { value: 'low', label: t('inventory_items.fields.severity.options.low', 'Low') },
+        { value: 'high', label: t('inventory_items.fields.severity.options.high', 'High') },
+      ],
+    },
+  ], [t])
+
+  const exporter = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('inventory_items', { ...listParams, all: 'true' }, format),
+    filename: (format: DataTableExportFormat) => 'inventory_items.' + format,
+  }), [listParams])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<StockItemRow>
+          title={t('inventory_items.list.title', 'Inventory items')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/inventory_items/create">{t('inventory_items.list.actions.create', 'Create stock item')}</Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rows}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('inventory_items.list.searchPlaceholder', 'Search inventory items')}
+          filters={filters}
+          filterValues={filterValues}
+          onFiltersApply={(values) => { setFilterValues(values); setPage(1) }}
+          onFiltersClear={() => { setFilterValues({}); setPage(1) }}
+          exporter={exporter}
+          extensionTableId="inventory_items.list"
+          onRowClick={(row) => router.push('/backend/inventory_items/' + row.id)}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('inventory_items.list.actions.edit', 'Edit'),
+                  onSelect: () => { router.push('/backend/inventory_items/' + row.id) },
+                },
+                {
+                  id: 'delete',
+                  label: t('inventory_items.list.actions.delete', 'Delete'),
+                  destructive: true,
+                  onSelect: () => { void handleDelete(row) },
+                },
+              ]}
+            />
+          )}
+          emptyState={(
+            <EmptyState
+              title={t('inventory_items.list.empty.title', 'No inventory items yet')}
+              description={t('inventory_items.list.empty.description', 'Create your first stock item to get started.')}
+              actions={(
+                <Button asChild>
+                  <Link href="/backend/inventory_items/create">{t('inventory_items.list.actions.create', 'Create stock item')}</Link>
+                </Button>
+              )}
+            />
+          )}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): components/formConfig.ts 1`] = `
+"import { z } from 'zod'
+import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { stockItemCreateSchema } from '../data/validators'
+
+/** Entity id used to load custom-field sets once the module declares \`ce.ts\`. */
+export const STOCK_ITEM_ENTITY_ID = 'inventory_items:stock_item'
+
+export type StockItemFormValues = z.infer<typeof stockItemCreateSchema>
+
+export function createStockItemFormSchema() {
+  return stockItemCreateSchema
+}
+
+export function createStockItemFormFields(t: TranslateFn): CrudField[] {
+  return [
+    { id: 'name', label: t('inventory_items.fields.name', 'Name'), type: 'text', required: true },
+    { id: 'summary', label: t('inventory_items.fields.summary', 'Summary'), type: 'textarea' },
+    { id: 'quantity', label: t('inventory_items.fields.quantity', 'Quantity'), type: 'number', required: true },
+    {
+      id: 'status',
+      label: t('inventory_items.fields.status', 'Status'),
+      type: 'select',
+      options: [
+        { value: 'open', label: t('inventory_items.fields.status.options.open', 'Open') },
+        { value: 'in_progress', label: t('inventory_items.fields.status.options.in_progress', 'In progress') },
+        { value: 'closed', label: t('inventory_items.fields.status.options.closed', 'Closed') },
+      ],
+    },
+    {
+      id: 'severity',
+      label: t('inventory_items.fields.severity', 'Severity'),
+      type: 'select',
+      required: true,
+      options: [
+        { value: 'low', label: t('inventory_items.fields.severity.options.low', 'Low') },
+        { value: 'high', label: t('inventory_items.fields.severity.options.high', 'High') },
+      ],
+    },
+    { id: 'archived', label: t('inventory_items.fields.archived', 'Archived'), type: 'checkbox' },
+    { id: 'dueDate', label: t('inventory_items.fields.dueDate', 'Due date'), type: 'date', required: true },
+  ]
+}
+
+export function createStockItemFormGroups(t: TranslateFn): CrudFormGroup[] {
+  return [
+    {
+      id: 'details',
+      title: t('inventory_items.form.groups.details', 'Details'),
+      column: 1,
+      fields: ['name', 'summary', 'quantity', 'status', 'severity', 'archived', 'dueDate'],
+    },
+    // Custom-field sets registered for STOCK_ITEM_ENTITY_ID render here.
+    {
+      id: 'attributes',
+      title: t('inventory_items.form.groups.attributes', 'Attributes'),
+      column: 2,
+      kind: 'customFields',
+    },
+  ]
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): components/statusMap.ts 1`] = `
+"import type { StatusMap } from '@open-mercato/ui/primitives/status-badge'
+
+export type StockItemStatus = 'open' | 'in_progress' | 'closed'
+
+// Shared status → semantic-variant mapping (DS rule: status colors come from
+// StatusBadge variants, never hardcoded palette classes).
+export const stockItemStatusMap: StatusMap<StockItemStatus> = {
+  open: 'info',
+  in_progress: 'info',
+  closed: 'neutral',
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): data/validators.ts 1`] = `
+"import { z } from 'zod'
+
+// Optimistic locking is ON by default for CrudForm edit flows: the stock item
+// API responses MUST return \`updatedAt\` and the backing table MUST carry an
+// \`updated_at\` column so \`initialValues.updatedAt\` can drive the
+// x-om-ext-optimistic-lock-expected-updated-at header on update and delete.
+export const stockItemCreateSchema = z.object({
+  name: z.string().min(1),
+  summary: z.string().optional(),
+  quantity: z.coerce.number(),
+  status: z.enum(['open', 'in_progress', 'closed']).optional(),
+  severity: z.enum(['low', 'high']),
+  archived: z.boolean().optional(),
+  dueDate: z.coerce.date(),
+})
+
+export const stockItemUpdateSchema = stockItemCreateSchema.extend({
+  id: z.string().uuid(),
+  updatedAt: z.string().optional(),
+})
+
+export type StockItemCreateInput = z.infer<typeof stockItemCreateSchema>
+export type StockItemUpdateInput = z.infer<typeof stockItemUpdateSchema>
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/de.json 1`] = `
+"{
+  "inventory_items.create.success": "Stock item created",
+  "inventory_items.create.title": "Create stock item",
+  "inventory_items.delete.confirmDescription": "This action cannot be undone.",
+  "inventory_items.delete.confirmTitle": "Delete stock item?",
+  "inventory_items.delete.error": "Failed to delete stock item",
+  "inventory_items.delete.success": "Stock item deleted",
+  "inventory_items.detail.actions.delete": "Delete",
+  "inventory_items.detail.loadError": "Failed to load stock item",
+  "inventory_items.detail.loading": "Loading stock item",
+  "inventory_items.detail.notFound": "Stock item not found",
+  "inventory_items.detail.tabs.label": "Stock item sections",
+  "inventory_items.detail.tabs.overview": "Overview",
+  "inventory_items.detail.title": "Stock item details",
+  "inventory_items.detail.updateSuccess": "Stock item updated",
+  "inventory_items.fields.archived": "Archived",
+  "inventory_items.fields.dueDate": "Due date",
+  "inventory_items.fields.name": "Name",
+  "inventory_items.fields.quantity": "Quantity",
+  "inventory_items.fields.severity": "Severity",
+  "inventory_items.fields.severity.options.high": "High",
+  "inventory_items.fields.severity.options.low": "Low",
+  "inventory_items.fields.status": "Status",
+  "inventory_items.fields.status.options.closed": "Closed",
+  "inventory_items.fields.status.options.in_progress": "In progress",
+  "inventory_items.fields.status.options.open": "Open",
+  "inventory_items.fields.summary": "Summary",
+  "inventory_items.form.groups.attributes": "Attributes",
+  "inventory_items.form.groups.details": "Details",
+  "inventory_items.form.submit": "Save",
+  "inventory_items.list.actions.create": "Create stock item",
+  "inventory_items.list.actions.delete": "Delete",
+  "inventory_items.list.actions.edit": "Edit",
+  "inventory_items.list.boolean.no": "No",
+  "inventory_items.list.boolean.yes": "Yes",
+  "inventory_items.list.empty.description": "Create your first stock item to get started.",
+  "inventory_items.list.empty.title": "No inventory items yet",
+  "inventory_items.list.loadError": "Failed to load inventory items",
+  "inventory_items.list.searchPlaceholder": "Search inventory items",
+  "inventory_items.list.title": "Inventory items",
+  "inventory_items.nav.group": "Inventory items",
+  "inventory_items.nav.title": "Inventory items"
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/en.json 1`] = `
+"{
+  "inventory_items.create.success": "Stock item created",
+  "inventory_items.create.title": "Create stock item",
+  "inventory_items.delete.confirmDescription": "This action cannot be undone.",
+  "inventory_items.delete.confirmTitle": "Delete stock item?",
+  "inventory_items.delete.error": "Failed to delete stock item",
+  "inventory_items.delete.success": "Stock item deleted",
+  "inventory_items.detail.actions.delete": "Delete",
+  "inventory_items.detail.loadError": "Failed to load stock item",
+  "inventory_items.detail.loading": "Loading stock item",
+  "inventory_items.detail.notFound": "Stock item not found",
+  "inventory_items.detail.tabs.label": "Stock item sections",
+  "inventory_items.detail.tabs.overview": "Overview",
+  "inventory_items.detail.title": "Stock item details",
+  "inventory_items.detail.updateSuccess": "Stock item updated",
+  "inventory_items.fields.archived": "Archived",
+  "inventory_items.fields.dueDate": "Due date",
+  "inventory_items.fields.name": "Name",
+  "inventory_items.fields.quantity": "Quantity",
+  "inventory_items.fields.severity": "Severity",
+  "inventory_items.fields.severity.options.high": "High",
+  "inventory_items.fields.severity.options.low": "Low",
+  "inventory_items.fields.status": "Status",
+  "inventory_items.fields.status.options.closed": "Closed",
+  "inventory_items.fields.status.options.in_progress": "In progress",
+  "inventory_items.fields.status.options.open": "Open",
+  "inventory_items.fields.summary": "Summary",
+  "inventory_items.form.groups.attributes": "Attributes",
+  "inventory_items.form.groups.details": "Details",
+  "inventory_items.form.submit": "Save",
+  "inventory_items.list.actions.create": "Create stock item",
+  "inventory_items.list.actions.delete": "Delete",
+  "inventory_items.list.actions.edit": "Edit",
+  "inventory_items.list.boolean.no": "No",
+  "inventory_items.list.boolean.yes": "Yes",
+  "inventory_items.list.empty.description": "Create your first stock item to get started.",
+  "inventory_items.list.empty.title": "No inventory items yet",
+  "inventory_items.list.loadError": "Failed to load inventory items",
+  "inventory_items.list.searchPlaceholder": "Search inventory items",
+  "inventory_items.list.title": "Inventory items",
+  "inventory_items.nav.group": "Inventory items",
+  "inventory_items.nav.title": "Inventory items"
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/es.json 1`] = `
+"{
+  "inventory_items.create.success": "Stock item created",
+  "inventory_items.create.title": "Create stock item",
+  "inventory_items.delete.confirmDescription": "This action cannot be undone.",
+  "inventory_items.delete.confirmTitle": "Delete stock item?",
+  "inventory_items.delete.error": "Failed to delete stock item",
+  "inventory_items.delete.success": "Stock item deleted",
+  "inventory_items.detail.actions.delete": "Delete",
+  "inventory_items.detail.loadError": "Failed to load stock item",
+  "inventory_items.detail.loading": "Loading stock item",
+  "inventory_items.detail.notFound": "Stock item not found",
+  "inventory_items.detail.tabs.label": "Stock item sections",
+  "inventory_items.detail.tabs.overview": "Overview",
+  "inventory_items.detail.title": "Stock item details",
+  "inventory_items.detail.updateSuccess": "Stock item updated",
+  "inventory_items.fields.archived": "Archived",
+  "inventory_items.fields.dueDate": "Due date",
+  "inventory_items.fields.name": "Name",
+  "inventory_items.fields.quantity": "Quantity",
+  "inventory_items.fields.severity": "Severity",
+  "inventory_items.fields.severity.options.high": "High",
+  "inventory_items.fields.severity.options.low": "Low",
+  "inventory_items.fields.status": "Status",
+  "inventory_items.fields.status.options.closed": "Closed",
+  "inventory_items.fields.status.options.in_progress": "In progress",
+  "inventory_items.fields.status.options.open": "Open",
+  "inventory_items.fields.summary": "Summary",
+  "inventory_items.form.groups.attributes": "Attributes",
+  "inventory_items.form.groups.details": "Details",
+  "inventory_items.form.submit": "Save",
+  "inventory_items.list.actions.create": "Create stock item",
+  "inventory_items.list.actions.delete": "Delete",
+  "inventory_items.list.actions.edit": "Edit",
+  "inventory_items.list.boolean.no": "No",
+  "inventory_items.list.boolean.yes": "Yes",
+  "inventory_items.list.empty.description": "Create your first stock item to get started.",
+  "inventory_items.list.empty.title": "No inventory items yet",
+  "inventory_items.list.loadError": "Failed to load inventory items",
+  "inventory_items.list.searchPlaceholder": "Search inventory items",
+  "inventory_items.list.title": "Inventory items",
+  "inventory_items.nav.group": "Inventory items",
+  "inventory_items.nav.title": "Inventory items"
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): i18n/pl.json 1`] = `
+"{
+  "inventory_items.create.success": "Stock item created",
+  "inventory_items.create.title": "Create stock item",
+  "inventory_items.delete.confirmDescription": "This action cannot be undone.",
+  "inventory_items.delete.confirmTitle": "Delete stock item?",
+  "inventory_items.delete.error": "Failed to delete stock item",
+  "inventory_items.delete.success": "Stock item deleted",
+  "inventory_items.detail.actions.delete": "Delete",
+  "inventory_items.detail.loadError": "Failed to load stock item",
+  "inventory_items.detail.loading": "Loading stock item",
+  "inventory_items.detail.notFound": "Stock item not found",
+  "inventory_items.detail.tabs.label": "Stock item sections",
+  "inventory_items.detail.tabs.overview": "Overview",
+  "inventory_items.detail.title": "Stock item details",
+  "inventory_items.detail.updateSuccess": "Stock item updated",
+  "inventory_items.fields.archived": "Archived",
+  "inventory_items.fields.dueDate": "Due date",
+  "inventory_items.fields.name": "Name",
+  "inventory_items.fields.quantity": "Quantity",
+  "inventory_items.fields.severity": "Severity",
+  "inventory_items.fields.severity.options.high": "High",
+  "inventory_items.fields.severity.options.low": "Low",
+  "inventory_items.fields.status": "Status",
+  "inventory_items.fields.status.options.closed": "Closed",
+  "inventory_items.fields.status.options.in_progress": "In progress",
+  "inventory_items.fields.status.options.open": "Open",
+  "inventory_items.fields.summary": "Summary",
+  "inventory_items.form.groups.attributes": "Attributes",
+  "inventory_items.form.groups.details": "Details",
+  "inventory_items.form.submit": "Save",
+  "inventory_items.list.actions.create": "Create stock item",
+  "inventory_items.list.actions.delete": "Delete",
+  "inventory_items.list.actions.edit": "Edit",
+  "inventory_items.list.boolean.no": "No",
+  "inventory_items.list.boolean.yes": "Yes",
+  "inventory_items.list.empty.description": "Create your first stock item to get started.",
+  "inventory_items.list.empty.title": "No inventory items yet",
+  "inventory_items.list.loadError": "Failed to load inventory items",
+  "inventory_items.list.searchPlaceholder": "Search inventory items",
+  "inventory_items.list.title": "Inventory items",
+  "inventory_items.nav.group": "Inventory items",
+  "inventory_items.nav.title": "Inventory items"
+}
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): index.ts 1`] = `
+"import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+
+export const metadata: ModuleInfo = {
+  name: 'inventory_items',
+  title: 'Inventory items',
+  version: '0.1.0',
+  description: 'Inventory items module scaffolded with mercato module scaffold.',
+  author: 'Open Mercato Team',
+  license: 'MIT',
+}
+
+export { features } from './acl'
+"
+`;
+
+exports[`scaffold golden files emits the full DS-compliant UI slice for every field type (app target): setup.ts 1`] = `
+"import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['inventory_items.*'],
+    admin: ['inventory_items.*'],
+    employee: ['inventory_items.view'],
+  },
+}
+
+export default setup
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status acl.ts 1`] = `
+"export const features = [
+  { id: 'notes.view', title: 'View notes', module: 'notes' },
+  {
+    id: 'notes.create',
+    title: 'Create notes',
+    module: 'notes',
+    dependsOn: ['notes.view'],
+  },
+  {
+    id: 'notes.edit',
+    title: 'Edit notes',
+    module: 'notes',
+    dependsOn: ['notes.view'],
+  },
+  {
+    id: 'notes.delete',
+    title: 'Delete notes',
+    module: 'notes',
+    dependsOn: ['notes.view'],
+  },
+]
+
+export default features
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/[id]/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['notes.view'],
+  pageTitle: 'Note details',
+  pageTitleKey: 'notes.detail.title',
+  pageGroup: 'Notes',
+  pageGroupKey: 'notes.nav.group',
+  navHidden: true,
+  breadcrumb: [
+    { label: 'Notes', labelKey: 'notes.nav.title', href: '/backend/notes' },
+    { label: 'Details', labelKey: 'notes.detail.title' },
+  ],
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/[id]/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { FormHeader } from '@open-mercato/ui/backend/forms/FormHeader'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@open-mercato/ui/primitives/tabs'
+import { LoadingMessage, ErrorMessage } from '@open-mercato/ui/backend/detail'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { updateCrud, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import { noteUpdateSchema, type NoteUpdateInput } from '../../../data/validators'
+import {
+  NOTE_ENTITY_ID,
+  createNoteFormFields,
+  createNoteFormGroups,
+} from '../../../components/formConfig'
+
+type NoteRecord = {
+  id: string
+  updatedAt?: string | null
+  title: string
+  body?: string | null
+}
+
+type NoteListResponse = {
+  items: NoteRecord[]
+}
+
+export default function NoteDetailPage({ params }: { params?: { id?: string } }) {
+  const t = useT()
+  const router = useRouter()
+  const id = typeof params?.id === 'string' ? params.id : null
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'notes.detail' })
+  const [record, setRecord] = React.useState<NoteRecord | null>(null)
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [loadError, setLoadError] = React.useState<string | null>(null)
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      if (!id) {
+        setLoadError(t('notes.detail.notFound', 'Note not found'))
+        setIsLoading(false)
+        return
+      }
+      setIsLoading(true)
+      setLoadError(null)
+      try {
+        const query = new URLSearchParams({ ids: id, pageSize: '1' })
+        const call = await apiCall<NoteListResponse>('/api/notes?' + query.toString())
+        if (cancelled) return
+        if (!call.ok) {
+          setLoadError(t('notes.detail.loadError', 'Failed to load note'))
+          return
+        }
+        const item = call.result?.items?.[0] ?? null
+        if (!item) {
+          setLoadError(t('notes.detail.notFound', 'Note not found'))
+          return
+        }
+        setRecord(item)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [id, reloadToken, t])
+
+  const fields = React.useMemo(() => createNoteFormFields(t), [t])
+  const groups = React.useMemo(() => createNoteFormGroups(t), [t])
+
+  // updatedAt MUST stay in initialValues: CrudForm auto-derives the
+  // x-om-ext-optimistic-lock-expected-updated-at header from it on submit AND delete.
+  const initialValues = React.useMemo<Partial<NoteUpdateInput> | undefined>(() => {
+    if (!record) return undefined
+    return {
+      id: record.id,
+      updatedAt: record.updatedAt ?? undefined,
+      title: record.title,
+      body: record.body ?? undefined,
+    }
+  }, [record])
+
+  const handleDelete = React.useCallback(async () => {
+    if (!record) return
+    const confirmed = await confirm({
+      title: t('notes.delete.confirmTitle', 'Delete note?'),
+      description: t('notes.delete.confirmDescription', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(record.updatedAt ?? undefined),
+            () => deleteCrud('notes', record.id),
+          ),
+        context: { resourceKind: 'notes.note', resourceId: record.id },
+        mutationPayload: { id: record.id },
+      })
+      flash(t('notes.delete.success', 'Note deleted'), 'success')
+      router.push('/backend/notes')
+    } catch {
+      flash(t('notes.delete.error', 'Failed to delete note'), 'error')
+    }
+  }, [confirm, record, router, runMutation, t])
+
+  if (isLoading) {
+    return (
+      <Page>
+        <PageBody>
+          <LoadingMessage label={t('notes.detail.loading', 'Loading note')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  if (loadError || !record) {
+    return (
+      <Page>
+        <PageBody>
+          <ErrorMessage label={loadError ?? t('notes.detail.notFound', 'Note not found')} />
+        </PageBody>
+      </Page>
+    )
+  }
+
+  return (
+    <Page>
+      <PageBody>
+        <FormHeader
+          mode="detail"
+          backHref="/backend/notes"
+          title={record.title}
+          onDelete={() => { void handleDelete() }}
+          deleteLabel={t('notes.detail.actions.delete', 'Delete')}
+        />
+        <Tabs defaultValue="overview" variant="underline" className="mt-4">
+          <TabsList aria-label={t('notes.detail.tabs.label', 'Note sections')}>
+            <TabsTrigger value="overview">{t('notes.detail.tabs.overview', 'Overview')}</TabsTrigger>
+            {/* Extension point: add related-entity tabs here (activity, attachments, ...). */}
+          </TabsList>
+          <TabsContent value="overview">
+            <CrudForm<NoteUpdateInput>
+              schema={noteUpdateSchema}
+              fields={fields}
+              groups={groups}
+              initialValues={initialValues}
+              entityIds={[NOTE_ENTITY_ID]}
+              submitLabel={t('notes.form.submit', 'Save')}
+              onSubmit={async (values) => {
+                await updateCrud('notes', values)
+                flash(t('notes.detail.updateSuccess', 'Note updated'), 'success')
+                setReloadToken((token) => token + 1)
+              }}
+            />
+          </TabsContent>
+        </Tabs>
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/create/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['notes.create'],
+  pageTitle: 'Create note',
+  pageTitleKey: 'notes.create.title',
+  pageGroup: 'Notes',
+  pageGroupKey: 'notes.nav.group',
+  pageOrder: 101,
+  icon: 'plus',
+  breadcrumb: [
+    { label: 'Notes', labelKey: 'notes.nav.title', href: '/backend/notes' },
+    { label: 'Create', labelKey: 'notes.create.title' },
+  ],
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/create/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { CrudForm } from '@open-mercato/ui/backend/CrudForm'
+import { createCrud } from '@open-mercato/ui/backend/utils/crud'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+import {
+  NOTE_ENTITY_ID,
+  createNoteFormFields,
+  createNoteFormGroups,
+  createNoteFormSchema,
+  type NoteFormValues,
+} from '../../../components/formConfig'
+
+export default function NoteCreatePage() {
+  const t = useT()
+  const router = useRouter()
+  const schema = React.useMemo(() => createNoteFormSchema(), [])
+  const fields = React.useMemo(() => createNoteFormFields(t), [t])
+  const groups = React.useMemo(() => createNoteFormGroups(t), [t])
+
+  return (
+    <Page>
+      <PageBody>
+        <CrudForm<NoteFormValues>
+          title={t('notes.create.title', 'Create note')}
+          backHref="/backend/notes"
+          cancelHref="/backend/notes"
+          schema={schema}
+          fields={fields}
+          groups={groups}
+          entityIds={[NOTE_ENTITY_ID]}
+          submitLabel={t('notes.form.submit', 'Save')}
+          onSubmit={async (values) => {
+            const call = await createCrud<{ id?: string }>('notes', values)
+            const createdId = typeof call.result?.id === 'string' ? call.result.id : null
+            flash(t('notes.create.success', 'Note created'), 'success')
+            router.push(createdId ? '/backend/notes/' + createdId : '/backend/notes')
+          }}
+        />
+      </PageBody>
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/page.meta.ts 1`] = `
+"export const metadata = {
+  requireAuth: true,
+  requireFeatures: ['notes.view'],
+  pageTitle: 'Notes',
+  pageTitleKey: 'notes.nav.title',
+  pageGroup: 'Notes',
+  pageGroupKey: 'notes.nav.group',
+  pageOrder: 100,
+  icon: 'list',
+  breadcrumb: [{ label: 'Notes', labelKey: 'notes.nav.title' }],
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status backend/notes/page.tsx 1`] = `
+""use client"
+
+import * as React from 'react'
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { Page, PageBody } from '@open-mercato/ui/backend/Page'
+import { DataTable, type DataTableExportFormat } from '@open-mercato/ui/backend/DataTable'
+import type { ColumnDef } from '@tanstack/react-table'
+import { Button } from '@open-mercato/ui/primitives/button'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { RowActions } from '@open-mercato/ui/backend/RowActions'
+import { apiCall, withScopedApiRequestHeaders } from '@open-mercato/ui/backend/utils/apiCall'
+import { buildCrudExportUrl, deleteCrud } from '@open-mercato/ui/backend/utils/crud'
+import { buildOptimisticLockHeader } from '@open-mercato/ui/backend/utils/optimisticLock'
+import { useGuardedMutation } from '@open-mercato/ui/backend/injection/useGuardedMutation'
+import { flash } from '@open-mercato/ui/backend/FlashMessages'
+import { useConfirmDialog } from '@open-mercato/ui/backend/confirm-dialog'
+import { useT } from '@open-mercato/shared/lib/i18n/context'
+
+type NoteRow = {
+  id: string
+  updatedAt?: string | null
+  title: string
+  body?: string | null
+}
+
+type NoteListResponse = {
+  items: NoteRow[]
+  total: number
+  totalPages: number
+}
+
+// DS guardrail: keep pageSize at or below 100.
+const PAGE_SIZE = 25
+
+export default function NoteListPage() {
+  const t = useT()
+  const router = useRouter()
+  const { confirm, ConfirmDialogElement } = useConfirmDialog()
+  const { runMutation } = useGuardedMutation({ contextId: 'notes.list' })
+  const [rows, setRows] = React.useState<NoteRow[]>([])
+  const [isLoading, setIsLoading] = React.useState(true)
+  const [page, setPage] = React.useState(1)
+  const [total, setTotal] = React.useState(0)
+  const [totalPages, setTotalPages] = React.useState(1)
+  const [search, setSearch] = React.useState('')
+  const [reloadToken, setReloadToken] = React.useState(0)
+
+  const listParams = React.useMemo(() => {
+    const params: Record<string, string | number> = { page, pageSize: PAGE_SIZE }
+    if (search) params.search = search
+    return params
+  }, [page, search])
+
+  React.useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setIsLoading(true)
+      try {
+        const query = new URLSearchParams()
+        for (const [key, value] of Object.entries(listParams)) query.set(key, String(value))
+        const fallback: NoteListResponse = { items: [], total: 0, totalPages: 1 }
+        const call = await apiCall<NoteListResponse>('/api/notes?' + query.toString(), undefined, { fallback })
+        if (cancelled) return
+        if (!call.ok) {
+          flash(t('notes.list.loadError', 'Failed to load notes'), 'error')
+          return
+        }
+        const result = call.result ?? fallback
+        setRows(result.items)
+        setTotal(result.total)
+        setTotalPages(result.totalPages)
+      } finally {
+        if (!cancelled) setIsLoading(false)
+      }
+    }
+    void load()
+    return () => { cancelled = true }
+  }, [listParams, reloadToken, t])
+
+  const handleDelete = React.useCallback(async (row: NoteRow) => {
+    const confirmed = await confirm({
+      title: t('notes.delete.confirmTitle', 'Delete note?'),
+      description: t('notes.delete.confirmDescription', 'This action cannot be undone.'),
+      variant: 'destructive',
+    })
+    if (!confirmed) return
+    try {
+      // Optimistic locking is ON by default: derive the expected-updated-at
+      // header from the row the user acted on.
+      await runMutation({
+        operation: () =>
+          withScopedApiRequestHeaders(
+            buildOptimisticLockHeader(row.updatedAt ?? undefined),
+            () => deleteCrud('notes', row.id),
+          ),
+        context: { resourceKind: 'notes.note', resourceId: row.id },
+        mutationPayload: { id: row.id },
+      })
+      flash(t('notes.delete.success', 'Note deleted'), 'success')
+      setReloadToken((token) => token + 1)
+    } catch {
+      flash(t('notes.delete.error', 'Failed to delete note'), 'error')
+    }
+  }, [confirm, runMutation, t])
+
+  const columns = React.useMemo<ColumnDef<NoteRow>[]>(() => [
+    { accessorKey: 'title', header: t('notes.fields.title', 'Title') },
+  ], [t])
+
+  const exporter = React.useMemo(() => ({
+    getUrl: (format: DataTableExportFormat) => buildCrudExportUrl('notes', { ...listParams, all: 'true' }, format),
+    filename: (format: DataTableExportFormat) => 'notes.' + format,
+  }), [listParams])
+
+  return (
+    <Page>
+      <PageBody>
+        <DataTable<NoteRow>
+          title={t('notes.list.title', 'Notes')}
+          actions={(
+            <Button asChild>
+              <Link href="/backend/notes/create">{t('notes.list.actions.create', 'Create note')}</Link>
+            </Button>
+          )}
+          columns={columns}
+          data={rows}
+          isLoading={isLoading}
+          searchValue={search}
+          onSearchChange={(value) => { setSearch(value); setPage(1) }}
+          searchPlaceholder={t('notes.list.searchPlaceholder', 'Search notes')}
+          exporter={exporter}
+          extensionTableId="notes.list"
+          onRowClick={(row) => router.push('/backend/notes/' + row.id)}
+          rowActions={(row) => (
+            <RowActions
+              items={[
+                {
+                  id: 'edit',
+                  label: t('notes.list.actions.edit', 'Edit'),
+                  onSelect: () => { router.push('/backend/notes/' + row.id) },
+                },
+                {
+                  id: 'delete',
+                  label: t('notes.list.actions.delete', 'Delete'),
+                  destructive: true,
+                  onSelect: () => { void handleDelete(row) },
+                },
+              ]}
+            />
+          )}
+          emptyState={(
+            <EmptyState
+              title={t('notes.list.empty.title', 'No notes yet')}
+              description={t('notes.list.empty.description', 'Create your first note to get started.')}
+              actions={(
+                <Button asChild>
+                  <Link href="/backend/notes/create">{t('notes.list.actions.create', 'Create note')}</Link>
+                </Button>
+              )}
+            />
+          )}
+          pagination={{ page, pageSize: PAGE_SIZE, total, totalPages, onPageChange: setPage }}
+        />
+      </PageBody>
+      {ConfirmDialogElement}
+    </Page>
+  )
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status components/formConfig.ts 1`] = `
+"import { z } from 'zod'
+import type { CrudField, CrudFormGroup } from '@open-mercato/ui/backend/CrudForm'
+import type { TranslateFn } from '@open-mercato/shared/lib/i18n/context'
+import { noteCreateSchema } from '../data/validators'
+
+/** Entity id used to load custom-field sets once the module declares \`ce.ts\`. */
+export const NOTE_ENTITY_ID = 'notes:note'
+
+export type NoteFormValues = z.infer<typeof noteCreateSchema>
+
+export function createNoteFormSchema() {
+  return noteCreateSchema
+}
+
+export function createNoteFormFields(t: TranslateFn): CrudField[] {
+  return [
+    { id: 'title', label: t('notes.fields.title', 'Title'), type: 'text', required: true },
+    { id: 'body', label: t('notes.fields.body', 'Body'), type: 'textarea' },
+  ]
+}
+
+export function createNoteFormGroups(t: TranslateFn): CrudFormGroup[] {
+  return [
+    {
+      id: 'details',
+      title: t('notes.form.groups.details', 'Details'),
+      column: 1,
+      fields: ['title', 'body'],
+    },
+    // Custom-field sets registered for NOTE_ENTITY_ID render here.
+    {
+      id: 'attributes',
+      title: t('notes.form.groups.attributes', 'Attributes'),
+      column: 2,
+      kind: 'customFields',
+    },
+  ]
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status data/validators.ts 1`] = `
+"import { z } from 'zod'
+
+// Optimistic locking is ON by default for CrudForm edit flows: the note
+// API responses MUST return \`updatedAt\` and the backing table MUST carry an
+// \`updated_at\` column so \`initialValues.updatedAt\` can drive the
+// x-om-ext-optimistic-lock-expected-updated-at header on update and delete.
+export const noteCreateSchema = z.object({
+  title: z.string().min(1),
+  body: z.string().optional(),
+})
+
+export const noteUpdateSchema = noteCreateSchema.extend({
+  id: z.string().uuid(),
+  updatedAt: z.string().optional(),
+})
+
+export type NoteCreateInput = z.infer<typeof noteCreateSchema>
+export type NoteUpdateInput = z.infer<typeof noteUpdateSchema>
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/de.json 1`] = `
+"{
+  "notes.create.success": "Note created",
+  "notes.create.title": "Create note",
+  "notes.delete.confirmDescription": "This action cannot be undone.",
+  "notes.delete.confirmTitle": "Delete note?",
+  "notes.delete.error": "Failed to delete note",
+  "notes.delete.success": "Note deleted",
+  "notes.detail.actions.delete": "Delete",
+  "notes.detail.loadError": "Failed to load note",
+  "notes.detail.loading": "Loading note",
+  "notes.detail.notFound": "Note not found",
+  "notes.detail.tabs.label": "Note sections",
+  "notes.detail.tabs.overview": "Overview",
+  "notes.detail.title": "Note details",
+  "notes.detail.updateSuccess": "Note updated",
+  "notes.fields.body": "Body",
+  "notes.fields.title": "Title",
+  "notes.form.groups.attributes": "Attributes",
+  "notes.form.groups.details": "Details",
+  "notes.form.submit": "Save",
+  "notes.list.actions.create": "Create note",
+  "notes.list.actions.delete": "Delete",
+  "notes.list.actions.edit": "Edit",
+  "notes.list.empty.description": "Create your first note to get started.",
+  "notes.list.empty.title": "No notes yet",
+  "notes.list.loadError": "Failed to load notes",
+  "notes.list.searchPlaceholder": "Search notes",
+  "notes.list.title": "Notes",
+  "notes.nav.group": "Notes",
+  "notes.nav.title": "Notes"
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/en.json 1`] = `
+"{
+  "notes.create.success": "Note created",
+  "notes.create.title": "Create note",
+  "notes.delete.confirmDescription": "This action cannot be undone.",
+  "notes.delete.confirmTitle": "Delete note?",
+  "notes.delete.error": "Failed to delete note",
+  "notes.delete.success": "Note deleted",
+  "notes.detail.actions.delete": "Delete",
+  "notes.detail.loadError": "Failed to load note",
+  "notes.detail.loading": "Loading note",
+  "notes.detail.notFound": "Note not found",
+  "notes.detail.tabs.label": "Note sections",
+  "notes.detail.tabs.overview": "Overview",
+  "notes.detail.title": "Note details",
+  "notes.detail.updateSuccess": "Note updated",
+  "notes.fields.body": "Body",
+  "notes.fields.title": "Title",
+  "notes.form.groups.attributes": "Attributes",
+  "notes.form.groups.details": "Details",
+  "notes.form.submit": "Save",
+  "notes.list.actions.create": "Create note",
+  "notes.list.actions.delete": "Delete",
+  "notes.list.actions.edit": "Edit",
+  "notes.list.empty.description": "Create your first note to get started.",
+  "notes.list.empty.title": "No notes yet",
+  "notes.list.loadError": "Failed to load notes",
+  "notes.list.searchPlaceholder": "Search notes",
+  "notes.list.title": "Notes",
+  "notes.nav.group": "Notes",
+  "notes.nav.title": "Notes"
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/es.json 1`] = `
+"{
+  "notes.create.success": "Note created",
+  "notes.create.title": "Create note",
+  "notes.delete.confirmDescription": "This action cannot be undone.",
+  "notes.delete.confirmTitle": "Delete note?",
+  "notes.delete.error": "Failed to delete note",
+  "notes.delete.success": "Note deleted",
+  "notes.detail.actions.delete": "Delete",
+  "notes.detail.loadError": "Failed to load note",
+  "notes.detail.loading": "Loading note",
+  "notes.detail.notFound": "Note not found",
+  "notes.detail.tabs.label": "Note sections",
+  "notes.detail.tabs.overview": "Overview",
+  "notes.detail.title": "Note details",
+  "notes.detail.updateSuccess": "Note updated",
+  "notes.fields.body": "Body",
+  "notes.fields.title": "Title",
+  "notes.form.groups.attributes": "Attributes",
+  "notes.form.groups.details": "Details",
+  "notes.form.submit": "Save",
+  "notes.list.actions.create": "Create note",
+  "notes.list.actions.delete": "Delete",
+  "notes.list.actions.edit": "Edit",
+  "notes.list.empty.description": "Create your first note to get started.",
+  "notes.list.empty.title": "No notes yet",
+  "notes.list.loadError": "Failed to load notes",
+  "notes.list.searchPlaceholder": "Search notes",
+  "notes.list.title": "Notes",
+  "notes.nav.group": "Notes",
+  "notes.nav.title": "Notes"
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status i18n/pl.json 1`] = `
+"{
+  "notes.create.success": "Note created",
+  "notes.create.title": "Create note",
+  "notes.delete.confirmDescription": "This action cannot be undone.",
+  "notes.delete.confirmTitle": "Delete note?",
+  "notes.delete.error": "Failed to delete note",
+  "notes.delete.success": "Note deleted",
+  "notes.detail.actions.delete": "Delete",
+  "notes.detail.loadError": "Failed to load note",
+  "notes.detail.loading": "Loading note",
+  "notes.detail.notFound": "Note not found",
+  "notes.detail.tabs.label": "Note sections",
+  "notes.detail.tabs.overview": "Overview",
+  "notes.detail.title": "Note details",
+  "notes.detail.updateSuccess": "Note updated",
+  "notes.fields.body": "Body",
+  "notes.fields.title": "Title",
+  "notes.form.groups.attributes": "Attributes",
+  "notes.form.groups.details": "Details",
+  "notes.form.submit": "Save",
+  "notes.list.actions.create": "Create note",
+  "notes.list.actions.delete": "Delete",
+  "notes.list.actions.edit": "Edit",
+  "notes.list.empty.description": "Create your first note to get started.",
+  "notes.list.empty.title": "No notes yet",
+  "notes.list.loadError": "Failed to load notes",
+  "notes.list.searchPlaceholder": "Search notes",
+  "notes.list.title": "Notes",
+  "notes.nav.group": "Notes",
+  "notes.nav.title": "Notes"
+}
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status index.ts 1`] = `
+"import type { ModuleInfo } from '@open-mercato/shared/modules/registry'
+
+export const metadata: ModuleInfo = {
+  name: 'notes',
+  title: 'Notes',
+  version: '0.1.0',
+  description: 'Notes module scaffolded with mercato module scaffold.',
+  author: 'Open Mercato Team',
+  license: 'MIT',
+}
+
+export { features } from './acl'
+"
+`;
+
+exports[`scaffold golden files omits statusMap and StatusBadge when no select field is named status: no-status setup.ts 1`] = `
+"import type { ModuleSetupConfig } from '@open-mercato/shared/modules/setup'
+
+export const setup: ModuleSetupConfig = {
+  defaultRoleFeatures: {
+    superadmin: ['notes.*'],
+    admin: ['notes.*'],
+    employee: ['notes.view'],
+  },
+}
+
+export default setup
+"
+`;
