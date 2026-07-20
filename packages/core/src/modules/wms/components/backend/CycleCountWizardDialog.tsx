@@ -1087,6 +1087,26 @@ export function CycleCountWizardDialog({
     ],
   )
 
+  // Memoized so ComboboxInput's async-suggestion effect (keyed on this
+  // callback's identity) doesn't get torn down and rescheduled by every
+  // unrelated re-render of the wizard (balance lookups, label resolution,
+  // etc.) — an inline arrow here would recreate on every render and could
+  // starve the debounced fetch of a chance to ever resolve, leaving the
+  // "Loading suggestions…" state stuck indefinitely.
+  const loadLotSuggestionsForBalanceLocation = React.useCallback(
+    async (query?: string) => {
+      const options = await loadLotOptionsForBalanceLocation({
+        warehouseId: form.warehouseId,
+        locationId: form.locationId,
+        catalogVariantId: form.catalogVariantId,
+        query,
+      })
+      registerOptionLabels(options)
+      return options.map((option) => ({ value: option.value, label: option.label }))
+    },
+    [form.catalogVariantId, form.locationId, form.warehouseId, registerOptionLabels],
+  )
+
   return (
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : closeDialog())}>
       <DialogContent
@@ -1576,19 +1596,7 @@ export function CycleCountWizardDialog({
                         <ComboboxInput
                           value={form.lotId}
                           onChange={(next) => patchForm({ lotId: next.trim() })}
-                          loadSuggestions={async (query) => {
-                            const options = await loadLotOptionsForBalanceLocation({
-                              warehouseId: form.warehouseId,
-                              locationId: form.locationId,
-                              catalogVariantId: form.catalogVariantId,
-                              query,
-                            })
-                            registerOptionLabels(options)
-                            return options.map((option) => ({
-                              value: option.value,
-                              label: option.label,
-                            }))
-                          }}
+                          loadSuggestions={loadLotSuggestionsForBalanceLocation}
                           resolveLabel={resolveOptionLabel}
                           placeholder={t(
                             'wms.backend.inventory.cycleCount.form.lotPlaceholder',
