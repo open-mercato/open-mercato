@@ -7,6 +7,7 @@ import {
   BalanceLookupError,
   fetchBalanceAvailable,
   fetchBalanceOnHand,
+  loadLotOptionsForBalanceLocation,
 } from '../inventoryMutationLoaders'
 
 const mockApiCall = apiCall as jest.MockedFunction<typeof apiCall>
@@ -140,5 +141,110 @@ describe('fetchBalanceAvailable', () => {
       name: 'BalanceLookupError',
       code: 'LOT_REQUIRED',
     })
+  })
+})
+
+describe('loadLotOptionsForBalanceLocation', () => {
+  beforeEach(() => {
+    mockApiCall.mockReset()
+  })
+
+  it('resolves only the lot options actually present at the given location', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/wms/inventory/balances')) {
+        return {
+          ok: true,
+          result: {
+            items: [
+              { lot_id: 'lot-a', quantity_on_hand: 5 },
+              { lot_id: 'lot-b', quantity_on_hand: 9 },
+            ],
+          },
+        } as any
+      }
+      if (url.startsWith('/api/wms/lots')) {
+        return {
+          ok: true,
+          result: {
+            items: [
+              { id: 'lot-a', lot_number: 'LOT-A' },
+              { id: 'lot-b', lot_number: 'LOT-B' },
+            ],
+          },
+        } as any
+      }
+      throw new Error(`unexpected url: ${url}`)
+    })
+
+    const options = await loadLotOptionsForBalanceLocation({
+      warehouseId: 'wh-1',
+      locationId: 'loc-1',
+      catalogVariantId: 'variant-1',
+    })
+
+    expect(options).toEqual([
+      { value: 'lot-a', label: 'LOT-A' },
+      { value: 'lot-b', label: 'LOT-B' },
+    ])
+  })
+
+  it('filters resolved options by the search query', async () => {
+    mockApiCall.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/wms/inventory/balances')) {
+        return {
+          ok: true,
+          result: {
+            items: [
+              { lot_id: 'lot-a', quantity_on_hand: 5 },
+              { lot_id: 'lot-b', quantity_on_hand: 9 },
+            ],
+          },
+        } as any
+      }
+      return {
+        ok: true,
+        result: {
+          items: [
+            { id: 'lot-a', lot_number: 'LOT-A' },
+            { id: 'lot-b', lot_number: 'LOT-B' },
+          ],
+        },
+      } as any
+    })
+
+    const options = await loadLotOptionsForBalanceLocation({
+      warehouseId: 'wh-1',
+      locationId: 'loc-1',
+      catalogVariantId: 'variant-1',
+      query: 'lot-b',
+    })
+
+    expect(options).toEqual([{ value: 'lot-b', label: 'LOT-B' }])
+  })
+
+  it('returns no options when the location has no lot-bearing balances', async () => {
+    mockApiCall.mockResolvedValue({
+      ok: true,
+      result: { items: [{ lot_id: null, quantity_on_hand: 12 }] },
+    } as any)
+
+    const options = await loadLotOptionsForBalanceLocation({
+      warehouseId: 'wh-1',
+      locationId: 'loc-1',
+      catalogVariantId: 'variant-1',
+    })
+
+    expect(options).toEqual([])
+  })
+
+  it('returns no options when a required scope field is missing', async () => {
+    const options = await loadLotOptionsForBalanceLocation({
+      warehouseId: '',
+      locationId: 'loc-1',
+      catalogVariantId: 'variant-1',
+    })
+
+    expect(options).toEqual([])
+    expect(mockApiCall).not.toHaveBeenCalled()
   })
 })

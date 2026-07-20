@@ -48,7 +48,7 @@ import {
   loadBinLocationOptions,
   loadCatalogVariantOptions,
   loadLocationOptions,
-  loadLotOptions,
+  loadLotOptionsForBalanceLocation,
   loadWarehouseOptions,
   loadZoneOptions,
   mapLocationOptions,
@@ -1577,7 +1577,12 @@ export function CycleCountWizardDialog({
                           value={form.lotId}
                           onChange={(next) => patchForm({ lotId: next.trim() })}
                           loadSuggestions={async (query) => {
-                            const options = await loadLotOptions(form.catalogVariantId, query)
+                            const options = await loadLotOptionsForBalanceLocation({
+                              warehouseId: form.warehouseId,
+                              locationId: form.locationId,
+                              catalogVariantId: form.catalogVariantId,
+                              query,
+                            })
                             registerOptionLabels(options)
                             return options.map((option) => ({
                               value: option.value,
@@ -1590,7 +1595,12 @@ export function CycleCountWizardDialog({
                             'Select lot (optional)',
                           )}
                           allowCustomValues={false}
-                          disabled={loadingBalance || submitting || !form.catalogVariantId}
+                          disabled={
+                            loadingBalance
+                            || submitting
+                            || !form.catalogVariantId
+                            || !form.locationId
+                          }
                         />
                       </FormField>
                     </div>

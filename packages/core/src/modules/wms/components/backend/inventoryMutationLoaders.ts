@@ -673,6 +673,55 @@ export async function loadLotOptions(
   return loadInventoryLotListOptions(catalogVariantId, query, mapInventoryLotListRowToOption)
 }
 
+// Scopes lot suggestions to the lots actually present in the given warehouse
+// location's balance buckets, instead of every lot ever created for the
+// variant. This is what backs the LOT_REQUIRED disambiguation flow: when a
+// location holds multiple lot-bearing balances for the same variant, the
+// candidates offered here are exactly the ones `selectBalanceLookupRow` would
+// otherwise reject as ambiguous.
+export async function loadLotOptionsForBalanceLocation(input: {
+  warehouseId: string
+  locationId: string
+  catalogVariantId: string
+  query?: string
+}): Promise<CrudFieldOption[]> {
+  const warehouseId = input.warehouseId.trim()
+  const locationId = input.locationId.trim()
+  const catalogVariantId = input.catalogVariantId.trim()
+  if (!warehouseId || !locationId || !catalogVariantId) return []
+
+  const params = buildQuery({
+    page: 1,
+    pageSize: 50,
+    warehouseId,
+    locationId,
+    catalogVariantId,
+  })
+  const call = await apiCall<PagedResponse<InventoryBalanceLookupRow>>(
+    `/api/wms/inventory/balances?${params}`,
+  )
+  if (!call.ok) return []
+
+  const lotIds = [
+    ...new Set(
+      (call.result?.items ?? [])
+        .map((row) => normalizeBalanceLotId(row.lot_id))
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ]
+  if (lotIds.length === 0) return []
+
+  const options = await loadCrudOptionsByIds<InventoryLotListRow>(
+    '/api/wms/lots',
+    lotIds,
+    mapInventoryLotListRowToOption,
+  )
+
+  const query = input.query?.trim().toLowerCase()
+  if (!query) return options
+  return options.filter((option) => option.label.toLowerCase().includes(query))
+}
+
 export async function loadLotNumberOptions(
   catalogVariantId: string,
   query?: string,
