@@ -136,6 +136,38 @@ export function checkWsl2() {
   })
 }
 
+// Hybrid mode compiles native Node addons (better-sqlite3, isolated-vm,
+// cpu-features, …) from C++ during `yarn install`. On Windows that needs the
+// Visual C++ toolchain, which the starter never installs (propose-only) — so a
+// clean machine otherwise fails the install with a cryptic node-gyp error.
+// macOS/Linux ship clang/gcc widely enough that we don't gate on them here.
+export function checkBuildToolchain() {
+  if (process.platform !== 'win32') return null
+  const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+  const vswhere = path.join(programFilesX86, 'Microsoft Visual Studio', 'Installer', 'vswhere.exe')
+  let installPath = ''
+  if (fs.existsSync(vswhere)) {
+    const out = commandOutput(vswhere, [
+      '-latest', '-products', '*',
+      '-requires', 'Microsoft.VisualStudio.Component.VC.Tools.x86.x64',
+      '-property', 'installationPath',
+    ])
+    installPath = (out ?? '').trim()
+  }
+  if (installPath) {
+    return result('build-tools', 'C++ build toolchain (native Node modules)', 'pass', 'Visual Studio Build Tools with the VC++ workload')
+  }
+  return result('build-tools', 'C++ build toolchain (native Node modules)', 'fail', 'not found — native addons (better-sqlite3, isolated-vm, …) cannot compile on the host', {
+    guide: [
+      'Hybrid mode builds native Node modules on the host, which needs the Visual C++ toolchain.',
+      'Install it (several GB, admin required), then open a NEW terminal and re-run:',
+      '  winget install Microsoft.VisualStudio.2022.BuildTools --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"',
+      'No admin, or cannot install it? Build everything in containers instead:  yarn om up --mode docker',
+    ],
+    it: ['Install "Visual Studio 2022 Build Tools" with the "Desktop development with C++" (VCTools) workload — required to compile native Node modules for the native/hybrid dev workflow.'],
+  })
+}
+
 export function checkResources(repoRoot) {
   const totalGb = os.totalmem() / GIB
   let freeDiskGb = null
@@ -317,12 +349,19 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
     })
   }
   if (pinned.resolvedIp || native.resolvedIp) {
-    return result('container-host', 'Container → host connectivity', 'warn', 'host.docker.internal resolves but the MCP port did not answer (MCP not running yet, or a host firewall blocks the docker bridge)', {
+    const isWindows = process.platform === 'win32'
+    const firewallRule = `New-NetFirewallRule -DisplayName "Open Mercato MCP dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${mcpPort} -Profile Any`
+    return result('container-host', 'Container → host connectivity', 'warn', `host.docker.internal resolves${pinned.resolvedIp ? ` (${pinned.resolvedIp})` : ''} but the MCP port did not answer — MCP is not running yet, or a host firewall blocks the container→host hop`, {
       guide: [
-        'Start the stack first (yarn om / npx @open-mercato/starter), then re-run the doctor.',
-        'Windows: allow the first-run firewall prompt for Node.js on Private networks.',
-        'Linux (ufw): sudo ufw allow from 172.16.0.0/12 to any port ' + mcpPort + ' proto tcp',
+        'If the stack is not running yet, start it (yarn om) and re-run the doctor.',
+        isWindows
+          ? `Windows Firewall drops the container→host hop over the WSL/vEthernet adapter. Allow it (elevated PowerShell): ${firewallRule}`
+          : 'Windows: allow node.exe inbound on the MCP port for Private networks (the first-run firewall prompt).',
+        `Linux (ufw): sudo ufw allow from 172.16.0.0/12 to any port ${mcpPort} proto tcp`,
       ],
+      it: isWindows
+        ? [`Approve an inbound firewall rule for the local dev MCP server: ${firewallRule}`]
+        : [],
     })
   }
   return result('container-host', 'Container → host connectivity', 'fail', 'host.docker.internal does not resolve inside containers', {
@@ -330,7 +369,7 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
   })
 }
 
-export async function runDoctor(repoRoot, { company = null, stackRunning = false, includeContainerProbe = false } = {}) {
+export async function runDoctor(repoRoot, { company = null, stackRunning = false, includeContainerProbe = false, mode = 'hybrid' } = {}) {
   const ports = resolveStackPorts(repoRoot)
   const checks = [
     checkNodeVersion(),
@@ -339,6 +378,9 @@ export async function runDoctor(repoRoot, { company = null, stackRunning = false
     checkWsl2(),
     checkContainerRuntime(),
     checkDockerDesktopVersion(),
+    // The host C++ toolchain only matters when native modules build on the
+    // host — i.e. hybrid mode. In --mode docker they compile in the container.
+    mode === 'docker' ? null : checkBuildToolchain(),
     checkResources(repoRoot),
     await checkLocalhostResolution(),
     checkProxyConsistency(),

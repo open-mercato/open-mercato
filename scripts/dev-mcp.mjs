@@ -73,7 +73,16 @@ export function looksLikePermissionError(outputLines = []) {
 
 export function looksLikeUninitializedDatabase(outputLines = []) {
   return outputLines.some((line) =>
-    /relation .* does not exist|database .* does not exist|Run mercato init|ECONNREFUSED/i.test(String(line)),
+    /relation .* does not exist|database .* does not exist|ECONNREFUSED/i.test(String(line)),
+  )
+}
+
+// `mcp:ensure-api-key` resolves the key's owner by the superadmin email in the
+// null-tenant scope and throws when no user matches — the app is up but the DB
+// was seeded under a different admin email or a different LOOKUP_HASH_PEPPER.
+export function looksLikeMissingKeyOwner(outputLines = []) {
+  return outputLines.some((line) =>
+    /MCP API key owner not found|no active user with email|Run "?mercato init"?/i.test(String(line)),
   )
 }
 

@@ -8,6 +8,7 @@ import {
   deriveMcpHealthUrl,
   isFastMcpCrash,
   isKeyRotationOutput,
+  looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
@@ -113,4 +114,15 @@ test('output classifiers detect rotation, permission, and uninitialized-database
   assert.equal(looksLikeUninitializedDatabase(['error: relation "api_keys" does not exist']), true)
   assert.equal(looksLikeUninitializedDatabase(['connect ECONNREFUSED 127.0.0.1:5432']), true)
   assert.equal(looksLikeUninitializedDatabase(['TypeError: boom']), false)
+})
+
+test('looksLikeMissingKeyOwner detects the owner-not-found throw', () => {
+  assert.equal(
+    looksLikeMissingKeyOwner(['[internal] MCP API key owner not found: no active user with email "superadmin@acme.com".']),
+    true,
+  )
+  assert.equal(looksLikeMissingKeyOwner(['Run "mercato init" first or pass --email pointing at an existing admin user.']), true)
+  // "Run mercato init" is an owner-resolution failure, not a bare DB-not-ready signal.
+  assert.equal(looksLikeUninitializedDatabase(['Run "mercato init" first']), false)
+  assert.equal(looksLikeMissingKeyOwner(['connect ECONNREFUSED 127.0.0.1:5432']), false)
 })

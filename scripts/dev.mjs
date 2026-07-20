@@ -33,6 +33,7 @@ import {
   deriveMcpHealthUrl,
   isFastMcpCrash,
   isKeyRotationOutput,
+  looksLikeMissingKeyOwner,
   looksLikePermissionError,
   looksLikeUninitializedDatabase,
   nextMcpKeyRetryDelayMs,
@@ -1859,10 +1860,18 @@ async function provisionMcpApiKey() {
     if (looksLikePermissionError(capturedLines)) {
       console.warn(`⚠️ MCP key provisioning hit a permission error writing ${mcpKeyFilePath}.`)
       console.warn('   ↳ if Docker created .mercato/mcp-shared as root, fix it with: sudo chown -R "$(id -u)" .mercato/mcp-shared')
+    } else if (looksLikeMissingKeyOwner(capturedLines)) {
+      console.warn('⚠️ MCP API key provisioning failed — the key owner (superadmin) could not be resolved.')
+      console.warn('   ↳ set OM_INIT_SUPERADMIN_EMAIL in apps/mercato/.env to the email you sign into /backend with, then restart.')
+      console.warn('   ↳ if it still fails with the right email, the database was seeded under different secrets (LOOKUP_HASH_PEPPER); reseed with `yarn om reset` then `yarn om`.')
     } else if (looksLikeUninitializedDatabase(capturedLines)) {
       console.warn('⚠️ MCP API key provisioning failed — is the database initialized and reachable? Run `yarn infra:up`, then `yarn db:migrate && yarn initialize`.')
     } else {
-      console.warn('⚠️ MCP API key provisioning failed — see the dev runner log for details.')
+      console.warn('⚠️ MCP API key provisioning failed:')
+      for (const line of extractFailureLines(capturedLines, 4)) {
+        console.warn(`   ${line}`)
+      }
+      console.warn('   ↳ full output in the dev runner log.')
     }
     const delay = nextMcpKeyRetryDelayMs(attempt)
     console.warn(`   ↳ retrying in ${Math.round(delay / 1000)}s (the app keeps running without MCP in the meantime)`)

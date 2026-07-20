@@ -98,5 +98,22 @@ export function ensureEnvFiles(repoRoot, { log = console.log, warn = console.war
     log('apps/mercato/.env already exists (left untouched)')
   }
 
+  // The host-run `mercato` CLI (yarn initialize, yarn ... mcp:ensure-api-key)
+  // loads apps/mercato/.env, NOT the root compose .env. The superadmin
+  // identity must live there too: otherwise `initialize` seeds one admin while
+  // MCP key provisioning resolves a different (default) owner, throws "owner
+  // not found", and OpenCode never gets a key. Propagate the same values
+  // (fill-missing-only, so a user's own app .env is never clobbered).
+  if (fs.existsSync(appEnv)) {
+    const superEmail = readEnvValue(rootEnv, 'OM_INIT_SUPERADMIN_EMAIL')?.trim()
+    const superPassword = readEnvValue(rootEnv, 'OM_INIT_SUPERADMIN_PASSWORD')?.trim()
+    if (superEmail && addEnvValue(appEnv, 'OM_INIT_SUPERADMIN_EMAIL', superEmail)) {
+      log('  set OM_INIT_SUPERADMIN_EMAIL in apps/mercato/.env')
+    }
+    if (superPassword && addEnvValue(appEnv, 'OM_INIT_SUPERADMIN_PASSWORD', superPassword)) {
+      log('  set OM_INIT_SUPERADMIN_PASSWORD (sha256 …) in apps/mercato/.env')
+    }
+  }
+
   return { rootEnv, appEnv, jwtSecret }
 }
