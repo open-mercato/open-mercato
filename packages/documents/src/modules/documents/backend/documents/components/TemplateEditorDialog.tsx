@@ -158,7 +158,7 @@ export function TemplateEditorDialog({ open, template, onOpenChange, onSaved }: 
                 <TemplateSlotsEditor slots={slots} onChange={setSlots} />
               </div>
             </div>
-            {formError ? <Alert variant="destructive"><AlertDescription>{formError}</AlertDescription></Alert> : null}
+            {formError ? <Alert status="error"><AlertDescription>{formError}</AlertDescription></Alert> : null}
           </>
         ) : null}
         <DialogFooter>

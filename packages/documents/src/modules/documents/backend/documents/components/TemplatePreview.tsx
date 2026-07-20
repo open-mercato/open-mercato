@@ -32,7 +32,7 @@ export function TemplatePreview({ preview, isLoading }: { preview: TemplatePrevi
   return (
     <div className="space-y-3">
       {preview.unresolvedTokens.length > 0 ? (
-        <Alert variant="warning">
+        <Alert status="warning">
           <AlertTitle>{t('documents.templates.preview.unresolvedTitle')}</AlertTitle>
           <AlertDescription>{t('documents.templates.preview.unresolvedBody', { tokens: preview.unresolvedTokens.join(', ') })}</AlertDescription>
         </Alert>

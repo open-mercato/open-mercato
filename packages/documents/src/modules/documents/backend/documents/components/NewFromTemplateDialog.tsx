@@ -113,7 +113,7 @@ export function NewFromTemplateDialog(props: NewFromTemplateDialogProps) {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold">{t('documents.templates.preview.title')}</h3>
               {flow.previewError ? (
-                <Alert variant="destructive">
+                <Alert status="error">
                   <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
                     <span>{flow.previewError}</span>
                     <Button type="button" size="sm" variant="outline" onClick={flow.retryPreview}>{t('documents.actions.retry')}</Button>

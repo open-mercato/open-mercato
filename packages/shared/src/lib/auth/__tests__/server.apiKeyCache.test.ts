@@ -94,7 +94,7 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
     expect(emFlush).toHaveBeenCalledTimes(1)
   })
 
-  it('treats the creator of a regular tenant-scoped key as audit metadata', async () => {
+  it('retains the creator identity for a regular tenant-scoped key', async () => {
     const { getAuthFromRequest } = await import('@open-mercato/shared/lib/auth/server')
     findApiKeyBySecret.mockResolvedValue({
       id: 'key-tenant-scoped',
@@ -126,10 +126,10 @@ describe('resolveApiKeyAuth caching + lastUsedAt debounce', () => {
       orgId: null,
       isApiKey: true,
       keyId: 'key-tenant-scoped',
+      userId: 'creator-1',
     })
-    expect(auth).not.toHaveProperty('userId')
-    // The creator does not become the key's identity, but it is still verified
-    // to exist in the key's tenant — its concrete organization is ignored.
+    // The creator remains the key's legacy identity, but its concrete
+    // organization does not narrow a tenant-scoped key.
     expect(emFindOne).toHaveBeenCalledWith(
       expect.anything(),
       { id: 'creator-1', deletedAt: null },

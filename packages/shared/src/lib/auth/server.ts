@@ -202,13 +202,11 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
       }
     }
 
-    // Ephemeral session keys are always user-bound. Organization-scoped
-    // regular keys retain their legacy creator identity and exact scope check,
-    // while `createdBy` on a tenant-scoped regular key is audit metadata only:
-    // treating it as the key owner makes that key fail authentication whenever
-    // its creator belongs to a concrete organization. Keep every session
-    // marker fail-closed so a malformed session key cannot fall back to the
-    // regular key path and escape its user/scope binding.
+    // Ephemeral session keys are always user-bound. Regular keys retain their
+    // legacy creator identity, while tenant-scoped regular keys ignore only the
+    // creator's concrete organization when validating the wider key scope.
+    // Keep every session marker fail-closed so a malformed session key cannot
+    // fall back to the regular key path and escape its user/scope binding.
     const isSessionBoundKey = Boolean(
       record.sessionToken
       || record.sessionUserId
@@ -217,24 +215,12 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
     )
     const actualUserId = isSessionBoundKey
       ? record.sessionUserId ?? null
-      : record.organizationId
-        ? record.createdBy ?? null
-        : null
+      : record.createdBy ?? null
 
     if (isSessionBoundKey && !actualUserId) {
       cache.setMiss(secret)
       return null
     }
-
-    // A tenant-scoped regular key does not adopt its creator's identity, but
-    // the creator must still be a live user of the key's tenant so that
-    // deleting the issuing admin — or moving them to another tenant — disables
-    // the key. Only the organization-equality check is dropped here; requiring
-    // it is what broke tenant-scoped keys whose creator sits in a concrete
-    // organization.
-    const auditedCreatorUserId = !isSessionBoundKey && !record.organizationId
-      ? record.createdBy ?? null
-      : null
 
     if (actualUserId) {
       const user = await em.findOne(User, { id: actualUserId, deletedAt: null })
@@ -246,22 +232,12 @@ async function resolveApiKeyAuth(secret: string): Promise<AuthContext> {
         cache.setMiss(secret)
         return null
       }
-      if ((user.organizationId ?? null) !== (record.organizationId ?? null)) {
+      const requiresExactOrganization = isSessionBoundKey || Boolean(record.organizationId)
+      if (requiresExactOrganization && (user.organizationId ?? null) !== (record.organizationId ?? null)) {
         cache.setMiss(secret)
         return null
       }
     } else {
-      if (auditedCreatorUserId) {
-        const creator = await em.findOne(User, { id: auditedCreatorUserId, deletedAt: null })
-        if (!creator) {
-          cache.setMiss(secret)
-          return null
-        }
-        if ((creator.tenantId ?? null) !== (record.tenantId ?? null)) {
-          cache.setMiss(secret)
-          return null
-        }
-      }
       if (record.tenantId) {
         const tenant = await em.findOne(Tenant, { id: record.tenantId, deletedAt: null, isActive: true })
         if (!tenant) {
