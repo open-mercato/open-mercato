@@ -112,6 +112,8 @@ export function DashboardScreen() {
   const [settingsId, setSettingsId] = React.useState<string | null>(null)
   const pendingOpsRef = React.useRef(0)
   const saveQueueRef = React.useRef(Promise.resolve())
+  const layoutRevisionRef = React.useRef(0)
+  const pendingLayoutRevisionsRef = React.useRef(new Set<number>())
   const draggingIdRef = React.useRef<string | null>(null)
 
   const adjustSaving = React.useCallback((delta: number) => {
@@ -120,6 +122,8 @@ export function DashboardScreen() {
   }, [])
 
   const load = React.useCallback(async () => {
+    const layoutRevisionAtStart = layoutRevisionRef.current
+    const hadPendingLayoutMutationAtStart = pendingLayoutRevisionsRef.current.size > 0
     setLoading(true)
     setError(null)
     try {
@@ -130,7 +134,12 @@ export function DashboardScreen() {
       const data = call.result
       const registeredWidgetCount = getDashboardWidgets().length
       const normalizedLayout = sortLayout(data.layout?.items ?? [])
-      setLayout(normalizedLayout)
+      if (
+        !hadPendingLayoutMutationAtStart
+        && layoutRevisionAtStart === layoutRevisionRef.current
+      ) {
+        setLayout(normalizedLayout)
+      }
       setWidgetCatalog(data.widgets ?? [])
       setHasRegisteredWidgets(registeredWidgetCount > 0 || (data.widgets ?? []).length > 0)
       setAllowedWidgetIds(data.allowedWidgetIds ?? [])
@@ -221,6 +230,8 @@ export function DashboardScreen() {
   }, [t])
 
   const queueLayoutSave = React.useCallback((items: LayoutItem[]) => {
+    const layoutRevision = ++layoutRevisionRef.current
+    pendingLayoutRevisionsRef.current.add(layoutRevision)
     saveQueueRef.current = saveQueueRef.current.then(async () => {
       adjustSaving(1)
       try {
@@ -245,12 +256,17 @@ export function DashboardScreen() {
         logger.error('Failed to save layout', { err })
         setError(t('dashboard.saveError'))
       } finally {
+        pendingLayoutRevisionsRef.current.delete(layoutRevision)
         adjustSaving(-1)
       }
     })
   }, [adjustSaving, t])
 
-  const patchWidgetSettings = React.useCallback(async (itemId: string, nextSettings: unknown) => {
+  const patchWidgetSettings = React.useCallback(async (
+    itemId: string,
+    nextSettings: unknown,
+    layoutRevision: number,
+  ) => {
     adjustSaving(1)
     try {
       const call = await apiCall(`/api/dashboards/layout/${encodeURIComponent(itemId)}`, {
@@ -264,6 +280,7 @@ export function DashboardScreen() {
       logger.error('Failed to update widget settings', { err })
       setError(t('dashboard.saveError'))
     } finally {
+      pendingLayoutRevisionsRef.current.delete(layoutRevision)
       adjustSaving(-1)
     }
   }, [adjustSaving, t])
@@ -318,8 +335,10 @@ export function DashboardScreen() {
   }, [queueLayoutSave])
 
   const handleSettingsChange = React.useCallback((itemId: string, nextSettings: unknown) => {
+    const layoutRevision = ++layoutRevisionRef.current
+    pendingLayoutRevisionsRef.current.add(layoutRevision)
     setLayout((prev) => prev.map((item) => (item.id === itemId ? { ...item, settings: nextSettings } : item)))
-    void patchWidgetSettings(itemId, nextSettings)
+    void patchWidgetSettings(itemId, nextSettings, layoutRevision)
   }, [patchWidgetSettings])
 
   const toggleEditing = React.useCallback(() => {
