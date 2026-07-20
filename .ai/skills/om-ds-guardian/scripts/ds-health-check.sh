@@ -219,8 +219,16 @@ if [ "$LINT_MODE" -eq 1 ]; then
         }
         const out = []
         for (const [key, n] of counts) out.push(key + "\t" + n)
-        fs.writeFileSync(process.argv[2], out.join("\n") + (out.length ? "\n" : ""))
+        out.push("__lint_ok__\tmarker\t0")
+        fs.writeFileSync(process.argv[2], out.join("\n") + "\n")
       ' "$LINT_JSON" "$LINT_ROWS" || true
+    fi
+    if ! grep -q "__lint_ok__" "$LINT_ROWS" 2>/dev/null; then
+      # A crashed eslint run or failed aggregation must never masquerade as
+      # zero findings — all-zero columns are exactly the escalation criterion.
+      report ""
+      report "(--lint requested but the eslint run produced no data — lint columns skipped)"
+      LINT_MODE=0
     fi
     rm -f "$LINT_JSON"
   else
