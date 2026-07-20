@@ -535,6 +535,89 @@ function ReasoningCard({ proposals, input }: { proposals: ProposalView[]; input:
   )
 }
 
+// File plane (#12): files the agent produced during the run (AgentRunArtifact),
+// fetched from the dedicated list endpoint and downloadable. Distinct from the
+// trace `ArtifactExpander` above (which loads offloaded tool-call payloads).
+type RunArtifactRow = {
+  id: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  caption: string | null
+  promotedAttachmentId: string | null
+  createdAt: string
+}
+
+function formatArtifactSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+function FilesCard({ runId }: { runId: string }) {
+  const t = useT()
+  const locale = useLocale()
+  const [rows, setRows] = React.useState<RunArtifactRow[] | null>(null)
+  React.useEffect(() => {
+    let active = true
+    void (async () => {
+      const call = await apiCall<{ items: RunArtifactRow[] }>(
+        `/api/agent_orchestrator/runs/${encodeURIComponent(runId)}/artifacts`,
+        undefined,
+        { fallback: { items: [] } },
+      )
+      if (active && call.ok) setRows(call.result?.items ?? [])
+    })()
+    return () => {
+      active = false
+    }
+  }, [runId])
+
+  // Hide the card entirely when the run produced no files (the common case).
+  if (rows != null && rows.length === 0) return null
+
+  return (
+    <InspectorCard title={t('agent_orchestrator.artifacts.title')}>
+      {rows == null ? (
+        <p className="text-sm text-muted-foreground">{t('agent_orchestrator.artifacts.loading')}</p>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li
+              key={row.id}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2"
+            >
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="truncate font-mono text-xs text-foreground">{row.fileName}</span>
+                  {row.promotedAttachmentId ? (
+                    <span className="rounded-md border border-status-success-border bg-status-success-bg px-1.5 py-0.5 text-xs text-status-success-text">
+                      {t('agent_orchestrator.artifacts.promoted')}
+                    </span>
+                  ) : null}
+                </div>
+                {row.caption ? (
+                  <p className="truncate text-xs text-muted-foreground">{row.caption}</p>
+                ) : null}
+                <p className="text-xs text-muted-foreground">
+                  {formatArtifactSize(row.fileSize)} · {formatDateTime(row.createdAt, locale)}
+                </p>
+              </div>
+              <a
+                href={`/api/agent_orchestrator/artifacts/file/${encodeURIComponent(row.id)}?download=1`}
+                className="shrink-0 rounded-md border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+                aria-label={t('agent_orchestrator.artifacts.download')}
+              >
+                {t('agent_orchestrator.artifacts.download')}
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+    </InspectorCard>
+  )
+}
+
 export default function AgentRunTracePage({ params }: { params?: { id?: string } }) {
   const t = useT()
   const locale = useLocale()
@@ -1084,6 +1167,7 @@ export default function AgentRunTracePage({ params }: { params?: { id?: string }
                 <div className="grid gap-6 lg:grid-cols-3">
                   <ReasoningCard proposals={detail.proposals} input={run.input} />
                   <GuardrailsCard checks={detail.guardrailChecks} />
+                  <FilesCard runId={run.id} />
                   <ContextAssembledCard bundle={detail.contextBundle} />
                 </div>
 

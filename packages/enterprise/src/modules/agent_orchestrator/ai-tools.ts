@@ -97,6 +97,21 @@ const submitOutcomeInput = z.object({
     .describe(
       'The structured result, matching the active agent OUTCOME contract. The active agent and its schema are resolved server-side from the run session — never trusted from this call.',
     ),
+  // File plane (#12): ADVISORY captions for files the agent wrote into the sandbox
+  // `out/` dir. Additive + optional (existing single-`outcome` callers stay valid).
+  // The collector is FILESYSTEM-authoritative: it captures whatever is on disk and
+  // uses these only to attach a caption (matched by relative path) — it never
+  // trusts this list to invent, hide, or rename a file.
+  artifacts: z
+    .array(
+      z.object({
+        path: z.string().max(255).describe('Path of the produced file, relative to the sandbox out/ dir.'),
+        caption: z.string().max(500).optional().describe('Short human description of the file.'),
+      }),
+    )
+    .max(20)
+    .optional()
+    .describe('Optional captions for files written to the sandbox out/ directory.'),
 })
 
 /**

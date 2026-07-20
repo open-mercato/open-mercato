@@ -22,10 +22,14 @@
  * `---` is the instructions body (trimmed). Returns null when a required field
  * (id, label, description) is missing.
  */
+import type { FileAgentFilesConfig } from './defineAgent'
+
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n?([\s\S]*)$/
 
 const LIST_KEYS = ['tools', 'skills', 'subAgents'] as const
 type ListKey = (typeof LIST_KEYS)[number]
+
+const TRUTHY_TOKENS = new Set(['enabled', 'true', 'yes', '1', 'on'])
 
 function stripQuotes(value: string): string {
   return value.trim().replace(/^['"]/, '').replace(/['"]$/, '').trim()
@@ -41,6 +45,7 @@ export type AgentMarkdown = {
   skills: string[]
   subAgents: string[]
   maxSteps?: number
+  files?: FileAgentFilesConfig
   instructions: string
 }
 
@@ -54,6 +59,8 @@ type Frontmatter = {
   skills?: string[]
   subAgents?: string[]
   maxSteps?: number
+  filesEnabled?: boolean
+  filesBash?: boolean
 }
 
 function isListKey(key: string): key is ListKey {
@@ -108,6 +115,16 @@ function parseFrontmatter(block: string): Frontmatter {
       index += 1
       continue
     }
+    if (key === 'files') {
+      result.filesEnabled = TRUTHY_TOKENS.has(stripQuotes(rawValue).toLowerCase())
+      index += 1
+      continue
+    }
+    if (key === 'filesBash') {
+      result.filesBash = TRUTHY_TOKENS.has(stripQuotes(rawValue).toLowerCase())
+      index += 1
+      continue
+    }
     if (key === 'id' || key === 'label' || key === 'description' || key === 'provider' || key === 'model') {
       result[key] = stripQuotes(rawValue)
     }
@@ -132,6 +149,9 @@ export function parseAgentMarkdown(raw: string): AgentMarkdown | null {
     skills: meta.skills ?? [],
     subAgents: meta.subAgents ?? [],
     maxSteps: meta.maxSteps,
+    files: meta.filesEnabled
+      ? { enabled: true, inputs: true, outputs: true, bash: meta.filesBash ?? false }
+      : undefined,
     instructions: body.trim(),
   }
 }

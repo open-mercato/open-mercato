@@ -1,6 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { AgentFact, AgentRegistryEntry } from './defineAgent'
+import type { AgentFact, AgentRegistryEntry, FileAgentFilesConfig } from './defineAgent'
+import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
 import { parseAgentMarkdown } from './agentMarkdown'
 import { parseAgentLocalSkillMarkdown } from './skillMarkdown'
 import { compileOutcome, type JsonSchemaNode, type OutcomeKind } from './outcomeSchema'
@@ -261,6 +262,8 @@ function renderOpenCodeAgentFile(args: {
   outcomeKind: OutcomeKind
   outcomeSchema: JsonSchemaNode
   outcomeProse: string
+  /** File-plane opt-in (#12). When set + `OM_OPENCODE_FILES_ENABLED`, grants sandbox-scoped write/edit/read. */
+  files?: FileAgentFilesConfig
 }): string {
   const mode = args.mode ?? 'primary'
   const subAgentNames = mode === 'primary' ? (args.subAgentNames ?? []) : []
@@ -287,6 +290,38 @@ function renderOpenCodeAgentFile(args: {
   const taskPermissionLines = hasSubAgents
     ? ['  task:', '    "*": deny', ...subAgentNames.map((name) => `    ${JSON.stringify(name)}: allow`)]
     : ['  task: deny']
+
+  // File plane (#12): a primary that opted in gets sandbox-scoped write/edit/read
+  // ONLY when the global kill-switch `OM_OPENCODE_FILES_ENABLED` is on — otherwise
+  // it renders the historical deny frontmatter (BC: default off = unchanged). Sub-
+  // agents never get file tools (read-only, informative). Isolation is by per-run
+  // sandbox subdir + container lease (Phase 0); this static glob only confines the
+  // agent to the shared workspace root, away from OpenCode internals.
+  const filesActive =
+    mode === 'primary' &&
+    !!args.files?.enabled &&
+    parseBooleanWithDefault(process.env.OM_OPENCODE_FILES_ENABLED, false)
+  // The frontmatter runs INSIDE the OpenCode container, so the permission glob
+  // uses the CONTAINER-side workspace root (OM_OPENCODE_WORKSPACE_ROOT_CONTAINER,
+  // defaulting to OM_OPENCODE_WORKSPACE_ROOT — equal in the full-docker case).
+  const containerWorkspaceRoot = (
+    process.env.OM_OPENCODE_WORKSPACE_ROOT_CONTAINER ||
+    process.env.OM_OPENCODE_WORKSPACE_ROOT ||
+    '/home/opencode/work'
+  ).trim()
+  const workspaceGlob = `${containerWorkspaceRoot}/**`
+  const fileToolLines: string[] = []
+  const filePermissionLines: string[] = ['  write: deny', '  edit: deny', '  bash: deny']
+  if (filesActive) {
+    fileToolLines.push('  read: true', '  write: true', '  edit: true')
+    if (args.files?.bash) fileToolLines.push('  bash: true')
+    filePermissionLines.length = 0
+    for (const tool of ['write', 'edit', 'read']) {
+      filePermissionLines.push(`  ${tool}:`, `    ${JSON.stringify(workspaceGlob)}: allow`, '    "*": deny')
+    }
+    filePermissionLines.push(args.files?.bash ? '  bash: allow' : '  bash: deny')
+  }
+
   const frontmatterLines = [
     '---',
     `description: ${JSON.stringify(args.description)}`,
@@ -295,10 +330,9 @@ function renderOpenCodeAgentFile(args: {
     'tools:',
     '  "*": false',
     ...allowedTools.map(renderToolPermissionLine),
+    ...fileToolLines,
     'permission:',
-    '  write: deny',
-    '  edit: deny',
-    '  bash: deny',
+    ...filePermissionLines,
     ...taskPermissionLines,
     '---',
   ]
@@ -661,6 +695,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     runtime: 'opencode',
     sampleInput: loadSampleInput(dir),
     facts: loadFacts(dir),
+    files: agent.files,
   }
 
   const openCodeAgentFile = renderOpenCodeAgentFile({
@@ -674,6 +709,7 @@ export function loadFileAgentDir(dir: string): LoadedFileAgent | null {
     outcomeKind: outcome.kind,
     outcomeSchema: outcome.schema,
     outcomeProse: outcome.prose,
+    files: agent.files,
   })
 
   return {

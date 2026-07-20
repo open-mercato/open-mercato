@@ -61,6 +61,9 @@ services:
       MCP_SERVER_API_KEY: ${MCP_SERVER_API_KEY:-}
       MCP_SERVER_API_KEY_FILE: /run/mcp-shared/mcp-api-key
       OPENCODE_MCP_KEY_WAIT_SECONDS: ${OPENCODE_MCP_KEY_WAIT_SECONDS:-1800}
+      # File plane (#12): kill-switch. When true the entrypoint exposes the built-in
+      # read/write/edit tools so file-agents can produce artifacts (default off).
+      OM_OPENCODE_FILES_ENABLED: ${OM_OPENCODE_FILES_ENABLED:-false}
     ports:
       - "${OPENCODE_PORT:-4096}:4096"
     volumes:
@@ -78,6 +81,10 @@ services:
       # SSL_CERT_FILE/NODE_EXTRA_CA_CERTS from any certs found here (baked-in
       # certs only exist in locally built images). No-op when empty.
       - ./docker/opencode/certs:/run/om-certs:ro
+      # File plane (#12): shared writable sandbox. The OM host process writes/reads
+      # the host source (OM_OPENCODE_WORKSPACE_ROOT); the agent sees it at the
+      # container path (OM_OPENCODE_WORKSPACE_ROOT_CONTAINER, /home/opencode/work).
+      - ${OM_OPENCODE_WORKSPACE_ROOT:-./.mercato/opencode-work}:/home/opencode/work:rw
     extra_hosts:
       # host-gateway is right on native Linux and Docker Desktop. On Rancher
       # Desktop (WSL2) it can resolve to the WSL distro instead of the Windows

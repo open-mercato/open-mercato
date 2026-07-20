@@ -84,6 +84,15 @@ export const defaultEncryptionMaps: ModuleEncryptionMap[] = [
       { field: 'subject_title' },
     ],
   },
+  {
+    // Agent-produced artifact caption is free text the model authored about the
+    // file — it can quote customer data pulled into the run. The file bytes are
+    // encrypted separately in storage-s3; this covers the DB-resident metadata.
+    entityId: 'agent_orchestrator:agent_run_artifact',
+    fields: [
+      { field: 'caption' },
+    ],
+  },
 ]
 
 export default defaultEncryptionMaps
