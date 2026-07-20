@@ -317,12 +317,19 @@ export function checkContainerToHost(repoRoot, { mcpPort }) {
     })
   }
   if (pinned.resolvedIp || native.resolvedIp) {
-    return result('container-host', 'Container → host connectivity', 'warn', 'host.docker.internal resolves but the MCP port did not answer (MCP not running yet, or a host firewall blocks the docker bridge)', {
+    const isWindows = process.platform === 'win32'
+    const firewallRule = `New-NetFirewallRule -DisplayName "Open Mercato MCP dev" -Direction Inbound -Action Allow -Protocol TCP -LocalPort ${mcpPort} -Profile Any`
+    return result('container-host', 'Container → host connectivity', 'warn', `host.docker.internal resolves${pinned.resolvedIp ? ` (${pinned.resolvedIp})` : ''} but the MCP port did not answer — MCP is not running yet, or a host firewall blocks the container→host hop`, {
       guide: [
-        'Start the stack first (yarn om / npx @open-mercato/starter), then re-run the doctor.',
-        'Windows: allow the first-run firewall prompt for Node.js on Private networks.',
-        'Linux (ufw): sudo ufw allow from 172.16.0.0/12 to any port ' + mcpPort + ' proto tcp',
+        'If the stack is not running yet, start it (yarn om) and re-run the doctor.',
+        isWindows
+          ? `Windows Firewall drops the container→host hop over the WSL/vEthernet adapter. Allow it (elevated PowerShell): ${firewallRule}`
+          : 'Windows: allow node.exe inbound on the MCP port for Private networks (the first-run firewall prompt).',
+        `Linux (ufw): sudo ufw allow from 172.16.0.0/12 to any port ${mcpPort} proto tcp`,
       ],
+      it: isWindows
+        ? [`Approve an inbound firewall rule for the local dev MCP server: ${firewallRule}`]
+        : [],
     })
   }
   return result('container-host', 'Container → host connectivity', 'fail', 'host.docker.internal does not resolve inside containers', {
