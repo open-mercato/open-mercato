@@ -231,7 +231,7 @@ export default function WebhooksListPage() {
   return (
     <Page>
       <PageBody className="space-y-4">
-        <Alert variant="info">
+        <Alert status="information">
           <AlertTitle>{t('webhooks.list.description')}</AlertTitle>
           <AlertDescription>{t('webhooks.list.operatorTip')}</AlertDescription>
         </Alert>

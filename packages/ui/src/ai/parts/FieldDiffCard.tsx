@@ -128,7 +128,7 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
                 afterHeader={afterHeader}
               />
             ) : (
-              <Alert variant="info">
+              <Alert status="information">
                 <AlertDescription>
                   {t(
                     'ai_assistant.chat.mutation_cards.diff.empty',
@@ -145,7 +145,7 @@ export function FieldDiffCard({ fieldDiff, records }: FieldDiffCardProps) {
 
   if (flat.length === 0) {
     return (
-      <Alert variant="info" data-ai-field-diff-mode="empty">
+      <Alert status="information" data-ai-field-diff-mode="empty">
         <AlertDescription>
           {t(
             'ai_assistant.chat.mutation_cards.diff.empty',

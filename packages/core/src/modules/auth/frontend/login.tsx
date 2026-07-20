@@ -353,7 +353,7 @@ export default function LoginPage() {
                 <input type="hidden" name="tenantId" value={tenantId} />
               ) : null}
               {!!translatedRoles.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate(
                       translatedRoles.length > 1 ? 'auth.login.requireRolesMessage' : 'auth.login.requireRoleMessage',
@@ -366,7 +366,7 @@ export default function LoginPage() {
                 </Alert>
               )}
               {!!translatedFeatures.length && (
-                <Alert variant="info" className="text-center">
+                <Alert status="information" className="text-center">
                   <AlertDescription>
                     {translate('auth.login.featureDenied', "You don't have access to this feature ({feature}). Please contact your administrator.", {
                       feature: translatedFeatures.join(', '),

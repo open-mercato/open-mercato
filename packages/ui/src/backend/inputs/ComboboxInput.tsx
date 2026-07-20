@@ -241,7 +241,7 @@ export function ComboboxInput({
         .finally(() => { if (!cancelled) setLoading(false) })
     }
     return () => { cancelled = true }
-  // eslint-disable-next-line react-hooks/exhaustive-deps — resolveDescription intentionally excluded:
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- resolveDescription intentionally excluded:
   // including it would re-run the effect on every render when the prop is an inline function
   }, [value, disabled, knownLabelValues, coveredOptionValues, eagerResolveLabel, loadSuggestions])
 

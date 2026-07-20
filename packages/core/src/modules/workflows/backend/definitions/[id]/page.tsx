@@ -288,7 +288,7 @@ export default function EditWorkflowDefinitionPage() {
     <Page>
       <PageBody>
         {isCodeOnly && (
-          <Alert variant="info" className="mb-4">
+          <Alert status="information" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code.readonlyBanner')}</span>
               <Button variant="outline" size="sm" onClick={handleCustomize}>
@@ -298,7 +298,7 @@ export default function EditWorkflowDefinitionPage() {
           </Alert>
         )}
         {isCodeOverride && (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription className="flex items-center justify-between">
               <span>{t('workflows.source.code_override.banner')}</span>
               <Button variant="outline" size="sm" onClick={handleResetToCode}>

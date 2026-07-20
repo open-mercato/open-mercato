@@ -2741,7 +2741,7 @@ export default function DealsKanbanPage(): React.ReactElement {
           </div>
         ) : firstError ? (
           <div className="max-w-xl">
-            <Alert variant="destructive">
+            <Alert status="error">
               <AlertTitle>{translateWithFallback(t, 'ui.errors.defaultTitle', 'Something went wrong')}</AlertTitle>
               <AlertDescription>
                 {firstError instanceof Error

@@ -301,7 +301,7 @@ export function DefinitionTriggersEditor({
         </p>
 
         {value.length === 0 ? (
-          <Alert variant="info">
+          <Alert status="information">
             <AlertTitle>{t('workflows.triggers.empty.title', 'No triggers configured')}</AlertTitle>
             <AlertDescription>
               {t('workflows.triggers.empty.description', 'Click "Add Trigger" to create an event trigger that automatically starts this workflow.')}
