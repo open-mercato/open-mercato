@@ -494,6 +494,23 @@ export interface ChannelAdapter {
   readonly providerKey: string
   readonly channelType: 'whatsapp' | 'slack' | 'email' | 'sms' | string
 
+  /**
+   * Scope of a connected channel for this provider. Governs whether the connect
+   * flow stamps `CommunicationChannel.user_id` with the connecting user or leaves
+   * it NULL (tenant-wide):
+   *
+   * - `'user'` (default when absent) — one channel per user (Gmail, IMAP). The
+   *   credential belongs to the connecting user.
+   * - `'tenant'` — one shared channel per tenant (`user_id = NULL`), connected by
+   *   an admin. Used by push providers (FCM/APNs/Expo) whose service account /
+   *   signing key serves every device in the tenant. Reading (fan-out/delivery)
+   *   is already scope-agnostic; this only affects the connect/write path.
+   *
+   * ADDITIVE-ONLY (BACKWARD_COMPATIBILITY.md): existing adapters that omit it keep
+   * their per-user behaviour unchanged.
+   */
+  readonly channelScope?: 'tenant' | 'user'
+
   /** Declare supported features */
   readonly capabilities: ChannelCapabilities
 

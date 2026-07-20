@@ -33,7 +33,16 @@ export default function ChannelsListPage() {
   const [page, setPage] = React.useState(1)
   const [isLoading, setIsLoading] = React.useState(true)
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null)
+  // Bumped by injected connect widgets (FCM/APNs/Expo) so a freshly connected
+  // tenant-wide channel appears without a manual page reload.
+  const [reloadToken, setReloadToken] = React.useState(0)
   const pageSize = 50
+
+  const reload = React.useCallback(() => setReloadToken((token) => token + 1), [])
+  const injectionContext = React.useMemo(
+    () => ({ tableId: 'communication_channels.channels', reload }),
+    [reload],
+  )
 
   React.useEffect(() => {
     let cancelled = false
@@ -69,7 +78,7 @@ export default function ChannelsListPage() {
     return () => {
       cancelled = true
     }
-  }, [page, t])
+  }, [page, reloadToken, t])
 
   const columns = React.useMemo<ColumnDef<ChannelRow>[]>(
     () => [
@@ -115,6 +124,7 @@ export default function ChannelsListPage() {
         <DataTable<ChannelRow>
           title={t('communication_channels.nav.title', 'Communication Channels')}
           extensionTableId="communication_channels.channels"
+          injectionContext={injectionContext}
           columns={columns}
           data={rows}
           isLoading={isLoading}

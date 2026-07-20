@@ -13,6 +13,15 @@ export const features = [
    */
   { id: 'communication_channels.connect_user_channel', title: 'Connect own communication channel', module: 'communication_channels' },
   /**
+   * Connect a tenant-wide channel (`CommunicationChannel.user_id IS NULL`) that
+   * serves every user in the tenant — used for push providers (FCM/APNs/Expo)
+   * whose service account / signing key is shared tenant infrastructure. Gates
+   * `POST /channels/connect/tenant-credentials`. Admin/superadmin only: unlike
+   * `connect_user_channel` (everyone links their own mailbox), connecting shared
+   * push credentials is an administrative action.
+   */
+  { id: 'communication_channels.connect_tenant_channel', title: 'Connect tenant-wide communication channel', module: 'communication_channels' },
+  /**
    * Reserved for a future v2 team-oversight capability. NOT consulted in v1:
    * personal mailboxes (`CommunicationChannel.user_id` set) follow the strict
    * owner-only privacy model, so this feature grants NO cross-user channel view.

@@ -282,9 +282,17 @@ const deliverOutboundMessageCommand: CommandHandler<
     // Per-user credentials scope: pass `channel.userId` so the credentials
     // service returns this user's row, not whoever connected last. See
     // review R2-C1 / N1 (2026-05-26).
+    //
+    // Key the org on the CHANNEL's own org, not the message's org. Tenant-wide
+    // channels store `organization_id = NULL` and their credentials live at
+    // `organization_id = tenantId` (see connect-credential-channel.ts), so
+    // `channel.organizationId ?? tenantId` matches the write key for both
+    // org-scoped and tenant-wide channels. Keying on the message org would
+    // resolve `{}` the moment a tenant-wide provider delivers from a message
+    // that carries a non-null org.
     const credentialsScope = {
       tenantId: input.scope.tenantId,
-      organizationId: input.scope.organizationId ?? input.scope.tenantId,
+      organizationId: channel.organizationId ?? input.scope.tenantId,
       userId: channel.userId ?? null,
     }
     let credentials: Record<string, unknown> = {}
@@ -406,7 +414,7 @@ const deliverOutboundMessageCommand: CommandHandler<
         credentials,
         scope: {
           tenantId: input.scope.tenantId,
-          organizationId: input.scope.organizationId ?? input.scope.tenantId,
+          organizationId: channel.organizationId ?? input.scope.tenantId,
         },
         metadata: converted.metadata,
       })

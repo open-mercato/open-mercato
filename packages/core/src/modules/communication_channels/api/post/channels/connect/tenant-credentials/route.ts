@@ -13,10 +13,10 @@ import type { ChannelAdapterRegistry } from '../../../../../lib/registry'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 export const metadata = {
-  path: '/communication_channels/channels/connect/credentials',
+  path: '/communication_channels/channels/connect/tenant-credentials',
   POST: {
     requireAuth: true,
-    requireFeatures: ['communication_channels.connect_user_channel'],
+    requireFeatures: ['communication_channels.connect_tenant_channel'],
   },
 }
 
@@ -46,20 +46,24 @@ export async function POST(req: Request): Promise<Response> {
 
   const container = await createRequestContainer()
 
-  // Tenant-scoped providers (push: FCM/APNs/Expo) must go through the admin-gated
-  // tenant route, not this per-user one (granted to manager/employee via
-  // `connect_user_channel`). Reject them here so a non-admin can't mint a
-  // privileged tenant-wide channel. The command enforces the same invariant
-  // (`wrong_scope_for_route`) as defense-in-depth.
+  // Reject providers that are NOT tenant-scoped so an admin can't force a
+  // per-user provider (Gmail/IMAP) into a shared tenant-wide channel. Push
+  // providers (FCM/APNs/Expo) declare `channelScope: 'tenant'` on their adapter.
   const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
-  const earlyAdapter = adapterRegistry.get(body.providerKey)
-  if (earlyAdapter && earlyAdapter.channelScope === 'tenant') {
+  const adapter = adapterRegistry.get(body.providerKey)
+  if (!adapter) {
+    return NextResponse.json(
+      { error: `No adapter registered for provider '${body.providerKey}'` },
+      { status: 404 },
+    )
+  }
+  if (adapter.channelScope !== 'tenant') {
     return NextResponse.json(
       {
-        error: 'This provider is connected tenant-wide by an administrator, not per-user.',
-        code: 'provider_is_tenant_scoped',
+        error: 'This provider connects per-user channels; use the personal channel connect flow instead.',
+        code: 'provider_not_tenant_scoped',
       },
-      { status: 403 },
+      { status: 400 },
     )
   }
 
@@ -81,16 +85,19 @@ export async function POST(req: Request): Promise<Response> {
   if ('response' in guard) return guard.response
 
   const commandBus = container.resolve('commandBus') as CommandBus
+  const orgId = (auth as { orgId?: string | null }).orgId ?? null
 
   const input: ConnectCredentialChannelInput = {
     providerKey: body.providerKey,
     displayName: body.displayName,
     credentials: body.credentials,
     pollIntervalSeconds: body.pollIntervalSeconds,
-    userId: auth.sub as string,
+    // Tenant-wide: no owning user. The command re-derives the effective scope
+    // from the adapter, so the channel + credentials are stored with user_id NULL.
+    userId: null,
     scope: {
       tenantId: auth.tenantId as string,
-      organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+      organizationId: orgId,
     },
   }
   const { result } = await commandBus.execute<
@@ -102,10 +109,8 @@ export async function POST(req: Request): Promise<Response> {
       container,
       auth: auth as never,
       organizationScope: null,
-      selectedOrganizationId: (auth as { orgId?: string | null }).orgId ?? null,
-      organizationIds: (auth as { orgId?: string | null }).orgId
-        ? [(auth as { orgId?: string | null }).orgId!]
-        : null,
+      selectedOrganizationId: orgId,
+      organizationIds: orgId ? [orgId] : null,
     },
   })
 
@@ -113,12 +118,11 @@ export async function POST(req: Request): Promise<Response> {
     return NextResponse.json({ error: result.reason }, { status: 404 })
   }
   if (result.status === 'wrong_scope_for_route') {
+    // Unreachable in practice — this route always dispatches with userId: null —
+    // but handle it so the result union narrows and the invariant is explicit.
     return NextResponse.json(
-      {
-        error: 'This provider is connected tenant-wide by an administrator, not per-user.',
-        code: 'provider_is_tenant_scoped',
-      },
-      { status: 403 },
+      { error: 'Unexpected per-user scope on the tenant connect route.', code: 'wrong_scope_for_route' },
+      { status: 500 },
     )
   }
   if (result.status === 'validation_failed') {
@@ -147,14 +151,13 @@ export const openApi = {
   tags: ['CommunicationChannels'],
   methods: {
     POST: {
-      summary: 'Connect a credential-based per-user channel (IMAP/SMTP)',
+      summary: 'Connect a tenant-wide credential-based channel (push: FCM/APNs/Expo)',
       tags: ['CommunicationChannels'],
       responses: [
         { status: 201, description: 'Channel connected' },
+        { status: 400, description: 'Provider is not tenant-scoped' },
         { status: 401, description: 'Unauthorized' },
-        { status: 403, description: 'Provider is tenant-scoped — use the tenant connect route' },
         { status: 404, description: 'Unknown provider' },
-        { status: 409, description: 'Mailbox already connected via another provider' },
         { status: 422, description: 'Invalid body or credential validation failed' },
       ],
     },

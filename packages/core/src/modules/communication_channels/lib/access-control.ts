@@ -18,6 +18,28 @@ import { hasFeature } from '@open-mercato/shared/security/features'
 export const ADMIN_FEATURE = 'communication_channels.admin'
 
 /**
+ * Org-scoping fragment for reading/managing channels.
+ *
+ * Tenant-wide channels are stored with `organization_id IS NULL` (the
+ * tenant-scoped push providers FCM/APNs/Expo do this deliberately — see
+ * `connect-credential-channel.ts`). They are visible and manageable from ANY
+ * org in the tenant, so a read scoped to the caller's selected org must also
+ * match the NULL rows; otherwise a channel connected while an admin had a
+ * non-null org would be invisible to every listing/detail query (and vice
+ * versa). Org-scoped channels (`organization_id = <org>`) stay scoped to their
+ * org.
+ *
+ * Spread the result into a MikroORM `where` object alongside `tenantId` etc.
+ */
+export function channelOrgScopeWhere(
+  orgId: string | null | undefined,
+): Record<string, unknown> {
+  return orgId
+    ? { $or: [{ organizationId: orgId }, { organizationId: null }] }
+    : { organizationId: null }
+}
+
+/**
  * Throws when the caller may not access a specific channel. Returns silently
  * when access is allowed.
  *

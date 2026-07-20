@@ -98,9 +98,12 @@ export async function pushUnregister(params: {
   } catch {
     credentialsService = null
   }
+  // Resolve credentials at the channel's OWN org (tenant-wide channels store
+  // their credentials at `organization_id = tenantId`; see push-register.ts /
+  // connect-credential-channel.ts), never the caller's scope org.
   const credentialsScope = {
     tenantId: scope.tenantId,
-    organizationId: scope.organizationId,
+    organizationId: channel.organizationId ?? scope.tenantId,
     userId: channel.userId ?? null,
   }
   let credentials: Record<string, unknown> = {}
