@@ -360,7 +360,7 @@
   "wms.backend.inventory.cycleCount.steps.counting.shortcut": "aby kontynuować",
   "wms.backend.inventory.cycleCount.steps.counting.submit": "Pokaż rozbieżności",
   "wms.backend.inventory.cycleCount.steps.counting.subtitle": "Krok 2 z 3 · Skanuj i zliczaj pozycje",
-  "wms.backend.inventory.cycleCount.steps.counting.subtitleWithPosted": "Step 2 of 3 · {count} line(s) posted — count next SKU",
+  "wms.backend.inventory.cycleCount.steps.counting.subtitleWithPosted": "Krok 2 z 3 · {count} pozycji zapisanych — zlicz następne SKU",
   "wms.backend.inventory.cycleCount.steps.review.shortcut": "aby zaksięgować",
   "wms.backend.inventory.cycleCount.steps.review.submit": "Zaksięguj inwentaryzację",
   "wms.backend.inventory.cycleCount.steps.review.subtitle": "Krok 3 z 3 · Przejrzyj rozbieżności i zaksięguj",
