@@ -102,6 +102,48 @@ describe('createConnectedChannelRow', () => {
     expect(em.create).toHaveBeenCalledTimes(1)
   })
 
+  it('creates a tenant-wide push channel (user_id null) and dedups on reconnect', async () => {
+    const pushBase = {
+      adapter: { channelType: 'push', capabilities: { realtimePush: true } } as never,
+      providerKey: 'fcm',
+      displayName: 'Firebase Cloud Messaging',
+      externalIdentifier: null,
+      credentialsRefId: 'cred-push',
+      userId: null,
+      scope: { tenantId: 't', organizationId: 'o' },
+    }
+
+    // First connect: no existing tenant push channel — insert one with user_id null.
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(null)
+    const em: any = {
+      create: jest.fn((_entity: unknown, data: Record<string, unknown>) => ({ ...data })),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+      fork: jest.fn(),
+    }
+    const created = await createConnectedChannelRow({ em, ...pushBase })
+    // Unlike an identifier-less EMAIL channel, push runs the dedup existence check.
+    expect(findOneWithDecryption).toHaveBeenCalledTimes(1)
+    expect(em.create).toHaveBeenCalledTimes(1)
+    expect(created.userId).toBeNull()
+    expect(created.channelType).toBe('push')
+
+    // Reconnect: the existing tenant push row is healed in place (no duplicate insert).
+    const existing: any = { id: 'push-1', status: 'requires_reauth', isActive: false }
+    ;(findOneWithDecryption as jest.Mock).mockResolvedValueOnce(existing)
+    const em2: any = {
+      create: jest.fn(),
+      persist: jest.fn(),
+      flush: jest.fn(async () => undefined),
+      fork: jest.fn(),
+    }
+    const healed = await createConnectedChannelRow({ em: em2, ...pushBase })
+    expect(em2.create).not.toHaveBeenCalled()
+    expect(healed).toBe(existing)
+    expect(existing.status).toBe('connected')
+    expect(existing.isActive).toBe(true)
+  })
+
   it('rethrows a non-unique flush error', async () => {
     ;(findOneWithDecryption as jest.Mock).mockResolvedValue(null)
     const em: any = {

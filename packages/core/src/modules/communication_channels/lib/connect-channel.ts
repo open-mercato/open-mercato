@@ -36,7 +36,8 @@ export interface CreateConnectedChannelRowArgs {
   displayName: string
   externalIdentifier: string | null
   credentialsRefId: string | null
-  userId: string
+  /** Connecting user, or `null` for a tenant-wide channel (push: FCM/APNs/Expo). */
+  userId: string | null
   scope: { tenantId: string; organizationId: string | null }
   /**
    * Explicit poll-interval override (seconds). When omitted, it is derived from
@@ -46,9 +47,11 @@ export interface CreateConnectedChannelRowArgs {
 }
 
 /**
- * Create + persist the per-user `CommunicationChannel` row for a connect flow.
- * Shared by the credential-connect command and the OAuth callback so both entry
- * points use one channel-shape implementation instead of duplicating `em.create`.
+ * Create + persist a `CommunicationChannel` row for a connect flow. `userId` is
+ * the connecting user for per-user channels (Gmail/IMAP) or `null` for tenant-wide
+ * channels (push: FCM/APNs/Expo). Shared by the credential-connect command and the
+ * OAuth callback so both entry points use one channel-shape implementation instead
+ * of duplicating `em.create`.
  *
  * When credentials could not be persisted (`credentialsRefId === null`) the row
  * is created in `requires_reauth` + `isActive=false` so workers don't poll a
@@ -93,20 +96,40 @@ export async function createConnectedChannelRow(
     }
   }
 
-  const naturalKey = {
-    tenantId: scope.tenantId,
-    userId,
-    providerKey,
-    externalIdentifier,
-    deletedAt: null,
-  }
+  // Heal-on-reconnect dedup key. Two shapes:
+  //  - mailbox channels (Gmail/IMAP): keyed on (tenant, user, provider, mailbox);
+  //    only rows with a known `externalIdentifier` participate.
+  //  - tenant-wide push channels (FCM/APNs/Expo): no mailbox, `user_id = NULL`, so
+  //    keyed on (tenant, provider, channel_type='push', user_id NULL). Without this
+  //    every admin reconnect would insert a duplicate (fan-out takes the oldest per
+  //    provider, so duplicates are silent noise + a concurrent-connect race).
+  // `null` ⇒ no dedup key (identifier-less non-push channel): always insert.
+  const dedupeFilter = externalIdentifier
+    ? {
+        tenantId: scope.tenantId,
+        userId,
+        providerKey,
+        externalIdentifier,
+        deletedAt: null,
+      }
+    : adapter.channelType === 'push' && userId === null
+      ? {
+          tenantId: scope.tenantId,
+          userId: null,
+          providerKey,
+          channelType: 'push',
+          deletedAt: null,
+        }
+      : null
 
-  // Heal-on-reconnect: a channel for the same (tenant, user, provider, mailbox)
-  // already exists when the user re-runs OAuth / reconnects after a
-  // `requires_reauth`. Update it in place rather than inserting a duplicate row —
-  // a duplicate would stay `isActive` and keep polling + re-emitting reauth
-  // banners, and register a second competing push subscription. Only mailboxes
-  // with a known `externalIdentifier` participate (the unique index is partial).
+  // Heal-on-reconnect: a channel for the same dedup key already exists when the
+  // user re-runs OAuth / reconnects after a `requires_reauth`, or an admin
+  // re-submits a tenant push provider's credentials. Update it in place rather
+  // than inserting a duplicate row — a duplicate would stay `isActive` and keep
+  // polling + re-emitting reauth banners, and register a second competing push
+  // subscription. Backed by the partial unique indexes
+  // `communication_channels_user_provider_external_uq` (mailbox) and
+  // `communication_channels_tenant_push_provider_uq` (tenant push).
   const applyConnectionState = (target: CommunicationChannel): void => {
     target.channelType = adapter.channelType
     target.displayName = displayName
@@ -119,8 +142,8 @@ export async function createConnectedChannelRow(
     target.lastError = credentialsAvailable ? null : 'credentials_persist_failed'
   }
 
-  if (externalIdentifier) {
-    const existing = await findOneWithDecryption(em, CommunicationChannel, naturalKey, undefined, dscope)
+  if (dedupeFilter) {
+    const existing = await findOneWithDecryption(em, CommunicationChannel, dedupeFilter, undefined, dscope)
     if (existing) {
       applyConnectionState(existing)
       await em.flush()
@@ -152,9 +175,9 @@ export async function createConnectedChannelRow(
     // Concurrent connect for the same mailbox won the race (partial unique index
     // rejected ours). Re-select the winner on a clean fork and heal it so the
     // caller still gets a single, connected channel.
-    if (!isUniqueViolation(err) || !externalIdentifier) throw err
+    if (!isUniqueViolation(err) || !dedupeFilter) throw err
     const reEm = em.fork()
-    const winner = await findOneWithDecryption(reEm, CommunicationChannel, naturalKey, undefined, dscope)
+    const winner = await findOneWithDecryption(reEm, CommunicationChannel, dedupeFilter, undefined, dscope)
     if (!winner) throw err
     applyConnectionState(winner)
     await reEm.flush()

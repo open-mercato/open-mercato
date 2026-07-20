@@ -5,6 +5,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { findAndCountWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { CommunicationChannel } from '../../../data/entities'
+import { channelOrgScopeWhere } from '../../../lib/access-control'
 
 export const metadata = {
   path: '/communication_channels/channels',
@@ -49,7 +50,7 @@ export async function GET(req: Request): Promise<Response> {
   // one — admins included — can see another user's connected personal account.
   const where: Record<string, unknown> = {
     tenantId: auth.tenantId,
-    organizationId: (auth as { orgId?: string | null }).orgId ?? null,
+    ...channelOrgScopeWhere((auth as { orgId?: string | null }).orgId ?? null),
     deletedAt: null,
     userId: null,
   }
