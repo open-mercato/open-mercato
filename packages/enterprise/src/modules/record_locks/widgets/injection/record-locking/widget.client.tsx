@@ -1342,7 +1342,7 @@ export default function RecordLockingWidget({
           ) : null}
           {(state?.conflict?.changes?.length ?? 0) === 0 ? (
             !isRecordDeleted ? (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>
                 {t(
                   'record_locks.conflict.no_field_details',
@@ -1353,7 +1353,7 @@ export default function RecordLockingWidget({
             ) : null
           ) : null}
           {showOverrideBlockedNotice ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>
                 {t(
                   'record_locks.conflict.override_blocked_notice',
