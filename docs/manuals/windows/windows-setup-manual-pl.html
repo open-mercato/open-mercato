@@ -57,7 +57,7 @@
   <tr><td>WSL2</td><td>Ty / IT</td><td>Wymagane przez Docker Desktop i Rancher Desktop. Włączenie wymaga uprawnień administratora i restartu, dlatego starter je proponuje, ale nie włącza.</td></tr>
   <tr><td>Silnik kontenerów</td><td>Ty / IT</td><td><strong>Docker Desktop</strong> lub <strong>Rancher Desktop</strong> — musi być zainstalowany i uruchomiony. Starter go wykrywa i, jeśli brakuje, podaje dokładne polecenie instalacji; nie instaluje go za Ciebie.</td></tr>
   <tr><td>Git</td><td>Ty / IT</td><td>Potrzebny do pobrania i aktualizacji kodu (instalacja w profilu użytkownika działa bez administratora).</td></tr>
-  <tr><td>Toolchain C++</td><td>Ty / IT</td><td><strong>Tylko tryb hybrydowy.</strong> Kilka modułów natywnych (better-sqlite3, isolated-vm, …) kompiluje się na hoście podczas instalacji, co wymaga <strong>Visual Studio 2022 Build Tools</strong> z obciążeniem „Programowanie aplikacji klasycznych w języku C++”. <code>doctor</code> to sprawdza i drukuje dokładne polecenie instalacji. Niepotrzebne w <code>--mode docker</code> (moduły natywne budują się w kontenerze).</td></tr>
+  <tr><td>Toolchain C++</td><td>Ty / IT</td><td><strong>Tylko tryb hybrydowy.</strong> Kilka modułów natywnych (better-sqlite3, isolated-vm, …) kompiluje się na hoście podczas instalacji, co wymaga <strong>Visual Studio 2022 Build Tools</strong> z obciążeniem „Programowanie aplikacji klasycznych w języku C++”. <code>doctor</code> to sprawdza i drukuje dokładne polecenie instalacji. Starter wymusza to tylko wtedy, gdy <code>yarn install</code> faktycznie ma coś do zrobienia — już zbudowane środowisko działa dalej i dostaje jedynie ostrzeżenie. Niepotrzebne w <code>--mode docker</code> (moduły natywne budują się w kontenerze).</td></tr>
   <tr><td>Pamięć / dysk</td><td>—</td><td><strong>16 GB RAM zalecane, 12 GB minimum</strong>; ~20 GB wolnego dysku na pierwsze uruchomienie, 40 GB+ komfortowo</td></tr>
   <tr><td>Klucz API LLM</td><td>Ty</td><td>Jeden z: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
 </table>
@@ -102,7 +102,7 @@
   <tr><td><code>.env</code> / sekrety</td><td>Generuje sekrety <code>.env</code> raz i nigdy ich nie nadpisuje; pyta o dostawcę LLM</td><td>natychmiast + Twój wybór</td></tr>
   <tr><td>Instalacja i build</td><td><code>yarn install</code>, potem build pakietów i generowanie artefaktów</td><td>pierwszy raz kilka min</td></tr>
   <tr><td>Kontenery infrastruktury</td><td>Pobiera obraz bazowy OpenCode, uruchamia OpenCode + PostgreSQL + Redis + Meilisearch (czeka na gotowość)</td><td>pierwszy raz kilka min</td></tr>
-  <tr><td>Baza danych</td><td>Wykonuje migracje i wypełnia dane początkowe</td><td>1–2 min</td></tr>
+  <tr><td>Baza danych</td><td>Wykonuje migracje i wypełnia dane początkowe; przy kolejnych startach jest całkowicie pomijany, dopóki nie pojawią się nowe pliki migracji</td><td>1–2 min (pierwszy raz)</td></tr>
   <tr><td>Środowisko uruchomieniowe</td><td>Startuje <code>yarn dev</code> — aplikację, procesy kolejek, scheduler i serwer MCP na Twoim komputerze</td><td>sekundy</td></tr>
 </table>
 <p>Podczas długich oczekiwań konsola pokazuje spinner z czasem oraz status w prostym języku. Postęp buildu jest też widoczny na żywo pod <code>http://127.0.0.1:4000</code> (pusty, dopóki instalacja zależności się nie skończy — to normalne).</p>
@@ -135,6 +135,7 @@ Następnie zamknij silnik i wykonaj <code>wsl --shutdown</code>, aby zastosować
   <tr><td>Audyt komputera (tylko do odczytu, + lista dla IT)</td><td><code>yarn om doctor</code></td></tr>
   <tr><td>Tylko kontenery infrastruktury</td><td><code>yarn om infra up</code> / <code>yarn om infra down</code></td></tr>
   <tr><td>Przebudowa obrazu OpenCode (np. po <code>yarn generate</code>)</td><td><code>yarn om infra up --rebuild</code></td></tr>
+  <tr><td>Wymuszenie pełnej rekonwergencji — ponawia instalację, build i migracje oraz przebudowuje obraz OpenCode; <strong>dane nietknięte</strong></td><td><code>yarn om up --clean</code></td></tr>
   <tr><td>Pełny reset — <strong>USUWA wszystkie dane</strong> (pyta najpierw)</td><td><code>yarn om reset</code></td></tr>
 </table>
 <p>Przydatne flagi dla <code>up</code>: <code>--non-interactive</code>, <code>--skip-llm-prompt</code>, <code>--skip-db</code>, <code>--no-infra</code> (uruchamia aplikację względem usług wskazanych w <code>.env</code>), <code>--profile &lt;nazwa&gt;</code> (np. <code>sso</code>, <code>storage-s3</code>) oraz <code>-- &lt;argumenty&gt;</code>, aby przekazać dodatkowe argumenty do <code>yarn dev</code>.</p>
@@ -171,8 +172,8 @@ Następnie zamknij silnik i wykonaj <code>wsl --shutdown</code>, aby zastosować
   <tr><th>Objaw</th><th>Przyczyna i rozwiązanie</th></tr>
   <tr><td>Czat AI (Ctrl+K) pokazuje błędy autoryzacji / MCP „disconnected”</td><td>Kontener OpenCode czyta klucz MCP tylko przy starcie; klucz rotuje po resecie bazy. Zrestartuj go: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>. Sprawdź: <code>curl http://127.0.0.1:4096/mcp</code> → powinno pokazać <code>"status":"connected"</code>.</td></tr>
   <tr><td>Doctor: „the compose extra_hosts pin does NOT reach the host” (częste na Rancher Desktop / WSL2)</td><td>Kontener OpenCode łączy się z serwerem MCP na hoście przez <code>host.docker.internal</code>, który w niektórych konfiguracjach WSL2 wskazuje na dystrybucję WSL zamiast na Windows. Doctor drukuje poprawkę: ustaw <code>OM_HOST_GATEWAY=&lt;ip&gt;</code> w <code>.env</code> w katalogu głównym i zrestartuj kontener OpenCode.</td></tr>
-  <tr><td>Zapora Windows pyta przy pierwszym starcie</td><td>Serwer MCP nasłuchuje na hoście; Windows raz pyta, czy zezwolić <code>node.exe</code>. Zezwól w <strong>sieciach prywatnych</strong>, aby kontenery mogły się z nim łączyć.</td></tr>
-  <tr><td>Czat AI zwraca błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy w <code>.env</code> w katalogu głównym (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code>, po czym zrestartuj OpenCode (polecenie powyżej).</td></tr>
+  <tr><td>Zapora Windows pyta przy pierwszym starcie</td><td>Serwer MCP nasłuchuje na hoście; Windows raz pyta, czy zezwolić <code>node.exe</code>. Zezwól w <strong>sieciach prywatnych</strong>, aby kontenery mogły się z nim łączyć. Odrzucono monit? <code>yarn om doctor</code> wykrywa zablokowane połączenie kontener→host i drukuje dokładne polecenie <code>New-NetFirewallRule</code> (także na liście dla IT).</td></tr>
+  <tr><td>Czat AI zwraca błędy dostawcy/modelu</td><td>Sprawdź klucz dostawcy (np. <code>OPENAI_API_KEY</code>) oraz <code>OM_AI_PROVIDER</code> w <code>.env</code> w katalogu głównym, po czym ponownie uruchom <code>yarn om</code> — synchronizuje konfigurację dostawcy do <code>apps/mercato/.env</code> (który czyta aplikacja na hoście) i restartuje OpenCode z nowymi ustawieniami. Na Azure nazwij każdy deployment zgodnie z rodziną modelu (np. <code>gpt-5…</code>, <code>o4-mini…</code>) — parametry modeli „reasoning” są mapowane na podstawie nazwy deploymentu.</td></tr>
 </table>
 
 <h3>Aplikacja, dane i porty</h3>
@@ -199,15 +200,15 @@ Następnie zamknij silnik i wykonaj <code>wsl --shutdown</code>, aby zastosować
 <p class="faq-q">Gdzie żyją moje dane? Jak je wyczyścić?</p>
 <p>W nazwanych wolumenach Dockera (przetrwają zatrzymania i restarty). Wyczyść wszystko przez <code>yarn om reset</code> (prosi o potwierdzenie).</p>
 <p class="faq-q">Jak zaktualizować do najnowszego kodu?</p>
-<p><code>git pull</code>, potem <code>yarn om</code>. Starter ponownie zbiega — instaluje nowe zależności, wykonuje nowe migracje i restartuje.</p>
+<p><code>git pull</code>, potem <code>yarn om</code>. Starter ponownie zbiega — instaluje nowe zależności, wykonuje nowe migracje i restartuje. Jeśli po dużej aktualizacji coś wygląda na nieaktualne, <code>yarn om up --clean</code> wymusza pełną rekonwergencję (ponowna instalacja, build, migracje) bez naruszania danych.</p>
 <p class="faq-q">Czy mogę później zmienić dostawcę AI?</p>
-<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), potem zrestartuj OpenCode: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>.</p>
+<p>Tak — edytuj <code>.env</code> w katalogu głównym (klucz dostawcy + <code>OM_AI_PROVIDER</code>, opcjonalnie <code>OM_AI_MODEL</code>), potem uruchom <code>yarn om</code>. Synchronizuje on dostawcę i model do <code>apps/mercato/.env</code> (który czyta aplikacja na hoście) i restartuje kontener OpenCode z nowymi ustawieniami. Jedno zastrzeżenie: synchronizacja nigdy nie nadpisuje istniejącego klucza API — przy rotacji klucza <em>tego samego</em> dostawcy zaktualizuj go w obu plikach <code>.env</code>.</p>
 <p class="faq-q">Których portów używa?</p>
 <p>3000 (aplikacja), 4000 (ekran buildu), 3001 (MCP), 4096 (OpenCode), 5432 (PostgreSQL), 6379 (Redis), 7700 (Meilisearch), 8080 (Keycloak, opcjonalny). Wszystkie nadpisywalne w <code>.env</code>.</p>
 <p class="faq-q">Czy działa offline?</p>
 <p>Pierwsze uruchomienie wymaga internetu do obrazów Docker i pakietów npm. Po udanym pierwszym starcie codzienna praca jest lokalna.</p>
 
-<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v2.0 · lipiec 2026 · Źródła: <code>@open-mercato/starter</code> (<code>packages/starter/</code> — CLI, kroki, doctor, bootstrapy <code>platform/</code>), specyfikacja <code>.ai/specs/2026-07-19-unified-starter-package.md</code></div>
+<div class="footer">Open Mercato — środowisko developerskie jednym poleceniem (Windows) · Instrukcja v2.1 · lipiec 2026 · Źródła: <code>@open-mercato/starter</code> (<code>packages/starter/</code> — CLI, kroki, doctor, bootstrapy <code>platform/</code>), specyfikacja <code>.ai/specs/2026-07-19-unified-starter-package.md</code></div>
 
 </body>
 </html>

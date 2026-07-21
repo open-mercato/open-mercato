@@ -57,7 +57,7 @@
   <tr><td>WSL2</td><td>You / IT</td><td>Required by both Docker Desktop and Rancher Desktop. Enabling it needs admin + a reboot, so the starter proposes it but does not enable it.</td></tr>
   <tr><td>Container runtime</td><td>You / IT</td><td><strong>Docker Desktop</strong> or <strong>Rancher Desktop</strong> — must be installed and running. The starter detects it and, if missing, gives you the exact install command; it does not install it for you.</td></tr>
   <tr><td>Git</td><td>You / IT</td><td>Needed to obtain and update the code (user-scope install works without admin).</td></tr>
-  <tr><td>C++ build toolchain</td><td>You / IT</td><td><strong>Hybrid mode only.</strong> A few native modules (better-sqlite3, isolated-vm, …) compile on the host during install, which needs <strong>Visual Studio 2022 Build Tools</strong> with the &ldquo;Desktop development with C++&rdquo; workload. <code>doctor</code> checks for it and prints the exact install command. Not needed in <code>--mode docker</code> (native modules build inside the container).</td></tr>
+  <tr><td>C++ build toolchain</td><td>You / IT</td><td><strong>Hybrid mode only.</strong> A few native modules (better-sqlite3, isolated-vm, …) compile on the host during install, which needs <strong>Visual Studio 2022 Build Tools</strong> with the &ldquo;Desktop development with C++&rdquo; workload. <code>doctor</code> checks for it and prints the exact install command. The starter enforces it only when <code>yarn install</code> actually has work pending — an already-converged workspace keeps running and just gets a warning. Not needed in <code>--mode docker</code> (native modules build inside the container).</td></tr>
   <tr><td>Memory / disk</td><td>—</td><td><strong>16 GB RAM recommended, 12 GB minimum</strong>; ~20 GB free disk for the first run, 40 GB+ comfortable</td></tr>
   <tr><td>LLM API key</td><td>You</td><td>One of: OpenAI, Anthropic, Google, Azure OpenAI / AI Foundry, OpenRouter, DeepInfra, Groq, Together, Fireworks, LiteLLM, Ollama, LM Studio</td></tr>
 </table>
@@ -102,7 +102,7 @@
   <tr><td><code>.env</code> / secrets</td><td>Generates <code>.env</code> secrets once and never overwrites them; prompts for your LLM provider</td><td>instant + your input</td></tr>
   <tr><td>Install &amp; build</td><td><code>yarn install</code>, then builds workspace packages and generates artifacts</td><td>first run several min</td></tr>
   <tr><td>Infra containers</td><td>Pulls the OpenCode base image, then starts OpenCode + PostgreSQL + Redis + Meilisearch (waits for health)</td><td>first run several min</td></tr>
-  <tr><td>Database</td><td>Applies migrations and seeds initial data</td><td>1–2 min</td></tr>
+  <tr><td>Database</td><td>Applies migrations and seeds initial data; on later runs it is skipped entirely until new migration files appear</td><td>1–2 min (first run)</td></tr>
   <tr><td>Dev runtime</td><td>Starts <code>yarn dev</code> — the app, queue workers, scheduler, and MCP server on your machine</td><td>seconds</td></tr>
 </table>
 <p>During long waits the console shows a spinner with elapsed time and a plain-language status. Build progress is also live at <code>http://127.0.0.1:4000</code> (blank until the dependency install finishes — that is expected).</p>
@@ -135,6 +135,7 @@ Then quit the runtime and run <code>wsl --shutdown</code> to apply. (Unlike earl
   <tr><td>Read-only machine audit (+ IT hand-off sheet)</td><td><code>yarn om doctor</code></td></tr>
   <tr><td>Just the infra containers</td><td><code>yarn om infra up</code> / <code>yarn om infra down</code></td></tr>
   <tr><td>Rebuild the OpenCode image (e.g. after <code>yarn generate</code>)</td><td><code>yarn om infra up --rebuild</code></td></tr>
+  <tr><td>Force a full re-converge — re-runs install, build, and migrations and rebuilds the OpenCode image; <strong>data untouched</strong></td><td><code>yarn om up --clean</code></td></tr>
   <tr><td>Full reset — <strong>DELETES all data</strong> (asks first)</td><td><code>yarn om reset</code></td></tr>
 </table>
 <p>Useful flags on <code>up</code>: <code>--non-interactive</code>, <code>--skip-llm-prompt</code>, <code>--skip-db</code>, <code>--no-infra</code> (run the app against services you point <code>.env</code> at), <code>--profile &lt;name&gt;</code> (e.g. <code>sso</code>, <code>storage-s3</code>), and <code>-- &lt;args&gt;</code> to pass extra arguments through to <code>yarn dev</code>.</p>
@@ -171,8 +172,8 @@ Then quit the runtime and run <code>wsl --shutdown</code> to apply. (Unlike earl
   <tr><th>Symptom</th><th>Cause &amp; fix</th></tr>
   <tr><td>AI chat (Ctrl+K) shows authorization errors / MCP &ldquo;disconnected&rdquo;</td><td>The OpenCode container reads the MCP key only at start; the key rotates when the database is reset. Restart it: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>. Verify with <code>curl http://127.0.0.1:4096/mcp</code> → should show <code>"status":"connected"</code>.</td></tr>
   <tr><td>Doctor: &ldquo;the compose extra_hosts pin does NOT reach the host&rdquo; (common on Rancher Desktop / WSL2)</td><td>The OpenCode container reaches the host MCP server via <code>host.docker.internal</code>, which on some WSL2 setups resolves to the WSL distro instead of Windows. Doctor prints the fix: set <code>OM_HOST_GATEWAY=&lt;ip&gt;</code> in the repo-root <code>.env</code>, then restart the OpenCode container.</td></tr>
-  <tr><td>Windows Firewall prompt on first start</td><td>The MCP server listens on the host; Windows asks once whether to allow <code>node.exe</code>. Allow it on <strong>Private networks</strong> so containers can reach it.</td></tr>
-  <tr><td>AI chat gives provider/model errors</td><td>Check your provider key in the repo-root <code>.env</code> (e.g. <code>OPENAI_API_KEY</code>) and <code>OM_AI_PROVIDER</code>, then restart OpenCode (command above).</td></tr>
+  <tr><td>Windows Firewall prompt on first start</td><td>The MCP server listens on the host; Windows asks once whether to allow <code>node.exe</code>. Allow it on <strong>Private networks</strong> so containers can reach it. Dismissed the prompt? <code>yarn om doctor</code> detects the blocked container→host hop and prints the exact <code>New-NetFirewallRule</code> command (also on the IT hand-off sheet).</td></tr>
+  <tr><td>AI chat gives provider/model errors</td><td>Check the provider key (e.g. <code>OPENAI_API_KEY</code>) and <code>OM_AI_PROVIDER</code> in the repo-root <code>.env</code>, then re-run <code>yarn om</code> — it syncs the provider config into <code>apps/mercato/.env</code> (which the host app reads) and restarts OpenCode with the new settings. On Azure, name each deployment after its model family (e.g. <code>gpt-5…</code>, <code>o4-mini…</code>) — reasoning-model parameters are mapped from the deployment name.</td></tr>
 </table>
 
 <h3>Application, data, and ports</h3>
@@ -199,15 +200,15 @@ Then quit the runtime and run <code>wsl --shutdown</code> to apply. (Unlike earl
 <p class="faq-q">Where does my data live? How do I wipe it?</p>
 <p>In named Docker volumes (they survive stops and reboots). Wipe everything with <code>yarn om reset</code> (asks for confirmation).</p>
 <p class="faq-q">How do I update to the latest code?</p>
-<p><code>git pull</code>, then <code>yarn om</code>. The starter reconverges — installs new dependencies, applies new migrations, and restarts.</p>
+<p><code>git pull</code>, then <code>yarn om</code>. The starter reconverges — installs new dependencies, applies new migrations, and restarts. If something looks stale after a big update, <code>yarn om up --clean</code> forces a full re-converge (re-install, rebuild, re-migrate) without touching your data.</p>
 <p class="faq-q">Can I change the AI provider later?</p>
-<p>Yes — edit the repo-root <code>.env</code> (provider key + <code>OM_AI_PROVIDER</code>, optionally <code>OM_AI_MODEL</code>), then restart OpenCode: <code>docker compose --project-directory . -f starters/docker/compose.infra.yml restart opencode</code>.</p>
+<p>Yes — edit the repo-root <code>.env</code> (provider key + <code>OM_AI_PROVIDER</code>, optionally <code>OM_AI_MODEL</code>), then run <code>yarn om</code>. It syncs the provider and model into <code>apps/mercato/.env</code> (which the host app reads) and restarts the OpenCode container with the new settings. One caveat: the sync never overwrites an existing API key — when rotating a key for the <em>same</em> provider, update it in both <code>.env</code> files.</p>
 <p class="faq-q">Which ports are used?</p>
 <p>3000 (app), 4000 (build splash), 3001 (MCP), 4096 (OpenCode), 5432 (PostgreSQL), 6379 (Redis), 7700 (Meilisearch), 8080 (Keycloak, opt-in). All overridable in <code>.env</code>.</p>
 <p class="faq-q">Does it work offline?</p>
 <p>The first run needs the internet for Docker images and npm packages. After a successful first boot, day-to-day work is local.</p>
 
-<div class="footer">Open Mercato — Windows one-command dev environment · Manual v2.0 · July 2026 · Sources: <code>@open-mercato/starter</code> (<code>packages/starter/</code> — CLI, steps, doctor, <code>platform/</code> bootstraps), spec <code>.ai/specs/2026-07-19-unified-starter-package.md</code></div>
+<div class="footer">Open Mercato — Windows one-command dev environment · Manual v2.1 · July 2026 · Sources: <code>@open-mercato/starter</code> (<code>packages/starter/</code> — CLI, steps, doctor, <code>platform/</code> bootstraps), spec <code>.ai/specs/2026-07-19-unified-starter-package.md</code></div>
 
 </body>
 </html>
