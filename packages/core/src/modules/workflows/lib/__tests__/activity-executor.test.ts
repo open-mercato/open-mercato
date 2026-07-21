@@ -430,6 +430,73 @@ describe('Activity Executor (Unit Tests)', () => {
       )
     })
 
+    test('should fail UPDATE_ENTITY when a template variable stays unresolved', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {}, logEntry: { id: 'log-1' } }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8b',
+        activityName: 'Update Order With Missing Context Key',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: '{{context.id}}', statusEntryId: 'status-approved-id' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('unresolved template variables')
+      expect(result.error).toContain('id')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
+    test('should execute UPDATE_ENTITY when the context provides the templated id', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({
+          result: { id: 'order-456' },
+          logEntry: { id: 'log-456' },
+        }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus)
+      mockContext.workflowContext.orderId = 'order-456'
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8c',
+        activityName: 'Update Order From Context',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: { id: '{{context.orderId}}', statusEntryId: 'status-approved-id' },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(true)
+      expect(mockCommandBus.execute).toHaveBeenCalledWith(
+        'sales.orders.update',
+        expect.objectContaining({
+          input: expect.objectContaining({ id: 'order-456' }),
+        })
+      )
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       mockContainer.resolve.mockImplementation(() => {
         throw new Error('commandBus not registered')
