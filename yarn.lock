@@ -30512,7 +30512,7 @@ __metadata:
   languageName: node
   linkType: hard
 
-"testcontainers@npm:^12.0.4":
+"testcontainers@npm:^12.0.3, testcontainers@npm:^12.0.4":
   version: 12.0.4
   resolution: "testcontainers@npm:12.0.4"
   dependencies:
