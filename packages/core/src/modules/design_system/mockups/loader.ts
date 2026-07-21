@@ -43,6 +43,8 @@ export type LoadedMockup = {
   documentHash: string
   /** Hash of the CONTENT (findings stripped) — the reference for finding staleness. */
   contentHash: string
+  /** Phase 3 — true while the document carries `draft: true` (generated, not yet reviewed). */
+  draft: boolean
   document: MockupDocument | null
   issues: MockupIssue[] | null
   counts: MockupCounts
@@ -151,6 +153,7 @@ export function loadMockupFile(filePath: string, source: MockupSource): LoadedMo
       modifiedAt,
       documentHash: hashDocumentContent(''),
       contentHash: hashDocumentContent(''),
+      draft: false,
       document: null,
       issues: [{ path: '(file)', message: 'Could not read the mockup file' }],
       counts: { ...EMPTY_COUNTS },
@@ -171,6 +174,7 @@ export function loadMockupFile(filePath: string, source: MockupSource): LoadedMo
       modifiedAt,
       documentHash,
       contentHash: documentHash,
+      draft: false,
       document: null,
       issues: [{ path: '(file)', message: `Invalid JSON: ${(error as Error).message}` }],
       counts: { ...EMPTY_COUNTS },
@@ -192,6 +196,7 @@ export function loadMockupFile(filePath: string, source: MockupSource): LoadedMo
       modifiedAt,
       documentHash,
       contentHash: documentHash,
+      draft: false,
       document: null,
       issues: parsed.error.issues.map((issue) => ({
         path: issue.path.join('.') || '(root)',
@@ -211,6 +216,7 @@ export function loadMockupFile(filePath: string, source: MockupSource): LoadedMo
     modifiedAt,
     documentHash,
     contentHash,
+    draft: parsed.data.draft === true,
     document: parsed.data,
     issues: null,
     counts: computeCounts(parsed.data),
@@ -250,16 +256,39 @@ export type AnnotationUpdate = {
 }
 
 /**
+ * Phase 3 — the never-auto-final guard for the annotation write contract.
+ * The `draft` flag may only leave a document through the explicit `finalize`
+ * intent: a request that touches `draft` any other way is rejected with the
+ * returned message (422 at the route). Returns null when the request is fine.
+ */
+export function draftIntentIssue(input: { draft?: boolean; finalize?: boolean }): string | null {
+  if (input.finalize !== undefined && input.finalize !== true) {
+    return 'finalize must be true when present — it is an explicit intent, not a toggle'
+  }
+  if (input.draft === undefined) return null
+  if (input.draft === true) {
+    return 'Re-drafting through the annotations write is not supported — set draft: true by editing the document (studio or JSON)'
+  }
+  // draft: false — only honored alongside the explicit finalize intent.
+  if (input.finalize !== true) {
+    return 'Clearing the draft flag requires the explicit finalize intent — a draft is never auto-finalized'
+  }
+  return null
+}
+
+/**
  * Rewrites ONLY the annotation fields (`status`, `userStory`, `note`, and —
  * Phase 2 — `findings`) of the matching leaf nodes on the raw JSON tree;
  * layout, entries, and props are untouched byte-for-byte apart from JSON
  * re-serialization. `documentFindings`, when provided, replaces the
- * screen-level findings array.
+ * screen-level findings array. `finalize: true` (Phase 3) additionally clears
+ * the document's `draft` flag — the ONLY code path that ever does.
  */
 export function applyAnnotationsToDocument(
   raw: unknown,
   updates: AnnotationUpdate[],
   documentFindings?: MockupFinding[],
+  finalize?: boolean,
 ): { document: unknown; unknownIds: string[] } {
   const byId = new Map(updates.map((update) => [update.id, update]))
   const applied = new Set<string>()
@@ -289,13 +318,14 @@ export function applyAnnotationsToDocument(
     }
   }
 
-  const rootHolder = raw as { root?: unknown; documentFindings?: unknown } | null
+  const rootHolder = raw as { root?: unknown; documentFindings?: unknown; draft?: unknown } | null
   if (rootHolder && typeof rootHolder === 'object') {
     visit(rootHolder.root as MockupLayoutNode)
     if (documentFindings !== undefined) {
       if (documentFindings.length === 0) delete rootHolder.documentFindings
       else rootHolder.documentFindings = documentFindings
     }
+    if (finalize === true) delete rootHolder.draft
   }
 
   const unknownIds = updates.map((update) => update.id).filter((id) => !applied.has(id))
@@ -311,6 +341,7 @@ export function writeAnnotations(
   updates: AnnotationUpdate[],
   repoRoot: string | null = findRepoRoot(),
   documentFindings?: MockupFinding[],
+  finalize?: boolean,
 ): AnnotationWriteResult {
   if (!mockupWritesEnabled()) return { ok: false, status: 404, error: 'Not found' }
   if (!repoRoot || !isPathInside(mockup.filePath, repoRoot)) {
@@ -330,7 +361,7 @@ export function writeAnnotations(
   } catch {
     return { ok: false, status: 422, error: 'Mockup document is invalid' }
   }
-  const { document, unknownIds } = applyAnnotationsToDocument(raw, updates, documentFindings)
+  const { document, unknownIds } = applyAnnotationsToDocument(raw, updates, documentFindings, finalize)
   if (unknownIds.length > 0) {
     return { ok: false, status: 422, error: `Unknown block id(s): ${unknownIds.join(', ')}` }
   }

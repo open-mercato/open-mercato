@@ -33,6 +33,9 @@ export const mockupListItemSchema = z.object({
   counts: mockupCountsSchema.describe('Per-status block counts; placeholders tracked separately'),
   userStories: z.array(z.string()).describe('Distinct user-story tags present in the document'),
   findingsCount: z.number().int().nonnegative().describe('Total heuristic findings in the document'),
+  draft: z
+    .boolean()
+    .describe('Phase 3 — true while the document is a generated draft awaiting human review'),
   modifiedAt: z.string().describe('File modification timestamp (ISO 8601)'),
 })
 
@@ -64,20 +67,35 @@ export const mockupErrorSchema = z.object({
   issues: z.array(mockupIssueSchema).optional(),
 })
 
-export const mockupAnnotationsRequestSchema = z.object({
-  blocks: z
-    .array(
-      z.object({
-        id: z.string(),
-        status: z.enum(['implemented', 'proposed', 'om-default']),
-        userStory: z.string().optional(),
-        note: z.string().optional(),
-        findings: z.array(finding).optional(),
-      }),
-    )
-    .min(1),
-  documentFindings: z.array(finding).optional(),
-})
+export const mockupAnnotationsRequestSchema = z
+  .object({
+    blocks: z
+      .array(
+        z.object({
+          id: z.string(),
+          status: z.enum(['implemented', 'proposed', 'om-default']),
+          userStory: z.string().optional(),
+          note: z.string().optional(),
+          findings: z.array(finding).optional(),
+        }),
+      )
+      .default([]),
+    documentFindings: z.array(finding).optional(),
+    // Phase 3 — the ONLY way this route touches the draft flag: an explicit
+    // finalize intent clears it; a `draft` field without one is rejected
+    // (draftIntentIssue in the loader). A draft is never auto-finalized.
+    draft: z.boolean().optional(),
+    finalize: z.boolean().optional(),
+  })
+  .superRefine((body, ctx) => {
+    if (body.blocks.length === 0 && body.documentFindings === undefined && body.finalize !== true) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'Provide at least one block annotation, documentFindings, or the finalize intent',
+        path: ['blocks'],
+      })
+    }
+  })
 
 export const mockupAnnotationsResponseSchema = z.object({
   ok: z.literal(true),

@@ -151,6 +151,18 @@ export const mockupDocument = z
     routeHint: z.string().optional(), // '/backend/customers/people' — informational only
     width: z.enum(MOCKUP_WIDTHS).default('desktop'),
     spec: z.string().optional(), // relative path to the owning spec document
+    /**
+     * Phase 3 — true on generated drafts until a human reviews and clears it.
+     * Draft documents render normally with a muted draft chip in the list and
+     * the ledger header (never a watermark over content), are excluded from
+     * share minting and promotion, and NOTHING in code clears the flag
+     * without an explicit finalize intent (see `draftIntentIssue` in the
+     * loader). Optional — absent means final, and a pre-Phase-3 document
+     * stays valid and byte-identical.
+     */
+    draft: z.boolean().optional(),
+    entity: z.string().min(1).optional(), // Phase 3 — promotion hint: target entity name
+    module: z.string().min(1).optional(), // Phase 3 — promotion hint: target module id
     documentFindings: z.array(finding).optional(), // Phase 2 — screen-level findings (flow order, dead ends)
     root: layoutNode,
   })
@@ -307,23 +319,28 @@ export function computeFindingsSummary(
  * Canonical serialization of the document CONTENT — findings stripped, keys
  * sorted. `atHash` hashes this string, not the file bytes: writing a finding
  * changes the file but not the content it critiques, so a finding must not
- * invalidate itself (or its siblings) on write. The server hashes this string
- * (sha256, `computeContentHash` in the loader); clients only ever compare the
+ * invalidate itself (or its siblings) on write. The root-level `draft` flag
+ * (Phase 3) is review STATE, not content, and is stripped for the same
+ * reason: finalizing a reviewed draft must not stale-flag the very critique
+ * that reviewed it. (Only the document-level key — a block prop named
+ * `draft` is ordinary content.) The server hashes this string (sha256,
+ * `computeContentHash` in the loader); clients only ever compare the
  * resulting hash strings.
  */
 export function stableContentString(document: MockupDocument): string {
-  const strip = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(strip)
+  const strip = (value: unknown, atRoot: boolean): unknown => {
+    if (Array.isArray(value)) return value.map((item) => strip(item, false))
     if (value && typeof value === 'object') {
       const source = value as Record<string, unknown>
       const result: Record<string, unknown> = {}
       for (const key of Object.keys(source).sort()) {
         if (key === 'findings' || key === 'documentFindings') continue
-        result[key] = strip(source[key])
+        if (atRoot && key === 'draft') continue
+        result[key] = strip(source[key], false)
       }
       return result
     }
     return value
   }
-  return JSON.stringify(strip(document))
+  return JSON.stringify(strip(document, true))
 }

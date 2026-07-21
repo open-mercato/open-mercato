@@ -14,6 +14,7 @@ export async function GET() {
     counts: mockup.counts,
     userStories: mockup.userStories,
     findingsCount: mockup.findings.total,
+    draft: mockup.draft,
     modifiedAt: mockup.modifiedAt,
   }))
   return NextResponse.json({ items })

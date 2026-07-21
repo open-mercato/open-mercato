@@ -51,6 +51,8 @@
   "design_system.mockups.diff.notFound": "No se encontró esta versión de la maqueta",
   "design_system.mockups.diff.removed": "Eliminado",
   "design_system.mockups.diff.removedDetail": "Presente solo en la versión anterior",
+  "design_system.mockups.draft": "Borrador",
+  "design_system.mockups.draftReview": "Borrador generado, requiere revisión",
   "design_system.mockups.empty.description": "Añade un documento *.mockup.json en .ai/mockups o en la carpeta mockups de un módulo para verlo aquí.",
   "design_system.mockups.empty.title": "Aún no hay maquetas",
   "design_system.mockups.findings.assumptionsCount": "supuestos por verificar",

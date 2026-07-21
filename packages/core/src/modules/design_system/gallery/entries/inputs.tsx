@@ -24,6 +24,11 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 import { SwitchField } from '@open-mercato/ui/primitives/switch-field'
 import { Slider } from '@open-mercato/ui/primitives/slider'
 import { FormField } from '@open-mercato/ui/primitives/form-field'
+import { DatePicker } from '@open-mercato/ui/primitives/date-picker'
+import {
+  formFieldComposeSchema,
+  type FormFieldComposeProps,
+} from '../../mockups/composeContracts'
 import { SearchInput } from '@open-mercato/ui/primitives/search-input'
 import { EmailInput } from '@open-mercato/ui/primitives/email-input'
 import { PasswordInput } from '@open-mercato/ui/primitives/password-input'
@@ -1040,6 +1045,50 @@ import { Switch } from '@open-mercato/ui/primitives/switch'
 </FormField>`,
     },
   ],
+  // Mockup-composer prop injection (spec Phase 3): one block = one form
+  // field, described by the shared contract (name/kind/required/options) the
+  // draft generator writes and the promote bridge reads back into the
+  // scaffold `--fields` DSL. Mock sample data only, never tenant data.
+  compose: (props) => {
+    const parsed = formFieldComposeSchema.parse(props)
+    return (
+      <div className="w-full max-w-md">
+        <FormField
+          label={parsed.label}
+          required={parsed.required}
+          description={parsed.description}
+          orientation={parsed.kind === 'checkbox' ? 'horizontal' : undefined}
+        >
+          {composeFormControl(parsed)}
+        </FormField>
+      </div>
+    )
+  },
+  composePropsSchema: formFieldComposeSchema,
+}
+
+function composeFormControl(field: FormFieldComposeProps): React.ReactNode {
+  if (field.kind === 'textarea') return <Textarea placeholder={field.placeholder} rows={3} />
+  if (field.kind === 'number') return <Input inputMode="decimal" placeholder={field.placeholder} />
+  if (field.kind === 'checkbox') return <Checkbox />
+  if (field.kind === 'date') return <DatePicker value={null} onChange={() => {}} />
+  if (field.kind === 'select') {
+    return (
+      <Select>
+        <SelectTrigger className="w-full">
+          <SelectValue placeholder={field.placeholder ?? field.label} />
+        </SelectTrigger>
+        <SelectContent>
+          {(field.options ?? []).map((option) => (
+            <SelectItem key={option} value={option}>
+              {option}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    )
+  }
+  return <Input placeholder={field.placeholder} />
 }
 
 const searchInputEntry: GalleryEntry = {

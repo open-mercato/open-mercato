@@ -112,13 +112,33 @@ describe('design_system mockup registry integrity', () => {
       version: 1,
       slug: 'broken-props',
       title: 'Broken props fixture',
-      // `table` exposes no compose() — supplying props must fail integrity.
-      root: { type: 'block', id: 'b-table', entry: 'table', props: { rows: 3 }, status: 'implemented' },
+      // `alert` exposes no compose() — supplying props must fail integrity.
+      // (`table` gained compose in Phase 3, so it no longer serves this case.)
+      root: { type: 'block', id: 'b-alert', entry: 'alert', props: { title: 'x' }, status: 'implemented' },
+    })
+    const issues = checkMockupIntegrity(broken, entries)
+    expect(issues).toHaveLength(1)
+    expect(issues[0].blockId).toBe('b-alert')
+    expect(issues[0].message).toContain('compose')
+  })
+
+  it('validates table props against the Phase 3 compose contract', () => {
+    const broken = mockupDocument.parse({
+      version: 1,
+      slug: 'broken-table-props',
+      title: 'Broken table props fixture',
+      root: {
+        type: 'block',
+        id: 'b-table',
+        entry: 'table',
+        props: { columns: [{ id: 'Not CamelCase', label: 'X' }] },
+        status: 'implemented',
+      },
     })
     const issues = checkMockupIntegrity(broken, entries)
     expect(issues).toHaveLength(1)
     expect(issues[0].blockId).toBe('b-table')
-    expect(issues[0].message).toContain('compose')
+    expect(issues[0].message).toContain('composePropsSchema')
   })
 
   it('validates props against composePropsSchema when the entry has one', () => {

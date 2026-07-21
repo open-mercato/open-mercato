@@ -74,4 +74,22 @@ test.describe('design_system mockups', () => {
     // ledger entries with no markup on block content; the stale finding is
     // dimmed + labeled in the ledger while its block renders untouched.
   })
+
+  // Phase 3 paths (10-11) — same convention: documented fixme stubs pending
+  // the ephemeral-env fixtures, per `.ai/qa/AGENTS.md`.
+
+  test.fixme('draft state: chip in the list and ledger header, nothing on content, share mint 422 (spec path 10)', async () => {
+    // the customers-quick-add draft fixture shows the muted Draft chip in the
+    // list row and the ledger header (per the composer visual language: chip
+    // in the review margin, never a banner or watermark over the stage);
+    // POST .../share for the draft slug returns 422.
+  })
+
+  test.fixme('promote smoke: derived scaffold command runs and the module passes lint:ds (spec path 11)', async () => {
+    // monorepo CI job mirroring the scaffold spec's throwaway-module job:
+    // yarn ds:mockups:promote suppliers-directory --execute on a branch where
+    // `mercato module scaffold` exists → generated module passes lint:ds.
+    // Blocked until the module-scaffold PR lands (runtime availability check
+    // prints the command with a note on branches without the subcommand).
+  })
 })

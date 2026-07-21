@@ -6,7 +6,12 @@ import {
   runMutationGuards,
   type MutationGuardInput,
 } from '@open-mercato/shared/lib/crud/mutation-guard-registry'
-import { getMockupBySlug, mockupWritesEnabled, writeAnnotations } from '../../../../mockups/loader'
+import {
+  draftIntentIssue,
+  getMockupBySlug,
+  mockupWritesEnabled,
+  writeAnnotations,
+} from '../../../../mockups/loader'
 import {
   designSystemTag,
   mockupAnnotationsRequestSchema,
@@ -68,6 +73,13 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
     )
   }
 
+  // Phase 3 never-auto-final guard: the draft flag only leaves a document
+  // through the explicit finalize intent.
+  const draftIssue = draftIntentIssue(parsedBody.data)
+  if (draftIssue) {
+    return NextResponse.json({ error: draftIssue }, { status: 422 })
+  }
+
   // Mutation-guard contract for this custom write route (packages/core/AGENTS.md
   // → API Routes). The write targets a repo file (no tenant record, no
   // optimistic-lock version), so the default OSS guard short-circuits; wiring
@@ -104,6 +116,7 @@ export async function PUT(req: Request, { params }: { params: Promise<{ slug: st
     parsedBody.data.blocks,
     undefined,
     parsedBody.data.documentFindings,
+    parsedBody.data.finalize === true,
   )
   if (!result.ok) {
     return NextResponse.json(
@@ -139,7 +152,7 @@ export const openApi = {
   PUT: {
     summary: 'Rewrite mockup block annotations (development only)',
     description:
-      'Rewrites only the annotation fields (status, userStory, note, and — Phase 2 — findings, plus optional screen-level documentFindings) of the named blocks. Available exclusively when the app runs in development and the resolved document lives inside the repo working tree; 404 otherwise.',
+      'Rewrites only the annotation fields (status, userStory, note, and — Phase 2 — findings, plus optional screen-level documentFindings) of the named blocks. Phase 3: `finalize: true` is the explicit intent that clears the document draft flag — a `draft` field without it is rejected with 422 (a draft is never auto-finalized). Available exclusively when the app runs in development and the resolved document lives inside the repo working tree; 404 otherwise.',
     tags: [designSystemTag],
     requestBody: {
       content: { 'application/json': { schema: mockupAnnotationsRequestSchema } },

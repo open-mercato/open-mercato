@@ -25,6 +25,8 @@ import {
 } from '@open-mercato/ui/primitives/card'
 import { Separator } from '@open-mercato/ui/primitives/separator'
 import { ScrollArea } from '@open-mercato/ui/primitives/scroll-area'
+import { EmptyState } from '@open-mercato/ui/primitives/empty-state'
+import { tableComposeSchema } from '../../mockups/composeContracts'
 import {
   ActivityFeed,
   ActivityFeedComment,
@@ -521,6 +523,49 @@ import { StatusBadge } from '@open-mercato/ui/primitives/status-badge'
 </Table>`,
     },
   ],
+  // Mockup-composer prop injection (spec Phase 3) — columns/rows/emptyState
+  // from the shared contract so the draft generator and the promote bridge
+  // speak the same shape. Mock scalar sample data only, never tenant data.
+  compose: (props) => {
+    const parsed = tableComposeSchema.parse(props)
+    const rows = parsed.rows ?? []
+    return (
+      <div className="w-full space-y-2">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {parsed.columns.map((column) => (
+                <TableHead key={column.id}>{column.label}</TableHead>
+              ))}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.map((row, index) => (
+              <TableRow key={index}>
+                {parsed.columns.map((column) => (
+                  <TableCell key={column.id}>{formatComposedCell(row[column.id])}</TableCell>
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {rows.length === 0 && parsed.emptyState ? (
+          <EmptyState
+            size="sm"
+            title={parsed.emptyState.title}
+            actionLabel={parsed.emptyState.actionLabel}
+          />
+        ) : null}
+      </div>
+    )
+  },
+  composePropsSchema: tableComposeSchema,
+}
+
+function formatComposedCell(value: string | number | boolean | undefined): string {
+  if (value === undefined) return ''
+  if (typeof value === 'boolean') return value ? 'Yes' : 'No'
+  return String(value)
 }
 
 const cardEntry: GalleryEntry = {

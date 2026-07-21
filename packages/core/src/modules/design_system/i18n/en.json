@@ -51,6 +51,8 @@
   "design_system.mockups.diff.notFound": "Version not found for this mockup",
   "design_system.mockups.diff.removed": "Removed",
   "design_system.mockups.diff.removedDetail": "Present in the earlier version only",
+  "design_system.mockups.draft": "Draft",
+  "design_system.mockups.draftReview": "Generated draft, review required",
   "design_system.mockups.empty.description": "Add a *.mockup.json document under .ai/mockups or a module mockups folder to see it here.",
   "design_system.mockups.empty.title": "No mockups yet",
   "design_system.mockups.findings.assumptionsCount": "assumptions to verify",

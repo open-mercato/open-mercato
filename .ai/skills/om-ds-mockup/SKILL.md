@@ -9,7 +9,7 @@ You compose screen mockups as data: a `*.mockup.json` document validated by a zo
 
 Spec: `.ai/specs/2026-07-05-ds-live-mockup-composer.md`. Module: `packages/core/src/modules/design_system/` (`mockups/schema.ts`, `mockups/integrity.ts`, gallery registry under `gallery/`).
 
-Composition is one stage of a larger decision system: UX judgment over what you compose — task fit, pattern selection, state coverage, severity-weighed and evidence-tagged findings — is governed by the umbrella skill `.ai/skills/om-ux-product-design/SKILL.md`, executed against mockups by `om-ux-heuristics` (findings with `evidence` tags into the document) and `om-ux-copy` (content rules, four-locale copy files). After composing or editing a screen, hand it to that chain rather than declaring it done; the DS token/primitive layer itself stays om-ds-guardian's territory.
+Composition is one stage of a larger decision system: UX judgment over what you compose — task fit, pattern selection, state coverage, severity-weighed and evidence-tagged findings — is governed by the umbrella skill `.ai/skills/om-ux-product-design/SKILL.md`, executed against mockups by `om-ux-flows` (user story → flow outline, the structured input for draft generation), `om-ux-heuristics` (findings with `evidence` tags into the document) and `om-ux-copy` (content rules, four-locale copy files). The full chain is flows → compose → heuristics → copy → iterate → finalize → promote. After composing or editing a screen, hand it to that chain rather than declaring it done; the DS token/primitive layer itself stays om-ds-guardian's territory.
 
 ## Where documents live
 
@@ -48,10 +48,12 @@ Node ids are unique within the document. Every leaf carries the annotation field
 
 Statuses are **working mechanics** for drafting, review, and later promotion — keep them honest and flip `proposed` → `implemented` when a block ships.
 
+Phase 3 document fields (all optional): `draft: true` marks a generated, not-yet-reviewed document; `entity` and `module` are promotion hints read by `ds:mockups:promote`. Draft documents render normally with a muted Draft chip in the list and the ledger header (never a watermark or banner over content), are refused by share minting and promotion, and the flag NEVER clears itself — finalizing is an explicit human act: either edit the JSON, or send the dev-only annotations PUT with `{ "finalize": true }` (a `draft` field without that intent is rejected with 422).
+
 ## Rules that will fail CI if ignored
 
 1. **Registry-only blocks.** `entry` must be a real `GalleryEntry.id` and `variant` a real variant id — browse `packages/core/src/modules/design_system/gallery/entries/*.tsx` or the gallery at `/backend/design-system`. No JSX, no HTML, no custom markup, ever.
-2. **Props only where `compose` exists.** A block may carry `props` only when its entry exposes `compose` (e.g. `kpi-card`, `section-header`), and the props must satisfy the entry's strict `composePropsSchema`. Entries without `compose` render their variant's canonical preview — supplying props there fails the build.
+2. **Props only where `compose` exists.** A block may carry `props` only when its entry exposes `compose` (`kpi-card`, `section-header`, and — Phase 3 — `table` and `form-field`, whose shared contracts live in `mockups/composeContracts.ts`), and the props must satisfy the entry's strict `composePropsSchema`. Entries without `compose` render their variant's canonical preview — supplying props there fails the build.
 3. **No styling escape hatches.** `className`, `style`, and `dangerouslySetInnerHTML` prop keys are rejected at parse time.
 4. **Placeholders are honest gaps.** When no registry entry fits, use a `placeholder` (dashed labeled box, counted separately) — and report every placeholder to the reviewer instead of faking the block with a lookalike entry. Prefer real entries whenever one exists.
 5. **Clearly fictional sample data only** — example.com emails, obvious placeholder names, no real people or tenant data.
@@ -79,3 +81,25 @@ yarn workspace @open-mercato/core test --testPathPatterns design_system
 4. Run the design_system test suite; fix every schema/integrity failure.
 5. Preview with the reviewer, iterate in-session (JSON edit → poll tick), keep the ledger counts honest.
 6. Link the mockup slug from the spec's UI/UX section.
+
+## Draft generation from a flow outline (Phase 3)
+
+When the request starts from a user story, do not compose from prose — chain:
+
+```
+om-ux-flows (story → *.flow.json) → this skill (outline → draft) → om-ux-heuristics → om-ux-copy → iterate → finalize → promote
+```
+
+- `yarn ds:mockups:draft <flow-file>` turns a validated outline into `.ai/mockups/<slug>.mockup.json` drafts. Deterministic mapping (engine: `mockups/generation.ts`): `list` intents → SectionHeader + FilterBar + a `table` block with columns/rows/empty state from the outline's fields; `form` intents → form-header + one `form-field` block per field + form-footer; `dashboard` intents → a KpiCard columns row; `detail` → SectionHeader + detail section; `feedback` → the DS empty-state block; `action`/`navigation` and field-less intents → honest placeholders labeled with the intent. Every block choice is verified against the actual gallery registry.
+- Every draft is `draft: true`, every block `status: "proposed"` — **a human always reviews; the draft is a starting point, never auto-final.** Regeneration overwrites only drafts, and only with `--force`.
+- Agent path without the CLI: validate with `flowOutline` (`mockups/flow.ts`), call `generateDraftDocuments`, write the file, run the design_system suite.
+- Golden pair to copy from: `customers-quick-add.flow.json` → `customers-quick-add.mockup.json`.
+
+## Promote to scaffold (Phase 3)
+
+`yarn ds:mockups:promote <slug> [--entity <name>] [--module <id>] [--execute]` closes the loop from a reviewed mockup into `mercato module scaffold --with-ui` input (engine: `mockups/promote.ts`):
+
+- Refuses drafts (exit 1) and mockups without mappable blocks; requires an entity (document `entity` hint or `--entity`); module comes from the `module` hint, `--module`, or the `/backend/<module>/…` route hint.
+- Derives the `--fields` DSL (`name:type[:required]`, types `text|textarea|number|select(a|b)|checkbox|date`) from `table` columns and `form-field` blocks, in tree order, duplicates folded (required OR-merged), reserved names filtered with a report.
+- Prints the complete `yarn mercato module scaffold …` command — always. Executes it only with `--execute` AND when the `module scaffold` subcommand exists in the checkout (it ships with the module-scaffold PR; without it the command is printed with a note). Blocks that don't map are listed as "not scaffolded, implement manually".
+- After implementation, flip the scaffolded blocks `proposed` → `implemented` so the ledger counts close the loop.

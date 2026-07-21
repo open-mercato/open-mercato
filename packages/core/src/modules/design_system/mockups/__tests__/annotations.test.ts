@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {
   applyAnnotationsToDocument,
+  draftIntentIssue,
   isPathInside,
   loadMockupFile,
   writeAnnotations,
@@ -138,5 +139,75 @@ describe('design_system mockup annotation write-back', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe('design_system draft finalize (never auto-final)', () => {
+  const DRAFT_FIXTURE = { ...FIXTURE, slug: 'annotation-fixture', draft: true }
+
+  function makeDraftRepo(): { root: string; filePath: string } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'om-mockup-draft-'))
+    const dir = path.join(root, '.ai', 'mockups')
+    fs.mkdirSync(dir, { recursive: true })
+    const filePath = path.join(dir, 'annotation-fixture.mockup.json')
+    fs.writeFileSync(filePath, `${JSON.stringify(DRAFT_FIXTURE, null, 2)}\n`, 'utf8')
+    return { root, filePath }
+  }
+
+  it('draftIntentIssue rejects draft-flag changes without the explicit finalize intent', () => {
+    // Plain annotation writes never touch the flag.
+    expect(draftIntentIssue({})).toBeNull()
+    // draft: false without finalize is exactly the auto-final path — rejected.
+    expect(draftIntentIssue({ draft: false })).toContain('finalize')
+    // Re-drafting is a document edit, not an annotation write.
+    expect(draftIntentIssue({ draft: true })).toContain('not supported')
+    expect(draftIntentIssue({ draft: true, finalize: true })).toContain('not supported')
+    // finalize must be literally true.
+    expect(draftIntentIssue({ finalize: false })).toContain('finalize')
+    // The one legal shape: an explicit finalize (with or without draft: false).
+    expect(draftIntentIssue({ finalize: true })).toBeNull()
+    expect(draftIntentIssue({ draft: false, finalize: true })).toBeNull()
+  })
+
+  it('annotation writes WITHOUT finalize leave the draft flag untouched', () => {
+    const { root, filePath } = makeDraftRepo()
+    try {
+      const mockup = loadMockupFile(filePath, 'ai')
+      expect(mockup.draft).toBe(true)
+      const result = withNodeEnv('development', () =>
+        writeAnnotations(mockup, [{ id: 'b-one', status: 'implemented' }], root),
+      )
+      expect(result.ok).toBe(true)
+      const rewritten = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      expect(rewritten.draft).toBe(true)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('the explicit finalize intent clears the flag (and only then)', () => {
+    const { root, filePath } = makeDraftRepo()
+    try {
+      const mockup = loadMockupFile(filePath, 'ai')
+      const result = withNodeEnv('development', () =>
+        writeAnnotations(mockup, [], root, undefined, true),
+      )
+      expect(result.ok).toBe(true)
+      const rewritten = JSON.parse(fs.readFileSync(filePath, 'utf8'))
+      expect(rewritten.draft).toBeUndefined()
+      expect(loadMockupFile(filePath, 'ai').draft).toBe(false)
+      // Everything else untouched.
+      expect(rewritten.root).toEqual(DRAFT_FIXTURE.root)
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('applyAnnotationsToDocument never drops the flag unless finalize is passed', () => {
+    const raw = JSON.parse(JSON.stringify(DRAFT_FIXTURE))
+    applyAnnotationsToDocument(raw, [{ id: 'b-one', status: 'implemented' }])
+    expect(raw.draft).toBe(true)
+    applyAnnotationsToDocument(raw, [], undefined, true)
+    expect(raw.draft).toBeUndefined()
   })
 })

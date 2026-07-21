@@ -12,6 +12,7 @@ import { apiFetch } from '@open-mercato/ui/backend/utils/api'
 import { buildDesignSystemSections, MOCKUPS_BASE_PATH } from '../../gallery/components/sectionNav'
 import type { MockupCounts } from '../schema'
 import {
+  DRAFT_CHIP_CLASS,
   LEDGER_STATUS_ORDER,
   STATUS_DOT_CLASS,
   STATUS_LABELS,
@@ -25,6 +26,7 @@ type MockupListItem = {
   counts: MockupCounts
   userStories: string[]
   findingsCount: number
+  draft: boolean
   modifiedAt: string
 }
 
@@ -67,7 +69,21 @@ export function MockupList() {
         header: t('design_system.mockups.columns.title', 'Mockup'),
         cell: ({ row }) => (
           <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{row.original.title}</div>
+            <div className="flex items-center gap-2">
+              <span className="truncate text-sm font-medium">{row.original.title}</span>
+              {row.original.draft ? (
+                <span
+                  data-testid={`mockup-list-draft-${row.original.slug}`}
+                  title={t(
+                    'design_system.mockups.draftReview',
+                    'Generated draft, review required',
+                  )}
+                  className={cn('shrink-0', DRAFT_CHIP_CLASS)}
+                >
+                  {t('design_system.mockups.draft', 'Draft')}
+                </span>
+              ) : null}
+            </div>
             <div className="truncate font-mono text-xs text-muted-foreground">{row.original.slug}</div>
           </div>
         ),

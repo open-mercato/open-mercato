@@ -2,6 +2,7 @@ import {
   collectUserStories,
   computeCounts,
   mockupDocument,
+  stableContentString,
 } from '../schema'
 import { findRepoRoot, getMockupBySlug } from '../loader'
 
@@ -125,6 +126,30 @@ describe('design_system mockup document schema', () => {
   it('collects distinct user stories in first-seen order', () => {
     const parsed = mockupDocument.parse(validDocument())
     expect(collectUserStories(parsed)).toEqual(['US-1'])
+  })
+
+  it('accepts the Phase 3 fields (draft, entity, module) as strictly optional', () => {
+    const doc = { ...validDocument(), draft: true, entity: 'person', module: 'customers' }
+    const parsed = mockupDocument.parse(doc)
+    expect(parsed.draft).toBe(true)
+    expect(parsed.entity).toBe('person')
+    expect(parsed.module).toBe('customers')
+    // Absent means final — no default injection that would rewrite old files.
+    expect(mockupDocument.parse(validDocument()).draft).toBeUndefined()
+  })
+
+  it('excludes the root draft flag from the content hash (finalizing must not stale findings)', () => {
+    const final = mockupDocument.parse(validDocument())
+    const draft = mockupDocument.parse({ ...validDocument(), draft: true })
+    expect(stableContentString(draft)).toBe(stableContentString(final))
+    // Only the DOCUMENT-level key is review state: a block prop named "draft"
+    // is ordinary content and must change the hash.
+    const withDraftProp = validDocument()
+    const root = withDraftProp.root as { children: Array<Record<string, unknown>> }
+    ;(root.children[0].props as Record<string, unknown>).draft = true
+    expect(stableContentString(mockupDocument.parse(withDraftProp))).not.toBe(
+      stableContentString(final),
+    )
   })
 })
 

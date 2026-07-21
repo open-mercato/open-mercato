@@ -97,6 +97,15 @@ export const SEVERITY_ORDER: FindingSeverity[] = ['critical', 'high', 'medium', 
 export const EVIDENCE_TAG_CLASS =
   'rounded-sm border border-border bg-muted/30 px-1.5 text-xs uppercase tracking-wide text-muted-foreground'
 
+/**
+ * Draft chip (Phase 3) — marks generated, not-yet-reviewed documents in the
+ * LIST and the LEDGER HEADER only; content is never watermarked or bannered.
+ * Muted, 6px radius (`rounded-sm`), no new colors — same recipe as the
+ * evidence tag: the chip informs, the review loop enforces.
+ */
+export const DRAFT_CHIP_CLASS =
+  'rounded-sm border border-border bg-muted/30 px-1.5 py-0.5 text-xs uppercase tracking-wide text-muted-foreground'
+
 // ---------------------------------------------------------------------------
 // Diff (Phase 2) — the same rail vocabulary: added → success, removed → error,
 // changed → info, moved-only → neutral. Never frames around content.

@@ -13,6 +13,7 @@ import {
   type MockupLeafNode,
 } from '../schema'
 import {
+  DRAFT_CHIP_CLASS,
   EVIDENCE_TAG_CLASS,
   LEDGER_STATUS_ORDER,
   ledgerStatusOf,
@@ -121,7 +122,25 @@ export function MockupLedger({
   return (
     <aside className="w-72 shrink-0 space-y-4" data-testid="mockup-ledger" aria-label={t('design_system.mockups.ledger.title', 'Annotations')}>
       <div className="space-y-2">
-        <h3 className="text-sm font-semibold">{t('design_system.mockups.ledger.title', 'Annotations')}</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-semibold">{t('design_system.mockups.ledger.title', 'Annotations')}</h3>
+          {document.draft ? (
+            // Phase 3: drafts are marked HERE (and in the list) — never
+            // watermarked or bannered over the content itself.
+            <span
+              data-testid="mockup-ledger-draft-chip"
+              title={t('design_system.mockups.draftReview', 'Generated draft, review required')}
+              className={cn('shrink-0', DRAFT_CHIP_CLASS)}
+            >
+              {t('design_system.mockups.draft', 'Draft')}
+            </span>
+          ) : null}
+        </div>
+        {document.draft ? (
+          <p className="text-xs text-muted-foreground" data-testid="mockup-ledger-draft-note">
+            {t('design_system.mockups.draftReview', 'Generated draft, review required')}
+          </p>
+        ) : null}
         <div className="grid grid-cols-2 gap-2" data-testid="mockup-ledger-counts">
           {LEDGER_STATUS_ORDER.map((status) => (
             <span

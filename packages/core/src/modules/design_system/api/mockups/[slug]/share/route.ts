@@ -54,6 +54,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
       { status: 422 },
     )
   }
+  // Phase 3: drafts are unshareable — a generated draft is a starting point,
+  // never client-review material, until a human finalizes it.
+  if (mockup.draft) {
+    return NextResponse.json(
+      { error: 'Draft mockups cannot be shared — review the draft and clear the flag first' },
+      { status: 422 },
+    )
+  }
   let body: unknown = null
   try {
     body = await req.json()
@@ -92,7 +100,7 @@ export const openApi = {
         content: { 'application/json': { schema: mockupErrorSchema } },
       },
       422: {
-        description: 'Mockup document is invalid',
+        description: 'Mockup document is invalid, or the document is a draft (drafts are unshareable)',
         content: { 'application/json': { schema: mockupErrorSchema } },
       },
       503: {
