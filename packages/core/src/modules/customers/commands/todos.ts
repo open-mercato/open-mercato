@@ -16,7 +16,7 @@ import {
   resolveParentResourceKind,
 } from './shared'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { notFound } from '@open-mercato/shared/lib/crud/errors'
 import {
   CUSTOMER_INTERACTION_TASK_SOURCE,
   CUSTOMER_INTERACTION_TODO_ADAPTER_SOURCE,
@@ -290,7 +290,7 @@ async function resolveTodoTarget(
   const em = (ctx.container.resolve('em') as EntityManager).fork()
   const legacyLink = await em.findOne(CustomerTodoLink, { id: linkId }, { populate: ['entity'] })
   if (!legacyLink) {
-    throw new CrudHttpError(404, { error: 'Todo link not found' })
+    throw notFound('Todo link not found')
   }
 
   const bridgedSnapshot = await loadInteractionSnapshot(legacyLink.todoId, ctx)
@@ -333,7 +333,7 @@ const unlinkTodoCommand: CommandHandler<
     const target = await resolveTodoTarget(parsed.linkId, ctx)
     if (!target.canonicalExists) {
       if (!target.legacyLink) {
-        throw new CrudHttpError(404, { error: 'Todo link not found' })
+        throw notFound('Todo link not found')
       }
       const canonicalCreate = getRequiredHandler<
         InteractionCreateInput & { customValues?: Record<string, unknown> },
