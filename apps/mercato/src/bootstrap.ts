@@ -75,32 +75,29 @@ registerCodeWorkflows(allCodeWorkflows)
 runBootstrapRegistrations()
 
 import { registerIntrospectionSnapshotLoader } from '@open-mercato/shared/lib/introspection/snapshot-loader'
-import type { IntrospectionSnapshotField } from '@open-mercato/shared/lib/introspection/snapshot-loader'
+import type { IntrospectionSnapshot } from '@open-mercato/shared/lib/introspection/types'
 
 registerIntrospectionSnapshotLoader(async (fields) => {
-  const result: Partial<Record<IntrospectionSnapshotField, unknown[] | Array<{ moduleId: string; tools: unknown[] }>>> = {}
-  const loaders: Partial<Record<IntrospectionSnapshotField, () => Promise<unknown>>> = {
-    notificationTypes: async () => {
-      const mod = await import('@/.mercato/generated/notifications.generated')
-      return mod.notificationTypes
-    },
-    aiToolConfigEntries: async () => {
-      const mod = await import('@/.mercato/generated/ai-tools.generated')
-      return mod.aiToolConfigEntries
-    },
-    messageTypes: async () => {
-      const mod = await import('@/.mercato/generated/message-types.generated')
-      return mod.messageTypes
-    },
-  }
+  const result: Partial<IntrospectionSnapshot> = {}
+  const wanted = new Set(fields)
 
-  await Promise.all(
-    fields.map(async (field) => {
-      const loader = loaders[field]
-      if (!loader) return
-      result[field] = (await loader()) as never
-    }),
-  )
+  await Promise.all([
+    wanted.has('notificationTypes')
+      ? import('@/.mercato/generated/notifications.generated').then((mod) => {
+          result.notificationTypes = mod.notificationTypes as IntrospectionSnapshot['notificationTypes']
+        })
+      : Promise.resolve(),
+    wanted.has('aiToolConfigEntries')
+      ? import('@/.mercato/generated/ai-tools.generated').then((mod) => {
+          result.aiToolConfigEntries = mod.aiToolConfigEntries as IntrospectionSnapshot['aiToolConfigEntries']
+        })
+      : Promise.resolve(),
+    wanted.has('messageTypes')
+      ? import('@/.mercato/generated/message-types.generated').then((mod) => {
+          result.messageTypes = mod.messageTypes as IntrospectionSnapshot['messageTypes']
+        })
+      : Promise.resolve(),
+  ])
 
   return result
 })

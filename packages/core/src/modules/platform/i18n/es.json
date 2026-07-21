@@ -8,5 +8,6 @@
   "platform.map.loading": "Cargando mapa de la plataforma…",
   "platform.map.error": "No se pudo cargar el mapa de la plataforma",
   "platform.map.invalidResponse": "Respuesta inesperada del mapa de la plataforma",
-  "platform.map.empty": "No hay filas para esta superficie."
+  "platform.map.empty": "No hay filas para esta superficie.",
+  "platform.map.retry": "Reintentar"
 }

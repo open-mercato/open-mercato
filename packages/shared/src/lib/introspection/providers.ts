@@ -142,16 +142,21 @@ const searchEntityProvider = provider(
   'search-entity',
   'Search Entities',
   1,
-  ['moduleId', 'entityType', 'label', 'strategies'],
+  ['entityId', 'moduleId', 'enabled', 'strategies', 'priority'],
   async () => {
     const { getSearchModuleConfigs } = await import('../../modules/search')
     return getSearchModuleConfigs().flatMap((config) =>
-      (config.entities ?? []).map((entity) => ({
-        moduleId: config.moduleId,
-        entityType: entity.entityType,
-        label: entity.label ?? null,
-        strategies: entity.strategies ?? null,
-      })),
+      (config.entities ?? []).map((entity) => {
+        const entityId = String(entity.entityId)
+        const moduleId = entityId.includes(':') ? entityId.split(':')[0] ?? null : null
+        return {
+          entityId,
+          moduleId,
+          enabled: entity.enabled !== false,
+          strategies: entity.strategies ?? config.defaultStrategies ?? null,
+          priority: entity.priority ?? null,
+        }
+      }),
     )
   },
 )
@@ -214,14 +219,14 @@ const notificationHandlerProvider = provider(
   ['id', 'moduleId', 'notificationType', 'features'],
   async () => {
     const { getNotificationHandlerEntries } = await import('../notifications/handler-registry')
-    return getNotificationHandlerEntries().flatMap((entry) =>
-      (entry.handlers ?? []).map((handler) => ({
-        id: handler.id,
-        moduleId: entry.moduleId,
-        notificationType: handler.notificationType,
-        features: handler.features ?? null,
-      })),
-    )
+    return getNotificationHandlerEntries().map((entry) => ({
+      id: entry.handler.id,
+      moduleId: entry.moduleId,
+      notificationType: Array.isArray(entry.handler.notificationType)
+        ? entry.handler.notificationType
+        : entry.handler.notificationType,
+      features: entry.handler.features ?? null,
+    }))
   },
 )
 
@@ -251,15 +256,15 @@ const commandInterceptorProvider = provider(
   'command-interceptor',
   'Command Interceptors',
   1,
-  ['id', 'moduleId', 'commandId', 'phase', 'priority'],
+  ['id', 'moduleId', 'targetCommand', 'priority', 'features'],
   async () => {
     const { getAllCommandInterceptors } = await import('../commands/command-interceptor-store')
     return getAllCommandInterceptors().map((entry) => ({
       id: entry.interceptor.id,
       moduleId: entry.moduleId,
-      commandId: entry.interceptor.commandId,
-      phase: entry.interceptor.phase,
+      targetCommand: entry.interceptor.targetCommand,
       priority: entry.interceptor.priority ?? null,
+      features: entry.interceptor.features ?? null,
     }))
   },
 )
@@ -310,34 +315,39 @@ const componentOverrideProvider = provider(
   },
 )
 
-const guardProvider = provider('guard', 'Mutation Guards', 1, ['id', 'moduleId', 'entityId', 'operation'], async () => {
+const guardProvider = provider('guard', 'Mutation Guards', 1, ['id', 'moduleId', 'targetEntity', 'operations'], async () => {
   const { getAllMutationGuards } = await import('../crud/mutation-guard-store')
   return getAllMutationGuards().map((entry) => ({
     id: entry.guard.id,
     moduleId: entry.moduleId,
-    entityId: entry.guard.entityId ?? null,
-    operation: entry.guard.operation ?? null,
+    targetEntity: entry.guard.targetEntity,
+    operations: entry.guard.operations,
   }))
 })
 
-const analyticsProvider = provider('analytics', 'Analytics', 1, ['moduleId', 'entityId', 'label'], async () => {
+const analyticsProvider = provider('analytics', 'Analytics', 1, ['entityId', 'moduleId', 'tableName', 'dateField'], async () => {
   const { getAnalyticsModuleConfigs } = await import('../../modules/analytics')
   return getAnalyticsModuleConfigs().flatMap((config) =>
-    (config.entities ?? []).map((entity) => ({
-      moduleId: config.moduleId,
-      entityId: entity.entityId,
-      label: entity.label ?? null,
-    })),
+    (config.entities ?? []).map((entity) => {
+      const entityId = String(entity.entityId)
+      const moduleId = entityId.includes(':') ? entityId.split(':')[0] ?? null : null
+      return {
+        entityId,
+        moduleId,
+        tableName: entity.entityConfig.tableName,
+        dateField: entity.entityConfig.dateField,
+      }
+    }),
   )
 })
 
-const messageTypeProvider = provider('message-type', 'Message Types', 1, ['type', 'moduleId', 'label'], async () => {
+const messageTypeProvider = provider('message-type', 'Message Types', 1, ['type', 'moduleId', 'labelKey'], async () => {
   try {
     const { getAllMessageTypes } = await import('@open-mercato/core/modules/messages/lib/message-types-registry')
     return getAllMessageTypes().map((entry) => ({
       type: entry.type,
       moduleId: entry.module,
-      label: entry.label ?? null,
+      labelKey: entry.labelKey ?? null,
     }))
   } catch {
     return []

@@ -151,14 +151,23 @@ export function PlatformMapScreen() {
         </p>
       ) : null}
 
-      {state.loading ? <LoadingMessage message={t('platform.map.loading', 'Loading platform map…')} /> : null}
-      {!state.loading && state.error ? <ErrorMessage message={state.error} onRetry={() => void loadSurface()} /> : null}
+      {state.loading ? <LoadingMessage label={t('platform.map.loading', 'Loading platform map…')} /> : null}
+      {!state.loading && state.error ? (
+        <ErrorMessage
+          label={state.error}
+          action={
+            <button type="button" className="underline" onClick={() => void loadSurface()}>
+              {t('platform.map.retry', 'Retry')}
+            </button>
+          }
+        />
+      ) : null}
 
       {!state.loading && !state.error ? (
         <DataTable
           title={selectedSurface?.title ?? surfaceId}
           columns={columns}
-          data={state.rows as Array<Record<string, unknown>>}
+          data={state.rows}
           emptyState={t('platform.map.empty', 'No rows for this surface.')}
           extensionTableId="platform.map.surface"
         />

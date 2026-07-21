@@ -8,5 +8,6 @@
   "platform.map.loading": "Plattformkarte wird geladen…",
   "platform.map.error": "Plattformkarte konnte nicht geladen werden",
   "platform.map.invalidResponse": "Unerwartete Antwort der Plattformkarte",
-  "platform.map.empty": "Keine Zeilen für diese Oberfläche."
+  "platform.map.empty": "Keine Zeilen für diese Oberfläche.",
+  "platform.map.retry": "Erneut versuchen"
 }

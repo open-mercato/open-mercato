@@ -8,5 +8,6 @@
   "platform.map.loading": "Loading platform map…",
   "platform.map.error": "Failed to load platform map",
   "platform.map.invalidResponse": "Unexpected platform map response",
-  "platform.map.empty": "No rows for this surface."
+  "platform.map.empty": "No rows for this surface.",
+  "platform.map.retry": "Retry"
 }

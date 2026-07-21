@@ -8,5 +8,6 @@
   "platform.map.loading": "Ładowanie mapy platformy…",
   "platform.map.error": "Nie udało się załadować mapy platformy",
   "platform.map.invalidResponse": "Nieoczekiwana odpowiedź mapy platformy",
-  "platform.map.empty": "Brak wierszy dla tej powierzchni."
+  "platform.map.empty": "Brak wierszy dla tej powierzchni.",
+  "platform.map.retry": "Ponów"
 }
