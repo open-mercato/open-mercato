@@ -42,11 +42,18 @@ function makeRow(overrides: Partial<PushNotificationDelivery> = {}): PushNotific
 // mutating it and reporting 1 when it wins the claim, else 0.
 function makeEm(rows: PushNotificationDelivery[]) {
   return {
-    find: jest.fn(async (_entity: unknown, where: Record<string, unknown>) => {
+    find: jest.fn(async (_entity: unknown, where: Record<string, unknown>, options?: { limit?: number; orderBy?: { updatedAt?: 'asc' | 'desc' } }) => {
       const cutoff = (where.updatedAt as { $lt: Date }).$lt
       const statusFilter = where.status as { $in?: string[] } | string
       const statuses = typeof statusFilter === 'string' ? [statusFilter] : statusFilter.$in ?? []
-      return rows.filter((r) => statuses.includes(r.status) && r.updatedAt instanceof Date && r.updatedAt < cutoff)
+      let matched = rows.filter((r) => statuses.includes(r.status) && r.updatedAt instanceof Date && r.updatedAt < cutoff)
+      const direction = options?.orderBy?.updatedAt
+      if (direction) {
+        const sign = direction === 'desc' ? -1 : 1
+        matched = [...matched].sort((a, b) => sign * (a.updatedAt!.getTime() - b.updatedAt!.getTime()))
+      }
+      if (typeof options?.limit === 'number') matched = matched.slice(0, options.limit)
+      return matched
     }),
     nativeUpdate: jest.fn(async (_entity: unknown, where: Record<string, unknown>, data: Record<string, unknown>) => {
       const row = rows.find((r) => r.id === where.id)
@@ -64,6 +71,7 @@ beforeEach(() => {
   enqueueMock.mockClear()
   emitMock.mockClear()
   delete process.env.OM_PUSH_STUCK_RECLAIM_MINUTES
+  delete process.env.OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT
 })
 
 describe('reclaimStuckPushDeliveries', () => {
@@ -165,6 +173,27 @@ describe('reclaimStuckPushDeliveries', () => {
     expect(result).toEqual({ reEnqueued: 0, expired: 0 })
     expect(row.status).toBe('pending')
     expect(enqueueMock).not.toHaveBeenCalled()
+  })
+
+  // The per-tick scan is batch-bounded (OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT) so a stranded backlog cannot
+  // load an unbounded row set into memory. The oldest-stuck rows drain first; the remainder is left for
+  // subsequent ticks.
+  it('bounds the per-tick scan to the batch limit, draining the oldest-stuck rows first', async () => {
+    process.env.OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT = '2'
+    const oldest = makeRow({ id: 'old', updatedAt: new Date(NOW.getTime() - 30 * 60 * 1000), attempts: 1 })
+    const middle = makeRow({ id: 'mid', updatedAt: new Date(NOW.getTime() - 20 * 60 * 1000), attempts: 1 })
+    const newest = makeRow({ id: 'new', updatedAt: new Date(NOW.getTime() - 10 * 60 * 1000), attempts: 1 })
+    // Seed out of order to prove the ordering is applied by the query, not insertion order.
+    const em = makeEm([newest, oldest, middle])
+
+    const result = await reclaimStuckPushDeliveries(em as never, { tenantId: TENANT }, NOW)
+
+    expect(result).toEqual({ reEnqueued: 2, expired: 0 })
+    expect(oldest.status).toBe('pending')
+    expect(middle.status).toBe('pending')
+    expect(newest.status).toBe('sending')
+    const reclaimedIds = enqueueMock.mock.calls.map(([job]) => job.deliveryId).sort()
+    expect(reclaimedIds).toEqual(['mid', 'old'])
   })
 
   // The reclaim window floors at MIN_STUCK_MINUTES (1). `0`, negatives, and garbage all fall back to the

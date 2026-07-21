@@ -49,8 +49,8 @@ separate `api/admin/devices` tree holds the **cross-user** operations gated by `
   - `POST /api/devices` — register/upsert the **caller's own** device. Idempotent on `(tenant, org,
     user, device_id)`; a soft-deleted row is **revived** (`deleted_at = null`); response `{ id, deviceId,
     revived }`. Uniqueness of active rows enforced by the partial unique index
-    `user_devices_tenant_org_user_device_active_unique ... where deleted_at is null` (null org is
-    coalesced to the nil UUID so null-org rows still dedupe per tenant/user/device).
+    `user_devices_tenant_org_user_device_active_unique ... nulls not distinct where deleted_at is null`
+    (declared `NULLS NOT DISTINCT` so null-org rows still dedupe per tenant/user/device).
   - `GET /api/devices` — the caller's own devices, scoped to the active organization. It does **not**
     honor `?userId`.
   - `PUT` / `DELETE /api/devices/:id` — **owner only** (403 otherwise) and scoped to the active org

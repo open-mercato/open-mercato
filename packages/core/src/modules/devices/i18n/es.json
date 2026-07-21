@@ -4,6 +4,7 @@
   "devices.errors.forbidden": "Acceso denegado",
   "devices.errors.invalid_id": "ID de dispositivo no válido",
   "devices.errors.invalid_payload": "Datos de dispositivo no válidos",
+  "devices.errors.load_failed": "No se pudo cargar el dispositivo",
   "devices.errors.not_found": "Dispositivo no encontrado",
   "devices.errors.register_failed": "No se pudo registrar el dispositivo",
   "devices.errors.unauthorized": "No autorizado",

@@ -186,8 +186,9 @@ export function readNativeMessage(
 }
 
 /**
- * Wait for the message this run's worker recorded. `sinceIso` (default: call time) rejects entries from
- * an earlier run — the sink is append-only and the reused-environment path never truncates it.
+ * Wait for the message this run's worker recorded. Pass `sinceIso` to reject entries from an earlier
+ * run — the sink is append-only and the reused-environment path never truncates it. The default
+ * (epoch) accepts every recorded entry.
  */
 export async function expectNativeMessage(
   provider: FakePushProvider,

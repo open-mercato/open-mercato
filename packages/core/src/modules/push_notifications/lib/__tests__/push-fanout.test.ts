@@ -64,7 +64,7 @@ function makeDevice(overrides: Record<string, unknown> = {}) {
 function makeEm(channels: Array<Record<string, unknown>>, insertResult?: Array<{ id: string }>) {
   const captured: {
     insertRows: Array<Record<string, unknown>>
-    updates: Array<{ set: Record<string, unknown>; where: unknown[] }>
+    updates: Array<{ set: Record<string, unknown>; wheres: unknown[][] }>
   } = { insertRows: [], updates: [] }
 
   const insertBuilder: Record<string, unknown> = {
@@ -87,14 +87,24 @@ function makeEm(channels: Array<Record<string, unknown>>, insertResult?: Array<{
 
   const db = {
     insertInto: () => insertBuilder,
-    updateTable: () => ({
-      set: (set: Record<string, unknown>) => ({
-        where: (...where: unknown[]) => {
-          captured.updates.push({ set, where })
-          return { execute: async () => undefined }
+    updateTable: () => {
+      const record: { set: Record<string, unknown>; wheres: unknown[][] } = { set: {}, wheres: [] }
+      const builder = {
+        set: (set: Record<string, unknown>) => {
+          record.set = set
+          return builder
         },
-      }),
-    }),
+        where: (...where: unknown[]) => {
+          record.wheres.push(where)
+          return builder
+        },
+        execute: async () => {
+          captured.updates.push(record)
+          return undefined
+        },
+      }
+      return builder
+    },
   }
 
   const em = {
@@ -199,7 +209,11 @@ describe('fanOutPushDeliveries', () => {
     // The second device's enqueue rejected → a single grouped UPDATE flips it to `failed`.
     expect(captured.updates).toHaveLength(1)
     expect(captured.updates[0].set).toMatchObject({ status: 'failed', last_error: 'enqueue_failed: broker down' })
-    expect(captured.updates[0].where).toEqual(['id', 'in', ['del-2']])
+    // Guarded on both the id set and `status='pending'` so a row a worker already progressed is not clobbered.
+    expect(captured.updates[0].wheres).toEqual([
+      ['id', 'in', ['del-2']],
+      ['status', '=', 'pending'],
+    ])
   })
 
   it('reuses the upstream copy for default-locale devices and translates for other locales', async () => {

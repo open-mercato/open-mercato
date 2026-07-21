@@ -7,11 +7,11 @@ export type DevicePlatform = 'ios' | 'android' | 'web'
 @Index({ name: 'user_devices_tenant_user_idx', properties: ['tenantId', 'userId'] })
 @Index({
   // Device identity is scoped per organization: (tenant, org, user, device). organization_id is
-  // nullable, so coalesce null to the nil UUID in the index expression — otherwise Postgres treats
-  // NULLs as distinct and would allow duplicate null-org rows for the same (tenant, user, device).
+  // nullable, so the index is declared NULLS NOT DISTINCT — otherwise Postgres treats NULLs as
+  // distinct and would allow duplicate null-org rows for the same (tenant, user, device).
   name: 'user_devices_tenant_org_user_device_active_unique',
   expression:
-    'create unique index "user_devices_tenant_org_user_device_active_unique" on "user_devices" ("tenant_id", coalesce("organization_id", \'00000000-0000-0000-0000-000000000000\'::uuid), "user_id", "device_id") where deleted_at is null',
+    'create unique index "user_devices_tenant_org_user_device_active_unique" on "user_devices" ("tenant_id", "organization_id", "user_id", "device_id") nulls not distinct where deleted_at is null',
 })
 export class UserDevice {
   [OptionalProps]?:

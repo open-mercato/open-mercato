@@ -178,7 +178,7 @@
           "keyName": "user_devices_tenant_org_user_device_active_unique",
           "primary": false,
           "unique": false,
-          "expression": "create unique index \"user_devices_tenant_org_user_device_active_unique\" on \"user_devices\" (\"tenant_id\", coalesce(\"organization_id\", '00000000-0000-0000-0000-000000000000'::uuid), \"user_id\", \"device_id\") where deleted_at is null"
+          "expression": "create unique index \"user_devices_tenant_org_user_device_active_unique\" on \"user_devices\" (\"tenant_id\", \"organization_id\", \"user_id\", \"device_id\") nulls not distinct where deleted_at is null"
         },
         {
           "keyName": "user_devices_pkey",

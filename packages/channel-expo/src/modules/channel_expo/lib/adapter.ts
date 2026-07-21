@@ -105,6 +105,10 @@ export function setExpoClientFactory(factory: ExpoClientFactory | null): void {
 
 type ExpoInstance = InstanceType<ExpoModule['Expo']>
 
+// Bound the Expo client cache like the FCM/APNs adapters. An Expo instance is a plain SDK client (no
+// background timer or teardown), so eviction just drops the map entry — but leaving it unbounded would
+// grow one entry per distinct tenant access token.
+const INSTANCE_CACHE_MAX = 32
 const expoInstanceCache = new Map<string, Promise<ExpoInstance>>()
 
 let expoModulePromise: Promise<ExpoModule> | null = null
@@ -126,17 +130,24 @@ function loadExpoModule(): Promise<ExpoModule> {
 
 function getExpoInstance(accessToken: string | undefined): Promise<ExpoInstance> {
   const cacheKey = accessToken ?? ''
-  let instance = expoInstanceCache.get(cacheKey)
-  if (!instance) {
-    const pending = loadExpoModule().then(({ Expo }) => new Expo({ accessToken }))
-    // Drop a failed init so a later call can retry instead of returning the cached rejection forever.
-    pending.catch(() => {
-      if (expoInstanceCache.get(cacheKey) === pending) expoInstanceCache.delete(cacheKey)
-    })
-    instance = pending
-    expoInstanceCache.set(cacheKey, instance)
+  const existing = expoInstanceCache.get(cacheKey)
+  if (existing) {
+    // Refresh recency: delete + re-insert moves the key to the newest position.
+    expoInstanceCache.delete(cacheKey)
+    expoInstanceCache.set(cacheKey, existing)
+    return existing
   }
-  return instance
+  const pending = loadExpoModule().then(({ Expo }) => new Expo({ accessToken }))
+  // Drop a failed init so a later call can retry instead of returning the cached rejection forever.
+  pending.catch(() => {
+    if (expoInstanceCache.get(cacheKey) === pending) expoInstanceCache.delete(cacheKey)
+  })
+  expoInstanceCache.set(cacheKey, pending)
+  if (expoInstanceCache.size > INSTANCE_CACHE_MAX) {
+    const oldestKey = expoInstanceCache.keys().next().value as string | undefined
+    if (oldestKey != null) expoInstanceCache.delete(oldestKey)
+  }
+  return pending
 }
 
 function defaultClientFactory(credentials: ExpoCredentials): ExpoClientLike {

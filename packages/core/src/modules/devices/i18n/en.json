@@ -4,6 +4,7 @@
   "devices.errors.forbidden": "Access denied",
   "devices.errors.invalid_id": "Invalid device id",
   "devices.errors.invalid_payload": "Invalid device payload",
+  "devices.errors.load_failed": "Failed to load device",
   "devices.errors.not_found": "Device not found",
   "devices.errors.register_failed": "Failed to register device",
   "devices.errors.unauthorized": "Unauthorized",

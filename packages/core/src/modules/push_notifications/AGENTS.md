@@ -27,7 +27,10 @@ FCM/APNs/Expo channel packages). Spec: `.ai/specs/2026-04-28-push-notifications-
   tick; rows still in `sending` past `OM_PUSH_STUCK_RECLAIM_MINUTES` (default 5) are re-opened +
   re-enqueued when attempts remain, else finalized `expired`. Each transition is an atomic
   `nativeUpdate` guarded on `status='sending'` + still-stale `updated_at`, so overlapping ticks or a
-  worker that re-claimed the row never re-open an active delivery.
+  worker that re-claimed the row never re-open an active delivery. The per-tick scan is batch-bounded
+  by `OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT` (default 500, oldest-stuck first) so a stranded backlog from a
+  provider/queue outage cannot load an unbounded row set into memory in one tick — the remainder drains
+  on subsequent ticks (mirrors the receipt reaper's `OM_PUSH_RECEIPT_BATCH_LIMIT`).
 - **Fan-out** (`lib/push-fanout.ts`, `fanOutPushDeliveries`) is the shared device-resolution + provider
   routing + delivery-row insert + enqueue. The strategy (visible notifications) and `sendCustomPush`
   call it; it stays preference-agnostic. Its channel/device short-circuits (no push channel / no
