@@ -1,6 +1,6 @@
 {
   "name": "create-mercato-app",
-  "version": "0.6.5",
+  "version": "0.6.6",
   "type": "module",
   "description": "Create a new Open Mercato application",
   "main": "./dist/index.js",
@@ -27,7 +27,7 @@
     "@types/node": "^26.0.1",
     "esbuild": "^0.28.1",
     "tsx": "^4.23.1",
-    "typescript": "^6.0.3"
+    "typescript": "7.0.2"
   },
   "publishConfig": {
     "access": "public"

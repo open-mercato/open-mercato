@@ -80,12 +80,39 @@ export function isPrivateIPv6(address: string): boolean {
   if (isIPv4CompatibleIPv6(segments)) return true
 
   const embedded = embeddedIPv4FromIPv6(segments)
-  if (embedded && isPrivateIPv4(embedded)) return true
+  if (embedded) return isPrivateIPv4(embedded)
 
   const [a] = segments
   if ((a & 0xfe00) === 0xfc00) return true
   if ((a & 0xffc0) === 0xfe80) return true
   if ((a & 0xff00) === 0xff00) return true
+  if (
+    a === 0x0100 &&
+    segments[1] === 0 &&
+    segments[2] === 0 &&
+    segments[3] === 0
+  ) {
+    return true
+  }
+  if (a === 0x2001 && (segments[1] & 0xfe00) === 0) {
+    return !isGloballyReachableIetfProtocolAssignment(segments)
+  }
+  if (a === 0x2001 && segments[1] === 0x0db8) return true
+  if ((a & 0xfff0) === 0x3ff0) return true
+  // Except for the explicitly handled IPv4 translation ranges above, globally
+  // routable unicast IPv6 addresses are allocated from 2000::/3.
+  if ((a & 0xe000) !== 0x2000) return true
+  return false
+}
+
+function isGloballyReachableIetfProtocolAssignment(segments: number[]): boolean {
+  const [, b, c, d, e, f, g, h] = segments
+  const trailingZero = c === 0 && d === 0 && e === 0 && f === 0 && g === 0
+  if (b === 0x0001 && trailingZero && h >= 1 && h <= 3) return true
+  if (b === 0x0003) return true
+  if (b === 0x0004 && c === 0x0112) return true
+  if ((b & 0xfff0) === 0x0020) return true
+  if ((b & 0xfff0) === 0x0030) return true
   return false
 }
 

@@ -306,14 +306,16 @@ Both link to `/backend/customer_accounts/{sourceEntityId}` for staff review.
 
 | Spot ID | Widget | Purpose |
 |---------|--------|---------|
-| `customers.person` | `account-status` | Shows portal account status on Customers v2 person detail forms |
-| `crud-form:customers.person` | `account-status` | Alias for CrudForm hosts deriving the spot from `customers.person` |
-| `crud-form:customers:customer_person_profile:fields` | `account-status` | Shows portal account status on CRM person detail page |
-| `customers.company` | `company-users` | Shows portal users on Customers v2 company detail forms |
-| `crud-form:customers.company` | `company-users` | Alias for CrudForm hosts deriving the spot from `customers.company` |
-| `crud-form:customers:customer_company_profile:fields` | `company-users` | Shows portal users linked to a CRM company |
+| `customers.person` | `account-status` | Alias for hosts requesting the bare `customers.person` entity spot |
+| `crud-form:customers.person` | `account-status` | Shows portal account status on the person v2 detail page (`people-v2/[id]`) |
+| `customers.company` | `company-users` | Alias for hosts requesting the bare `customers.company` entity spot |
+| `crud-form:customers.company` | `company-users` | Shows portal users on the company v2 detail page (`companies-v2/[id]`) |
 
 Both inject as column 2 groups with priority 200, gated by `customer_accounts.view` feature.
+
+CrudForm derives its spot id as `crud-form:${entityId}` with every `:` normalized to `.`, so a
+registered `crud-form:` key whose entity segment still contains `:` can never be requested by any
+host. Register against the normalized (dot) form only — `injection-table.test.ts` enforces this.
 
 ## Backend Pages
 

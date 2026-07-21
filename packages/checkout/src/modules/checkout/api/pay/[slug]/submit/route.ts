@@ -476,6 +476,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ slug: s
         const sessionResult = await paymentGatewayService.createPaymentSession({
           providerKey: link.gatewayProviderKey,
           paymentId: transactionId,
+          idempotencyKey,
           amount: sessionAmount,
           currencyCode: sessionCurrencyCode,
           paymentTypes: configuredPaymentTypes.length > 0 ? configuredPaymentTypes : undefined,

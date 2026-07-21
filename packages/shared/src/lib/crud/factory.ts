@@ -510,6 +510,14 @@ function json(data: any, init?: ResponseInit) {
   })
 }
 
+// Name of the selected-organization cookie (mirrors the directory module's
+// OrganizationSwitcher, which writes `om_selected_org=...; path=/; samesite=lax`).
+// Kept as a local literal so shared has no import dependency on a domain package.
+const SELECTED_ORG_COOKIE = 'om_selected_org'
+// Set-Cookie value that expires the stale selection so the next request falls
+// back to the caller's home org. Attributes mirror how the switcher sets it.
+const CLEAR_SELECTED_ORG_COOKIE = `${SELECTED_ORG_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`
+
 function attachOperationHeader(res: Response, logEntry: any) {
   if (!res || !(res instanceof Response)) return res
   if (!logEntry || typeof logEntry !== 'object') return res
@@ -1339,6 +1347,42 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     return { container, auth: scopedAuth, organizationScope: scope, selectedOrganizationId, organizationIds, request }
   }
 
+  // The caller explicitly selected an organization (selected-org cookie) that no
+  // longer resolves to a real, accessible org — e.g. a stale cookie after a DB
+  // reset, or after the caller lost access to that org. Rather than silently
+  // acting against a fallback org the caller did not select (writes) or showing
+  // a different org's data than the one selected (reads), fail loud on every
+  // org-scoped record operation so the client re-selects. Recovery surfaces
+  // (org switcher, nav, profile) are custom routes, not this factory, so they
+  // keep working. Returns a 422 Response when rejected, otherwise null.
+  function rejectInvalidOrgSelection(ctx: CrudCtx, action: 'list' | 'create' | 'update' | 'delete'): Response | null {
+    if (!ormCfg.orgField) return null
+    if (!(ctx.organizationScope as OrganizationScope | null | undefined)?.selectionRejected) return null
+    logForbidden({
+      resourceKind,
+      action,
+      reason: 'organization_selection_invalid',
+      userId: ctx.auth?.sub ?? null,
+      tenantId: ctx.auth?.tenantId ?? null,
+      organizationIds: ctx.organizationIds,
+    })
+    // Self-heal reads: expire the stale selected-org cookie so the caller's next
+    // request falls back to their home org and the session recovers on its own
+    // (important for single-org users, who have no org switcher to re-select
+    // from). Writes intentionally do NOT clear it — a mutation must go through an
+    // explicit, valid re-selection, never silently target a fallback org.
+    const headers: Record<string, string> = action === 'list'
+      ? { 'set-cookie': CLEAR_SELECTED_ORG_COOKIE }
+      : {}
+    return json(
+      {
+        error: 'Your selected organization is no longer available. Please re-select an organization and try again.',
+        code: 'organization_selection_invalid',
+      },
+      { status: 422, headers },
+    )
+  }
+
   async function GET(request: Request) {
     const profiler = createCrudProfiler(resourceKind, 'list')
     const requestMeta: Record<string, unknown> = { method: request.method }
@@ -1365,6 +1409,11 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!ctx.auth) {
         finishProfile({ reason: 'unauthorized' })
         return json({ error: 'Unauthorized' }, { status: 401 })
+      }
+      const listSelectionRejected = rejectInvalidOrgSelection(ctx, 'list')
+      if (listSelectionRejected) {
+        finishProfile({ reason: 'organization_selection_invalid' })
+        return listSelectionRejected
       }
       if (!opts.list) {
         finishProfile({ reason: 'list_not_configured' })
@@ -2032,6 +2081,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.create && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const createSelectionRejected = rejectInvalidOrgSelection(ctx, 'create')
+      if (createSelectionRejected) return createSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,
@@ -2302,6 +2353,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
       if (!opts.update && !useCommand) return json({ error: 'Not implemented' }, { status: 501 })
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const updateSelectionRejected = rejectInvalidOrgSelection(ctx, 'update')
+      if (updateSelectionRejected) return updateSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,
@@ -2631,6 +2684,8 @@ export function makeCrudRoute<TCreate = any, TUpdate = any, TList = any>(opts: C
     try {
       const ctx = await withCtx(request)
       if (!ctx.auth) return json({ error: 'Unauthorized' }, { status: 401 })
+      const deleteSelectionRejected = rejectInvalidOrgSelection(ctx, 'delete')
+      if (deleteSelectionRejected) return deleteSelectionRejected
       if (ormCfg.orgField && ctx.organizationIds && ctx.organizationIds.length === 0) {
         logForbidden({
           resourceKind,
