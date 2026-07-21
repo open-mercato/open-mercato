@@ -352,9 +352,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -400,9 +398,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -451,9 +447,7 @@ describe('init command failure output', () => {
     }))
     jest.doMock('../lib/generators', () => ({
       generateEntityIds: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistry: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(undefined),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(undefined),
+      generateModuleRegistries: jest.fn().mockResolvedValue(undefined),
       generateModuleEntities: jest.fn().mockResolvedValue(undefined),
       generateModuleDi: jest.fn().mockResolvedValue(undefined),
       generateModulePackageSources: jest.fn().mockResolvedValue(undefined),
@@ -531,7 +525,7 @@ describe('init command failure output', () => {
   })
 })
 
-describe('generate post-step structural cache purge', () => {
+describe('generate post-step structural invalidation', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
     jest.resetModules()
@@ -540,11 +534,12 @@ describe('generate post-step structural cache purge', () => {
   afterEach(() => {
     jest.dontMock('../lib/generators')
     jest.dontMock('../lib/resolver')
+    jest.dontMock('../lib/post-generate-invalidation')
     jest.dontMock('@open-mercato/shared/lib/bootstrap/dynamicLoader')
     jest.resetModules()
   })
 
-  it('runs structural cache purge after successful generation when configs cache CLI is available', async () => {
+  it('uses the lightweight invalidation helper after successful generation', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const generateEntityIds = jest.fn().mockResolvedValue({
@@ -552,20 +547,21 @@ describe('generate post-step structural cache purge', () => {
       filesUnchanged: [],
       errors: [],
     })
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
-    const cacheRun = jest.fn().mockResolvedValue(undefined)
+    const invalidate = jest.fn().mockResolvedValue({
+      cacheEntriesDeleted: 2,
+      generatedFilesTouched: ['/tmp/test-app/.mercato/generated/modules.generated.ts'],
+      cacheError: null,
+      generatedFilesError: null,
+    })
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -574,25 +570,23 @@ describe('generate post-step structural cache purge', () => {
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot: jest.fn().mockResolvedValue({
-        modules: [
-          {
-            id: 'configs',
-            cli: [{ command: 'cache', run: cacheRun }],
-          },
-        ],
-      }),
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
     }))
+    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => {
+      throw new Error('post-generation invalidation must not bootstrap generated modules')
+    })
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'generate'])
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
-    expect(cacheRun).toHaveBeenCalledWith(['structural', '--all-tenants', '--quiet'])
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
@@ -608,40 +602,39 @@ describe('generate post-step structural cache purge', () => {
     }
     const generators = {
       generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistry: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(unchangedResult),
+      generateModuleRegistries: jest.fn().mockResolvedValue([unchangedResult, unchangedResult, unchangedResult]),
       generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
       generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
       generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
       generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
     }
-    const bootstrapFromAppRoot = jest.fn()
+    const invalidate = jest.fn()
 
     jest.doMock('../lib/generators', () => generators)
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot,
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
     }))
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'generate'])
 
     expect(exitCode).toBe(0)
-    expect(bootstrapFromAppRoot).not.toHaveBeenCalled()
+    expect(invalidate).not.toHaveBeenCalled()
     expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[generate] Generated outputs unchanged; skipping structural cache purge.',
+      '[generate] Generated outputs unchanged; skipping structural invalidation.',
     )
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
 
-  it('keeps generation successful when the post-generate cache purge bootstrap fails', async () => {
+  it('keeps generation successful when lightweight invalidation fails', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
     const generateEntityIds = jest.fn().mockResolvedValue({
@@ -649,19 +642,16 @@ describe('generate post-step structural cache purge', () => {
       filesUnchanged: [],
       errors: [],
     })
-    const generateModuleRegistry = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryApp = jest.fn().mockResolvedValue(undefined)
-    const generateModuleRegistryCli = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
     const generateModuleEntities = jest.fn().mockResolvedValue(undefined)
     const generateModuleDi = jest.fn().mockResolvedValue(undefined)
     const generateModulePackageSources = jest.fn().mockResolvedValue(undefined)
     const generateOpenApi = jest.fn().mockResolvedValue(undefined)
+    const invalidate = jest.fn().mockRejectedValue(new Error('cache maintenance unavailable'))
 
     jest.doMock('../lib/generators', () => ({
       generateEntityIds,
-      generateModuleRegistry,
-      generateModuleRegistryApp,
-      generateModuleRegistryCli,
+      generateModuleRegistries,
       generateModuleEntities,
       generateModuleDi,
       generateModulePackageSources,
@@ -670,10 +660,11 @@ describe('generate post-step structural cache purge', () => {
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'configs', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot: jest.fn().mockRejectedValue(new Error('generated cli bootstrap unavailable')),
+    jest.doMock('../lib/post-generate-invalidation', () => ({
+      runPostGenerateStructuralInvalidation: invalidate,
     }))
 
     const mercato = await import('../mercato')
@@ -681,53 +672,48 @@ describe('generate post-step structural cache purge', () => {
 
     expect(exitCode).toBe(0)
     expect(generateEntityIds).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
+    expect(invalidate).toHaveBeenCalledWith('/tmp/test-app')
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
 
-  it('skips structural cache purge when every generated output is byte-identical', async () => {
+  it('skips cache infrastructure entirely when configs is not enabled', async () => {
     const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
     const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation()
-    const unchangedResult = {
-      filesWritten: [],
-      filesUnchanged: ['/tmp/test-app/.mercato/generated/modules.generated.ts'],
-      errors: [],
-    }
-    const generators = {
-      generateEntityIds: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistry: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryApp: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleRegistryCli: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleEntities: jest.fn().mockResolvedValue(unchangedResult),
-      generateModuleDi: jest.fn().mockResolvedValue(unchangedResult),
-      generateModulePackageSources: jest.fn().mockResolvedValue(unchangedResult),
-      generateOpenApi: jest.fn().mockResolvedValue(unchangedResult),
-    }
-    const bootstrapFromAppRoot = jest.fn()
+    const generate = jest.fn().mockResolvedValue(undefined)
+    const generateModuleRegistries = jest.fn().mockResolvedValue([])
 
-    jest.doMock('../lib/generators', () => generators)
+    jest.doMock('../lib/generators', () => ({
+      generateEntityIds: generate,
+      generateModuleRegistries,
+      generateModuleEntities: generate,
+      generateModuleDi: generate,
+      generateModulePackageSources: generate,
+      generateOpenApi: generate,
+    }))
     jest.doMock('../lib/resolver', () => ({
       createResolver: () => ({
         getAppDir: () => '/tmp/test-app',
+        loadEnabledModules: () => [{ id: 'auth', from: '@open-mercato/core' }],
       }),
     }))
-    jest.doMock('@open-mercato/shared/lib/bootstrap/dynamicLoader', () => ({
-      bootstrapFromAppRoot,
-    }))
+    jest.doMock('../lib/post-generate-invalidation', () => {
+      throw new Error('cache infrastructure must stay unloaded without configs')
+    })
 
     const mercato = await import('../mercato')
     const exitCode = await mercato.run(['node', 'mercato', 'generate'])
 
     expect(exitCode).toBe(0)
-    expect(bootstrapFromAppRoot).not.toHaveBeenCalled()
-    expect(consoleLogSpy).toHaveBeenCalledWith(
-      '[generate] Generated outputs unchanged; skipping structural cache purge.',
-    )
+    expect(generate).toHaveBeenCalled()
+    expect(generateModuleRegistries).toHaveBeenCalledTimes(1)
 
     consoleErrorSpy.mockRestore()
     consoleLogSpy.mockRestore()
   })
+
 })
 
 describe('server dev managed process exits', () => {
