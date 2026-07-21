@@ -299,10 +299,15 @@ const crud = makeCrudRoute<
 
       const allowedIds = ctx.organizationScope?.allowedIds ?? null
       const organizationId = input.organizationId ?? ctx.selectedOrganizationId ?? auth.orgId ?? null
-      if (organizationId && Array.isArray(allowedIds) && allowedIds.length > 0) {
-        if (!allowedIds.includes(organizationId)) {
-          throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
-        }
+      const isSuperAdmin = await resolveIsSuperAdmin(scopedCtx)
+      if (
+        !isOrganizationAccessAllowed({
+          isSuperAdmin,
+          allowedOrganizationIds: allowedIds,
+          targetOrganizationId: organizationId,
+        })
+      ) {
+        throw json({ error: translate('api_keys.errors.organizationOutOfScope', 'Organization out of scope') }, { status: 403 })
       }
       scopedCtx.__apiKeyOrganizationId = organizationId ?? null
 

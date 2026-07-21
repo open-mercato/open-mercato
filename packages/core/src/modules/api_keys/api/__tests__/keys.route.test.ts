@@ -297,6 +297,86 @@ describe('API Keys route', () => {
     expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
   })
 
+  it('denies creation when the resolved organization allowlist is empty', async () => {
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: [], allowedIds: [] })
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Deny-all key',
+          organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        }),
+      }),
+    )
+    expect(res.status).toBe(403)
+    const payload = await res.json()
+    expect(payload.error).toBe('Organization out of scope')
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('denies tenant-wide creation for an organization-restricted principal', async () => {
+    mockResolveScope.mockResolvedValueOnce({
+      selectedId: null,
+      filterIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+      allowedIds: ['aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'],
+    })
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: 'Tenant-wide key' }),
+      }),
+    )
+    expect(res.status).toBe(403)
+    const payload = await res.json()
+    expect(payload.error).toBe('Organization out of scope')
+    expect(mockDataEngine.createOrmEntity).not.toHaveBeenCalled()
+  })
+
+  it('preserves unrestricted (null allowlist) creation for a non-superadmin', async () => {
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: null, allowedIds: null })
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Unrestricted key',
+          organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        }),
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
+    const createArgs = mockDataEngine.createOrmEntity.mock.calls[0][0]
+    expect(createArgs.data).toMatchObject({ organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })
+  })
+
+  it('allows a superadmin to create across organizations despite an empty allowlist', async () => {
+    const superAdminAuth = {
+      sub: 'user-1',
+      tenantId: '123e4567-e89b-12d3-a456-426614174000',
+      orgId: null,
+      isSuperAdmin: true,
+    }
+    mockGetAuthFromCookies.mockResolvedValueOnce(superAdminAuth)
+    mockGetAuthFromRequest.mockResolvedValueOnce(superAdminAuth)
+    mockRbac.loadAcl.mockResolvedValue({ isSuperAdmin: true })
+    mockResolveScope.mockResolvedValueOnce({ selectedId: null, filterIds: [], allowedIds: [] })
+    const res = await postHandler(
+      new Request('http://localhost/api/api_keys/keys', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          name: 'Superadmin key',
+          organizationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        }),
+      }),
+    )
+    expect(res.status).toBe(201)
+    expect(mockDataEngine.createOrmEntity).toHaveBeenCalledTimes(1)
+  })
+
   it('denies deletion when the resolved organization allowlist is empty', async () => {
     const record = {
       id: '11111111-1111-4111-8111-111111111111',
