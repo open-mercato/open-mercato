@@ -17,6 +17,9 @@ whether the persona itself changed.
   search first?), what makes them give up, what they would mutter at a dead end.
 - End the prose body with the standard synthetic-persona footer (see below).
 - Validate before committing: `node .ai/skills/om-ux-walkthrough/scripts/validate-persona.mjs --all`
+  (the validator itself is checked with `--self-test`; it strips a leading BOM, rejects
+  duplicate frontmatter keys, supports inline ` # ` comments outside quotes, and rejects
+  directory arguments with a clean message).
 
 ## Never
 

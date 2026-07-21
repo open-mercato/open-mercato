@@ -70,6 +70,10 @@ Rendering rules:
   friction reproduced in both runs (matching fingerprints) is listed as a finding; singletons
   sit in the collapsed appendix, and both full step logs are retained in the run artifacts so
   divergence itself is inspectable.
+- **Vocabulary can leak.** The persona's quirks are written by the same team that named the
+  UI; a persona can accidentally encode the house vocabulary and mask exactly the mislabels
+  this walkthrough exists to find. Persona review requires vocabulary sourced from real user
+  language — support tickets, sales calls — never from the product's own labels.
 - **This report is advisory.** It sets no labels, fails no checks, and gates nothing. A
   walkthrough finding alone never justifies blocking a PR.
 - **Cost was bounded.** Runs stop at the persona's patience budget, a 40-step hard cap, or the

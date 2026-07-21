@@ -9,9 +9,10 @@ Take an existing PR, boot its UI, and attempt a task **the way a specific user w
 persona from `.ai/qa/personas/` navigating by visible labels alone. Produce quantified friction
 metrics and post them as one sticky, **advisory-only** PR comment.
 
-This skill is a sibling of `om-auto-verify-pr-ui` (external skill, installed at
-`.agents/skills/om-auto-verify-pr-ui/SKILL.md`) and answers the question that skill cannot:
-not "does it work?" but **"can a user figure it out?"**. `om-auto-verify-pr-ui` is omniscient —
+This skill is a sibling of `om-auto-qa-pr` (external skill, installed at
+`.agents/skills/om-auto-qa-pr/SKILL.md`; historically named `om-auto-verify-pr-ui` — if neither
+name is installed, run `yarn install-skills`) and answers the question that skill cannot:
+not "does it work?" but **"can a user figure it out?"**. `om-auto-qa-pr` is omniscient —
 it reads the diff, knows which button the author added, and verifies the author's mental model.
 This skill is deliberately *less* informed: its value comes entirely from what the navigator
 does **not** know (see the knowledge firewall below).
@@ -26,8 +27,10 @@ it and runs independently.
 
 - This skill NEVER sets pipeline or QA labels, never creates or fails a check run, never
   blocks merge, and never derives any gating state from its findings.
-- The only label it touches is removing `needs-ux-walkthrough` after a label-triggered run
-  (that label is a *request*, not a gate).
+- The only pipeline/meta label it adds or removes beyond the standard step-0 `in-progress`
+  claim lock (added and released by the claim machinery, like every sibling automation skill)
+  is **removing** `needs-ux-walkthrough` after a label-triggered run (that label is a
+  *request*, not a gate).
 - A walkthrough finding alone never justifies blocking a PR — see `.ai/qa/AGENTS.md`.
 
 ## Arguments
@@ -40,9 +43,9 @@ it and runs independently.
 | `--baseline <n>` | no | Shortest-known-path step count for the ratio metric; omitted → raw step count only. |
 | `--compare <runId>` | no | Prior run to diff against; adds resolved/persisting/new markers to the findings table. |
 | `--runs <n>` | no | Reproducibility runs, default 2; `--runs 1` skips the gate and labels every finding unreproduced. |
-| `--keep-env` | no | Leave an env this run started running on exit (same semantics as `om-auto-verify-pr-ui`). |
+| `--keep-env` | no | Leave an env this run started running on exit (same semantics as `om-auto-qa-pr`). |
 
-## Reused verbatim from `om-auto-verify-pr-ui`
+## Reused verbatim from `om-auto-qa-pr`
 
 Follow the sibling skill's machinery without reimplementing it:
 
@@ -53,8 +56,11 @@ Follow the sibling skill's machinery without reimplementing it:
 - **Ephemeral env** boot with `.ai/qa/ephemeral-env.json` reuse and started-by-this-run
   teardown discipline; default credentials from `mercato init`
   (`superadmin@acme.com` / `admin@acme.com` / `employee@acme.com`, password `secret`).
-- **Evidence branch** `qa-evidence/pr-{n}` + raw-URL mechanism for inline screenshots, with
-  the same private-repo/no-push fallback (artifact paths instead of inline images).
+- **Evidence publishing** via the tracker descriptor: the `attach-image-evidence` op in
+  `.ai/trackers/github.md` with slug `pr-{n}` (it defines the slash-free `qa-evidence-…`
+  evidence branch and raw-URL mechanism for inline screenshots), with the same
+  private-repo/no-push fallback (artifact paths instead of inline images). Do not hardcode a
+  branch name that diverges from the tracker op.
 - **Never fabricate results**: if the env cannot boot, post the blocker, keep status honest,
   release the lock, stop. Redact-or-omit rule for every posted screenshot.
 
@@ -70,7 +76,7 @@ Follow the sibling skill's machinery without reimplementing it:
 
 ### 0. Claim the PR
 
-Follow `om-auto-verify-pr-ui` step 0 verbatim (skip when the target is a bare URL). Use the
+Follow `om-auto-qa-pr` step 0 verbatim (skip when the target is a bare URL). Use the
 claim-comment id `om-ux-walkthrough`. Wrap all teardown (step 6) in a trap/finally so the lock
 always releases.
 
@@ -93,16 +99,32 @@ PERSONA_BLOB=$(git rev-parse ":.ai/qa/personas/{personaId}.md" 2>/dev/null || gi
    PR's user-facing intent. Record the derivation verbatim in the run record
    (`goalSource: "derived-from-pr"`).
 
-3. Produce the **handoff** — exactly four values, nothing else crosses into phase 3:
+3. Produce the **handoff** — exactly four values, nothing else crosses into phase 3. Each
+   value has one canonical home in `run-record.json` (the schema in
+   `references/friction-metrics.md` § Run record):
 
-   1. persona file content
-   2. goal sentence
-   3. start URL (normally the backend login page — *reaching the feature is part of the task*)
+   1. persona file content — pinned by `persona.id` + `persona.blobHash` (the git blob hash of
+      the exact file content handed over)
+   2. goal sentence — recorded verbatim in the top-level `goal` field (with `goalSource`)
+   3. start URL — recorded as `handoff.startUrl`
    4. credential role (`superadmin` / `admin` / `employee` — pick the role such a user would
-      realistically have)
+      realistically have) — recorded as `handoff.role`
 
-   Store the handoff in `run-record.json` under `handoff` so a reviewer can audit that nothing
-   else leaked.
+   The `handoff` object therefore contains **exactly two keys** (`startUrl`, `role`) and
+   nothing else; persona and goal are pinned by `persona.blobHash` and `goal`. A reviewer
+   audits the four values at those four locations.
+
+   **Handoff content constraints (the firewall applies to content, not just channels):**
+
+   - The **goal** must be phrased in user-outcome vocabulary only. Forbidden in the goal
+     sentence: any UI label, route path, component name, or feature name introduced by the PR
+     diff. Good: `"Add a new contact person named Jan Kowalski for a client."` Bad:
+     `"Use the new 'Add contact person' button on the People detail tab."` (leaks the
+     PR-introduced button label and location — the navigator would find it in one step and the
+     metrics would measure nothing).
+   - The **start URL** must be a pre-existing entry point: the login page (the normal case —
+     *reaching the feature is part of the task*) or a route that already exists on the base
+     branch. Deep-linking into a route the PR introduces is a firewall violation.
 
 ### 2. Env boot
 
@@ -132,7 +154,8 @@ string**. Each loop iteration:
 Loop exit: **goal success** (the persona states the goal's observable outcome is on screen, in
 its own words), **patience-budget exhaustion** (persona frontmatter), or the **global hard cap**
 (40 steps/run). Also abort honestly with a PARTIAL report when the per-invocation model-token
-budget trips; record actuals under `cost`.
+budget trips; record that run's exit as `budget-exhausted` (the `exit` enum in
+`references/friction-metrics.md` § Run record) and the actuals under `cost`.
 
 #### The knowledge firewall (hard rule — this is the skill)
 
@@ -152,14 +175,25 @@ appending to the artifacts dir, nothing else.
 **Why this matters (do not optimize it away):** the walkthrough measures *discoverability*. An
 author-informed driver already knows the answer and finds every button in one step; every
 metric below would silently measure nothing while looking healthy. The firewall is the
-difference between this skill and `om-auto-verify-pr-ui`, not an implementation nicety. A
+difference between this skill and `om-auto-qa-pr`, not an implementation nicety. A
 walkthrough that peeks has not "helped the persona" — it has cheated, and its report is
 misinformation.
 
 **Verification step (mandatory, per run):** after phase 3, before rendering the report, audit
-the transcript: confirm no worktree reads/greps/globs occurred during navigation and that
-`handoff` in the run record contains only the four permitted values. Record the outcome as
-`"firewallAudit": "clean" | "violated: <what>"` in the run record. If violated, the run is
+the transcript and the run record:
+
+1. **Channels:** no worktree reads/greps/globs occurred during navigation.
+2. **Shape:** the four handed-over values live exactly where the contract puts them —
+   persona pinned by `persona.id` + `persona.blobHash`, goal verbatim in `goal`, and
+   `handoff` containing exactly the two keys `startUrl` and `role`, nothing else.
+3. **Content:** the `goal` string contains no UI label, route path, component or feature name
+   introduced by the PR diff (user-outcome vocabulary only, per the handoff content
+   constraints in step 1), and `handoff.startUrl` is a pre-existing entry point — the login
+   page or a route that exists on the base branch, never a route the PR introduces.
+
+Record the outcome as `"firewallAudit": "clean" | "violated: <what>"` in the run record
+(e.g. `"violated: goal names the PR's 'Add contact person' button"` or
+`"violated: startUrl deep-links into the PR's new route"`). If violated, the run is
 invalid — say so in the report and do not present its metrics as findings.
 
 ### 4. Metric extraction
@@ -169,9 +203,12 @@ Compute the six friction metrics from the step logs per
 **steps vs. baseline, backtracks, dead ends, mislabels, failed/abandoned goal, hesitation
 markers**. Then:
 
-- Fingerprint every observation: `metric type + normalized route + normalized label text
-  (mislabels/hesitations) or empty`.
-- Keep as **findings** only friction whose fingerprint appears in both runs (N=2 gate);
+- Fingerprint every observation per the per-metric-type formulas in
+  `references/friction-metrics.md` § Finding fingerprint (mislabels/hesitations add the
+  normalized label text, dead ends add a normalized action discriminator, failed/abandoned
+  goals fingerprint on `type + goal` with the abandonment route recorded as detail only).
+- Keep as **findings** only friction whose fingerprint appears in **at least 2 runs** (with
+  the default `--runs 2` that means both runs; with `--runs <n>`, n > 2, ≥2 of n suffice);
   singletons go to the unreproduced appendix. With `--runs 1`, every finding is labeled
   unreproduced.
 - Assign severities S1–S4 per the scale in `references/friction-metrics.md`.
@@ -186,8 +223,9 @@ Render the sticky PR comment from `references/report-template.md`:
   quote (mislabels), and an annotated screenshot — a red outline drawn on the finding's element
   bounding box (from the accessibility snapshot) before upload. Metrics with no concrete
   moment attached are vibes; do not post them.
-- Push PNGs and a copy of `run-record.json` to the `qa-evidence/pr-{n}` branch (sibling
-  mechanism); fall back to artifact paths when pushing is unavailable.
+- Push PNGs and a copy of `run-record.json` to the evidence branch via the
+  `attach-image-evidence` op in `.ai/trackers/github.md` with slug `pr-{n}` (the op names the
+  slash-free `qa-evidence-…` branch); fall back to artifact paths when pushing is unavailable.
 - The report MUST include the fixed epistemics caveat block from the template, verbatim —
   it is normative, not decoration.
 - **`--compare <runId>`:** load the referenced `run-record.json` (artifacts dir or evidence
@@ -245,7 +283,8 @@ Labels: unchanged{ except needs-ux-walkthrough removed}
 - The knowledge firewall is inviolable during phase 3; the firewall audit is mandatory and its
   result is printed. A violated run's metrics are not findings.
 - Always N=2 with identical persona blob + goal string unless `--runs` says otherwise; only
-  fingerprint-reproduced friction is reported as a finding.
+  friction whose fingerprint is reproduced in **≥2 runs** is reported as a finding (both runs
+  at the default N=2; ≥2 of n when `--runs <n>` with n > 2).
 - Bounded cost: persona `patience_budget`, global 40-step hard cap per run, token budget with
   honest PARTIAL abort; costs recorded in the run record and printed. Label-requested, never
   on-every-push.

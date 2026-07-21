@@ -40,24 +40,38 @@ S1 means the *simulation* failed the task — evidence, not equivalence with a r
 
 ## Finding fingerprint
 
-Used for the N=2 reproducibility gate and for `--compare`:
+Used for the reproducibility gate and for `--compare`. The fingerprint is per metric type:
 
 ```
-fingerprint = metric type + normalized route + normalized label text (mislabels/hesitations, else empty)
+mislabel / hesitation:      fingerprint = metric type + normalized route + normalized label text
+dead end:                   fingerprint = metric type + normalized route + normalized action discriminator
+failed / abandoned goal:    fingerprint = metric type + goal (the identical goal string)
+backtrack / steps-vs-base:  fingerprint = metric type + normalized route
 ```
 
 - Normalized route = path with ids and query strings stripped.
 - Normalized label text = trimmed, case-folded, whitespace-collapsed visible label.
+- Normalized action discriminator (dead ends) = the visible label of the action that produced
+  no progress, normalized as above; when the action has no visible label, the normalized
+  role+name of the acted-on element. This keeps two *distinct* dead ends on the same route
+  distinguishable instead of collapsing into one fingerprint.
+- Failed/abandoned goals fingerprint on `type + goal` because the route where a
+  nondeterministic run happens to give up is unstable across runs; the abandonment route is
+  recorded on the finding as detail only (its `route` field), never in the fingerprint.
 - Two occurrences match when fingerprints are equal.
-- **N=2 gate:** only friction whose fingerprint occurs in both runs is a finding; singletons go
-  to the collapsed "unreproduced observations" appendix.
+- **Reproducibility gate:** a finding requires its fingerprint to occur in **at least 2 runs**.
+  With the default `--runs 2` that means both runs; with `--runs <n>` for n > 2, ≥2 of the n
+  runs suffice. Singletons go to the collapsed "unreproduced observations" appendix. With
+  `--runs 1` the gate is skipped and every finding is labeled unreproduced.
 - **Compare classification:** *resolved* = fingerprint in prior run only; *persisting* = in
   both; *new* = in current run only.
 
 ## Run record schema (`run-record.json`)
 
 Written to `.ai/tmp/om-ux-walkthrough/pr-{n}/run-{runId}/run-record.json` and copied to the
-`qa-evidence/pr-{n}` branch alongside the PNGs.
+evidence branch alongside the PNGs (published through the `attach-image-evidence` op in
+`.ai/trackers/github.md` with slug `pr-{n}`; that op defines the slash-free `qa-evidence-…`
+branch naming).
 
 ```jsonc
 {
@@ -69,10 +83,11 @@ Written to `.ai/tmp/om-ux-walkthrough/pr-{n}/run-{runId}/run-record.json` and co
   "firewallAudit": "clean",                                // or "violated: <what>"
   "runs": [ { "steps": [ { "n": 1, "route": "…", "action": "…", "candidates": ["…"],
       "hesitation": false, "deadEnd": false, "screenshot": "steps/step-01.png" } ],
-      "exit": "goal-reached|patience-exhausted|hard-cap|stuck" } ],
+      "exit": "goal-reached|patience-exhausted|hard-cap|stuck|budget-exhausted" } ],
   "findings": [ { "severity": "S2", "type": "mislabel", "fingerprint": "…",
       "route": "…", "quote": "…", "screenshots": ["…"], "reproduced": true } ],
   "cost": { "steps": [19, 21], "modelTokens": 184000, "wallClockSec": 640 }
+  // cost.steps: one entry per run, in run order — array length equals the effective --runs n
 }
 ```
 

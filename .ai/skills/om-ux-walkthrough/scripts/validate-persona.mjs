@@ -3,10 +3,19 @@
 // Usage:
 //   node .ai/skills/om-ux-walkthrough/scripts/validate-persona.mjs <persona-id|path> [...]
 //   node .ai/skills/om-ux-walkthrough/scripts/validate-persona.mjs --all
+//   node .ai/skills/om-ux-walkthrough/scripts/validate-persona.mjs --self-test
 // Exits non-zero on the first invalid persona so the skill aborts before the env boots.
+//
+// Parsing choices (deliberate, documented):
+// - A leading UTF-8 BOM is stripped before frontmatter detection.
+// - Duplicate frontmatter keys are an error (the key is named in the message).
+// - Inline ` # ` comments in values ARE supported outside quotes (the schema examples in
+//   .ai/qa/personas/AGENTS.md use them); a `#` inside a quoted string is content, not a comment.
+// - Passing a directory is rejected with a clean message (no raw EISDIR stack).
 
-import { readFileSync, readdirSync, existsSync } from 'node:fs'
+import { readFileSync, readdirSync, existsSync, statSync, mkdtempSync, writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { basename, join, resolve } from 'node:path'
+import { tmpdir } from 'node:os'
 import { execSync } from 'node:child_process'
 
 const GLOBAL_HARD_CAP = 40
@@ -53,6 +62,7 @@ function stripComment(raw) {
 }
 
 function parseFrontmatter(content, errors) {
+  if (content.charCodeAt(0) === 0xfeff) content = content.slice(1) // strip UTF-8 BOM before detection
   const lines = content.split(/\r?\n/)
   if (lines[0] !== '---') {
     errors.push('missing frontmatter: file must start with "---"')
@@ -79,6 +89,11 @@ function parseFrontmatter(content, errors) {
       continue
     }
     const [, key, rawValue] = kvMatch
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      errors.push(`duplicate frontmatter key: ${key}`)
+      currentListKey = null
+      continue
+    }
     if (stripComment(rawValue).trim() === '') {
       data[key] = []
       currentListKey = key
@@ -94,6 +109,10 @@ function validatePersonaFile(filePath) {
   const errors = []
   const warnings = []
   const fileName = basename(filePath)
+  if (statSync(filePath).isDirectory()) {
+    errors.push(`is a directory, not a persona file: ${filePath} (pass a persona id or a persona .md file path)`)
+    return { errors, warnings }
+  }
   const content = readFileSync(filePath, 'utf8')
   const { data, body } = parseFrontmatter(content, errors)
   if (!data) return { errors, warnings }
@@ -161,11 +180,86 @@ function resolveTarget(arg) {
   return null
 }
 
+function runSelfTest() {
+  const dir = mkdtempSync(join(tmpdir(), 'validate-persona-selftest-'))
+  const footer = '\n> Synthetic persona — an authored hypothesis about a user archetype, not a record of any real\n> person and not a substitute for real user research.\n'
+  const validBody = (id, extraFm = '') => `---
+id: ${id}                # inline comment: supported outside quotes
+name: "Maria #1, staff accountant"
+age_band: "45-55"
+tech_fluency: low
+domain_knowledge: "Accounting terms yes; this system: never seen it before."
+${extraFm}patience_budget: 25
+vocabulary:
+  - "Says 'book an invoice', never 'create a sales document'."
+---
+Scans the left nav top to bottom before trying search.
+${footer}`
+  const cases = []
+  const check = (name, fn) => cases.push({ name, fn })
+
+  check('valid persona with inline comments and quoted # passes', () => {
+    const p = join(dir, 'fixture-valid.md')
+    writeFileSync(p, validBody('fixture-valid'))
+    const { errors } = validatePersonaFile(p)
+    return errors.length === 0 || `unexpected errors: ${errors.join('; ')}`
+  })
+  check('leading BOM is stripped before frontmatter detection', () => {
+    const p = join(dir, 'fixture-bom.md')
+    writeFileSync(p, '\ufeff' + validBody('fixture-bom'))
+    const { errors } = validatePersonaFile(p)
+    return errors.length === 0 || `unexpected errors: ${errors.join('; ')}`
+  })
+  check('duplicate frontmatter key is rejected and named', () => {
+    const p = join(dir, 'fixture-dup.md')
+    writeFileSync(p, validBody('fixture-dup', 'tech_fluency: high\n'))
+    const { errors } = validatePersonaFile(p)
+    return errors.some((e) => e.includes('duplicate frontmatter key: tech_fluency')) ||
+      `expected a duplicate-key error naming tech_fluency, got: ${errors.join('; ') || '(none)'}`
+  })
+  check('directory argument fails with a clean message (no EISDIR throw)', () => {
+    const p = join(dir, 'fixture-dir.md')
+    mkdirSync(p)
+    try {
+      const { errors } = validatePersonaFile(p)
+      return errors.some((e) => e.includes('is a directory')) ||
+        `expected an is-a-directory error, got: ${errors.join('; ') || '(none)'}`
+    } catch (err) {
+      return `threw instead of reporting cleanly: ${err.message}`
+    }
+  })
+  check('missing patience_budget is rejected', () => {
+    const p = join(dir, 'fixture-nobudget.md')
+    writeFileSync(p, validBody('fixture-nobudget').replace(/^patience_budget:.*\n/m, ''))
+    const { errors } = validatePersonaFile(p)
+    return errors.some((e) => e.includes('patience_budget')) ||
+      `expected a missing patience_budget error, got: ${errors.join('; ') || '(none)'}`
+  })
+
+  let failed = false
+  for (const { name, fn } of cases) {
+    const result = fn()
+    if (result === true) console.log(`PASS ${name}`)
+    else {
+      failed = true
+      console.error(`FAIL ${name}: ${result}`)
+    }
+  }
+  rmSync(dir, { recursive: true, force: true })
+  if (failed) {
+    console.error('validate-persona: self-test failed.')
+    process.exit(1)
+  }
+  console.log('validate-persona: self-test passed.')
+  process.exit(0)
+}
+
 const args = process.argv.slice(2)
 if (args.length === 0) {
-  console.error('usage: validate-persona.mjs <persona-id|path> [...] | --all')
+  console.error('usage: validate-persona.mjs <persona-id|path> [...] | --all | --self-test')
   process.exit(2)
 }
+if (args.includes('--self-test')) runSelfTest()
 
 let targets = []
 if (args.includes('--all')) {
