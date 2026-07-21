@@ -13,7 +13,7 @@ import { Label } from '@open-mercato/ui/primitives/label'
 import { Switch } from '@open-mercato/ui/primitives/switch'
 import { Spinner } from '@open-mercato/ui/primitives/spinner'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@open-mercato/ui/primitives/card'
-import { computeNextChannels } from './typeChannelSettings'
+import { computeChannelsPatch } from './typeChannelSettings'
 
 type NotificationTypeCatalogueItem = {
   id: string
@@ -172,8 +172,10 @@ export function NotificationSettingsPageClient() {
     registeredChannelIds: string[],
   ) => {
     const effective = type.channels ?? registeredChannelIds
+    // Unchecking the last channel maps to `null` (clear the override → code default reapplies)
+    // rather than an empty set, which the API rejects and which would black-hole the type.
     await patchType(type, `${type.id}::${channelId}`, {
-      channels: computeNextChannels(effective, channelId, enabled),
+      channels: computeChannelsPatch(effective, channelId, enabled),
     })
   }
 

@@ -43,7 +43,7 @@ function makeKysely(insertResult?: Array<{ id: string }>) {
     insertRows: Array<Record<string, unknown>> | null
     conflictColumns: string[] | null
     conflictWhere: unknown[] | null
-    updates: Array<{ set: Record<string, unknown>; where: unknown[] }>
+    updates: Array<{ set: Record<string, unknown>; wheres: unknown[][] }>
   } = { insertRows: null, conflictColumns: null, conflictWhere: null, updates: [] }
 
   const insertBuilder: Record<string, unknown> = {
@@ -72,14 +72,24 @@ function makeKysely(insertResult?: Array<{ id: string }>) {
 
   const db = {
     insertInto: () => insertBuilder,
-    updateTable: () => ({
-      set: (set: Record<string, unknown>) => ({
-        where: (...where: unknown[]) => {
-          captured.updates.push({ set, where })
-          return { execute: async () => undefined }
+    updateTable: () => {
+      const record: { set: Record<string, unknown>; wheres: unknown[][] } = { set: {}, wheres: [] }
+      const builder = {
+        set: (set: Record<string, unknown>) => {
+          record.set = set
+          return builder
         },
-      }),
-    }),
+        where: (...where: unknown[]) => {
+          record.wheres.push(where)
+          return builder
+        },
+        execute: async () => {
+          captured.updates.push(record)
+          return undefined
+        },
+      }
+      return builder
+    },
   }
   return { db, captured }
 }
@@ -219,8 +229,12 @@ describe('mobilePushDeliveryStrategy', () => {
     expect(captured.updates).toHaveLength(1)
     expect(captured.updates[0].set).toMatchObject({ status: 'failed' })
     expect(String((captured.updates[0].set as Record<string, unknown>).last_error)).toContain('enqueue_failed')
-    // Failed enqueues are batched into one UPDATE per reason via `where id in (...)`.
-    expect(captured.updates[0].where).toEqual(['id', 'in', ['del-1']])
+    // Failed enqueues are batched into one UPDATE per reason via `where id in (...)`, guarded on
+    // `status='pending'` so a row a worker already progressed is not clobbered back to failed.
+    expect(captured.updates[0].wheres).toEqual([
+      ['id', 'in', ['del-1']],
+      ['status', '=', 'pending'],
+    ])
   })
 
   it('batches multiple same-reason enqueue failures into a single UPDATE', async () => {
@@ -234,10 +248,13 @@ describe('mobilePushDeliveryStrategy', () => {
       insertResult: [{ id: 'del-1' }, { id: 'del-2' }],
     })
     await mobilePushDeliveryStrategy.deliver(ctx)
-    // Both rows share the same failure reason ⇒ one UPDATE targeting both ids.
+    // Both rows share the same failure reason ⇒ one UPDATE targeting both ids, guarded on 'pending'.
     expect(captured.updates).toHaveLength(1)
     expect(captured.updates[0].set).toMatchObject({ status: 'failed' })
-    expect(captured.updates[0].where).toEqual(['id', 'in', ['del-1', 'del-2']])
+    expect(captured.updates[0].wheres).toEqual([
+      ['id', 'in', ['del-1', 'del-2']],
+      ['status', '=', 'pending'],
+    ])
   })
 
   it('routes each device to the push channel matching its provider', async () => {

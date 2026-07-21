@@ -186,7 +186,10 @@ export const notificationTypeItemSchema = z.object({
 export const updateNotificationTypeSchema = z
   .object({
     id: z.string().min(1),
-    channels: z.array(z.string().min(1)).nullable().optional(),
+    // Mirror the create guard: a non-empty array restricts eligibility, `null` clears the override
+    // (code declaration reapplies). An empty array is rejected — it would resolve to zero deliverable
+    // channels and silently black-hole the type (invisible + undelivered); clear with `null` instead.
+    channels: z.array(z.string().min(1)).min(1).nullable().optional(),
     nonOptOut: z.boolean().nullable().optional(),
   })
   .refine((value) => value.channels !== undefined || value.nonOptOut !== undefined, {
