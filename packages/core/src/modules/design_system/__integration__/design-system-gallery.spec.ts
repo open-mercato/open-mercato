@@ -42,9 +42,9 @@ test.describe('design_system gallery', () => {
     consoleErrors.length = 0
     await page.goto(GALLERY_PATH)
 
-    // Gallery shell renders with the first family's entries.
-    await expect(page.getByRole('heading', { name: 'Button', exact: true })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'IconButton', exact: true })).toBeVisible()
+    // Gallery shell renders with the first family's entries (foundations).
+    await expect(page.getByRole('heading', { name: 'Brand colors', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Chart palette', exact: true })).toBeVisible()
     // The lazy-family skeleton must have resolved.
     await expect(page.getByTestId('gallery-family-skeleton')).toHaveCount(0)
     // Navigating away aborts the dashboard's in-flight layout fetch, which can
@@ -120,8 +120,8 @@ test.describe('design_system gallery', () => {
     await search.fill('no-such-component-zzz')
     await expect(page.getByText('No components match your search')).toBeVisible()
 
-    // Clearing restores the active family.
+    // Clearing restores the active family (foundations is the default).
     await search.fill('')
-    await expect(page.getByRole('heading', { name: 'FancyButton', exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Brand colors', exact: true })).toBeVisible()
   })
 })
