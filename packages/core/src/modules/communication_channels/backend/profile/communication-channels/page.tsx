@@ -476,7 +476,7 @@ export default function ProfileCommunicationChannelsPage() {
         </header>
 
         {reauthRows.length > 0 ? (
-          <Alert variant="warning" className="mb-4">
+          <Alert status="warning" className="mb-4">
             <AlertDescription>
               {t(
                 'communication_channels.profile.alerts.requiresReauth',
@@ -735,7 +735,7 @@ function ImportHistoryDialog({ channel, onClose, onQueued }: ImportHistoryDialog
           </div>
 
           {fieldErrors.channelId ? (
-            <Alert variant="warning">
+            <Alert status="warning">
               <AlertDescription>{fieldErrors.channelId}</AlertDescription>
             </Alert>
           ) : null}

@@ -546,15 +546,15 @@ export default function WebhookDetailPage() {
 
         <div className="mt-6 space-y-4">
           {!access.isLoading && !access.canManage && !access.canSecrets && !access.canTest ? (
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.readOnlyTip')}</AlertDescription>
             </Alert>
           ) : null}
           <div className="grid gap-3 lg:grid-cols-2">
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.deliveryTip')}</AlertDescription>
             </Alert>
-            <Alert variant="info">
+            <Alert status="information">
               <AlertDescription>{t('webhooks.detail.signatureTip')}</AlertDescription>
             </Alert>
           </div>

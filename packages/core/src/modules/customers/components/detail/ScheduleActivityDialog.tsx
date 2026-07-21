@@ -497,7 +497,7 @@ export function ScheduleActivityDialog({
 
         {/* Conflict warning */}
         {state.conflict && (
-          <Alert variant="warning" className="rounded-lg">
+          <Alert status="warning" className="rounded-lg">
             <AlertTitle>
               {t('customers.schedule.conflict.title', 'Calendar conflict')}
             </AlertTitle>

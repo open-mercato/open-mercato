@@ -131,7 +131,7 @@ Pill vs no-pill chips: the shipped primitives (`Badge`, `Tag` pill variant, `Seg
 - Every list/data page MUST handle empty state via `<EmptyState>` or `emptyState` prop on DataTable
 - Every async page MUST show loading state via `<LoadingMessage>`, `<Spinner>`, or `<DataLoader>`
 - Alert API: `status="information|success|warning|error|feature"` × `style="light|lighter|stroke|filled"` × `size="xs|sm|default"` — see `.ai/ui-components.md` § Alert for the full matrix
-- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — new code uses `status` + `style`
+- The Alert `variant` prop (`destructive`/`info`/…) is **deprecated BC** — in-repo migration complete (2026-07); the lint rule `om-ds/no-legacy-alert-variant` guards against regressions, the shim in `primitives/alert.tsx` stays for third-party code
 
 ## Spacing
 - NEVER use arbitrary spacing values (`p-[13px]`, `gap-[10px]`, `mt-[7px]`, etc.)

@@ -292,10 +292,10 @@ interface ServerEmittedUiPartRef {
   pendingActionId?: string
 }
 
-function mapErrorCodeToVariant(
+function mapErrorCodeToStatus(
   code: string | undefined,
-): 'destructive' | 'warning' {
-  if (!code) return 'destructive'
+): 'error' | 'warning' {
+  if (!code) return 'error'
   // Policy denies that describe a filtered tool or attachment surface a
   // warning alert; caller can still continue. Hard denials (agent_unknown,
   // agent_features_denied, unauthenticated, execution_mode_not_supported,
@@ -305,7 +305,7 @@ function mapErrorCodeToVariant(
     'tool_features_denied',
     'attachment_type_not_accepted',
   ])
-  return warningCodes.has(code) ? 'warning' : 'destructive'
+  return warningCodes.has(code) ? 'warning' : 'error'
 }
 
 const MARKDOWN_TYPOGRAPHY_CLASS = cn(
@@ -1541,7 +1541,7 @@ export function AiChat({
   const resolvedPlaceholder =
     placeholder ?? t('ai_assistant.chat.composerPlaceholder', 'Message the AI agent...')
 
-  const errorVariant = mapErrorCodeToVariant(chat.error?.code)
+  const errorStatus = mapErrorCodeToStatus(chat.error?.code)
 
   return (
     <section
@@ -1622,7 +1622,7 @@ export function AiChat({
       </div>
 
       {chat.error ? (
-        <Alert variant={errorVariant} data-ai-chat-error={chat.error.code ?? 'unknown'}>
+        <Alert status={errorStatus} data-ai-chat-error={chat.error.code ?? 'unknown'}>
           <AlertTitle>
             {t('ai_assistant.chat.errorTitle', 'Agent dispatch failed')}
           </AlertTitle>

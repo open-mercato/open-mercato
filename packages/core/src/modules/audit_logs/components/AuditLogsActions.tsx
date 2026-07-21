@@ -234,7 +234,7 @@ export function AuditLogsActions({
   return (
     <>
       {showSelfOnlyHint ? (
-        <Alert variant="info" className="mb-4">
+        <Alert status="information" className="mb-4">
           <AlertDescription>
             {t('audit_logs.hint.view_self_only', 'Showing only your own changes. Contact an administrator for broader access.')}
           </AlertDescription>

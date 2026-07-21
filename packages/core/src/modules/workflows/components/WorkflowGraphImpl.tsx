@@ -235,7 +235,7 @@ export default function WorkflowGraphImpl({
 
         {editable && !isCompactViewport && (
           <Panel position="top-left" style={{ margin: 10 }}>
-            <Alert variant="info" icon={<Edit3 aria-hidden="true" />} className="max-w-sm">
+            <Alert status="information" icon={<Edit3 aria-hidden="true" />} className="max-w-sm">
               <AlertDescription className="font-medium">
                 {t('workflows.graph.editModeInfo')}
               </AlertDescription>
