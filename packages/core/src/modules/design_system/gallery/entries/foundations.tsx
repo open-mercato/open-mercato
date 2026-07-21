@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { Circle } from 'lucide-react'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import type { GalleryEntry } from '../types'
 
@@ -11,25 +12,64 @@ import type { GalleryEntry } from '../types'
 const TOKENS_IMPORT = 'apps/mercato/src/app/globals.css'
 const FIGMA_COLORS_NODE = '553:14956'
 
-function TokenSwatch({ tokenClass, label }: { tokenClass: string; label: string }) {
+function SwatchCard({ copyText, label, children }: { copyText: string; label: string; children: React.ReactNode }) {
   const onCopy = React.useCallback(async () => {
     try {
-      await navigator.clipboard.writeText(label)
-      flash(`${label} copied`, 'success')
+      await navigator.clipboard.writeText(copyText)
+      flash(`${copyText} copied`, 'success')
     } catch {
       flash('Could not copy the token', 'error')
     }
-  }, [label])
+  }, [copyText])
   return (
     <button
       type="button"
       onClick={onCopy}
       className="flex w-36 flex-col items-start gap-1 rounded-md border border-border bg-background p-2 text-left transition-colors hover:bg-muted/40"
-      title={`Copy ${label}`}
+      title={`Copy ${copyText}`}
     >
-      <span aria-hidden className={`h-10 w-full rounded-sm border border-border ${tokenClass}`} />
-      <code className="max-w-full truncate text-xs text-muted-foreground">{label}</code>
+      {children}
+      <code className="break-all text-[11px] leading-tight text-muted-foreground">{label}</code>
     </button>
+  )
+}
+
+function TokenSwatch({ tokenClass, label }: { tokenClass: string; label: string }) {
+  return (
+    <SwatchCard copyText={label} label={label}>
+      <span aria-hidden className={`h-10 w-full rounded-sm border border-border ${tokenClass}`} />
+    </SwatchCard>
+  )
+}
+
+// A text-color token shown in its actual role — as type, not as a fill.
+function TextSwatch({ textClass, label }: { textClass: string; label: string }) {
+  return (
+    <SwatchCard copyText={textClass} label={label}>
+      <span aria-hidden className="flex h-10 w-full items-center justify-center rounded-sm border border-border bg-background">
+        <span className={`text-xl font-semibold leading-none ${textClass}`}>Aa</span>
+      </span>
+    </SwatchCard>
+  )
+}
+
+// A border-color token shown as a 2px outline on the neutral surface.
+function BorderSwatch({ borderClass, label }: { borderClass: string; label: string }) {
+  return (
+    <SwatchCard copyText={borderClass} label={label}>
+      <span aria-hidden className={`h-10 w-full rounded-sm border-2 bg-background ${borderClass}`} />
+    </SwatchCard>
+  )
+}
+
+// An icon-color token shown on a real glyph.
+function IconSwatch({ iconClass, label }: { iconClass: string; label: string }) {
+  return (
+    <SwatchCard copyText={iconClass} label={label}>
+      <span aria-hidden className="flex h-10 w-full items-center justify-center rounded-sm border border-border bg-background">
+        <Circle className={`size-4 fill-current ${iconClass}`} />
+      </span>
+    </SwatchCard>
   )
 }
 
@@ -150,15 +190,13 @@ const colorTokensEntry: GalleryEntry = {
       id: 'text',
       title: 'text',
       render: () => (
-        <SwatchRow
-          items={[
-            { tokenClass: 'bg-foreground', label: 'foreground' },
-            { tokenClass: 'bg-muted-foreground', label: 'muted-foreground' },
-            { tokenClass: 'bg-card-foreground', label: 'card-foreground' },
-            { tokenClass: 'bg-accent-foreground', label: 'accent-foreground' },
-            { tokenClass: 'bg-text-disabled', label: 'text-disabled' },
-          ]}
-        />
+        <div className="flex flex-wrap gap-2">
+          <TextSwatch textClass="text-foreground" label="text-foreground" />
+          <TextSwatch textClass="text-muted-foreground" label="text-muted-foreground" />
+          <TextSwatch textClass="text-card-foreground" label="text-card-foreground" />
+          <TextSwatch textClass="text-accent-foreground" label="text-accent-foreground" />
+          <TextSwatch textClass="text-text-disabled" label="text-text-disabled" />
+        </div>
       ),
       code: `<p className="text-muted-foreground">Secondary copy</p>`,
     },
@@ -166,28 +204,60 @@ const colorTokensEntry: GalleryEntry = {
       id: 'stroke',
       title: 'stroke',
       render: () => (
-        <SwatchRow
-          items={[
-            { tokenClass: 'bg-border', label: 'border' },
-            { tokenClass: 'bg-input', label: 'input' },
-            { tokenClass: 'bg-ring', label: 'ring' },
-            { tokenClass: 'bg-border-disabled', label: 'border-disabled' },
-          ]}
-        />
+        <div className="flex flex-wrap gap-2">
+          <BorderSwatch borderClass="border-border" label="border-border" />
+          <BorderSwatch borderClass="border-input" label="border-input" />
+          <BorderSwatch borderClass="border-ring" label="border-ring" />
+          <BorderSwatch borderClass="border-border-disabled" label="border-border-disabled" />
+        </div>
       ),
       code: `<div className="border-border focus-visible:ring-ring" />`,
     },
   ],
 }
 
-const FIGMA_STATE_TO_CODE: Array<{ figma: string; status: string }> = [
-  { figma: 'Faded', status: 'neutral' },
-  { figma: 'Information', status: 'info' },
-  { figma: 'Warning', status: 'warning' },
-  { figma: 'Error', status: 'error' },
-  { figma: 'Success', status: 'success' },
-  { figma: 'Highlighted', status: 'pink' },
+// Literal class strings on purpose: the Tailwind scanner only sees complete
+// literals, so `bg-status-${x}` variants would silently never be generated.
+type StatusFamily = {
+  figma: string
+  status: string
+  chipLabel: string
+  bg: string
+  text: string
+  border: string
+  icon: string
+  dot: string
+}
+
+const FIGMA_STATE_TO_CODE: StatusFamily[] = [
+  { figma: 'Faded', status: 'neutral', chipLabel: 'Neutral', bg: 'bg-status-neutral-bg', text: 'text-status-neutral-text', border: 'border-status-neutral-border', icon: 'text-status-neutral-icon', dot: 'bg-status-neutral-icon' },
+  { figma: 'Information', status: 'info', chipLabel: 'Info', bg: 'bg-status-info-bg', text: 'text-status-info-text', border: 'border-status-info-border', icon: 'text-status-info-icon', dot: 'bg-status-info-icon' },
+  { figma: 'Warning', status: 'warning', chipLabel: 'Warning', bg: 'bg-status-warning-bg', text: 'text-status-warning-text', border: 'border-status-warning-border', icon: 'text-status-warning-icon', dot: 'bg-status-warning-icon' },
+  { figma: 'Error', status: 'error', chipLabel: 'Error', bg: 'bg-status-error-bg', text: 'text-status-error-text', border: 'border-status-error-border', icon: 'text-status-error-icon', dot: 'bg-status-error-icon' },
+  { figma: 'Success', status: 'success', chipLabel: 'Success', bg: 'bg-status-success-bg', text: 'text-status-success-text', border: 'border-status-success-border', icon: 'text-status-success-icon', dot: 'bg-status-success-icon' },
+  { figma: 'Highlighted', status: 'pink', chipLabel: 'Highlighted', bg: 'bg-status-pink-bg', text: 'text-status-pink-text', border: 'border-status-pink-border', icon: 'text-status-pink-icon', dot: 'bg-status-pink-icon' },
 ]
+
+// One status family: the composed chip first (how the roles work together),
+// then each token presented in its actual role.
+function StatusFamilyPreview({ family }: { family: StatusFamily }) {
+  return (
+    <div className="space-y-3">
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-sm font-medium ${family.bg} ${family.text} ${family.border}`}
+      >
+        <span aria-hidden className={`size-2 rounded-full ${family.dot}`} />
+        {family.chipLabel}
+      </span>
+      <div className="flex flex-wrap gap-2">
+        <TokenSwatch tokenClass={family.bg} label={family.bg} />
+        <TextSwatch textClass={family.text} label={family.text} />
+        <BorderSwatch borderClass={family.border} label={family.border} />
+        <IconSwatch iconClass={family.icon} label={family.icon} />
+      </div>
+    </div>
+  )
+}
 
 const stateTokensEntry: GalleryEntry = {
   id: 'state-tokens',
@@ -205,18 +275,11 @@ const stateTokensEntry: GalleryEntry = {
   },
   figmaNodeId: FIGMA_COLORS_NODE,
   variants: [
-    ...FIGMA_STATE_TO_CODE.map(({ figma, status }) => ({
-      id: status,
-      title: `${figma} → status-${status}`,
-      render: () => (
-        <SwatchRow
-          items={['bg', 'text', 'border', 'icon'].map((role) => ({
-            tokenClass: `bg-status-${status}-${role}`,
-            label: `status-${status}-${role}`,
-          }))}
-        />
-      ),
-      code: `<span className="bg-status-${status}-bg text-status-${status}-text border-status-${status}-border" />`,
+    ...FIGMA_STATE_TO_CODE.map((family) => ({
+      id: family.status,
+      title: `${family.figma} → status-${family.status}`,
+      render: () => <StatusFamilyPreview family={family} />,
+      code: `<span className="${family.bg} ${family.text} ${family.border}" />`,
     })),
     {
       id: 'feature',
