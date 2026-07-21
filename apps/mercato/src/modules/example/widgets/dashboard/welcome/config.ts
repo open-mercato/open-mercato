@@ -8,6 +8,18 @@ export const DEFAULT_SETTINGS: WelcomeSettings = {
   message: 'Use this dashboard to stay on top of your most important work.',
 }
 
+export const WELCOME_HEADLINE_KEY = 'example.widgets.welcome.defaults.headline'
+export const WELCOME_MESSAGE_KEY = 'example.widgets.welcome.defaults.message'
+
+export function resolveWelcomeText(
+  value: string,
+  shippedDefault: string,
+  translationKey: string,
+  translate: (key: string, fallback: string) => string,
+): string {
+  return value === shippedDefault ? translate(translationKey, shippedDefault) : value
+}
+
 export function hydrateWelcomeSettings(raw: unknown): WelcomeSettings {
   if (!raw || typeof raw !== 'object') return { ...DEFAULT_SETTINGS }
   const data = raw as Partial<WelcomeSettings>
