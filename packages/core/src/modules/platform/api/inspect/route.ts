@@ -1,9 +1,12 @@
 import { NextResponse } from 'next/server'
 import { getAuthFromRequest } from '@open-mercato/shared/lib/auth/server'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import { collectPlatformMap } from '@open-mercato/shared/lib/introspection/registry'
 import { buildRuntimeIntrospectionContext } from '@open-mercato/shared/lib/introspection/runtime-context'
 import { isPlatformMapEnabled } from '../../lib/gating'
+
+const logger = createLogger('platform').child({ component: 'inspect' })
 
 export const metadata = {
   GET: { requireAuth: true, requireFeatures: ['platform.inspect.view'] },
@@ -49,7 +52,7 @@ export async function GET(req: Request) {
 
     return NextResponse.json(map)
   } catch (error) {
-    console.error('[platform.inspect] failed to build platform map', error)
+    logger.error('Failed to build platform map', { err: error })
     return NextResponse.json({ error: 'Failed to load platform map' }, { status: 500 })
   }
 }
