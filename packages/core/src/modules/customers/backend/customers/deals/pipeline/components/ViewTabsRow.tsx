@@ -24,9 +24,13 @@ export function ViewTabsRow({ active, className }: ViewTabsRowProps): React.Reac
     map: translateWithFallback(t, 'customers.deals.kanban.view.map', 'Map'),
   }
 
+  // Link-based tab row (two routes), so the Tabs primitive (state-driven,
+  // onValueChange) does not fit — real <Link> semantics must stay. Classes
+  // mirror the Tabs underline variant: accent-indigo active border,
+  // shadow-focus halo.
   const baseTab =
-    'inline-flex items-center px-3.5 py-2.5 text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2'
-  const activeTab = 'border-b-2 border-foreground font-semibold text-foreground'
+    'inline-flex items-center px-3.5 py-2.5 text-sm leading-normal transition-colors focus-visible:outline-none focus-visible:shadow-focus'
+  const activeTab = 'border-b-2 border-accent-indigo font-semibold text-foreground'
   const inactiveTab = 'border-b-2 border-transparent font-normal text-muted-foreground hover:text-foreground'
 
   // Renders the active tab as a non-navigating `<span>` and the inactive tab as a `<Link>`,

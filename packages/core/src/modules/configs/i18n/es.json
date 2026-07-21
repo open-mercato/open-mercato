@@ -189,5 +189,9 @@
   "configs.systemStatus.variables.queryIndexWarmupThrottleMs.label": "Ventana de limitación del calentamiento",
   "configs.systemStatus.variables.scheduleAutoReindex.description": "Programar automáticamente trabajos de reindexación cuando se detecten brechas.",
   "configs.systemStatus.variables.scheduleAutoReindex.label": "Reindexación automática",
-  "configs.systemStatus.viewDocs": "Ver documentación"
+  "configs.systemStatus.viewDocs": "Ver documentación",
+  "configs.upgrades.attachmentsOrgReconcile.cta": "Reconciliar organizaciones de adjuntos",
+  "configs.upgrades.attachmentsOrgReconcile.loading": "Reconciliando organizaciones de adjuntos…",
+  "configs.upgrades.attachmentsOrgReconcile.message": "La versión {{version}} corrige los adjuntos guardados en la organización incorrecta. Ejecuta la reconciliación para mover los adjuntos existentes a la organización del registro al que pertenecen.",
+  "configs.upgrades.attachmentsOrgReconcile.success": "Organizaciones de adjuntos reconciliadas."
 }

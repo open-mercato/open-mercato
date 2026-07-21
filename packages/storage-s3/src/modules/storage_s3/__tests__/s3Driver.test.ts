@@ -1,4 +1,5 @@
 /** @jest-environment node */
+import path from 'path'
 import { Readable } from 'stream'
 
 const mockSend = jest.fn()
@@ -17,12 +18,14 @@ jest.mock('@aws-sdk/s3-request-presigner', () => ({
 }))
 
 const mockMkdir = jest.fn().mockResolvedValue(undefined)
+const mockMkdtemp = jest.fn().mockResolvedValue('/tmp/s3-tmp-secure')
 const mockWriteFile = jest.fn().mockResolvedValue(undefined)
 const mockRm = jest.fn().mockResolvedValue(undefined)
 
 jest.mock('fs', () => ({
   promises: {
     mkdir: (...a: unknown[]) => mockMkdir(...a),
+    mkdtemp: (...a: unknown[]) => mockMkdtemp(...a),
     writeFile: (...a: unknown[]) => mockWriteFile(...a),
     rm: (...a: unknown[]) => mockRm(...a),
   },
@@ -41,6 +44,12 @@ beforeEach(() => {
   mockSend.mockReset()
   mockGetSignedUrl.mockReset()
   mockGetSignedUrl.mockResolvedValue('https://presigned.example.com/object?sig=abc')
+  mockMkdtemp.mockReset()
+  mockMkdtemp.mockResolvedValue('/tmp/s3-tmp-secure')
+  mockWriteFile.mockReset()
+  mockWriteFile.mockResolvedValue(undefined)
+  mockRm.mockReset()
+  mockRm.mockResolvedValue(undefined)
   ;(S3Client as jest.Mock).mockClear()
 })
 
@@ -192,6 +201,55 @@ describe('S3StorageDriver', () => {
       mockSend.mockRejectedValueOnce(new Error('NoSuchKey'))
       const driver = new S3StorageDriver(BASE_CONFIG)
       await expect(driver.delete('', 'missing.txt')).resolves.not.toThrow()
+    })
+  })
+
+  describe('toLocalPath()', () => {
+    it('creates an owner-only temporary file without following an existing path', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      const result = await driver.toLocalPath('', 'docs/private.pdf')
+
+      expect(mockMkdtemp).toHaveBeenCalledWith(expect.stringMatching(/s3-tmp-$/))
+      expect(mockWriteFile).toHaveBeenCalledWith(
+        path.join('/tmp/s3-tmp-secure', 'private.pdf'),
+        Buffer.from('sensitive'),
+        { flag: 'wx', mode: 0o600 },
+      )
+      expect(result.filePath).toBe(path.join('/tmp/s3-tmp-secure', 'private.pdf'))
+    })
+
+    it('removes the temporary directory when the S3 download fails', async () => {
+      mockSend.mockRejectedValueOnce(new Error('download failed'))
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      await expect(driver.toLocalPath('', 'docs/private.pdf')).rejects.toThrow('download failed')
+
+      expect(mockRm).toHaveBeenCalledWith('/tmp/s3-tmp-secure', { recursive: true, force: true })
+    })
+
+    it('removes partial artifacts without masking a write failure', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      mockWriteFile.mockRejectedValueOnce(new Error('write failed'))
+      mockRm.mockRejectedValueOnce(new Error('cleanup failed'))
+      const driver = new S3StorageDriver(BASE_CONFIG)
+
+      await expect(driver.toLocalPath('', 'docs/private.pdf')).rejects.toThrow('write failed')
+
+      expect(mockRm).toHaveBeenCalledWith('/tmp/s3-tmp-secure', { recursive: true, force: true })
+    })
+
+    it('returns an idempotent cleanup callback', async () => {
+      mockSend.mockResolvedValueOnce({ Body: makeStream(Buffer.from('sensitive')) })
+      const driver = new S3StorageDriver(BASE_CONFIG)
+      const result = await driver.toLocalPath('', 'docs/private.pdf')
+
+      await result.cleanup()
+      await result.cleanup()
+
+      expect(mockRm).toHaveBeenNthCalledWith(1, '/tmp/s3-tmp-secure', { recursive: true, force: true })
+      expect(mockRm).toHaveBeenNthCalledWith(2, '/tmp/s3-tmp-secure', { recursive: true, force: true })
     })
   })
 

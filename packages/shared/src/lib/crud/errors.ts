@@ -36,6 +36,16 @@ export function forbidden(message = 'Forbidden'): CrudHttpError {
   return new CrudHttpError(403, { error: message })
 }
 
+/**
+ * Builds the standardized 404 (`{ error: message }`) — use it instead of hand-rolling
+ * `new CrudHttpError(404, { error: message })`. Reach for this in guard statements, where
+ * the lookup spans several lines or the condition is compound
+ * (`if (!entity || entity.tenantId !== auth.tenantId) throw notFound(msg)`); TypeScript
+ * still narrows the value after the throw. For a plain inline lookup, `assertFound` is terser.
+ *
+ * Pass an already-translated message; this helper never derives one, so 404 copy
+ * stays routed through i18n.
+ */
 export function notFound(message = 'Not found'): CrudHttpError {
   return new CrudHttpError(404, { error: message })
 }
@@ -69,6 +79,19 @@ export function isUniqueViolation(err: unknown, constraintName?: string): boolea
   return false
 }
 
+/**
+ * The canonical "entity must exist" guard for API routes and commands: throws the
+ * standardized 404 when the lookup came back empty, and returns the value narrowed
+ * to `T` so callers drop the `| null` without a cast.
+ *
+ *   const deal = assertFound(await em.findOne(Deal, { id }), translate('customers.errors.deal_not_found', 'Deal not found'))
+ *
+ * Use this instead of hand-rolling `if (!entity) throw new CrudHttpError(404, ...)`.
+ * `message` is required and passed through verbatim, so it must already be translated.
+ *
+ * Treats every falsy value as missing, so it suits entity/object lookups — do not use
+ * it to guard numbers or strings, where `0` and `''` are legitimate results.
+ */
 export function assertFound<T>(value: T | null | undefined, message: string): T {
   if (!value) throw notFound(message)
   return value
