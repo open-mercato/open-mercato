@@ -56,6 +56,16 @@ TODO: Fix that latter to have reference by the package names
   --color-chart-3: var(--chart-3);
   --color-chart-2: var(--chart-2);
   --color-chart-1: var(--chart-1);
+  --color-chart-blue: var(--chart-blue);
+  --color-chart-emerald: var(--chart-emerald);
+  --color-chart-amber: var(--chart-amber);
+  --color-chart-rose: var(--chart-rose);
+  --color-chart-violet: var(--chart-violet);
+  --color-chart-cyan: var(--chart-cyan);
+  --color-chart-indigo: var(--chart-indigo);
+  --color-chart-pink: var(--chart-pink);
+  --color-chart-teal: var(--chart-teal);
+  --color-chart-orange: var(--chart-orange);
   --color-ring: var(--ring);
   --color-input: var(--input);
   --color-border: var(--border);

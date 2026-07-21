@@ -235,13 +235,24 @@ const chartPaletteEntry: GalleryEntry = {
   id: 'chart-palette',
   title: 'Chart palette',
   importPath: TOKENS_IMPORT,
+  usage: {
+    dont: [
+      'Never build token class names dynamically (`bg-chart-${n}`) — the Tailwind scanner only sees complete literals, so the class is silently never generated.',
+    ],
+  },
   variants: [
     {
       id: 'numbered',
       title: 'numbered',
       render: () => (
         <SwatchRow
-          items={[1, 2, 3, 4, 5].map((n) => ({ tokenClass: `bg-chart-${n}`, label: `chart-${n}` }))}
+          items={[
+            { tokenClass: 'bg-chart-1', label: 'chart-1' },
+            { tokenClass: 'bg-chart-2', label: 'chart-2' },
+            { tokenClass: 'bg-chart-3', label: 'chart-3' },
+            { tokenClass: 'bg-chart-4', label: 'chart-4' },
+            { tokenClass: 'bg-chart-5', label: 'chart-5' },
+          ]}
         />
       ),
       code: `<BarChart data={data} />`,
@@ -251,9 +262,18 @@ const chartPaletteEntry: GalleryEntry = {
       title: 'named',
       render: () => (
         <SwatchRow
-          items={['blue', 'emerald', 'amber', 'rose', 'violet', 'cyan', 'indigo', 'pink', 'teal', 'orange'].map(
-            (name) => ({ tokenClass: `bg-chart-${name}`, label: `chart-${name}` }),
-          )}
+          items={[
+            { tokenClass: 'bg-chart-blue', label: 'chart-blue' },
+            { tokenClass: 'bg-chart-emerald', label: 'chart-emerald' },
+            { tokenClass: 'bg-chart-amber', label: 'chart-amber' },
+            { tokenClass: 'bg-chart-rose', label: 'chart-rose' },
+            { tokenClass: 'bg-chart-violet', label: 'chart-violet' },
+            { tokenClass: 'bg-chart-cyan', label: 'chart-cyan' },
+            { tokenClass: 'bg-chart-indigo', label: 'chart-indigo' },
+            { tokenClass: 'bg-chart-pink', label: 'chart-pink' },
+            { tokenClass: 'bg-chart-teal', label: 'chart-teal' },
+            { tokenClass: 'bg-chart-orange', label: 'chart-orange' },
+          ]}
         />
       ),
       code: `<Sparkline className="text-chart-blue" data={points} />`,
