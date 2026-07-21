@@ -1,13 +1,13 @@
 {
-  "platform.map.pageTitle": "Plattformkarte",
-  "platform.map.pageGroup": "Developer",
   "platform.map.description": "Schreibgeschützte Ansicht der verdrahteten Erweiterungsoberflächen in dieser App.",
-  "platform.map.surface": "Oberfläche",
-  "platform.map.tier": "Stufe",
-  "platform.map.surfaceMeta": "Stufe {tier} · {count} Zeile(n)",
-  "platform.map.loading": "Plattformkarte wird geladen…",
+  "platform.map.empty": "Keine Zeilen für diese Oberfläche.",
   "platform.map.error": "Plattformkarte konnte nicht geladen werden",
   "platform.map.invalidResponse": "Unerwartete Antwort der Plattformkarte",
-  "platform.map.empty": "Keine Zeilen für diese Oberfläche.",
-  "platform.map.retry": "Erneut versuchen"
+  "platform.map.loading": "Plattformkarte wird geladen…",
+  "platform.map.pageGroup": "Developer",
+  "platform.map.pageTitle": "Plattformkarte",
+  "platform.map.retry": "Erneut versuchen",
+  "platform.map.surface": "Oberfläche",
+  "platform.map.surfaceMeta": "Stufe {tier} · {count} Zeile(n)",
+  "platform.map.tier": "Stufe"
 }

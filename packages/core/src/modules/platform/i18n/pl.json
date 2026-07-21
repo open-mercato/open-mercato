@@ -1,13 +1,13 @@
 {
-  "platform.map.pageTitle": "Mapa platformy",
-  "platform.map.pageGroup": "Developer",
   "platform.map.description": "Podgląd tylko do odczytu podłączonych powierzchni rozszerzeń w tej aplikacji.",
-  "platform.map.surface": "Powierzchnia",
-  "platform.map.tier": "Poziom",
-  "platform.map.surfaceMeta": "Poziom {tier} · {count} wierszy",
-  "platform.map.loading": "Ładowanie mapy platformy…",
+  "platform.map.empty": "Brak wierszy dla tej powierzchni.",
   "platform.map.error": "Nie udało się załadować mapy platformy",
   "platform.map.invalidResponse": "Nieoczekiwana odpowiedź mapy platformy",
-  "platform.map.empty": "Brak wierszy dla tej powierzchni.",
-  "platform.map.retry": "Ponów"
+  "platform.map.loading": "Ładowanie mapy platformy…",
+  "platform.map.pageGroup": "Developer",
+  "platform.map.pageTitle": "Mapa platformy",
+  "platform.map.retry": "Ponów",
+  "platform.map.surface": "Powierzchnia",
+  "platform.map.surfaceMeta": "Poziom {tier} · {count} wierszy",
+  "platform.map.tier": "Poziom"
 }

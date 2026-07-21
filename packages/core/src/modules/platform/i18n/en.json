@@ -1,13 +1,13 @@
 {
-  "platform.map.pageTitle": "Platform map",
-  "platform.map.pageGroup": "Developer",
   "platform.map.description": "Read-only view of wired extension surfaces in this app.",
-  "platform.map.surface": "Surface",
-  "platform.map.tier": "Tier",
-  "platform.map.surfaceMeta": "Tier {tier} · {count} row(s)",
-  "platform.map.loading": "Loading platform map…",
+  "platform.map.empty": "No rows for this surface.",
   "platform.map.error": "Failed to load platform map",
   "platform.map.invalidResponse": "Unexpected platform map response",
-  "platform.map.empty": "No rows for this surface.",
-  "platform.map.retry": "Retry"
+  "platform.map.loading": "Loading platform map…",
+  "platform.map.pageGroup": "Developer",
+  "platform.map.pageTitle": "Platform map",
+  "platform.map.retry": "Retry",
+  "platform.map.surface": "Surface",
+  "platform.map.surfaceMeta": "Tier {tier} · {count} row(s)",
+  "platform.map.tier": "Tier"
 }
