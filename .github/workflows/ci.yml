@@ -496,6 +496,14 @@ jobs:
         # Turbo never picks up root-level scripts — run explicitly.
         run: yarn test:scripts
 
+      - name: Check DS token snapshot drift (always, unfiltered)
+        # .ai/ds/ds-tokens.json is the committed canonical mirror of the token
+        # blocks in apps/mercato/src/app/globals.css. It is not a package, so
+        # the turbo-scoped Test step never guards it — check explicitly, like
+        # the template-parity guard below: a PR that edits a token without
+        # running `yarn ds:tokens` fails here instead of drifting silently.
+        run: yarn ds:tokens:check
+
       - name: Check create-app template parity (always, unfiltered)
         # The create-app package guards byte-parity between the monorepo app shell
         # (apps/mercato/**) and the standalone template (packages/create-app/template/**).
