@@ -242,6 +242,43 @@ describe('deliver-notification subscriber', () => {
 
       expect(nativeUpdate).not.toHaveBeenCalled()
     })
+
+    it('does not recompute or persist when no strategies are registered (row stays null, not [])', async () => {
+      // With zero strategies resolveEffectiveChannels returns [] (never null), and persisting [] would
+      // HIDE the row. Skip the recompute entirely so the row stays null (legacy visible-everywhere).
+      getNotificationDeliveryStrategiesMock.mockReturnValue([])
+      const nativeUpdate = jest.fn(async () => 1)
+      const em = { fork: () => ({ nativeUpdate }) }
+      const ctx = {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Unknown service: ${name}`)
+        },
+      }
+
+      await handle(basePayload, ctx as never)
+
+      expect(resolveEffectiveChannelsMock).not.toHaveBeenCalled()
+      expect(nativeUpdate).not.toHaveBeenCalled()
+    })
+
+    it('falls back to delivering all channels (and skips persist) when the recompute throws', async () => {
+      // A transient overrides/preference-service failure must not abort delivery on every channel —
+      // fall back to null (deliver all, legacy) and skip the persist so visibility stays consistent.
+      resolveEffectiveChannelsMock.mockRejectedValue(new Error('overrides service unavailable'))
+      const nativeUpdate = jest.fn(async () => 1)
+      const em = { fork: () => ({ nativeUpdate }) }
+      const ctx = {
+        resolve: (name: string) => {
+          if (name === 'em') return em
+          throw new Error(`Unknown service: ${name}`)
+        },
+      }
+
+      await expect(handle(basePayload, ctx as never)).resolves.toBeUndefined()
+      expect(pushDeliver).toHaveBeenCalledTimes(1)
+      expect(nativeUpdate).not.toHaveBeenCalled()
+    })
   })
 
   it('honors a non-null channels snapshot without recomputing from preferences', async () => {

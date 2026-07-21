@@ -7,7 +7,7 @@ import {
   type NotificationTypeItem,
   type PreferenceItem,
 } from '../NotificationPreferenceMatrix'
-import { computeNextChannels } from '../typeChannelSettings'
+import { computeChannelsPatch, computeNextChannels } from '../typeChannelSettings'
 
 const CHANNELS = PREFERENCE_CHANNELS
 const FIRST = CHANNELS[0]!.key
@@ -78,5 +78,16 @@ describe('computeNextChannels (admin type-channel toggle)', () => {
 
   it('can empty the set entirely (blocks every channel for the type)', () => {
     expect(computeNextChannels(['in_app'], 'in_app', false)).toEqual([])
+  })
+})
+
+describe('computeChannelsPatch (last-uncheck maps to null, not [])', () => {
+  it('returns the next set when a channel remains', () => {
+    expect(computeChannelsPatch(['in_app', 'email', 'push'], 'push', false)).toEqual(['in_app', 'email'])
+    expect(computeChannelsPatch(['in_app'], 'email', true)).toEqual(['in_app', 'email'])
+  })
+
+  it('returns null when unchecking the last channel (clear the override instead of black-holing)', () => {
+    expect(computeChannelsPatch(['in_app'], 'in_app', false)).toBeNull()
   })
 })

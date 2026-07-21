@@ -154,27 +154,45 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
     // every channel with no gate — so recompute the effective set from current preferences here,
     // keeping the single `shouldDeliver` gate instead of re-checking opt-out inside each strategy.
     const persistedChannels = notification.channels
-    const typeOverrides = persistedChannels == null
-      ? (await getNotificationTypeOverrides(em as EntityManager, notification.tenantId, [notification.type])).get(notification.type)
-      : undefined
-    const targetChannels = persistedChannels ?? await resolveEffectiveChannels({
-      typeId: notification.type,
-      type: getNotificationType(notification.type),
-      scope: { tenantId: notification.tenantId, userId: notification.recipientUserId },
-      targetChannels: null,
-      registeredChannels: strategies.map((strategy) => strategy.id),
-      preferences: resolveNotificationPreferenceService({ resolve: ctx.resolve }),
-      channelsOverride: typeOverrides?.channels ?? null,
-      nonOptOutOverride: typeOverrides?.nonOptOut ?? null,
-    })
+    const registeredStrategyIds = strategies.map((strategy) => strategy.id)
+    let targetChannels: string[] | null = persistedChannels ?? null
+    // Only recompute for a null-snapshot row when strategies are actually registered — mirror the
+    // create path (`resolveChannelsFor`: `registeredChannels.length === 0 => null`). With zero
+    // strategies, `resolveEffectiveChannels` returns `[]` (never null); persisting that would HIDE
+    // the row (the visibility layer treats `[]` as "no channels"), so leave `channels` null and keep
+    // legacy all-channels back-compat instead.
+    if (persistedChannels == null && registeredStrategyIds.length > 0) {
+      try {
+        const typeOverrides = (
+          await getNotificationTypeOverrides(em as EntityManager, notification.tenantId, [notification.type])
+        ).get(notification.type)
+        targetChannels = await resolveEffectiveChannels({
+          typeId: notification.type,
+          type: getNotificationType(notification.type),
+          scope: { tenantId: notification.tenantId, userId: notification.recipientUserId },
+          targetChannels: null,
+          registeredChannels: registeredStrategyIds,
+          preferences: resolveNotificationPreferenceService({ resolve: ctx.resolve }),
+          channelsOverride: typeOverrides?.channels ?? null,
+          nonOptOutOverride: typeOverrides?.nonOptOut ?? null,
+        })
+      } catch (err) {
+        // A transient overrides/preference-service failure must not abort delivery on EVERY channel
+        // (everything else here fails per-component). Fall back to null (deliver all, legacy) and
+        // skip the persist below so visibility stays consistent with what was delivered.
+        debug('failed to recompute channels; delivering all channels (legacy fallback)', err)
+        targetChannels = null
+      }
+    }
     // Persist the recomputed set back onto a null-channels row so the in-app
     // VISIBILITY path (bell/inbox/unread — see notificationVisibility.ts) reads
     // the same authoritative target the DELIVERY gate just applied. Without this
     // the row stays `null` ⇒ "visible everywhere", so a notification suppressed
     // from in_app by the user's opt-out would still surface in the bell while
-    // delivery correctly skipped it. A null result (no strategies registered)
-    // stays null and keeps legacy all-channels back-compat. `channels` is a
-    // plaintext JSONB column, so a forked nativeUpdate avoids the shared UoW.
+    // delivery correctly skipped it. `targetChannels` is null (skip persist) only
+    // when no strategies are registered or the recompute fell back — both keep the
+    // row null for legacy all-channels back-compat. `channels` is a plaintext JSONB
+    // column, so a forked nativeUpdate avoids the shared UoW.
     if (persistedChannels == null && targetChannels != null) {
       try {
         await (em as EntityManager)
