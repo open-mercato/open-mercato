@@ -1,0 +1,21 @@
+# Backwards-compatibility duplicate of starters/docker/compose.preview.yml — the canonical file
+# lives there; edit that one. scripts/__tests__/root-compose-backcompat.test.mjs
+# enforces byte equality with the source.
+
+services:
+  preview-app:
+    build:
+      context: .
+      dockerfile: ./docker/preview/Dockerfile
+    image: open-mercato/preview:local
+    restart: "no"
+    ports:
+      - "5000:5001"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      DOCKER_HOST: unix:///var/run/docker.sock
+      TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+      TESTCONTAINERS_HOST_OVERRIDE: host.docker.internal
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
