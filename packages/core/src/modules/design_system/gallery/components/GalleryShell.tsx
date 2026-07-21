@@ -22,7 +22,10 @@ function familyLabelFallback(id: string): string {
 function matchesQuery(entry: GalleryEntry, query: string): boolean {
   const needle = query.trim().toLowerCase()
   if (!needle) return true
-  return entry.id.toLowerCase().includes(needle) || entry.title.toLowerCase().includes(needle)
+  if (entry.id.toLowerCase().includes(needle) || entry.title.toLowerCase().includes(needle)) return true
+  if (entry.keywords?.some((keyword) => keyword.toLowerCase().includes(needle))) return true
+  // 'radiobutton' should still find 'radio' — match when the query CONTAINS the id/title too.
+  return needle.includes(entry.id.toLowerCase()) || needle.includes(entry.title.toLowerCase())
 }
 
 type LoadedEntries = Record<string, GalleryEntry[]>
@@ -91,6 +94,7 @@ export function GalleryShell() {
           id: family.id,
           label: familyLabelFallback(family.id),
           labelKey: family.labelKey,
+          icon: family.icon,
           href: `${GALLERY_BASE_PATH}?family=${family.id}`,
         })),
       },
@@ -158,6 +162,22 @@ export function GalleryShell() {
         <h2 className="text-lg font-semibold">
           {t(activeFamily.labelKey, familyLabelFallback(activeFamily.id))}
         </h2>
+        {entries.length > 1 ? (
+          <nav
+            aria-label={t('design_system.gallery.familyContents', 'Components in this family')}
+            className="flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-muted/30 p-2"
+          >
+            {entries.map((entry) => (
+              <a
+                key={entry.id}
+                href={`#gallery-entry-${entry.id}`}
+                className="rounded-md border border-border bg-background px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+              >
+                {entry.title}
+              </a>
+            ))}
+          </nav>
+        ) : null}
         {entries.map((entry) => (
           <EntryCard key={entry.id} entry={entry} />
         ))}

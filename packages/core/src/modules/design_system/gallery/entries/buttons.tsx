@@ -17,6 +17,18 @@ const buttonEntry: GalleryEntry = {
   id: 'button',
   title: 'Button',
   importPath: '@open-mercato/ui/primitives/button',
+  usage: {
+    do: [
+      'One default (primary) Button per view; remaining actions step down to outline, ghost or muted.',
+      'Destructive actions use the destructive family; -outline/-soft/-ghost lower the emphasis without losing the semantics.',
+      'Default height is h-9; sm (h-8) in dense toolbars, 2xs only inside table rows.',
+    ],
+    dont: [
+      'Never Button size="icon" for icon-only actions — use IconButton (correct sizing + aria-label contract).',
+      'Never style a raw <button> or <Link> to look like a Button.',
+      'The link variant is for navigation-like actions, not for mutations.',
+    ],
+  },
   descriptionKey: 'design_system.entries.button.description',
   variants: [
     {
@@ -129,6 +141,13 @@ const iconButtonEntry: GalleryEntry = {
   id: 'icon-button',
   title: 'IconButton',
   importPath: '@open-mercato/ui/primitives/icon-button',
+  usage: {
+    do: [
+      'Always pass aria-label — the icon is the only content.',
+      'size="default" is h-8, one step smaller than Button; use size="lg" (h-9) to align inside a Button row.',
+    ],
+    dont: ['Never fake it with Button size="icon".'],
+  },
   descriptionKey: 'design_system.entries.iconButton.description',
   variants: [
     {

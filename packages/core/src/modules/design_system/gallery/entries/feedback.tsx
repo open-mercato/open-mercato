@@ -30,6 +30,13 @@ const alertEntry: GalleryEntry = {
   id: 'alert',
   title: 'Alert',
   importPath: '@open-mercato/ui/primitives/alert',
+  usage: {
+    do: [
+      'Current API only: status (error/warning/success/information/feature) + style (filled/light/lighter/stroke) + size.',
+      'light/lighter for inline page notices; filled for high-emphasis moments.',
+    ],
+    dont: ['The legacy variant prop is deprecated — lint flags it.', 'Never build ad-hoc colored notice boxes; this is the primitive for them.'],
+  },
   variants: [
     {
       id: 'statuses-light',

@@ -63,6 +63,13 @@ const tabsEntry: GalleryEntry = {
   id: 'tabs',
   title: 'Tabs',
   importPath: '@open-mercato/ui/primitives/tabs',
+  usage: {
+    do: [
+      'variant="underline" is the canon for page-level tab strips; pill only for small embedded switchers.',
+      'TabsList always carries an aria-label; use count and leading to add context to triggers.',
+    ],
+    dont: ['No hand-rolled tab strips from buttons and border classes — lint flags raw tab lists.'],
+  },
   docsAnchor: '#tabs',
   figmaNodeId: '553:734',
   variants: [
