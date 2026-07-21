@@ -69,7 +69,7 @@ The default `yarn install-skills` ships the **core** tier plus the entire extern
 | Tier | Default? | Skills | What's inside |
 |------|----------|--------|---------------|
 | `core` | yes | 11 | Daily-driver skills installed by default. |
-| `automation` | opt-in | 2 | PR/issue automation skills. Opt-in; agent-driven workflows. |
+| `automation` | opt-in | 3 | PR/issue automation skills. Opt-in; agent-driven workflows. |
 | `security` | opt-in | 2 | Security audit skills. Opt-in. |
 | `migration` | opt-in | 1 | One-shot, version-pinned migrations. Install only when needed. |
 | `infra` | opt-in | 2 | Rare, special-case skills. |
@@ -207,6 +207,7 @@ Skills below are grouped by tier in the same order as `.ai/skills/tiers.json`. E
 |-------|-------------|
 | `om-auto-publish-pr` | Publish pkg.pr.new package previews for a same-repository Open Mercato PR by dispatching the Package Previews GitHub Actions workflow with gh. Use when a maintainer asks to publish, republish, or trigger a PR package preview. Does not publish npm snapshots. |
 | `om-auto-qa-scenarios` | Generate a human QA report for a window of merged PRs (date floor, PR-number floor, or default last 7 days) and ship it as a docs-only PR against `develop`. Groups work into P0/P1/P2 testing routes with click paths, verification points, and risk callouts. Writes markdown + HTML under `.ai/analysis/`. Hands off to `om-auto-continue-pr` if it cannot finish in one pass. |
+| `om-ux-walkthrough` | Persona-driven synthetic user walkthrough of a PR's UI. Boots the PR in the ephemeral integration environment, drives a real flow the way a specific persona would — reading only visible labels, no selectors, no source access — and posts an advisory friction report (steps vs baseline, backtracks, dead ends, mislabels, abandoned goals, hesitation markers) as a sticky PR comment with screenshots. Never a merge gate. Use when the user says "UX walkthrough PR <n>", "run a persona through PR <n>", "synthetic user test", "friction report for PR <n>", or "can a user figure out PR <n>". |
 
 ### external (open-mercato/skills)
 
