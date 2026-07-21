@@ -498,6 +498,8 @@ export default function AgentDetailPage({ params }: { params?: { id?: string } }
             {agent.instructions || t('agent_orchestrator.agentDetail.defaultValue')}
           </pre>
         </section>
+
+        {agent.runtime === 'opencode' && agent.tokenUsage ? <TokenUsageCard agent={agent} /> : null}
       </PageBody>
     </Page>
   )
@@ -540,6 +542,123 @@ function DashCard({ title, children }: { title: string; children: React.ReactNod
       <div className="text-sm font-semibold text-foreground">{title}</div>
       <div className="mt-4">{children}</div>
     </div>
+  )
+}
+
+function TokenBar({ pct }: { pct: number }) {
+  return (
+    <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+      <div className="h-full rounded-full bg-primary/70" style={{ width: `${Math.max(2, Math.min(100, Math.round(pct)))}%` }} />
+    </div>
+  )
+}
+
+function TokenRow({
+  label,
+  tokens,
+  max,
+  locale,
+}: {
+  label: React.ReactNode
+  tokens: number
+  max: number
+  locale: string
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 truncate text-sm text-foreground">{label}</span>
+        <span className="shrink-0 tabular-nums text-sm text-muted-foreground">{formatNumber(tokens, locale)}</span>
+      </div>
+      <div className="mt-1">
+        <TokenBar pct={max > 0 ? (tokens / max) * 100 : 0} />
+      </div>
+    </div>
+  )
+}
+
+function TokenGroupLabel({ children }: { children: React.ReactNode }) {
+  return <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{children}</p>
+}
+
+// Token-usage breakdown of a file-defined agent's construction files. Estimated
+// with the shared o200k_base tokenizer — surfaced as guidance, not an exact count.
+function TokenUsageCard({ agent }: { agent: AgentDetailView }) {
+  const t = useT()
+  const locale = useLocale()
+  const usage = agent.tokenUsage
+  if (!usage) return null
+  const max = Math.max(
+    1,
+    usage.agent,
+    usage.outcome,
+    ...usage.skills.map((skill) => skill.tokens),
+    ...usage.tools.map((tool) => tool.tokens),
+    ...usage.subAgents.map((sub) => sub.tokens),
+  )
+  return (
+    <section className="space-y-2">
+      <SectionHeader title={t('agent_orchestrator.agentDetail.tokens.title', 'Token usage')} />
+      <div className="rounded-xl border border-border bg-card p-5">
+        <div className="flex items-end justify-between gap-3">
+          <div className="flex items-center gap-1.5 text-muted-foreground">
+            <Coins className="size-3.5 shrink-0" />
+            <span className="text-xs">{t('agent_orchestrator.agentDetail.tokens.estimate', 'Estimated with o200k_base — an approximation, not an exact model count.')}</span>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold tabular-nums text-foreground">{formatNumber(usage.total, locale)}</div>
+            <div className="text-xs text-muted-foreground">{t('agent_orchestrator.agentDetail.tokens.totalTokens', 'tokens total')}</div>
+          </div>
+        </div>
+
+        <div className="mt-5 space-y-4">
+          <div className="space-y-2">
+            <TokenGroupLabel>{t('agent_orchestrator.agentDetail.tokens.core', 'Core files')}</TokenGroupLabel>
+            <TokenRow label="AGENT.md" tokens={usage.agent} max={max} locale={locale} />
+            <TokenRow label="OUTCOME.md" tokens={usage.outcome} max={max} locale={locale} />
+          </div>
+
+          {usage.skills.length ? (
+            <div className="space-y-2">
+              <TokenGroupLabel>{t('agent_orchestrator.agentDetail.tokens.skills', 'Skills')}</TokenGroupLabel>
+              {usage.skills.map((skill) => (
+                <div key={skill.id} className="space-y-1">
+                  <TokenRow label={<span className="font-mono">{skill.id}</span>} tokens={skill.tokens} max={max} locale={locale} />
+                  {skill.files.length ? (
+                    <ul className="space-y-0.5 pl-4">
+                      {skill.files.map((file) => (
+                        <li key={file.path} className="flex items-baseline justify-between gap-3">
+                          <span className="min-w-0 truncate font-mono text-xs text-muted-foreground">{file.path.replace(`skills/${skill.id}/`, '')}</span>
+                          <span className="shrink-0 tabular-nums text-xs text-muted-foreground">{formatNumber(file.tokens, locale)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : null}
+
+          {usage.tools.length ? (
+            <div className="space-y-2">
+              <TokenGroupLabel>{t('agent_orchestrator.agentDetail.tokens.tools', 'Tools')}</TokenGroupLabel>
+              {usage.tools.map((tool) => (
+                <TokenRow key={tool.path} label={<span className="font-mono">{tool.name}</span>} tokens={tool.tokens} max={max} locale={locale} />
+              ))}
+            </div>
+          ) : null}
+
+          {usage.subAgents.length ? (
+            <div className="space-y-2">
+              <TokenGroupLabel>{t('agent_orchestrator.agentDetail.tokens.subAgents', 'Sub-agents')}</TokenGroupLabel>
+              {usage.subAgents.map((sub) => (
+                <TokenRow key={sub.id} label={<span className="font-mono">{sub.id}</span>} tokens={sub.tokens} max={max} locale={locale} />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </section>
   )
 }
 

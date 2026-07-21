@@ -22,6 +22,17 @@ const skillDetailSchema = z.object({
   tools: z.array(z.string()),
 })
 
+const tokenizedFileSchema = z.object({ path: z.string(), tokens: z.number() })
+const tokenUsageSchema = z.object({
+  total: z.number(),
+  self: z.number(),
+  agent: z.number(),
+  outcome: z.number(),
+  skills: z.array(z.object({ id: z.string(), tokens: z.number(), files: z.array(tokenizedFileSchema) })),
+  tools: z.array(z.object({ name: z.string(), path: z.string(), tokens: z.number() })),
+  subAgents: z.array(z.object({ id: z.string(), tokens: z.number() })),
+})
+
 const agentDetailSchema = z.object({
   id: z.string(),
   moduleId: z.string(),
@@ -41,6 +52,8 @@ const agentDetailSchema = z.object({
   defaultProvider: z.string().nullable(),
   defaultModel: z.string().nullable(),
   loop: z.object({ maxSteps: z.number().optional() }).nullable(),
+  // Baked token-usage estimate for file-defined (opencode) agents; null otherwise.
+  tokenUsage: tokenUsageSchema.nullable(),
 })
 
 const errorSchema = z.object({ error: z.string() })
@@ -113,6 +126,7 @@ export async function GET(req: Request, ctx: RouteContext) {
     defaultProvider: entry.defaultProvider ?? null,
     defaultModel: entry.defaultModel ?? null,
     loop: entry.loop ?? null,
+    tokenUsage: entry.tokenUsage ?? null,
   })
 }
 

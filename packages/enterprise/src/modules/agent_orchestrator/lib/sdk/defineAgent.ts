@@ -4,6 +4,7 @@ import {
 } from '@open-mercato/ai-assistant/modules/ai_assistant/lib/ai-agent-definition'
 import type { ZodTypeAny } from 'zod'
 import { getSkillEntry } from './defineSkill'
+import type { AgentTokenUsage } from '../tokens/types'
 
 export type AgentResultKind = 'actionable' | 'informative'
 
@@ -145,6 +146,11 @@ export interface AgentRegistryEntry {
   facts?: AgentFact[]
   /** File-plane opt-in (#12). OpenCode file agents only; undefined for native agents. */
   files?: FileAgentFilesConfig
+  /**
+   * Baked token-usage estimate of the agent's construction files. File-defined
+   * (`runtime: 'opencode'`) agents only; undefined for native agents.
+   */
+  tokenUsage?: AgentTokenUsage
 }
 
 const registry = new Map<string, AgentRegistryEntry>()
@@ -393,6 +399,7 @@ async function loadFileAgents(): Promise<void> {
         runtime: 'opencode',
         sampleInput: descriptor.sampleInput,
         facts: descriptor.facts,
+        tokenUsage: descriptor.tokenUsage,
       })
       // Phase 3: register the agent's resolved skill content into the runtime
       // lookup so `load_skill` can return it without fs access. Optional + BC: a

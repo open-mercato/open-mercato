@@ -4,6 +4,7 @@
  * React layer. No new entities — these are pure read projections.
  */
 import { isAgentIconName, type AgentIconName } from '../data/agentIcons'
+import type { AgentTokenUsage, TokenizedFile } from '../lib/tokens/types'
 
 export type ProposalView = {
   id: string
@@ -229,6 +230,8 @@ export type AgentDetailView = AgentView & {
   loopMaxSteps: number | null
   skillDetails: SkillDetailView[]
   subAgents: string[]
+  /** Baked token-usage estimate for file-defined agents; null for native agents. */
+  tokenUsage: AgentTokenUsage | null
 }
 
 function asString(value: unknown): string | null {
@@ -565,6 +568,47 @@ function mapAgentFacts(raw: unknown): AgentFactView[] | undefined {
   return facts.length > 0 ? facts : undefined
 }
 
+function mapTokenUsage(raw: unknown): AgentTokenUsage | null {
+  if (!raw || typeof raw !== 'object') return null
+  const record = raw as Record<string, unknown>
+  const num = (value: unknown): number => asNumber(value) ?? 0
+  const mapFiles = (value: unknown): TokenizedFile[] =>
+    Array.isArray(value)
+      ? value.map((file) => {
+          const entry = (file ?? {}) as Record<string, unknown>
+          return { path: asString(entry.path) ?? '', tokens: num(entry.tokens) }
+        })
+      : []
+  return {
+    total: num(record.total),
+    self: num(record.self),
+    agent: num(record.agent),
+    outcome: num(record.outcome),
+    skills: Array.isArray(record.skills)
+      ? record.skills.map((skill) => {
+          const entry = (skill ?? {}) as Record<string, unknown>
+          return { id: asString(entry.id) ?? '', tokens: num(entry.tokens), files: mapFiles(entry.files) }
+        })
+      : [],
+    tools: Array.isArray(record.tools)
+      ? record.tools.map((tool) => {
+          const entry = (tool ?? {}) as Record<string, unknown>
+          return {
+            name: asString(entry.name) ?? '',
+            path: asString(entry.path) ?? '',
+            tokens: num(entry.tokens),
+          }
+        })
+      : [],
+    subAgents: Array.isArray(record.subAgents)
+      ? record.subAgents.map((sub) => {
+          const entry = (sub ?? {}) as Record<string, unknown>
+          return { id: asString(entry.id) ?? '', tokens: num(entry.tokens) }
+        })
+      : [],
+  }
+}
+
 export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView | null {
   const base = mapAgent(item)
   if (!base) return null
@@ -599,6 +643,7 @@ export function mapAgentDetail(item: Record<string, unknown>): AgentDetailView |
     subAgents: Array.isArray(item.subAgents)
       ? item.subAgents.filter((sub): sub is string => typeof sub === 'string')
       : [],
+    tokenUsage: mapTokenUsage(item.tokenUsage),
   }
 }
 

@@ -1,5 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import { countTokens } from '@open-mercato/shared/lib/ai/token-count'
 import type { GeneratorExtension, ModuleScanContext } from '../extension'
 import { resolveStandaloneSourceMirrorBase } from '../scanner'
 
@@ -84,6 +85,29 @@ type DiscoveredAgent = {
   sampleInput?: unknown
   /** Optional `FACTS.json` declarations driving the Caseload facts panel. */
   facts?: DiscoveredFact[]
+  /** Baked token-usage breakdown of the agent's construction files (Phase: token accounting). */
+  tokenUsage: FileAgentTokenUsage
+}
+
+/**
+ * Token-usage shape MIRRORED from
+ * `packages/enterprise/src/modules/agent_orchestrator/lib/tokens/types.ts`. The
+ * CLI cannot import `@open-mercato/enterprise`, so both the type and the walker
+ * below are reimplemented here and MUST stay in sync — a parity test in the
+ * enterprise module (`agent-token-usage.test.ts`) guards the numbers.
+ */
+type TokenizedFile = { path: string; tokens: number }
+type SkillTokenUsage = { id: string; tokens: number; files: TokenizedFile[] }
+type ToolTokenUsage = { name: string; path: string; tokens: number }
+type SubAgentTokenUsage = { id: string; tokens: number }
+type FileAgentTokenUsage = {
+  total: number
+  self: number
+  agent: number
+  outcome: number
+  skills: SkillTokenUsage[]
+  tools: ToolTokenUsage[]
+  subAgents: SubAgentTokenUsage[]
 }
 
 type DiscoveredFact = {
@@ -613,9 +637,92 @@ function discoverSubAgents(agentDir: string): DiscoveredAgent[] {
       model: agent.model,
       sampleInput: discoverSampleInput(dir),
       facts: discoverFacts(dir),
+      tokenUsage: discoverAgentTokenUsage(dir),
     })
   }
   return subAgents
+}
+
+// --- Token accounting (MIRRORS lib/tokens/computeAgentTokenUsage.ts) ---
+
+const TOKEN_TOOL_EXTENSIONS = ['.ts', '.js']
+
+function tokenCountFile(agentDir: string, relativePath: string): TokenizedFile | null {
+  const absolute = path.join(agentDir, relativePath)
+  if (!fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) return null
+  return { path: relativePath, tokens: countTokens(fs.readFileSync(absolute, 'utf8')) }
+}
+
+function tokenListFiles(dir: string, extensions?: string[]): string[] {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return []
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => !extensions || extensions.includes(path.extname(name)))
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function tokenListDirs(dir: string): string[] {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return []
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && entry.name !== '__tests__')
+    .map((entry) => entry.name)
+    .sort((a, b) => a.localeCompare(b))
+}
+
+function tokenComputeSkills(agentDir: string): SkillTokenUsage[] {
+  return tokenListDirs(path.join(agentDir, 'skills')).map((skillId) => {
+    const skillRel = path.join('skills', skillId)
+    const files: TokenizedFile[] = []
+    for (const name of ['SKILL.md', 'TEMPLATE.md']) {
+      const file = tokenCountFile(agentDir, path.join(skillRel, name))
+      if (file) files.push(file)
+    }
+    for (const subdir of ['examples', 'scripts']) {
+      for (const name of tokenListFiles(path.join(agentDir, skillRel, subdir))) {
+        const file = tokenCountFile(agentDir, path.join(skillRel, subdir, name))
+        if (file) files.push(file)
+      }
+    }
+    return { id: skillId, tokens: files.reduce((sum, f) => sum + f.tokens, 0), files }
+  })
+}
+
+function tokenComputeTools(agentDir: string): ToolTokenUsage[] {
+  return tokenListFiles(path.join(agentDir, 'tools'), TOKEN_TOOL_EXTENSIONS).map((name) => {
+    const rel = path.join('tools', name)
+    return {
+      name: name.replace(/\.[^.]+$/, ''),
+      path: rel,
+      tokens: countTokens(fs.readFileSync(path.join(agentDir, rel), 'utf8')),
+    }
+  })
+}
+
+function discoverAgentTokenUsage(agentDir: string, depth = 0): FileAgentTokenUsage {
+  const agent = tokenCountFile(agentDir, 'AGENT.md')?.tokens ?? 0
+  const outcome = tokenCountFile(agentDir, 'OUTCOME.md')?.tokens ?? 0
+  const skills = tokenComputeSkills(agentDir)
+  const tools = tokenComputeTools(agentDir)
+
+  const subAgents: SubAgentTokenUsage[] = []
+  if (depth === 0) {
+    for (const subId of tokenListDirs(path.join(agentDir, 'sub-agents'))) {
+      const nested = discoverAgentTokenUsage(path.join(agentDir, 'sub-agents', subId), depth + 1)
+      subAgents.push({ id: subId, tokens: nested.total })
+    }
+  }
+
+  const self =
+    agent +
+    outcome +
+    skills.reduce((sum, s) => sum + s.tokens, 0) +
+    tools.reduce((sum, t) => sum + t.tokens, 0)
+  const total = self + subAgents.reduce((sum, s) => sum + s.tokens, 0)
+
+  return { total, self, agent, outcome, skills, tools, subAgents }
 }
 
 function renderOpenCodeSkillFile(skill: DiscoveredSkill): string {
@@ -790,6 +897,7 @@ function renderDescriptor(agent: DiscoveredAgent, indent: string): string {
     `${indent}  subAgents: ${JSON.stringify(agent.subAgents)},`,
     `${indent}  openCodeAgentName: ${JSON.stringify(agent.openCodeAgentName)},`,
     `${indent}  skillsContent: ${JSON.stringify(skillsContent)},`,
+    `${indent}  tokenUsage: ${JSON.stringify(agent.tokenUsage)},`,
     ...optional,
     `${indent}},`,
   ].join('\n')
@@ -809,6 +917,7 @@ function renderManifest(agents: DiscoveredAgent[]): string {
 //
 // Regenerate with \`yarn generate\`.
 import type { JsonSchemaNode, OutcomeKind } from '../lib/sdk/outcomeSchema'
+import type { AgentTokenUsage } from '../lib/tokens/types'
 
 export type FileAgentScript = {
   name: string
@@ -853,6 +962,13 @@ export type FileAgentDescriptor = {
   subAgents: string[]
   openCodeAgentName: string
   skillsContent?: FileAgentSkillContent[]
+  /**
+   * Baked token-usage estimate of the agent's construction files (AGENT.md,
+   * OUTCOME.md, skills, tools, sub-agents), counted with the shared
+   * \`o200k_base\` tokenizer. Surfaced on the Agent detail page and the
+   * \`agent_orchestrator token-usage\` CLI. An estimate, not an exact count.
+   */
+  tokenUsage?: AgentTokenUsage
   /**
    * Nested descriptors for this agent's sub-agents (Phase 4). Each is an
    * informative, non-delegating file agent registered individually (depth cap =
@@ -972,6 +1088,7 @@ export function createAgentFilesExtension(): GeneratorExtension {
         model: agent.model,
         sampleInput: discoverSampleInput(dir),
         facts: discoverFacts(dir),
+        tokenUsage: discoverAgentTokenUsage(dir),
       })
     }
   }

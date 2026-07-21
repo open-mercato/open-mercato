@@ -113,6 +113,7 @@ agents/<agent_id>/
 - **OUTCOME.md**: frontmatter carries ONLY `kind`; the result JSON-Schema is the FIRST fenced ` ```json ` block. `informative` ⇒ schema describes `data`; `actionable` ⇒ schema describes the `proposal` envelope. Compiles to the same `z.object({ kind, data|proposal })` the in-process path uses.
 - **Skills** inject instructions + union read-only tools into the agent's allowlist (deduped); read-only by construction.
 - **FACTS.json** (optional): declares the labelled facts the Caseload decision panel shows for this agent's proposals — `{ "facts": [{ "label", "source": "input"|"payload"|"output", "path", "format"?: "text"|"number"|"boolean"|"percent" }] }` where `path` is a dot-path (array indexes allowed) into the run input / proposal payload / run output. Agents without it get a generic derivation (input primitives + summarized upstream findings). In-process agents pass the same shape as `facts` to `defineAgent`. Rendering lives in `components/ProposalFacts.tsx`; resolution helpers in `components/proposalFacts.ts`.
+- **Token usage** (file agents only): `yarn generate` bakes a per-element token estimate (AGENT.md, OUTCOME.md, each skill + its subfiles, each tool, each sub-agent) into `generated/file-agents.generated.ts` (`FileAgentDescriptor.tokenUsage`), counted with the shared `o200k_base` tokenizer (`@open-mercato/shared/lib/ai/token-count` — an estimate, not an exact model count). It surfaces on the Agent detail page ("Token usage" card, `runtime: 'opencode'` only) and via the CLI: `yarn mercato agent_orchestrator token-usage --dir <agents/<id>> [--json]` (live from raw files) or `--agent <id>` (baked). The raw-file walker `lib/tokens/computeAgentTokenUsageFromDir` is MIRRORED by the generator (`packages/cli/.../extensions/agent-files.ts`); a parity test (`__tests__/agent-token-usage.test.ts`) guards the two against drift.
 
 ## DI Services
 
@@ -131,7 +132,7 @@ agents/<agent_id>/
 
 | Route | Method | Feature | When to use |
 |-------|--------|---------|-------------|
-| `/agents`, `/agents/:id` | GET | `agents.view` | List registry / agent detail (incl. resolved skills) |
+| `/agents`, `/agents/:id` | GET | `agents.view` | List registry / agent detail (incl. resolved skills; `tokenUsage` for file agents) |
 | `/agents/:id/run` | POST | `agents.run` | Playground run → typed `AgentResult` |
 | `/agents/:id/metrics` | GET | `trace.view` | KPI tiles |
 | `/runs`, `/runs/:id` | GET | `trace.view` | Run list/detail (filters: agent, status, eval-fail, low-confidence) |

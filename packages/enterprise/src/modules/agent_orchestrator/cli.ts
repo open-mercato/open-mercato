@@ -1,7 +1,10 @@
 import { randomUUID } from 'node:crypto'
+import fs from 'node:fs'
+import path from 'node:path'
 import type { ModuleCli } from '@open-mercato/shared/modules/registry'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { EntityManager } from '@mikro-orm/postgresql'
+import type { AgentTokenUsage } from './lib/tokens/types'
 import {
   AgentCorrection,
   AgentProposal,
@@ -609,6 +612,107 @@ const evalGate: ModuleCli = {
   },
 }
 
-const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate]
+function padTokens(value: number): string {
+  return value.toLocaleString('en-US').padStart(9)
+}
+
+function printTokenUsage(title: string, usage: AgentTokenUsage): void {
+  const subTotal = usage.subAgents.reduce((sum, sub) => sum + sub.tokens, 0)
+  console.log(`Token usage — ${title}`)
+  console.log(
+    `Total: ${usage.total.toLocaleString('en-US')} tokens ` +
+      `(self ${usage.self.toLocaleString('en-US')}` +
+      `${subTotal ? ` + sub-agents ${subTotal.toLocaleString('en-US')}` : ''}) · o200k_base estimate`,
+  )
+  console.log('')
+  console.log(`${padTokens(usage.agent)}  AGENT.md`)
+  console.log(`${padTokens(usage.outcome)}  OUTCOME.md`)
+  if (usage.skills.length) {
+    console.log('  Skills:')
+    for (const skill of usage.skills) {
+      console.log(`${padTokens(skill.tokens)}  ${skill.id}`)
+      for (const file of skill.files) {
+        console.log(`${padTokens(file.tokens)}    ${file.path.replace(`skills/${skill.id}/`, '')}`)
+      }
+    }
+  }
+  if (usage.tools.length) {
+    console.log('  Tools:')
+    for (const tool of usage.tools) console.log(`${padTokens(tool.tokens)}  ${tool.name}`)
+  }
+  if (usage.subAgents.length) {
+    console.log('  Sub-agents:')
+    for (const sub of usage.subAgents) console.log(`${padTokens(sub.tokens)}  ${sub.id}`)
+  }
+}
+
+/**
+ * Report the token cost of a file-defined agent's construction elements
+ * (AGENT.md, OUTCOME.md, each skill + its subfiles, each tool, each sub-agent),
+ * estimated with the shared o200k_base tokenizer.
+ *
+ *   yarn mercato agent_orchestrator token-usage --dir <path/to/agents/<id>> [--json]
+ *   yarn mercato agent_orchestrator token-usage --agent <agentId> [--json]
+ *
+ * `--dir` counts the raw files live (works on any directory, even uncommitted);
+ * `--agent` reads the value baked into the generated manifest at `yarn generate`.
+ */
+const tokenUsage: ModuleCli = {
+  command: 'token-usage',
+  async run(rest: string[]) {
+    const args = parseArgs(rest)
+    const asJson = rest.includes('--json')
+    const dir = args.dir
+    const agentId = args.agent
+    if (!dir && !agentId) {
+      console.error(
+        'Usage: mercato agent_orchestrator token-usage --dir <agent-dir> | --agent <agentId> [--json]',
+      )
+      process.exitCode = 2
+      return
+    }
+
+    let usage: AgentTokenUsage
+    let title: string
+    if (dir) {
+      const resolved = path.resolve(dir)
+      if (!fs.existsSync(path.join(resolved, 'AGENT.md'))) {
+        console.error(`No AGENT.md found in ${resolved} — is this a file-agent directory?`)
+        process.exitCode = 2
+        return
+      }
+      const { computeAgentTokenUsageFromDir } = await import('./lib/tokens/computeAgentTokenUsage')
+      usage = computeAgentTokenUsageFromDir(resolved)
+      title = resolved
+    } else {
+      const manifest = await import('./generated/file-agents.generated')
+      const descriptors = (manifest.fileAgentDescriptors ?? []).flatMap((descriptor) => [
+        descriptor,
+        ...(descriptor.subAgentDescriptors ?? []),
+      ])
+      const descriptor = descriptors.find((entry) => entry.id === agentId)
+      if (!descriptor) {
+        console.error(`Unknown file agent "${agentId}".`)
+        process.exitCode = 2
+        return
+      }
+      if (!descriptor.tokenUsage) {
+        console.error(`Agent "${agentId}" has no baked token usage — re-run \`yarn generate\`.`)
+        process.exitCode = 2
+        return
+      }
+      usage = descriptor.tokenUsage
+      title = agentId as string
+    }
+
+    if (asJson) {
+      console.log(JSON.stringify(usage, null, 2))
+      return
+    }
+    printTokenUsage(title, usage)
+  },
+}
+
+const agentOrchestratorCliCommands = [rebuildProcesses, seedDemo, evalGate, tokenUsage]
 
 export default agentOrchestratorCliCommands
