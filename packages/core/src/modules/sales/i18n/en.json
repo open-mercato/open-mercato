@@ -1225,7 +1225,6 @@
   "sales.orders.form.payments": "Payments",
   "sales.orders.form.shipments": "Shipments",
   "sales.orders.lines.delete": "Delete order line",
-  "sales.orders.lines.price_locked_after_shipment": "Unit prices cannot be changed after a quantity has been shipped.",
   "sales.orders.lines.upsert": "Update order line",
   "sales.orders.list.title": "Orders",
   "sales.orders.status_change.actor_api_key": "API key {name}",

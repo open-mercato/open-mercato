@@ -24,10 +24,10 @@ function readNumber(value: unknown): number {
 }
 
 /**
- * TC-SALES-4056: a shipped order line keeps its historical unit price.
+ * TC-SALES-4056: a shipped order line keeps its historical pricing and totals.
  */
 test.describe('TC-SALES-4056: shipped order-line price lock', () => {
-  test('rejects a unit-price update after a partial shipment and preserves the stored price', async ({ request }) => {
+  test('rejects pricing and total updates after a partial shipment and preserves stored money fields', async ({ request }) => {
     const token = await getAuthToken(request, 'admin')
     test.skip(!(await canManageSalesOrders(request, token)), 'sales.orders.manage not granted on this tenant')
 
@@ -43,31 +43,57 @@ test.describe('TC-SALES-4056: shipped order-line price lock', () => {
       })
       await createShipmentFixture(request, token, orderId, [{ orderLineId: lineId, quantity: 1 }])
 
-      const update = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
-        token,
-        data: {
-          id: lineId,
-          orderId,
-          currencyCode: 'USD',
-          quantity: 4,
-          unitPriceNet: 5,
-          unitPriceGross: 6,
-          taxRate: 20,
-        },
-      })
-      expect(update.status()).toBe(400)
+      const readLine = async () => {
+        const linesResponse = await apiRequest(
+          request,
+          'GET',
+          `/api/sales/order-lines?orderId=${encodeURIComponent(orderId!)}&page=1&pageSize=50`,
+          { token },
+        )
+        expect(linesResponse.ok(), `GET order-lines failed: ${linesResponse.status()}`).toBeTruthy()
+        return readItems(await readJsonSafe(linesResponse)).find((item) => item.id === lineId)
+      }
+      const before = await readLine()
+      expect(before, 'Order line should exist before guarded updates').toBeTruthy()
 
-      const linesResponse = await apiRequest(
-        request,
-        'GET',
-        `/api/sales/order-lines?orderId=${encodeURIComponent(orderId)}&page=1&pageSize=50`,
-        { token },
-      )
-      expect(linesResponse.ok(), `GET order-lines failed: ${linesResponse.status()}`).toBeTruthy()
-      const line = readItems(await readJsonSafe(linesResponse)).find((item) => item.id === lineId)
-      expect(line, 'Order line should still exist').toBeTruthy()
-      expect(readNumber(line?.unit_price_net ?? line?.unitPriceNet)).toBe(100)
-      expect(readNumber(line?.unit_price_gross ?? line?.unitPriceGross)).toBe(120)
+      const guardedUpdates: Array<[string, Record<string, number>]> = [
+        ['unit prices', { unitPriceNet: 5, unitPriceGross: 6 }],
+        ['discount amount', { discountAmount: 25 }],
+        ['discount percent', { discountPercent: 25 }],
+        ['net total', { totalNetAmount: 5 }],
+        ['gross total', { totalGrossAmount: 6 }],
+      ]
+      for (const [label, fields] of guardedUpdates) {
+        const update = await apiRequest(request, 'PUT', '/api/sales/order-lines', {
+          token,
+          data: {
+            id: lineId,
+            orderId,
+            currencyCode: 'USD',
+            quantity: 4,
+            taxRate: 20,
+            ...fields,
+          },
+        })
+        expect(update.status(), `${label} update should be rejected`).toBe(409)
+      }
+
+      const after = await readLine()
+      expect(after, 'Order line should still exist').toBeTruthy()
+      const moneyFields: Array<[string, string]> = [
+        ['unitPriceNet', 'unit_price_net'],
+        ['unitPriceGross', 'unit_price_gross'],
+        ['discountAmount', 'discount_amount'],
+        ['discountPercent', 'discount_percent'],
+        ['totalNetAmount', 'total_net_amount'],
+        ['totalGrossAmount', 'total_gross_amount'],
+      ]
+      for (const [camelCase, snakeCase] of moneyFields) {
+        expect(
+          readNumber(after?.[snakeCase] ?? after?.[camelCase]),
+          `${camelCase} should remain unchanged`,
+        ).toBe(readNumber(before?.[snakeCase] ?? before?.[camelCase]))
+      }
     } finally {
       await deleteSalesEntityIfExists(request, token, '/api/sales/orders', orderId)
     }
