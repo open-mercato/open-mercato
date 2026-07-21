@@ -18,6 +18,7 @@ import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
+import { resolveActorTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 
 type ConvertToOrderResult = {
@@ -65,7 +66,8 @@ export async function POST(req: Request) {
     const em = (container.resolve('em') as EntityManager).fork()
 
     const hashedToken = hashAuthToken(token)
-    const tenantScope = auth?.tenantId ? { tenantId: auth.tenantId } : undefined
+    const actorTenantId = resolveActorTenantId(auth)
+    const tenantScope = actorTenantId ? { tenantId: actorTenantId } : undefined
 
     const quote = await em.transactional(async (trx) => {
       const findQuoteByToken = (acceptanceToken: string) =>
@@ -74,7 +76,7 @@ export async function POST(req: Request) {
           SalesQuote,
           {
             acceptanceToken,
-            ...(auth?.tenantId ? { tenantId: auth.tenantId } : {}),
+            ...(actorTenantId ? { tenantId: actorTenantId } : {}),
             deletedAt: null,
           },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
