@@ -6,9 +6,9 @@ import * as React from 'react'
 import { fireEvent, screen } from '@testing-library/react'
 import { renderWithProviders } from '@open-mercato/shared/lib/testing/renderWithProviders'
 import { AttachmentAssignmentsEditor } from '../AttachmentMetadataDialog'
-import type { AssignmentDraft } from '../AttachmentMetadataDialog'
+import type { AssignmentDraft, AssignmentEditorLabels } from '../AttachmentMetadataDialog'
 
-const labels = {
+const labels: AssignmentEditorLabels = {
   title: 'Assignments',
   description: 'Link this attachment to records',
   type: 'Type',
@@ -24,32 +24,45 @@ function EditorHarness({ initial }: { initial: AssignmentDraft[] }) {
   return <AttachmentAssignmentsEditor value={value} onChange={setValue} labels={labels} />
 }
 
-function typeInto(input: HTMLElement, text: string) {
-  input.focus()
-  Array.from(text).forEach((char, idx) => {
-    fireEvent.change(input, { target: { value: text.slice(0, idx + 1) } })
+/**
+ * Re-queries the input before every keystroke. A stale reference would keep
+ * accepting `fireEvent.change` after a remount detached it from the document,
+ * which is exactly how this bug hid from a naive assertion.
+ */
+function typeInto(getInput: () => HTMLInputElement, text: string) {
+  getInput().focus()
+  Array.from(text).forEach((char) => {
+    const input = getInput()
+    fireEvent.change(input, { target: { value: input.value + char } })
   })
 }
 
+const getTypeInput = (index = 0) =>
+  screen.getAllByPlaceholderText('catalog.product')[index] as HTMLInputElement
+const getIdInput = (index = 0) =>
+  screen.getAllByPlaceholderText('Record ID')[index] as HTMLInputElement
+
 describe('AttachmentAssignmentsEditor typing (issue #4338)', () => {
-  it('keeps focus on the Type field while typing a multi-character value', () => {
+  it('keeps the Type field focused while typing a multi-character value', () => {
     renderWithProviders(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />, { dict: {} })
 
-    const typeInput = screen.getByPlaceholderText('catalog.product')
-    typeInto(typeInput, 'catalog.product')
+    typeInto(() => getTypeInput(), 'catalog.product')
 
-    expect(typeInput).toHaveValue('catalog.product')
-    expect(document.activeElement).toBe(typeInput)
+    // Assert against the live tree — the element still mounted and focused —
+    // rather than the reference captured before typing started.
+    expect(getTypeInput()).toHaveValue('catalog.product')
+    expect(document.activeElement).toBe(getTypeInput())
+    expect(document.activeElement).toHaveValue('catalog.product')
   })
 
-  it('keeps focus on the Record ID field while typing a multi-character value', () => {
+  it('keeps the Record ID field focused while typing a multi-character value', () => {
     renderWithProviders(<EditorHarness initial={[{ type: '', id: '', href: '', label: '' }]} />, { dict: {} })
 
-    const idInput = screen.getByPlaceholderText('Record ID')
-    typeInto(idInput, 'abc-123')
+    typeInto(() => getIdInput(), 'abc-123')
 
-    expect(idInput).toHaveValue('abc-123')
-    expect(document.activeElement).toBe(idInput)
+    expect(getIdInput()).toHaveValue('abc-123')
+    expect(document.activeElement).toBe(getIdInput())
+    expect(document.activeElement).toHaveValue('abc-123')
   })
 
   it('edits the intended row when several assignments are present', () => {
@@ -63,13 +76,34 @@ describe('AttachmentAssignmentsEditor typing (issue #4338)', () => {
       { dict: {} },
     )
 
-    const typeInputs = screen.getAllByPlaceholderText('catalog.product')
-    expect(typeInputs).toHaveLength(2)
+    typeInto(() => getTypeInput(1), 'sales.order')
 
-    typeInto(typeInputs[1], 'sales.order')
+    expect(getTypeInput(0)).toHaveValue('catalog.product')
+    expect(getTypeInput(1)).toHaveValue('sales.order')
+    expect(document.activeElement).toBe(getTypeInput(1))
+  })
 
-    expect(typeInputs[0]).toHaveValue('catalog.product')
-    expect(typeInputs[1]).toHaveValue('sales.order')
-    expect(document.activeElement).toBe(typeInputs[1])
+  // Index keys are only safe while the row stays fully controlled. This guards
+  // that invariant: if a row ever gains internal state, removing a middle row
+  // will leak it onto the row that shifts into the freed index and fail here.
+  it('shows the surviving rows correctly after removing a middle row', () => {
+    renderWithProviders(
+      <EditorHarness
+        initial={[
+          { type: 'catalog.product', id: 'p-1', href: '', label: '' },
+          { type: 'sales.order', id: 'o-2', href: '', label: '' },
+          { type: 'customers.person', id: 'c-3', href: '', label: '' },
+        ]}
+      />,
+      { dict: {} },
+    )
+
+    fireEvent.click(screen.getAllByRole('button', { name: labels.remove })[1])
+
+    expect(screen.getAllByPlaceholderText('catalog.product')).toHaveLength(2)
+    expect(getTypeInput(0)).toHaveValue('catalog.product')
+    expect(getIdInput(0)).toHaveValue('p-1')
+    expect(getTypeInput(1)).toHaveValue('customers.person')
+    expect(getIdInput(1)).toHaveValue('c-3')
   })
 })

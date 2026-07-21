@@ -229,7 +229,7 @@ export function AttachmentAssignmentsEditor({ value, onChange, labels, disabled 
           <div className="text-xs text-muted-foreground">No assignments yet.</div>
         ) : (
           value.map((entry, index) => (
-            <div key={index} className="rounded border p-3 space-y-2">
+            <div key={index} data-assignment-card className="rounded border p-3 space-y-2">
               <div className="grid gap-2 sm:grid-cols-2">
                 <div className="space-y-1">
                   <label className="text-xs font-medium">{labels.type}</label>
