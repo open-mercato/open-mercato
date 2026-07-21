@@ -8,10 +8,11 @@
 
 import * as fs from 'node:fs'
 import * as path from 'node:path'
-import type { PackageResolver } from '../resolver'
+import type { ModuleEntry, PackageResolver } from '../resolver'
 import { isModuleRouteFile } from './scanner'
 import {
   calculateChecksum,
+  calculateStructureChecksum,
   readChecksumRecord,
   writeChecksumRecord,
   logGenerationResult,
@@ -32,6 +33,111 @@ interface ApiRouteInfo {
   openApiPath: string
 }
 
+interface OpenApiInputManifest {
+  version: 1
+  inputPaths: string[]
+}
+
+interface OpenApiInputContext {
+  enabled: ModuleEntry[]
+  apiRoots: string[]
+  moduleIdentity: Array<{
+    id: string
+    from: string
+    appBase: string
+    pkgBase: string
+  }>
+}
+
+interface OpenApiBundleResult {
+  doc: Record<string, any> | null
+  inputPaths: string[]
+}
+
+const OPENAPI_INPUT_MANIFEST_VERSION = 1
+
+function createOpenApiInputContext(resolver: PackageResolver): OpenApiInputContext {
+  const enabled = resolver.loadEnabledModules()
+  const apiRoots: string[] = []
+  const moduleIdentity = enabled.map((entry) => {
+    const roots = resolver.getModulePaths(entry)
+    apiRoots.push(path.join(roots.appBase, 'api'), path.join(roots.pkgBase, 'api'))
+    return {
+      id: entry.id,
+      from: entry.from ?? '@open-mercato/core',
+      appBase: path.resolve(roots.appBase),
+      pkgBase: path.resolve(roots.pkgBase),
+    }
+  })
+  return { enabled, apiRoots, moduleIdentity }
+}
+
+function readOpenApiInputManifest(filePath: string): OpenApiInputManifest | null {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8')) as Partial<OpenApiInputManifest>
+    if (
+      parsed.version !== OPENAPI_INPUT_MANIFEST_VERSION
+      || !Array.isArray(parsed.inputPaths)
+      || parsed.inputPaths.some((entry) => typeof entry !== 'string')
+    ) {
+      return null
+    }
+    return {
+      version: OPENAPI_INPUT_MANIFEST_VERSION,
+      inputPaths: Array.from(new Set(parsed.inputPaths.map((entry) => path.resolve(entry))))
+        .sort((a, b) => a.localeCompare(b)),
+    }
+  } catch {
+    return null
+  }
+}
+
+function trackedPathRecord(filePath: string): string {
+  try {
+    const stat = fs.statSync(filePath)
+    if (stat.isFile()) {
+      return `${path.resolve(filePath)}:${calculateChecksum(fs.readFileSync(filePath, 'utf8'))}`
+    }
+    return `${path.resolve(filePath)}:${stat.size}:${stat.mtimeMs}`
+  } catch {
+    return `missing:${path.resolve(filePath)}`
+  }
+}
+
+function calculateOpenApiInputFingerprint(
+  resolver: PackageResolver,
+  context: OpenApiInputContext,
+  manifest: OpenApiInputManifest,
+): string {
+  const rootDir = resolver.getRootDir()
+  const appDir = resolver.getAppDir()
+  const configPaths = [
+    resolver.getModulesConfigPath(),
+    path.join(rootDir, 'package.json'),
+    path.join(rootDir, 'yarn.lock'),
+    path.join(rootDir, 'package-lock.json'),
+    path.join(rootDir, 'pnpm-lock.yaml'),
+    path.join(rootDir, 'tsconfig.json'),
+    path.join(rootDir, 'tsconfig.base.json'),
+    path.join(appDir, 'package.json'),
+    path.join(appDir, 'tsconfig.json'),
+  ]
+  const trackedRecords = [...manifest.inputPaths, ...configPaths]
+    .map(trackedPathRecord)
+    .sort((a, b) => a.localeCompare(b))
+  return calculateChecksum(JSON.stringify({
+    version: OPENAPI_INPUT_MANIFEST_VERSION,
+    modules: context.moduleIdentity,
+    routeStructure: calculateStructureChecksum(context.apiRoots),
+    trackedRecords,
+    environment: {
+      node: process.version,
+      nodeEnv: process.env.NODE_ENV ?? '',
+      publicAppUrl: process.env.NEXT_PUBLIC_APP_URL ?? '',
+    },
+  }))
+}
+
 function resolveExistingPath(paths: string[]): string | null {
   for (const candidate of paths) {
     if (fs.existsSync(candidate)) return candidate
@@ -42,9 +148,11 @@ function resolveExistingPath(paths: string[]): string | null {
 /**
  * Find all API route files and extract their OpenAPI specs.
  */
-async function findApiRoutes(resolver: PackageResolver): Promise<ApiRouteInfo[]> {
+async function findApiRoutes(
+  resolver: PackageResolver,
+  enabled: ModuleEntry[],
+): Promise<ApiRouteInfo[]> {
   const routes: ApiRouteInfo[] = []
-  const enabled = resolver.loadEnabledModules()
 
   for (const entry of enabled) {
     const modId = entry.id
@@ -198,13 +306,13 @@ async function generateOpenApiViaBundle(
   routes: ApiRouteInfo[],
   resolver: PackageResolver,
   quiet: boolean
-): Promise<Record<string, any> | null> {
+): Promise<OpenApiBundleResult> {
   let esbuild: typeof import('esbuild')
   try {
     esbuild = await import('esbuild')
   } catch {
     if (!quiet) console.log('[OpenAPI] esbuild not available, skipping bundle approach')
-    return null
+    return { doc: null, inputPaths: [] }
   }
 
   const { execFileSync } = await import('node:child_process')
@@ -225,13 +333,14 @@ async function generateOpenApiViaBundle(
     if (!quiet) {
       console.log(`[OpenAPI] Generator source not found at ${generatorPath}, skipping bundle approach`)
     }
-    return null
+    return { doc: null, inputPaths: [] }
   }
 
   const cacheDir = path.join(rootDir, 'node_modules', '.cache')
   if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true })
 
   const bundlePath = path.join(cacheDir, '_openapi-bundle.mjs')
+  let inputPaths: string[] = []
 
   // Build the entry script that imports all routes and calls buildOpenApiDocument
   const importLines: string[] = [
@@ -418,7 +527,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
   }
 
   try {
-    await esbuild.build({
+    const buildResult = await esbuild.build({
       stdin: {
         contents: entryScript,
         resolveDir: appDir,
@@ -426,6 +535,8 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         loader: 'ts',
       },
       bundle: true,
+      metafile: true,
+      absWorkingDir: rootDir,
       format: 'esm',
       platform: 'node',
       target: 'node18',
@@ -436,6 +547,12 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
       jsx: 'automatic',
       plugins: [stubNextPlugin, resolveProjectImportsPlugin, externalNonWorkspacePlugin],
     })
+
+    inputPaths = Object.keys(buildResult.metafile?.inputs ?? {})
+      .filter((inputPath) => !inputPath.startsWith('<'))
+      .map((inputPath) => path.resolve(rootDir, inputPath))
+      .filter((inputPath) => fs.existsSync(inputPath))
+      .sort((a, b) => a.localeCompare(b))
 
     const stdout = execFileSync(process.execPath, [bundlePath], {
       timeout: 60_000,
@@ -459,7 +576,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
       console.log(`[OpenAPI] Bundle approach: ${pathCount} paths, ${withBody} with requestBody schemas`)
     }
 
-    return doc
+    return { doc, inputPaths }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
     const stderr = (err as any)?.stderr
@@ -483,7 +600,7 @@ process.stdout.write(JSON.stringify(deepClone(doc), (_, v) =>
         }
       }
     }
-    return null
+    return { doc: null, inputPaths }
   } finally {
     // Shut down esbuild's persistent Go service so it does not deadlock at
     // process exit when a plugin request is still in flight.
@@ -552,14 +669,33 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
   const outputDir = resolver.getOutputDir()
   const outFile = path.join(outputDir, 'openapi.generated.json')
   const checksumFile = path.join(outputDir, 'openapi.generated.checksum')
+  const inputManifestFile = path.join(outputDir, 'openapi.generated.inputs.json')
 
   // Ensure output directory exists
   if (!fs.existsSync(outputDir)) {
     fs.mkdirSync(outputDir, { recursive: true })
   }
 
+  const inputContext = createOpenApiInputContext(resolver)
+  const existingChecksums = readChecksumRecord(checksumFile)
+  const existingManifest = readOpenApiInputManifest(inputManifestFile)
+
+  if (
+    existingChecksums?.structure
+    && existingManifest
+    && fs.existsSync(outFile)
+    && calculateChecksum(fs.readFileSync(outFile, 'utf8')) === existingChecksums.content
+    && calculateOpenApiInputFingerprint(resolver, inputContext, existingManifest) === existingChecksums.structure
+  ) {
+    result.filesUnchanged.push(outFile)
+    if (!quiet) {
+      console.log(`[OpenAPI] Skipped (inputs unchanged): ${outFile}`)
+    }
+    return result
+  }
+
   // Find all API routes
-  const routes = await findApiRoutes(resolver)
+  const routes = await findApiRoutes(resolver, inputContext.enabled)
 
   if (!quiet) {
     console.log(`[OpenAPI] Found ${routes.length} API route files`)
@@ -567,7 +703,8 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
 
   // Determine project root (cli package is at packages/cli/src/lib/generators/)
   // Try esbuild bundle approach first — produces full requestBody/response schemas
-  let doc: Record<string, any> | null = await generateOpenApiViaBundle(routes, resolver, quiet)
+  const bundleResult = await generateOpenApiViaBundle(routes, resolver, quiet)
+  let doc: Record<string, any> | null = bundleResult.doc
 
   // Fallback to static regex approach (extracts operationId/summary/tags but no schemas)
   if (!doc) {
@@ -601,10 +738,26 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
 
   const output = JSON.stringify(doc, null, 2)
   const checksum = calculateChecksum(output)
+  let structureChecksum = ''
+
+  if (bundleResult.doc && bundleResult.inputPaths.length > 0) {
+    const manifest: OpenApiInputManifest = {
+      version: OPENAPI_INPUT_MANIFEST_VERSION,
+      inputPaths: Array.from(new Set(bundleResult.inputPaths)).sort((a, b) => a.localeCompare(b)),
+    }
+    fs.writeFileSync(inputManifestFile, `${JSON.stringify(manifest, null, 2)}\n`)
+    structureChecksum = calculateOpenApiInputFingerprint(resolver, inputContext, manifest)
+  } else {
+    try { fs.unlinkSync(inputManifestFile) } catch {}
+  }
 
   // Check if unchanged
-  const existingChecksums = readChecksumRecord(checksumFile)
-  if (existingChecksums && existingChecksums.content === checksum && fs.existsSync(outFile)) {
+  const existingOutputMatches = fs.existsSync(outFile)
+    && calculateChecksum(fs.readFileSync(outFile, 'utf8')) === checksum
+  if (existingChecksums && existingChecksums.content === checksum && existingOutputMatches) {
+    if (existingChecksums.structure !== structureChecksum) {
+      writeChecksumRecord(checksumFile, { content: checksum, structure: structureChecksum })
+    }
     result.filesUnchanged.push(outFile)
     if (!quiet) {
       console.log(`[OpenAPI] Skipped (unchanged): ${outFile}`)
@@ -614,7 +767,7 @@ export async function generateOpenApi(options: GenerateOpenApiOptions): Promise<
 
   // Write the file
   fs.writeFileSync(outFile, output)
-  writeChecksumRecord(checksumFile, { content: checksum, structure: '' })
+  writeChecksumRecord(checksumFile, { content: checksum, structure: structureChecksum })
 
   result.filesWritten.push(outFile)
 

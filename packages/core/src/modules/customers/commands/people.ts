@@ -46,7 +46,7 @@ import {
 } from './shared'
 import { withAtomicFlush } from '@open-mercato/shared/lib/commands/flush'
 import { resolveRedoSnapshot } from '@open-mercato/shared/lib/commands/redo'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
 import {
   loadCustomFieldSnapshot,
@@ -851,7 +851,7 @@ const createPersonCommand: CommandHandler<PersonCreateInput, { entityId: string;
         undefined,
         { tenantId: after.entity.tenantId, organizationId: after.entity.organizationId },
       )
-      if (!existingProfile) throw new CrudHttpError(404, { error: 'Person profile not found' })
+      if (!existingProfile) throw notFound('Person profile not found')
       profile = existingProfile
       const survivingEntity = entity
       await withAtomicFlush(em, [
@@ -927,7 +927,7 @@ const updatePersonCommand: CommandHandler<PersonUpdateInput, { entityId: string 
     ensureTenantScope(ctx, record.tenantId)
     ensureOrganizationScope(ctx, record.organizationId)
     const profile = await em.findOne(CustomerPersonProfile, { entity: record })
-    if (!profile) throw new CrudHttpError(404, { error: 'Person profile not found' })
+    if (!profile) throw notFound('Person profile not found')
 
     if (parsed.displayName !== undefined) {
       const nextDisplayName = parsed.displayName.trim()

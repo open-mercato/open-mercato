@@ -1,4 +1,5 @@
-import { detectCsvDelimiter, parseCsvPreview, parseCsvText } from '../parser'
+import { Readable } from 'stream'
+import { detectCsvDelimiter, parseCsvDocumentBatches, parseCsvPreview, parseCsvStreamMetadata, parseCsvText } from '../parser'
 
 describe('sync_excel parser', () => {
   it('detects comma-delimited CSV with BOM and builds preview rows', () => {
@@ -54,6 +55,65 @@ describe('sync_excel parser', () => {
       'Record Id': 'zcrm_1',
       Company: 'Wojciech Skrzypiec',
       Industry: 'Health Care',
+    })
+  })
+
+  it('parses CSV metadata and rows incrementally by batch and offset', async () => {
+    const chunks = [
+      Buffer.from('\uFEFFRecord Id,Lead Name,Description\next-1,Ada,"Line one'),
+      Buffer.from('\nline two"\next-2,Grace,\next-3,Linus,"Kernel "'),
+      Buffer.from('"main"""\n', 'utf-8'),
+    ]
+
+    const metadata = await parseCsvStreamMetadata(Readable.from(chunks))
+
+    expect(metadata).toMatchObject({
+      delimiter: ',',
+      encoding: 'utf-8',
+      headers: ['Record Id', 'Lead Name', 'Description'],
+      totalRows: 3,
+    })
+
+    const batches = []
+    for await (const batch of parseCsvDocumentBatches(Readable.from(chunks), {
+      batchSize: 1,
+      startOffset: 1,
+    })) {
+      batches.push(batch)
+    }
+
+    expect(batches).toEqual([
+      {
+        delimiter: ',',
+        encoding: 'utf-8',
+        headers: ['Record Id', 'Lead Name', 'Description'],
+        rowStart: 1,
+        nextOffset: 2,
+        rows: [{ 'Record Id': 'ext-2', 'Lead Name': 'Grace', Description: null }],
+      },
+      {
+        delimiter: ',',
+        encoding: 'utf-8',
+        headers: ['Record Id', 'Lead Name', 'Description'],
+        rowStart: 2,
+        nextOffset: 3,
+        rows: [{ 'Record Id': 'ext-3', 'Lead Name': 'Linus', Description: 'Kernel "main"' }],
+      },
+    ])
+  })
+
+  it('detects semicolon CSV when the header spans multiple chunks', async () => {
+    const chunks = [
+      Buffer.from('Record Id'),
+      Buffer.from(';Lead Name\next-1;Ada Lovelace\n'),
+    ]
+
+    const metadata = await parseCsvStreamMetadata(Readable.from(chunks))
+
+    expect(metadata).toMatchObject({
+      delimiter: ';',
+      headers: ['Record Id', 'Lead Name'],
+      totalRows: 1,
     })
   })
 })
