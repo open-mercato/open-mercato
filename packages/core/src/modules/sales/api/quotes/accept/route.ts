@@ -18,7 +18,7 @@ import { SalesOrder, SalesQuote } from '../../../data/entities'
 import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
-import { resolveActorTenantId } from '../../../lib/publicQuoteTenantScope'
+import { resolveEffectiveTenantId } from '../../../lib/publicQuoteTenantScope'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
 
 type ConvertToOrderResult = {
@@ -66,8 +66,13 @@ export async function POST(req: Request) {
     const em = (container.resolve('em') as EntityManager).fork()
 
     const hashedToken = hashAuthToken(token)
-    const actorTenantId = resolveActorTenantId(auth)
-    const tenantScope = actorTenantId ? { tenantId: actorTenantId } : undefined
+    const effectiveTenantId = resolveEffectiveTenantId(auth)
+    // A session whose tenant cannot be resolved must not fall through to an unscoped lookup.
+    // Anonymous callers (no auth) and tenant-less API keys stay unscoped by design.
+    if (auth && effectiveTenantId === null && auth.isApiKey !== true) {
+      throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+    }
+    const tenantScope = effectiveTenantId ? { tenantId: effectiveTenantId } : undefined
 
     const quote = await em.transactional(async (trx) => {
       const findQuoteByToken = (acceptanceToken: string) =>
@@ -76,7 +81,7 @@ export async function POST(req: Request) {
           SalesQuote,
           {
             acceptanceToken,
-            ...(actorTenantId ? { tenantId: actorTenantId } : {}),
+            ...(effectiveTenantId ? { tenantId: effectiveTenantId } : {}),
             deletedAt: null,
           },
           { lockMode: LockMode.PESSIMISTIC_WRITE },
