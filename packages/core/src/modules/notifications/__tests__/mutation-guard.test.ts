@@ -8,8 +8,7 @@ const container = { resolve: jest.fn() }
 
 const ctx = {
   container,
-  auth: { tenantId, sub: userId },
-  selectedOrganizationId: organizationId,
+  auth: { tenantId, sub: userId, orgId: organizationId },
 }
 
 const runRouteMutationGuardsMock = jest.fn()
@@ -33,6 +32,19 @@ jest.mock('@open-mercato/shared/lib/crud/route-mutation-guard', () => ({
 
 jest.mock('@open-mercato/shared/lib/api/context', () => ({
   resolveRequestContext: jest.fn(async () => ({ ctx })),
+}))
+
+// The notification routes derive the organization the same way every org-scoped
+// write does — the selected-org cookie via resolveOrganizationScopeForRequest,
+// then the caller's own auth.orgId. Here no org is explicitly selected, so the
+// guard scope falls back to auth.orgId (see routeHelpers-org-scoping.test.ts).
+jest.mock('@open-mercato/core/modules/directory/utils/organizationScope', () => ({
+  resolveOrganizationScopeForRequest: jest.fn(async () => ({
+    selectedId: null,
+    filterIds: null,
+    allowedIds: null,
+    tenantId,
+  })),
 }))
 
 jest.mock('../lib/notificationService', () => ({

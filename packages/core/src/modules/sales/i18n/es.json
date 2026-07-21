@@ -4,6 +4,7 @@
   "audit_logs.resource_kind.sales.payment": "Pago",
   "audit_logs.resource_kind.sales.shipment": "Envío",
   "customers~sales.nav.group": "Ventas",
+  "notifications.categories.sales": "Ventas",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalGross": "El importe bruto del ajuste de devolución supera el total restante. Reduzca el importe o elimine las devoluciones existentes.",
   "sales.adjustments.error.returnExceedsRemainingGrandTotalNet": "El importe neto del ajuste de devolución supera el total restante. Reduzca el importe o elimine las devoluciones existentes.",
   "sales.audit.channels.create": "Crear canal de ventas",

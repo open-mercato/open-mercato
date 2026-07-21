@@ -1,23 +1,31 @@
 ---
 title: Communications Hub
-description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and the IMAP / Gmail channel providers.
+description: Architecture, OAuth setup, environment variables, deploy runbook, and provider package contract for the Communications Hub and its email and push channel providers.
 ---
 
 # Communications Hub
 
-The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module. Each provider ships as a separate workspace package implementing the `ChannelAdapter` contract; the hub itself stays adapter-agnostic.
+The Communications Hub (`communication_channels`) bridges external chat and email channels (Slack, WhatsApp, Gmail, IMAP+SMTP) into the **Messages** module, and routes mobile push through the same `ChannelAdapter` contract. Each provider ships as a separate workspace package; the hub itself stays adapter-agnostic.
 
-Two email providers ship today:
+Two email providers ship today, both `channelScope: 'user'`:
 
 - `@open-mercato/channel-imap` — credential-based IMAP polling + SMTP send
 - `@open-mercato/channel-gmail` — Gmail OAuth2 + History API polling + `gmail.users.messages.send`
+
+Three push providers ship today, all `channelType: 'push'` and `channelScope: 'tenant'` — one credential serves every device in the tenant, so they are connected through the admin-gated tenant connect route rather than the per-user one:
+
+- `@open-mercato/channel-fcm` — Firebase Cloud Messaging (Android **and** iOS, the latter relayed via APNs)
+- `@open-mercato/channel-apns` — Apple Push Notification service, directly
+- `@open-mercato/channel-expo` — Expo push service (Android and iOS)
+
+Push delivery itself is owned by the `push_notifications` module; these packages hold only the provider SDKs and their message builders. See the [Devices and push getting-started tutorial](../../tutorials/devices-and-push-getting-started.mdx).
 
 For the end-user perspective see the [Communication Channels user guide](../../user-guide/communication-channels.mdx).
 
 ## Overview
 
 - **Hub**: `packages/core/src/modules/communication_channels/`
-- **Providers**: `packages/channel-{imap,gmail}/`
+- **Providers**: `packages/channel-{imap,gmail}/` (email) and `packages/channel-{fcm,apns,expo}/` (push)
 - **Module entry**: enable with `{ id: 'communication_channels', from: '@open-mercato/core' }` plus one entry per provider you want active in `apps/mercato/src/modules.ts`.
 - **Specs**: [`.ai/specs/implemented/SPEC-045d-communication-notification-hubs.md`](#) (hub contract) and [`.ai/specs/2026-05-21-email-integration-foundation.md`](#) (email providers + per-user surfaces).
 

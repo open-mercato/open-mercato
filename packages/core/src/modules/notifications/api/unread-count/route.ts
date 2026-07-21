@@ -8,6 +8,7 @@ import {
 import { Notification } from '../../data/entities'
 import { unreadCountResponseSchema } from '../openapi'
 import { resolveNotificationContext } from '../../lib/routeHelpers'
+import { inAppVisibleFilter } from '../../lib/notificationVisibility'
 
 export const metadata = {
   GET: { requireAuth: true },
@@ -41,6 +42,7 @@ export async function GET(req: Request) {
     recipientUserId: userId,
     tenantId: scope.tenantId,
     status: 'unread',
+    ...inAppVisibleFilter(),
   })
 
   if (cache && cacheKey) {

@@ -701,5 +701,6 @@
   "customers~catalog.errors.id_required": "Record identifier is required.",
   "customers~catalog.errors.organization_required": "Organization context is required.",
   "customers~catalog.errors.tenant_required": "Tenant context is required.",
-  "customers~catalog.nav.group": "Catalog"
+  "customers~catalog.nav.group": "Catalog",
+  "notifications.categories.catalog": "Catalog"
 }

@@ -1,4 +1,5 @@
 {
+  "notifications.categories.webhooks": "Webhooki",
   "webhooks.deliveries.actions.retry": "Retry",
   "webhooks.deliveries.actions.viewDetails": "Zobacz szczegóły",
   "webhooks.deliveries.autoRefreshHint": "The delivery log refreshes automatically while this page is open.",

@@ -481,5 +481,6 @@
   "ai_assistant.usage.sessionsList": "Sitzungen",
   "ai_assistant.usage.steps": "Schritte",
   "ai_assistant.usage.title": "Token-Nutzungsstatistik",
-  "ai_assistant.usage.to": "Bis"
+  "ai_assistant.usage.to": "Bis",
+  "notifications.categories.ai_assistant": "KI-Assistent"
 }

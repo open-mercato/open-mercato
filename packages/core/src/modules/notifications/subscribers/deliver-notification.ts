@@ -2,12 +2,12 @@ import type { EntityManager } from '@mikro-orm/postgresql'
 import { Notification } from '../data/entities'
 import { NOTIFICATION_EVENTS } from '../lib/events'
 import { DEFAULT_NOTIFICATION_DELIVERY_CONFIG, resolveNotificationDeliveryConfig, resolveNotificationPanelUrl } from '../lib/deliveryConfig'
-import { getNotificationDeliveryStrategies } from '../lib/deliveryStrategies'
-import { sendEmail } from '@open-mercato/shared/lib/email/send'
-import NotificationEmail from '../emails/NotificationEmail'
-import { loadDictionary } from '@open-mercato/shared/lib/i18n/server'
-import { createFallbackTranslator } from '@open-mercato/shared/lib/i18n/translate'
-import { defaultLocale } from '@open-mercato/shared/lib/i18n/config'
+import { getNotificationDeliveryStrategies, type NotificationDeliveryContext } from '../lib/deliveryStrategies'
+import { resolveEffectiveChannels } from '../lib/shouldDeliver'
+import { getNotificationType } from '../lib/notification-type-registry'
+import { getNotificationTypeOverrides } from '../lib/typeOverrides'
+import { resolveNotificationPreferenceService } from '../lib/notificationPreferenceService'
+import { resolveNotificationCopy } from '../lib/notificationCopy'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import { User } from '../../auth/data/entities'
 import type { TenantDataEncryptionService } from '@open-mercato/shared/lib/encryption/tenantDataEncryptionService'
@@ -46,23 +46,6 @@ const buildPanelLink = (panelUrl: string, notificationId: string) => {
   return `${panelUrl}${separator}notificationId=${encodeURIComponent(notificationId)}`
 }
 
-const resolveNotificationCopy = async (
-  notification: Notification
-) => {
-  const dict = await loadDictionary(defaultLocale)
-  const t = createFallbackTranslator(dict)
-
-  const title = notification.titleKey
-    ? t(notification.titleKey, notification.title ?? notification.titleKey, notification.titleVariables ?? undefined)
-    : notification.title
-
-  const body = notification.bodyKey
-    ? t(notification.bodyKey, notification.body ?? notification.bodyKey ?? '', notification.bodyVariables ?? undefined)
-    : notification.body ?? null
-
-  return { title, body, t }
-}
-
 const resolveRecipient = async (
   em: EntityManager,
   notification: Notification,
@@ -94,13 +77,18 @@ const resolveRecipient = async (
   }
 }
 
-
+/**
+ * Dispatches a created notification across every registered delivery channel. This is a pure
+ * "resolve copy → loop strategies" loop with NO channel-specific branches: in-app, email, and push
+ * are all first-class strategies on the seam. Per-channel opt-out / `nonOptOut` / `silent` /
+ * eligibility / per-send targeting were already resolved once at create time into
+ * `notification.channels` (see `shouldDeliver`); here we only replay that target set and apply each
+ * strategy's technical short-circuits (`supports`, `isConfigured`). `notification.channels === null`
+ * means "all channels" (legacy rows + pre-Phase-7 behavior).
+ */
 export default async function handle(payload: NotificationCreatedPayload, ctx: ResolverContext) {
   debug('deliver notification event', payload)
   const deliveryConfig = await resolveNotificationDeliveryConfig(ctx, { defaultValue: DEFAULT_NOTIFICATION_DELIVERY_CONFIG })
-  if (!deliveryConfig.strategies.email.enabled) {
-    debug('email delivery disabled')
-  }
 
   const em = ctx.resolve('em') as EntityManager
   const notification = await findOneWithDecryption(
@@ -159,61 +147,99 @@ export default async function handle(payload: NotificationCreatedPayload, ctx: R
       })
       .filter((action): action is NonNullable<typeof action> => action !== null)
 
-    if (deliveryConfig.strategies.email.enabled && recipient?.email && panelLink) {
-      const subjectPrefix = deliveryConfig.strategies.email.subjectPrefix?.trim()
-      const subject = subjectPrefix ? `${subjectPrefix} ${title}` : title
-      const copy = {
-        preview: t('notifications.delivery.email.preview', 'New notification'),
-        heading: t('notifications.delivery.email.heading', 'You have a new notification'),
-        bodyIntro: t('notifications.delivery.email.bodyIntro', 'Review the notification details and take any required actions.'),
-        actionNotice: t('notifications.delivery.email.actionNotice', 'Actions are available in Open Mercato and are read-only in this email.'),
-        openCta: t('notifications.delivery.email.openCta', 'Open notification center'),
-        footer: t('notifications.delivery.email.footer', 'Open Mercato notifications'),
-      }
-
-      try {
-        debug('sending email', { recipientUserId: notification.recipientUserId })
-        await sendEmail({
-          to: recipient.email,
-          subject,
-          from: deliveryConfig.strategies.email.from,
-          replyTo: deliveryConfig.strategies.email.replyTo,
-          react: NotificationEmail({
-            title,
-            body,
-            actions: actionLinks,
-            panelUrl: panelLink,
-            copy,
-          }),
-        })
-      } catch (error) {
-        logger.error('Email delivery failed', { err: error })
-      }
-    }
-
     const strategyConfigs = deliveryConfig.strategies.custom ?? {}
     const strategies = getNotificationDeliveryStrategies()
+    // Authoritative per-send target resolved at create time. A null snapshot (legacy pre-Phase-7 row,
+    // or a create that ran before the delivery strategies were registered) would otherwise deliver
+    // every channel with no gate — so recompute the effective set from current preferences here,
+    // keeping the single `shouldDeliver` gate instead of re-checking opt-out inside each strategy.
+    const persistedChannels = notification.channels
+    const registeredStrategyIds = strategies.map((strategy) => strategy.id)
+    let targetChannels: string[] | null = persistedChannels ?? null
+    // Only recompute for a null-snapshot row when strategies are actually registered — mirror the
+    // create path (`resolveChannelsFor`: `registeredChannels.length === 0 => null`). With zero
+    // strategies, `resolveEffectiveChannels` returns `[]` (never null); persisting that would HIDE
+    // the row (the visibility layer treats `[]` as "no channels"), so leave `channels` null and keep
+    // legacy all-channels back-compat instead.
+    if (persistedChannels == null && registeredStrategyIds.length > 0) {
+      try {
+        const typeOverrides = (
+          await getNotificationTypeOverrides(em as EntityManager, notification.tenantId, [notification.type])
+        ).get(notification.type)
+        targetChannels = await resolveEffectiveChannels({
+          typeId: notification.type,
+          type: getNotificationType(notification.type),
+          scope: { tenantId: notification.tenantId, userId: notification.recipientUserId },
+          targetChannels: null,
+          registeredChannels: registeredStrategyIds,
+          preferences: resolveNotificationPreferenceService({ resolve: ctx.resolve }),
+          channelsOverride: typeOverrides?.channels ?? null,
+          nonOptOutOverride: typeOverrides?.nonOptOut ?? null,
+        })
+      } catch (err) {
+        // A transient overrides/preference-service failure must not abort delivery on EVERY channel
+        // (everything else here fails per-component). Fall back to null (deliver all, legacy) and
+        // skip the persist below so visibility stays consistent with what was delivered.
+        debug('failed to recompute channels; delivering all channels (legacy fallback)', err)
+        targetChannels = null
+      }
+    }
+    // Persist the recomputed set back onto a null-channels row so the in-app
+    // VISIBILITY path (bell/inbox/unread — see notificationVisibility.ts) reads
+    // the same authoritative target the DELIVERY gate just applied. Without this
+    // the row stays `null` ⇒ "visible everywhere", so a notification suppressed
+    // from in_app by the user's opt-out would still surface in the bell while
+    // delivery correctly skipped it. `targetChannels` is null (skip persist) only
+    // when no strategies are registered or the recompute fell back — both keep the
+    // row null for legacy all-channels back-compat. `channels` is a plaintext JSONB
+    // column, so a forked nativeUpdate avoids the shared UoW.
+    if (persistedChannels == null && targetChannels != null) {
+      try {
+        await (em as EntityManager)
+          .fork()
+          .nativeUpdate(
+            Notification,
+            { id: notification.id, tenantId: notification.tenantId },
+            { channels: targetChannels },
+          )
+      } catch (err) {
+        debug('failed to persist recomputed channels', err)
+      }
+    }
     for (const strategy of strategies) {
+      if (targetChannels && !targetChannels.includes(strategy.id)) {
+        debug('channel not targeted', strategy.id)
+        continue
+      }
       const strategyConfig = strategyConfigs[strategy.id]
       const enabled = strategyConfig?.enabled ?? strategy.defaultEnabled ?? false
       if (!enabled) {
-        debug('custom delivery disabled', strategy.id)
+        debug('delivery disabled', strategy.id)
         continue
       }
+      if (strategy.supports && !strategy.supports(notification)) {
+        debug('strategy does not support notification', strategy.id)
+        continue
+      }
+      const context: NotificationDeliveryContext = {
+        notification,
+        recipient,
+        title,
+        body,
+        panelUrl,
+        panelLink,
+        actionLinks,
+        deliveryConfig,
+        config: strategyConfig ?? {},
+        resolve: ctx.resolve,
+        t,
+      }
       try {
-        await strategy.deliver({
-          notification,
-          recipient,
-          title,
-          body,
-          panelUrl,
-          panelLink,
-          actionLinks,
-          deliveryConfig,
-          config: strategyConfig ?? {},
-          resolve: ctx.resolve,
-          t,
-        })
+        if (strategy.isConfigured && !(await strategy.isConfigured(context))) {
+          debug('strategy not configured', strategy.id)
+          continue
+        }
+        await strategy.deliver(context)
       } catch (error) {
         logger.error('Delivery strategy failed', { strategyId: strategy.id, err: error })
       }

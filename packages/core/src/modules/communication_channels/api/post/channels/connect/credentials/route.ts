@@ -9,6 +9,7 @@ import {
   type ConnectCredentialChannelInput,
   type ConnectCredentialChannelResult,
 } from '../../../../../commands/connect-credential-channel'
+import type { ChannelAdapterRegistry } from '../../../../../lib/registry'
 import { validateRouteMutationGuard } from '../../../../../lib/route-mutation-guard'
 
 export const metadata = {
@@ -44,6 +45,24 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const container = await createRequestContainer()
+
+  // Tenant-scoped providers (push: FCM/APNs/Expo) must go through the admin-gated
+  // tenant route, not this per-user one (granted to manager/employee via
+  // `connect_user_channel`). Reject them here so a non-admin can't mint a
+  // privileged tenant-wide channel. The command enforces the same invariant
+  // (`wrong_scope_for_route`) as defense-in-depth.
+  const adapterRegistry = container.resolve('channelAdapterRegistry') as ChannelAdapterRegistry
+  const earlyAdapter = adapterRegistry.get(body.providerKey)
+  if (earlyAdapter && earlyAdapter.channelScope === 'tenant') {
+    return NextResponse.json(
+      {
+        error: 'This provider is connected tenant-wide by an administrator, not per-user.',
+        code: 'provider_is_tenant_scoped',
+      },
+      { status: 403 },
+    )
+  }
+
   const guard = await validateRouteMutationGuard({
     container,
     req,
@@ -93,6 +112,15 @@ export async function POST(req: Request): Promise<Response> {
   if (result.status === 'no_adapter') {
     return NextResponse.json({ error: result.reason }, { status: 404 })
   }
+  if (result.status === 'wrong_scope_for_route') {
+    return NextResponse.json(
+      {
+        error: 'This provider is connected tenant-wide by an administrator, not per-user.',
+        code: 'provider_is_tenant_scoped',
+      },
+      { status: 403 },
+    )
+  }
   if (result.status === 'validation_failed') {
     return NextResponse.json({ error: 'Credential validation failed', fieldErrors: result.errors }, { status: 422 })
   }
@@ -124,6 +152,7 @@ export const openApi = {
       responses: [
         { status: 201, description: 'Channel connected' },
         { status: 401, description: 'Unauthorized' },
+        { status: 403, description: 'Provider is tenant-scoped — use the tenant connect route' },
         { status: 404, description: 'Unknown provider' },
         { status: 409, description: 'Mailbox already connected via another provider' },
         { status: 422, description: 'Invalid body or credential validation failed' },

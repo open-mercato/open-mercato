@@ -213,6 +213,7 @@
   "backend.nav.externalSystems": "Sistemas externos",
   "backend.nav.settings": "Configuración",
   "backend.nav.settingsAdmin": "Administración",
+  "notifications.categories.auth": "Seguridad",
   "profile.page.description": "Administra la configuración de tu cuenta",
   "profile.page.selectItem": "Selecciona un elemento del menú para administrar tu cuenta.",
   "profile.page.title": "Perfil",

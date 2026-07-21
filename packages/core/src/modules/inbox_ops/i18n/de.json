@@ -189,5 +189,6 @@
   "inbox_ops.translate.show_original": "Original anzeigen",
   "inbox_ops.translate.translate": "\u00dcbersetzen",
   "inbox_ops.untitled_proposal": "Unbenannter Vorschlag",
-  "inbox_ops.view_in_messages": "In Nachrichten anzeigen"
+  "inbox_ops.view_in_messages": "In Nachrichten anzeigen",
+  "notifications.categories.inbox_ops": "Posteingang"
 }

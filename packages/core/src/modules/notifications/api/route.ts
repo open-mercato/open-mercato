@@ -3,6 +3,7 @@ import type { EntityManager } from '@mikro-orm/core'
 import { Notification } from '../data/entities'
 import { listNotificationsSchema, createNotificationSchema } from '../data/validators'
 import { toNotificationDto } from '../lib/notificationMapper'
+import { inAppVisibleFilter } from '../lib/notificationVisibility'
 import {
   NOTIFICATION_RESOURCE_KIND,
   notificationCrudErrorResponse,
@@ -32,6 +33,8 @@ export async function GET(req: Request) {
   const filters: Record<string, unknown> = {
     recipientUserId: scope.userId,
     tenantId: scope.tenantId,
+    // Hide rows not delivered to the in-app channel (push-only / opted-out); they remain as records.
+    ...inAppVisibleFilter(),
   }
 
   if (input.status) {

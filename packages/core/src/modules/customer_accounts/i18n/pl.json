@@ -344,5 +344,6 @@
   "customer_accounts.widgets.noAccount": "Brak powiązanego konta",
   "customer_accounts.widgets.noUsers": "Brak powiązanych użytkowników",
   "customer_accounts.widgets.portalUsers": "Użytkownicy portalu",
-  "customer_accounts.widgets.viewAccount": "Zobacz konto"
+  "customer_accounts.widgets.viewAccount": "Zobacz konto",
+  "notifications.categories.customer_accounts": "Konta klient\u00f3w"
 }

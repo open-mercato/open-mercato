@@ -43,6 +43,7 @@
   "demo.userTask.description": "Este flujo de trabajo esta pausado esperando entrada del usuario. Completa la tarea a continuacion para continuar.",
   "demo.userTask.dueLabel": "Vence",
   "demo.userTask.title": "Se requiere accion del usuario",
+  "notifications.categories.workflows": "Flujos de trabajo",
   "orderApproval.approveButton": "Aprobar",
   "orderApproval.approvedStatus": "Aprobado",
   "orderApproval.commentsLabel": "Comentarios",

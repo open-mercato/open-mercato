@@ -189,5 +189,6 @@
   "inbox_ops.translate.show_original": "Show original",
   "inbox_ops.translate.translate": "Translate",
   "inbox_ops.untitled_proposal": "Untitled proposal",
-  "inbox_ops.view_in_messages": "View in Messages"
+  "inbox_ops.view_in_messages": "View in Messages",
+  "notifications.categories.inbox_ops": "Inbox"
 }

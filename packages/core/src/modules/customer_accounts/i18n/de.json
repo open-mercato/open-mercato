@@ -344,5 +344,6 @@
   "customer_accounts.widgets.noAccount": "Kein verknüpftes Konto",
   "customer_accounts.widgets.noUsers": "Keine verknüpften Benutzer",
   "customer_accounts.widgets.portalUsers": "Portalbenutzer",
-  "customer_accounts.widgets.viewAccount": "Konto anzeigen"
+  "customer_accounts.widgets.viewAccount": "Konto anzeigen",
+  "notifications.categories.customer_accounts": "Kundenkonten"
 }

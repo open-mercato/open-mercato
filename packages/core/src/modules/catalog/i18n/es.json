@@ -701,5 +701,6 @@
   "customers~catalog.errors.id_required": "El identificador del registro es obligatorio.",
   "customers~catalog.errors.organization_required": "El contexto de organización es obligatorio.",
   "customers~catalog.errors.tenant_required": "El contexto de tenant es obligatorio.",
-  "customers~catalog.nav.group": "Catálogo"
+  "customers~catalog.nav.group": "Catálogo",
+  "notifications.categories.catalog": "Cat\u00e1logo"
 }

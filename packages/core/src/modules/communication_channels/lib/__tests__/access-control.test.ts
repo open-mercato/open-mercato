@@ -2,8 +2,35 @@ import {
   ADMIN_FEATURE,
   assertCanAccessChannel,
   assertCanManageChannel,
+  channelOrgScopeWhere,
   ChannelAccessDeniedError,
 } from '../access-control'
+
+describe('channelOrgScopeWhere', () => {
+  // Tenant-scoped push channels (FCM/APNs/Expo) are stored with
+  // `organization_id IS NULL` deliberately. A read scoped to a non-null
+  // selected org must ALSO match those NULL rows, otherwise a channel
+  // connected while an admin had a non-null org is invisible to every
+  // listing/detail/health/test-send query.
+  it('matches both the selected org and tenant-wide (null) rows for a non-null org', () => {
+    const orgId = '22222222-2222-4222-8222-222222222222'
+    expect(channelOrgScopeWhere(orgId)).toEqual({
+      $or: [{ organizationId: orgId }, { organizationId: null }],
+    })
+  })
+
+  it('narrows to tenant-wide (null) rows only when the caller has no selected org', () => {
+    expect(channelOrgScopeWhere(null)).toEqual({ organizationId: null })
+  })
+
+  it('treats undefined org the same as null (tenant-wide only)', () => {
+    expect(channelOrgScopeWhere(undefined)).toEqual({ organizationId: null })
+  })
+
+  it('treats an empty-string org as tenant-wide only (falsy)', () => {
+    expect(channelOrgScopeWhere('')).toEqual({ organizationId: null })
+  })
+})
 
 describe('assertCanAccessChannel', () => {
   it('throws on a null channel', () => {

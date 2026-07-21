@@ -2780,5 +2780,6 @@
   "customers.workPlan.customerTodos.table.flash.refreshed": "Tasks refreshed",
   "customers.workPlan.customerTodos.table.state.empty": "No customer tasks yet.",
   "customers.workPlan.customerTodos.table.state.noMatches": "No tasks match your filters.",
-  "customers.workPlan.customerTodos.table.title": "Customer related tasks"
+  "customers.workPlan.customerTodos.table.title": "Customer related tasks",
+  "notifications.categories.customers": "Customers"
 }

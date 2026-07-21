@@ -43,6 +43,7 @@
   "demo.userTask.description": "Ten proces jest wstrzymany w oczekiwaniu na dane wejściowe użytkownika. Proszę wykonać zadanie poniżej, aby kontynuować.",
   "demo.userTask.dueLabel": "Termin",
   "demo.userTask.title": "Wymagane Działanie Użytkownika",
+  "notifications.categories.workflows": "Przep\u0142ywy pracy",
   "orderApproval.approveButton": "Zatwierdź",
   "orderApproval.approvedStatus": "Zatwierdzone",
   "orderApproval.commentsLabel": "Komentarze",

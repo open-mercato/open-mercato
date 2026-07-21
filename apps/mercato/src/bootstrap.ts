@@ -46,8 +46,10 @@ import { commandLoaderEntries } from '@/.mercato/generated/command-loaders.gener
 import { notificationHandlerEntries } from '@/.mercato/generated/notification-handlers.generated'
 import { messageTypes } from '@/.mercato/generated/message-types.generated'
 import { messageObjectTypes } from '@/.mercato/generated/message-objects.generated'
+import { notificationTypes } from '@/.mercato/generated/notifications.generated'
 import { registerMessageTypes } from '@open-mercato/core/modules/messages/lib/message-types-registry'
 import { registerMessageObjectTypes } from '@open-mercato/core/modules/messages/lib/message-objects-registry'
+import { registerNotificationTypes } from '@open-mercato/core/modules/notifications/lib/notification-type-registry'
 import { runBootstrapRegistrations } from '@/.mercato/generated/bootstrap-registrations.generated'
 import { allCodeWorkflows } from '@/.mercato/generated/workflows.generated'
 import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/code-registry'
@@ -56,6 +58,7 @@ import { registerCodeWorkflows } from '@open-mercato/core/modules/workflows/lib/
 registerEventModuleConfigs(eventModuleConfigs)
 registerMessageTypes(messageTypes, { replace: true })
 registerMessageObjectTypes(messageObjectTypes, { replace: true })
+registerNotificationTypes(notificationTypes, { replace: true })
 registerCodeWorkflows(allCodeWorkflows)
 runBootstrapRegistrations()
 

@@ -544,6 +544,7 @@ const sidebars: SidebarsConfig = {
         "tutorials/building-todo-module",
         "tutorials/authoring-first-module",
         "tutorials/api-data-fetching",
+        "tutorials/devices-and-push-getting-started",
         "tutorials/testing",
         {
           type: "category",
