@@ -41,6 +41,7 @@ const mockEm = {
     create: jest.fn((data: any) => data),
   })),
   persist: jest.fn(function persist(this: any) { return this }),
+  remove: jest.fn(function remove(this: any) { return this }),
   flush: jest.fn(async () => {}),
   transactional: jest.fn(async (work: (tx: any) => unknown) => work(mockEm)),
   find: jest.fn(),
@@ -65,7 +66,17 @@ jest.mock('@open-mercato/shared/lib/di/container', () => ({
   }),
 }))
 
-jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] }) }))
+const defaultAuth = () => ({ orgId: 'org', tenantId: 't1', roles: ['admin'] })
+const mockGetAuthFromRequest = jest.fn(defaultAuth)
+jest.mock('@open-mercato/shared/lib/auth/server', () => ({ getAuthFromRequest: (...args: unknown[]) => mockGetAuthFromRequest(...args) }))
+
+// The route derives the active org from the selected-organization scope, not the
+// raw auth.orgId (#3765). Default the helper to the auth home org so existing
+// tests are unaffected; individual tests override it to a selected org.
+const mockResolveAttachmentOrganizationId = jest.fn(async (_container: unknown, auth: any) => auth?.orgId ?? null)
+jest.mock('@open-mercato/core/modules/attachments/lib/requestScope', () => ({
+  resolveAttachmentOrganizationId: (...args: unknown[]) => mockResolveAttachmentOrganizationId(...args),
+}))
 
 jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
   resolveTranslations: jest.fn(async () => ({
@@ -78,6 +89,7 @@ jest.mock('@open-mercato/shared/lib/i18n/server', () => ({
 import { promises as fsp } from 'fs'
 jest.spyOn(fsp, 'mkdir').mockResolvedValue(undefined as any)
 jest.spyOn(fsp, 'writeFile').mockResolvedValue(undefined as any)
+jest.spyOn(fsp, 'rm').mockResolvedValue(undefined as any)
 
 jest.mock('@open-mercato/core/modules/attachments/lib/textExtraction', () => ({
   extractAttachmentContent: jest.fn(),
@@ -114,6 +126,10 @@ async function loadHandlers() {
 describe('attachments API', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockGetAuthFromRequest.mockReset()
+    mockGetAuthFromRequest.mockImplementation(defaultAuth)
+    mockResolveAttachmentOrganizationId.mockReset()
+    mockResolveAttachmentOrganizationId.mockImplementation(async (_container: unknown, auth: any) => auth?.orgId ?? null)
     mockEm.findOne.mockReset()
     mockEm.findOne.mockImplementation(defaultFindOneImpl)
     mockEm.find.mockReset()
@@ -426,6 +442,108 @@ describe('attachments API', () => {
     expect(mockEm.find).toHaveBeenCalledWith(
       expect.any(Function),
       expect.objectContaining({ entityId: 'example:todo', recordId: 'r1' }),
+      expect.any(Object),
+    )
+  })
+
+  it('rejects superadmin uploads with no organization selected using a 400 with a clear message instead of a 401 (#3764)', async () => {
+    mockGetAuthFromRequest.mockImplementation(() => ({
+      orgId: null,
+      tenantId: 't1',
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    }))
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    // A 401 makes the client treat it as session expiry (misleading toast + form reset);
+    // a specific organization is required to store the file, so return 400.
+    expect(res.status).toBe(400)
+    const payload = await res.json()
+    expect(payload.error).toMatch(/organization/i)
+    expect(mockEm.create).not.toHaveBeenCalled()
+  })
+
+  it('still returns 401 for a non-superadmin upload with no organization', async () => {
+    mockGetAuthFromRequest.mockImplementation(() => ({
+      orgId: null,
+      tenantId: 't1',
+      roles: ['admin'],
+    }))
+    const { POST: upload } = await loadHandlers()
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(401)
+  })
+
+  it('lets a superadmin with no organization delete tenant-wide by dropping the org filter (#3764)', async () => {
+    mockGetAuthFromRequest.mockImplementation(() => ({
+      orgId: null,
+      tenantId: 't1',
+      roles: ['superadmin'],
+      isSuperAdmin: true,
+    }))
+    mockEm.findOne.mockImplementation(async (entity: any) => {
+      if (entity?.name === 'Attachment') {
+        return {
+          id: 'att-1',
+          tenantId: 't1',
+          organizationId: 'org-owned-by-another-org',
+          partitionCode: 'privateAttachments',
+          storagePath: null,
+        }
+      }
+      return null
+    })
+    const { DELETE: remove } = await loadHandlers()
+    const req = new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' })
+    const res = await remove(req)
+    expect(res.status).toBe(200)
+    expect(mockEm.findOne).toHaveBeenCalledWith(
+      expect.any(Function),
+      { id: 'att-1', tenantId: 't1' },
+    )
+    expect(mockEm.remove).toHaveBeenCalled()
+  })
+
+  it('still returns 401 for a non-superadmin delete with no organization', async () => {
+    mockGetAuthFromRequest.mockImplementation(() => ({
+      orgId: null,
+      tenantId: 't1',
+      roles: ['admin'],
+    }))
+    const { DELETE: remove } = await loadHandlers()
+    const req = new Request('http://x/api/attachments?id=att-1', { method: 'DELETE' })
+    const res = await remove(req)
+    expect(res.status).toBe(401)
+  })
+
+  it('stores the attachment under the currently selected organization, not the uploader home org (#3765)', async () => {
+    const { POST: upload } = await loadHandlers()
+    // A multi-org admin switched the header org: auth.orgId stays 'org' (home),
+    // but the request scope resolves the selected org.
+    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    const file = new File([new Uint8Array([1, 2, 3])], 'doc.pdf', { type: 'application/pdf' })
+    const req = new Request('http://x/api/attachments', { method: 'POST', body: fdWith(file) as any })
+    const res = await upload(req)
+    expect(res.status).toBe(200)
+    const payload = mockEm.create.mock.calls.find((call) => call[0].name === 'Attachment')?.[1]
+    expect(payload?.organizationId).toBe('selected-org')
+    expect(payload?.tenantId).toBe('t1')
+  })
+
+  it('filters listed attachments by the currently selected organization (#3765)', async () => {
+    const { GET: list } = await loadHandlers()
+    mockResolveAttachmentOrganizationId.mockResolvedValueOnce('selected-org')
+    mockEm.find.mockResolvedValue([])
+    const req = new Request('http://x/api/attachments?entityId=example:todo&recordId=r1')
+    const res = await list(req)
+    expect(res.status).toBe(200)
+    expect(mockEm.find).toHaveBeenCalledWith(
+      expect.any(Function),
+      expect.objectContaining({ organizationId: 'selected-org' }),
       expect.any(Object),
     )
   })

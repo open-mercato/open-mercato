@@ -117,6 +117,8 @@ export type PaymentGatewayClientSession =
 export interface CreateSessionInput {
   orderId?: string
   paymentId: string
+  /** Stable operation key for provider-native session creation idempotency. */
+  idempotencyKey?: string
   tenantId: string
   organizationId: string
   amount: number
@@ -153,6 +155,7 @@ export interface CaptureInput {
   amount?: number
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CaptureResult {
@@ -167,6 +170,7 @@ export interface RefundInput {
   reason?: string
   credentials: Record<string, unknown>
   metadata?: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface RefundResult {
@@ -180,6 +184,7 @@ export interface CancelInput {
   sessionId: string
   reason?: string
   credentials: Record<string, unknown>
+  idempotencyKey?: string
 }
 
 export interface CancelResult {

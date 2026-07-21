@@ -1,7 +1,7 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { VariableDeclarationKind } from 'ts-morph'
-import ts from 'typescript'
+import ts from 'typescript-js'
 import type { GeneratorExtension } from '../extension'
 import { resolveStandaloneSourceMirrorBase, scanModuleDir, SCAN_CONFIGS, type ModuleRoots } from '../scanner'
 import {

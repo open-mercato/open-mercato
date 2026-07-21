@@ -101,8 +101,8 @@ export default function CustomerRolesPage() {
   }, [queryParams, reloadToken, t])
 
   const handleDelete = React.useCallback(async (role: RoleRow) => {
-    if (role.isSystem) {
-      flash(t('customer_accounts.admin.roles.error.deleteSystem', 'System roles cannot be deleted'), 'error')
+    if (role.isDefault) {
+      flash(t('customer_accounts.admin.roles.error.deleteDefault', 'The default role cannot be deleted. Set another role as default first.'), 'error')
       return
     }
     const confirmed = await confirm({
@@ -230,7 +230,7 @@ export default function CustomerRolesPage() {
                   label: t('customer_accounts.admin.roles.actions.edit', 'Edit'),
                   onSelect: () => { router.push(`/backend/customer_accounts/roles/${row.id}`) },
                 },
-                ...(!row.isSystem ? [{
+                ...(!row.isDefault ? [{
                   id: 'delete',
                   label: t('customer_accounts.admin.roles.actions.delete', 'Delete'),
                   destructive: true,

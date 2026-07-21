@@ -57,6 +57,7 @@ const moduleEntities: Record<string, string[]> = {
   workflows: ['WorkflowDefinition'],
   directory: ['Organization', 'Tenant'],
   eudr: ['EudrProductMapping', 'EudrEvidenceSubmission', 'EudrDueDiligenceStatement'],
+  messages: ['Message'],
 }
 
 function readEntitySource(moduleId: string): string {

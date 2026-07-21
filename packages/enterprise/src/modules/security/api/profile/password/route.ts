@@ -8,6 +8,9 @@ import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
 import { changePasswordSchema } from '../../../data/validators'
 import { buildSecurityOpenApi, securityErrorSchema } from '../../openapi'
 import { localizeSecurityApiBody } from '../../i18n'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('security').child({ component: 'profile-password' })
 
 const changePasswordResponseSchema = z.object({
   ok: z.literal(true),
@@ -68,7 +71,7 @@ export async function PUT(req: Request) {
     if (error instanceof CrudHttpError) {
       return NextResponse.json(await localizeSecurityApiBody(error.body), { status: error.status })
     }
-    console.error('security.profile.password.update failed', error)
+    logger.error('Profile password update failed', { err: error })
     return NextResponse.json(
       { error: translate('security.profile.password.form.errors.save', 'Failed to update password.') },
       { status: 400 },

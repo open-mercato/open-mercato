@@ -61,6 +61,7 @@
  * @see packages/core/src/modules/inbox_ops/lib/llmProvider.ts
  */
 
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { AwilixContainer } from 'awilix'
 import type { EnvLookup, LlmProvider } from '@open-mercato/shared/lib/ai/llm-provider'
 import { llmProviderRegistry } from '@open-mercato/shared/lib/ai/llm-provider-registry'
@@ -73,6 +74,8 @@ import {
   type EffectiveAllowlist,
   type TenantAllowlistSnapshot,
 } from './model-allowlist'
+
+const logger = createLogger('ai_assistant')
 
 /**
  * Minimal AI SDK LanguageModel shape — the factory exposes the protocol-
@@ -483,6 +486,56 @@ export function parseSlashShorthand(
   return { providerHint: before, modelId: after }
 }
 
+/** Drops one leading `${providerId}/` segment from `token` when present. */
+function stripLeadingProviderPrefix(token: string, providerId: string): string {
+  const prefix = `${providerId}/`
+  return token.startsWith(prefix) ? token.slice(prefix.length) : token
+}
+
+/**
+ * True when `providerId` names a registered provider that (a) is an
+ * OpenAI-compatible gateway using `vendor/model` ids and (b) is configured in
+ * `env`. Only a *configured* gateway suppresses slash-splitting — an
+ * unconfigured gateway hint must not steal a model token from a native adapter
+ * that could still serve it.
+ */
+function isConfiguredVendorPrefixGateway(
+  providerId: string | null,
+  registry: Pick<AiModelFactoryRegistry, 'get'>,
+  env: EnvLookup,
+): boolean {
+  if (!providerId || !registry.get) return false
+  const provider = registry.get(providerId)
+  return provider?.usesVendorPrefixedModelIds === true && provider.isConfigured(env)
+}
+
+/**
+ * Parses one resolution tier's model token, honoring a same-tier gateway
+ * provider hint. When the tier explicitly selects a *configured* vendor-prefix
+ * gateway, the token's leading `vendor/` is part of the gateway model id (not a
+ * native-provider pin): the gateway becomes the provider hint and at most one
+ * leading `${gateway}/` prefix is stripped (so the documented
+ * `openrouter/anthropic/…` workaround still resolves without doubling).
+ * Otherwise it falls back to {@link parseSlashShorthand}.
+ *
+ * Exported for test coverage; production callers go through
+ * {@link createModelFactory}.
+ */
+export function parseTierModel(
+  token: string,
+  tierProviderHint: string | null,
+  registry: Pick<AiModelFactoryRegistry, 'get'>,
+  env: EnvLookup,
+): { providerHint: string | null; modelId: string } {
+  if (tierProviderHint && isConfiguredVendorPrefixGateway(tierProviderHint, registry, env)) {
+    return {
+      providerHint: tierProviderHint,
+      modelId: stripLeadingProviderPrefix(token, tierProviderHint),
+    }
+  }
+  return parseSlashShorthand(token, registry)
+}
+
 /**
  * Resolves the effective `allowRuntimeOverride` flag from an input that may
  * carry either the new canonical name (`allowRuntimeOverride`) or the
@@ -555,14 +608,6 @@ export function createModelFactory(
       // backward-compatibility fallback through readGlobalModelFromEnv.
       const globalModelRaw = readGlobalModelFromEnv(env)
 
-      // Parse slash shorthand on every model-axis source.
-      const requestModelParsed = requestModelRaw ? parseSlashShorthand(requestModelRaw, registry) : null
-      const callerParsed = callerRaw ? parseSlashShorthand(callerRaw, registry) : null
-      const tenantModelParsed = tenantModelRaw ? parseSlashShorthand(tenantModelRaw, registry) : null
-      const moduleModelParsed = moduleModelRaw ? parseSlashShorthand(moduleModelRaw, registry) : null
-      const agentModelParsed = agentModelRaw ? parseSlashShorthand(agentModelRaw, registry) : null
-      const globalModelParsed = globalModelRaw ? parseSlashShorthand(globalModelRaw, registry) : null
-
       const providerOverrideRaw = normalizeOverride(input.providerOverride)
       const moduleProviderRaw = hasModule
         ? readModuleProviderEnvOverride(env, input.moduleId!)
@@ -577,6 +622,16 @@ export function createModelFactory(
       const tenantProviderHint = normalizeProviderHint(tenantProviderRaw, registry)
       const moduleProviderHint = normalizeProviderHint(moduleProviderRaw, registry)
       const agentDefaultProviderHint = normalizeProviderHint(agentDefaultProviderRaw, registry)
+
+      // Parse each model-axis source with its same-tier provider hint so a
+      // configured vendor-prefix gateway (OpenRouter, Requesty, LiteLLM) keeps
+      // its `vendor/model` id intact instead of pinning the native `vendor`.
+      const requestModelParsed = requestModelRaw ? parseTierModel(requestModelRaw, requestProviderHint, registry, env) : null
+      const callerParsed = callerRaw ? parseTierModel(callerRaw, providerOverrideHint, registry, env) : null
+      const tenantModelParsed = tenantModelRaw ? parseTierModel(tenantModelRaw, tenantProviderHint, registry, env) : null
+      const moduleModelParsed = moduleModelRaw ? parseTierModel(moduleModelRaw, moduleProviderHint, registry, env) : null
+      const agentModelParsed = agentModelRaw ? parseTierModel(agentModelRaw, agentDefaultProviderHint, registry, env) : null
+      const globalModelParsed = globalModelRaw ? parseTierModel(globalModelRaw, globalProviderRaw, registry, env) : null
 
       // Walk the provider-axis seed list: slash hint beats plain provider at
       // the same step. We keep only the first (highest-priority) non-null hint.
@@ -775,7 +830,7 @@ interface EnforceAllowlistResult {
  *  2. The provider's `defaultModel` (if allowed).
  *  3. The first model from the effective allowlist for that provider.
  *
- * Both fall-back paths emit a `console.warn` so the operator can see why the
+ * Both fall-back paths emit a logger warning so the operator can see why the
  * runtime did not honor the requested combination. The function never throws.
  */
 function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult {
@@ -795,7 +850,7 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
         ? 'the effective allowlist (env ∩ tenant)'
         : 'OM_AI_AVAILABLE_PROVIDERS'
       fallback = `Provider "${provider.id}" is not in ${source}; using "${replacement.id}" instead.`
-      console.warn(`[AI Model Factory] ${fallback}`)
+      logger.warn('Allowlist provider fallback', { reason: fallback })
       provider = replacement
       modelId = pickAllowedModel({
         provider,
@@ -819,7 +874,7 @@ function enforceAllowlist(input: EnforceAllowlistInput): EnforceAllowlistResult 
         ? `the effective allowlist (env ∩ tenant) for "${provider.id}"`
         : `OM_AI_AVAILABLE_MODELS_${provider.id.toUpperCase()}`
       const reason = `Model "${modelId}" is not in ${source}; using "${replacementModel}" instead.`
-      console.warn(`[AI Model Factory] ${reason}`)
+      logger.warn('Allowlist model fallback', { reason })
       fallback = fallback ? `${fallback} ${reason}` : reason
       modelId = replacementModel
     }

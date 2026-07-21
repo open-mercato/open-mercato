@@ -9,12 +9,19 @@ import { collectCustomFieldValues } from '@open-mercato/ui/backend/utils/customF
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useChannelFields, buildChannelPayload, type ChannelFormValues } from '@open-mercato/core/modules/sales/components/channels/channelFormFields'
+import { useSalesChannelsEnabled } from '@open-mercato/core/modules/sales/components/useSalesChannelsEnabled'
+import { SalesChannelsDisabledNotice } from '@open-mercato/core/modules/sales/components/SalesChannelsDisabledNotice'
 import { E } from '#generated/entities.ids.generated'
 
 export default function CreateChannelPage() {
   const t = useT()
   const { fields, groups } = useChannelFields()
+  const { enabled: channelsEnabled, isLoading: channelsEnabledLoading } = useSalesChannelsEnabled()
   const router = useRouter()
+
+  if (!channelsEnabled && !channelsEnabledLoading) {
+    return <SalesChannelsDisabledNotice />
+  }
 
   return (
     <Page>

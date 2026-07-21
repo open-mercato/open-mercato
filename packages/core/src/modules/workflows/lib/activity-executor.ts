@@ -28,20 +28,60 @@ import { logWorkflowEvent } from './event-logger'
 import { parseDuration } from './duration'
 
 export { isPrivateUrl } from '@open-mercato/shared/lib/network'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 function isAllowPrivateWorkflowWebhookUrlsEnabled(): boolean {
   if (parseBooleanWithDefault(process.env.OM_WORKFLOWS_ALLOW_PRIVATE_URLS, false)) {
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn('OM_WORKFLOWS_ALLOW_PRIVATE_URLS is set but ignored in production. SSRF protection remains enabled.', { component: 'CALL_WEBHOOK' })
+      return false
+    }
+
+    logger.warn('OM_WORKFLOWS_ALLOW_PRIVATE_URLS is enabled. SSRF protection is bypassed for workflow webhooks; use only in development.', { component: 'CALL_WEBHOOK' })
     return true
   }
 
   if (parseBooleanWithDefault(process.env.WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS, false)) {
-    console.warn(
-      '[CALL_WEBHOOK] WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.'
-    )
+    if (process.env.NODE_ENV === 'production') {
+      logger.warn('WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated and ignored in production. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS for development only. SSRF protection remains enabled.', { component: 'CALL_WEBHOOK' })
+      return false
+    }
+
+    logger.warn('WORKFLOW_WEBHOOK_ALLOW_PRIVATE_URLS is deprecated. Use OM_WORKFLOWS_ALLOW_PRIVATE_URLS instead. SSRF protection is bypassed.', { component: 'CALL_WEBHOOK' })
     return true
   }
 
   return false
+}
+
+const DEFAULT_WORKFLOW_ENV_INTERPOLATION_ALLOWLIST = new Set(['APP_URL'])
+const WORKFLOW_ENV_INTERPOLATION_ALLOWLIST_KEY = 'OM_WORKFLOWS_ENV_INTERPOLATION_ALLOWLIST'
+
+function getWorkflowEnvInterpolationAllowlist(): Set<string> {
+  const allowlist = new Set(DEFAULT_WORKFLOW_ENV_INTERPOLATION_ALLOWLIST)
+  const configuredKeys = process.env[WORKFLOW_ENV_INTERPOLATION_ALLOWLIST_KEY]
+  if (!configuredKeys) {
+    return allowlist
+  }
+
+  for (const key of configuredKeys.split(',')) {
+    const trimmedKey = key.trim()
+    if (trimmedKey) {
+      allowlist.add(trimmedKey)
+    }
+  }
+
+  return allowlist
+}
+
+function resolveWorkflowEnvInterpolation(envKey: string): string {
+  if (!getWorkflowEnvInterpolationAllowlist().has(envKey)) {
+    return ''
+  }
+
+  return process.env[envKey] ?? ''
 }
 
 // ============================================================================
@@ -292,7 +332,14 @@ export async function executeActivity(
 
       // Log activity retry attempt with context
       if (attempt < retryPolicy.maxAttempts - 1) {
-        console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed on attempt ${attempt + 1}/${retryPolicy.maxAttempts} (instance: ${context.workflowInstance.id}):`, error instanceof Error ? error.message : error)
+        logger.error('Activity failed; will retry', {
+          activityId: activity.activityId,
+          activityType: activity.activityType,
+          attempt: attempt + 1,
+          maxAttempts: retryPolicy.maxAttempts,
+          instanceId: context.workflowInstance.id,
+          err: error,
+        })
       }
 
       // If not the last attempt, apply backoff and retry
@@ -311,10 +358,13 @@ export async function executeActivity(
 
   // All retries exhausted
   const errorMessage = lastError instanceof Error ? lastError.message : String(lastError)
-  console.error(`[WORKFLOW] Activity ${activity.activityId} (${activity.activityType}) failed after ${retryCount} attempts (instance: ${context.workflowInstance.id}): ${errorMessage}`)
-  if (lastError instanceof Error && lastError.stack) {
-    console.error('[WORKFLOW] Activity error stack:', lastError.stack)
-  }
+  logger.error('Activity failed after all attempts', {
+    activityId: activity.activityId,
+    activityType: activity.activityType,
+    attempts: retryCount,
+    instanceId: context.workflowInstance.id,
+    err: lastError,
+  })
 
   return {
     activityId: activity.activityId,
@@ -452,7 +502,7 @@ export async function executeSendEmail(
   }
 
   // For MVP: Log the email (actual email service integration can be added later)
-  console.log(`[Workflow Activity] Send email to ${to}: ${subject}`)
+  logger.info('Send email activity invoked', { component: 'SEND_EMAIL', subject })
 
   // Check if email service is available in container
   try {
@@ -640,7 +690,7 @@ async function resolveDictionaryEntryId(
     })
 
     if (!dictionary) {
-      console.warn(`[UPDATE_ENTITY] Dictionary not found: ${dictionaryKey}`)
+      logger.warn('Dictionary not found', { component: 'UPDATE_ENTITY', dictionaryKey })
       return null
     }
 
@@ -654,13 +704,13 @@ async function resolveDictionaryEntryId(
     })
 
     if (!entry) {
-      console.warn(`[UPDATE_ENTITY] Dictionary entry not found: ${dictionaryKey}/${value}`)
+      logger.warn('Dictionary entry not found', { component: 'UPDATE_ENTITY', dictionaryKey, value })
       return null
     }
 
     return entry.id
   } catch (error) {
-    console.error(`[UPDATE_ENTITY] Error resolving dictionary entry:`, error)
+    logger.error('Error resolving dictionary entry', { component: 'UPDATE_ENTITY', err: error })
     return null
   }
 }
@@ -857,7 +907,7 @@ export async function executeCallApi(
   container: AwilixContainer,
   signal?: AbortSignal
 ): Promise<any> {
-  // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, {{env.*}}, {{now}})
+  // 1. Interpolate variables in config (including {{workflow.*}}, {{context.*}}, allowlisted {{env.*}}, {{now}})
   const interpolatedConfig = interpolateVariables(config, context.workflowContext, context.workflowInstance)
 
   const {
@@ -879,8 +929,28 @@ export async function executeCallApi(
   // 3. Import the one-time API key helper
   const { withOnetimeApiKey } = await import('../../api_keys/services/apiKeyService')
 
-  // 4. Get EntityManager from container (for correct type)
-  const apiKeyEm = container.resolve<PostgreSqlEntityManager>('em')
+  // 4. Create the one-time API key on an EntityManager that is fully detached
+  //    from the surrounding request/transaction context.
+  //
+  //    CALL_API runs inside `workflowExecutor.executeWorkflow()`, which wraps
+  //    the whole execution in `em.transactional(...)`. The request EM is forked
+  //    with `useContext: true`, so while that transaction is open, EVERY
+  //    operation on the container's `em` — including this API key's
+  //    persist/flush — is transparently redirected to the uncommitted
+  //    transaction fork (MikroORM `getContext()` → `TransactionContext`). The
+  //    key would therefore stay invisible until the transaction commits, but
+  //    the commit cannot happen until this activity returns. The outbound
+  //    self-authenticated `fetch` below opens a SEPARATE DB connection that
+  //    cannot see the uncommitted row, so the internal API responds `401` and
+  //    the activity fails (issue #4202).
+  //
+  //    Forking with `useContext: false` (matching the query_index/webhooks
+  //    isolated-EM convention) gives the key its own pooled connection with
+  //    autocommit, so it is committed and visible to the internal request
+  //    immediately.
+  const apiKeyEm = container
+    .resolve<PostgreSqlEntityManager>('em')
+    .fork({ clear: true, freshEventManager: true, useContext: false }) as PostgreSqlEntityManager
 
   // 5. Resolve the roles that the one-time API key will inherit.
   //
@@ -1145,7 +1215,7 @@ function classifyAndThrowError(status: number, body: any, url: string): never {
  * - {{workflow.tenantId}} - tenant ID
  * - {{workflow.organizationId}} - organization ID
  * - {{workflow.currentStepId}} - current step ID
- * - {{env.VAR_NAME}} - environment variables
+ * - {{env.VAR_NAME}} - server-allowlisted environment variables
  * - {{now}} - current ISO timestamp
  */
 function interpolateVariables(
@@ -1185,7 +1255,7 @@ function interpolateVariables(
       // Handle {{env.*}} variables
       if (trimmedPath.startsWith('env.')) {
         const envKey = trimmedPath.substring('env.'.length)
-        return process.env[envKey] ?? config
+        return resolveWorkflowEnvInterpolation(envKey)
       }
 
       // Handle {{now}} - current timestamp
@@ -1230,8 +1300,7 @@ function interpolateVariables(
       // Handle {{env.*}} variables
       if (trimmedPath.startsWith('env.')) {
         const envKey = trimmedPath.substring('env.'.length)
-        const envValue = process.env[envKey]
-        return envValue !== undefined ? envValue : match
+        return resolveWorkflowEnvInterpolation(envKey)
       }
 
       // Handle {{now}} - current timestamp

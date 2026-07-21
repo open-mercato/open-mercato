@@ -65,6 +65,8 @@ export const STARTER_PRESETS: Record<string, StarterPreset> = {
         { id: 'customers', from: CORE },
         { id: 'dictionaries', from: CORE },
         { id: 'feature_toggles', from: CORE },
+        { id: 'currencies', from: CORE },
+        { id: 'communication_channels', from: CORE },
         { id: 'ai_assistant', from: AI_ASSISTANT },
       ],
     },

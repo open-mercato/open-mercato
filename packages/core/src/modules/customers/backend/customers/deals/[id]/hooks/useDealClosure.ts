@@ -6,6 +6,9 @@ import { surfaceRecordConflict } from '@open-mercato/ui/backend/conflicts'
 import { flash } from '@open-mercato/ui/backend/FlashMessages'
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import type { DealStatsPayload, GuardedMutationRunner } from './types'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 type UseDealClosureOptions = {
   currentDealId: string | null
@@ -50,7 +53,7 @@ export function useDealClosure({
         `/api/customers/deals/${encodeURIComponent(currentDealId)}/stats`,
       )
     } catch (statsError) {
-      console.error('customers.deals.detail.stats failed', statsError)
+      logger.error('customers.deals.detail.stats failed', { statsError })
       return null
     }
   }, [currentDealId])
@@ -82,25 +85,21 @@ export function useDealClosure({
     async (input: { lossReasonId: string; lossNotes?: string }) => {
       if (!currentDealId) return
       if (!(await confirmDiscardIfDirty())) return
+      const lossPayload = {
+        id: currentDealId,
+        closureOutcome: 'lost' as const,
+        status: 'loose',
+        lossReasonId: input.lossReasonId,
+        ...(input.lossNotes ? { lossNotes: input.lossNotes } : {}),
+      }
       try {
         await runMutationWithContext(
           () => withScopedApiRequestHeaders(
             buildOptimisticLockHeader(dealUpdatedAt),
-            () =>
-              updateCrud('customers/deals', {
-                id: currentDealId,
-                closureOutcome: 'lost',
-                status: 'loose',
-                lossReasonId: input.lossReasonId,
-                lossNotes: input.lossNotes ?? null,
-              }),
+            () => updateCrud('customers/deals', lossPayload),
           ),
           {
-            id: currentDealId,
-            closureOutcome: 'lost',
-            status: 'loose',
-            lossReasonId: input.lossReasonId,
-            lossNotes: input.lossNotes ?? null,
+            ...lossPayload,
             operation: 'closeLost',
           },
         )

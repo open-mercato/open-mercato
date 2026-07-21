@@ -7,6 +7,9 @@ import { Button } from '@open-mercato/ui/primitives/button'
 import { Input } from '@open-mercato/ui/primitives/input'
 import { Badge } from '@open-mercato/ui/primitives/badge'
 import { Plus, Loader2, AlertCircle } from 'lucide-react'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows')
 
 export interface BusinessRule {
   id: string
@@ -133,15 +136,15 @@ export function BusinessRulesSelector({
           // If response is not JSON, use status code message
           errorMessage = `Failed to load business rules (${response.status})`
         }
-        console.error('Failed to fetch business rules:', {
+        logger.error('Failed to fetch business rules', {
           url,
           status: response.status,
-          error: errorMessage,
+          message: errorMessage,
         })
         setError(errorMessage)
       }
     } catch (err) {
-      console.error('Failed to fetch business rules:', err)
+      logger.error('Failed to fetch business rules', { err })
       const errorMessage = err instanceof Error ? err.message : 'Network error loading business rules'
       setError(errorMessage)
     } finally {

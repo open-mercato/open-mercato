@@ -3,6 +3,7 @@ import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import { createApiKey } from './services/apiKeyService'
 import { Organization } from '@open-mercato/core/modules/directory/data/entities'
 import { Role } from '@open-mercato/core/modules/auth/data/entities'
+import { parseCommaSeparatedList } from '@open-mercato/shared/lib/string'
 
 function parseArgs(rest: string[]): Record<string, string> {
   const args: Record<string, string> = {}
@@ -47,9 +48,7 @@ const addApiKey: ModuleCli = {
       return
     }
 
-    const roleInputs = rolesCsv
-      ? rolesCsv.split(',').map((value) => value.trim()).filter(Boolean)
-      : []
+    const roleInputs = parseCommaSeparatedList(rolesCsv)
     const roleIds: string[] = []
     if (roleInputs.length) {
       for (const token of roleInputs) {

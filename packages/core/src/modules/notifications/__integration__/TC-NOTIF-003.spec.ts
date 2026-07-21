@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { randomUUID } from 'node:crypto'
 import { apiRequest, getAuthToken } from '@open-mercato/core/modules/core/__integration__/helpers/api'
 import {
   getTokenScope,
@@ -103,6 +104,55 @@ test.describe('TC-NOTIF-003: Notification bulk targeting APIs', () => {
       await dismissNotificationsByType(request, recipientToken, batchType)
       await deleteUserIfExists(request, superadminToken, userId)
       await deleteRoleIfExists(request, superadminToken, roleId)
+    }
+  })
+
+  test('should reject unknown recipients without partially creating a batch', async ({ request }) => {
+    const superadminToken = await getAuthToken(request, 'superadmin')
+    const scope = getTokenScope(superadminToken)
+    const userEmail = `qa-notif-scope-${Date.now()}@acme.com`
+    const userPassword = 'Valid1!Pass'
+
+    let userId: string | null = null
+    let recipientToken: string | null = null
+    let batchType: string | null = null
+
+    try {
+      userId = await createUserFixture(request, superadminToken, {
+        email: userEmail,
+        password: userPassword,
+        organizationId: scope.organizationId,
+        roles: [],
+      })
+      recipientToken = await getAuthToken(request, userEmail, userPassword)
+
+      const unknownRecipientUserId = randomUUID()
+      const directResponse = await apiRequest(request, 'POST', '/api/notifications', {
+        token: superadminToken,
+        data: {
+          type: `qa.notifications.invalid.${Date.now()}`,
+          title: 'Invalid recipient notification',
+          recipientUserId: unknownRecipientUserId,
+        },
+      })
+      expect(directResponse.status()).toBe(404)
+
+      batchType = `qa.notifications.invalid-batch.${Date.now()}`
+      const batchResponse = await apiRequest(request, 'POST', '/api/notifications/batch', {
+        token: superadminToken,
+        data: {
+          type: batchType,
+          title: 'Invalid batch recipient notification',
+          recipientUserIds: [userId, unknownRecipientUserId],
+        },
+      })
+      expect(batchResponse.status()).toBe(404)
+
+      const notifications = await listNotifications(request, recipientToken, { type: batchType })
+      expect(notifications.items.some((item) => item.type === batchType)).toBe(false)
+    } finally {
+      await dismissNotificationsByType(request, recipientToken, batchType)
+      await deleteUserIfExists(request, superadminToken, userId)
     }
   })
 })

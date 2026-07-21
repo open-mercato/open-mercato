@@ -5,6 +5,7 @@
   "attachments.errors.maxUploadSize": "Załącznik przekracza maksymalny dopuszczalny rozmiar przesyłania.",
   "attachments.errors.publicPartitionBlocked": "Nie można jawnie wybrać publicznej partycji do tego przesyłania.",
   "attachments.errors.quotaExceeded": "Przekroczono limit miejsca na załączniki dla tego tenantu.",
+  "attachments.errors.selectOrganization": "Wybierz konkretną organizację przed przesłaniem załącznika.",
   "attachments.library.actions.copied": "Link skopiowany.",
   "attachments.library.actions.copyError": "Nie można skopiować linku.",
   "attachments.library.actions.copyUrl": "Kopiuj URL",

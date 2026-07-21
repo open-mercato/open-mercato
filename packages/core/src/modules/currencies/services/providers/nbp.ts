@@ -1,6 +1,9 @@
 import { RateProvider, RateProviderResult } from './base'
 import { fromZonedTime } from 'date-fns-tz'
 import { fetchWithTimeout, resolveTimeoutMs } from '@open-mercato/shared/lib/http/fetchWithTimeout'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('currencies').child({ component: 'nbp' })
 
 const DEFAULT_RATE_FETCH_TIMEOUT_MS = 15_000
 
@@ -41,7 +44,7 @@ export class NBPProvider implements RateProvider {
   ): Promise<RateProviderResult[]> {
     // Check if PLN is available (required as base currency for NBP)
     if (!availableCurrencies.has(this.providerBaseCurrency)) {
-      console.debug('[NBP] Skipping: PLN not found in available currencies')
+      logger.debug('Skipping: PLN not found in available currencies')
       return []
     }
 
@@ -53,7 +56,7 @@ export class NBPProvider implements RateProvider {
 
       if (response.status === 404) {
         // No data for this date (weekend/holiday)
-        console.log(`[NBP] No data available for ${dateStr}`)
+        logger.debug('No data available', { date: dateStr })
         return []
       }
 
@@ -104,10 +107,10 @@ export class NBPProvider implements RateProvider {
         })
       }
 
-      console.log(`[NBP] Fetched ${results.length} rates for ${dateStr}`)
+      logger.info('Fetched rates', { count: results.length, date: dateStr })
       return results
     } catch (err: any) {
-      console.error(`[NBP] Fetch error for ${dateStr}:`, err.message)
+      logger.error('Fetch error', { date: dateStr, err })
       throw new Error(`Failed to fetch NBP rates: ${err.message}`)
     }
   }
