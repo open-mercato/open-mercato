@@ -111,12 +111,13 @@ export function EntityPicker({ open, onOpenChange, onPick, typeFilter, excludeId
                 search.setActiveIndex(-1)
               }}
               aria-label={t('documents.entityPicker.typeTabs')}
-              className="max-w-full flex-wrap"
+              className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl p-1 sm:grid-cols-4"
             >
               {search.availableEntries.map((entry) => (
                 <SegmentedControlItem
                   key={entry.type}
                   value={entry.type}
+                  className="h-auto min-h-7 min-w-0 whitespace-normal px-2 py-1 text-center leading-tight"
                 >
                   {t(entry.labelKey)}
                 </SegmentedControlItem>

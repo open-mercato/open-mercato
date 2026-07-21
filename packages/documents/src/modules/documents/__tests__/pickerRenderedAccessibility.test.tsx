@@ -270,6 +270,10 @@ describe('rendered Documents pickers', () => {
     const group = screen.getByRole('radiogroup', { name: 'Record types' })
     const customer = within(group).getByRole('radio', { name: 'Customer' })
     const deal = within(group).getByRole('radio', { name: 'Deal' })
+    expect(group.getAttribute('class')).toEqual(expect.stringContaining('grid-cols-2'))
+    expect(group.getAttribute('class')).toEqual(expect.stringContaining('sm:grid-cols-4'))
+    expect(group.getAttribute('class')).toEqual(expect.stringContaining('h-auto'))
+    expect(customer.getAttribute('class')).toEqual(expect.stringContaining('whitespace-normal'))
     expect(customer.getAttribute('aria-checked')).toBe('true')
 
     act(() => {
