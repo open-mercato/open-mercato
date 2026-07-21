@@ -1,10 +1,13 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { PassThrough } from 'node:stream'
 import { runThemeInit } from '../init'
 import {
+  makeStdinAsk,
   parseMapFlag,
   parseThemeFromFigmaArgs,
+  PromptAbortedError,
   runThemeFromFigma,
   type AskFn,
 } from '../from-figma'
@@ -48,6 +51,14 @@ describe('parseThemeFromFigmaArgs', () => {
     expect(flags.fileRef).toBe('key12345')
     expect(flags.unknown).toEqual(['extra', '--nope'])
   })
+
+  it('hard-errors on empty =values instead of silently degrading', () => {
+    // `--map=` used to degrade to report-only; `--extract-json=` used to
+    // resolve to the cwd and crash EISDIR after a full fetch.
+    expect(parseThemeFromFigmaArgs(['key12345', '--map=']).unknown).toEqual(['--map (empty value)'])
+    expect(parseThemeFromFigmaArgs(['key12345', '--extract-json=']).unknown).toEqual(['--extract-json (empty value)'])
+    expect(parseThemeFromFigmaArgs(['key12345', '--map', '']).unknown).toEqual(['--map (empty value)'])
+  })
 })
 
 describe('parseMapFlag', () => {
@@ -68,6 +79,20 @@ describe('parseMapFlag', () => {
     expect(parseMapFlag('primary=blue').errors.join('\n')).toContain('Invalid --map primary')
     expect(parseMapFlag('primary=#0C71C6,radius=50%').errors.join('\n')).toContain('Invalid --map radius')
     expect(parseMapFlag('radius=8px').errors.join('\n')).toContain('Missing --map primary')
+  })
+
+  it('normalizes 3-digit hex to 6-digit for primary and primary-foreground', () => {
+    const parsed = parseMapFlag('primary=#FFF,primary-foreground=#0aF')
+    expect(parsed.errors).toEqual([])
+    expect(parsed.mapping.primary).toBe('#ffffff')
+    expect(parsed.mapping.primaryForeground).toBe('#00aaff')
+  })
+
+  it('warns on duplicate keys; the later value wins', () => {
+    const parsed = parseMapFlag('primary=#123456,primary=#0c71c6')
+    expect(parsed.errors).toEqual([])
+    expect(parsed.warnings.join('\n')).toContain('Duplicate --map key "primary"')
+    expect(parsed.mapping.primary).toBe('#0c71c6')
   })
 })
 
@@ -162,6 +187,50 @@ describe('runThemeFromFigma (e2e in tmp dir, mocked fetch)', () => {
     expect(fs.existsSync(themePath())).toBe(true)
   })
 
+  it('matches a 3-digit --map hex against a 6-digit candidate — no false "not in file" warning', async () => {
+    // #ffffff is an extracted candidate; `--map primary=#fff` must hit it.
+    await expect(run(['--map', 'primary=#fff'])).resolves.toBe(0)
+    expect(warned()).not.toContain('does not appear in the extracted candidates')
+    const report = fs.readFileSync(reportPath(), 'utf8')
+    expect(report).toContain('| `--primary` | `#ffffff` | candidate #')
+    expect(fs.readFileSync(themePath(), 'utf8')).toContain('--primary: #ffffff;')
+  })
+
+  it('exits 1 before any network work when a value flag has an empty =value', async () => {
+    const throwingFetch = async () => { throw new Error('network must not be touched') }
+    const mapCode = await runThemeFromFigma(
+      [FIXTURE_FILE_KEY, '--map='],
+      { fetchImpl: throwingFetch as never, env: { FIGMA_TOKEN: SENTINEL_TOKEN }, isTTY: false },
+    )
+    expect(mapCode).toBe(1)
+    expect(errored()).toContain('--map (empty value)')
+
+    const extractCode = await runThemeFromFigma(
+      [FIXTURE_FILE_KEY, '--extract-json='],
+      { fetchImpl: throwingFetch as never, env: { FIGMA_TOKEN: SENTINEL_TOKEN }, isTTY: false },
+    )
+    expect(extractCode).toBe(1)
+    expect(errored()).toContain('--extract-json (empty value)')
+  })
+
+  it('warns about duplicate --map keys and applies the later value', async () => {
+    await expect(run(['--map', 'primary=#123456,primary=#0c71c6'])).resolves.toBe(0)
+    expect(warned()).toContain('Duplicate --map key "primary"')
+    expect(fs.readFileSync(themePath(), 'utf8')).toContain('--primary: #0c71c6;')
+  })
+
+  it('surfaces failed node batches as a CLI warning and a report row', async () => {
+    await expect(
+      run(['--report-only'], {
+        fetchImpl: createFigmaFixtureFetch({ expectToken: SENTINEL_TOKEN, nodes429Forever: true }),
+        sleepImpl: async () => {},
+      }),
+    ).resolves.toBe(0)
+    expect(warned()).toContain('failed after retries')
+    expect(fs.readFileSync(reportPath(), 'utf8')).toContain('Failed request batches')
+    expect(fs.readFileSync(extractPath(), 'utf8')).toContain('"failedBatches"')
+  })
+
   it('exits 1 on a WCAG hard failure for an explicit pair; report still written with ratios', async () => {
     await expect(run(['--map', 'primary=#8FC1E9,primary-foreground=#ffffff'])).resolves.toBe(1)
     expect(fs.existsSync(themePath())).toBe(false)
@@ -197,6 +266,29 @@ describe('runThemeFromFigma (e2e in tmp dir, mocked fetch)', () => {
     ).resolves.toBe(0)
     expect(logged()).toContain('Reusing extraction')
     expect(fs.readFileSync(themePath(), 'utf8')).toContain('--primary: #0c71c6;')
+  })
+
+  it('rejects a structurally broken reused extraction with a clean error, not a TypeError', async () => {
+    fs.mkdirSync(path.dirname(extractPath()), { recursive: true })
+    // Right schema string, but no source/candidates — the schema pin alone
+    // must not be trusted.
+    fs.writeFileSync(
+      extractPath(),
+      JSON.stringify({ schema: 'om-figma-brand-extract@1', file: { key: FIXTURE_FILE_KEY } }),
+      'utf8',
+    )
+    await expect(run(['--map', 'primary=#0c71c6'], { env: {} })).resolves.toBe(1)
+    expect(errored()).toContain('is not a valid om-figma-brand-extract@1 artifact')
+    expect(fs.existsSync(themePath())).toBe(false)
+  })
+
+  it('rejects a reused extraction with mistyped candidates cleanly', async () => {
+    await expect(run(['--report-only'])).resolves.toBe(0)
+    const doc = JSON.parse(fs.readFileSync(extractPath(), 'utf8'))
+    doc.candidates = [{ count: 3 }]
+    fs.writeFileSync(extractPath(), JSON.stringify(doc), 'utf8')
+    await expect(run(['--map', 'primary=#0c71c6'], { env: {} })).resolves.toBe(1)
+    expect(errored()).toContain('every candidate must be an object with a string hex')
   })
 
   it('rejects a reused extraction whose file key does not match', async () => {
@@ -265,10 +357,57 @@ describe('runThemeFromFigma (e2e in tmp dir, mocked fetch)', () => {
       expect(logged()).toContain('nothing to generate')
     })
 
-    it('accepts a free hex entry not present in the file', async () => {
+    it('accepts a free hex entry not present in the file, with the same not-in-file note as --map', async () => {
       const ask = scriptedAsk(['#336699', 'skip', 'skip', 'skip'])
       await expect(run([], { ask })).resolves.toBe(0)
       expect(fs.readFileSync(themePath(), 'utf8')).toContain('--primary: #336699;')
+      expect(warned()).toContain('does not appear in the extracted candidates')
+      expect(fs.readFileSync(reportPath(), 'utf8')).toContain('does not appear in the extracted candidates')
+    })
+
+    it('normalizes a 3-digit free hex so it matches a 6-digit candidate — no note', async () => {
+      const ask = scriptedAsk(['#fff', 'skip', 'skip', 'skip'])
+      await expect(run([], { ask })).resolves.toBe(0)
+      expect(fs.readFileSync(themePath(), 'utf8')).toContain('--primary: #ffffff;')
+      expect(warned()).not.toContain('does not appear in the extracted candidates')
+    })
+
+    describe('EOF (Ctrl-D) during the prompt', () => {
+      it('makeStdinAsk rejects with PromptAbortedError when input closes mid-question', async () => {
+        const input = new PassThrough()
+        const output = new PassThrough()
+        output.resume()
+        const { ask } = await makeStdinAsk(input, output)
+        const pending = ask('Which color? ')
+        input.end() // EOF with no answer
+        await expect(pending).rejects.toBeInstanceOf(PromptAbortedError)
+      })
+
+      it('makeStdinAsk close() after an answered question does not reject', async () => {
+        const input = new PassThrough()
+        const output = new PassThrough()
+        output.resume()
+        const { ask, close } = await makeStdinAsk(input, output)
+        const pending = ask('Which color? ')
+        input.write('1\n')
+        await expect(pending).resolves.toBe('1')
+        close()
+      })
+
+      it('aborts the command with exit 1 and writes nothing when stdin closes mid-prompt', async () => {
+        const input = new PassThrough()
+        const output = new PassThrough()
+        output.resume()
+        const promise = run([], { isTTY: true, input, output })
+        // Answer the first question, then hit EOF on the next one.
+        input.write('1\n')
+        input.end()
+        await expect(promise).resolves.toBe(1)
+        expect(errored()).toContain('stdin closed')
+        expect(fs.existsSync(extractPath())).toBe(false)
+        expect(fs.existsSync(reportPath())).toBe(false)
+        expect(fs.existsSync(themePath())).toBe(false)
+      })
     })
   })
 })

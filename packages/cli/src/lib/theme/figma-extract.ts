@@ -28,10 +28,24 @@ export const DEFAULT_NODE_BUDGET = 20_000
 const NODES_BATCH_SIZE = 50
 /** Maximum retries per request on 429 responses. */
 const MAX_RETRIES = 3
+/** Ceiling for honoring a `Retry-After` header, in seconds. */
+const MAX_RETRY_AFTER_SECONDS = 60
 /** OKLCH chroma below which a candidate counts as a near-gray for ranking. */
 const NEAR_GRAY_CHROMA = 0.04
 
 export type VariablesAvailability = 'ok' | 'unavailable-plan-gated' | 'error'
+
+/**
+ * Strips C0/C1 control characters (including ESC and CSI) from a remote-sourced
+ * string. Figma file/style/variable/font/page names are attacker-influenced
+ * text that ends up in terminal output and markdown reports — raw escape
+ * sequences could rewrite the candidate table or the report. Every remote
+ * string passes through here exactly once, at extraction intake.
+ */
+export function sanitizeRemoteString(value: string): string {
+  // eslint-disable-next-line no-control-regex
+  return value.replace(/[\u0000-\u001f\u007f-\u009f]/g, '')
+}
 
 export type CandidateTier = 'variable' | 'style' | 'fill'
 
@@ -77,6 +91,12 @@ export type BrandExtraction = {
       truncated: boolean
     }
     excluded: { image: number; gradient: number; alpha: number }
+    /**
+     * Node batches that still failed after retries, per source. Optional within
+     * `@1` (additive): extractions written by older builds lack it. Non-zero
+     * means the inventory is incomplete and both the CLI and the report say so.
+     */
+    failedBatches?: { styles: number; frames: number }
   }
   candidates: BrandCandidate[]
   styles: ExtractedStyle[]
@@ -267,7 +287,7 @@ function walkNode(node: FigmaNode, state: ExtractionState, budget: number): void
       for (const radius of new Set(node.rectangleCornerRadii)) state.addRadius(radius)
     }
     if (type === 'TEXT' && node.style?.fontFamily) {
-      const font = state.font(node.style.fontFamily)
+      const font = state.font(sanitizeRemoteString(node.style.fontFamily))
       font.usageCount += node.characters?.length ?? 1
       if (typeof node.style.fontWeight === 'number') font.weights.add(node.style.fontWeight)
     }
@@ -295,7 +315,9 @@ class FigmaClient {
       })
       if (response.status === 429 && attempt < MAX_RETRIES) {
         const retryAfter = Number.parseFloat(response.headers.get('Retry-After') ?? '1')
-        const delaySeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1
+        // Honor Retry-After but cap it at 60s — a hostile or broken header must
+        // not stall the CLI for hours. NaN/non-positive falls back to 1s.
+        const delaySeconds = Math.min(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 1, MAX_RETRY_AFTER_SECONDS)
         await this.sleepImpl(delaySeconds * 1000)
         continue
       }
@@ -342,6 +364,7 @@ async function extractVariables(
       : modeIds[0]
     if (!modeId) continue
     const value = variable.valuesByMode?.[modeId]
+    const variableName = variable.name === undefined ? null : sanitizeRemoteString(variable.name)
     if (variable.resolvedType === 'COLOR' && typeof value === 'object' && value !== null && 'r' in value) {
       const color = value as FigmaColor
       if ((color.a ?? 1) < 1) {
@@ -351,8 +374,8 @@ async function extractVariables(
       const draft = state.candidate(figmaColorToHex(color))
       draft.sources.add('variable')
       state.promoteTier(draft, 'variable')
-      if (!draft.variableName) draft.variableName = variable.name ?? null
-    } else if (variable.resolvedType === 'FLOAT' && typeof value === 'number' && /radius/i.test(variable.name ?? '')) {
+      if (!draft.variableName) draft.variableName = variableName
+    } else if (variable.resolvedType === 'FLOAT' && typeof value === 'number' && /radius/i.test(variableName ?? '')) {
       state.addRadius(value)
     }
   }
@@ -365,47 +388,55 @@ async function extractStyles(
   client: FigmaClient,
   fileKey: string,
   state: ExtractionState,
-): Promise<{ availability: 'ok' | 'error'; styles: ExtractedStyle[] }> {
+): Promise<{ availability: 'ok' | 'error'; styles: ExtractedStyle[]; failedBatches: number }> {
   const { status, body } = await client.get(`/v1/files/${fileKey}/styles`)
-  if (status !== 200 || typeof body !== 'object' || body === null) return { availability: 'error', styles: [] }
+  if (status !== 200 || typeof body !== 'object' || body === null) return { availability: 'error', styles: [], failedBatches: 0 }
   const index = ((body as { meta?: { styles?: StyleIndexEntry[] } }).meta?.styles ?? []).filter(
     (entry) => entry.node_id && (entry.style_type === 'FILL' || entry.style_type === 'TEXT'),
   )
   const styles: ExtractedStyle[] = []
+  let failedBatches = 0
   for (const batch of chunk(index, NODES_BATCH_SIZE)) {
     const ids = batch.map((entry) => entry.node_id as string)
     const nodesResponse = await client.get(`/v1/files/${fileKey}/nodes?ids=${encodeURIComponent(ids.join(','))}`)
-    if (nodesResponse.status !== 200) continue
+    if (nodesResponse.status !== 200) {
+      // A batch that still fails after retries is dropped from the inventory —
+      // count it so the CLI and the report can say the scan is incomplete.
+      failedBatches += 1
+      continue
+    }
     const nodes = (nodesResponse.body as { nodes?: Record<string, { document?: FigmaNode } | null> }).nodes ?? {}
     for (const entry of batch) {
       const document = nodes[entry.node_id as string]?.document
       if (!document) continue
+      const styleName = sanitizeRemoteString(entry.name ?? '')
       if (entry.style_type === 'FILL') {
         const solid = (document.fills ?? []).find(
           (paint) => paint.type === 'SOLID' && paint.color && paint.visible !== false && paintAlpha(paint) >= 1,
         )
         if (!solid?.color) continue
         const hex = figmaColorToHex(solid.color)
-        styles.push({ type: 'FILL', name: entry.name ?? '', hex })
+        styles.push({ type: 'FILL', name: styleName, hex })
         const draft = state.candidate(hex)
         draft.sources.add('style')
-        draft.styleNames.add(entry.name ?? '')
+        draft.styleNames.add(styleName)
         state.promoteTier(draft, 'style')
       } else if (entry.style_type === 'TEXT' && document.style?.fontFamily) {
+        const fontFamily = sanitizeRemoteString(document.style.fontFamily)
         styles.push({
           type: 'TEXT',
-          name: entry.name ?? '',
-          fontFamily: document.style.fontFamily,
+          name: styleName,
+          fontFamily,
           fontWeight: document.style.fontWeight ?? 400,
           fontSize: document.style.fontSize ?? 0,
         })
-        const font = state.font(document.style.fontFamily)
+        const font = state.font(fontFamily)
         font.textStyles += 1
         if (typeof document.style.fontWeight === 'number') font.weights.add(document.style.fontWeight)
       }
     }
   }
-  return { availability: 'ok', styles }
+  return { availability: 'ok', styles, failedBatches }
 }
 
 /** Ranks candidates: variable > style > fill tier, chromatic above near-gray, then usage count. */
@@ -415,11 +446,13 @@ export function rankCandidates(candidates: BrandCandidate[]): BrandCandidate[] {
     const oklch = hexToOklch(hex)
     return oklch && oklch.c < NEAR_GRAY_CHROMA ? 1 : 0
   }
+  // Final tie-break is a plain byte comparison — localeCompare is
+  // locale-dependent and could reorder ties between machines.
   return [...candidates].sort((a, b) =>
     tierRank[a.tier] - tierRank[b.tier] ||
     grayRank(a.hex) - grayRank(b.hex) ||
     b.count - a.count ||
-    a.hex.localeCompare(b.hex),
+    (a.hex < b.hex ? -1 : a.hex > b.hex ? 1 : 0),
   )
 }
 
@@ -470,11 +503,15 @@ export async function extractBrand(options: ExtractOptions): Promise<BrandExtrac
       (child) => child.id && (child.type === 'FRAME' || child.type === 'COMPONENT' || child.type === 'COMPONENT_SET' || child.type === 'SECTION'),
     ),
   )
+  let failedFrameBatches = 0
   for (const batch of chunk(frames, NODES_BATCH_SIZE)) {
     if (state.truncated) break
     const ids = batch.map((frame) => frame.id as string)
     const nodesResponse = await client.get(`/v1/files/${options.fileKey}/nodes?ids=${encodeURIComponent(ids.join(','))}`)
-    if (nodesResponse.status !== 200) continue
+    if (nodesResponse.status !== 200) {
+      failedFrameBatches += 1
+      continue
+    }
     const nodes = (nodesResponse.body as { nodes?: Record<string, { document?: FigmaNode } | null> }).nodes ?? {}
     for (const id of ids) {
       const document = nodes[id]?.document
@@ -516,8 +553,8 @@ export async function extractBrand(options: ExtractOptions): Promise<BrandExtrac
     schema: EXTRACT_SCHEMA,
     file: {
       key: options.fileKey,
-      name: file.name ?? '',
-      lastModified: file.lastModified ?? '',
+      name: sanitizeRemoteString(file.name ?? ''),
+      lastModified: sanitizeRemoteString(file.lastModified ?? ''),
       extractedAt: now().toISOString(),
     },
     source: {
@@ -531,6 +568,7 @@ export async function extractBrand(options: ExtractOptions): Promise<BrandExtrac
         truncated: state.truncated,
       },
       excluded: state.excluded,
+      failedBatches: { styles: stylesResult.failedBatches, frames: failedFrameBatches },
     },
     candidates,
     styles,
@@ -550,14 +588,45 @@ export function serializeExtraction(extraction: BrandExtraction): string {
   return `${JSON.stringify(extraction, null, 2)}\n`
 }
 
-/** Reads and validates an extraction JSON. Throws on schema mismatch. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/**
+ * Reads and validates an extraction JSON. Throws a clean `Error` (never a
+ * `TypeError` from downstream property access) on schema mismatch or a
+ * structurally broken artifact — the schema string alone proves nothing about
+ * a hand-edited or truncated file.
+ */
 export function readExtraction(filePath: string): BrandExtraction {
   const raw = fs.readFileSync(filePath, 'utf8')
-  const parsed = JSON.parse(raw) as { schema?: string }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new Error(`Extraction ${filePath} is not valid JSON — remove the file to re-fetch, or point --extract-json elsewhere.`)
+  }
+  const invalid = (why: string): Error =>
+    new Error(`Extraction ${filePath} is not a valid ${EXTRACT_SCHEMA} artifact (${why}) — remove the file to re-fetch, or point --extract-json elsewhere.`)
+  if (!isRecord(parsed)) throw invalid('not a JSON object')
   if (parsed.schema !== EXTRACT_SCHEMA) {
     throw new Error(
-      `Unsupported extraction schema "${parsed.schema ?? 'missing'}" in ${filePath} — this build reads ${EXTRACT_SCHEMA}.`,
+      `Unsupported extraction schema "${typeof parsed.schema === 'string' ? parsed.schema : 'missing'}" in ${filePath} — this build reads ${EXTRACT_SCHEMA}.`,
     )
   }
-  return parsed as BrandExtraction
+  if (!isRecord(parsed.file) || typeof parsed.file.key !== 'string' || parsed.file.key.length === 0) {
+    throw invalid('file.key must be a non-empty string')
+  }
+  if (!isRecord(parsed.source) || !isRecord(parsed.source.frames)) {
+    throw invalid('source.frames must be an object')
+  }
+  if (!Array.isArray(parsed.candidates)) throw invalid('candidates must be an array')
+  for (const candidate of parsed.candidates) {
+    if (!isRecord(candidate) || typeof candidate.hex !== 'string') {
+      throw invalid('every candidate must be an object with a string hex')
+    }
+  }
+  if (!Array.isArray(parsed.fonts)) throw invalid('fonts must be an array')
+  if (!Array.isArray(parsed.radii)) throw invalid('radii must be an array')
+  return parsed as unknown as BrandExtraction
 }

@@ -20,6 +20,10 @@
       "image": 2,
       "gradient": 1,
       "alpha": 1
+    },
+    "failedBatches": {
+      "styles": 0,
+      "frames": 0
     }
   },
   "candidates": [

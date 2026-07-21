@@ -30,6 +30,16 @@ export type BrandReportOptions = {
   notes?: string[]
 }
 
+/**
+ * Escapes `|` so a remote-sourced or user-supplied string cannot break out of
+ * a markdown table cell. Control characters are already stripped at extraction
+ * intake (`sanitizeRemoteString`); the pipe is the one remaining character with
+ * structural meaning inside a GFM table row.
+ */
+function mdCell(value: string): string {
+  return value.replace(/\|/g, '\\|')
+}
+
 /** One-line evidence string for a candidate — shared by prompt and report. */
 export function describeCandidateEvidence(candidate: BrandCandidate): string {
   const parts: string[] = []
@@ -84,6 +94,13 @@ export function renderBrandReport(options: BrandReportOptions): string {
     `- **Excluded from ranking:** ${excluded.image} image fill(s), ${excluded.gradient} gradient(s), ` +
       `${excluded.alpha} semi-transparent fill(s) — raw hexes under opacity or imagery are not brand evidence`,
   )
+  const failedBatches = extraction.source.failedBatches
+  if (failedBatches && failedBatches.styles + failedBatches.frames > 0) {
+    lines.push(
+      `- **Failed request batches:** ${failedBatches.styles} style batch(es) and ${failedBatches.frames} frame batch(es) ` +
+        'failed after retries — **the inventory is incomplete**; candidate and usage counts may be undercounted',
+    )
+  }
   lines.push('')
 
   for (const note of notes) {
@@ -101,14 +118,14 @@ export function renderBrandReport(options: BrandReportOptions): string {
     mappedHexes.add(mapping.primary.toLowerCase())
     lines.push('| Token | Value | Evidence |')
     lines.push('|---|---|---|')
-    lines.push(`| \`--primary\` | \`${mapping.primary}\` | ${mappedEvidence(extraction, mapping.primary)} |`)
+    lines.push(`| \`--primary\` | \`${mapping.primary}\` | ${mdCell(mappedEvidence(extraction, mapping.primary))} |`)
     if (mapping.primaryForeground) {
       mappedHexes.add(mapping.primaryForeground.toLowerCase())
       lines.push(`| \`--primary-foreground\` | \`${mapping.primaryForeground}\` | explicit designer choice |`)
     }
-    if (mapping.radius) lines.push(`| \`--radius\` | \`${mapping.radius}\` | radius histogram: ${extraction.radii.map((bucket) => `${bucket.px}px×${bucket.count}`).join(', ') || 'empty'} |`)
-    if (mapping.font) lines.push(`| \`--font-geist-sans\` | \`${mapping.font}\` | fonts in file: ${extraction.fonts.map((font) => font.family).join(', ') || 'none extracted'} |`)
-    if (mapping.fontMono) lines.push(`| \`--font-geist-mono\` | \`${mapping.fontMono}\` | manual step — the generator does not emit mono font overrides; add it to theme.css yourself |`)
+    if (mapping.radius) lines.push(`| \`--radius\` | \`${mdCell(mapping.radius)}\` | radius histogram: ${extraction.radii.map((bucket) => `${bucket.px}px×${bucket.count}`).join(', ') || 'empty'} |`)
+    if (mapping.font) lines.push(`| \`--font-geist-sans\` | \`${mdCell(mapping.font)}\` | fonts in file: ${mdCell(extraction.fonts.map((font) => font.family).join(', ')) || 'none extracted'} |`)
+    if (mapping.fontMono) lines.push(`| \`--font-geist-mono\` | \`${mdCell(mapping.fontMono)}\` | manual step — the generator does not emit mono font overrides; add it to theme.css yourself |`)
     lines.push('')
     lines.push('Derived by the shared `theme init` pipeline:')
     lines.push('')
@@ -158,7 +175,7 @@ export function renderBrandReport(options: BrandReportOptions): string {
     for (const candidate of extraction.candidates) {
       rank += 1
       if (mappedHexes.has(candidate.hex)) continue
-      lines.push(`| ${rank} | \`${candidate.hex}\` | ${candidate.count} | ${candidate.tier} | ${describeCandidateEvidence(candidate)} |`)
+      lines.push(`| ${rank} | \`${candidate.hex}\` | ${candidate.count} | ${candidate.tier} | ${mdCell(describeCandidateEvidence(candidate))} |`)
     }
     lines.push('')
   }

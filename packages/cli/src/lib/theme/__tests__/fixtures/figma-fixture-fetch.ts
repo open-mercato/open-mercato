@@ -21,8 +21,12 @@ export type FixtureFetchOptions = {
   variablesStatus?: 200 | 403
   /** Expected `X-Figma-Token` header; requests with a different token get 403. */
   expectToken?: string
-  /** Serve this many 429 responses (with Retry-After: 2) before real answers. */
+  /** Serve this many 429 responses before real answers. */
   rateLimit429s?: number
+  /** `Retry-After` header value on 429 responses (default "2"). */
+  retryAfter?: string
+  /** Every `/nodes` request 429s persistently — batches fail even after retries. */
+  nodes429Forever?: boolean
   /** Records every requested URL, in order. */
   requestLog?: string[]
 }
@@ -50,12 +54,17 @@ export function createFigmaFixtureFetch(options: FixtureFetchOptions = {}): Fetc
     if (options.expectToken && init.headers['X-Figma-Token'] !== options.expectToken) {
       return response(403, { error: true, status: 403, message: 'Invalid token' })
     }
+    const rateLimited = () =>
+      response(429, { error: true, status: 429, message: 'Rate limited' }, { 'retry-after': options.retryAfter ?? '2' })
     if (remaining429s > 0) {
       remaining429s -= 1
-      return response(429, { error: true, status: 429, message: 'Rate limited' }, { 'retry-after': '2' })
+      return rateLimited()
     }
     const parsed = new URL(url)
     const prefix = `/v1/files/${FIXTURE_FILE_KEY}`
+    if (options.nodes429Forever && parsed.pathname === `${prefix}/nodes`) {
+      return rateLimited()
+    }
     if (parsed.pathname === `${prefix}/variables/local`) {
       return (options.variablesStatus ?? 403) === 200
         ? response(200, variablesOk)

@@ -20,7 +20,7 @@
 
 import fs from 'node:fs'
 import path from 'node:path'
-import { parseHexColor } from './contrast'
+import { formatHexColor, parseHexColor } from './contrast'
 import { buildContrastChecks, runThemeInit, type ContrastCheck } from './init'
 import { derivePalette, validateRadius, type DerivedPalette } from './palette'
 import {
@@ -104,14 +104,22 @@ export function parseThemeFromFigmaArgs(args: string[]): ThemeFromFigmaFlags {
     const target = valueFlags[name]
     if (target) {
       if (equalsIndex >= 0) {
-        flags[target] = arg.slice(equalsIndex + 1)
+        const value = arg.slice(equalsIndex + 1)
+        // `--map=` or `--extract-json=` must hard-error up front: an empty
+        // string would silently degrade the mode or crash the artifact writer
+        // after a full fetch.
+        if (value === '') flags.unknown.push(`${name} (empty value)`)
+        else flags[target] = value
       } else {
         const next = args[i + 1]
-        if (next !== undefined) {
-          flags[target] = next
+        if (next === undefined) {
+          flags.unknown.push(`${name} (missing value)`)
+        } else if (next === '') {
+          flags.unknown.push(`${name} (empty value)`)
           i += 1
         } else {
-          flags.unknown.push(`${name} (missing value)`)
+          flags[target] = next
+          i += 1
         }
       }
       continue
@@ -129,7 +137,7 @@ export function parseThemeFromFigmaArgs(args: string[]): ThemeFromFigmaFlags {
   return flags
 }
 
-export type ParsedMap = { mapping: ConfirmedMapping; errors: string[] }
+export type ParsedMap = { mapping: ConfirmedMapping; errors: string[]; warnings: string[] }
 
 /** Parses `--map "primary=#0C71C6,radius=8px,font=Inter"` pairs. */
 export function parseMapFlag(raw: string): ParsedMap {
@@ -141,6 +149,8 @@ export function parseMapFlag(raw: string): ParsedMap {
     fontMono: null,
   }
   const errors: string[] = []
+  const warnings: string[] = []
+  const seenKeys = new Set<string>()
   for (const pair of raw.split(',').map((part) => part.trim()).filter(Boolean)) {
     const equalsIndex = pair.indexOf('=')
     if (equalsIndex <= 0) {
@@ -153,19 +163,29 @@ export function parseMapFlag(raw: string): ParsedMap {
       errors.push(`Unknown --map key "${key}". Accepted keys: ${MAP_KEYS.join(', ')}.`)
       continue
     }
+    if (seenKeys.has(key)) {
+      warnings.push(`Duplicate --map key "${key}" — the later value overrides the earlier one.`)
+    }
+    seenKeys.add(key)
     if (!value) {
       errors.push(`Empty --map value for "${key}".`)
       continue
     }
     switch (key as MapKey) {
-      case 'primary':
-        if (!parseHexColor(value)) errors.push(`Invalid --map primary "${value}". Expected #RGB or #RRGGBB.`)
-        else mapping.primary = value.toLowerCase()
+      case 'primary': {
+        // Normalize through parse+format so `#fff` and `#ffffff` are the same
+        // value everywhere: candidate matching, the report, and the generator.
+        const rgb = parseHexColor(value)
+        if (!rgb) errors.push(`Invalid --map primary "${value}". Expected #RGB or #RRGGBB.`)
+        else mapping.primary = formatHexColor(rgb)
         break
-      case 'primary-foreground':
-        if (!parseHexColor(value)) errors.push(`Invalid --map primary-foreground "${value}". Expected #RGB or #RRGGBB.`)
-        else mapping.primaryForeground = value.toLowerCase()
+      }
+      case 'primary-foreground': {
+        const rgb = parseHexColor(value)
+        if (!rgb) errors.push(`Invalid --map primary-foreground "${value}". Expected #RGB or #RRGGBB.`)
+        else mapping.primaryForeground = formatHexColor(rgb)
         break
+      }
       case 'radius': {
         const radius = validateRadius(value)
         if (!radius.valid) errors.push(`Invalid --map radius "${value}". Expected a CSS length like 8px or 0.5rem.`)
@@ -183,7 +203,7 @@ export function parseMapFlag(raw: string): ParsedMap {
   if (!mapping.primary) {
     errors.push('Missing --map primary — nothing proceeds to generation until the primary is explicitly chosen.')
   }
-  return { mapping, errors }
+  return { mapping, errors, warnings }
 }
 
 // ── Interactive prompt ──────────────────────────────────────────────────────
@@ -197,6 +217,21 @@ export type FromFigmaDeps = {
   env?: Record<string, string | undefined>
   isTTY?: boolean
   ask?: AskFn
+  /** Prompt streams (default process.stdin/stdout); injectable for tests. */
+  input?: NodeJS.ReadableStream
+  output?: NodeJS.WritableStream
+}
+
+/**
+ * Thrown when the interactive prompt's stdin closes (EOF / Ctrl-D) before an
+ * answer arrives. Without this, `readline/promises` leaves the pending
+ * `question()` unsettled forever and the process exits 0 having done nothing.
+ */
+export class PromptAbortedError extends Error {
+  constructor() {
+    super('Prompt aborted: stdin closed before an answer was given.')
+    this.name = 'PromptAbortedError'
+  }
 }
 
 function renderCandidateTable(candidates: BrandCandidate[], showAll: boolean): string[] {
@@ -240,7 +275,9 @@ async function promptMapping(
       const index = Number.parseInt(value, 10) - 1
       return candidates[index] ? candidates[index].hex : 'invalid'
     }
-    return parseHexColor(value) ? value.toLowerCase() : 'invalid'
+    // parse+format normalization: `#fff` must equal a `#ffffff` candidate.
+    const rgb = parseHexColor(value)
+    return rgb ? formatHexColor(rgb) : 'invalid'
   }
 
   // (1) The action color. Nothing proceeds to generation without it.
@@ -270,7 +307,8 @@ async function promptMapping(
     const value = answer.trim()
     if (!value) { log('Please answer with a hex value or "skip".'); continue }
     if (value.toLowerCase() === 'skip') { primaryForeground = null; continue }
-    if (parseHexColor(value)) { primaryForeground = value.toLowerCase(); continue }
+    const rgb = parseHexColor(value)
+    if (rgb) { primaryForeground = formatHexColor(rgb); continue }
     log('Please answer with a hex value like #ffffff, or "skip".')
   }
 
@@ -400,6 +438,18 @@ export async function runThemeFromFigma(args: string[], deps: FromFigmaDeps = {}
     }
   }
 
+  // Batches that still failed after retries mean silent gaps in the inventory
+  // — say so up front, next to the candidate counts the designer is about to
+  // trust. (Older reused extractions may predate the counter; treat as zero.)
+  const failedBatches = extraction.source.failedBatches
+  if (failedBatches && failedBatches.styles + failedBatches.frames > 0) {
+    console.warn(
+      `⚠ ${failedBatches.styles + failedBatches.frames} node batch(es) failed after retries ` +
+        `(styles: ${failedBatches.styles}, frames: ${failedBatches.frames}) — the scan is incomplete; ` +
+        'candidate and usage counts may be undercounted.',
+    )
+  }
+
   // ── Select the mode. Never guess a mapping; never auto-finalize one. ─────
   const isTTY = deps.isTTY ?? process.stdin.isTTY === true
   let reportOnly = flags.reportOnly
@@ -418,24 +468,27 @@ export async function runThemeFromFigma(args: string[], deps: FromFigmaDeps = {}
         for (const message of parsed.errors) console.error(`✖ ${message}`)
         return 1
       }
+      for (const warning of parsed.warnings) console.warn(`⚠ ${warning}`)
       mapping = parsed.mapping
-      // A --map hex that never appears in the file is a warning, not a failure —
-      // brand books sometimes intentionally differ from design files.
-      if (!extraction.candidates.some((candidate) => candidate.hex === mapping!.primary)) {
-        const note = `--map primary ${mapping.primary} does not appear in the extracted candidates — proceeding (brand books sometimes differ from design files).`
-        console.warn(`⚠ ${note}`)
-        notes.push(note)
-      }
     } else {
       let closeAsk: (() => void) | null = null
       let ask = deps.ask
       if (!ask) {
-        const stdinAsk = await makeStdinAsk()
+        const stdinAsk = await makeStdinAsk(deps.input, deps.output)
         ask = stdinAsk.ask
         closeAsk = stdinAsk.close
       }
       try {
         mapping = await promptMapping(extraction, ask, log)
+      } catch (error) {
+        if (error instanceof PromptAbortedError) {
+          console.error(
+            '✖ Aborted: stdin closed (EOF/Ctrl-D) before the prompt was answered — nothing was written. ' +
+              'Re-run and answer the prompts, or pass --map / --report-only for non-interactive use.',
+          )
+          return 1
+        }
+        throw error
       } finally {
         closeAsk?.()
       }
@@ -443,6 +496,14 @@ export async function runThemeFromFigma(args: string[], deps: FromFigmaDeps = {}
         log('Primary skipped — nothing to generate. Writing the extraction and report only.')
         reportOnly = true
       }
+    }
+    // A confirmed hex that never appears in the file is a warning, not a
+    // failure — brand books sometimes intentionally differ from design files.
+    // Applies identically to --map values and interactive free-hex entries.
+    if (mapping && !extraction.candidates.some((candidate) => candidate.hex === mapping!.primary)) {
+      const note = `Confirmed primary ${mapping.primary} does not appear in the extracted candidates — proceeding (brand books sometimes differ from design files).`
+      console.warn(`⚠ ${note}`)
+      notes.push(note)
     }
   }
 
@@ -488,8 +549,32 @@ export async function runThemeFromFigma(args: string[], deps: FromFigmaDeps = {}
   return runThemeInit(buildInitArgs(mapping, flags))
 }
 
-async function makeStdinAsk(): Promise<{ ask: AskFn; close: () => void }> {
+/**
+ * Readline-backed prompt with EOF safety: closing the input stream (Ctrl-D)
+ * while a question is pending rejects with `PromptAbortedError` instead of
+ * leaving the promise unsettled (which would let the process exit 0 silently).
+ * Exported for tests; streams default to the real stdin/stdout.
+ */
+export async function makeStdinAsk(
+  input: NodeJS.ReadableStream = process.stdin,
+  output: NodeJS.WritableStream = process.stdout,
+): Promise<{ ask: AskFn; close: () => void }> {
   const { createInterface } = await import('node:readline/promises')
-  const rl = createInterface({ input: process.stdin, output: process.stdout })
-  return { ask: (question: string) => rl.question(question), close: () => rl.close() }
+  const rl = createInterface({ input, output })
+  let closedDeliberately = false
+  const aborted = new Promise<never>((_, reject) => {
+    rl.once('close', () => {
+      if (!closedDeliberately) reject(new PromptAbortedError())
+    })
+  })
+  // Pre-attach a no-op handler so the rejection is never "unhandled" when it
+  // fires outside a pending question.
+  aborted.catch(() => {})
+  return {
+    ask: (question: string) => Promise.race([rl.question(question), aborted]),
+    close: () => {
+      closedDeliberately = true
+      rl.close()
+    },
+  }
 }
