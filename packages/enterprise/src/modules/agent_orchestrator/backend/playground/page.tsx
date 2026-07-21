@@ -2,7 +2,7 @@
 
 import * as React from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Play, Plug, RotateCw, ShieldAlert, SquareCode } from 'lucide-react'
+import { Play, Plug, RotateCw, Server, ShieldAlert, SquareCode } from 'lucide-react'
 import { Page, PageBody } from '@open-mercato/ui/backend/Page'
 import { Button } from '@open-mercato/ui/primitives/button'
 import { Textarea } from '@open-mercato/ui/primitives/textarea'
@@ -37,8 +37,11 @@ type AgentResult =
 type AgentRunResponse = AgentResult & { runId?: string | null; proposalId?: string | null }
 
 // Connectivity states derived from the ai_assistant health endpoint — the same
-// source the AI assistant settings page reads (OpenCode container + its MCP
-// server bindings). `hidden` covers callers without `ai_assistant.view`.
+// source the AI assistant settings page reads. Three independent signals:
+//   • opencode   — the OpenCode container is up (GET /global/health)
+//   • mcpBridge  — OpenCode has bound to the MCP server (GET /mcp)
+//   • mcpServer  — the MCP HTTP server itself is healthy (GET {mcpUrl}/health)
+// `hidden` covers callers without `ai_assistant.view`.
 type ConnState = 'ok' | 'warn' | 'down' | 'unknown'
 
 type ConnectionsState =
@@ -48,14 +51,17 @@ type ConnectionsState =
       mode: 'ready'
       opencode: ConnState
       opencodeVersion: string | null
-      mcp: ConnState
-      mcpServers: Array<{ name: string; status: string }>
+      mcpBridge: ConnState
+      mcpBridgeServers: Array<{ name: string; status: string }>
+      mcpServer: ConnState
+      mcpServerTools: number | null
     }
 
 type HealthResponse = {
   status?: 'ok' | 'error'
   opencode?: { healthy?: boolean; version?: string }
   mcp?: Record<string, { status?: string; error?: string }>
+  mcpHealth?: { healthy?: boolean; status?: string; tools?: number }
 }
 
 const CONN_VARIANT: Record<ConnState, StatusBadgeVariant> = {
@@ -71,18 +77,25 @@ function connectionsFromHealth(result: HealthResponse | null): Omit<Extract<Conn
     name,
     status: typeof value?.status === 'string' ? value.status : 'unknown',
   }))
-  const mcp: ConnState = mcpEntries.some((entry) => entry.status === 'connected')
+  const mcpBridge: ConnState = mcpEntries.some((entry) => entry.status === 'connected')
     ? 'ok'
     : mcpEntries.some((entry) => entry.status === 'connecting')
       ? 'warn'
       : mcpEntries.length > 0
         ? 'down'
         : 'unknown'
+  const mcpServer: ConnState = result?.mcpHealth
+    ? result.mcpHealth.healthy === true
+      ? 'ok'
+      : 'down'
+    : 'unknown'
   return {
     opencode: opencodeHealthy ? 'ok' : 'down',
     opencodeVersion: typeof result?.opencode?.version === 'string' ? result.opencode.version : null,
-    mcp,
-    mcpServers: mcpEntries,
+    mcpBridge,
+    mcpBridgeServers: mcpEntries,
+    mcpServer,
+    mcpServerTools: typeof result?.mcpHealth?.tools === 'number' ? result.mcpHealth.tools : null,
   }
 }
 
@@ -98,7 +111,15 @@ function ConnectionBadges() {
         setState({ mode: 'hidden' })
         return
       }
-      setState({ mode: 'ready', opencode: 'down', opencodeVersion: null, mcp: 'unknown', mcpServers: [] })
+      setState({
+        mode: 'ready',
+        opencode: 'down',
+        opencodeVersion: null,
+        mcpBridge: 'unknown',
+        mcpBridgeServers: [],
+        mcpServer: 'unknown',
+        mcpServerTools: null,
+      })
       return
     }
     setState({ mode: 'ready', ...connectionsFromHealth(call.result) })
@@ -132,10 +153,14 @@ function ConnectionBadges() {
     state.opencode === 'ok' && state.opencodeVersion
       ? `${stateLabel(state.opencode)} · ${t('agent_orchestrator.playground.connections.version', 'Version {version}', { version: state.opencodeVersion })}`
       : stateLabel(state.opencode)
-  const mcpTooltip =
-    state.mcpServers.length > 0
-      ? state.mcpServers.map((server) => `${server.name}: ${server.status}`).join(' · ')
-      : stateLabel(state.mcp)
+  const mcpBridgeTooltip =
+    state.mcpBridgeServers.length > 0
+      ? state.mcpBridgeServers.map((server) => `${server.name}: ${server.status}`).join(' · ')
+      : stateLabel(state.mcpBridge)
+  const mcpServerTooltip =
+    state.mcpServer === 'ok' && state.mcpServerTools !== null
+      ? `${stateLabel(state.mcpServer)} · ${t('agent_orchestrator.playground.connections.tools', '{count} tools', { count: state.mcpServerTools })}`
+      : stateLabel(state.mcpServer)
 
   return (
     <div className="flex items-center gap-1.5">
@@ -147,10 +172,18 @@ function ConnectionBadges() {
           </StatusBadge>
         </span>
       </SimpleTooltip>
-      <SimpleTooltip content={mcpTooltip}>
+      <SimpleTooltip content={mcpBridgeTooltip}>
         <span>
-          <StatusBadge variant={CONN_VARIANT[state.mcp]} dot className="gap-1.5">
+          <StatusBadge variant={CONN_VARIANT[state.mcpBridge]} dot className="gap-1.5">
             <Plug className="size-3.5 shrink-0" aria-hidden />
+            {t('agent_orchestrator.playground.connections.mcpBridge', 'MCP ↔ OpenCode')}
+          </StatusBadge>
+        </span>
+      </SimpleTooltip>
+      <SimpleTooltip content={mcpServerTooltip}>
+        <span>
+          <StatusBadge variant={CONN_VARIANT[state.mcpServer]} dot className="gap-1.5">
+            <Server className="size-3.5 shrink-0" aria-hidden />
             {t('agent_orchestrator.playground.connections.mcp', 'MCP')}
           </StatusBadge>
         </span>
