@@ -62,6 +62,23 @@ import * as agentToolsModule from '../agent-tools'
 import { AgentPolicyError } from '../agent-tools'
 import { runAiAgentObject, runAiAgentText } from '../agent-runtime'
 
+jest.mock('@open-mercato/shared/lib/logger', () => {
+  const mocked = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+    child: jest.fn(),
+  }
+  mocked.child.mockImplementation(() => mocked)
+  return { createLogger: jest.fn(() => mocked) }
+})
+
+const testLogger = jest
+  .requireMock('@open-mercato/shared/lib/logger')
+  .createLogger('test') as Record<'debug' | 'info' | 'warn' | 'error', jest.Mock>
+
+
 function makeAgent(
   overrides: Partial<AiAgentDefinition> & Pick<AiAgentDefinition, 'id' | 'moduleId'>,
 ): AiAgentDefinition {
@@ -254,7 +271,8 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
     })
 
     it('filters out isMutation tools on read-only agents (warn + continue)', async () => {
-      const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+      const warnSpy = testLogger.warn
+    warnSpy.mockClear()
       registerMcpTool(
         makeTool({ name: 'customers.update_person', isMutation: true }),
         { moduleId: 'customers' },
@@ -284,7 +302,8 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
       // Mutation tool filtered out; read-only tool survives.
       expect(Object.keys(resolved.tools)).toEqual(['customers__list_people'])
       expect(warnSpy).toHaveBeenCalledWith(
-        expect.stringContaining('customers.update_person'),
+        expect.any(String),
+        expect.objectContaining({ toolName: 'customers.update_person' }),
       )
 
       // Chat path forwards the filtered tools map to streamText; object path
@@ -348,7 +367,8 @@ describe('agent runtime parity (chat-mode ≡ object-mode)', () => {
     })
 
     it('does not fail the request if resolvePageContext throws', async () => {
-      const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {})
+      const errorSpy = testLogger.error
+    errorSpy.mockClear()
       const resolvePageContext = jest.fn(async () => {
         throw new Error('boom')
       })

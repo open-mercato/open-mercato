@@ -19,6 +19,11 @@ describe('generators', () => {
       expect(typeof module.generateModuleRegistryApp).toBe('function')
     })
 
+    it('should export generateModuleRegistries', async () => {
+      const module = await import('../module-registry')
+      expect(typeof module.generateModuleRegistries).toBe('function')
+    })
+
     it('should export generateModuleEntities', async () => {
       const module = await import('../module-entities')
       expect(typeof module.generateModuleEntities).toBe('function')

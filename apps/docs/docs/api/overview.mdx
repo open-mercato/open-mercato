@@ -55,6 +55,7 @@ Full examples live in the [Directory service guide](./directory).
 
 - **Payload format:** JSON bodies unless the handler specifies otherwise (only `/login` expects `multipart/form-data` or `application/x-www-form-urlencoded`).
 - **Pagination:** List endpoints accept `page` (default `1`) and `pageSize` (default `50`, max `100` or `200` depending on the handler) and respond with `{ items, total, page, pageSize, totalPages }`.
+- **Exporting:** Add `format=csv|json|xml|markdown` to a list endpoint to download the result set as a file instead of a JSON page. See the [Exporting data guide](./exporting).
 - **Filtering:** Common filters include `search`, `id`, and module-specific filters such as `roleIds` or `tenantId`. Custom field filters use the `cf_<key>` convention and obey the custom field kind.
 - **Sorting:** When powered by the Query Engine, endpoints accept `sortField` and `sortDir` (`asc` or `desc`).
 - **Custom fields:** Include values under `customFields` or prefixed keys (`cf_priority`) in create/update payloads. The CRUD factory persists them automatically.

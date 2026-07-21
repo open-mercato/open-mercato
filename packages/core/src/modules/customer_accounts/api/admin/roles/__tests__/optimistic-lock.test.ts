@@ -1,9 +1,11 @@
 /** @jest-environment node */
 
 import { OPTIMISTIC_LOCK_HEADER_NAME } from '@open-mercato/shared/lib/crud/optimistic-lock-headers'
-import { PUT, DELETE } from '../[id]'
+import { GET, PUT, DELETE } from '../[id]'
 
 const TENANT_ID = '123e4567-e89b-12d3-a456-426614174001'
+const ORGANIZATION_ID = '123e4567-e89b-12d3-a456-426614174002'
+const FOREIGN_ORGANIZATION_ID = '123e4567-e89b-12d3-a456-426614174003'
 const ROLE_ID = '123e4567-e89b-12d3-a456-426614174080'
 const CURRENT_VERSION = '2026-06-01T10:00:00.000Z'
 const STALE_VERSION = '2026-06-01T09:00:00.000Z'
@@ -54,7 +56,7 @@ describe('customer_accounts admin role optimistic locking', () => {
   beforeEach(() => {
     jest.clearAllMocks()
     delete process.env.OM_OPTIMISTIC_LOCK
-    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: 'org-1' })
+    mockGetAuthFromRequest.mockResolvedValue({ sub: 'user-1', tenantId: TENANT_ID, orgId: ORGANIZATION_ID })
     mockEm.findOne.mockResolvedValue({
       id: ROLE_ID,
       name: 'Reviewer',
@@ -93,6 +95,41 @@ describe('customer_accounts admin role optimistic locking', () => {
     expect(res.status).toBe(409)
     const body = await res.json()
     expect(body.code).toBe('optimistic_lock_conflict')
+    expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['GET', () => GET(request('GET', null), params)],
+    ['PUT', () => PUT(request('PUT', null, { name: 'Renamed' }), params)],
+    ['DELETE', () => DELETE(request('DELETE', null), params)],
+  ])('%s returns 404 for a role owned by another organization in the same tenant', async (_method, invoke) => {
+    const foreignRole = {
+      id: ROLE_ID,
+      tenantId: TENANT_ID,
+      organizationId: FOREIGN_ORGANIZATION_ID,
+      name: 'Foreign Reviewer',
+      slug: 'foreign-reviewer',
+      isDefault: false,
+      isSystem: false,
+      updatedAt: new Date(CURRENT_VERSION),
+    }
+    mockEm.findOne.mockImplementation(async (_entity: unknown, where: Record<string, unknown>) => (
+      where.organizationId === ORGANIZATION_ID ? null : foreignRole
+    ))
+
+    const res = await invoke()
+
+    expect(res.status).toBe(404)
+    expect(mockEm.findOne).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        id: ROLE_ID,
+        tenantId: TENANT_ID,
+        organizationId: ORGANIZATION_ID,
+        deletedAt: null,
+      }),
+    )
+    expect(mockEm.count).not.toHaveBeenCalled()
     expect(mockEm.nativeUpdate).not.toHaveBeenCalled()
   })
 })

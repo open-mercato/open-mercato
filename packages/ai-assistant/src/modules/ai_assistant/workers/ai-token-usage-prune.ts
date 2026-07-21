@@ -1,5 +1,8 @@
+import { createLogger } from '@open-mercato/shared/lib/logger'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { JobContext, QueuedJob, WorkerMeta } from '@open-mercato/queue'
+
+const logger = createLogger('ai_assistant')
 
 /** Default retention window for the ai_token_usage_events table (days). */
 const DEFAULT_RETENTION_DAYS = 90
@@ -152,25 +155,17 @@ export async function runTokenUsagePrune(
   try {
     eventsDeleted = await pruneOldEvents(connection, cutoff, batchSize)
   } catch (error) {
-    console.error(
-      '[ai-token-usage-prune] Failed to prune old events:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.error('Failed to prune old events', { err: error })
   }
 
   let dailyRowsReconciled = 0
   try {
     dailyRowsReconciled = await reconcileSessionCounts(connection, now, RECONCILE_TRAILING_DAYS)
   } catch (error) {
-    console.error(
-      '[ai-token-usage-prune] Failed to reconcile session counts:',
-      error instanceof Error ? error.message : error,
-    )
+    logger.error('Failed to reconcile session counts', { err: error })
   }
 
-  console.info(
-    `[ai-token-usage-prune] Done. eventsDeleted=${eventsDeleted}, dailyRowsReconciled=${dailyRowsReconciled}, retentionDays=${retentionDays}.`,
-  )
+  logger.info('Token-usage prune done', { eventsDeleted, dailyRowsReconciled, retentionDays })
 
   return { eventsDeleted, dailyRowsReconciled }
 }

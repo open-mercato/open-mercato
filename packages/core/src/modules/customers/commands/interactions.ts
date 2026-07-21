@@ -38,12 +38,20 @@ import {
   loadCustomFieldSnapshot,
   buildCustomFieldResetMap,
 } from '@open-mercato/shared/lib/commands/customFieldSnapshots'
-import { CrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import { enforceRecordGoneIsConflict, enforceCommandOptimisticLockWithGuards } from '@open-mercato/shared/lib/crud/optimistic-lock-command'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { CrudIndexerConfig, CrudEventsConfig } from '@open-mercato/shared/lib/crud/types'
 import { recomputeNextInteraction } from '../lib/interactionProjection'
+import {
+  INTERACTION_STATUS_CANCELED,
+  INTERACTION_STATUS_COMPLETED,
+  INTERACTION_STATUS_PLANNED,
+} from '../lib/interactionStatus'
 import { canChangeEmailVisibility } from '../lib/visibilityFilter'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('customers')
 
 const INTERACTION_ENTITY_ID = 'customers:customer_interaction'
 const interactionCrudIndexer: CrudIndexerConfig<CustomerInteraction> = {
@@ -196,14 +204,14 @@ async function emitLifecycleEvent(
   try {
     bus = ctx.container.resolve('eventBus')
   } catch (err) {
-    console.warn('[customers.commands.interactions] eventBus resolve failed; skipping emit', eventId, err)
+    logger.warn('eventBus resolve failed; skipping emit', { component: 'commands.interactions', eventId, err })
     bus = null
   }
   if (!bus) return
   await bus
     .emitEvent(eventId, payload, { persistent: true })
     .catch((err) => {
-      console.warn('[customers.commands.interactions] emit failed', eventId, err)
+      logger.warn('Event emit failed', { component: 'commands.interactions', eventId, err })
       return undefined
     })
 }
@@ -390,7 +398,7 @@ const createInteractionCommand: CommandHandler<InteractionCreateInput, { interac
         interactionType: parsed.interactionType,
         title: parsed.title ?? null,
         body: parsed.body ?? null,
-        status: parsed.status ?? 'planned',
+        status: parsed.status ?? INTERACTION_STATUS_PLANNED,
         scheduledAt: parsed.scheduledAt ?? null,
         occurredAt: parsed.occurredAt ?? null,
         priority: parsed.priority ?? null,
@@ -634,7 +642,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
-        throw new CrudHttpError(404, { error: 'Interaction not found' })
+        throw notFound('Interaction not found')
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -676,7 +684,7 @@ const updateInteractionCommand: CommandHandler<InteractionUpdateInput, { interac
             userFeatures: undefined,
           })
         ) {
-          throw new CrudHttpError(404, { error: 'Email not found' })
+          throw notFound('Email not found')
         }
       }
 
@@ -907,7 +915,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
-        throw new CrudHttpError(404, { error: 'Interaction not found' })
+        throw notFound('Interaction not found')
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -919,7 +927,7 @@ const completeInteractionCommand: CommandHandler<InteractionCompleteInput, { int
         request: ctx.request ?? null,
       })
 
-      interaction.status = 'done'
+      interaction.status = INTERACTION_STATUS_COMPLETED
       interaction.occurredAt = parsed.occurredAt ?? new Date()
       await trx.flush()
 
@@ -1047,7 +1055,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
       const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id: parsed.id, deletedAt: null })
       if (!interaction) {
         enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: parsed.id, request: ctx.request ?? null })
-        throw new CrudHttpError(404, { error: 'Interaction not found' })
+        throw notFound('Interaction not found')
       }
       ensureTenantScope(ctx, interaction.tenantId)
       ensureOrganizationScope(ctx, interaction.organizationId)
@@ -1059,7 +1067,7 @@ const cancelInteractionCommand: CommandHandler<InteractionCancelInput, { interac
         request: ctx.request ?? null,
       })
 
-      interaction.status = 'canceled'
+      interaction.status = INTERACTION_STATUS_CANCELED
       await trx.flush()
 
       const entityId = typeof interaction.entity === 'string' ? interaction.entity : interaction.entity.id
@@ -1185,7 +1193,7 @@ const deleteInteractionCommand: CommandHandler<{ body?: Record<string, unknown>;
         const interaction = await findOneWithDecryption(trx, CustomerInteraction, { id, deletedAt: null })
         if (!interaction) {
           enforceRecordGoneIsConflict({ resourceKind: 'customers.interaction', resourceId: id, request: ctx.request ?? null })
-          throw new CrudHttpError(404, { error: 'Interaction not found' })
+          throw notFound('Interaction not found')
         }
         ensureTenantScope(ctx, interaction.tenantId)
         ensureOrganizationScope(ctx, interaction.organizationId)

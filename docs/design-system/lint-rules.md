@@ -1,10 +1,12 @@
 # L. Structural Lint Rules
 
-> ESLint v9 flat config plugin `eslint-plugin-open-mercato-ds` — 6 rules, configuration, CI integration.
+> ESLint v9 flat config plugin — 6 rules, configuration, CI integration.
 
 ---
 
-Six ESLint rules for enforcing the design system. The project uses ESLint v9 flat config (`eslint.config.mjs`). Rules are implemented as a custom plugin `eslint-plugin-open-mercato-ds`.
+> **STATUS: IMPLEMENTED (2026-07-05).** The plugin ships as the workspace `@open-mercato/eslint-plugin-ds` (`packages/eslint-plugin-ds/`), wired via the dedicated `eslint.ds.config.mjs` and run with `yarn lint:ds`. It is separate from `yarn lint` because `turbo run lint` only lints `apps/mercato` — the DS rules target `packages/{core,enterprise}/src/modules/**/backend/**` and `packages/ui/src/backend/**`. All rules currently run at `warn` (rollout baseline 2026-07-05: 231 findings). Rule tests: `yarn workspace @open-mercato/eslint-plugin-ds test`. The pseudo-implementations below are the original design sketches; the shipped code hardens them (page-file scoping, `emptyState` prop detection, variant-prefix handling in color checks).
+
+Six ESLint rules for enforcing the design system. The project uses ESLint v9 flat config. Rules are implemented as the custom plugin `@open-mercato/eslint-plugin-ds`.
 
 ### L.0 Deployment Strategy
 

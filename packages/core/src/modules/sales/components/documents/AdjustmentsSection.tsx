@@ -26,6 +26,9 @@ import { AdjustmentDialog, type AdjustmentRowData, type AdjustmentSubmitPayload 
 import { useT } from '@open-mercato/shared/lib/i18n/context'
 import { useOrganizationScopeDetail } from '@open-mercato/shared/lib/frontend/useOrganizationScope'
 import { extractCustomFieldValues } from './customFieldHelpers'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type AdjustmentRow = AdjustmentRowData
 
@@ -153,7 +156,7 @@ export function SalesDocumentAdjustmentsSection({
       kindLoadingRef.current = false
       return options
     } catch (err) {
-      console.error('sales.adjustment-kinds.fetch', err)
+      logger.error('sales.adjustment-kinds.fetch', { err })
       kindLoadingRef.current = false
       setKindOptions(fallbackKindOptions)
       return fallbackKindOptions
@@ -240,7 +243,7 @@ export function SalesDocumentAdjustmentsSection({
       setRows(ordered)
       if (onRowsChange) onRowsChange(ordered)
     } catch (err) {
-      console.error('sales.document.adjustments.load', err)
+      logger.error('sales.document.adjustments.load', { err })
       setError(t('sales.documents.adjustments.errorLoad', 'Failed to load adjustments.'))
     } finally {
       setLoading(false)
@@ -389,7 +392,7 @@ export function SalesDocumentAdjustmentsSection({
         }
       } catch (err) {
         if (handleSectionMutationError(err, t, () => void loadAdjustments())) return
-        console.error('sales.document.adjustments.delete', err)
+        logger.error('sales.document.adjustments.delete', { err })
         flash(t('sales.documents.adjustments.errorDelete', 'Failed to delete adjustment.'), 'error')
       }
     },

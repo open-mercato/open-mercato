@@ -2,6 +2,9 @@ import type { AwilixContainer } from 'awilix'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import type { CommandBus } from '@open-mercato/shared/lib/commands'
 import { getRecipientUserIdsForFeature } from '../../notifications/lib/notificationRecipients'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('inbox_ops').child({ component: 'messages' })
 
 interface ResolverLike {
   resolve: <T = unknown>(name: string) => T
@@ -157,10 +160,7 @@ export async function createMessageRecordForEmail(
     const messageId = (result as { id: string })?.id ?? null
     return messageId
   } catch (err) {
-    console.error(
-      '[inbox_ops:messages] Failed to create message record for email:',
-      err instanceof Error ? err.message : String(err),
-    )
+    logger.error('Failed to create message record for email', { err })
     return null
   }
 }
@@ -223,10 +223,7 @@ export async function createMessageRecordForReply(
     if (!messageId) return null
     return { messageId }
   } catch (err) {
-    console.error(
-      '[inbox_ops:messages] Failed to create reply message record:',
-      err instanceof Error ? err.message : String(err),
-    )
+    logger.error('Failed to create reply message record', { err })
     return null
   }
 }

@@ -8,7 +8,9 @@
 
 import type { EntityManager } from '@mikro-orm/core'
 import type { AwilixContainer } from 'awilix'
-import { parseBooleanWithDefault } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('workflows').child({ component: 'event-trigger' })
 
 export const metadata = {
   event: '*', // Subscribe to ALL events
@@ -24,12 +26,6 @@ const EXCLUDED_EVENT_PREFIXES = [
   'cache.', // Cache events
   'queue.', // Queue events
 ]
-
-const WORKFLOW_TRIGGER_DEBUG_ENV = 'OM_WORKFLOW_TRIGGER_DEBUG'
-
-function isWorkflowTriggerDebugEnabled(): boolean {
-  return parseBooleanWithDefault(process.env[WORKFLOW_TRIGGER_DEBUG_ENV], false)
-}
 
 /**
  * Check if an event should be excluded from trigger processing.
@@ -49,7 +45,7 @@ export default async function handle(
 ): Promise<void> {
   const eventName = ctx.eventName
   if (!eventName) {
-    console.warn('[workflow-trigger] Skipping trigger evaluation because subscriber context is missing eventName')
+    logger.warn('Skipping trigger evaluation because subscriber context is missing eventName')
     return
   }
 
@@ -90,7 +86,7 @@ export default async function handle(
     } as unknown as AwilixContainer
   } catch (error) {
     // DI not available - skip
-    console.warn(`[workflow-trigger] Cannot resolve dependencies for event "${eventName}":`, error)
+    logger.warn('Cannot resolve dependencies for event', { event: eventName, err: error })
     return
   }
 
@@ -105,29 +101,31 @@ export default async function handle(
       organizationId,
     })
 
-    if (isWorkflowTriggerDebugEnabled()) {
-      const matched = result.triggered + result.skipped + result.errors.length
-      console.log(
-        `[workflow-trigger] Evaluated triggers for "${eventName}": ` +
-        `tenant=${tenantId} organization=${organizationId} matched=${matched} ` +
-        `triggered=${result.triggered} skipped=${result.skipped} errors=${result.errors.length}`
-      )
-    }
+    logger.debug('Evaluated triggers', {
+      event: eventName,
+      tenantId,
+      organizationId,
+      matched: result.triggered + result.skipped + result.errors.length,
+      triggered: result.triggered,
+      skipped: result.skipped,
+      errors: result.errors.length,
+    })
 
     if (result.triggered > 0) {
-      console.log(
-        `[workflow-trigger] Triggered ${result.triggered} workflow(s) for "${eventName}"` +
-        (result.skipped > 0 ? ` (${result.skipped} skipped)` : '') +
-        (result.errors.length > 0 ? ` (${result.errors.length} errors)` : '')
-      )
+      logger.info('Triggered workflows for event', {
+        event: eventName,
+        triggered: result.triggered,
+        skipped: result.skipped,
+        errors: result.errors.length,
+      })
     }
 
     if (result.errors.length > 0) {
       for (const err of result.errors) {
-        console.error(`[workflow-trigger] Trigger ${err.triggerId} failed:`, err.error)
+        logger.error('Trigger failed', { triggerId: err.triggerId, err: err.error })
       }
     }
   } catch (error) {
-    console.error(`[workflow-trigger] Error processing triggers for "${eventName}":`, error)
+    logger.error('Error processing triggers for event', { event: eventName, err: error })
   }
 }

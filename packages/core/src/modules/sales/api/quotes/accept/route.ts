@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CommandBus, CommandRuntimeContext } from '@open-mercato/shared/lib/commands'
 import { resolveTranslations } from '@open-mercato/shared/lib/i18n/server'
-import { CrudHttpError, isCrudHttpError } from '@open-mercato/shared/lib/crud/errors'
+import { CrudHttpError, isCrudHttpError, notFound } from '@open-mercato/shared/lib/crud/errors'
 import type { OpenApiRouteDoc } from '@open-mercato/shared/lib/openapi'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { LockMode } from '@mikro-orm/core'
@@ -19,6 +19,9 @@ import { quoteAcceptSchema } from '../../../data/validators'
 import { sendEmail } from '@open-mercato/shared/lib/email/send'
 import { resolveStatusEntryIdByValue } from '../../../lib/statusHelpers'
 import { QuoteAcceptedAdminEmail } from '../../../emails/QuoteAcceptedAdminEmail'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('sales')
 
 type ConvertToOrderResult = {
   result?: { orderId?: string } | null
@@ -88,9 +91,9 @@ export async function POST(req: Request) {
           { lockMode: LockMode.PESSIMISTIC_WRITE },
           tenantScope,
         )
-      const quote = (await findQuoteByToken(hashedToken)) ?? (await findQuoteByToken(token))
+      const quote = await findQuoteByToken(hashedToken)
       if (!quote) {
-        throw new CrudHttpError(404, { error: translate('sales.quotes.accept.notFound', 'Quote not found.') })
+        throw notFound(translate('sales.quotes.accept.notFound', 'Quote not found.'))
       }
 
       const now = new Date()
@@ -160,7 +163,7 @@ export async function POST(req: Request) {
           react: QuoteAcceptedAdminEmail({ orderUrl, copy }),
         })
       } catch (err) {
-        console.error('sales.quotes.accept.adminEmail failed', err)
+        logger.error('sales.quotes.accept.adminEmail failed', { err })
       }
     }
 
@@ -170,7 +173,7 @@ export async function POST(req: Request) {
       return NextResponse.json(err.body, { status: err.status })
     }
     const { translate } = await resolveTranslations()
-    console.error('sales.quotes.accept failed', err)
+    logger.error('sales.quotes.accept failed', { err })
     return NextResponse.json({ error: translate('sales.quotes.accept.failed', 'Failed to accept quote.') }, { status: 400 })
   }
 }
