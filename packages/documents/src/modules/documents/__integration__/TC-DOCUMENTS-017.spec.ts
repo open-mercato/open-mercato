@@ -28,7 +28,7 @@ export const integrationMeta = {
 }
 
 type CreatedDocument = { id: string; updatedAt: string }
-type TestUser = { id: string; roleId: string; email: string; token: string }
+type TestUser = { id: string; roleId: string; email: string; name: string; token: string }
 const BASE_URL = process.env.BASE_URL?.trim() || 'http://localhost:3000'
 const PASSWORD = 'DocsRecovery1!Pass'
 const COLLAB_INTEGRATION_ENABLED = process.env.OM_DOCUMENTS_COLLAB_INTEGRATION === '1'
@@ -124,14 +124,15 @@ async function createCollaborator(
     organizations: null,
   })
   const email = `tc-documents-017-${stamp}@example.com`
+  const name = `Documents collaborator ${stamp}`
   const id = await createUserFixture(request, adminToken, {
     email,
     password: PASSWORD,
     organizationId: scope.organizationId,
     roles: [roleId],
-    name: `Documents collaborator ${stamp}`,
+    name,
   })
-  return { id, roleId, email, token: await getAuthToken(request, email, PASSWORD) }
+  return { id, roleId, email, name, token: await getAuthToken(request, email, PASSWORD) }
 }
 
 async function authenticateContext(context: BrowserContext, user: TestUser): Promise<void> {
@@ -448,9 +449,11 @@ test.describe('TC-DOCUMENTS-017: realtime rollover, pages, PDF, and record snaps
       await expect(editor).toContainText(fromSecond)
       const remoteCaret = page.locator('.collaboration-carets__caret').first()
       await expect(remoteCaret).toBeVisible()
-      expect(await remoteCaret.getAttribute('aria-label')).not.toMatch(/[0-9a-f]{8}-[0-9a-f-]{27,}/i)
+      await expect(remoteCaret).toHaveAttribute('aria-label', collaborator.name)
       await remoteCaret.hover()
-      await expect(remoteCaret.locator('.collaboration-carets__label')).toHaveCSS('opacity', '1')
+      const remoteCaretLabel = remoteCaret.locator('.collaboration-carets__label')
+      await expect(remoteCaretLabel).toHaveText(collaborator.name)
+      await expect(remoteCaretLabel).toHaveCSS('opacity', '1')
 
       const fromFirst = ` first-${stamp}`
       await appendEditorText(page, fromFirst)

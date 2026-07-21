@@ -6,6 +6,7 @@ import {
 } from '../lib/collaborationAwareness'
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
+const ENCRYPTED_NAME = 'YWJjZGVmZ2hpamts:ZG9jdW1lbnRzLXVzZXI=:bW9jay1hdXRoLXRhZw==:v1'
 
 describe('collaboration awareness boundary', () => {
   it('accepts only canonical six-digit hex colors', () => {
@@ -23,6 +24,7 @@ describe('collaboration awareness boundary', () => {
     expect(sanitizeCollaborationAwarenessName(`User ${USER_ID}`)).toBe('')
     expect(sanitizeCollaborationAwarenessName('Admin\u202ereyalp')).toBe('')
     expect(sanitizeCollaborationAwarenessName('Admin\nUser')).toBe('')
+    expect(sanitizeCollaborationAwarenessName(ENCRYPTED_NAME)).toBe('')
     expect(sanitizeCollaborationAwarenessName('a'.repeat(121))).toBe('')
   })
 

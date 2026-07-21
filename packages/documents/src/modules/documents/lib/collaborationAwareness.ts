@@ -7,6 +7,11 @@ const UNSAFE_AWARENESS_NAME_PATTERN =
   /[\u0000-\u001f\u007f-\u009f\u061c\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]/u
 const MAX_AWARENESS_NAME_LENGTH = 120
 
+function isEncryptedAwarenessName(value: string): boolean {
+  const parts = value.split(':')
+  return parts.length === 4 && parts[3] === 'v1'
+}
+
 function hashString(value: string): number {
   let hash = 2166136261
   for (let index = 0; index < value.length; index += 1) {
@@ -55,8 +60,8 @@ export function resolveCollaborationUserColor(userId: string): string {
 /**
  * Presence names come from an authenticated profile, but still cross the Yjs
  * awareness boundary. Reject control, directionality, zero-width and UUID
- * content so a collaborator cannot visually impersonate another identity or
- * leak an internal identifier through a caret label.
+ * content and encryption envelopes so a collaborator cannot visually
+ * impersonate another identity or leak internal data through a caret label.
  */
 export function sanitizeCollaborationAwarenessName(value: unknown): string {
   const label = sanitizeDocumentsDisplayLabel(value)
@@ -64,6 +69,7 @@ export function sanitizeCollaborationAwarenessName(value: unknown): string {
     !label
     || label.length > MAX_AWARENESS_NAME_LENGTH
     || UNSAFE_AWARENESS_NAME_PATTERN.test(label)
+    || isEncryptedAwarenessName(label)
   ) {
     return ''
   }
