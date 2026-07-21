@@ -23,6 +23,10 @@ Compose files for every containerized way to run Open Mercato, plus the hardened
 
 Optional profiles on `compose.infra.yml`: `--profile storage-s3` (localstack), `--profile registry` (verdaccio for standalone-app/package workflows).
 
+## Root duplicates (temporary backwards compatibility)
+
+Deployments that predate this directory invoke the compose files by their old repo-root names (`docker-compose.yml`, `docker-compose.fullapp*.yml`, `docker-compose.preview.yaml`). Those names exist again at the repo root as byte-identical duplicates of the files here (plus a header pointing back). The files in this directory stay canonical — edit them, then copy the change into the root duplicate; `scripts/__tests__/root-compose-backcompat.test.mjs` fails CI on any drift. The duplicates (and the test) go away once existing deployments migrate to the `starters/docker/` paths.
+
 ## Windows launcher (`windows/`)
 
 One-command fully containerized stack for clean or locked-down Windows machines — installs Git/WSL2/a container runtime, handles reboots, corporate proxies and TLS interception, generates `.env` secrets, and waits for health:
