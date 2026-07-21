@@ -2,13 +2,13 @@
 
 ## TLDR
 
-Persist every compatible successful workflow activity result under the definition-stable path `context.activities[activityId]`. The new namespace covers synchronous transition activities, synchronous step activities, and completed asynchronous activities while preserving every existing result alias and all unrelated context values. A legacy alias named exactly `activities` is the sole compatibility exception and suppresses the stable write for that activity.
+Persist every compatible successful workflow activity result under the definition-stable path `context.activities[activityId]`. The new namespace covers synchronous transition activities, synchronous step activities, and completed asynchronous activities while preserving every existing result alias and all unrelated context values. Transition and asynchronous activities keep their legacy context aliases unchanged; step activity outputs are today persisted only in `stepInstance.outputData.activityResults` and are not addressable from workflow context at all, so for step activities the stable path is their first context-persisted output — a scoped, intended behavior addition. A legacy alias named exactly `activities` is the sole compatibility exception and suppresses the stable write for that activity.
 
 This is an additive workflow-context contract. It adds no route, UI, entity, migration, event, command, dependency, or module coupling.
 
 ## Overview
 
-Workflow definitions need a stable way to address an earlier activity result. Activity IDs are already definition-owned identifiers, but result placement currently depends on the activity name, activity type, or asynchronous completion convention.
+Workflow definitions need a stable way to address an earlier activity result. Activity IDs are already definition-owned identifiers, but result placement currently depends on the activity name, activity type, or asynchronous completion convention — and step activity outputs are not placed in workflow context at all.
 
 The proposed namespace makes the activity ID the canonical lookup key without removing the legacy paths. A later transition condition, activity input mapping, or signal-correlation feature can read `activities.<activityId>` regardless of how the activity executed.
 
@@ -16,18 +16,19 @@ The design follows the state-placement principle represented by [AWS Step Functi
 
 ## Problem Statement
 
-Successful workflow activity results are currently addressable through legacy conventions:
+Successful workflow activity results are currently addressable — or not addressable — depending on how the activity executed:
 
-- synchronous results use `activityName || activityType`;
-- asynchronous results use `${activityId}_result`.
+- synchronous transition activity results are written to workflow context under `activityName || activityType` (`transition-handler.ts`);
+- asynchronous results are written to workflow context under `${activityId}_result` when the durable completion is applied (`workflow-executor.ts` for the root, `parallel-handler.ts` for branches);
+- synchronous step activity results are persisted only in `stepInstance.outputData.activityResults` (keyed by activity ID) and are **not** written to workflow context at all.
 
-Those conventions are valid runtime behavior and must remain available, but they are not a durable definition contract. Names can be edited, types are not unique, and synchronous versus asynchronous execution changes the lookup convention. A definition that needs the ID returned by an earlier `CALL_API` activity therefore has no single stable path.
+The context conventions are valid runtime behavior and must remain available, but they are not a durable definition contract. Names can be edited, types are not unique, synchronous versus asynchronous execution changes the lookup convention, and step activity outputs have no context path whatsoever. A definition that needs the ID returned by an earlier `CALL_API` activity therefore has no single stable path.
 
 ## Goals
 
 - Write every compatible successful activity output to `context.activities[activityId]`.
 - Cover synchronous transition, synchronous step, and completed asynchronous activity paths.
-- Preserve existing synchronous and asynchronous aliases unchanged.
+- Preserve existing transition and asynchronous aliases unchanged; the step path has no legacy context alias to preserve.
 - Merge with existing `context.activities` entries instead of replacing the object.
 - Make retries and branch execution deterministic.
 - Keep behavior unchanged for definitions that do not read the new namespace.
@@ -57,7 +58,9 @@ After an activity completes successfully, merge its output into the effective wo
 context.activities[activityId] = output
 ```
 
-The write occurs at the same point where each execution path currently writes its legacy alias. It must not make a failed or still-pending activity visible as completed.
+For transition and asynchronous activities the write occurs at the same point where each path currently writes its legacy context alias. For step activities — which today write no context alias — the write occurs where the step handler already collects successful outputs into `stepInstance.outputData.activityResults`, applied to the effective context through the same token write helpers the transition path uses. It must not make a failed or still-pending activity visible as completed.
+
+An output is **compatible** when the activity reports success and its output is not `undefined`. The stable path stores the raw output value — object, array, scalar, or `null` — identically across all paths. Legacy aliases keep their existing per-path quirks unchanged: the shared executor's intra-batch write applies only to object outputs, the transition commit writes any truthy output, and the asynchronous resumes write any truthy output.
 
 ### Merge rules
 
@@ -65,7 +68,7 @@ The write occurs at the same point where each execution path currently writes it
 2. If it is an object, preserve its entries and set the current activity ID.
 3. Re-execution of the same activity ID replaces that ID's previous output deterministically.
 4. Preserve every unrelated top-level context key.
-5. Continue writing the current legacy alias in the same batch.
+5. Continue writing the current legacy alias in the same batch on the paths where one exists today (transition and asynchronous); the step path adds no legacy context alias.
 6. If the current legacy alias is literally `activities`, preserve its value exactly and omit the nested activity-ID write for that activity, regardless of the output's shape.
 
 The last rule is a narrow compatibility exception for an existing naming collision. It is distinct from an unrelated pre-existing object at `context.activities`, which is merged normally. Definitions should avoid naming an activity `activities` when they need the stable namespace.
@@ -75,10 +78,12 @@ The last rule is a narrow compatibility exception for an existing naming collisi
 The same merge contract applies to:
 
 - transition activities completed synchronously;
-- step activities completed synchronously;
+- step activities completed synchronously (the first context-persisted output for this path);
 - asynchronous activities when their durable completion result is applied.
 
-Each path uses the effective root or branch context already selected by the executor. The feature does not introduce cross-branch reads, shared mutable context, or a new merge strategy.
+Concretely, the existing result-application sites are the transition synchronous commit and the transition async-pause commit in `transition-handler.ts` (both funnel through `applyTokenContextWrites`), the root asynchronous resume in `workflow-executor.ts`, and the branch asynchronous resume in `parallel-handler.ts`; the step path adds one new write where `step-handler.ts` already collects successful `outputData.activityResults`. Each path uses the effective root or branch context already selected by the executor. The feature does not introduce cross-branch reads, shared mutable context, or a new merge strategy.
+
+Within a single synchronous batch, the stable path mirrors the legacy name-keyed intra-batch behavior: once an activity in the batch succeeds, a later activity in the same batch can interpolate `{{context.activities.<earlierActivityId>}}` exactly as it can already interpolate the legacy name-keyed output.
 
 ## Architecture
 
@@ -96,7 +101,7 @@ The change belongs entirely to the workflows module's existing activity-result a
 
 No entity or schema change is required. `WorkflowInstance.context` and branch context already persist JSON-compatible activity outputs.
 
-The namespace duplicates references within the same persisted JSON document: the legacy alias and stable activity-ID alias may both contain the output. This preserves compatibility at the cost of bounded per-activity context growth.
+On the transition and asynchronous paths the namespace duplicates references within the same persisted JSON document: the legacy alias and stable activity-ID alias may both contain the output. This preserves compatibility at the cost of bounded per-activity context growth. The step path writes only the stable alias, so it adds no duplication.
 
 ## API Contracts
 
@@ -120,7 +125,8 @@ No UI changes. The workflow editor already owns activity IDs, and this specifica
 
 - No database migration or backfill.
 - Existing workflow definitions require no update.
-- Existing synchronous and asynchronous aliases remain exact.
+- Existing transition and asynchronous aliases remain exact.
+- Step activities gain their first context-persisted output under `activities[activityId]`. This is a scoped, intended behavior addition: no legacy step context alias exists to preserve, and `stepInstance.outputData.activityResults` remains unchanged. Definitions that do not read the new namespace observe no behavioral difference.
 - Existing context values are preserved, including a non-object legacy `activities` alias.
 - Existing retries, branch merges, execution ordering, and failure semantics remain unchanged.
 - The new path is additive and available only for activity results completed after deployment; historical context is not rewritten.
@@ -131,15 +137,16 @@ No UI changes. The workflow editor already owns activity IDs, and this specifica
 
 1. Add failing tests for synchronous transition, synchronous step, and asynchronous completion outputs.
 2. Cover existing-object merge, absent-object creation, same-ID replacement, and unrelated context preservation.
-3. Lock compatibility behavior for both synchronous and asynchronous legacy aliases.
+3. Lock compatibility behavior for the transition and asynchronous legacy aliases, and lock the absence of any step-path legacy context alias.
 4. Cover object and non-object collisions on the top-level `activities` key.
+5. Cover object, scalar, `null`, and `undefined` outputs plus intra-batch stable-path interpolation.
 
 This phase is test-only and precisely defines the compatibility boundary.
 
 ### Phase 2 — Result application
 
-1. Extend the existing activity-result merge path, reusing one internal helper only where it reduces duplication across current call sites.
-2. Apply the stable alias at successful completion for all three execution paths.
+1. Extend the existing activity-result merge paths, reusing one internal helper only where it reduces duplication across current call sites.
+2. Apply the stable alias at every result-application site: the transition synchronous commit and the transition async-pause commit in `transition-handler.ts`, the root asynchronous resume in `workflow-executor.ts`, the branch asynchronous resume in `parallel-handler.ts`, and a new step-path write where `step-handler.ts` collects successful `outputData.activityResults`.
 3. Keep pending, failed, and retry scheduling paths unchanged.
 
 This phase is complete when the focused workflow executor tests pass without changing public contracts.
@@ -155,8 +162,10 @@ This phase is complete when the focused workflow executor tests pass without cha
 ### Module coverage
 
 - Transition activity success writes both the legacy alias and `activities[activityId]`.
-- Step activity success writes both aliases.
-- Async completion writes `${activityId}_result` and `activities[activityId]`.
+- Step activity success writes `activities[activityId]` to the effective context (its first context-persisted output) while `stepInstance.outputData.activityResults` remains unchanged.
+- Async completion writes `${activityId}_result` and `activities[activityId]` in both the root and branch resume paths.
+- Scalar and `null` outputs of successful activities reach the stable path on every path; `undefined` outputs are skipped.
+- A later activity in the same synchronous batch can interpolate `{{context.activities.<earlierActivityId>}}`.
 - Existing `activities` object entries survive subsequent activity completions.
 - A retry or re-execution replaces only the same activity ID.
 - Root and branch effective contexts receive the result through their existing paths.
@@ -175,7 +184,7 @@ N/A. There is no UI change. Existing workflow execution inspection may be used f
 
 ### Context growth
 
-- **Scenario**: Large activity outputs are persisted twice under legacy and stable aliases.
+- **Scenario**: Large activity outputs are persisted twice under legacy and stable aliases on the paths where a legacy alias exists.
 - **Severity**: Medium
 - **Affected area**: Workflow context storage and serialization.
 - **Mitigation**: Preserve only one additional deterministic reference per successful activity; do not add history or copies outside the existing context document.
@@ -189,12 +198,20 @@ N/A. There is no UI change. Existing workflow execution inspection may be used f
 - **Mitigation**: Preserve the legacy value and omit the nested write rather than coercing or overwriting it.
 - **Residual risk**: The stable alias is unavailable until the definition changes the conflicting activity name.
 
+### Duplicate activity IDs
+
+- **Scenario**: Definition validation does not enforce activity-ID uniqueness across a definition (only parallel branch keys are checked today), so two different activities sharing an ID overwrite each other's stable output.
+- **Severity**: Low
+- **Affected area**: The stable path for the colliding IDs; the pre-existing `${activityId}_result` alias has the same exposure.
+- **Mitigation**: Deterministic last-write-wins semantics are documented; a validator warning on duplicate activity IDs is listed as a deferred follow-up.
+- **Residual risk**: Definitions with duplicate IDs read the most recently completed output until validation is added.
+
 ### Divergent execution paths
 
 - **Scenario**: One synchronous or asynchronous completion path omits the new alias.
 - **Severity**: Medium
 - **Affected area**: Definition portability across activity execution modes.
-- **Mitigation**: Shared contract tests cover all three current result-application paths.
+- **Mitigation**: Shared contract tests cover every enumerated result-application site, including both asynchronous resume paths and the new step-path write.
 - **Residual risk**: A future result path must add the same contract; a focused helper or test fixture should make omissions visible.
 
 ## Alternatives Considered
@@ -211,6 +228,10 @@ Deferred because it adds validation, collision, editor, and compatibility comple
 
 Rejected because it would break existing definitions and consumers.
 
+### Reserved key `__activities`
+
+A double-underscore reserved key (matching the existing `__result` and `_pendingAsyncActivities` context keys) would eliminate the `activities` naming-collision exception entirely, along with its merge rule and tests. Rejected in favor of the user-facing `activities` key: workflow authors interpolate the path directly (`{{context.activities.<id>}}`), and a reserved-looking prefix signals internal runtime state rather than a supported definition contract. The cost is the narrow, documented collision exception.
+
 ## Success Criteria
 
 - All compatible successful activity execution modes expose the same `activities.<activityId>` path; the documented legacy alias collision is the only exception.
@@ -224,8 +245,9 @@ Rejected because it would break existing definitions and consumers.
 - Optional editor assistance for selecting stable context paths.
 - Any future deprecation strategy for legacy activity aliases.
 - General configurable result placement or expression syntax.
+- Definition-validation warning for duplicate activity IDs within one definition.
 
-## Final Compliance Report — 2026-07-20
+## Final Compliance Report — 2026-07-20 (amended 2026-07-21)
 
 ### AGENTS.md Files Reviewed
 
@@ -239,13 +261,13 @@ Rejected because it would break existing definitions and consumers.
 
 | Rule Source | Rule | Status | Notes |
 | --- | --- | --- | --- |
-| Root and core guides | Preserve public contracts and existing behavior | Compliant | Stable addressing is additive and every legacy alias remains |
+| Root and core guides | Preserve public contracts and existing behavior | Compliant | Stable addressing is additive; every existing legacy alias remains, and the step path's first context write is an explicit, scoped behavior addition |
 | Root and workflows guides | Keep changes minimal and within module ownership | Compliant | Only existing workflow result-application paths change |
 | Core guide | Do not edit generated files by hand | Compliant | No generated file or registry is involved |
 | Core guide | Entities require migrations and snapshots | N/A | No entity or schema change |
 | Core guide | New routes require OpenAPI and guards | N/A | No route is added or changed |
 | Workflows guide | Preserve root and branch state machines | Compliant | Existing effective-context selection and branch merge behavior remain |
-| Backward compatibility | Do not remove or rename contract surfaces | Compliant | Both synchronous and asynchronous aliases remain exact, including the explicit `activities` collision exception |
+| Backward compatibility | Do not remove or rename contract surfaces | Compliant | Transition and asynchronous aliases remain exact; the step path has no legacy context alias to preserve; the explicit `activities` collision exception is documented |
 | Security and tenancy | Do not weaken tenant or organization scope | Compliant | No access path or query changes |
 | UI and i18n | User-facing changes use existing UI and translations | N/A | No UI or text change |
 | Spec guidance | Define integration coverage for affected APIs and UI paths | Compliant | Existing instance API is covered; UI is explicitly N/A |
@@ -275,6 +297,15 @@ None.
 
 - Initial specification for definition-stable workflow activity output addressing.
 - Added compatibility rules, phased delivery, integration coverage, risk review, and final compliance report.
+
+### 2026-07-21 — Amendment after specification review
+
+- Corrected the step-path description: step activity outputs are today persisted only in `stepInstance.outputData.activityResults` and are not addressable from workflow context, so `activities[activityId]` is their first context-persisted output — a scoped, intended behavior addition rather than a write beside an existing alias.
+- Defined output-shape compatibility: the stable path stores the raw output whenever the activity succeeds and its output is not `undefined`; legacy aliases keep their per-path quirks.
+- Enumerated the concrete result-application sites (transition sync commit, transition async-pause commit, root async resume, branch async resume, new step-path write).
+- Documented the duplicate-activity-ID validation gap as a risk and deferred a validator warning.
+- Specified intra-batch visibility of `{{context.activities.<earlierActivityId>}}`, mirroring legacy name-keyed behavior.
+- Added the reserved-key `__activities` alternative with its tradeoff; corrected the compliance report accordingly.
 
 ### Review — 2026-07-20
 
