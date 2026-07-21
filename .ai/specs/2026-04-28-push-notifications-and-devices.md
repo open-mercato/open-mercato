@@ -55,7 +55,7 @@ The `NotificationDeliveryStrategy` seam is correct, but on `develop` the two pre
 
 Generic device registry owning `(tenant, org, user, device)` identity and lifecycle.
 
-Device identity **includes the organization**: a device registered in a different org is a different row. The partial unique index coalesces a null `organization_id` to the nil UUID, because Postgres otherwise treats NULLs as distinct and null-org rows would stop deduping. "Active" means `deleted_at IS NULL`; push delivery additionally requires a non-null `push_token`.
+Device identity **includes the organization**: a device registered in a different org is a different row. The partial unique index is declared `NULLS NOT DISTINCT` (Postgres 15+), because Postgres otherwise treats NULLs as distinct and null-org rows would stop deduping. "Active" means `deleted_at IS NULL`; push delivery additionally requires a non-null `push_token`.
 
 **`push_token` is a hard secret.** It is encrypted at rest (`devices/encryption.ts` → `findWithDecryption`/`findOneWithDecryption` at every read site), never returned by any list/detail response (only `push_provider` and `push_token_updated_at` are exposed), redacted to `'[redacted]'` from the command snapshots the audit log persists (and therefore from the derived `changesJson` exposed via `audit_logs.view_self`), and stripped from the mutation-guard payload so it cannot surface in enterprise record-lock conflict details. The real token survives only in the internal undo payload, which no API exposes, so register/update/deactivate stay undoable.
 
@@ -252,7 +252,7 @@ packages/shared/src/modules/notifications/types.ts   # additive optional fields
 - `client_app_version`, `os_version`, `locale` (text|null)
 - `push_token` (text|null, **encrypted at rest**), `push_provider` (text|null), `push_token_updated_at`
 - `last_seen_at`, `created_at`, `updated_at`, `deleted_at`
-- Unique (non-deleted): `(tenant_id, coalesce(organization_id, nil-uuid), user_id, device_id)`
+- Unique (non-deleted): `(tenant_id, organization_id, user_id, device_id)` with `NULLS NOT DISTINCT`
 - Optimistic-locked on metadata edits; deactivate is exempt (idempotent soft-delete of a registry row has no lost-update risk).
 
 ### NotificationType (`notification_types`)

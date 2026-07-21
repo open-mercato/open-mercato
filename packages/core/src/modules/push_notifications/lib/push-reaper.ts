@@ -21,12 +21,25 @@ import { enqueuePushDelivery } from './queue'
 const DEFAULT_STUCK_MINUTES = 5
 const MIN_STUCK_MINUTES = 1
 
+// Bound the per-tick scan so a stranded backlog (provider/queue outage) cannot load an unbounded row
+// set into memory and re-enqueue it serially in one tick. Oldest-stuck rows are drained first; the
+// remainder is picked up by subsequent ticks. Tunable via OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT (values
+// below MIN_RECLAIM_BATCH_LIMIT, negative, or non-numeric → default). Mirrors the receipt reaper's
+// OM_PUSH_RECEIPT_BATCH_LIMIT.
+const DEFAULT_RECLAIM_BATCH_LIMIT = 500
+const MIN_RECLAIM_BATCH_LIMIT = 1
+
 export type ReclaimStuckResult = { reEnqueued: number; expired: number }
 
 function resolveStuckThresholdMs(): number {
   const raw = Number.parseInt(process.env.OM_PUSH_STUCK_RECLAIM_MINUTES ?? '', 10)
   const minutes = Number.isFinite(raw) && raw >= MIN_STUCK_MINUTES ? raw : DEFAULT_STUCK_MINUTES
   return minutes * 60 * 1000
+}
+
+function resolveReclaimBatchLimit(): number {
+  const raw = Number.parseInt(process.env.OM_PUSH_STUCK_RECLAIM_BATCH_LIMIT ?? '', 10)
+  return Number.isFinite(raw) && raw >= MIN_RECLAIM_BATCH_LIMIT ? raw : DEFAULT_RECLAIM_BATCH_LIMIT
 }
 
 async function emitFailed(delivery: PushNotificationDelivery, willRetry: boolean): Promise<void> {
@@ -76,11 +89,15 @@ export async function reclaimStuckPushDeliveries(
   now: Date = new Date(),
 ): Promise<ReclaimStuckResult> {
   const cutoff = new Date(now.getTime() - resolveStuckThresholdMs())
-  const stuck = await em.find(PushNotificationDelivery, {
-    tenantId: scope.tenantId,
-    status: { $in: ['sending', 'pending'] },
-    updatedAt: { $lt: cutoff },
-  })
+  const stuck = await em.find(
+    PushNotificationDelivery,
+    {
+      tenantId: scope.tenantId,
+      status: { $in: ['sending', 'pending'] },
+      updatedAt: { $lt: cutoff },
+    },
+    { limit: resolveReclaimBatchLimit(), orderBy: { updatedAt: 'asc' } },
+  )
 
   let reEnqueued = 0
   let expired = 0

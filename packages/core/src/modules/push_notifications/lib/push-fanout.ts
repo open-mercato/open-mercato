@@ -226,6 +226,9 @@ export async function fanOutPushDeliveries(args: FanOutPushDeliveriesArgs): Prom
           .updateTable('push_notification_deliveries')
           .set({ status: 'failed', last_error: reason, updated_at: sql`now()` })
           .where('id', 'in', ids)
+          // Guard on `pending`: if the enqueue reported failure yet the job actually landed and a
+          // worker already claimed/finished the row, don't clobber its later status back to `failed`.
+          .where('status', '=', 'pending')
           .execute(),
       ),
     )

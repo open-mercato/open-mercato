@@ -3,6 +3,7 @@ import type { AwilixContainer } from 'awilix'
 import { findOneWithDecryption } from '@open-mercato/shared/lib/encryption/find'
 import type { EntityManager } from '@mikro-orm/postgresql'
 import { CommunicationChannel } from '../data/entities'
+import { channelOrgScopeWhere } from '../lib/access-control'
 import { getChannelAdapterRegistry } from '../lib/adapter-registry-singleton'
 import { refreshCredentialsIfNeeded } from '../lib/credential-refresh'
 import { POLLING_ONLY_DEFAULT_INTERVAL_SECONDS } from '../lib/connect-channel'
@@ -64,7 +65,14 @@ export async function pushUnregister(params: {
   const { container, scope } = params
 
   const em = (container.resolve('em') as EntityManager).fork()
-  const dscope = { tenantId: scope.tenantId, organizationId: scope.organizationId }
+  // The channel ROW and the credentials store use DIFFERENT orgs. A tenant-wide push channel is
+  // stored with `organization_id = NULL` (its encrypted columns are keyed at org=null) even though
+  // its credentials are pinned at `organization_id = tenantId`. `scope.organizationId` here is the
+  // credentials/delivery org (tenantId for tenant-wide) — so it must NOT be used as an exact row
+  // filter (it would never match a null-org row) nor as the row decryption org. Look the row up
+  // null-aware and decrypt at the row's own org (null column ⇒ null fallback); credential resolution
+  // below keeps using the credentials org.
+  const dscope = { tenantId: scope.tenantId, organizationId: null }
 
   const channel = await findOneWithDecryption(
     em,
@@ -72,7 +80,7 @@ export async function pushUnregister(params: {
     {
       id: input.channelId,
       tenantId: scope.tenantId,
-      organizationId: scope.organizationId,
+      ...channelOrgScopeWhere(scope.organizationId),
     },
     undefined,
     dscope,

@@ -4,6 +4,7 @@
   "devices.errors.forbidden": "Zugriff verweigert",
   "devices.errors.invalid_id": "Ungültige Geräte-ID",
   "devices.errors.invalid_payload": "Ungültige Gerätedaten",
+  "devices.errors.load_failed": "Gerät konnte nicht geladen werden",
   "devices.errors.not_found": "Gerät nicht gefunden",
   "devices.errors.register_failed": "Gerät konnte nicht registriert werden",
   "devices.errors.unauthorized": "Nicht autorisiert",

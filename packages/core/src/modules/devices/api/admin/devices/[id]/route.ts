@@ -82,7 +82,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
       return NextResponse.json(err.body, { status: err.status })
     }
     logger.error('devices.admin.GET failed', { err })
-    return NextResponse.json({ error: translate('devices.errors.not_found', 'Device not found') }, { status: 500 })
+    return NextResponse.json({ error: translate('devices.errors.load_failed', 'Failed to load device') }, { status: 500 })
   }
 }
 
