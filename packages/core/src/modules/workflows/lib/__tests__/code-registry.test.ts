@@ -125,6 +125,23 @@ describe('Code Workflow Registry', () => {
       expect(getCodeWorkflow('my-workflow')).toEqual(second)
     })
 
+    test('rejects workflows with invalid inline transition conditions', () => {
+      const invalidCondition = makeWorkflow('invalid-condition')
+      Object.assign(invalidCondition.definition.transitions[0], { condition: {
+        field: 'invoice.action',
+        operator: 'equals',
+        value: 'approve',
+      } })
+
+      registerCodeWorkflows([invalidCondition])
+
+      expect(getCodeWorkflow('invalid-condition')).toBeUndefined()
+      expect(mockLoggerInstance.warn).toHaveBeenCalledWith(
+        'Code workflow failed validation',
+        expect.objectContaining({ workflowId: 'invalid-condition' }),
+      )
+    })
+
     test('handles empty array without errors', () => {
       expect(() => registerCodeWorkflows([])).not.toThrow()
       expect(getAllCodeWorkflows()).toHaveLength(0)

@@ -1,4 +1,11 @@
 import { z } from 'zod'
+import {
+  conditionExpressionSchema as sharedConditionExpressionSchema,
+  type ConditionExpression,
+} from '@open-mercato/shared/modules/conditions'
+import {
+  conditionExpressionSchema as businessRulesConditionExpressionSchema,
+} from '../../business_rules/data/validators'
 import { parseDuration } from '../lib/duration'
 
 /**
@@ -341,6 +348,9 @@ export const transitionConditionSchema = z.object({
   required: z.boolean().default(true),
 })
 
+export const workflowConditionExpressionSchema: z.ZodType<ConditionExpression> =
+  businessRulesConditionExpressionSchema.pipe(sharedConditionExpressionSchema)
+
 // Transition definition
 export const workflowTransitionSchema = z.object({
   transitionId: z.string().min(1).max(100).regex(/^[a-z0-9_-]+$/, 'Transition ID must contain only lowercase letters, numbers, hyphens, and underscores'),
@@ -348,6 +358,7 @@ export const workflowTransitionSchema = z.object({
   toStepId: z.string().min(1).max(100),
   transitionName: z.string().max(255).optional(),
   trigger: transitionTriggerSchema,
+  condition: workflowConditionExpressionSchema.optional(),
   preConditions: z.array(transitionConditionSchema).optional(),
   postConditions: z.array(transitionConditionSchema).optional(),
   activities: z.array(activityDefinitionSchema).optional(), // Activities to execute during transition

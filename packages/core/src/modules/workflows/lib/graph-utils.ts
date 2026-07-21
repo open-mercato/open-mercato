@@ -131,6 +131,10 @@ export function graphToDefinition(
       transition.continueOnActivityFailure = edgeData.continueOnActivityFailure
     }
 
+    if (edgeData?.condition !== undefined) {
+      transition.condition = edgeData.condition
+    }
+
     // Add conditions if present
     if (edgeData?.preConditions && edgeData.preConditions.length > 0) {
       transition.preConditions = edgeData.preConditions
@@ -322,6 +326,7 @@ export function definitionToGraph(
         continueOnActivityFailure: (transition as any).continueOnActivityFailure !== undefined
           ? (transition as any).continueOnActivityFailure
           : false,
+        condition: transition.condition,
         preConditions: transition.preConditions || [],
         postConditions: transition.postConditions || [],
         activities: transition.activities || [],

@@ -7,6 +7,11 @@ export type {
   CodeActivityDefinition,
   WorkflowStepType,
   TransitionTrigger,
+  ConditionComparisonOperator,
+  ConditionLogicalOperator,
+  SimpleCondition,
+  GroupCondition,
+  ConditionExpression,
   ActivityType,
   WorkflowsModuleConfig,
 } from './types'

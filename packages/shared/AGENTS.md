@@ -62,6 +62,7 @@ When you need shared type definitions, import from these:
 | Need | Import from |
 |------|-------------|
 | Dashboard widget types | `@open-mercato/shared/modules/dashboard/widgets` |
+| Condition-expression operators, schemas, and types | `@open-mercato/shared/modules/conditions` |
 | DSL helpers (`defineLink`, `entityId`, `cf.*`) | `@open-mercato/shared/modules/dsl` |
 | Event declarations (`createModuleEvents`) | `@open-mercato/shared/modules/events` |
 | Search config types (`SearchModuleConfig`) | `@open-mercato/shared/modules/search` |

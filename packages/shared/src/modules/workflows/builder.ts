@@ -71,6 +71,7 @@ interface TransitionInput<TStepId extends string> {
   toStepId: TStepId
   transitionName?: string
   trigger: TransitionTrigger
+  condition?: CodeTransitionDefinition['condition']
   preConditions?: CodeTransitionDefinition['preConditions']
   postConditions?: CodeTransitionDefinition['postConditions']
   activities?: CodeActivityDefinition[]
@@ -120,6 +121,7 @@ export function defineWorkflow<const TSteps extends readonly StepInput<string>[]
     toStepId: t.toStepId,
     trigger: t.trigger,
     ...(t.transitionName !== undefined && { transitionName: t.transitionName }),
+    ...(t.condition !== undefined && { condition: t.condition }),
     ...(t.preConditions !== undefined && { preConditions: t.preConditions }),
     ...(t.postConditions !== undefined && { postConditions: t.postConditions }),
     ...(t.activities !== undefined && { activities: t.activities }),
