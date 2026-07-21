@@ -190,6 +190,16 @@ describe('quote acceptance — tenant scoping stays aligned with the view guard 
     expect(res.status).toBe(404)
   })
 
+  // Fail-closed backstop: an authenticated session with no resolvable tenant must not reach the
+  // lookup unscoped. Anonymous callers and tenant-less API keys are the only unscoped cases.
+  test('staff session with an unresolvable tenant is rejected before the lookup', async () => {
+    const seen = captureLookupTenant()
+    const res = await acceptQuote(makeAcceptRequest(`auth_token=${staffToken({ tenantId: null, orgId: null })}`))
+    expect(res.status).toBe(404)
+    expect(seen).toHaveLength(0)
+    expect(mockCommandBus.execute).not.toHaveBeenCalled()
+  })
+
   // Previously this succeeded: tenantId was null, so no scoping was applied and the unscoped
   // lookup converted a foreign-tenant quote into an order.
   test('cross-tenant superadmin scoped to all tenants is rejected with 404', async () => {
