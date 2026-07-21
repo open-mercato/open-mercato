@@ -103,9 +103,9 @@ export function parseThemeInitArgs(args: string[]): ThemeInitFlags {
   return flags
 }
 
-type CheckVerdict = 'pass' | 'warn' | 'fail'
+export type CheckVerdict = 'pass' | 'warn' | 'fail'
 
-type ContrastCheck = {
+export type ContrastCheck = {
   mode: 'light' | 'dark'
   pair: string
   ratio: number

@@ -1609,6 +1609,16 @@ export async function run(argv = process.argv) {
           }
         },
       },
+      {
+        command: 'from-figma',
+        run: async (args: string[]) => {
+          const { runThemeFromFigma } = await import('./lib/theme/from-figma')
+          const exitCode = await runThemeFromFigma(args)
+          if (exitCode !== 0) {
+            throw new Error('theme from-figma failed — see the report above.')
+          }
+        },
+      },
     ],
   } as Module)
   

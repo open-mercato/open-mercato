@@ -129,6 +129,47 @@ Exit codes: `0` success (warnings allowed), `1` validation failure (contrast bel
 
 Apps scaffolded before the `theme.css` convention existed can adopt it with the same command: it writes the file and inserts the `import './theme.css'` line directly after the `import './globals.css'` anchor in `layout.tsx` (idempotently). If your layout is customized and the anchor is missing, the command prints the exact line to add instead of rewriting your layout.
 
+## Importing your brand from Figma
+
+Your brand rarely lives in your head as one hex value — it lives in a Figma file: a brand book, a marketing site design, an existing product mockup. `mercato theme from-figma` reads that file (read-only), inventories its brand signals, and lets **you** decide which of them become theme tokens. The confirmed values then flow through the exact same generator and WCAG gate as `theme init` — `from-figma` is a second front door into the same pipeline, never a second pipeline.
+
+```bash
+export FIGMA_TOKEN=...   # figma.com → Settings → Personal access tokens (file read scope)
+yarn mercato theme from-figma "https://www.figma.com/design/<key>/Acme-Brand-Book"
+```
+
+The command:
+
+1. **Extracts** color candidates (with usage counts and style/variable names), font families from text styles, and the corner-radius distribution. Published Variables are tried first; when the Variables API is unavailable — it requires an Enterprise plan on the file's side, so this is the expected case for most client files, not an error — the extractor falls back to local styles plus a solid-fill frequency analysis of top-level frames, which works on any plan. Image fills, gradients, and semi-transparent fills are excluded from ranking (a photo-heavy marketing page must not out-vote the brand palette).
+2. **Asks you to map** the candidates onto the safe tokens. The most-used color in a file is usually a background or divider gray, not the brand primary — which is why the tool ranks and presents evidence but *never* auto-picks: interactively it asks "which color is your action color?", and in scripts you encode the decision as `--map` flags. Without either, it degrades to `--report-only` rather than guessing.
+3. **Generates** `theme.css` through the `theme init` pipeline (identical palette derivation, identical contrast gate, identical `--force`/`--dry-run` semantics) and writes a markdown import report — what was mapped with evidence, every contrast ratio, and the ranked leftovers that were *not* imported, by design.
+
+### Command reference
+
+```
+mercato theme from-figma <file-url-or-key> [options]
+
+  <file-url-or-key>            Figma URL (figma.com/design/<key>/… or /file/<key>/…) or bare file key
+  --map <pairs>                non-interactive mapping, e.g. --map "primary=#0C71C6,radius=8px,font=Inter"
+                               accepted keys: primary, primary-foreground, radius, font, font-mono
+  --report-only                extract + write report and extraction JSON; never write theme.css
+  --extract-json <path>        where to write the extraction JSON (default .ai/reports/figma-brand-extract-<key>.json)
+                               pointing it at an existing extraction with a matching key skips re-fetching
+  --report <path>              where to write the markdown report (default .ai/reports/figma-brand-import-<key>.md)
+  --pages <names>              limit frame scanning to named pages (comma-separated; default: all)
+  --out / --force / --dry-run  passed through to the theme init writer (same semantics, same defaults)
+```
+
+Exit codes match `theme init`: `0` success (warnings allowed), `1` validation failure — unreachable file, missing token, unparseable `--map` value, or a WCAG hard failure on an explicitly supplied pair. `--report-only` exits `0` even when the candidates look unusable; an audit is not a failure.
+
+Notes:
+
+- `FIGMA_TOKEN` is read from the environment only — there is deliberately no flag for it, and it is never written into the extraction JSON, the report, or `theme.css`. All Figma access is read-only GETs; nothing is ever written back to the file.
+- A `--map primary=` hex that never appears in the file produces a warning, not a failure — brand books sometimes intentionally differ from design files.
+- `font-mono` is accepted in `--map` but recorded in the report as a manual step: the generator emits the same token surface as `theme init`, which does not include `--font-geist-mono`.
+- The extraction JSON (`om-figma-brand-extract@1`) is a stable versioned format also consumed by the `om-figma-design-with-ds` skill's audit flow (MODE B), so CLI imports and agent-driven design audits agree about the same file. Iterate on a mapping without re-hitting the API by pointing `--extract-json` at the previous run's file.
+- Start every onboarding with `--report-only`: review the ranked inventory and contrast ratios before committing to a mapping.
+
 ## Advanced and unsupported
 
 - Chart palette (`--chart-*`) and sidebar tokens are documented as manual overrides only; the generator never emits them.
