@@ -497,6 +497,38 @@ describe('Activity Executor (Unit Tests)', () => {
       )
     })
 
+    test('should fail UPDATE_ENTITY when a nested input value stays unresolved', async () => {
+      const mockCommandBus = {
+        execute: jest.fn().mockResolvedValue({ result: {}, logEntry: { id: 'log-2' } }),
+      }
+
+      mockContainer.resolve.mockReturnValue(mockCommandBus)
+
+      const activity: ActivityDefinition = {
+        activityId: 'activity-8d',
+        activityName: 'Update Order With Nested Missing Key',
+        activityType: 'UPDATE_ENTITY',
+        config: {
+          commandId: 'sales.orders.update',
+          input: {
+            id: '{{context.orderId}}',
+            metadata: { approvedBy: '{{context.completedBy}}' },
+          },
+        },
+      }
+
+      const result = await activityExecutor.executeActivity(
+        mockEm,
+        mockContainer,
+        activity,
+        mockContext
+      )
+
+      expect(result.success).toBe(false)
+      expect(result.error).toContain('metadata.approvedBy')
+      expect(mockCommandBus.execute).not.toHaveBeenCalled()
+    })
+
     test('should fail UPDATE_ENTITY if command bus not available', async () => {
       mockContainer.resolve.mockImplementation(() => {
         throw new Error('commandBus not registered')

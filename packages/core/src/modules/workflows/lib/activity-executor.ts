@@ -568,10 +568,19 @@ export async function executeEmitEvent(
 
 const UNRESOLVED_TEMPLATE_PATTERN = /\{\{[^}]+\}\}/
 
-function findUnresolvedTemplateKeys(input: Record<string, unknown>): string[] {
-  return Object.entries(input)
-    .filter(([, value]) => typeof value === 'string' && UNRESOLVED_TEMPLATE_PATTERN.test(value))
-    .map(([key]) => key)
+function findUnresolvedTemplateKeys(value: unknown, path = ''): string[] {
+  if (typeof value === 'string') {
+    return UNRESOLVED_TEMPLATE_PATTERN.test(value) ? [path] : []
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => findUnresolvedTemplateKeys(item, `${path}[${index}]`))
+  }
+  if (value && typeof value === 'object') {
+    return Object.entries(value).flatMap(([key, nested]) =>
+      findUnresolvedTemplateKeys(nested, path ? `${path}.${key}` : key)
+    )
+  }
+  return []
 }
 
 /**
