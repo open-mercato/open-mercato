@@ -1,6 +1,7 @@
 import {
   isPushFakeProvidersEnabled,
   recordFakePush,
+  warnPushFakeProvidersActive,
 } from '@open-mercato/core/modules/push_notifications/lib/fake-provider-recorder'
 import { buildApnsNotification, setApnsSenderFactory } from './adapter'
 
@@ -39,6 +40,7 @@ async function newApnsNotification(): Promise<ApnsNotificationLike> {
 
 export function ensureApnsFakeProviderInstalled(): void {
   if (!isPushFakeProvidersEnabled()) return
+  warnPushFakeProvidersActive('apns')
   setApnsSenderFactory(() => async (payload, token) => {
     const note = buildApnsNotification(await newApnsNotification(), payload) as ApnsNotificationLike
     recordFakePush('apns', token, {

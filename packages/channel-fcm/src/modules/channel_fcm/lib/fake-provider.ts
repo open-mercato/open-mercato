@@ -1,6 +1,7 @@
 import {
   isPushFakeProvidersEnabled,
   recordFakePush,
+  warnPushFakeProvidersActive,
 } from '@open-mercato/core/modules/push_notifications/lib/fake-provider-recorder'
 import { setFcmMessagingFactory } from './adapter'
 
@@ -28,6 +29,7 @@ function fakeSendError(message: string, code?: string): Error {
 
 export function ensureFcmFakeProviderInstalled(): void {
   if (!isPushFakeProvidersEnabled()) return
+  warnPushFakeProvidersActive('fcm')
   setFcmMessagingFactory(() => ({
     async send(message: Record<string, unknown>): Promise<string> {
       const token = typeof message.token === 'string' ? message.token : ''

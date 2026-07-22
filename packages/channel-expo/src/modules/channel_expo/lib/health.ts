@@ -1,4 +1,4 @@
-import { makeClientConfigHealthCheck } from '@open-mercato/core/modules/communication_channels/lib/provider-health'
+import { makePushClientConfigHealthCheck } from '@open-mercato/core/modules/push_notifications/lib/push-health'
 import { expoCredentialsSchema } from './credentials'
 
 /**
@@ -7,7 +7,7 @@ import { expoCredentialsSchema } from './credentials'
  * well-formed — no network call. Per-device token validity surfaces on delivery
  * (`device_unregistered` soft-deletes).
  */
-export const channelExpoHealthCheck = makeClientConfigHealthCheck({
+export const channelExpoHealthCheck = makePushClientConfigHealthCheck({
   schema: expoCredentialsSchema,
   providerLabel: 'Expo',
 })
