@@ -1,4 +1,5 @@
 import { getCliModules, getDefaultEncryptionMaps, type Module, type ModuleCli } from '@open-mercato/shared/modules/registry'
+import type { ModuleEncryptionMap } from '@open-mercato/shared/modules/encryption'
 import { createRequestContainer } from '@open-mercato/shared/lib/di/container'
 import type { CacheStrategy } from '@open-mercato/cache/types'
 import { CustomEntity, CustomFieldDef, EncryptionMap } from './data/entities'
@@ -263,8 +264,17 @@ function resolveEncryptionMapModules(): Module[] {
   }
 }
 
-async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
-  for (const spec of getDefaultEncryptionMaps(resolveEncryptionMapModules())) {
+// Idempotently upsert a specific set of encryption-map specs for one (tenant, org) scope. Exported so
+// upgrade actions can backfill a newly-added encrypted entity for pre-existing tenants (whose maps were
+// seeded once at tenant creation and never re-run) without depending on the full CLI module registry.
+export async function upsertEncryptionMapSpecs(
+  em: any,
+  tenantId: string,
+  organizationId: string | null,
+  specs: ModuleEncryptionMap[],
+  logger: (msg: string) => void = () => {},
+) {
+  for (const spec of specs) {
     const existing = await em.findOne(EncryptionMap, {
       entityId: spec.entityId,
       tenantId,
@@ -289,6 +299,10 @@ async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: s
     await em.persist(map).flush()
     logger(`Created encryption map for ${spec.entityId}`)
   }
+}
+
+async function upsertEncryptionMaps(em: any, tenantId: string, organizationId: string | null, logger: (msg: string) => void) {
+  await upsertEncryptionMapSpecs(em, tenantId, organizationId, getDefaultEncryptionMaps(resolveEncryptionMapModules()), logger)
 }
 
 const seedEncryptionMaps: ModuleCli = {
