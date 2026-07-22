@@ -91,23 +91,25 @@ test.describe('TC-EUDR-010: Searchable product picker', () => {
 
       await login(page, 'admin')
 
-      const initialProductsFetch = page.waitForResponse(
-        (response) => new URL(response.url()).pathname.endsWith(CATALOG_PRODUCTS_PATH),
-        { timeout: 30_000 },
-      )
       await page.goto('/backend/eudr/product-mappings/create', { waitUntil: 'domcontentloaded' })
       const productField = page.locator('[data-crud-field-id="productId"]').first()
       await expect(productField).toBeVisible()
-      // The picker fires an initial (empty-query) products fetch after
-      // hydration; waiting for it guarantees typing reaches the live input.
-      await initialProductsFetch
 
       const searchRequestPromise = page.waitForRequest((candidate) => {
         const url = new URL(candidate.url())
         return url.pathname.endsWith(CATALOG_PRODUCTS_PATH)
           && (url.searchParams.get('search') ?? '').includes(stamp)
-      }, { timeout: 15_000 })
-      await productField.locator('input').first().fill(stamp)
+      }, { timeout: 30_000 })
+      // The picker only queries once the search term reaches its minimum length,
+      // so there is no initial empty-query fetch to synchronise hydration on.
+      // Retry the fill until the value sticks — hydration can swap the input
+      // out from under a first-paint fill.
+      const productInput = productField.locator('input').first()
+      await expect(productInput).toBeEditable()
+      await expect(async () => {
+        await productInput.fill(stamp)
+        await expect(productInput).toHaveValue(stamp)
+      }).toPass({ timeout: 15_000 })
       const searchRequest = await searchRequestPromise
       expect(
         new URL(searchRequest.url()).searchParams.get('search'),

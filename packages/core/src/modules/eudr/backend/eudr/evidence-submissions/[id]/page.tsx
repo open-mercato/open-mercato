@@ -362,6 +362,14 @@ export default function EditEudrEvidenceSubmissionPage({ params }: { params?: { 
       ],
     },
     {
+      id: 'advanced',
+      column: 1,
+      bare: true,
+      component: ({ values, setValue }) => (
+        <EvidenceAdvancedFields values={values} setValue={setValue} translate={translate} />
+      ),
+    },
+    {
       id: 'classification',
       title: translate('eudr.common.classification'),
       column: 2,

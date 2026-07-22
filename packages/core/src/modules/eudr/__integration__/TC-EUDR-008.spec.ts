@@ -5,6 +5,7 @@ import { createUserFixture, deleteUserIfExists } from '@open-mercato/core/helper
 import { createCompanyFixture, deleteEntityIfExists } from '@open-mercato/core/helpers/integration/crmFixtures'
 import { deleteUserAclInDb, setUserAclInDb } from '@open-mercato/core/helpers/integration/dbFixtures'
 import { expectId, getTokenContext, readJsonSafe } from '@open-mercato/core/helpers/integration/generalFixtures'
+import { EUDR_APPLICATION_DATES } from '../lib/reference-data'
 
 export const integrationMeta = {
   dependsOnModules: ['eudr', 'customers', 'catalog'],
@@ -322,8 +323,16 @@ test.describe('TC-EUDR-008: Ecosystem surfaces', () => {
       expect(numberField(asRecord(statements?.byStatus), 'draft'), 'dashboard should count draft statements').toBeGreaterThanOrEqual(1)
       expect(numberField(dashboard, 'riskReviewsDueSoon'), 'dashboard should count risk reviews due soon').toBeGreaterThanOrEqual(1)
       const deadline = asRecord(dashboard?.deadline)
-      expect(deadline?.date).toBe('2026-12-30')
-      expect(numberField(deadline, 'daysLeft')).toBeGreaterThan(0)
+      // Assert against the reference-data constant, not a literal: the enforcement
+      // date is law-versioned, and `daysLeft` counts down through zero on 2026-12-30.
+      const expectedDeadline = EUDR_APPLICATION_DATES.largeAndMedium
+      expect(deadline?.date).toBe(expectedDeadline)
+      const expectedDaysLeft = Math.ceil(
+        (new Date(`${expectedDeadline}T00:00:00.000Z`).getTime() - Date.now()) / 86_400_000,
+      )
+      // One day of tolerance absorbs clock skew between the runner and the server.
+      expect(numberField(deadline, 'daysLeft')).toBeGreaterThanOrEqual(expectedDaysLeft - 1)
+      expect(numberField(deadline, 'daysLeft')).toBeLessThanOrEqual(expectedDaysLeft + 1)
     } finally {
       for (const id of assessmentIds.reverse()) await deleteByCrudPath(request, token, RISK_ASSESSMENTS_PATH, id)
       for (const id of submissionIds.reverse()) await deleteByCrudPath(request, token, EVIDENCE_SUBMISSIONS_PATH, id)
