@@ -1,6 +1,7 @@
 import {
   isPushFakeProvidersEnabled,
   recordFakePush,
+  warnPushFakeProvidersActive,
 } from '@open-mercato/core/modules/push_notifications/lib/fake-provider-recorder'
 import {
   setExpoClientFactory,
@@ -34,6 +35,7 @@ const UNREGISTERED_TICKET_MARKER = 'unreg'
 
 export function ensureExpoFakeProviderInstalled(): void {
   if (!isPushFakeProvidersEnabled()) return
+  warnPushFakeProvidersActive('expo')
   setExpoClientFactory(() => ({
     isExpoPushToken(): boolean {
       return true

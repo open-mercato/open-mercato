@@ -1,4 +1,4 @@
-import { makeClientConfigHealthCheck } from '@open-mercato/core/modules/communication_channels/lib/provider-health'
+import { makePushClientConfigHealthCheck } from '@open-mercato/core/modules/push_notifications/lib/push-health'
 import { fcmCredentialsSchema } from './credentials'
 
 /**
@@ -7,7 +7,7 @@ import { fcmCredentialsSchema } from './credentials'
  * present and parse into a valid service account — no network call. Per-device
  * token validity surfaces on delivery (`device_unregistered` soft-deletes).
  */
-export const channelFcmHealthCheck = makeClientConfigHealthCheck({
+export const channelFcmHealthCheck = makePushClientConfigHealthCheck({
   schema: fcmCredentialsSchema,
   providerLabel: 'FCM',
 })

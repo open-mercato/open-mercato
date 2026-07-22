@@ -2,6 +2,9 @@ import { randomBytes } from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { parseBooleanToken } from '@open-mercato/shared/lib/boolean'
+import { createLogger } from '@open-mercato/shared/lib/logger'
+
+const logger = createLogger('push_notifications')
 
 /**
  * Test-only sink recording the **provider-native** message each push adapter handed its SDK client.
@@ -38,6 +41,24 @@ export type FakePushEntry = {
 
 export function isPushFakeProvidersEnabled(): boolean {
   return parseBooleanToken(process.env[PUSH_FAKE_PROVIDERS_ENV]) === true
+}
+
+const warnedFakeProviders = new Set<FakePushProvider>()
+
+/**
+ * Loudly flag — exactly once per provider per process — that a push adapter is running against the
+ * network-free fake instead of the real SDK. `OM_PUSH_FAKE_PROVIDERS` is a test-harness flag, and a
+ * legitimate-but-misplaced `=1` (e.g. a staging env block promoted to prod) would otherwise report
+ * every push as `sent` with no delivery, no log line, and no admin signal for days. This warn plus the
+ * `degraded` health status (see `makePushClientConfigHealthCheck`) make that misconfiguration visible.
+ */
+export function warnPushFakeProvidersActive(provider: FakePushProvider): void {
+  if (!isPushFakeProvidersEnabled() || warnedFakeProviders.has(provider)) return
+  warnedFakeProviders.add(provider)
+  logger.warn(
+    `${provider} push adapter is running in FAKE mode (${PUSH_FAKE_PROVIDERS_ENV} is set): messages are recorded, NOT delivered. This must never be set in production.`,
+    { provider, env: PUSH_FAKE_PROVIDERS_ENV },
+  )
 }
 
 /**

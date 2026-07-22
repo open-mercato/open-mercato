@@ -1,4 +1,4 @@
-import { makeClientConfigHealthCheck } from '@open-mercato/core/modules/communication_channels/lib/provider-health'
+import { makePushClientConfigHealthCheck } from '@open-mercato/core/modules/push_notifications/lib/push-health'
 import { apnsCredentialsSchema } from './credentials'
 
 /**
@@ -7,7 +7,7 @@ import { apnsCredentialsSchema } from './credentials'
  * present and well-formed — no network call. Per-device token validity surfaces
  * on delivery (`device_unregistered` soft-deletes).
  */
-export const channelApnsHealthCheck = makeClientConfigHealthCheck({
+export const channelApnsHealthCheck = makePushClientConfigHealthCheck({
   schema: apnsCredentialsSchema,
   providerLabel: 'APNs',
 })
