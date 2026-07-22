@@ -62,6 +62,18 @@ export async function createConnectedChannelRow(
 ): Promise<CommunicationChannel> {
   const { em, adapter, providerKey, displayName, externalIdentifier, credentialsRefId, userId, scope } = args
   const credentialsAvailable = credentialsRefId !== null
+
+  // A tenant-wide push channel (FCM/APNs/Expo, `user_id = NULL`) is a mailbox-less channel keyed on
+  // (tenant, provider, channel_type='push', user_id NULL), enforced by
+  // `communication_channels_tenant_push_provider_uq`. Push credential schemas are `.passthrough()`, so a
+  // stray `email`/`username`/`fromAddress` key can leak through the connect command as an
+  // `externalIdentifier`. Left in place it would send a push reconnect down the mailbox dedup branch
+  // below — which never matches the existing push row — so the INSERT hits the tenant-push unique index,
+  // and the mailbox recovery filter can't find the winner ⇒ an unrecoverable 500. Drop the stray
+  // identifier for tenant-wide push so the guard, the dedup key, and the stored row all stay consistent
+  // with that index.
+  const isTenantWidePush = adapter.channelType === 'push' && userId === null
+  const effectiveExternalIdentifier = isTenantWidePush ? null : externalIdentifier
   const pollIntervalSeconds =
     args.pollIntervalSeconds !== undefined
       ? args.pollIntervalSeconds
@@ -76,8 +88,8 @@ export async function createConnectedChannelRow(
   // email across channels — so every message would be ingested (and threaded)
   // twice. Reconnecting the SAME provider/mailbox is fine (healed below); this
   // only blocks a DIFFERENT provider for an already-connected address.
-  if (externalIdentifier) {
-    const normalized = externalIdentifier.toLowerCase()
+  if (effectiveExternalIdentifier) {
+    const normalized = effectiveExternalIdentifier.toLowerCase()
     const userChannels = (await findWithDecryption(
       em,
       CommunicationChannel,
@@ -92,7 +104,7 @@ export async function createConnectedChannelRow(
         existing.externalIdentifier.toLowerCase() === normalized,
     )
     if (conflict) {
-      throw new MailboxAlreadyConnectedError(externalIdentifier, conflict.providerKey)
+      throw new MailboxAlreadyConnectedError(effectiveExternalIdentifier, conflict.providerKey)
     }
   }
 
@@ -104,20 +116,20 @@ export async function createConnectedChannelRow(
   //    every admin reconnect would insert a duplicate (fan-out takes the oldest per
   //    provider, so duplicates are silent noise + a concurrent-connect race).
   // `null` ⇒ no dedup key (identifier-less non-push channel): always insert.
-  const dedupeFilter = externalIdentifier
+  const dedupeFilter = isTenantWidePush
     ? {
         tenantId: scope.tenantId,
-        userId,
+        userId: null,
         providerKey,
-        externalIdentifier,
+        channelType: 'push',
         deletedAt: null,
       }
-    : adapter.channelType === 'push' && userId === null
+    : effectiveExternalIdentifier
       ? {
           tenantId: scope.tenantId,
-          userId: null,
+          userId,
           providerKey,
-          channelType: 'push',
+          externalIdentifier: effectiveExternalIdentifier,
           deletedAt: null,
         }
       : null
@@ -133,7 +145,7 @@ export async function createConnectedChannelRow(
   const applyConnectionState = (target: CommunicationChannel): void => {
     target.channelType = adapter.channelType
     target.displayName = displayName
-    target.externalIdentifier = externalIdentifier ?? null
+    target.externalIdentifier = effectiveExternalIdentifier ?? null
     target.credentialsRef = credentialsRefId
     target.capabilities = adapter.capabilities as unknown as Record<string, unknown>
     target.isActive = credentialsAvailable
@@ -155,7 +167,7 @@ export async function createConnectedChannelRow(
     providerKey,
     channelType: adapter.channelType,
     displayName,
-    externalIdentifier: externalIdentifier ?? null,
+    externalIdentifier: effectiveExternalIdentifier ?? null,
     credentialsRef: credentialsRefId,
     capabilities: adapter.capabilities as unknown as Record<string, unknown>,
     isActive: credentialsAvailable,
