@@ -8,6 +8,7 @@
   "devices.errors.not_found": "Device not found",
   "devices.errors.register_failed": "Failed to register device",
   "devices.errors.unauthorized": "Unauthorized",
+  "devices.errors.user_not_found": "Target user not found in this tenant",
   "devices.errors.update_failed": "Failed to update device",
   "devices.form.appVersion": "App version",
   "devices.form.createTitle": "Register device",
